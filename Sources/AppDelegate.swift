@@ -2337,6 +2337,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // widens coverage to other entrypoints.
         let needsTerminationSnapshotBackstop = !isTerminatingApp
         isTerminatingApp = true
+        MemoryPressureMonitor.shared.stop()
         computerUseUXCoordinator.teardownForTermination()
         if needsTerminationSnapshotBackstop {
             _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
@@ -2425,6 +2426,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         VMClient.bootstrap(auth: auth.coordinator)
         RemotesClient.bootstrap(auth: auth.coordinator)
         AIAccountsClient.bootstrap(auth: auth.coordinator)
+        CoderouterClient.bootstrap(auth: auth.coordinator)
+        MachineUsageClient.bootstrap(auth: auth.coordinator)
         PhonePushClient.shared.configure(auth: auth.coordinator)
         MobileHostService.shared.configure(auth: auth.coordinator)
         caffeineController.onStateChange = { [weak self] enabled in
@@ -8621,22 +8624,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     )
                     return
                 }
+                // Create hands the request to the shared create coordinator and
+                // the sheet closes at once: the placeholder workspace's loading
+                // pane and the Machines panel's pending row show Base coming up,
+                // and the person keeps working meanwhile (#11397).
                 let model = NewMachineModel(
                     mode: .base(workspaceID: workspace.id),
                     plan: MachineSnapshotBuilder.planSnapshot(activeCount: page?.vms.count ?? 0, limits: page?.limits),
                     imageKinds: page?.limits?.imageKinds ?? [],
-                    launch: { [weak self] arguments, completion in
+                    submit: { [weak self] request in
                         guard let self else { return false }
-                        return self.launchCloudVMBaseOpen(
-                            workspace: workspace,
-                            socketPath: socketPath,
-                            preferredWindow: launchWindow,
-                            arguments: arguments,
-                            onCompletion: { result in
-                                completion(result)
-                                onCompletion?(result)
-                            }
-                        )
+                        return MachineCreateCoordinator.shared.start(request, cancellableLaunch: { [weak self] arguments, progress, completion in
+                            guard let self else { return nil }
+                            var cancellation: CloudVMActionLauncher.CancellationHandle?
+                            let didStart = self.launchCloudVMBaseOpen(
+                                workspace: workspace,
+                                socketPath: socketPath,
+                                preferredWindow: launchWindow,
+                                arguments: arguments,
+                                onProgress: progress,
+                                onCancellationReady: { cancellation = $0 },
+                                onCompletion: { result in
+                                    completion(result)
+                                    onCompletion?(result)
+                                }
+                            )
+                            return didStart ? cancellation : nil
+                        })
                     }
                 )
                 model.onFinished = { outcome in
@@ -8673,6 +8687,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         socketPath: String,
         preferredWindow: NSWindow?,
         arguments: [String],
+        onProgress: (@MainActor (String) -> Void)? = nil,
+        onCancellationReady: ((CloudVMActionLauncher.CancellationHandle) -> Void)? = nil,
         onCompletion: ((CloudVMActionLauncher.Completion) -> Void)?
     ) -> Bool {
         if let loadingPanel = workspace.panels.values.first(where: { $0.panelType == .cloudVMLoading }) as? CloudVMLoadingPanel {
@@ -8687,6 +8703,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 "CMUX_CLOUD_ATTACH_RETRY_LIMIT": "12",
                 "CMUX_CLOUD_ATTACH_RETRY_DELAY_SECONDS": "2",
             ],
+            onCancellationReady: onCancellationReady,
+            onOutput: onProgress,
             onCompletion: { completion in
                 if !completion.succeeded,
                    let loadingPanel = workspace.panels.values.first(where: { $0.panelType == .cloudVMLoading }) as? CloudVMLoadingPanel {
@@ -8876,7 +8894,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 workspace.cloudVMID?.lowercased() == target
             }
             for workspace in doomed {
-                manager.closeWorkspace(workspace)
+                if manager.tabs.count > 1 {
+                    manager.closeWorkspace(workspace, recordHistory: false)
+                } else {
+                    // TabManager intentionally keeps the final workspace as a
+                    // local anchor. Clear its cloud binding and panels instead
+                    // of leaving a deleted VM's loading/connected surface
+                    // behind when this is the only tab in the window.
+                    workspace.disconnectRemoteConnection(clearConfiguration: true)
+                    workspace.cloudVMBinding = nil
+                    workspace.withClosedPanelHistorySuppressed {
+                        workspace.teardownAllPanels()
+                    }
+                }
             }
         }
         // The sidebar's headless link to that machine has nothing left to talk to.

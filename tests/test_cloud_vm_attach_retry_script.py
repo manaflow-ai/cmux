@@ -44,5 +44,3 @@ def test_dev_env_preserves_explicit_cloud_vm_image_overrides():
 
     assert 'cmux_existing_freestyle_snapshot_set="${FREESTYLE_SANDBOX_SNAPSHOT+x}"' in env_loader
     assert 'export FREESTYLE_SANDBOX_SNAPSHOT="$cmux_existing_freestyle_snapshot"' in env_loader
-    assert 'cmux_existing_e2b_template_set="${E2B_CMUXD_WS_TEMPLATE+x}"' in env_loader
-    assert 'export E2B_CMUXD_WS_TEMPLATE="$cmux_existing_e2b_template"' in env_loader

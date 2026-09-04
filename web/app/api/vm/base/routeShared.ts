@@ -1,4 +1,5 @@
 import type { AuthedUser } from "../../../../services/vms/auth";
+import { defaultMemoryMbForPlan } from "../../../../services/vms/entitlements";
 import { assertVmCreateEnabled } from "../../../../services/vms/config";
 import { defaultProviderId, isProviderId, type ProviderId } from "../../../../services/vms/drivers";
 import {
@@ -10,7 +11,6 @@ import {
   isVmLimitExceededError,
 } from "../../../../services/vms/errors";
 import {
-  imageUsesBakedFreestyleSignedAdmin,
   inferVmProviderForImage,
   resolveVmImage,
 } from "../../../../services/vms/images/resolver";
@@ -60,7 +60,10 @@ export async function runBaseRoute(input: {
   let imageSelection;
   try {
     assertVmCreateEnabled(provider);
-    imageSelection = resolveVmImage(provider, parsed.body.image, process.env, { kind: parsed.body.kind });
+    imageSelection = resolveVmImage(provider, parsed.body.image, process.env, {
+      kind: parsed.body.kind,
+      memoryMb: defaultMemoryMbForPlan(entitlements.planId, process.env),
+    });
   } catch (err) {
     if (isVmCreateDisabledError(err)) {
       return vmErrorResponse({
@@ -107,7 +110,6 @@ export async function runBaseRoute(input: {
       image: imageSelection.image,
       imageVersion: imageSelection.imageVersion,
       baseName: parsed.body.name,
-      bakedFreestyleSignedAdmin: imageUsesBakedFreestyleSignedAdmin(provider, imageSelection.image),
       timing: input.timing,
     };
     entry = await runVmWorkflow(

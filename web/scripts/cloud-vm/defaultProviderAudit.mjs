@@ -1,7 +1,7 @@
 // Coherence check between the deployed Cloud VM env and the image manifest.
 //
-// The 2026-08-26 outage: code shipped assuming CMUX_VM_DEFAULT_PROVIDER=blaxel
-// while production still said freestyle, and no BLAXEL_SANDBOX_IMAGE was set.
+// The 2026-08-26 outage: code shipped assuming one CMUX_VM_DEFAULT_PROVIDER
+// while production still said another, and no image selector was set for it.
 // Key-presence auditing could not catch that; provider VALUES have to agree
 // with the manifest. Image env vars derive from manifest.json (each entry
 // carries its provider and env var), so a new provider cannot be added
@@ -12,17 +12,21 @@
  * keep in sync with services/vms/drivers/*.
  */
 const PROVIDER_CREDENTIAL_KEYS = {
-  e2b: ["E2B_API_KEY"],
   freestyle: ["FREESTYLE_API_KEY"],
-  daytona: ["DAYTONA_API_KEY"],
-  blaxel: ["BL_API_KEY", "BL_WORKSPACE"],
 };
 
-// Mirrors defaultProviderId() in services/vms/drivers/index.ts. Shipped CLIs
-// also hardcode this provider's image ids (cmux.swift cloudVMDesktopImage /
-// cloudVMBaseImage), so it must stay provisionable in production even when
-// the env deliberately selects a different default as a rollback.
-export const CODE_DEFAULT_PROVIDER = "blaxel";
+// Runtime kill switches are fail-open when unset, but an explicit false value
+// disables the provider. Keep this mapping beside the credential mapping so a
+// new default provider cannot pass the audit while its create path is off.
+const PROVIDER_ENABLED_KEYS = {
+  freestyle: "CMUX_VM_FREESTYLE_ENABLED",
+};
+
+// Mirrors defaultProviderId() in services/vms/drivers/index.ts. Freestyle is
+// the only provider, and shipped CLIs hardcode its image ids (cmux.swift
+// cloudVMDesktopImage / cloudVMBaseImage), so it must stay provisionable in
+// production.
+export const CODE_DEFAULT_PROVIDER = "freestyle";
 
 // What `vercel env pull` writes for values it cannot decrypt. The default
 // provider and its image id are configuration, not secrets; stored as
@@ -36,7 +40,7 @@ const SENSITIVE_PLACEHOLDER = "[SENSITIVE]";
  * @param {string} provider
  * @param {Record<string, string | undefined>} env deployed runtime env values
  * @param {{ images: Array<{ provider: string, version: string, imageId: string, envVar: string, validationStatus: string }> }} manifest
- * @returns {{ provider: string, envVar: string | null, image: string | null, problems: string[] }}
+ * @returns {{ provider: string, envVar: string | null, image: string | null, imageSource?: string, problems: string[] }}
  */
 export function auditProviderReadiness(provider, env, manifest) {
   const problems = [];
@@ -49,31 +53,35 @@ export function auditProviderReadiness(provider, env, manifest) {
     return { provider, envVar: null, image: null, problems };
   }
 
+  // The checked-in manifest is the only source of truth for images: deployed
+  // runtimes serve the entry flagged defaultForKind (services/vms/images/
+  // resolver.ts). No env var selects an image any more; a lingering selector
+  // is stale configuration that would mislead whoever reads the deployment.
   const envVar = entries[0].envVar;
-  const image = env[envVar]?.trim() || null;
-  if (!image) {
+  const kindDefaults = entries.filter((entry) => entry.defaultForKind === true);
+  for (const entry of kindDefaults.filter((entry) => entry.validationStatus !== "passed")) {
     problems.push(
-      `${envVar} is not set; deployed runtimes fail closed on imageless ` +
-      `creates for provider ${provider}`,
+      `manifest default ${entry.version} (${entry.kind ?? "base"}) for ${provider} has ` +
+      `validationStatus ${entry.validationStatus}, not passed`,
     );
-  } else if (image === SENSITIVE_PLACEHOLDER) {
+  }
+  // Only a validated default counts as the served image: an unvalidated one
+  // is already reported above and must not be echoed back as the selection.
+  const baseDefault = kindDefaults.find(
+    (entry) => (entry.kind ?? "base") === "base" && entry.validationStatus === "passed",
+  );
+  const image = baseDefault?.imageId ?? null;
+  if (!baseDefault) {
     problems.push(
-      `${envVar} is stored as a Sensitive env var, so its value cannot be audited; ` +
-      "store it as a plain env var (image ids are configuration, not secrets)",
+      `the manifest has no validated base default for ${provider} (no entry flagged ` +
+      "defaultForKind); deployed runtimes fail closed on imageless creates",
     );
-  } else {
-    const entry = entries.find((candidate) => candidate.imageId === image || candidate.version === image);
-    if (!entry) {
-      problems.push(
-        `${envVar}=${image} is not listed in the image manifest for ${provider}; ` +
-        "deployed runtimes will reject it with vm_image_config_error",
-      );
-    } else if (entry.validationStatus !== "passed") {
-      problems.push(
-        `${envVar} selects manifest entry ${entry.version} whose validationStatus is ` +
-        `${entry.validationStatus}, not passed`,
-      );
-    }
+  }
+  if (envVar && env[envVar] !== undefined) {
+    problems.push(
+      `${envVar} is set but ignored: the manifest is the source of truth for images; ` +
+      "remove it from the deployment",
+    );
   }
 
   const credentialKeys = PROVIDER_CREDENTIAL_KEYS[provider];
@@ -91,17 +99,33 @@ export function auditProviderReadiness(provider, env, manifest) {
     }
   }
 
-  return { provider, envVar, image, problems };
+  const enabledKey = PROVIDER_ENABLED_KEYS[provider];
+  const enabledValue = enabledKey ? env[enabledKey]?.trim() : undefined;
+  if (enabledKey && enabledValue === SENSITIVE_PLACEHOLDER) {
+    problems.push(
+      `${enabledKey} is stored as a Sensitive env var, so its value cannot be audited; ` +
+      "store it as a plain env var (provider switches are configuration, not secrets)",
+    );
+  } else if (enabledKey && isFalseFlag(enabledValue)) {
+    problems.push(`${enabledKey} disables provider ${provider}, so the selected default cannot create VMs`);
+  }
+
+  return { provider, envVar, image, imageSource: "manifest", problems };
+}
+
+function isFalseFlag(value) {
+  if (!value) return false;
+  return ["0", "false", "no", "off", "disabled"].includes(value.toLowerCase());
 }
 
 /**
  * Full coherence audit. Two legs:
  * - the env-selected default provider (what imageless creates use), and
- * - the code default (blaxel) whenever the env selects something else,
- *   because shipped clients hardcode blaxel image ids: an env rollback to
- *   another default must not leave blaxel unprovisionable. This second leg
+ * - the code default (freestyle) whenever the env selects something else,
+ *   because shipped clients hardcode the code default's image ids: an env
+ *   rollback to another default must not leave it unprovisionable. This leg
  *   is what would have caught the 2026-08-26 production env, where a fully
- *   coherent freestyle default coexisted with clients that only send blaxel.
+ *   coherent env default coexisted with clients that only send the code default.
  *
  * @param {Record<string, string | undefined>} env
  * @param {{ images: Array<{ provider: string, version: string, imageId: string, envVar: string, validationStatus: string }> }} manifest

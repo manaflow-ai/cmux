@@ -86,10 +86,10 @@ function vmRow(overrides: Partial<CloudVmRow> = {}): CloudVmRow {
     userId: "user-reaper",
     billingTeamId: "team-reaper",
     billingPlanId: "pro",
-    provider: "blaxel",
+    provider: "freestyle",
     providerVmId: "stale-sandbox",
     displayName: null,
-    imageId: "blaxel/base-image:latest",
+    imageId: "cmux-devbox:devbox-20260828b",
     imageVersion: null,
     status: "provisioning",
     idempotencyKey: "reaper-key",
@@ -109,13 +109,44 @@ function runReaper(
   options: VmReaperOptions = {},
 ) {
   return Effect.runPromise(
-    reapVmResources({ now: NOW, ...options }).pipe(
+    // No shipped driver exposes a volume inventory, so the scan is inert unless
+    // a provider is named; these tests drive it against the stub gateway.
+    reapVmResources({ now: NOW, volumeProvider: "freestyle", ...options }).pipe(
       Effect.provide(workflowLayer(repo, provider)),
     ),
   );
 }
 
 describe("Cloud VM reaper report", () => {
+  test("the volume scan is inert when no registered driver exposes a volume inventory", async () => {
+    // Persistent home volumes were a single-provider feature and no shipped
+    // driver implements listVolumes today. The reaper must not scan a
+    // hardcoded provider; it reports partial coverage and touches nothing.
+    const usage: Array<Record<string, unknown>> = [];
+    const listVolumeCalls: string[] = [];
+    const repo = repository({
+      stuckProvisioningCandidates: () => Effect.succeed([]),
+      recordUsageEvent: (event) => Effect.sync(() => usage.push(event as Record<string, unknown>)),
+    });
+    const provider = {
+      ...baseProvider(),
+      listVolumes: (providerId: string) => Effect.sync(() => {
+        listVolumeCalls.push(providerId);
+        return [];
+      }),
+    } as unknown as VmProviderGatewayShape;
+
+    const result = await Effect.runPromise(
+      reapVmResources({ now: NOW }).pipe(Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(listVolumeCalls).toEqual([]);
+    expect(result.orphanVolumes.scanned).toBe(0);
+    expect(result.orphanVolumes.candidates).toBe(0);
+    expect(result.orphanVolumes.coveragePartial).toBe(true);
+    expect(usage).toEqual([]);
+  });
+
   test("reports only known orphan candidates and never deletes or writes VM rows", async () => {
     const usage: Array<Record<string, unknown>> = [];
     const deleted: string[] = [];
@@ -136,7 +167,7 @@ describe("Cloud VM reaper report", () => {
         oldVolume("cmux-home-abcdef123456"),
         oldVolume("shared-volume"),
       ]),
-      deleteHomeVolume: (_provider: "blaxel", name: string) => Effect.sync(() => deleted.push(name)),
+      deleteHomeVolume: (_provider: "freestyle", name: string) => Effect.sync(() => deleted.push(name)),
     } as unknown as VmProviderGatewayShape;
 
     const result = await runReaper(repo, provider, {
@@ -398,7 +429,7 @@ describe("Cloud VM reaper report", () => {
     });
     const provider = {
       ...baseProvider(),
-      listVolumes: (_provider: "blaxel", options: { limit: number; cursor?: string }): Effect.Effect<VMVolumeInventory> => Effect.sync(() => {
+      listVolumes: (_provider: "freestyle", options: { limit: number; cursor?: string }): Effect.Effect<VMVolumeInventory> => Effect.sync(() => {
         calls.push({ limit: options.limit, ...(options.cursor ? { cursor: options.cursor } : {}) });
         return options.cursor
           ? { volumes: secondPage, nextCursor: null }

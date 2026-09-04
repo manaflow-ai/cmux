@@ -91,7 +91,7 @@ struct ClosedItemHistoryRecord: Identifiable, Codable {
     }
 }
 
-struct ClosedItemHistoryMenuItem: Identifiable {
+struct ClosedItemHistoryMenuItem: Identifiable, Equatable {
     let id: UUID
     let title: String
     let detail: String
@@ -117,7 +117,7 @@ struct ClosedItemHistoryMenuItem: Identifiable {
     }
 }
 
-struct ClosedItemHistoryMenuSnapshot {
+struct ClosedItemHistoryMenuSnapshot: Equatable {
     let items: [ClosedItemHistoryMenuItem]
     let totalItemCount: Int
     let isLimited: Bool
@@ -145,6 +145,7 @@ final class ClosedItemHistoryStore: ObservableObject {
 
     @Published private(set) var revision: UInt64 = 0
     @Published private var records: [ClosedItemHistoryRecord] = []
+    private let notificationCenter: NotificationCenter
     private let capacityPolicy: ClosedItemHistoryCapacityPolicy
     private let fileURL: URL?
     private let persistsRecordsSynchronously: Bool
@@ -171,8 +172,10 @@ final class ClosedItemHistoryStore: ObservableObject {
         fileURL: URL? = nil,
         loadPersisted: Bool = true,
         loadsPersistedRecordsSynchronously: Bool = false,
-        persistsRecordsSynchronously: Bool = false
+        persistsRecordsSynchronously: Bool = false,
+        notificationCenter: NotificationCenter = .default
     ) {
+        self.notificationCenter = notificationCenter
         self.capacityPolicy = ClosedItemHistoryCapacityPolicy(
             totalCapacity: capacity,
             workspaceCapacity: workspaceCapacity
@@ -196,6 +199,11 @@ final class ClosedItemHistoryStore: ObservableObject {
         !records.isEmpty
     }
 
+    private func advanceRevision() {
+        revision &+= 1
+        notificationCenter.post(name: .closedItemHistoryRevisionDidChange, object: self)
+    }
+
     func push(_ entry: ClosedItemHistoryEntry) {
         push(ClosedItemHistoryRecord(entry: entry))
     }
@@ -203,7 +211,7 @@ final class ClosedItemHistoryStore: ObservableObject {
     func push(_ record: ClosedItemHistoryRecord) {
         records.append(record)
         if capacityPolicy.shouldTrim(afterInserting: record, totalCount: records.count) { trimToCapacityIfNeeded() }
-        revision &+= 1
+        advanceRevision()
         persistRecords()
     }
 
@@ -241,7 +249,7 @@ final class ClosedItemHistoryStore: ObservableObject {
             }
             if let index = records.firstIndex(where: { $0.id == candidate.id }) {
                 records.remove(at: index)
-                revision &+= 1
+                advanceRevision()
                 persistRecords()
             }
             return true
@@ -254,7 +262,7 @@ final class ClosedItemHistoryStore: ObservableObject {
             return nil
         }
         let record = records.remove(at: index)
-        revision &+= 1
+        advanceRevision()
         persistRecords()
         return (record, index)
     }
@@ -262,7 +270,7 @@ final class ClosedItemHistoryStore: ObservableObject {
     func insert(_ record: ClosedItemHistoryRecord, at index: Int) {
         records.insert(record, at: min(max(0, index), records.count))
         if capacityPolicy.shouldTrim(afterInserting: record, totalCount: records.count) { records = capacityPolicy.trimming(records, preserving: record.id) }
-        revision &+= 1
+        advanceRevision()
         persistRecords()
     }
 
@@ -302,7 +310,7 @@ final class ClosedItemHistoryStore: ObservableObject {
         )
         if result.didUpdate {
             records = result.records
-            revision &+= 1
+            advanceRevision()
             persistRecords()
         }
     }
@@ -316,7 +324,7 @@ final class ClosedItemHistoryStore: ObservableObject {
         let result = Self.recordsByRemappingPanelAnchorIds(records, from: oldPanelId, to: newPanelId)
         if result.didUpdate {
             records = result.records
-            revision &+= 1
+            advanceRevision()
             persistRecords()
         }
     }
@@ -330,7 +338,7 @@ final class ClosedItemHistoryStore: ObservableObject {
         let result = Self.recordsByRemappingWorkspaceWindowIds(records, from: oldWindowId, to: newWindowId)
         if result.didUpdate {
             records = result.records
-            revision &+= 1
+            advanceRevision()
             persistRecords()
         }
     }
@@ -341,7 +349,7 @@ final class ClosedItemHistoryStore: ObservableObject {
         let result = Self.recordsByRemovingPanelRecords(records, forWorkspaceIds: workspaceIds)
         if result.didUpdate {
             records = result.records
-            revision &+= 1
+            advanceRevision()
             persistRecords()
         }
     }
@@ -352,7 +360,7 @@ final class ClosedItemHistoryStore: ObservableObject {
             shouldDiscardPersistedRecordsOnLoad = true
         }
         records.removeAll(keepingCapacity: false)
-        revision &+= 1
+        advanceRevision()
         persistRecords()
     }
 
@@ -369,7 +377,7 @@ final class ClosedItemHistoryStore: ObservableObject {
         let filtered = records.filter { !Self.recordContainsManagedCloudVM($0) }
         guard filtered.count != records.count else { return }
         records = filtered
-        revision &+= 1
+        advanceRevision()
         persistRecords()
     }
 
@@ -631,7 +639,7 @@ final class ClosedItemHistoryStore: ObservableObject {
             records = missingLoadedRecords + records
         }
         if trimToCapacityIfNeeded() { needsPersistenceAfterPersistedRecordsLoad = true }
-        revision &+= 1
+        advanceRevision()
     }
 
     nonisolated fileprivate static func loadRecords(fileURL: URL) -> [ClosedItemHistoryRecord] {
@@ -774,6 +782,10 @@ final class ClosedItemHistoryStore: ObservableObject {
             count
         )
     }
+}
+
+extension Notification.Name {
+    static let closedItemHistoryRevisionDidChange = Notification.Name("cmux.closedItemHistoryRevisionDidChange")
 }
 
 private struct ClosedItemHistoryPersistenceSnapshot: Codable {

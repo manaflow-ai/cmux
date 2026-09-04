@@ -77,7 +77,7 @@ public struct MobileAuthComposition {
         self.appNamespace = appNamespace
         self.keychainAccessGroup = keychainAccessGroup
 
-        let overrides = Self.authOverrides(
+        let sourcedOverrides = Self.authOverrides(
             localConfig: Self.localConfigStringOverrides(in: bundle),
             bakedAuthEnvironment: bundle.object(
                 forInfoDictionaryKey: Self.authEnvironmentInfoPlistKey
@@ -88,7 +88,11 @@ public struct MobileAuthComposition {
         )
         let resolvedEnvironment = Self.resolvedAuthEnvironment(
             isDevelopmentBuild: Self.isDevelopmentBuild,
-            overrides: overrides
+            overrides: sourcedOverrides
+        )
+        let overrides = Self.productionSafeOverrides(
+            sourcedOverrides,
+            authEnvironment: resolvedEnvironment
         )
         self.authEnvironment = resolvedEnvironment
         let resolvedConfig = AuthConfig(
@@ -260,6 +264,7 @@ public struct MobileAuthComposition {
         isDevelopmentBuild: Bool,
         overrides: [String: String]
     ) -> CMUXAuthEnvironment {
+        guard isDevelopmentBuild else { return .production }
         switch overrides[authEnvironmentOverrideKey]?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased() {
@@ -270,6 +275,20 @@ public struct MobileAuthComposition {
         default:
             return isDevelopmentBuild ? .development : .production
         }
+    }
+
+    /// Release and production-auth builds cannot be redirected by a stale
+    /// LocalConfig.plist or launch override. Keep the auth channel and its
+    /// credential-bearing API origin aligned before constructing AuthConfig.
+    nonisolated static func productionSafeOverrides(
+        _ overrides: [String: String],
+        authEnvironment: CMUXAuthEnvironment
+    ) -> [String: String] {
+        guard authEnvironment == .production else { return overrides }
+        var safe = overrides
+        safe[authEnvironmentOverrideKey] = "production"
+        safe["ApiBaseURL"] = "https://cmux.com"
+        return safe
     }
 
     /// Whether launch enables the `42` debug sign-in shortcut. It signs in

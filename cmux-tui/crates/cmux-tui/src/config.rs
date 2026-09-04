@@ -149,10 +149,11 @@ use cmux_tui_core::{DEFAULT_SCROLLBACK_LIMIT_BYTES, SurfaceOptions};
 
 const MAX_SCROLLBACK_LIMIT_BYTES: usize = 1_000_000_000;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use ratatui::buffer::CellWidth;
 use ratatui::style::Color;
 use serde::{Deserialize, Deserializer};
 use serde_json::{Value, json};
-use unicode_width::UnicodeWidthStr;
+use unicode_segmentation::UnicodeSegmentation;
 use wait_timeout::ChildExt;
 
 use crate::localization::catalog;
@@ -2565,7 +2566,7 @@ impl Action {
 }
 
 /// A key chord: code plus required modifiers.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Chord {
     pub code: KeyCode,
     pub mods: KeyModifiers,
@@ -2593,17 +2594,20 @@ fn normalize_chord(code: KeyCode, mut mods: KeyModifiers) -> (KeyCode, KeyModifi
     }
 }
 
+fn canonical_chord(chord: Chord) -> Chord {
+    const TRACKED: KeyModifiers = KeyModifiers::CONTROL
+        .union(KeyModifiers::ALT)
+        .union(KeyModifiers::SHIFT)
+        .union(KeyModifiers::SUPER)
+        .union(KeyModifiers::HYPER)
+        .union(KeyModifiers::META);
+    let (code, mods) = normalize_chord(chord.code, chord.mods);
+    Chord { code, mods: mods & TRACKED }
+}
+
 impl Chord {
     pub fn matches(&self, key: &KeyEvent) -> bool {
-        const TRACKED: KeyModifiers = KeyModifiers::CONTROL
-            .union(KeyModifiers::ALT)
-            .union(KeyModifiers::SHIFT)
-            .union(KeyModifiers::SUPER)
-            .union(KeyModifiers::HYPER)
-            .union(KeyModifiers::META);
-        let (configured_code, configured_mods) = normalize_chord(self.code, self.mods);
-        let (event_code, event_mods) = normalize_chord(key.code, key.modifiers);
-        configured_code == event_code && configured_mods & TRACKED == event_mods & TRACKED
+        canonical_chord(*self) == canonical_chord(Chord { code: key.code, mods: key.modifiers })
     }
 
     /// Human-readable form used beside context-menu actions. Keep this
@@ -2656,6 +2660,8 @@ pub struct Keys {
     /// macOS Option mode instead of guessing from each event.
     pub macos_option_as_alt: bool,
     bindings: Vec<(Chord, Action)>,
+    action_by_chord: HashMap<Chord, Action>,
+    modeless_action_by_chord: HashMap<Chord, Action>,
     pub(crate) provider_menu_overridden: bool,
 }
 
@@ -2665,7 +2671,7 @@ impl Default for Keys {
         let alt = |code, action| (Chord { code, mods: KeyModifiers::ALT }, action);
         let command = |code, action| (Chord { code, mods: KeyModifiers::SUPER }, action);
         let prefix = Chord { code: KeyCode::Char('b'), mods: KeyModifiers::CONTROL };
-        Keys {
+        let mut keys = Keys {
             prefix,
             macos_option_as_alt: true,
             bindings: vec![
@@ -2744,12 +2750,30 @@ impl Default for Keys {
                 bind(KeyCode::Char('?'), Action::ShowShortcuts),
                 bind(KeyCode::Char('d'), Action::Detach),
             ],
+            action_by_chord: HashMap::new(),
+            modeless_action_by_chord: HashMap::new(),
             provider_menu_overridden: false,
-        }
+        };
+        keys.rebuild_dispatch_maps();
+        keys
     }
 }
 
 impl Keys {
+    fn rebuild_dispatch_maps(&mut self) {
+        self.action_by_chord.clear();
+        self.modeless_action_by_chord.clear();
+        for &(chord, action) in &self.bindings {
+            let canonical = canonical_chord(chord);
+            // Keep the first binding in canonical order. Config mutation
+            // resolves intentional collisions before this cache is built.
+            self.action_by_chord.entry(canonical).or_insert(action);
+            if self.is_modeless_binding(&chord, action) {
+                self.modeless_action_by_chord.entry(canonical).or_insert(action);
+            }
+        }
+    }
+
     fn is_modeless_binding(&self, chord: &Chord, action: Action) -> bool {
         if action == Action::SendPrefix && *chord == self.prefix {
             return false;
@@ -2769,17 +2793,18 @@ impl Keys {
 
     /// The action bound to a key event (after the prefix).
     pub fn action_for(&self, key: &KeyEvent) -> Option<Action> {
-        self.bindings.iter().find(|(chord, _)| chord.matches(key)).map(|(_, a)| *a)
+        self.action_by_chord
+            .get(&canonical_chord(Chord { code: key.code, mods: key.modifiers }))
+            .copied()
     }
 
     /// The modeless action bound to a key event. Alt- and Super-modified
     /// chords are modeless, as are Control-modified clear-history chords;
     /// other chords remain prefix-only.
     pub fn modeless_action_for(&self, key: &KeyEvent) -> Option<Action> {
-        self.bindings
-            .iter()
-            .find(|(chord, action)| self.is_modeless_binding(chord, *action) && chord.matches(key))
-            .map(|(_, a)| *a)
+        self.modeless_action_by_chord
+            .get(&canonical_chord(Chord { code: key.code, mods: key.modifiers }))
+            .copied()
     }
 
     /// The first configured shortcut for an action, including the prefix
@@ -2956,6 +2981,7 @@ impl Keys {
         }
         let prefix = self.prefix;
         self.bindings.retain(|(chord, action)| *action == Action::SendPrefix || *chord != prefix);
+        self.rebuild_dispatch_maps();
     }
 
     #[cfg(test)]
@@ -3141,7 +3167,7 @@ impl StatusBarOptions {
 /// The maximum number of configured segments per status bar side.
 pub const MAX_STATUS_SEGMENTS: usize = 8;
 
-/// The maximum length of one literal status segment, in characters.
+/// The maximum width of one literal status segment, in terminal cells.
 pub const MAX_STATUS_SEGMENT_TEXT: usize = 256;
 
 /// One status bar segment: literal text with `{variable}` interpolation, or
@@ -3179,7 +3205,22 @@ fn resolve_status_segments(raw: Vec<RawStatusSegment>, side: &str) -> Vec<Status
             }
             (Some(text), None) => {
                 // Bound per-draw expansion work on the render path.
-                StatusSegmentContent::Text(text.chars().take(MAX_STATUS_SEGMENT_TEXT).collect())
+                let mut bounded = String::new();
+                let mut width: usize = 0;
+                let mut scalar_count: usize = 0;
+                for grapheme in text.graphemes(true) {
+                    let grapheme_width = usize::from(grapheme.cell_width());
+                    let grapheme_scalars = grapheme.chars().count();
+                    if width.saturating_add(grapheme_width) > MAX_STATUS_SEGMENT_TEXT
+                        || scalar_count.saturating_add(grapheme_scalars) > MAX_STATUS_SEGMENT_TEXT
+                    {
+                        break;
+                    }
+                    bounded.push_str(grapheme);
+                    width += grapheme_width;
+                    scalar_count += grapheme_scalars;
+                }
+                StatusSegmentContent::Text(bounded)
             }
             (None, Some(run)) => {
                 if run.first().is_none_or(|program| program.is_empty()) {
@@ -3381,7 +3422,10 @@ pub fn load() -> Config {
     if let Some(glyph) = raw.sidebar.rail_glyph {
         if glyph.eq_ignore_ascii_case("none") {
             config.sidebar.rail_glyph = String::new();
-        } else if glyph.chars().count() == 1 && glyph.width() == 1 {
+        } else if glyph.chars().count() == 1
+            && glyph.chars().all(|character| !character.is_control())
+            && glyph.cell_width() == 1
+        {
             // The renderer reserves exactly one cell for the glyph.
             config.sidebar.rail_glyph = glyph;
         } else {
@@ -3921,6 +3965,7 @@ fn bind_user_command_chords(
             }
         }
     }
+    keys.rebuild_dispatch_maps();
 }
 
 fn normalize_ssh_machine_port(id: &str, port: Option<u16>) -> Option<u16> {
@@ -4165,7 +4210,6 @@ fn write_config_value_atomic_with_sync(
     value: &Value,
     sync_parent: &dyn Fn(&Path) -> anyhow::Result<ConfigParentSyncOutcome>,
 ) -> anyhow::Result<ConfigWriteOutcome> {
-    let parent = config_parent_directory(path);
     let file_name = path.file_name().and_then(|name| name.to_str()).unwrap_or("cmux-tui.json");
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos();
     let process_id = std::process::id();
@@ -4283,11 +4327,10 @@ enum ConfigParentSyncOutcome {
 fn sync_config_parent_directory(parent: &Path) -> anyhow::Result<ConfigParentSyncOutcome> {
     let result = std::fs::File::open(parent).and_then(|directory| directory.sync_all());
     #[cfg(target_os = "macos")]
-    if let Err(error) = &result {
-        if matches!(error.raw_os_error(), Some(code) if code == libc::EINVAL || code == libc::ENOTSUP)
-        {
-            return Ok(ConfigParentSyncOutcome::Unsupported);
-        }
+    if let Err(error) = &result
+        && matches!(error.raw_os_error(), Some(code) if code == libc::EINVAL || code == libc::ENOTSUP)
+    {
+        return Ok(ConfigParentSyncOutcome::Unsupported);
     }
     result.map(|()| ConfigParentSyncOutcome::Synced).map_err(Into::into)
 }
@@ -4342,12 +4385,6 @@ fn parse_color(s: &str) -> Option<Color> {
     s.parse::<u8>().ok().map(Color::Indexed)
 }
 
-/// The user's relevant Ghostty settings with non-optional application defaults
-/// resolved for values that the low-level terminal otherwise leaves unset.
-fn ghostty_defaults() -> DefaultColors {
-    ghostty_application_defaults().colors
-}
-
 struct GhosttyApplicationDefaults {
     colors: DefaultColors,
     scrollback_limit_bytes: Option<usize>,
@@ -4385,6 +4422,7 @@ enum GhosttyHelperDefaults {
     TimedOut,
 }
 
+#[cfg(test)]
 fn ghostty_defaults_from_sources(
     config_paths: Vec<PathBuf>,
     theme_dirs: Vec<PathBuf>,
@@ -4401,35 +4439,7 @@ fn ghostty_defaults_from_sources(
     }
 }
 
-/// Read Ghostty's scrollback setting with the same bounded include traversal
-/// used for the other file-based defaults. Ghostty 1.4 renamed the setting to
-/// make the byte unit explicit, so both spellings are accepted.
-fn ghostty_scrollback_limit_bytes() -> Option<usize> {
-    let deadline_at = ghostty_config_deadline_from_now(GHOSTTY_CONFIG_PARSE_DEADLINE);
-    let mut resolved = None;
-    for path in platform::ghostty_config_paths() {
-        if ghostty_config_deadline_expired(Some(deadline_at)) {
-            // A partial traversal is not an authoritative configuration
-            // result. Falling back to the shared default avoids making
-            // startup timing change the selected security and memory limit.
-            return None;
-        }
-        match parse_scrollback_limit_from_root(&path, deadline_at) {
-            ScrollbackConfigOutcome::Missing => {}
-            ScrollbackConfigOutcome::TimedOut => return None,
-            ScrollbackConfigOutcome::Parsed(setting) => {
-                // A file with no setting does not mask another candidate.
-                // An explicit empty setting is represented as Some(None) and
-                // intentionally resets the accumulated value to the default.
-                if let Some(setting) = setting {
-                    resolved = setting;
-                }
-            }
-        }
-    }
-    resolved
-}
-
+#[cfg(test)]
 #[derive(Debug, PartialEq, Eq)]
 enum ScrollbackConfigOutcome {
     Missing,
@@ -4437,6 +4447,7 @@ enum ScrollbackConfigOutcome {
     TimedOut,
 }
 
+#[cfg(test)]
 fn parse_scrollback_limit_from_root(path: &Path, deadline_at: Instant) -> ScrollbackConfigOutcome {
     // Ghostty parses the complete parent file first, then loads its
     // config-file entries in declaration order. Nested entries are appended
@@ -4521,7 +4532,7 @@ fn parse_scrollback_limit_bytes(text: &str) -> Option<Option<usize>> {
             }
             value.replace('_', "").parse::<usize>().ok().map(Some)
         })
-        .last()
+        .next_back()
 }
 
 fn resolve_ghostty_application_defaults(mut defaults: DefaultColors) -> DefaultColors {
@@ -4835,18 +4846,6 @@ fn scrub_ghostty_helper_secret_environment(command: &mut Command) {
     }
 }
 
-fn parse_ghostty_defaults_from_paths(
-    config_paths: Vec<PathBuf>,
-    theme_dirs: Vec<PathBuf>,
-) -> Option<DefaultColors> {
-    match parse_ghostty_defaults_from_paths_result(config_paths, theme_dirs) {
-        GhosttyConfigParseOutcome::Parsed(defaults) => Some(*defaults),
-        GhosttyConfigParseOutcome::Partial(_)
-        | GhosttyConfigParseOutcome::Missing
-        | GhosttyConfigParseOutcome::TimedOut => None,
-    }
-}
-
 fn parse_ghostty_application_defaults_from_paths(
     config_paths: Vec<PathBuf>,
     theme_dirs: Vec<PathBuf>,
@@ -4926,31 +4925,6 @@ enum GhosttyConfigParseOutcome {
     TimedOut,
 }
 
-fn parse_ghostty_defaults_from_paths_result(
-    config_paths: Vec<PathBuf>,
-    theme_dirs: Vec<PathBuf>,
-) -> GhosttyConfigParseOutcome {
-    let deadline_at = ghostty_config_deadline_from_now(GHOSTTY_CONFIG_PARSE_DEADLINE);
-    parse_ghostty_defaults_from_paths_result_until(config_paths, theme_dirs, Some(deadline_at))
-}
-
-fn parse_ghostty_defaults_from_paths_result_until(
-    config_paths: Vec<PathBuf>,
-    theme_dirs: Vec<PathBuf>,
-    deadline_at: Option<Instant>,
-) -> GhosttyConfigParseOutcome {
-    for path in config_paths {
-        if ghostty_config_deadline_expired(deadline_at) {
-            return GhosttyConfigParseOutcome::TimedOut;
-        }
-        match parse_ghostty_defaults_from_path_result_until(&path, &theme_dirs, deadline_at) {
-            GhosttyConfigParseOutcome::Missing => {}
-            outcome => return outcome,
-        }
-    }
-    GhosttyConfigParseOutcome::Missing
-}
-
 #[cfg(test)]
 fn parse_ghostty_defaults_with_theme_dirs(text: &str, theme_dirs: &[PathBuf]) -> DefaultColors {
     let mut theme_candidates = Vec::new();
@@ -4977,6 +4951,7 @@ fn parse_ghostty_defaults_from_path_result(
     parse_ghostty_defaults_from_path_result_until(path, theme_dirs, Some(deadline_at))
 }
 
+#[cfg(test)]
 fn parse_ghostty_defaults_from_path_result_until(
     path: &Path,
     theme_dirs: &[PathBuf],
@@ -4994,7 +4969,7 @@ fn parse_ghostty_defaults_from_path_result_until_with_scrollback(
     path: &Path,
     theme_dirs: &[PathBuf],
     deadline_at: Option<Instant>,
-    mut scrollback_limit_bytes: Option<&mut Option<Option<usize>>>,
+    scrollback_limit_bytes: Option<&mut Option<Option<usize>>>,
 ) -> GhosttyConfigParseOutcome {
     let mut theme_candidates = Vec::new();
     let overrides = match parse_ghostty_config_file_until_with_scrollback(
@@ -5049,6 +5024,7 @@ fn parse_ghostty_config_file_with_deadline(
     )
 }
 
+#[cfg(test)]
 fn parse_ghostty_config_file_until(
     path: &Path,
     theme_candidates: &mut Vec<GhosttyThemeCandidate>,
@@ -5061,7 +5037,7 @@ fn parse_ghostty_config_file_until_with_scrollback(
     path: &Path,
     theme_candidates: &mut Vec<GhosttyThemeCandidate>,
     deadline_at: Option<Instant>,
-    mut scrollback_limit_bytes: Option<&mut Option<Option<usize>>>,
+    scrollback_limit_bytes: Option<&mut Option<Option<usize>>>,
 ) -> GhosttyConfigParseOutcome {
     let mut stack = vec![PendingGhosttyConfig { path: path.to_path_buf(), depth: 0 }];
     let mut loaded = HashSet::new();
@@ -5135,7 +5111,7 @@ fn parse_ghostty_config_file_until_with_scrollback(
     }
 
     if loaded_root {
-        if let Some(scrollback_limit_bytes) = scrollback_limit_bytes.as_deref_mut() {
+        if let Some(scrollback_limit_bytes) = scrollback_limit_bytes {
             let mut snapshot_by_identity = HashMap::new();
             for (index, (identity, _, _)) in snapshot.iter().enumerate() {
                 snapshot_by_identity.insert(identity, index);
@@ -5911,6 +5887,7 @@ fn overlay_ghostty_defaults(defaults: &mut DefaultColors, overrides: DefaultColo
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ratatui::buffer::CellWidth;
     use std::cell::{Cell, RefCell};
 
     #[test]
@@ -7737,11 +7714,13 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let config = dir.join("config");
         std::fs::write(&config, "foreground = #010203\nbackground = #040506\n").unwrap();
-        let helper = DefaultColors {
+        // The helper child serializes application defaults that are already
+        // resolved, so the parent passes them through without resolving again.
+        let helper = resolve_ghostty_application_defaults(DefaultColors {
             fg: Some(Rgb { r: 0xa0, g: 0xa1, b: 0xa2 }),
             bg: Some(Rgb { r: 0xb0, g: 0xb1, b: 0xb2 }),
             ..Default::default()
-        };
+        });
 
         let defaults = ghostty_defaults_from_sources(
             vec![config],
@@ -8770,6 +8749,39 @@ mod tests {
     }
 
     #[test]
+    fn key_dispatch_refreshes_after_rebinding_and_keeps_modeless_fallback() {
+        let mut keys = Keys::default();
+        assert_eq!(
+            keys.action_for(&KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE)),
+            Some(Action::NewPaneRight)
+        );
+        assert_eq!(
+            keys.modeless_action_for(&KeyEvent::new(KeyCode::Char('t'), KeyModifiers::ALT)),
+            Some(Action::NewTab)
+        );
+
+        keys.apply(&HashMap::from([
+            ("new-tab".to_string(), Value::String("g".to_string())),
+            ("new-pane-right".to_string(), Value::String("alt+h".to_string())),
+        ]));
+
+        // Rebinding steals the ordinary chord while preserving modeless
+        // fallback lookup for the newly configured Alt chord.
+        assert_eq!(
+            keys.action_for(&KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE)),
+            Some(Action::NewTab)
+        );
+        assert_eq!(
+            keys.modeless_action_for(&KeyEvent::new(KeyCode::Char('h'), KeyModifiers::ALT)),
+            Some(Action::NewPaneRight)
+        );
+        assert_eq!(
+            keys.modeless_action_for(&KeyEvent::new(KeyCode::Char('t'), KeyModifiers::ALT)),
+            None
+        );
+    }
+
+    #[test]
     fn shifted_character_chords_match_enhanced_base_key_events() {
         let shifted_letter = parse_chord("super+shift+d").unwrap();
         assert!(shifted_letter.matches(&KeyEvent::new(
@@ -9106,6 +9118,32 @@ mod tests {
     }
 
     #[test]
+    fn status_text_cap_uses_terminal_cells_without_splitting_graphemes() {
+        let text = format!("{}e\u{301}abc", "界".repeat(130));
+        let raw = vec![RawStatusSegment { text: Some(text), ..RawStatusSegment::default() }];
+        let resolved = resolve_status_segments(raw, "left");
+        let StatusSegmentContent::Text(text) = &resolved[0].content else {
+            panic!("literal status text did not resolve as text");
+        };
+        assert_eq!(usize::from(text.cell_width()), MAX_STATUS_SEGMENT_TEXT);
+        assert_eq!(text, &"界".repeat(MAX_STATUS_SEGMENT_TEXT / 2));
+    }
+
+    #[test]
+    #[allow(clippy::unicode_not_nfc)]
+    fn status_text_cap_uses_terminal_cells_for_halfwidth_dakuten() {
+        let raw = vec![RawStatusSegment {
+            text: Some("界ﾞ".repeat(100)),
+            ..RawStatusSegment::default()
+        }];
+        let resolved = resolve_status_segments(raw, "left");
+        let StatusSegmentContent::Text(text) = &resolved[0].content else {
+            panic!("literal status text did not resolve as text");
+        };
+        assert_eq!(text, &"界ﾞ".repeat(85));
+    }
+
+    #[test]
     fn chip_styles_and_separators_parse() {
         let raw: RawConfig = serde_json::from_value(json!({
             "tabs": {"style": "pill"},
@@ -9173,6 +9211,34 @@ mod tests {
         assert_eq!(raw.sidebar.row_gap, Some(0));
         assert_eq!(raw.sidebar.rail_glyph.as_deref(), Some("none"));
         assert_eq!(raw.sidebar.workspace_label.as_deref(), Some("{index} · {name}"));
+    }
+
+    #[test]
+    #[allow(clippy::unicode_not_nfc)]
+    fn rail_glyph_accepts_standalone_halfwidth_sound_marks() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let old_cmux_tui_config = std::env::var_os("CMUX_TUI_CONFIG");
+        let dir = TestDirectory::new("rail-glyph-halfwidth-sound-marks");
+        let path = dir.path.join("cmux-tui.json");
+        for glyph in ["\u{ff9e}", "\u{ff9f}"] {
+            std::fs::write(&path, format!(r#"{{"sidebar":{{"rail_glyph":"{glyph}"}}}}"#)).unwrap();
+            // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+            unsafe { std::env::set_var("CMUX_TUI_CONFIG", &path) };
+
+            let config = load();
+            restore_env_var("CMUX_TUI_CONFIG", old_cmux_tui_config.clone());
+
+            assert_eq!(config.sidebar.rail_glyph, glyph);
+        }
+
+        std::fs::write(&path, r#"{"sidebar":{"rail_glyph":"\n"}}"#).unwrap();
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("CMUX_TUI_CONFIG", &path) };
+
+        let config = load();
+        restore_env_var("CMUX_TUI_CONFIG", old_cmux_tui_config);
+
+        assert_eq!(config.sidebar.rail_glyph, Config::default().sidebar.rail_glyph);
     }
 
     #[test]

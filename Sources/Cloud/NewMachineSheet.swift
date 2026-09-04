@@ -1,9 +1,10 @@
 import CmuxFoundation
 import SwiftUI
 
-/// The New Machine sheet: name, kind, size, what the plan allows, and the
-/// backend's error verbatim when a create fails. Presented by
-/// ``NewMachineSheetPresenter`` as a window sheet on the main window.
+/// The New Machine sheet: name, kind, size, and what the plan allows.
+/// Presented by ``NewMachineSheetPresenter`` as a window sheet on the main
+/// window. Create closes it at once; the machine coming up is shown by the
+/// Machines panel, not here, so the sheet never holds the window.
 struct NewMachineSheet: View {
     @Bindable var model: NewMachineModel
 
@@ -53,7 +54,6 @@ struct NewMachineSheet: View {
                         text: $model.name
                     )
                     .textFieldStyle(.roundedBorder)
-                    .disabled(model.isCreating)
                     .accessibilityIdentifier("NewMachineSheet.name")
                 }
             }
@@ -61,41 +61,17 @@ struct NewMachineSheet: View {
                 label(String(localized: "machines.new.kind.label", defaultValue: "Kind"))
                 VStack(alignment: .leading, spacing: 4) {
                     Picker("", selection: $model.kind) {
-                        ForEach(VMMachineKind.allCases, id: \.self) { kind in
+                        ForEach(model.selectableKinds, id: \.self) { kind in
                             Text(kind.displayName).tag(kind)
                         }
                     }
                     .pickerStyle(.segmented)
                     .labelsHidden()
-                    .disabled(model.isCreating)
                     .accessibilityIdentifier("NewMachineSheet.kind")
                     Text(model.kind.summary)
                         .cmuxFont(size: 11)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            if model.supportsSize {
-                GridRow {
-                    label(String(localized: "machines.new.size.label", defaultValue: "Size"))
-                    VStack(alignment: .leading, spacing: 4) {
-                        Picker("", selection: $model.memoryMb) {
-                            ForEach(model.memoryOptions, id: \.self) { mb in
-                                Text(NewMachineModel.memoryLabel(mb: mb)).tag(mb)
-                            }
-                        }
-                        .pickerStyle(.menu)
-                        .labelsHidden()
-                        .frame(maxWidth: 140, alignment: .leading)
-                        .disabled(model.isCreating)
-                        .accessibilityIdentifier("NewMachineSheet.size")
-                        Text(String(
-                            localized: "machines.new.size.summary",
-                            defaultValue: "Memory. CPU scales with it."
-                        ))
-                        .cmuxFont(size: 11)
-                        .foregroundStyle(.secondary)
-                    }
                 }
             }
             if let image = model.selectedImage {
@@ -153,35 +129,28 @@ struct NewMachineSheet: View {
 
     private var buttons: some View {
         HStack(spacing: 8) {
-            if model.isCreating {
-                ProgressView()
-                    .controlSize(.small)
-                Text(model.isBaseSetup
-                    ? String(localized: "machines.new.creating.base", defaultValue: "Setting up Base…")
-                    : String(localized: "machines.new.creating", defaultValue: "Creating…"))
-                    .cmuxFont(size: 11)
-                    .foregroundStyle(.secondary)
-            }
+            Text(model.isBaseSetup
+                ? String(localized: "machines.new.background.note.base", defaultValue: "Setup continues in the Machines panel.")
+                : String(localized: "machines.new.background.note", defaultValue: "Creation continues in the Machines panel."))
+                .cmuxFont(size: 11)
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+                .accessibilityIdentifier("NewMachineSheet.backgroundNote")
             Spacer()
             Button(String(localized: "machines.new.cancel", defaultValue: "Cancel")) {
                 model.cancel()
             }
             .keyboardShortcut(.cancelAction)
-            .disabled(model.isCreating)
             .accessibilityIdentifier("NewMachineSheet.cancel")
             Button(createTitle) {
                 model.create()
             }
             .keyboardShortcut(.defaultAction)
-            .disabled(model.isCreating)
             .accessibilityIdentifier("NewMachineSheet.create")
         }
     }
 
     private var createTitle: String {
-        if model.createdMachineID != nil {
-            return String(localized: "machines.new.done", defaultValue: "Done")
-        }
         if model.errorText != nil {
             return String(localized: "machines.new.retry", defaultValue: "Retry")
         }
