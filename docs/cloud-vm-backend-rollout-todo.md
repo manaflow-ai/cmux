@@ -7,6 +7,14 @@ This is the scoped todo list for making the Cloud VM backend production-ready wi
 > gateway, and Rivet actors are historical migration records. They are not
 > valid values for current deployment or dogfood commands.
 
+> **2026-09-04 current-main re-audit:** The terminal placement rename and
+> canonical remote-state synchronization remain absent from `main`; current
+> `main` adds no replacement for them. The branch is rebased on
+> `6720b9859aed35ccf0d6bc250ffe9deb655d2a5a`. Freestyle is still the only
+> active provider. The direct development backend is healthy, but the shared
+> free account has `maxActiveVms=0`, so an authenticated live VM rename smoke
+> remains pending a paid or explicitly provisioned test VM.
+
 ## Current State
 
 - Vercel project exists: `manaflow/cmux`.
@@ -93,10 +101,13 @@ browsers, and agents. The macOS app must not create a second remote graph.
   materialized typed-graph index. The document stores every top-level value and
   collection row as canonical JSON fragments, so a title, lifecycle, agent, or
   same-placement tab change replaces one fragment and updates only the affected
-  typed rows. Any relationship-root, creation, deletion, move, or content change
-  rebuilds the complete derived resource set. The index is a non-persisted cache,
-  and `rawSnapshot` is materialized only at export or recovery boundaries. A
-  targeted row and a full snapshot therefore use the same authoritative document.
+  typed rows. Each collection also maintains a derived identity index for `id`
+  and legacy agent `terminal_id`, so row resolution is O(1) after the O(rows)
+  snapshot build. Any relationship-root, creation, deletion, move, or content
+  change rebuilds the complete derived resource set. The indexes are
+  non-persisted caches, and `rawSnapshot` is materialized only at export or
+  recovery boundaries. A targeted row and a full snapshot therefore use the
+  same authoritative document.
 - Mutation responses are receipts, not a second graph. A journaled response
   carries `(generation, revision)` and terminal creation carries the exact
   `CreatedTerminalPath`. The provider exposes the receipt as transient

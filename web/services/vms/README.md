@@ -59,10 +59,12 @@ The auth regression tests live in `web/tests/vm-route-auth.test.ts`. They verify
 - `cloud_vms` owns VM lifecycle state, provider ids, image ids, billing team/plan ids, and per-user idempotency keys.
 - The Freestyle cmux-tui daemon owns the complete remote graph. The macOS
   catalog stores one lossless canonical fragment document plus typed projections
-  and a materialized ID / relationship index, never a second provider-specific
-  graph. The document owns every known and unknown field. The index is rebuilt at
-  snapshot boundaries, updated transactionally by deltas, and omitted from
-  encoded state because it is a cache. `rawSnapshot` is an export compatibility
+  and materialized ID / relationship indexes, never a second provider-specific
+  graph. The document owns every known and unknown field. Typed and raw-row
+  indexes are rebuilt at snapshot boundaries, updated transactionally by deltas,
+  and omitted from encoded state because they are caches. Raw `id` and legacy
+  agent `terminal_id` lookup is O(1) after the snapshot build, and duplicate
+  identities fail closed. `rawSnapshot` is an export compatibility
   view, not a second store. A cursor `(generation, revision)` marks `journaled`
   state. A missing or null cursor marks `snapshot_only` legacy state.
 - Mutation responses are read-your-write receipts. A journaled response carries

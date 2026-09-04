@@ -133,6 +133,15 @@ independent write source. `SurfaceCatalog` stores that state with the derived
 surface rows in one main-actor transaction. No sidebar, CLI, or pane keeps a
 second remote graph.
 
+Each raw collection also builds a non-persisted identity index at snapshot
+boundaries. It maps daemon `id` values and the legacy agent `terminal_id`
+relationship to the canonical row key, including rows that still use a
+positional storage key. Replacing a row updates the index incrementally, so
+steady-state delta lookup is O(1) and snapshot import is O(rows). Duplicate
+identities remain a list and fail closed. The compatibility API can scan an
+unrecognized alternate field, but no payload field becomes an identity merely
+because it happens to contain a string.
+
 The document's collection order preserves snapshot and export order only.
 Semantic layout order comes from each row's `index` and relationship IDs. Code
 must not infer identity, parentage, or pane placement from JSON array position
@@ -298,6 +307,11 @@ updates these three layers in one local transaction. This is the smallest model
 that lets an agent inspect unknown future fields, address exact IDs, and apply a
 row-local rename without rebuilding the whole VM graph.
 
+The raw collection identity index is part of that cache boundary. It is rebuilt
+from canonical bytes after decoding and is never serialized. This makes a
+restarted client derive the same lookup behavior from the same document, while
+keeping positional legacy rows addressable and rejecting ambiguous identities.
+
 The rejected alternatives are explicit:
 
 - A full JSON blob per delta is simpler, but it parses and encodes every remote
@@ -310,6 +324,11 @@ The rejected alternatives are explicit:
   they allow identity and placement to diverge. Freestyle-specific transport
   code therefore ends at the daemon link, and all consumers read the same
   catalog transaction.
+- A linear row scan for every delta is simple, but it repeatedly decodes
+  unrelated VM state and makes rename cost grow with the number of rows. A
+  separately persisted row index is faster, but it creates a second source of
+  truth and can survive a crash out of sync. The derived raw-collection index
+  keeps the O(1) lookup and the single-document authority together.
 
 ## Lease/auth integration with the attach-endpoint flow
 

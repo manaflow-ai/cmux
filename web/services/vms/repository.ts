@@ -967,6 +967,73 @@ function boundedReaperKeys(keys: readonly string[]): string[] {
   return normalized;
 }
 
+/** Repository methods for the cross-instance tunnel enrollment lease. */
+const tunnelEnrollmentRepositoryMethods: Pick<
+  VmRepositoryShape,
+  "acquireTunnelEnrollmentLock" | "releaseTunnelEnrollmentLock" | "renewTunnelEnrollmentLock"
+> = {
+  acquireTunnelEnrollmentLock: (input) =>
+    dbEffect("acquireTunnelEnrollmentLock", async () => {
+      const db = cloudDb();
+      const now = new Date();
+      const [row] = await db
+        .insert(cloudVmTunnelEnrollmentLocks)
+        .values({
+          userId: input.userId,
+          deviceFingerprint: input.deviceFingerprint,
+          ownerToken: input.ownerToken,
+          expiresAt: input.expiresAt,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .onConflictDoUpdate({
+          target: [
+            cloudVmTunnelEnrollmentLocks.userId,
+            cloudVmTunnelEnrollmentLocks.deviceFingerprint,
+          ],
+          // A crashed request leaves an expired lease. Only that lease may be
+          // replaced; a live owner remains authoritative on every instance.
+          setWhere: sql`${cloudVmTunnelEnrollmentLocks.expiresAt} <= ${now}`,
+          set: {
+            ownerToken: input.ownerToken,
+            expiresAt: input.expiresAt,
+            updatedAt: now,
+          },
+        })
+        .returning({ ownerToken: cloudVmTunnelEnrollmentLocks.ownerToken });
+      return row?.ownerToken === input.ownerToken;
+    }),
+
+  releaseTunnelEnrollmentLock: (input) =>
+    dbEffect("releaseTunnelEnrollmentLock", async () => {
+      const db = cloudDb();
+      await db
+        .delete(cloudVmTunnelEnrollmentLocks)
+        .where(and(
+          eq(cloudVmTunnelEnrollmentLocks.userId, input.userId),
+          eq(cloudVmTunnelEnrollmentLocks.deviceFingerprint, input.deviceFingerprint),
+          eq(cloudVmTunnelEnrollmentLocks.ownerToken, input.ownerToken),
+        ));
+    }),
+
+  renewTunnelEnrollmentLock: (input) =>
+    dbEffect("renewTunnelEnrollmentLock", async () => {
+      const db = cloudDb();
+      const now = new Date();
+      const [row] = await db
+        .update(cloudVmTunnelEnrollmentLocks)
+        .set({ expiresAt: input.expiresAt, updatedAt: now })
+        .where(and(
+          eq(cloudVmTunnelEnrollmentLocks.userId, input.userId),
+          eq(cloudVmTunnelEnrollmentLocks.deviceFingerprint, input.deviceFingerprint),
+          eq(cloudVmTunnelEnrollmentLocks.ownerToken, input.ownerToken),
+          gt(cloudVmTunnelEnrollmentLocks.expiresAt, now),
+        ))
+        .returning({ ownerToken: cloudVmTunnelEnrollmentLocks.ownerToken });
+      return row?.ownerToken === input.ownerToken;
+    }),
+};
+
 /** The Postgres-backed repository. Workflows wrap it with the analytics sink (see workflows.ts). */
 export const vmRepositoryLiveShape: VmRepositoryShape = {
   findNetwork: (userId, provider) =>
@@ -1089,67 +1156,6 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
         .where(and(eq(cloudVmTunnels.id, id), isNull(cloudVmTunnels.revokedAt)))
         .returning({ id: cloudVmTunnels.id });
       return rows.length > 0;
-    }),
-
-  acquireTunnelEnrollmentLock: (input) =>
-    dbEffect("acquireTunnelEnrollmentLock", async () => {
-      const db = cloudDb();
-      const now = new Date();
-      const [row] = await db
-        .insert(cloudVmTunnelEnrollmentLocks)
-        .values({
-          userId: input.userId,
-          deviceFingerprint: input.deviceFingerprint,
-          ownerToken: input.ownerToken,
-          expiresAt: input.expiresAt,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .onConflictDoUpdate({
-          target: [
-            cloudVmTunnelEnrollmentLocks.userId,
-            cloudVmTunnelEnrollmentLocks.deviceFingerprint,
-          ],
-          // A crashed request leaves an expired lease. Only that lease may be
-          // replaced; a live owner remains authoritative on every instance.
-          setWhere: sql`${cloudVmTunnelEnrollmentLocks.expiresAt} <= ${now}`,
-          set: {
-            ownerToken: input.ownerToken,
-            expiresAt: input.expiresAt,
-            updatedAt: now,
-          },
-        })
-        .returning({ ownerToken: cloudVmTunnelEnrollmentLocks.ownerToken });
-      return row?.ownerToken === input.ownerToken;
-    }),
-
-  releaseTunnelEnrollmentLock: (input) =>
-    dbEffect("releaseTunnelEnrollmentLock", async () => {
-      const db = cloudDb();
-      await db
-        .delete(cloudVmTunnelEnrollmentLocks)
-        .where(and(
-          eq(cloudVmTunnelEnrollmentLocks.userId, input.userId),
-          eq(cloudVmTunnelEnrollmentLocks.deviceFingerprint, input.deviceFingerprint),
-          eq(cloudVmTunnelEnrollmentLocks.ownerToken, input.ownerToken),
-        ));
-    }),
-
-  renewTunnelEnrollmentLock: (input) =>
-    dbEffect("renewTunnelEnrollmentLock", async () => {
-      const db = cloudDb();
-      const now = new Date();
-      const [row] = await db
-        .update(cloudVmTunnelEnrollmentLocks)
-        .set({ expiresAt: input.expiresAt, updatedAt: now })
-        .where(and(
-          eq(cloudVmTunnelEnrollmentLocks.userId, input.userId),
-          eq(cloudVmTunnelEnrollmentLocks.deviceFingerprint, input.deviceFingerprint),
-          eq(cloudVmTunnelEnrollmentLocks.ownerToken, input.ownerToken),
-          gt(cloudVmTunnelEnrollmentLocks.expiresAt, now),
-        ))
-        .returning({ ownerToken: cloudVmTunnelEnrollmentLocks.ownerToken });
-      return row?.ownerToken === input.ownerToken;
     }),
 
   mergeProviderMetadata: (input) =>
@@ -2998,5 +3004,10 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
       })));
     }),
 };
+
+// Compose this capability after the legacy shape so existing repository
+// functions keep their reviewed complexity fingerprints. The lease methods
+// remain one independently testable cross-instance capability.
+Object.assign(vmRepositoryLiveShape, tunnelEnrollmentRepositoryMethods);
 
 export const VmRepositoryLive = Layer.succeed(VmRepository, vmRepositoryLiveShape);

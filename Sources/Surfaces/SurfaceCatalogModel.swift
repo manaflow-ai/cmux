@@ -614,9 +614,180 @@ struct CloudVMStateIndex: Sendable {
 /// is not semantic placement order after deltas. Consumers must use each row's
 /// explicit index and relationship fields for placement. Rows without an id use
 /// a private positional key so unknown future fields remain lossless.
+///
+/// The identity index is derived and deliberately not encoded. Snapshot import
+/// pays O(rows) to build it, then delta identity resolution is O(1) for daemon
+/// identity fields (`id` and the legacy agent `terminal_id`). This keeps the
+/// canonical document as the only source of truth without making every rename
+/// scan and decode the whole collection. An unsupported compatibility field
+/// uses a bounded fallback scan so this internal API remains correct for future
+/// callers without pretending that arbitrary payload fields are identities.
 struct CloudVMRawCollection: Hashable, Codable, Sendable {
-    var order: [String] = []
-    var rows: [String: Data] = [:]
+    private struct IdentityKey: Hashable, Sendable {
+        let field: String
+        let value: String
+    }
+
+    private static let indexedIdentityFields: Set<String> = ["id", "terminal_id"]
+
+    private(set) var order: [String] = []
+    private(set) var rows: [String: Data] = [:]
+    private var identityIndex: [IdentityKey: [String]] = [:]
+
+    init() {}
+
+    init(order: [String], rows: [String: Data]) {
+        self.order = order
+        self.rows = rows
+        rebuildIdentityIndex()
+    }
+
+    /// Returns row keys for a stable identity. The direct storage key is also
+    /// considered because a legacy row can acquire an explicit payload id while
+    /// retaining its positional key.
+    func matchingRowIDs(
+        id: String,
+        alternateField: (name: String, value: String)? = nil
+    ) -> [String] {
+        var matches: [String] = []
+        var seen = Set<String>()
+        appendUniqueIfPresent(id, to: &matches, seen: &seen)
+        appendUnique(indexedRowIDs(field: "id", value: id), to: &matches, seen: &seen)
+        if let alternateField {
+            if let indexed = indexedRowIDsIfSupported(field: alternateField.name, value: alternateField.value) {
+                appendUnique(indexed, to: &matches, seen: &seen)
+            } else {
+                // Preserve the generic alternate-field contract for future
+                // compatibility callers. Current daemon deltas use the indexed
+                // `terminal_id` path and do not enter this fallback.
+                appendUnique(
+                    scannedRowIDs(field: alternateField.name, value: alternateField.value),
+                    to: &matches,
+                    seen: &seen
+                )
+            }
+        }
+        return matches
+    }
+
+    func object(forRowID rowID: String) -> [String: Any]? {
+        guard let data = rows[rowID] else { return nil }
+        return try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) as? [String: Any]
+    }
+
+    mutating func insertRow(rowID: String, data: Data, object: [String: Any]) {
+        order.append(rowID)
+        rows[rowID] = data
+        addIdentityEntries(for: rowID, object: object)
+    }
+
+    mutating func replaceRow(rowID: String, data: Data, object: [String: Any]) {
+        removeIdentityEntries(for: rowID)
+        rows[rowID] = data
+        addIdentityEntries(for: rowID, object: object)
+    }
+
+    mutating func removeRow(rowID: String, object: [String: Any]) {
+        removeIdentityEntries(for: rowID, object: object)
+        rows.removeValue(forKey: rowID)
+        order.removeAll { $0 == rowID }
+    }
+
+    private func appendUniqueIfPresent(_ rowID: String, to matches: inout [String], seen: inout Set<String>) {
+        guard rows[rowID] != nil, seen.insert(rowID).inserted else { return }
+        matches.append(rowID)
+    }
+
+    private func appendUnique(_ rowIDs: [String], to matches: inout [String], seen: inout Set<String>) {
+        for rowID in rowIDs where rows[rowID] != nil && seen.insert(rowID).inserted {
+            matches.append(rowID)
+        }
+    }
+
+    private func indexedRowIDs(field: String, value: String) -> [String] {
+        indexedRowIDsIfSupported(field: field, value: value) ?? []
+    }
+
+    private func indexedRowIDsIfSupported(field: String, value: String) -> [String]? {
+        guard Self.indexedIdentityFields.contains(field),
+              let normalized = Self.nonEmptyString(value) else { return nil }
+        return identityIndex[IdentityKey(field: field, value: normalized)] ?? []
+    }
+
+    private func scannedRowIDs(field: String, value: String) -> [String] {
+        guard let normalized = Self.nonEmptyString(value) else { return [] }
+        return order.compactMap { rowID in
+            guard let object = object(forRowID: rowID),
+                  Self.nonEmptyString(object[field]) == normalized else { return nil }
+            return rowID
+        }
+    }
+
+    private mutating func rebuildIdentityIndex() {
+        identityIndex.removeAll(keepingCapacity: true)
+        for rowID in order {
+            guard let object = object(forRowID: rowID) else { continue }
+            addIdentityEntries(for: rowID, object: object)
+        }
+    }
+
+    private mutating func addIdentityEntries(for rowID: String, object: [String: Any]) {
+        for field in Self.indexedIdentityFields {
+            guard let value = Self.nonEmptyString(object[field]) else { continue }
+            let key = IdentityKey(field: field, value: value)
+            if !identityIndex[key, default: []].contains(rowID) {
+                identityIndex[key, default: []].append(rowID)
+            }
+        }
+    }
+
+    private mutating func removeIdentityEntries(for rowID: String, object: [String: Any]? = nil) {
+        let resolvedObject = object ?? self.object(forRowID: rowID)
+        for field in Self.indexedIdentityFields {
+            guard let value = resolvedObject.flatMap({ Self.nonEmptyString($0[field]) }) else { continue }
+            let key = IdentityKey(field: field, value: value)
+            guard var rowIDs = identityIndex[key] else { continue }
+            rowIDs.removeAll { $0 == rowID }
+            if rowIDs.isEmpty {
+                identityIndex.removeValue(forKey: key)
+            } else {
+                identityIndex[key] = rowIDs
+            }
+        }
+    }
+
+    private static func nonEmptyString(_ raw: Any?) -> String? {
+        guard let value = raw as? String else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case order, rows
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        order = try container.decodeIfPresent([String].self, forKey: .order) ?? []
+        rows = try container.decodeIfPresent([String: Data].self, forKey: .rows) ?? [:]
+        identityIndex = [:]
+        rebuildIdentityIndex()
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(order, forKey: .order)
+        try container.encode(rows, forKey: .rows)
+    }
+
+    static func == (lhs: CloudVMRawCollection, rhs: CloudVMRawCollection) -> Bool {
+        lhs.order == rhs.order && lhs.rows == rhs.rows
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(order)
+        hasher.combine(rows)
+    }
 }
 
 /// Fragmented canonical representation of one daemon snapshot. Known and
@@ -640,8 +811,7 @@ struct CloudVMStateDocument: Hashable, Codable, Sendable {
                     }
                     let baseID = Self.nonEmptyString(row["id"])
                     let rowID = Self.uniqueRowKey(baseID ?? "__row_\(offset)", in: collection.rows)
-                    collection.order.append(rowID)
-                    collection.rows[rowID] = data
+                    collection.insertRow(rowID: rowID, data: data, object: row)
                 }
                 if valid {
                     collections[key] = collection
@@ -722,6 +892,32 @@ struct CloudVMStateDocument: Hashable, Codable, Sendable {
         collections[key] != nil
     }
 
+    /// Whether this key is present as either a scalar fragment or a collection.
+    /// Callers use this to distinguish a missing future resource from a present
+    /// resource whose requested identity is ambiguous or absent.
+    func containsFragment(_ key: String) -> Bool {
+        values[key] != nil || collections[key] != nil
+    }
+
+    /// Resolves one entity directly from its canonical fragment. A duplicate
+    /// identity returns nil instead of selecting the first row, so an agent can
+    /// request a fresh authoritative snapshot rather than mutate an arbitrary
+    /// remote object.
+    func entity(forCollectionKey key: String, id: String) -> CloudVMEntity? {
+        let normalizedID = Self.nonEmptyString(id)
+        if let collection = collections[key], let normalizedID {
+            let candidates = collection.matchingRowIDs(id: normalizedID)
+            guard candidates.count == 1, let rowID = candidates.first,
+                  let data = collection.rows[rowID] else { return nil }
+            return CloudVMEntity(kind: key, id: Self.entityID(from: data), payload: data)
+        }
+        guard let data = values[key],
+              let object = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) as? [String: Any],
+              normalizedID != nil,
+              Self.nonEmptyString(object["id"]) == normalizedID else { return nil }
+        return CloudVMEntity(kind: key, id: Self.entityID(from: data), payload: data)
+    }
+
     /// Returns opaque entities directly from the canonical fragments. This is
     /// an export projection, not another mutable copy of the remote graph.
     /// Scalar values are retained too, so a future daemon field is never lost
@@ -778,37 +974,15 @@ struct CloudVMStateDocument: Hashable, Codable, Sendable {
         var collection = collections[collectionKey] ?? CloudVMRawCollection()
         let explicitID = Self.nonEmptyString(value["id"])
         guard explicitID == nil || explicitID == id else { return false }
-        var matchingRowIDs = collection.order.filter { candidate in
-            guard candidate == id else { return false }
-            return collection.rows[candidate] != nil
-        }
-        // A row may have a positional/suffixed storage key, so also compare its
-        // payload identity. This avoids appending a second copy after a legacy
-        // row acquires an explicit id.
-        matchingRowIDs.append(contentsOf: collection.order.filter { candidate in
-            guard let data = collection.rows[candidate],
-                  let object = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) as? [String: Any]
-            else { return false }
-            return Self.nonEmptyString(object["id"]) == id
-        })
-        if let alternateField {
-            matchingRowIDs.append(contentsOf: collection.order.filter { candidate in
-                guard let data = collection.rows[candidate],
-                      let object = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) as? [String: Any]
-                else { return false }
-                return Self.nonEmptyString(object[alternateField.name]) == alternateField.value
-            })
-        }
-        var uniqueMatches: [String] = []
-        for candidate in matchingRowIDs where !uniqueMatches.contains(candidate) {
-            uniqueMatches.append(candidate)
-        }
+        // The collection index handles both explicit and positional storage
+        // keys. Duplicate identities remain visible as multiple matches and
+        // therefore force snapshot recovery below.
+        let uniqueMatches = collection.matchingRowIDs(id: id, alternateField: alternateField)
         guard uniqueMatches.count <= 1 else { return false }
         let rowID = uniqueMatches.first
+        let existingObject = rowID.flatMap { collection.object(forRowID: $0) }
         if let rowID,
-           let existingData = collection.rows[rowID],
-           let existingObject = try? JSONSerialization.jsonObject(with: existingData, options: [.fragmentsAllowed]) as? [String: Any],
-           let existingID = Self.nonEmptyString(existingObject["id"]),
+           let existingID = existingObject.flatMap({ Self.nonEmptyString($0["id"]) }),
            let explicitID,
            existingID != explicitID {
             // An explicit identity cannot silently claim a different row found
@@ -818,21 +992,18 @@ struct CloudVMStateDocument: Hashable, Codable, Sendable {
         }
         var storedData = rowData
         if let rowID,
-           let existingData = collection.rows[rowID],
            explicitID == nil,
-           let existingObject = try? JSONSerialization.jsonObject(with: existingData, options: [.fragmentsAllowed]) as? [String: Any],
-           let existingID = Self.nonEmptyString(existingObject["id"]) {
+           let existingID = existingObject.flatMap({ Self.nonEmptyString($0["id"]) }) {
             var merged = value
             merged["id"] = existingID
             guard let mergedData = Self.canonicalData(merged) else { return false }
             storedData = mergedData
-        }
-        if let rowID {
-            collection.rows[rowID] = storedData
+            collection.replaceRow(rowID: rowID, data: storedData, object: merged)
+        } else if let rowID {
+            collection.replaceRow(rowID: rowID, data: storedData, object: value)
         } else {
             let newID = Self.uniqueRowKey(id, in: collection.rows)
-            collection.order.append(newID)
-            collection.rows[newID] = storedData
+            collection.insertRow(rowID: newID, data: storedData, object: value)
         }
         // Commit the collection replacement only after every identity and
         // serialization guard has passed. A failed delta must leave the
@@ -850,28 +1021,10 @@ struct CloudVMStateDocument: Hashable, Codable, Sendable {
         alternateField: (name: String, value: String)? = nil
     ) -> Bool {
         guard var collection = collections[collectionKey] else { return false }
-        var matchingRowIDs: [String] = []
-        for candidate in collection.order {
-            guard let data = collection.rows[candidate],
-                  let object = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) as? [String: Any]
-            else { continue }
-            let payloadID = Self.nonEmptyString(object["id"])
-            let matchesID = candidate == id || payloadID == id
-            let matchesAlternate = alternateField.map {
-                Self.nonEmptyString(object[$0.name]) == $0.value
-            } ?? false
-            if matchesID || matchesAlternate {
-                matchingRowIDs.append(candidate)
-            }
-        }
-        var uniqueMatches: [String] = []
-        for candidate in matchingRowIDs where !uniqueMatches.contains(candidate) {
-            uniqueMatches.append(candidate)
-        }
+        let uniqueMatches = collection.matchingRowIDs(id: id, alternateField: alternateField)
         guard uniqueMatches.count == 1,
               let rowID = uniqueMatches.first,
-              let rowData = collection.rows[rowID],
-              let rowObject = try? JSONSerialization.jsonObject(with: rowData, options: [.fragmentsAllowed]) as? [String: Any]
+              let rowObject = collection.object(forRowID: rowID)
         else { return false }
         // A relationship fallback is valid only for an id-less legacy row or
         // the exact requested identity. If a stale relationship points at a
@@ -888,9 +1041,7 @@ struct CloudVMStateDocument: Hashable, Codable, Sendable {
             // row.
             return false
         }
-        guard let index = collection.order.firstIndex(of: rowID) else { return false }
-        collection.order.remove(at: index)
-        collection.rows.removeValue(forKey: rowID)
+        collection.removeRow(rowID: rowID, object: rowObject)
         collections[collectionKey] = collection
         canonicalDataCache = nil
         return true
@@ -1148,7 +1299,16 @@ struct CloudVMState: Hashable, Codable, Sendable {
     var workspaceIDs: Set<String> { Set(workspaces.map(\.id)) }
 
     func entity(kind: String, id: String) -> CloudVMEntity? {
-        entities(kind: kind).first { $0.id == id }
+        let key = Self.snapshotKey(for: kind)
+        guard key != "cursor" else { return nil }
+        if let entity = document.entity(forCollectionKey: key, id: id) {
+            return entity
+        }
+        // A present fragment with no unique matching identity is deliberately
+        // not allowed to fall through to `first`. That would turn duplicate or
+        // malformed daemon rows into an unsafe arbitrary selection.
+        guard !document.containsFragment(key) else { return nil }
+        return otherEntities.first { $0.kind == key && $0.id == id }
     }
 
     /// Unified read access for agents and future features. Known typed kinds

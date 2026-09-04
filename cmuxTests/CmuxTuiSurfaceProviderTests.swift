@@ -1288,6 +1288,30 @@ import Testing
         #expect(missingRelationshipDocument.data() == missingRelationshipBefore)
     }
 
+    @Test func entityLookupUsesCanonicalIdentityAndFailsClosedOnDuplicates() throws {
+        var snapshot = Self.sessionSnapshot
+        snapshot["notifications"] = (0..<256).map { index in
+            [
+                "id": "notice-\(index)",
+                "body": "Build \(index)",
+                "metadata": ["owner": "agent-\(index % 5)"],
+            ] as [String: Any]
+        }
+        let state = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: snapshot, machine: Self.machine))
+        let entity = try #require(state.entity(kind: "notification", id: "notice-173"))
+        #expect(entity.kind == "notifications")
+        #expect(entity.id == "notice-173")
+        let payload = try #require(JSONSerialization.jsonObject(with: entity.payload) as? [String: Any])
+        #expect(payload["body"] as? String == "Build 173")
+
+        snapshot["notifications"] = [
+            ["id": "notice-duplicate", "body": "first"],
+            ["id": "notice-duplicate", "body": "second"],
+        ]
+        let duplicateState = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: snapshot, machine: Self.machine))
+        #expect(duplicateState.entity(kind: "notification", id: "notice-duplicate") == nil)
+    }
+
     @Test func legacySnapshotRemainsReadableButIsSnapshotOnly() throws {
         var snapshot = Self.sessionSnapshot
         snapshot.removeValue(forKey: "cursor")
