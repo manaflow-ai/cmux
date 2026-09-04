@@ -61,6 +61,7 @@ public actor IrxRelayCredentialAutopilot {
         journal.record("credential-autopilot", "started")
     }
 
+    /// Stops the refresh loop and invalidates any in-flight rotation it owns.
     public func stop() async {
         loopGeneration &+= 1
         await rotationGate.invalidate()
