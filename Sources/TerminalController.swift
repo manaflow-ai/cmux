@@ -8733,7 +8733,6 @@ class TerminalController {
                             "surface_id": ctx.surfaceId.uuidString,
                             "surface_ref": v2Ref(kind: .surface, uuid: ctx.surfaceId)
                         ]
-                        v2BrowserAppendPostSnapshot(params: params, surfaceId: ctx.surfaceId, payload: &payload)
                         return .ok(payload)
                     case .unsupported, .eventCreationFailed:
                         // The descriptor was resolved before entering this branch;

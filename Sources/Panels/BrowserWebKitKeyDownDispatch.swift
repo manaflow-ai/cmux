@@ -4,17 +4,49 @@ import ObjectiveC
 import WebKit
 
 @MainActor
-private var cmuxBrowserWebKitKeyDownDispatchDepth = 0
+final class BrowserNativeInputDeliveryOwner {
+    private var dispatchDepth = 0
+    private var heldModifierKeys: [UInt16: BrowserKeyboardNativeModifiers] = [:]
+
+    var isDispatchActive: Bool { dispatchDepth > 0 }
+
+    var activeModifierFlags: NSEvent.ModifierFlags {
+        heldModifierKeys.values.reduce(into: NSEvent.ModifierFlags()) { flags, modifier in
+            if modifier.contains(.shift) { flags.insert(.shift) }
+            if modifier.contains(.control) { flags.insert(.control) }
+            if modifier.contains(.option) { flags.insert(.option) }
+            if modifier.contains(.command) { flags.insert(.command) }
+            if modifier.contains(.capsLock) { flags.insert(.capsLock) }
+            if modifier.contains(.function) { flags.insert(.function) }
+        }
+    }
+
+    func withDispatch<T>(_ body: () -> T) -> T {
+        dispatchDepth += 1
+        defer { dispatchDepth = max(0, dispatchDepth - 1) }
+        return body()
+    }
+
+    func setModifier(_ modifier: BrowserKeyboardNativeModifiers, for keyCode: UInt16) {
+        heldModifierKeys[keyCode] = modifier
+    }
+
+    func removeModifier(for keyCode: UInt16) {
+        heldModifierKeys.removeValue(forKey: keyCode)
+    }
+
+    fileprivate static let associationKey = BrowserNativeInputDeliveryOwnerAssociationKey()
+}
+
+private final class BrowserNativeInputDeliveryOwnerAssociationKey: NSObject {
+}
 
 @MainActor
-private var cmuxBrowserNativeModifierStateKey: UInt8 = 0
-
-@MainActor
-private final class BrowserNativeModifierState {
-    // Scoped to one WKWebView through the associated-object key below. A
-    // replaced WebView therefore cannot inherit a held modifier from the old
-    // document, and no process-global keyboard state is shared by surfaces.
-    var flags: NSEvent.ModifierFlags = []
+func cmuxWithBrowserWebKitKeyDownDispatch<T>(
+    for webView: WKWebView,
+    _ body: () -> T
+) -> T {
+    webView.browserNativeInputDeliveryOwner.withDispatch(body)
 }
 
 /// The outcome of delivering one browser automation key through AppKit.
@@ -30,23 +62,9 @@ nonisolated enum BrowserKeyboardReplayResult: Sendable, Equatable {
 }
 
 @MainActor
-func cmuxBrowserWebKitKeyDownDispatchIsActive() -> Bool {
-    cmuxBrowserWebKitKeyDownDispatchDepth > 0
-}
-
-@MainActor
-func cmuxWithBrowserWebKitKeyDownDispatch<T>(_ body: () -> T) -> T {
-    cmuxBrowserWebKitKeyDownDispatchDepth += 1
-    defer {
-        cmuxBrowserWebKitKeyDownDispatchDepth = max(0, cmuxBrowserWebKitKeyDownDispatchDepth - 1)
-    }
-    return body()
-}
-
-@MainActor
 extension CmuxWebView {
     func forwardKeyDownToWebKit(_ event: NSEvent) {
-        cmuxWithBrowserWebKitKeyDownDispatch {
+        browserNativeInputDeliveryOwner.withDispatch {
             super.keyDown(with: event)
         }
     }
@@ -80,7 +98,7 @@ extension WKWebView {
             )
         }
 
-        let activeModifiers = browserNativeModifierState.flags
+        let activeModifiers = browserNativeInputDeliveryOwner.activeModifierFlags
         let specification = SyntheticKeyEventFactory.specification(
             forBrowserNativeKey: nativeKey,
             additionalModifierFlags: activeModifiers
@@ -145,7 +163,7 @@ extension WKWebView {
             // already-focused window so the CGEvent retains its native context;
             // the dispatch-depth guard keeps cmux shortcut routing from seeing
             // the re-entry as a second user event.
-            cmuxWithBrowserWebKitKeyDownDispatch {
+            browserNativeInputDeliveryOwner.withDispatch {
                 window.sendEvent(event)
             }
             return
@@ -153,31 +171,33 @@ extension WKWebView {
         if let cmuxWebView = self as? CmuxWebView {
             cmuxWebView.forwardKeyDownToWebKit(event)
         } else {
-            cmuxWithBrowserWebKitKeyDownDispatch {
+            browserNativeInputDeliveryOwner.withDispatch {
                 keyDown(with: event)
             }
         }
     }
 
     private func deliverBrowserKeyUp(_ event: NSEvent) {
-        cmuxWithBrowserWebKitKeyDownDispatch {
+        browserNativeInputDeliveryOwner.withDispatch {
             keyUp(with: event)
         }
     }
 
-    private var browserNativeModifierState: BrowserNativeModifierState {
-        if let state = objc_getAssociatedObject(self, &cmuxBrowserNativeModifierStateKey)
-            as? BrowserNativeModifierState {
-            return state
+    var browserNativeInputDeliveryOwner: BrowserNativeInputDeliveryOwner {
+        if let owner = objc_getAssociatedObject(
+            self,
+            Unmanaged.passUnretained(BrowserNativeInputDeliveryOwner.associationKey).toOpaque()
+        ) as? BrowserNativeInputDeliveryOwner {
+            return owner
         }
-        let state = BrowserNativeModifierState()
+        let owner = BrowserNativeInputDeliveryOwner()
         objc_setAssociatedObject(
             self,
-            &cmuxBrowserNativeModifierStateKey,
-            state,
+            Unmanaged.passUnretained(BrowserNativeInputDeliveryOwner.associationKey).toOpaque(),
+            owner,
             .OBJC_ASSOCIATION_RETAIN_NONATOMIC
         )
-        return state
+        return owner
     }
 
     private func replayBrowserModifier(
@@ -189,10 +209,9 @@ extension WKWebView {
             return .eventCreationFailed
         }
 
-        let state = browserNativeModifierState
         switch action {
         case .press:
-            let originalFlags = state.flags
+            let originalFlags = browserNativeInputDeliveryOwner.activeModifierFlags
             let pressedFlags = originalFlags.union(appKitFlag)
             guard deliverBrowserFlagsChanged(key, flags: pressedFlags) else {
                 return .eventCreationFailed
@@ -204,16 +223,15 @@ extension WKWebView {
                 return .eventCreationFailed
             }
         case .keyDown:
-            state.flags.insert(appKitFlag)
-            guard deliverBrowserFlagsChanged(key, flags: state.flags) else {
-                state.flags.remove(appKitFlag)
+            browserNativeInputDeliveryOwner.setModifier(modifierKey, for: key.keyCode)
+            guard deliverBrowserFlagsChanged(key, flags: browserNativeInputDeliveryOwner.activeModifierFlags) else {
+                browserNativeInputDeliveryOwner.removeModifier(for: key.keyCode)
                 return .eventCreationFailed
             }
         case .keyUp:
-            let originalFlags = state.flags
-            state.flags.remove(appKitFlag)
-            guard deliverBrowserFlagsChanged(key, flags: state.flags) else {
-                state.flags = originalFlags
+            browserNativeInputDeliveryOwner.removeModifier(for: key.keyCode)
+            guard deliverBrowserFlagsChanged(key, flags: browserNativeInputDeliveryOwner.activeModifierFlags) else {
+                browserNativeInputDeliveryOwner.setModifier(modifierKey, for: key.keyCode)
                 return .eventCreationFailed
             }
         }
@@ -238,7 +256,7 @@ extension WKWebView {
         ) else {
             return false
         }
-        cmuxWithBrowserWebKitKeyDownDispatch {
+        browserNativeInputDeliveryOwner.withDispatch {
             flagsChanged(with: event)
         }
         return true

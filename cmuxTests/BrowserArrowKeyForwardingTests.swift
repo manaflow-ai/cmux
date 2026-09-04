@@ -62,6 +62,19 @@ final class BrowserArrowKeyForwardingTests: XCTestCase {
         XCTAssertFalse(shouldDispatchBrowserArrowViaFirstResponderKeyDown(keyCode: 125, firstResponderIsBrowser: true, flags: [.command, .option]))
     }
 
+    @MainActor
+    func testNativeModifierOwnerKeepsShiftHeldUntilBothPhysicalKeysRelease() {
+        let owner = BrowserNativeInputDeliveryOwner()
+        owner.setModifier(.shift, for: 56)
+        owner.setModifier(.shift, for: 60)
+        owner.removeModifier(for: 56)
+
+        XCTAssertTrue(owner.activeModifierFlags.contains(.shift))
+
+        owner.removeModifier(for: 60)
+        XCTAssertFalse(owner.activeModifierFlags.contains(.shift))
+    }
+
     func testNativeBrowserArrowMappingUsesMacVirtualKeys() {
         let expected: [(String, UInt16)] = [
             ("ArrowLeft", 123),
