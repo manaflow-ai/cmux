@@ -1156,7 +1156,7 @@ struct CloudVMState: Hashable, Codable, Sendable {
     }
 
     func agentEntityObject(_ entity: CloudVMEntity) -> Any {
-        guard let object = try? JSONSerialization.jsonObject(with: entity.payload) else {
+        guard let object = try? JSONSerialization.jsonObject(with: entity.payload, options: [.fragmentsAllowed]) else {
             return NSNull()
         }
         return Self.redact(object, context: [entity.kind])
