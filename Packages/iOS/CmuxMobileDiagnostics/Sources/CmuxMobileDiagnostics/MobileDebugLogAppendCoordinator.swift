@@ -13,11 +13,6 @@ final class MobileDebugLogAppendCoordinator: @unchecked Sendable {
         case barrier(Acknowledgement)
     }
 
-    private struct State: Sendable {
-        var entries: [Entry] = []
-        var finished = false
-    }
-
     private final class Acknowledgement: @unchecked Sendable {
         private let lock = NSLock()
         private var continuation: CheckedContinuation<Bool, Never>?
@@ -68,73 +63,132 @@ final class MobileDebugLogAppendCoordinator: @unchecked Sendable {
         }
     }
 
-    private let sink: MobileDebugLogSink
-    private let lock = NSLock()
-    private var state = State()
-    private let maxBufferedEntries: Int
-    private let wakeContinuation: AsyncStream<Void>.Continuation
-    private var wakeIterator: AsyncStream<Void>.Iterator
+    /// Shared drain state lives outside the coordinator so the detached drain
+    /// task cannot retain the coordinator while it waits for new entries.
+    private final class Storage: @unchecked Sendable {
+        private struct State: Sendable {
+            var entries: [Entry] = []
+            var finished = false
+        }
+
+        private let lock = NSLock()
+        private var state = State()
+        private let maxBufferedEntries: Int
+        private let wakeContinuation: AsyncStream<Void>.Continuation
+        private var wakeIterator: AsyncStream<Void>.Iterator
+
+        init(maxBufferedEntries: Int) {
+            self.maxBufferedEntries = max(1, maxBufferedEntries)
+            let (stream, continuation) = AsyncStream<Void>.makeStream(
+                bufferingPolicy: .bufferingNewest(1)
+            )
+            wakeContinuation = continuation
+            wakeIterator = stream.makeAsyncIterator()
+        }
+
+        func finish() -> [Entry] {
+            let pending = withStateLock { state in
+                state.finished = true
+                let pending = state.entries
+                state.entries.removeAll(keepingCapacity: false)
+                return pending
+            }
+            wakeContinuation.finish()
+            return pending
+        }
+
+        func enqueue(_ message: String) {
+            withStateLock { state in
+                guard !state.finished else { return }
+                if state.entries.count >= maxBufferedEntries,
+                   let oldestLine = state.entries.firstIndex(where: { entry in
+                       if case .line = entry { return true }
+                       return false
+                   }) {
+                    state.entries.remove(at: oldestLine)
+                }
+                state.entries.append(.line(message))
+            }
+            wakeContinuation.yield(())
+        }
+
+        func admit(_ acknowledgement: Acknowledgement) -> Bool {
+            let admitted = withStateLock { state in
+                guard !state.finished else { return false }
+                state.entries.append(.barrier(acknowledgement))
+                return true
+            }
+            if admitted {
+                wakeContinuation.yield(())
+            }
+            return admitted
+        }
+
+        func nextBatch() async -> [Entry]? {
+            while true {
+                let batch = withStateLock { state -> [Entry]? in
+                    guard !state.entries.isEmpty else {
+                        return state.finished ? nil : []
+                    }
+                    let batch = state.entries
+                    state.entries.removeAll(keepingCapacity: true)
+                    return batch
+                }
+                if let batch, !batch.isEmpty { return batch }
+                if batch == nil { return nil }
+                guard await wakeIterator.next() != nil else {
+                    return withStateLock { state in
+                        guard !state.entries.isEmpty else { return nil }
+                        let batch = state.entries
+                        state.entries.removeAll(keepingCapacity: true)
+                        return batch
+                    }
+                }
+            }
+        }
+
+        private func withStateLock<T>(_ body: (inout State) -> T) -> T {
+            lock.lock()
+            defer { lock.unlock() }
+            return body(&state)
+        }
+    }
+
+    private let storage: Storage
     private static let drainWaitTimeoutNanoseconds: UInt64 = 5_000_000_000
 
     init(sink: MobileDebugLogSink, maxBufferedEntries: Int = 2_048) {
-        self.sink = sink
-        self.maxBufferedEntries = max(1, maxBufferedEntries)
-        let (stream, continuation) = AsyncStream<Void>.makeStream(
-            bufferingPolicy: .bufferingNewest(1)
-        )
-        wakeContinuation = continuation
-        wakeIterator = stream.makeAsyncIterator()
-        Task.detached { [weak self] in
-            await self?.drain()
+        let storage = Storage(maxBufferedEntries: maxBufferedEntries)
+        self.storage = storage
+        Task.detached { [storage, sink] in
+            await Self.drain(storage: storage, sink: sink)
         }
     }
 
     deinit {
-        let pending = withStateLock { state in
-            state.finished = true
-            let pending = state.entries
-            state.entries.removeAll(keepingCapacity: false)
-            return pending
-        }
+        let pending = storage.finish()
         for entry in pending {
             if case .barrier(let acknowledgement) = entry {
                 acknowledgement.signal(false)
             }
         }
-        wakeContinuation.finish()
     }
 
     func enqueue(_ message: String) {
-        withStateLock { state in
-            guard !state.finished else { return }
-            if state.entries.count >= maxBufferedEntries,
-               let oldestLine = state.entries.firstIndex(where: { entry in
-                   if case .line = entry { return true }
-                   return false
-               }) {
-                state.entries.remove(at: oldestLine)
-            }
-            state.entries.append(.line(message))
-        }
-        wakeContinuation.yield(())
+        storage.enqueue(message)
     }
 
     func flush() async -> Bool {
         let acknowledgement = Acknowledgement()
-        let admitted = withStateLock { state in
-            guard !state.finished else { return false }
-            state.entries.append(.barrier(acknowledgement))
-            return true
-        }
+        let admitted = storage.admit(acknowledgement)
         guard admitted else { return false }
-        wakeContinuation.yield(())
         return await acknowledgement.wait(
             timeoutNanoseconds: Self.drainWaitTimeoutNanoseconds
         )
     }
 
-    private func drain() async {
-        while let batch = await nextBatch() {
+    private static func drain(storage: Storage, sink: MobileDebugLogSink) async {
+        while let batch = await storage.nextBatch() {
             for entry in batch {
                 switch entry {
                 case .line(let message):
@@ -144,34 +198,5 @@ final class MobileDebugLogAppendCoordinator: @unchecked Sendable {
                 }
             }
         }
-    }
-
-    private func nextBatch() async -> [Entry]? {
-        while true {
-            let batch = withStateLock { state -> [Entry]? in
-                guard !state.entries.isEmpty else {
-                    return state.finished ? nil : []
-                }
-                let batch = state.entries
-                state.entries.removeAll(keepingCapacity: true)
-                return batch
-            }
-            if let batch, !batch.isEmpty { return batch }
-            if batch == nil { return nil }
-            guard await wakeIterator.next() != nil else {
-                return withStateLock { state in
-                    guard !state.entries.isEmpty else { return nil }
-                    let batch = state.entries
-                    state.entries.removeAll(keepingCapacity: true)
-                    return batch
-                }
-            }
-        }
-    }
-
-    private func withStateLock<T>(_ body: (inout State) -> T) -> T {
-        lock.lock()
-        defer { lock.unlock() }
-        return body(&state)
     }
 }
