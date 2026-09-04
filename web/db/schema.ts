@@ -1865,3 +1865,9 @@ export const stackIdentitySnapshots = pgTable(
     index("stack_identity_snapshots_refreshed_idx").on(table.refreshedAt),
   ],
 );
+
+/** Fleet-wide dedupe ledger for operator alerts on missing rate limits. */
+export const rateLimitAlertReports = pgTable("rate_limit_alert_reports", {
+  alertKey: text("alert_key").primaryKey(),
+  reportedAt: timestamp("reported_at", { withTimezone: true }).notNull().defaultNow(),
+});
