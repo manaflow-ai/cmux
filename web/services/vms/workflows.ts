@@ -12,6 +12,7 @@ import type {
   SSHEndpoint,
   VmEdgeRule,
   VMHandle,
+  VMStats,
   VMStatus,
 } from "./drivers";
 import { isProviderId, vmCapabilitiesFor } from "./drivers";
@@ -45,6 +46,7 @@ import {
   vmProviderResourceSize,
   type VmResourceReservation,
   type VmResourceResizePending,
+  type VmResourceResizeUnconfirmed,
 } from "./machineSpec";
 import {
   VmBillingError,
@@ -1598,6 +1600,145 @@ function deferLegacyResourceCandidate(
   }).pipe(Effect.catchAll(() => Effect.void));
 }
 
+type ResourceReservationWriter = NonNullable<VmRepositoryShape["setResourceReservation"]>;
+type ResizeUnconfirmedWriter = NonNullable<VmRepositoryShape["markVmResizeUnconfirmed"]>;
+
+function reservationFromLegacyProviderStats(
+  stats: VMStats,
+  existing: VmResourceReservation,
+  diskMb: number,
+  minimumDiskMb: number,
+): VmResourceReservation {
+  return {
+    ...existing,
+    vcpus: vmProviderResourceSize("vcpus", stats.cpus) ?? existing.vcpus,
+    memoryMb: vmProviderResourceSize("memoryMb", stats.memoryTotalMb) ?? existing.memoryMb,
+    diskMb: Math.max(minimumDiskMb, diskMb),
+  };
+}
+
+function reconcilePendingForkReservation(input: {
+  readonly setReservation: ResourceReservationWriter;
+  readonly vmId: string;
+  readonly stats: VMStats;
+  readonly existing: VmResourceReservation;
+  readonly minimum: VmResourceReservation;
+  readonly diskMb: number;
+}) {
+  // The temporary headroom claim is larger than the copied VM by design.
+  // Replace each valid dimension with the measured shape while retaining the
+  // source claim as a floor. An invalid dimension keeps its full temporary
+  // hold so a partial provider response cannot undercount.
+  const observedVcpus = vmProviderResourceSize("vcpus", input.stats.cpus);
+  const observedMemoryMb = vmProviderResourceSize("memoryMb", input.stats.memoryTotalMb);
+  const reservation = {
+    vcpus: observedVcpus === null
+      ? input.existing.vcpus
+      : Math.max(input.minimum.vcpus, observedVcpus),
+    memoryMb: observedMemoryMb === null
+      ? input.existing.memoryMb
+      : Math.max(input.minimum.memoryMb, observedMemoryMb),
+    diskMb: Math.max(input.minimum.diskMb, input.diskMb),
+  };
+  return input.setReservation({
+    id: input.vmId,
+    reservation,
+    expectedReservation: input.existing,
+  }).pipe(Effect.asVoid);
+}
+
+function recoverIncompletePendingResize(input: {
+  readonly repo: VmRepositoryShape;
+  readonly markUnconfirmed: ResizeUnconfirmedWriter | undefined;
+  readonly vm: CloudVmRow;
+  readonly existing: VmResourceReservation;
+  readonly pending: VmResourceResizePending;
+}) {
+  // A worker can die after reserving headroom but before provider I/O. After
+  // the recovery window, retain a maximum claim until stats prove that the
+  // requested size exists.
+  if (!input.markUnconfirmed || !resizePendingHasExpired(input.pending)) {
+    return deferLegacyResourceCandidate(input.repo, input.vm);
+  }
+  return input.markUnconfirmed({
+    id: input.vm.id,
+    expectedDiskMb: input.existing.diskMb,
+    minimumDiskMb: input.pending.requestedDiskMb,
+    previousDiskMb: input.pending.previousDiskMb,
+    operationId: input.pending.operationId,
+  }).pipe(
+    Effect.asVoid,
+    Effect.catchAll(() => deferLegacyResourceCandidate(input.repo, input.vm)),
+  );
+}
+
+function reconcileUnconfirmedResize(input: {
+  readonly repo: VmRepositoryShape;
+  readonly setReservation: ResourceReservationWriter;
+  readonly vm: CloudVmRow;
+  readonly stats: VMStats;
+  readonly existing: VmResourceReservation;
+  readonly unconfirmed: VmResourceResizeUnconfirmed;
+  readonly diskMb: number;
+}) {
+  // Keep the maximum claim while the provider reports a stale size. Clearing
+  // the marker before the requested size is observed would undercount the pool.
+  if (input.diskMb < input.unconfirmed.requestedDiskMb) {
+    if (!unconfirmedResizeRecoveryHasExpired(input.vm, input.unconfirmed)) {
+      return deferLegacyResourceCandidate(input.repo, input.vm);
+    }
+    // The provider stayed below the requested size for the complete recovery
+    // window. Assume the resize never applied and release the temporary claim.
+    const reservation = reservationFromLegacyProviderStats(
+      input.stats,
+      input.existing,
+      input.diskMb,
+      Math.max(
+        DEFAULT_VM_RESOURCE_RESERVATION.diskMb,
+        input.unconfirmed.previousDiskMb ?? 0,
+      ),
+    );
+    return input.setReservation({
+      id: input.vm.id,
+      reservation,
+      expectedResizeUnconfirmedOperationId: input.unconfirmed.operationId,
+    }).pipe(Effect.asVoid);
+  }
+  const reservation = reservationFromLegacyProviderStats(
+    input.stats,
+    input.existing,
+    input.diskMb,
+    input.unconfirmed.requestedDiskMb,
+  );
+  return input.setReservation({
+    id: input.vm.id,
+    reservation,
+    expectedResizeUnconfirmedOperationId: input.unconfirmed.operationId,
+  }).pipe(Effect.asVoid);
+}
+
+function reconcileMeasuredLegacyReservation(input: {
+  readonly setReservation: ResourceReservationWriter;
+  readonly vmId: string;
+  readonly stats: VMStats;
+  readonly existing: VmResourceReservation;
+  readonly pending: VmResourceResizePending | null;
+  readonly diskMb: number;
+}) {
+  const minimumDiskMb = input.pending?.requestedDiskMb ?? DEFAULT_VM_RESOURCE_RESERVATION.diskMb;
+  const reservation = reservationFromLegacyProviderStats(
+    input.stats,
+    input.existing,
+    input.diskMb,
+    minimumDiskMb,
+  );
+  return input.setReservation({
+    id: input.vmId,
+    reservation,
+    ...(input.pending ? { expectedResizeOperationId: input.pending.operationId } : {}),
+  }).pipe(Effect.asVoid);
+}
+
 /** Reconcile one legacy row, keeping provider work outside the request path. */
 function reconcileLegacyResourceCandidate(
   repo: VmRepositoryShape,
@@ -1657,106 +1798,43 @@ function reconcileLegacyResourceCandidate(
       if (diskMb === null) return deferLegacyResourceCandidate(repo, vm);
       const existing = vmResourceReservationFromMetadata(metadata);
       if (hasForkPendingMarker && forkMinimumReservation) {
-        // The temporary headroom claim is larger than the copied VM by design.
-        // Replace each valid dimension with the measured shape while retaining
-        // the source claim as a floor. An invalid dimension keeps its full
-        // temporary hold so a partial provider response cannot undercount.
-        const observedVcpus = vmProviderResourceSize("vcpus", stats.cpus);
-        const observedMemoryMb = vmProviderResourceSize("memoryMb", stats.memoryTotalMb);
-        const reservation = {
-          vcpus: observedVcpus === null
-            ? existing.vcpus
-            : Math.max(forkMinimumReservation.vcpus, observedVcpus),
-          memoryMb: observedMemoryMb === null
-            ? existing.memoryMb
-            : Math.max(forkMinimumReservation.memoryMb, observedMemoryMb),
-          diskMb: Math.max(forkMinimumReservation.diskMb, diskMb),
-        };
-        return setReservation({
-          id: vm.id,
-          reservation,
-          expectedReservation: existing,
-        }).pipe(Effect.asVoid);
+        return reconcilePendingForkReservation({
+          setReservation,
+          vmId: vm.id,
+          stats,
+          existing,
+          minimum: forkMinimumReservation,
+          diskMb,
+        });
       }
       if (pending && diskMb < pending.requestedDiskMb) {
-        // A worker can die after reserving headroom but before provider I/O.
-        // After the recovery window, retain a maximum claim until stats prove
-        // that the requested size exists.
-        if (!markUnconfirmed || !resizePendingHasExpired(pending)) {
-          return deferLegacyResourceCandidate(repo, vm);
-        }
-        return markUnconfirmed({
-          id: vm.id,
-          expectedDiskMb: existing.diskMb,
-          minimumDiskMb: pending.requestedDiskMb,
-          previousDiskMb: pending.previousDiskMb,
-          operationId: pending.operationId,
-        }).pipe(
-          Effect.asVoid,
-          Effect.catchAll(() => deferLegacyResourceCandidate(repo, vm)),
-        );
+        return recoverIncompletePendingResize({
+          repo,
+          markUnconfirmed,
+          vm,
+          existing,
+          pending,
+        });
       }
       if (unconfirmed) {
-        // Keep the maximum claim while the provider reports a stale size.
-        // Clearing the marker before the requested size is observed would
-        // permanently undercount the shared disk pool.
-        if (diskMb < unconfirmed.requestedDiskMb) {
-          if (!unconfirmedResizeRecoveryHasExpired(vm, unconfirmed)) {
-            return deferLegacyResourceCandidate(repo, vm);
-          }
-          // The provider stayed below the requested size for the complete
-          // recovery window. Assume the resize never applied and release the
-          // temporary maximum claim, retaining the recorded previous claim or
-          // the larger observed disk. Older markers lack the previous claim,
-          // so the provider's current size is the only trustworthy fallback.
-          const reservation = {
-            ...existing,
-            vcpus: vmProviderResourceSize("vcpus", stats.cpus) ?? existing.vcpus,
-            memoryMb: vmProviderResourceSize("memoryMb", stats.memoryTotalMb) ?? existing.memoryMb,
-            diskMb: Math.max(
-              DEFAULT_VM_RESOURCE_RESERVATION.diskMb,
-              unconfirmed.previousDiskMb ?? 0,
-              diskMb,
-            ),
-          };
-          return setReservation({
-            id: vm.id,
-            reservation,
-            expectedResizeUnconfirmedOperationId: unconfirmed.operationId,
-          }).pipe(Effect.asVoid);
-        }
-        const reservation = {
-          ...existing,
-          vcpus: vmProviderResourceSize("vcpus", stats.cpus) ?? existing.vcpus,
-          memoryMb: vmProviderResourceSize("memoryMb", stats.memoryTotalMb) ?? existing.memoryMb,
-          diskMb: Math.max(unconfirmed.requestedDiskMb, diskMb),
-        };
-        return setReservation({
-          id: vm.id,
-          reservation,
-          expectedResizeUnconfirmedOperationId: unconfirmed.operationId,
-        }).pipe(Effect.asVoid);
+        return reconcileUnconfirmedResize({
+          repo,
+          setReservation,
+          vm,
+          stats,
+          existing,
+          unconfirmed,
+          diskMb,
+        });
       }
-      const reservation = pending
-        ? {
-          ...existing,
-          vcpus: vmProviderResourceSize("vcpus", stats.cpus) ?? existing.vcpus,
-          memoryMb: vmProviderResourceSize("memoryMb", stats.memoryTotalMb) ?? existing.memoryMb,
-          diskMb: Math.max(pending.requestedDiskMb, diskMb),
-        }
-        : {
-          ...DEFAULT_VM_RESOURCE_RESERVATION,
-          vcpus: vmProviderResourceSize("vcpus", stats.cpus) ?? existing.vcpus,
-          memoryMb: vmProviderResourceSize("memoryMb", stats.memoryTotalMb) ?? existing.memoryMb,
-          // Never replace the logical starting profile with a smaller
-          // provider report. A larger report remains visible and fails closed.
-          diskMb: Math.max(DEFAULT_VM_RESOURCE_RESERVATION.diskMb, diskMb),
-        };
-      return setReservation({
-        id: vm.id,
-        reservation,
-        ...(pending ? { expectedResizeOperationId: pending.operationId } : {}),
-      }).pipe(Effect.asVoid);
+      return reconcileMeasuredLegacyReservation({
+        setReservation,
+        vmId: vm.id,
+        stats,
+        existing,
+        pending,
+        diskMb,
+      });
     }),
     // An unavailable provider leaves the claim conservative and retries later.
     Effect.catchAll(() => deferLegacyResourceCandidate(repo, vm)),
