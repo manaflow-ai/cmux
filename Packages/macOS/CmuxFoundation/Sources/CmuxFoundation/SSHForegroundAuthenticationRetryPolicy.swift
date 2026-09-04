@@ -657,7 +657,15 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           }
           cmux_ssh_auth_cleanup_has_time() {
             if cmux_ssh_auth_get_remaining_millis; then
-              return 0
+              # Leave enough budget for the bounded signal/cleanup handoff.
+              # Starting another full scan with only a few milliseconds left
+              # recreates the fork-starvation race this helper is meant to
+              # avoid.
+              if [ "$cmux_ssh_auth_remaining_millis" -gt 500 ]; then
+                return 0
+              fi
+              cmux_ssh_auth_deadline_expired=1
+              return 1
             fi
             # A failed clock/probe is itself a degraded cleanup condition. The
             # caller must take the retained-tree force path rather than
