@@ -297,6 +297,15 @@ import Testing
         #expect(CmuxTuiSnapshotParser.terminals(fromSnapshot: [:], machine: Self.machine).isEmpty)
         #expect(CmuxTuiSnapshotParser.terminals(fromSnapshot: ["workspaces": [["name": "no id"]]], machine: Self.machine).isEmpty)
         #expect(CmuxTuiSnapshotParser.terminal(fromSnapshotEntry: ["title": "no id"], machine: Self.machine) == nil)
+        #expect(!CmuxTuiSnapshotParser.hasCompleteVersionedGraph([
+            "cursor": ["generation": "g1", "revision": "1"],
+            "workspaces": [],
+        ]))
+        #expect(CmuxTuiSnapshotParser.hasCompleteVersionedGraph([
+            "cursor": ["generation": "g1", "revision": "1"],
+            "workspaces": [], "screens": [], "panes": [], "tabs": [],
+            "terminals": [], "browsers": [], "agents": [],
+        ]))
     }
 
     @Test func mutationResultsAndLinkLinesParse() {

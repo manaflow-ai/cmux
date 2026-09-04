@@ -258,9 +258,10 @@ extension TerminalController {
             return .err(code: "invalid_params", message: "vm_id is required", data: ["workspace_id": workspaceId.uuidString])
         }
         let isBase = v2Bool(params, "base") ?? false
+        let previousBinding = workspace.cloudVMBinding
         let remoteWorkspaceID = WorkspaceCloudVMBinding.normalizedRemoteWorkspaceID(
             v2RawString(params, "remote_workspace_id")
-        ) ?? workspace.cloudVMBinding?.remoteWorkspaceID
+        ) ?? (previousBinding?.vmID == vmID ? previousBinding?.remoteWorkspaceID : nil)
         workspace.cloudVMBinding = WorkspaceCloudVMBinding(
             vmID: vmID,
             isBase: isBase,

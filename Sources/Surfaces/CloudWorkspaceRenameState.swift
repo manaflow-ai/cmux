@@ -111,6 +111,13 @@ struct CloudWorkspaceRenameIntent: Sendable {
     /// rebased over.
     var baselineCursor: CloudVMCursor?
     var receiptCursor: CloudVMCursor?
+    /// The last canonical name observed in a complete snapshot while this
+    /// intent was pending. It lets an uncertain transport failure settle from
+    /// the fresh graph even when the optimistic overlay masked that value.
+    var observedName: String?
+    /// Cursor of the last complete snapshot observed while pending. A non-nil
+    /// cursor with a nil name means the addressed workspace disappeared.
+    var observedCursor: CloudVMCursor?
 }
 
 /// A token for an optimistic rename.  Rollback is valid only while this token is current;

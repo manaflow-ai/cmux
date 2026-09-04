@@ -349,6 +349,9 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                 throw ProviderError.invalidSnapshot(machineID)
             }
+            guard CmuxTuiSnapshotParser.hasCompleteVersionedGraph(object) else {
+                throw ProviderError.invalidSnapshot(machineID)
+            }
             if CmuxTuiSnapshotParser.snapshotContainsCursor(object) {
                 guard let cursor = CmuxTuiSnapshotParser.cursor(from: object) else {
                     throw ProviderError.invalidSnapshot(machineID)

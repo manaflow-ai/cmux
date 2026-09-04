@@ -126,7 +126,10 @@ struct CloudTreeNodeActions {
                     let targetWorkspaceID = selectedWorkspaceID()
                     run(openingLabel(machine)) { catalog in
                         guard let targetWorkspaceID else {
-                            throw SurfaceCatalogError.destinationNotFound("no selected workspace")
+                            throw SurfaceCatalogError.destinationNotFound(String(
+                                localized: "cloudTree.error.noSelectedWorkspace",
+                                defaultValue: "Select a local workspace and retry."
+                            ))
                         }
                         _ = try await catalog.projectGroup(
                             group.resources,

@@ -31,7 +31,11 @@ enum CloudWorkspaceRenameWriteThrough {
         }
         let normalizedRemoteID = WorkspaceCloudVMBinding.normalizedRemoteWorkspaceID(remoteWorkspaceID)
         let previous = workspace.cloudVMBinding
-        let preservedRemoteID = normalizedRemoteID ?? previous?.remoteWorkspaceID
+        // A remote workspace id is scoped to its machine. Preserve an omitted
+        // id only when the machine itself is unchanged; carrying it across a
+        // move would silently target a same-shaped workspace on another VM.
+        let preservedRemoteID = normalizedRemoteID
+            ?? (previous?.vmID == vmID ? previous?.remoteWorkspaceID : nil)
         workspace.cloudVMBinding = WorkspaceCloudVMBinding(
             vmID: vmID,
             isBase: previous?.vmID == vmID ? (previous?.isBase ?? false) : false,
@@ -72,8 +76,8 @@ enum CloudWorkspaceRenameWriteThrough {
         let catalog = SurfaceCatalog.shared
         let snapshot = catalog.snapshot
         guard isCloudCandidate(workspace: workspace, snapshot: snapshot) else { return }
-        guard let localTitle else { return }
-        guard !localTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        guard let localTitle,
+              !localTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             reject(workspace: workspace, previousCustomTitle: previousCustomTitle, message: String(
                 localized: "cloudTree.error.renameWorkspaceEmpty",
                 defaultValue: "A cloud workspace name cannot be empty."

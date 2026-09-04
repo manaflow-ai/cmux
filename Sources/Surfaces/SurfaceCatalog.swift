@@ -97,6 +97,11 @@ final class SurfaceCatalog {
     /// Retaining the seen set prevents a delayed response from an older link from
     /// time-travelling the catalog after a reconnect established a new generation.
     private var cloudGenerationsByMachine: [SurfaceMachineID: Set<String>] = [:]
+    /// Fingerprint of the workspace identity/name graph at the last accepted
+    /// cursor. Equal cursors with different payloads are protocol-inconsistent;
+    /// rejecting them prevents a delayed duplicate response from restoring an
+    /// old name after the matching rename snapshot was already accepted.
+    private var cloudCursorFingerprints: [SurfaceMachineID: (cursor: CloudVMCursor, value: String)] = [:]
     /// Local write intents stay in the catalog until a remote snapshot confirms them.  This
     /// is deliberately keyed by stable machine/workspace ids, never by a display name.
     private var cloudWorkspaceRenameIntents: [CloudWorkspaceRenameKey: CloudWorkspaceRenameIntent] = [:]
@@ -201,6 +206,7 @@ final class SurfaceCatalog {
         projections = projections.filter { $0.resource.machine != machine }
         cloudCursors[machine] = nil
         cloudGenerationsByMachine[machine] = nil
+        cloudCursorFingerprints[machine] = nil
         cloudWorkspaceRenameIntents = cloudWorkspaceRenameIntents.filter { $0.key.machine != machine }
         notifyChange()
     }
@@ -303,7 +309,9 @@ final class SurfaceCatalog {
             name: normalized,
             previousName: previousName,
             baselineCursor: token.baselineCursor,
-            receiptCursor: nil
+            receiptCursor: nil,
+            observedName: nil,
+            observedCursor: nil
         )
         applyRemoteWorkspaceName(machine: machine, workspaceID: workspaceID, name: normalized)
         return token
@@ -322,6 +330,7 @@ final class SurfaceCatalog {
             // lets a queued rename use the new revision without pretending that unrelated row
             // details are already refreshed; the following snapshot supplies those details.
             cloudCursors[token.key.machine] = receipt
+            cloudCursorFingerprints[token.key.machine] = nil
             acceptedReceipt = receipt
         } else {
             acceptedReceipt = nil
@@ -334,10 +343,14 @@ final class SurfaceCatalog {
             // not get treated as a predecessor and therefore cannot be overwritten.
             newer.baselineCursor = acceptedReceipt
             newer.receiptCursor = nil
+            newer.observedName = nil
+            newer.observedCursor = nil
             cloudWorkspaceRenameIntents[token.key] = newer
         }
         guard var intent = cloudWorkspaceRenameIntents[token.key], intent.sequence == token.sequence else { return }
         intent.receiptCursor = acceptedReceipt
+        intent.observedName = nil
+        intent.observedCursor = nil
         cloudWorkspaceRenameIntents[token.key] = intent
         applyRemoteWorkspaceName(
             machine: token.key.machine,
@@ -362,22 +375,37 @@ final class SurfaceCatalog {
         )
     }
 
-    /// Resolves a failed/uncertain submission only when a fresh read proves that
-    /// no daemon revision was committed. A same-cursor read can safely restore
-    /// the previous value; a newer cursor or a new generation remains pending so
-    /// a lost response can never make the old name flash back over a real commit.
+    /// Resolves a failed/uncertain submission after the provider has attempted a
+    /// fresh read. If that read observed a canonical name, accept it—even when
+    /// its generation differs—because the optimistic overlay is no longer a
+    /// safe source of truth. Without an observed graph, leave the intent pending.
     func resolveFailedCloudWorkspaceRename(_ token: CloudWorkspaceRenameToken) {
-        guard let intent = cloudWorkspaceRenameIntents[token.key], intent.sequence == token.sequence,
-              let current = cloudCursors[token.key.machine],
-              let baseline = intent.receiptCursor ?? intent.baselineCursor,
-              current == baseline else {
+        guard let intent = cloudWorkspaceRenameIntents[token.key], intent.sequence == token.sequence else {
+            return
+        }
+        let name: String
+        if let observedName = intent.observedName {
+            name = observedName
+        } else if intent.observedCursor != nil {
+            // The fresh graph was accepted but no longer contains this
+            // workspace. Restore the predecessor in any detached local
+            // projection; retaining the requested label would be misleading.
+            name = intent.previousName
+        } else if let current = cloudCursors[token.key.machine],
+                  let baseline = intent.receiptCursor ?? intent.baselineCursor,
+                  current == baseline {
+            // No accepted snapshot followed the submission; the catalog is
+            // still exactly at the compare-and-swap base, so restoring the
+            // canonical predecessor is safe.
+            name = intent.previousName
+        } else {
             return
         }
         cloudWorkspaceRenameIntents[token.key] = nil
         applyRemoteWorkspaceName(
             machine: token.key.machine,
             workspaceID: token.key.workspaceID,
-            name: intent.previousName
+            name: name
         )
     }
 
@@ -449,6 +477,16 @@ final class SurfaceCatalog {
 
         var mergedInfo = info
         var mergedResources = list
+        let incomingFingerprint = cloudWorkspaceGraphFingerprint(info: info, resources: list)
+        if let cursor,
+           let existing = cloudCursorFingerprints[machine],
+           existing.cursor == cursor,
+           existing.value != incomingFingerprint {
+            // A cursor identifies one immutable graph cut. Do not let a stale
+            // response with the same cursor but an older payload time-travel
+            // the catalog; callers will receive the next authoritative refresh.
+            return false
+        }
         reconcilePendingCloudWorkspaceRenames(
             machine: machine,
             cursor: cursor,
@@ -470,6 +508,7 @@ final class SurfaceCatalog {
         if let cursor {
             cloudCursors[machine] = cursor
             cloudGenerationsByMachine[machine, default: []].insert(cursor.generation)
+            cloudCursorFingerprints[machine] = (cursor: cursor, value: incomingFingerprint)
         }
         resolvePendingRestoredProjections(on: machine)
         CloudWorkspaceRenameWriteThrough.reconcileRemoteProjections(catalog: self)
@@ -653,7 +692,7 @@ final class SurfaceCatalog {
     ) {
         let keys = cloudWorkspaceRenameIntents.keys.filter { $0.machine == machine }
         for key in keys {
-            guard let intent = cloudWorkspaceRenameIntents[key] else { continue }
+            guard var intent = cloudWorkspaceRenameIntents[key] else { continue }
             let incomingName = Self.remoteWorkspaceName(
                 workspaceID: key.workspaceID,
                 info: info,
@@ -662,6 +701,13 @@ final class SurfaceCatalog {
             var overlay = true
             var clear = false
             if let cursor {
+                // Capture the unoverlaid value before deciding whether the
+                // intent should remain visible. This is the only observation
+                // available to an uncertain-failure resolver after we merge
+                // the optimistic name into the stored graph.
+                intent.observedName = incomingName
+                intent.observedCursor = cursor
+                cloudWorkspaceRenameIntents[key] = intent
                 let baseline = intent.receiptCursor ?? intent.baselineCursor
                 if let baseline, cursor.generation == baseline.generation {
                     if incomingName == intent.name {
@@ -683,21 +729,13 @@ final class SurfaceCatalog {
                     // comparable, but a matching name is an unambiguous receipt.
                     overlay = false
                     clear = true
-                } else if incomingName == nil {
-                    // A complete, newer generation no longer contains the
-                    // addressed workspace. It cannot confirm this intent, and
-                    // retaining a label for a deleted workspace would make a
-                    // detached projection look authoritative forever.
-                    overlay = false
-                    clear = true
                 } else {
-                    // A daemon generation is an immutable snapshot lineage. A
-                    // fresh generation is therefore authoritative even when its
-                    // revision is numerically lower than the predecessor's;
-                    // keeping the old optimistic value here would strand a
-                    // failed rename indefinitely after reconnect.
-                    overlay = false
-                    clear = true
+                    // Reconnect snapshots from a different generation may be
+                    // stale while a just-committed rename is still replaying.
+                    // Keep the optimistic value until the generation reports
+                    // the requested name or an in-flight operation explicitly
+                    // resolves the uncertainty. Old generations are fenced
+                    // before reaching this method.
                 }
             }
             if overlay {
@@ -754,6 +792,37 @@ final class SurfaceCatalog {
             }
             return adjusted
         }
+    }
+
+    /// Encodes only the identity-bearing portion of a cloud snapshot. Machine
+    /// status, statistics, and port discovery may change without advancing the
+    /// daemon workspace cursor; workspace ids, names, and placements may not.
+    private func cloudWorkspaceGraphFingerprint(
+        info: SurfaceMachineInfo,
+        resources: [SurfaceResource]
+    ) -> String {
+        var parts: [String] = []
+        let workspaces = (info.remoteWorkspaces ?? []).sorted {
+            $0.id != $1.id ? $0.id < $1.id : $0.index < $1.index
+        }
+        for workspace in workspaces {
+            parts.append("w:\(workspace.id.count):\(workspace.id):\(workspace.name.count):\(workspace.name):\(workspace.index):\(workspace.focused ? 1 : 0)")
+        }
+        for resource in resources.sorted(by: { $0.id.rawValue < $1.id.rawValue }) {
+            let views = (resource.remoteViews ?? []).sorted {
+                $0.tabID != $1.tabID ? $0.tabID < $1.tabID : $0.workspace.id < $1.workspace.id
+            }
+            parts.append("r:\(resource.id.rawValue.count):\(resource.id.rawValue)")
+            if let workspace = resource.remoteWorkspace {
+                parts.append("p:\(workspace.id.count):\(workspace.id):\(workspace.name.count):\(workspace.name)")
+            } else {
+                parts.append("p:")
+            }
+            for view in views {
+                parts.append("v:\(view.tabID.count):\(view.tabID):\(view.workspace.id.count):\(view.workspace.id):\(view.workspace.name.count):\(view.workspace.name)")
+            }
+        }
+        return parts.joined(separator: "|")
     }
 
     // MARK: Projections

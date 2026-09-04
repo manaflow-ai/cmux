@@ -105,6 +105,16 @@ struct CmuxTuiSnapshotParser: Sendable {
         return !(raw is NSNull)
     }
 
+    /// A versioned session snapshot must carry every graph collection. Treating
+    /// a missing collection as an empty one would let a truncated response erase
+    /// live workspace/resource rows while still advancing the cursor fence.
+    /// Cursorless legacy snapshots remain permissive for read-only display.
+    static func hasCompleteVersionedGraph(_ snapshot: [String: Any]) -> Bool {
+        guard snapshotContainsCursor(snapshot) else { return true }
+        return ["workspaces", "screens", "panes", "tabs", "terminals", "browsers", "agents"]
+            .allSatisfy { snapshot[$0] is [[String: Any]] }
+    }
+
     /// Reads the cursor returned by a mutation command.  cmux-tui versions have emitted both
     /// a top-level envelope and a nested `result` envelope, so the parser accepts either while
     /// requiring a generation and an unsigned revision.

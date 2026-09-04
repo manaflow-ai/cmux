@@ -1048,6 +1048,15 @@ struct SurfaceCatalogTests {
             cursor: CloudVMCursor(generation: generation, revision: 10)
         ))
         #expect(catalog.snapshot.resources.first { $0.id == terminal.id }?.remoteWorkspace?.name == "Renamed")
+        // An equal-cursor payload must also be identical; a delayed response
+        // with the old name cannot overwrite the confirmed rename.
+        #expect(!catalog.replaceCloudResources(
+            [staleTerminal, unrelated],
+            on: machine,
+            info: staleInfo,
+            cursor: CloudVMCursor(generation: generation, revision: 11)
+        ))
+        #expect(catalog.snapshot.resources.first { $0.id == terminal.id }?.remoteWorkspace?.name == "Renamed")
     }
 
     @Test func `An older cloud rename completion cannot roll back a newer intent`() throws {

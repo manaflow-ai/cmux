@@ -62111,6 +62111,23 @@
         }
       }
     },
+    "cloudTree.error.noSelectedWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Select a local workspace and retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカルワークスペースを選択して、もう一度お試しください。"
+          }
+        }
+      }
+    },
     "cloudTree.rename.confirm": {
       "extractionState": "manual",
       "localizations": {

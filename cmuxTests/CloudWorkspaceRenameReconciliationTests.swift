@@ -276,9 +276,9 @@ struct CloudWorkspaceRenameReconciliationTests {
             machine: machine, workspaceID: before.id, name: "after"
         )
 
-        // A new generation is a fresh durable snapshot. If it still has the
-        // old name, the mutation did not commit; retaining "after" would leave
-        // the local and remote projections permanently divergent.
+        // Keep the optimistic value across a generation change: the first
+        // response can be stale while a just-committed rename is replayed.
+        // An explicit failure resolver below accepts the observed old value.
         #expect(catalog.replaceCloudResources(
             [resource(machine, workspace: before)],
             on: machine,
@@ -287,8 +287,15 @@ struct CloudWorkspaceRenameReconciliationTests {
         ))
         #expect(catalog.pendingCloudWorkspaceRenameName(
             machine: machine, workspaceID: before.id
-        ) == nil)
-        #expect(catalog.snapshot.machines.first?.remoteWorkspaces?.first?.name == "before")
+        ) == "after")
+        #expect(catalog.snapshot.machines.first?.remoteWorkspaces?.first?.name == "after")
+        #expect(!catalog.replaceCloudResources(
+            [resource(machine, workspace: before)],
+            on: machine,
+            info: info(machine, workspace: before),
+            cursor: CloudVMCursor(generation: "g-old", revision: 10)
+        ))
+        #expect(catalog.snapshot.machines.first?.remoteWorkspaces?.first?.name == "after")
         catalog.resolveFailedCloudWorkspaceRename(token)
         #expect(catalog.snapshot.machines.first?.remoteWorkspaces?.first?.name == "before")
     }
@@ -411,6 +418,8 @@ struct CloudWorkspaceRenameReconciliationTests {
             info: info(machine, workspace: newer),
             cursor: CloudVMCursor(generation: "g2", revision: 1)
         ))
+        #expect(catalog.pendingCloudWorkspaceRenameName(machine: machine, workspaceID: before.id) == "after-again")
+        #expect(catalog.snapshot.machines.first?.remoteWorkspaces?.first?.name == "after-again")
         catalog.resolveFailedCloudWorkspaceRename(secondToken)
         #expect(catalog.pendingCloudWorkspaceRenameName(machine: machine, workspaceID: before.id) == nil)
         #expect(catalog.snapshot.machines.first?.remoteWorkspaces?.first?.name == "remote")
