@@ -231,11 +231,6 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
 
     private func permissionSetupStarted(for permissionStep: ComputerUseOnboardingStep) {
         guard let window else { return }
-        // Once the borderless companion exists, the titled host is no longer
-        // part of the permission presentation. A late setup/status callback
-        // must not re-order it above System Settings and re-expose the compact
-        // logo block in the title-bar-bearing frame.
-        guard permissionCompanionWindow == nil else { return }
         pendingPermissionStep = permissionStep
         permissionSettingsWillOpen()
         window.orderFrontRegardless()
