@@ -92,6 +92,28 @@ export async function vmRequiresProCopy(
   };
 }
 
+/** Copy returned when an account's shared Cloud VM resource pool is full. */
+export type VmSharedResourceCopy = {
+  readonly message: string;
+  readonly action: string;
+};
+
+/** Load the localized shared-resource rejection copy. */
+export async function vmSharedResourceCopy(
+  locale: Locale,
+  values: { readonly resource: string; readonly oversized: boolean },
+): Promise<VmSharedResourceCopy> {
+  const translator = createTranslator({
+    locale,
+    messages: await loadMessages(locale),
+    namespace: "vmErrors.sharedResource",
+  }) as unknown as (key: string, values?: Record<string, string>) => string;
+  return {
+    message: translator("message", { resource: values.resource }),
+    action: translator(values.oversized ? "oversizedAction" : "action", { resource: values.resource }),
+  };
+}
+
 function localeFromPath(value: string): Locale | null {
   try {
     const firstSegment = new URL(value).pathname.split("/").filter(Boolean)[0];

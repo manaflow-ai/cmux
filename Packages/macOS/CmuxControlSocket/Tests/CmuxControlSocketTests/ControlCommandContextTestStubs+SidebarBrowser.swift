@@ -1,5 +1,4 @@
 import Foundation
-import CmuxBrowser
 @testable import CmuxControlSocket
 
 // Benign default implementations of the browser-panel (v1) and sidebar seams, so a test fake that conforms to the full
@@ -8,17 +7,10 @@ import CmuxBrowser
 // `ControlCommandContextTestStubs.swift`).
 
 extension ControlBrowserPanelContext {
-    func controlBrowserEngineStrings() -> ControlBrowserEngineStrings {
-        ControlBrowserEngineStrings(
-            invalidOption: BrowserEngineKind.invalidOptionMessage,
-            browserOnly: BrowserEngineKind.browserOnlyOptionMessage
-        )
-    }
-
     func controlBrowserPanelTabManagerAvailable() -> Bool { false }
     func controlBrowserPanelAvailabilityEnabled() -> Bool { false }
     func controlBrowserPanelOpenURLExternally(_ url: URL) -> Bool { false }
-    func controlBrowserPanelOpen(url: URL?, engine: BrowserEngineKind?) -> UUID? { nil }
+    func controlBrowserPanelOpen(url: URL?) -> UUID? { nil }
     func controlBrowserPanelNavigate(panelID: UUID, urlString: String) -> Bool { false }
     func controlBrowserPanelGoBack(panelID: UUID) -> Bool { false }
     func controlBrowserPanelGoForward(panelID: UUID) -> Bool { false }
@@ -235,16 +227,10 @@ extension ControlSidebarContext {
         isBrowser: Bool,
         orientationIsHorizontal: Bool,
         insertFirst: Bool,
-        url: URL?,
-        engine: BrowserEngineKind?
+        url: URL?
     ) -> ControlSidebarPaneSplitResolution { .failed }
 
-    func controlSidebarNewSurface(
-        isBrowser: Bool,
-        paneArg: String?,
-        url: URL?,
-        engine: BrowserEngineKind?
-    ) -> ControlSidebarNewSurfaceResolution {
+    func controlSidebarNewSurface(isBrowser: Bool, paneArg: String?, url: URL?) -> ControlSidebarNewSurfaceResolution {
         .noTabSelected
     }
 

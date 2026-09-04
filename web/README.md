@@ -59,6 +59,8 @@ Useful commands:
 bun db:up       # start this worktree's Postgres
 bun db:migrate  # apply Drizzle migrations
 bun db:test     # start an isolated test DB on CMUX_PORT+11000 and run DB behavior tests
+# Slow shared runners can raise the bounded per-test limit without changing
+# concurrency: CMUX_DB_TEST_TIMEOUT_MS=60000 bun db:test
 bun db:status   # print container, volume, port, and redacted DATABASE_URL
 bun db:reset    # delete and recreate this worktree's DB volume
 bun db:down     # stop this worktree's DB

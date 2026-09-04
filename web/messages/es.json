@@ -22,6 +22,11 @@
       "title": "Se requiere cmux Pro",
       "message": "Las Cloud VM requieren un plan cmux Pro.",
       "action": "Actualiza a cmux Pro en {upgradeUrl} para crear Cloud VM."
+    },
+    "sharedResource": {
+      "message": "El grupo compartido de recursos {resource} de Cloud VM está lleno.",
+      "action": "Elimina una Cloud VM que no uses y vuelve a intentarlo.",
+      "oversizedAction": "Solicita un tamaño {resource} menor para la Cloud VM que quepa en el grupo compartido."
     }
   },
   "billingRecovery": {

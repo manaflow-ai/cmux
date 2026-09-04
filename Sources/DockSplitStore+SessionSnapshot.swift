@@ -371,8 +371,6 @@ extension DockSplitStore {
                 browserSnapshot = SessionBrowserPanelSnapshot(
                     urlString: browser.preferredURLStringForSessionSnapshot(),
                     profileID: browser.profileID,
-                    engine: browser.engineKind,
-                    chromiumStorageID: browser.engineKind == .chromium ? browser.chromiumStorageID : nil,
                     shouldRenderWebView: browser.shouldRenderWebViewForSessionSnapshot(),
                     pageZoom: Double(browser.currentPageZoomFactor()),
                     developerToolsVisible: browser.isDeveloperToolsVisible(),
@@ -410,7 +408,8 @@ extension DockSplitStore {
             type: panel.panelType,
             title: titleMetadata.title,
             customTitle: titleMetadata.customTitle,
-            customTitleSource: titleMetadata.customTitleSource,
+            customTitleSource: titleMetadata.customTitleSource == .remote ? .user : titleMetadata.customTitleSource,
+            customTitleWasRemote: titleMetadata.customTitleSource == .remote ? true : nil,
             directory: directory,
             directoryIsTrustedRemoteReport: transfer?.directoryIsTrustedRemoteReport,
             isPinned: tab?.isPinned ?? transfer?.isPinned ?? false,
