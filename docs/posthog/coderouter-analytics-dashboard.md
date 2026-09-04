@@ -1,114 +1,80 @@
 # CodeRouter PostHog dashboards
 
-Project: **CodeRouter Analytics** (dedicated; never the general cmux project)
+The current CodeRouter product dashboard is **Cloud VMs + CodeRouter
+(product)** in the main cmux PostHog project (`244066`). It is managed by
+`cmuxterm-hq/scripts/posthog-cloud-dashboard.py` and reads the catalog in
+`posthog_cloud_metrics.py`.
 
-This is the pseudonymous operations view. Person-level product analytics
-(who routes traffic, how much, conversion, retention) live in the main cmux
-project and are documented in `cloud-product-analytics.md`.
+The former **CodeRouter Operations & Usage** dashboard in project `549394` is
+historical. The application no longer writes new events there. Do not build
+new customer or product reports from that project.
 
-Dashboard: **CodeRouter Operations & Usage**
+## Event rules
 
-All event queries must filter `product = 'coderouter'` and current
-`schema_version`. Team/user scopes are HMAC pseudonyms; never add raw IDs,
-names, labels, prompts, output, credentials, paths, arguments, URLs, headers,
-request IDs, or free-form errors.
+Filter every CodeRouter tile with:
 
-## P0 cards
+```sql
+WHERE event = '$ai_trace' AND properties.product = 'coderouter'
+```
 
-1. **Requests and success rate**
-   - Event: `coderouter_route_health`
-   - Requests: count
-   - Success: `outcome = success`
-   - Breakdown: provider, agent, outcome
-2. **Route latency**
-   - Event: `coderouter_route_health`
-   - Breakdown: `latency_bucket`
-3. **Retries and refreshes**
-   - Event: `coderouter_route_health`
-   - Breakdown: `attempt_bucket`, `refresh_bucket`
-4. **Failure stage**
-   - Event: `coderouter_route_health`
-   - Breakdown: `failure_stage`, `status_class`
-5. **Tokens by day**
-   - Event: `$ai_generation`
-   - Sums: `$ai_input_tokens`, `$ai_cache_read_input_tokens`,
-     `$ai_output_tokens`, `coderouter_total_tokens`
-6. **API-equivalent value**
-   - Event: `$ai_generation`
-   - Sum: `$ai_total_cost_usd`
-   - Label explicitly as an estimate, not actual provider spend
-7. **Pricing coverage**
-   - Event: `$ai_generation`
-   - `sum(coderouter_priced_tokens) / sum(coderouter_total_tokens)`
-8. **Active pseudonymous organizations**
-   - Unique `coderouter_team_scope`
-9. **CLI command funnel**
-   - `coderouter_cli_command_started` → `coderouter_cli_command_completed`
-   - Breakdown: command, agent, mode, outcome, failure_stage
-10. **Account lifecycle**
-    - `coderouter_account_status_viewed`
-    - `coderouter_account_added`
-    - `coderouter_account_removed`
-11. **Session lifecycle**
-    - `coderouter_route_session_issued`
-    - `coderouter_route_session_revoked`
-    - `coderouter_auth_rejected`
-12. **Organization and dashboard use**
-    - `coderouter_organization_catalog_viewed`
-    - `coderouter_metrics_loaded`
+Use the canonical event names and fields:
 
-## P0 privacy/integrity cards
-
-Each must remain zero:
-
-- missing `coderouter_team_scope` on team-scoped events
-- `distinct_id != coderouter_team_scope`
-- `$process_person_profile != false`
-- `$geoip_disable != true`
-- unknown `schema_version`
-- `cached_input_tokens > input_tokens`
-- `priced_tokens + unpriced_tokens != total_tokens`
-- forbidden property keys (`prompt`, `output`, `$ai_input`,
-  `$ai_output_choices`, `credential`, `authorization`, `cookie`, `account_id`,
-  `team_id`, `user_id`, `email`, `local_path`, `command_args`)
-
-Any nonzero privacy/integrity card is an incident.
-
-## P1 views
-
-- Weekly organization retention: successful `coderouter_route_health` return.
-- Activation funnel:
-  account added → route session issued → successful route health.
-- Provider/agent mix over time.
-- CLI version adoption and failure rate by version.
-- Metrics Endpoint availability by `outcome` and `failure_stage`.
-
-## Alerts
-
-- route success below 97% with at least 20 eligible requests/hour
-- `no_usable_account` above 5%/hour
-- 5xx above 2%/hour
-- 10s+ latency above 5%/hour
-- pricing coverage below 95% daily
-- any privacy/integrity violation
-- no successful events during expected active periods
-
-Customer-facing usage (dashboard and `/api/coderouter/vm-usage*`) is read
-from our own ClickHouse ledger, not from PostHog; see "Usage ledger" in
-`docs/coderouter-operations.md`. Never expose PostHog project access or
-free-form HogQL to customers.
-
-## Team usage Endpoint (dashboard only)
-
-| Endpoint | Source | Variables |
+| Question | Event | Fields |
 | --- | --- | --- |
-| `coderouter-team-usage-30d` | `docs/posthog/coderouter-team-usage-30d.hogql` | `team_scope` |
+| Request volume and success | `$ai_trace` | `$ai_is_error`, `coderouter_outcome`, `coderouter_failure_stage`, `coderouter_fault`, `coderouter_provider`, `coderouter_agent` |
+| Request latency | `$ai_trace` | `$ai_latency` (seconds), `coderouter_attempts` |
+| Failure stage | `$ai_trace` | `coderouter_failure_stage`, `coderouter_outcome`, `coderouter_fault` |
+| Tokens and API-equivalent value | `$ai_generation` | `$ai_input_tokens`, `$ai_cache_read_input_tokens`, `$ai_output_tokens`, `coderouter_total_tokens`, `$ai_total_cost_usd` |
+| Pricing coverage | `$ai_generation` | `coderouter_priced_tokens`, `coderouter_unpriced_tokens`, `coderouter_total_tokens` |
+| Cloud VM share | `$ai_generation` or `$ai_trace` | `coderouter_vm_id IS NOT NULL` |
+| Account and session lifecycle | lifecycle events | `coderouter_account_*`, `coderouter_route_session_*` |
 
-Publish it in the CodeRouter project with a required `team_scope` string
-variable for an operator view of one pseudonymous team. The app no longer
-calls it, so no Endpoint credential is configured in the web app.
+Exclude `distinct_id = 'coderouter-server'` from person-level product counts.
+That id is for unauthenticated requests and operator events. The same Stack
+user id is used by Cloud VM product events, so cross-product joins use
+`distinct_id`.
 
-`$ai_generation` events carry `coderouter_vm_id` (the cmux `cloud_vms.id`
-UUID, an opaque server-minted identifier, not personal data) only when the
-route token was bound to a Cloud VM. `coderouter_route_health` carries the
-same value as `vm_id`. Unbound `cr` CLI traffic has neither property.
+`$ai_generation` is emitted only when a completion has usable token usage. A
+failure is a `$ai_trace` with `$ai_is_error = true`; there is no
+`coderouter_request_failed` event. Divide failed traces by all known-user
+traces when calculating failure rate. Do not divide by failed plus
+generations, because requests can fail before a generation exists.
+
+## Privacy and integrity checks
+
+Every tile and alert must preserve these rules:
+
+* no prompts, outputs, request bodies, credentials, emails or route tokens;
+* `$geoip_disable = true`;
+* user events use a bounded Stack user id and team events use the
+  `$groups.stack_team` group;
+* `coderouter_priced_tokens + coderouter_unpriced_tokens` equals
+  `coderouter_total_tokens`;
+* cached input tokens do not exceed input tokens;
+* API-equivalent dollars are labeled as a list-price estimate, not cmux spend.
+
+Any violation is an incident. The ClickHouse ledger remains the source for
+customer-facing team and machine usage; PostHog is for product and operations
+analysis.
+
+## Recommended views
+
+1. Requests, failures and p50/p95 latency by day from `$ai_trace`.
+2. Failure stage, outcome, fault and provider from failed `$ai_trace` rows.
+3. Tokens, pricing coverage and API-equivalent estimate by day from
+   `$ai_generation`.
+4. Agent and provider mix from `$ai_trace` and `$ai_generation`.
+5. Cloud VM versus local traffic from `coderouter_vm_id`.
+6. Account-added to route-session-issued to first-generation activation.
+7. Cloud VM and CodeRouter overlap, joined on the Stack `distinct_id`.
+
+For the managed dashboard, run the dashboard script in dry-run mode first. It
+executes every HogQL query before it changes any insight:
+
+```sh
+POSTHOG_PERSONAL_API_KEY=... python3 scripts/posthog-cloud-dashboard.py --dry-run
+```
+
+Never put a PostHog key in source, a ticket, or chat. Remove the retired
+`POSTHOG_CODEROUTER_*` and `CODEROUTER_ANALYTICS_SCOPE_SECRET` variables only
+after checking for remaining operator consumers.

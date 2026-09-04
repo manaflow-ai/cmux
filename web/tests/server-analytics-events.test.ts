@@ -67,6 +67,7 @@ describe("server event payload", () => {
 
   test("an event without a person is dropped", () => {
     expect(serverEventPayload({ event: "x", distinctId: "   " })).toBeNull();
+    expect(serverEventPayload({ event: "x", distinctId: "person@example.com" })).toBeNull();
   });
 
   test("no team means no group, and empty $set blocks are omitted", () => {
@@ -104,6 +105,15 @@ describe("server event delivery", () => {
     const rejected = collector([400]);
     await captureServerEvent({ event: "x", distinctId: "user-1" }, rejected.dependencies);
     expect(rejected.sent).toHaveLength(1);
+  });
+
+  test("a failing defer hook cannot reject the best-effort sender", async () => {
+    const collected = collector();
+    await expect(captureServerEvent(
+      { event: "x", distinctId: "user-1" },
+      { ...collected.dependencies, defer: () => { throw new Error("request scope closed"); } },
+    )).resolves.toBeUndefined();
+    expect(collected.sent).toHaveLength(1);
   });
 
   test("is off outside production unless forced", async () => {

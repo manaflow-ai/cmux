@@ -1164,6 +1164,7 @@ export function forkVm(input: {
       image: snapshot.id,
       imageVersion: null,
       idempotencyKey: input.idempotencyKey,
+      origin: "fork",
       timing: input.timing,
     });
     yield* repo.recordUsageEvent({

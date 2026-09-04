@@ -15,10 +15,6 @@ import {
 } from "../../../../services/coderouter/requestContext";
 import { captureCoderouterEvent } from "../../../../services/coderouter/analytics";
 import {
-  captureCoderouterProductEvent,
-  coderouterClaudeUpstreamEvent,
-} from "../../../../services/coderouter/productAnalytics";
-import {
   addCoderouterBreadcrumb,
   reportCoderouterFailure,
 } from "../../../../services/coderouter/observability";
@@ -82,13 +78,6 @@ export function makeClaudeUpstreamHandlers(
         teamId,
         properties: { upstream_kind: input.kind, replaced: false },
       });
-      captureCoderouterProductEvent(coderouterClaudeUpstreamEvent({
-        kind: "set",
-        stackUserId,
-        teamId,
-        upstreamKind: input.kind,
-        replaced: false,
-      }));
       addCoderouterBreadcrumb("account", "Claude upstream account added", {
         upstream_kind: input.kind,
         accounts_total: before.length + 1,
@@ -127,11 +116,6 @@ export function makeClaudeUpstreamHandlers(
       teamId,
       properties: {},
     });
-    captureCoderouterProductEvent(coderouterClaudeUpstreamEvent({
-      kind: "removed",
-      stackUserId: resolved.value.user.id,
-      teamId,
-    }));
     addCoderouterBreadcrumb("account", "Claude upstream accounts removed", { removed: result.removed });
     return Response.json(
       { removed: true, count: result.removed },

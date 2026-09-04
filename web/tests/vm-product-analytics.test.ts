@@ -104,6 +104,13 @@ describe("cloud vm ledger to PostHog mapping", () => {
     expect("lifetime_seconds" in event!.properties!).toBe(false);
   });
 
+  test("account-deletion destroys stay in the ledger without recreating the deleted person", () => {
+    expect(vmProductEventFromLedger(ledgerRow({
+      eventType: "vm.destroyed",
+      metadata: { source: "account_deletion" },
+    }), NOW)).toBeNull();
+  });
+
   test("attach, exec and the other lifecycle rows map with their typed metadata", () => {
     const attach = vmProductEventFromLedger(ledgerRow({
       eventType: "vm.attach",
@@ -196,6 +203,18 @@ describe("repository analytics sink", () => {
     expect(written).toHaveLength(1);
   });
 
+  test("a failed ledger write does not create a product event", async () => {
+    const captured: VmUsageEventInput[] = [];
+    const repo = {
+      recordUsageEvent: () => Effect.fail(new Error("database unavailable")),
+      recordUsageEvents: () => Effect.fail(new Error("database unavailable")),
+    } as unknown as VmRepositoryShape;
+    const decorated = withVmProductAnalytics(repo, (input) => captured.push(input));
+    await expect(Effect.runPromise(decorated.recordUsageEvent(ledgerRow()))).rejects.toThrow("database unavailable");
+    await expect(Effect.runPromise(decorated.recordUsageEvents([ledgerRow()]))).rejects.toThrow("database unavailable");
+    expect(captured).toHaveLength(0);
+  });
+
   test("the default capture posts the mapped event through the shared sender", async () => {
     const bodies: Array<Record<string, unknown>> = [];
     const fetchImpl = (async (_input: string | URL | Request, init?: RequestInit) => {
@@ -232,8 +251,12 @@ describe("cloud_vm_request scope", () => {
     };
   }
 
-  function capture(ctx: VmRequestContext, response: Response) {
-    let body: { batch: Array<{ event: string; properties: Record<string, unknown> }> } | null = null;
+  type CapturedRequestBody = {
+    batch: Array<{ event: string; properties: Record<string, unknown> }>;
+  };
+
+  function capture(ctx: VmRequestContext, response: Response): CapturedRequestBody | null {
+    let body: CapturedRequestBody | null = null;
     const fakeFetch = ((_input: string | URL | Request, init?: RequestInit) => {
       body = JSON.parse(String(init?.body));
       return Promise.resolve(new Response("ok"));

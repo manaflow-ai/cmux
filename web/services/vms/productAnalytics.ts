@@ -126,6 +126,11 @@ export function vmProductEventFromLedger(
   if (!isLedgerEventType(input.eventType)) return null;
   const event = VM_LEDGER_TO_POSTHOG_EVENT[input.eventType];
   const metadata = input.metadata ?? {};
+  // Account deletion removes the person before provider teardown. Emitting a
+  // user-keyed destroy event after that point would recreate the deleted
+  // PostHog person, so the ledger row remains the audit record but is not
+  // mirrored to product analytics.
+  if (input.eventType === "vm.destroyed" && metadata.source === "account_deletion") return null;
   const planId = normalizedPlan(input.billingPlanId);
   const properties: Record<string, ServerEventScalar | null | undefined> = {
     product: "cloud_vm",
@@ -174,11 +179,9 @@ export function captureVmProductEvent(
 }
 
 /**
- * Decorate a repository so every ledger write also reaches PostHog. The
- * capture runs before the database insert and independently of its outcome:
- * the machine fact is true whether or not the row landed (ledger writes are
- * already `catchAll`-guarded at every site), and a capture failure never
- * touches the workflow.
+ * Decorate a repository so every successful ledger write also reaches
+ * PostHog. Postgres is the source of truth, so capture runs only after the
+ * insert succeeds. A capture failure never touches the workflow.
  */
 export function withVmProductAnalytics(
   repository: VmRepositoryShape,
@@ -197,15 +200,15 @@ export function withVmProductAnalytics(
   return {
     ...repository,
     recordUsageEvent: (input) =>
-      Effect.suspend(() => {
-        safeCapture(input);
-        return repository.recordUsageEvent(input);
-      }),
+      repository.recordUsageEvent(input).pipe(
+        Effect.tap(() => Effect.sync(() => safeCapture(input))),
+      ),
     recordUsageEvents: (inputs) =>
-      Effect.suspend(() => {
-        for (const input of inputs) safeCapture(input);
-        return repository.recordUsageEvents(inputs);
-      }),
+      repository.recordUsageEvents(inputs).pipe(
+        Effect.tap(() => Effect.sync(() => {
+          for (const input of inputs) safeCapture(input);
+        })),
+      ),
   };
 }
 
