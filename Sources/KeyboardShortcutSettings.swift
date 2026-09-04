@@ -1705,6 +1705,18 @@ struct ShortcutStroke: Equatable, Hashable {
         return event.charactersIgnoringModifiers
     }
 
+    /// Returns whether a Command event carries punctuation from an ANSI letter
+    /// position, the ambiguous shape that needs physical fallback arbitration.
+    static func isCommandPunctuationFromPhysicalLetter(_ event: NSEvent) -> Bool {
+        let flags = normalizedModifierFlags(from: event.modifierFlags)
+        guard flags.contains(.command),
+              !flags.contains(.control),
+              isPhysicalLetterKeyCode(event.keyCode) else {
+            return false
+        }
+        return isPrintableASCIIPunctuation(eventCharacterForMatching(event))
+    }
+
     func matches(
         keyCode: UInt16,
         modifierFlags: NSEvent.ModifierFlags,
@@ -1784,6 +1796,7 @@ struct ShortcutStroke: Equatable, Hashable {
         }
 
         let layoutCharacter = layoutCharacterProvider(keyCode, modifierFlags)
+        let layoutCharacterIsPrintablePunctuation = Self.isPrintableASCIIPunctuation(layoutCharacter)
         if Self.shortcutCharacterMatches(
             eventCharacter: layoutCharacter,
             shortcutKey: shortcutKey,
@@ -1817,7 +1830,7 @@ struct ShortcutStroke: Equatable, Hashable {
             (
                 (hasEventChars && !eventCharsAreASCII) ||
                 (!hasEventChars && (layoutCharacter?.isEmpty ?? true)) ||
-                (eventCharacterIsPrintablePunctuation && isPhysicalLetterKey)
+                ((eventCharacterIsPrintablePunctuation || layoutCharacterIsPrintablePunctuation) && isPhysicalLetterKey)
             )
         let commandPunctuationPhysicalFallback = flags.contains(.command) &&
             !flags.contains(.control) &&

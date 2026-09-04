@@ -4366,9 +4366,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        // Standard Dvorak emits a comma from the physical ANSI-W key. The
-        // layout-produced comma must not be mistaken for the Cmd+, Settings
-        // shortcut; it is the physical Cmd+W that the user pressed.
+        // Standard Dvorak emits a comma from the physical ANSI-W key. Both
+        // the logical Cmd+, binding and the physical Cmd+W fallback can be
+        // observable at this layer; AppDelegate must choose Close Tab before
+        // AppKit's Settings menu equivalent.
         appDelegate.shortcutLayoutCharacterProvider = { _, _ in nil }
         defer {
             appDelegate.shortcutLayoutCharacterProvider = KeyboardLayout.character(forKeyCode:modifierFlags:)
