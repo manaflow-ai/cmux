@@ -37,9 +37,10 @@ added when it would create a second `cmux-cua` row. A project mirror that
 resolves to the bundled document is one canonical identity, so it remains one
 entry. The skill directory ships no plugin manifest — Codex treats
 `.claude-plugin/plugin.json` as a plugin manifest and would namespace the skill
-as `cmux-cua:cmux-cua`. No `npx skills add` step is required; relaunching a
-cmux agent performs the safe remediation for existing managed links. Links
-whose ownership cannot be proved are left for the user to review.
+as `cmux-cua:cmux-cua`. Use the normal user-owned skill installer or set
+`CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL=1` when you deliberately want a durable
+picker entry. A cmux launch only migrates links whose ownership is proven;
+links whose ownership cannot be proved are left for the user to review.
 
 While Codex runs inside a cmux terminal, its CLI also Apple-Events its own
 "Codex Computer Use" (`com.openai.sky.CUAService`) helper. macOS attributes

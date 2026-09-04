@@ -59,8 +59,9 @@ or permissions are not a reason to begin setup automatically.
   identity. There is deliberately no plugin fallback or plugin manifest in
   this directory, because a manifest namespaces Codex's skill
   (`cmux-cua:cmux-cua`) and qualifies it in Claude. Relaunching a cmux agent
-  safely remediates existing managed links; paths with unproven ownership are
-  left untouched for manual review.
+  only migrates links whose ownership is proven; use the normal user-owned
+  skill installer or the explicit install flag for a durable picker entry.
+  Paths with unproven ownership are left untouched for manual review.
 - While Computer Use is enabled, the helper daemon starts quietly at cmux
   startup with its internal permission gate disabled. Starting cmux or an agent
   never requests access or shows onboarding.
