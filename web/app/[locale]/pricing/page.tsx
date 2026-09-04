@@ -217,7 +217,7 @@ export default async function PricingPage({
                   {t("manageBilling")}
                 </SecondaryLink>
               ) : (
-                <ProCtaLink checkoutHrefs={proCheckoutHrefs} size="compact">
+                <ProCtaLink checkoutHrefs={proCheckoutHrefs}>
                   {t("pro.cta")}
                 </ProCtaLink>
               )}
@@ -245,7 +245,6 @@ export default async function PricingPage({
                 hrefs={teamCheckoutHrefs}
                 location="pricing_page"
                 plan="team"
-                size="compact"
               >
                 {t("team.cta")}
               </PricingCheckoutButton>
