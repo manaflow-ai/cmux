@@ -3158,15 +3158,29 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             retainedForegroundKeyIsPresent
                 ? retainedForegroundKey
                 : activeMac.map(MacPairingKey.init)
-        // Candidate Macs in priority order: the active Mac first, then every
-        // other saved Mac. Rows with no locally usable route stay in the list so
-        // one authenticated registry snapshot can upgrade an older Tailscale
-        // pairing, or recover a route that was never persisted locally.
+        // Candidate Macs in priority order: the retained foreground selection,
+        // the store-active Mac, then every other saved Mac. Rows with no locally
+        // usable route stay in the list so one authenticated registry snapshot
+        // can upgrade an older Tailscale pairing, or recover a route that was
+        // never persisted locally.
         var candidates: [MobilePairedMac] = []
-        if let activeMac {
+        // A retained foreground selection is more authoritative than a stale
+        // store-active row. Try it first so another saved Mac cannot connect
+        // successfully and mask a strict Tailscale failure on the selection.
+        if let reconnectSelectionKey,
+           let selectedMac = allMacs.first(where: {
+               MacPairingKey($0) == reconnectSelectionKey
+           }) {
+            candidates.append(selectedMac)
+        }
+        if let activeMac,
+           !candidates.contains(where: { $0.id == activeMac.id }) {
             candidates.append(activeMac)
         }
-        candidates.append(contentsOf: allMacs.filter { $0.id != activeMac?.id })
+        let selectedCandidateIDs = Set(candidates.map(\.id))
+        candidates.append(contentsOf: allMacs.filter { mac in
+            !selectedCandidateIDs.contains(mac.id)
+        })
         // A newer attempt may have started while we awaited the store read; if so,
         // let it own the flags rather than marking ourselves the active reconnect.
         guard generation == storedMacReconnectGeneration else { return .superseded }
