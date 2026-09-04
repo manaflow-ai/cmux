@@ -2230,6 +2230,21 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           submodules: recursive
+          persist-credentials: false
+
+      - name: Checkout trusted browser verifier
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: ${{ github.repository }}
+          # Pull requests must verify with the immutable base policy; push and
+          # manual lanes use the workflow's own commit. The PR source checkout
+          # above is never allowed to supply this verifier.
+          ref: ${{ github.event.pull_request.base.sha || github.workflow_sha }}
+          path: trusted-browser-verifier
+          sparse-checkout: |
+            scripts/ci/verify_browser_runtime_artifact.py
+          fetch-depth: 1
+          persist-credentials: false
 
       - name: Select Xcode
         run: |
@@ -2379,7 +2394,9 @@ jobs:
           EXPECTED_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          python3 scripts/ci/verify_browser_runtime_artifact.py \
+          verifier="$GITHUB_WORKSPACE/trusted-browser-verifier/scripts/ci/verify_browser_runtime_artifact.py"
+          [ -f "$verifier" ] || { echo "trusted browser verifier is unavailable" >&2; exit 1; }
+          python3 "$verifier" \
             --app build-universal/Build/Products/Release/cmux.app \
             --source-root "$GITHUB_WORKSPACE" \
             --expected-sha "$EXPECTED_SHA"

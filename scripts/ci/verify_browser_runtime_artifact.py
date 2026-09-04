@@ -63,14 +63,40 @@ def _normalize_path(path: str) -> str:
 def is_browser_engine_path(path: str) -> bool:
     """Return whether a changed path needs the browser runtime gate.
 
-    This is intentionally a small allowlist of product/runtime surfaces rather
-    than a substring search: documentation mentioning Chromium must not queue a
-    paid UI run, while every source and test surface that can alter browser
-    engine behavior must opt in.
+    The classifier is intentionally conservative for executable macOS and
+    control-plane paths rather than relying on a substring search:
+    documentation mentioning Chromium must not queue a paid UI run, while an
+    unfamiliar source or guard file must not silently bypass runtime
+    verification.
     """
 
     normalized = _normalize_path(path)
     lower = normalized.lower()
+    # The native browser runtime gate is macOS-only. iOS browser surfaces have
+    # their own build/test lane and must not be mistaken for a macOS CEF edit
+    # merely because their directory name contains "browser".
+    if lower.startswith(("ios/", "packages/ios/")):
+        return False
+    # Browser panes are composed through the macOS app target, not only the
+    # files whose names mention Browser/Chromium. Route the complete macOS
+    # source/test surface and all CI/build control-plane edits through the
+    # trusted smoke lane. This is deliberately conservative: a new shared
+    # host integration must not silently become an unverified merge merely
+    # because its filename is unfamiliar to this classifier.
+    broad_prefixes = (
+        "cli/",
+        "packages/macos/",
+        "packages/shared/",
+        "native/",
+        "resources/",
+        "scripts/",
+        "sources/",
+        "cmuxtests/",
+        "cmuxuitests/",
+    )
+    if lower.startswith(broad_prefixes):
+        return True
+
     prefixes = (
         "packages/macos/cmuxbrowser/",
         "packages/macos/cmuxcef/",
@@ -89,15 +115,22 @@ def is_browser_engine_path(path: str) -> bool:
     if lower.startswith(prefixes):
         return True
     if lower in {
+        ".github/workflows/ci.yml",
+        ".github/workflows/required-ci.yml",
+        ".github/workflows/reload-build.yml",
+        ".github/workflows/test-e2e.yml",
+        "scripts/ci/detect_browser_engine_changes.py",
+        "scripts/ci/verify_browser_runtime_artifact.py",
+        "scripts/ci/verify_required_ci_run.py",
+        "ghostty",
+        "homebrew-cmux",
         "cmux.xcodeproj/project.pbxproj",
         "cmux.xcworkspace/contents.xcworkspacedata",
         "cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/package.resolved",
         "scripts/reload.sh",
-        "sources/terminalcontroller.swift",
-        "sources/workspace.swift",
-        "sources/tabmanager.swift",
-        "sources/systemdefaultbrowserdetector.swift",
     }:
+        return True
+    if lower.startswith("vendor/"):
         return True
     if any(token in lower for token in ("/browser", "/chromium", "/cmuxcef", "cef/")):
         # Keep documentation and generated web assets out of the paid macOS
@@ -106,11 +139,7 @@ def is_browser_engine_path(path: str) -> bool:
         if lower.startswith(("docs/", "skills/", "web/", "webviews/")):
             return False
         return True
-    return lower in {
-        "scripts/embed-cef.sh",
-        "scripts/ensure-cef.sh",
-        ".github/workflows/test-e2e.yml",
-    }
+    return False
 
 
 def _source_contains_cef(source_root: Path) -> bool:
@@ -163,8 +192,8 @@ def _require_file(path: Path, description: str, *, executable: bool = False) -> 
         raise VerificationError(f"{description} is not executable: {path}")
 
 
-def _bundle_source_sha(app: Path) -> str | None:
-    """Read the full source SHA stamped into the processed app Info.plist."""
+def _read_info_plist(app: Path) -> dict[str, object]:
+    """Load and validate the app's processed ``Info.plist`` document."""
 
     info_plist = app / "Contents" / "Info.plist"
     _require_file(info_plist, "app Info.plist")
@@ -173,10 +202,43 @@ def _bundle_source_sha(app: Path) -> str | None:
             document = plistlib.load(handle)
     except (OSError, plistlib.InvalidFileException) as error:
         raise VerificationError(f"could not parse app Info.plist: {info_plist}") from error
-    value = document.get("CMUXBuildSourceSHA") if isinstance(document, dict) else None
+    if not isinstance(document, dict):
+        raise VerificationError(f"app Info.plist is not a dictionary: {info_plist}")
+    return document
+
+
+def _bundle_source_sha(app: Path) -> str | None:
+    """Read the full source SHA stamped into the processed app Info.plist."""
+
+    document = _read_info_plist(app)
+    value = document.get("CMUXBuildSourceSHA")
     if not isinstance(value, str) or not _SHA_RE.fullmatch(value):
         return None
     return value.lower()
+
+
+def _verify_app_executable(app: Path) -> None:
+    """Verify the executable named by ``CFBundleExecutable``.
+
+    Tagged development builds intentionally rename both the app bundle and
+    executable (for example ``cmux DEV <tag>``), so assuming a literal
+    ``cmux`` filename would reject a valid artifact.
+    """
+
+    document = _read_info_plist(app)
+    executable_name = document.get("CFBundleExecutable")
+    if (
+        not isinstance(executable_name, str)
+        or not executable_name
+        or "/" in executable_name
+        or "\\" in executable_name
+    ):
+        raise VerificationError("app Info.plist has an invalid CFBundleExecutable")
+    _require_file(
+        app / "Contents" / "MacOS" / executable_name,
+        "app executable",
+        executable=True,
+    )
 
 
 def _verify_native_cef(app: Path) -> int:
@@ -217,7 +279,7 @@ def verify_artifact(
     source_root = source_root.resolve()
     if not app.is_dir():
         raise VerificationError(f"app bundle does not exist: {app}")
-    _require_file(app / "Contents" / "MacOS" / "cmux", "cmux app executable", executable=True)
+    _verify_app_executable(app)
 
     actual_sha = _git_sha(source_root)
     if expected_sha:

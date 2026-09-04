@@ -73,6 +73,21 @@ jobs:
         with:
           ref: ${{ inputs.ref || github.ref }}
           submodules: recursive
+          persist-credentials: false
+
+      - name: Checkout trusted browser verifier
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: ${{ github.repository }}
+          # reload-cloud dispatches this workflow from main while building an
+          # ephemeral source ref. workflow_sha therefore pins the verifier to
+          # the immutable workflow revision, never to source-controlled code.
+          ref: ${{ github.workflow_sha }}
+          path: trusted-browser-verifier
+          sparse-checkout: |
+            scripts/ci/verify_browser_runtime_artifact.py
+          fetch-depth: 1
+          persist-credentials: false
 
       - name: Capture exact source SHA
         id: source_sha
@@ -511,7 +526,9 @@ jobs:
           EXPECTED_SHA: ${{ steps.source_sha.outputs.sha }}
         run: |
           set -euo pipefail
-          python3 scripts/ci/verify_browser_runtime_artifact.py \
+          verifier="$GITHUB_WORKSPACE/trusted-browser-verifier/scripts/ci/verify_browser_runtime_artifact.py"
+          [ -f "$verifier" ] || { echo "trusted browser verifier is unavailable" >&2; exit 1; }
+          python3 "$verifier" \
             --app "${{ steps.build_macos.outputs.app_path }}" \
             --source-root "$GITHUB_WORKSPACE" \
             --expected-sha "$EXPECTED_SHA"

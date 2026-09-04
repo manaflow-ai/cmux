@@ -25,15 +25,24 @@ sys.modules[spec.name] = module
 spec.loader.exec_module(module)
 
 
-def make_app(root: Path, *, cef: bool, build_sha: str | None = None) -> Path:
+def make_app(
+    root: Path,
+    *,
+    cef: bool,
+    build_sha: str | None = None,
+    executable_name: str = "cmux",
+) -> Path:
     app = root / "cmux.app"
     frameworks = app / "Contents" / "Frameworks"
     frameworks.mkdir(parents=True)
     (app / "Contents" / "MacOS" / "cmux").parent.mkdir(parents=True)
-    executable = app / "Contents" / "MacOS" / "cmux"
+    executable = app / "Contents" / "MacOS" / executable_name
     executable.write_text("binary\n", encoding="utf-8")
     executable.chmod(0o755)
-    info = {"CFBundleIdentifier": "com.cmuxterm.test"}
+    info = {
+        "CFBundleIdentifier": "com.cmuxterm.test",
+        "CFBundleExecutable": executable_name,
+    }
     if build_sha is not None:
         info["CMUXBuildSourceSHA"] = build_sha
     with (app / "Contents" / "Info.plist").open("wb") as handle:
@@ -60,6 +69,32 @@ def test_fallback_artifact_is_explicitly_accepted_without_cef_source() -> None:
         app = make_app(root, cef=False)
         result = module.verify_artifact(app=app, source_root=root, expected_sha=None)
         assert result.runtime_mode == "fallback"
+
+
+def test_tagged_app_executable_name_is_read_from_bundle_metadata() -> None:
+    with tempfile.TemporaryDirectory() as temp_dir:
+        root = Path(temp_dir)
+        app = make_app(root, cef=False, executable_name="cmux DEV issue-11967")
+        result = module.verify_artifact(app=app, source_root=root, expected_sha=None)
+        assert result.runtime_mode == "fallback"
+
+
+def test_invalid_bundle_executable_name_is_rejected() -> None:
+    with tempfile.TemporaryDirectory() as temp_dir:
+        root = Path(temp_dir)
+        app = make_app(root, cef=False)
+        plist_path = app / "Contents" / "Info.plist"
+        with plist_path.open("rb") as handle:
+            info = plistlib.load(handle)
+        info["CFBundleExecutable"] = "../escape"
+        with plist_path.open("wb") as handle:
+            plistlib.dump(info, handle)
+        try:
+            module.verify_artifact(app=app, source_root=root, expected_sha=None)
+        except module.VerificationError as error:
+            assert "CFBundleExecutable" in str(error)
+        else:
+            raise AssertionError("path-like executable names must fail verification")
 
 
 def test_cef_source_fails_closed_when_framework_is_not_embedded() -> None:
@@ -162,6 +197,46 @@ def test_browser_paths_route_to_the_mandatory_runtime_gate() -> None:
     assert not module.is_browser_engine_path("web/messages/en.json")
 
 
+def test_unknown_macos_app_and_guard_paths_fail_closed() -> None:
+    assert module.is_browser_engine_path("Sources/UnfamiliarHostIntegration.swift")
+    assert module.is_browser_engine_path("Packages/macOS/CmuxTerminal/Sources/Host.swift")
+    assert module.is_browser_engine_path("Packages/Shared/CmuxAuthRuntime/Sources/Auth.swift")
+    assert module.is_browser_engine_path("scripts/build-cmux-cua.sh")
+    assert module.is_browser_engine_path("ghostty")
+    assert module.is_browser_engine_path("vendor/bonsplit")
+    assert module.is_browser_engine_path("cmuxTests/UnfamiliarBrowserHostTests.swift")
+    assert module.is_browser_engine_path(".github/workflows/ci.yml")
+    assert module.is_browser_engine_path("scripts/ci/verify_browser_runtime_artifact.py")
+    assert not module.is_browser_engine_path("Packages/iOS/CmuxMobileBrowser/Sources/Mobile.swift")
+    assert not module.is_browser_engine_path("web/app/page.tsx")
+
+
+def test_renamed_browser_path_is_classified_when_both_names_are_supplied() -> None:
+    with tempfile.TemporaryDirectory() as temp_dir:
+        files = Path(temp_dir) / "files.txt"
+        output = Path(temp_dir) / "github-output.txt"
+        files.write_text(
+            "docs/browser-architecture.md\n"
+            "Packages/macOS/CmuxBrowser/Sources/CmuxBrowser/Old.swift\n",
+            encoding="utf-8",
+        )
+        subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "scripts" / "ci" / "detect_browser_engine_changes.py"),
+                "--event-name",
+                "pull_request",
+                "--files-from",
+                str(files),
+                "--github-output",
+                str(output),
+            ],
+            cwd=ROOT,
+            check=True,
+        )
+        assert output.read_text(encoding="utf-8").splitlines() == ["browser_engine=true"]
+
+
 def test_browser_change_detector_fails_open_when_diff_is_unknown() -> None:
     with tempfile.TemporaryDirectory() as temp_dir:
         output = Path(temp_dir) / "github-output.txt"
@@ -187,31 +262,37 @@ def test_browser_change_detector_fails_open_when_diff_is_unknown() -> None:
         assert output.read_text(encoding="utf-8").splitlines() == ["browser_engine=true"]
 
 
-def test_browser_change_detector_is_conservative_for_guard_implementation_edits() -> None:
+def test_browser_change_detector_routes_guard_implementation_edits() -> None:
     with tempfile.TemporaryDirectory() as temp_dir:
         files = Path(temp_dir) / "files.txt"
         output = Path(temp_dir) / "github-output.txt"
-        files.write_text("scripts/ci/detect_browser_engine_changes.py\n", encoding="utf-8")
-        result = subprocess.run(
-            [
-                sys.executable,
-                str(ROOT / "scripts" / "ci" / "detect_browser_engine_changes.py"),
-                "--event-name",
-                "pull_request",
-                "--files-from",
-                str(files),
-                "--github-output",
-                str(output),
-            ],
-            cwd=ROOT,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            check=True,
-        )
-        # The detector is executed only from the base-controlled required-ci
-        # workflow, so a pull request cannot replace its classification logic.
-        assert output.read_text(encoding="utf-8").splitlines() == ["browser_engine=false"]
+        for path in (
+            "scripts/ci/detect_browser_engine_changes.py",
+            "scripts/ci/verify_browser_runtime_artifact.py",
+        ):
+            files.write_text(f"{path}\n", encoding="utf-8")
+            output.unlink(missing_ok=True)
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "scripts" / "ci" / "detect_browser_engine_changes.py"),
+                    "--event-name",
+                    "pull_request",
+                    "--files-from",
+                    str(files),
+                    "--github-output",
+                    str(output),
+                ],
+                cwd=ROOT,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=True,
+            )
+            # The detector is executed only from the base-controlled required-ci
+            # workflow, so a pull request cannot replace its classification logic.
+            # Changing either guard implementation must still trigger the lane.
+            assert output.read_text(encoding="utf-8").splitlines() == ["browser_engine=true"]
         required_ci = (ROOT / ".github" / "workflows" / "required-ci.yml").read_text(encoding="utf-8")
         assert "Checkout trusted verifier" in required_ci
         assert "trusted/scripts/ci/detect_browser_engine_changes.py" in required_ci
@@ -244,10 +325,24 @@ def test_browser_gate_uses_exact_head_and_nonzero_test_contract() -> None:
     assert "repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}" in workflow
     assert "Checkout trusted browser verifier" in workflow
     assert "path: trusted-browser-verifier" in workflow
-    assert 'verifier="$GITHUB_WORKSPACE/trusted-browser-verifier/scripts/ci/verify_browser_runtime_artifact.py"' in workflow
+    assert "inputs.trusted_ref || github.workflow_sha" in workflow
+    assert "trusted_ref:" in workflow
+    assert "Resolve source Ghostty revision with trusted API access" in workflow
+    assert "Download GhosttyKit with trusted tooling" in workflow
+    assert "Install and bind GhosttyKit" in workflow
+    assert "SOURCE_REPOSITORY" in workflow
+    assert "GHOSTTYKIT_OUTPUT_DIR" in workflow
+    assert "GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}" not in workflow
+    trusted_download = workflow.index("Download GhosttyKit with trusted tooling")
+    source_checkout = workflow.index("      - name: Checkout\n", trusted_download)
+    assert trusted_download < source_checkout
+    assert "Stage trusted browser verifier and build tooling" in workflow
+    assert '"$RUNNER_TEMP/cmux-trusted-browser-verifier/scripts/download-prebuilt-ghosttykit.sh"' in workflow
+    assert 'verifier="$RUNNER_TEMP/cmux-trusted-browser-verifier/scripts/ci/verify_browser_runtime_artifact.py"' in workflow
     assert workflow.count("verify_browser_runtime:") == 2
     assert "Require immutable browser verification ref" in workflow
-    assert "browser runtime verification requires a full 40-character commit SHA" in workflow
+    assert "workflow_call/browser runtime verification requires a full 40-character commit SHA" in workflow
+    assert "inputs.trusted_ref != ''" in workflow
     required_ci = (ROOT / ".github" / "workflows" / "required-ci.yml").read_text(encoding="utf-8")
     assert "BrowserReliabilityRegressionUITests/testBrowserEngineSmokeRendersEvaluatesScreenshotsAndReopens" in required_ci
     assert "Validate required browser runner identity" in workflow
@@ -269,7 +364,11 @@ def test_all_mac_build_lanes_run_the_fail_closed_artifact_guard() -> None:
         assert "verify_browser_runtime_artifact.py" in workflow
         assert "CMUX_CEF_ALLOW_DOWNLOAD" in workflow
         assert "INFOPLIST_KEY_CMUXBuildSourceSHA" in workflow
-    assert "verify_browser_runtime_artifact.py" in reload_build
+    assert "trusted-browser-verifier" in reload_build
+    assert "github.workflow_sha" in reload_build
+    assert 'verifier="$GITHUB_WORKSPACE/trusted-browser-verifier/scripts/ci/verify_browser_runtime_artifact.py"' in reload_build
+    assert "trusted-browser-verifier" in ci
+    assert "github.event.pull_request.base.sha || github.workflow_sha" in ci
     assert "CMUX_BUILD_SOURCE_SHA" in reload_build
     assert "INFOPLIST_KEY_CMUXBuildSourceSHA" in (ROOT / "scripts" / "reload.sh").read_text(encoding="utf-8")
 

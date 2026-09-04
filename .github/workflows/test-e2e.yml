@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: Branch or SHA to test
+        description: Branch or SHA to test (workflow_call requires a full SHA)
         required: false
         default: ""
       test_filter:
@@ -50,8 +50,12 @@ on:
   # immutable SHA and an artifact verification request.
   workflow_call:
     inputs:
+      trusted_ref:
+        description: Full base-branch SHA containing the trusted verifier
+        required: true
+        type: string
       ref:
-        description: Branch or full commit SHA to test
+        description: Branch or full commit SHA to test (workflow_call requires a full SHA)
         required: false
         default: ""
         type: string
@@ -172,27 +176,100 @@ jobs:
           fi
 
       - name: Require immutable browser verification ref
-        if: ${{ inputs.verify_browser_runtime == true }}
+        if: ${{ inputs.trusted_ref != '' || inputs.verify_browser_runtime == true }}
         env:
           REQUESTED_REF: ${{ inputs.ref }}
+          TRUSTED_REF: ${{ inputs.trusted_ref }}
+          VERIFY_BROWSER_RUNTIME: ${{ inputs.verify_browser_runtime }}
         run: |
           set -euo pipefail
-          if [[ ! "$REQUESTED_REF" =~ ^[0-9a-fA-F]{40}$ ]]; then
-            echo "::error::browser runtime verification requires a full 40-character commit SHA, got: $REQUESTED_REF"
+          # workflow_call always supplies trusted_ref; dispatch has no such
+          # input. Use the value itself rather than relying on the caller's
+          # event_name, which is inherited by reusable workflows.
+          if [ -n "$TRUSTED_REF" ]; then
+            if [[ ! "$TRUSTED_REF" =~ ^[0-9a-fA-F]{40}$ ]]; then
+              echo "::error::workflow_call requires a full 40-character trusted verifier SHA"
+              exit 1
+            fi
+            if [[ ! "$REQUESTED_REF" =~ ^[0-9a-fA-F]{40}$ ]]; then
+              echo "::error::workflow_call/browser runtime verification requires a full 40-character commit SHA"
+              exit 1
+            fi
+          elif [ "$VERIFY_BROWSER_RUNTIME" = "true" ] && [[ ! "$REQUESTED_REF" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "::error::workflow_call/browser runtime verification requires a full 40-character commit SHA"
             exit 1
           fi
 
-      - name: Checkout trusted browser verifier
-        if: ${{ inputs.verify_browser_runtime == true }}
+      - name: Checkout trusted browser verifier and build tooling
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           repository: ${{ github.repository }}
-          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          # Reusable PR calls pass the immutable base policy explicitly; manual
+          # dispatches use the immutable workflow revision. Never load this
+          # verifier from the pull-request source checkout.
+          ref: ${{ inputs.trusted_ref || github.workflow_sha }}
           path: trusted-browser-verifier
           sparse-checkout: |
             scripts/ci/verify_browser_runtime_artifact.py
+            scripts/download-prebuilt-ghosttykit.sh
+            scripts/validate-xcframework-archive.py
+            scripts/ghosttykit-checksums.txt
           fetch-depth: 1
           persist-credentials: false
+
+      - name: Stage trusted browser verifier and build tooling
+        run: |
+          set -euo pipefail
+          trusted_dir="$RUNNER_TEMP/cmux-trusted-browser-verifier"
+          mkdir -p "$trusted_dir/scripts/ci"
+          cp "$GITHUB_WORKSPACE/trusted-browser-verifier/scripts/ci/verify_browser_runtime_artifact.py" \
+            "$trusted_dir/scripts/ci/verify_browser_runtime_artifact.py"
+          cp "$GITHUB_WORKSPACE/trusted-browser-verifier/scripts/download-prebuilt-ghosttykit.sh" \
+            "$trusted_dir/scripts/download-prebuilt-ghosttykit.sh"
+          cp "$GITHUB_WORKSPACE/trusted-browser-verifier/scripts/validate-xcframework-archive.py" \
+            "$trusted_dir/scripts/validate-xcframework-archive.py"
+          cp "$GITHUB_WORKSPACE/trusted-browser-verifier/scripts/ghosttykit-checksums.txt" \
+            "$trusted_dir/scripts/ghosttykit-checksums.txt"
+          chmod 755 "$trusted_dir/scripts/download-prebuilt-ghosttykit.sh"
+
+      - name: Resolve source Ghostty revision with trusted API access
+        id: source_ghostty
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          SOURCE_REF: ${{ inputs.ref || github.ref }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || {
+            echo "::error::source repository identifier is invalid"
+            exit 1
+          }
+          [[ "$SOURCE_REF" =~ ^[A-Za-z0-9._/-]+$ ]] || {
+            echo "::error::source ref identifier is invalid"
+            exit 1
+          }
+          source_commit="$SOURCE_REF"
+          source_commit="${source_commit#refs/heads/}"
+          source_commit="${source_commit#refs/tags/}"
+          if [[ ! "$source_commit" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            source_commit="$(gh api "repos/$SOURCE_REPOSITORY/commits?sha=$source_commit&per_page=1" --jq '.[0].sha')"
+          fi
+          [[ "$source_commit" =~ ^[0-9a-fA-F]{40}$ ]]
+          ghostty_sha="$(gh api "repos/$SOURCE_REPOSITORY/git/trees/$source_commit?recursive=0" \
+            --jq '.tree[] | select(.path == "ghostty" and .mode == "160000") | .sha')"
+          [[ "$ghostty_sha" =~ ^[0-9a-fA-F]{40}$ ]] || {
+            echo "::error::source ref has no valid Ghostty submodule revision"
+            exit 1
+          }
+          echo "sha=$ghostty_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Download GhosttyKit with trusted tooling
+        env:
+          GHOSTTY_SHA: ${{ steps.source_ghostty.outputs.sha }}
+          GHOSTTYKIT_OUTPUT_DIR: ${{ runner.temp }}/GhosttyKit.xcframework
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/cmux-trusted-browser-verifier/scripts/download-prebuilt-ghosttykit.sh"
 
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -200,16 +277,39 @@ jobs:
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
           ref: ${{ inputs.ref || github.ref }}
           submodules: recursive
+          persist-credentials: false
+
+      - name: Install and bind GhosttyKit
+        env:
+          EXPECTED_GHOSTTY_SHA: ${{ steps.source_ghostty.outputs.sha }}
+        run: |
+          set -euo pipefail
+          actual_ghostty_sha="$(git -C ghostty rev-parse HEAD)"
+          [[ "$actual_ghostty_sha" == "$EXPECTED_GHOSTTY_SHA" ]] || {
+            echo "::error::checked-out Ghostty revision does not match trusted source metadata"
+            exit 1
+          }
+          source_framework="$RUNNER_TEMP/GhosttyKit.xcframework"
+          [ -d "$source_framework" ] || {
+            echo "::error::trusted GhosttyKit download is missing"
+            exit 1
+          }
+          [ ! -e "$GITHUB_WORKSPACE/GhosttyKit.xcframework" ] || {
+            echo "::error::source checkout unexpectedly supplied GhosttyKit"
+            exit 1
+          }
+          mv "$source_framework" "$GITHUB_WORKSPACE/GhosttyKit.xcframework"
 
       - name: Capture and verify exact SHA
         id: sha
         env:
           REQUESTED_REF: ${{ inputs.ref || github.ref }}
           VERIFY_BROWSER_RUNTIME: ${{ inputs.verify_browser_runtime }}
+          TRUSTED_REF: ${{ inputs.trusted_ref }}
         run: |
           set -euo pipefail
           actual_sha="$(git rev-parse HEAD)"
-          if [ "$VERIFY_BROWSER_RUNTIME" = "true" ]; then
+          if [ -n "$TRUSTED_REF" ] || [ "$VERIFY_BROWSER_RUNTIME" = "true" ]; then
             expected_sha="$REQUESTED_REF"
           elif [[ "$REQUESTED_REF" =~ ^[0-9a-fA-F]{40}$ ]]; then
             expected_sha="$REQUESTED_REF"
@@ -290,13 +390,6 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: latest
-
-      - name: Download pre-built GhosttyKit.xcframework
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          ./scripts/download-prebuilt-ghosttykit.sh
 
       - name: Install zig
         run: |
@@ -474,7 +567,7 @@ jobs:
             echo "::error::could not locate the exact browser app bundle" >&2
             exit 1
           }
-          verifier="$GITHUB_WORKSPACE/trusted-browser-verifier/scripts/ci/verify_browser_runtime_artifact.py"
+          verifier="$RUNNER_TEMP/cmux-trusted-browser-verifier/scripts/ci/verify_browser_runtime_artifact.py"
           if [ ! -f "$verifier" ]; then
             echo "::error::trusted browser verifier is unavailable in the base revision" >&2
             exit 1
