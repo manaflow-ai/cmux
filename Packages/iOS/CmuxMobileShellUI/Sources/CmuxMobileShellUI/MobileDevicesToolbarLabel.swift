@@ -19,13 +19,9 @@ struct MobileDevicesToolbarLabel: View {
         let hasOutdatedListAuth = computerDeviceIDs.contains { deviceID in
             listAuth.entry(deviceID: deviceID)?.isOutdated == true
         }
-        let hasUnverifiedListAuth = computerDeviceIDs.contains { deviceID in
-            listAuth.entry(deviceID: deviceID)?.status == "seeded"
-        }
         Self.warningVisible(
             hasGateWarning: !gateWarningDeviceIDs.isDisjoint(with: computerDeviceIDs),
             hasOutdatedListAuth: hasOutdatedListAuth,
-            hasUnverifiedListAuth: hasUnverifiedListAuth,
             hasComputers: !computerDeviceIDs.isEmpty
         )
     }
@@ -41,10 +37,9 @@ struct MobileDevicesToolbarLabel: View {
     static func warningVisible(
         hasGateWarning: Bool,
         hasOutdatedListAuth: Bool,
-        hasUnverifiedListAuth: Bool = false,
         hasComputers: Bool = true
     ) -> Bool {
-        hasComputers && (hasGateWarning || hasOutdatedListAuth || hasUnverifiedListAuth)
+        hasComputers && (hasGateWarning || hasOutdatedListAuth)
     }
 
     var body: some View {

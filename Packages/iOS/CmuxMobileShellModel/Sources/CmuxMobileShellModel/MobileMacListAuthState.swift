@@ -5,10 +5,9 @@ public import Observation
 /// authority), projected for UI.
 ///
 /// Written by the irx composition on every applied directory fact and on
-/// sign-out; read by the Computers surfaces to warn about Macs the new
-/// connection system has not verified yet (directory `status == "seeded"`:
-/// a binding never confirmed by its own control-plane hello, i.e. a Mac
-/// still running a pre-list-auth cmux).
+/// sign-out; read by the Computers surfaces to warn only when a remembered
+/// Mac build is below the current minimum. A seeded row with no remembered
+/// version remains informational until its first hello supplies the build.
 ///
 /// A process-wide shared instance is the seam here because the writer lives
 /// in `cmuxFeature` (the transport composition) and the readers live in
@@ -43,7 +42,8 @@ public final class MobileMacListAuthState {
         }
 
         /// True only when both versions are known and the Mac is below the
-        /// server floor. Malformed or channel-only values stay informational.
+        /// server floor. Malformed, missing, or channel-only values stay
+        /// informational so an unverified row fails open.
         public var isOutdated: Bool {
             guard let appVersion, let minimumSupportedVersion,
                   let installed = Self.numericVersion(appVersion),
@@ -104,9 +104,9 @@ public final class MobileMacListAuthState {
         entriesByDeviceID[deviceID]
     }
 
-    /// The Computers-row warning predicate: the Mac exists in the directory
-    /// but was seeded by the account overlay and has never confirmed itself
-    /// on the new connection system.
+    /// Whether the directory still has a seeded overlay for this Mac. This is
+    /// retained for connection admission diagnostics, not a user-facing update
+    /// warning; the UI waits for a remembered version and `isOutdated`.
     public func isSeeded(deviceID: String) -> Bool {
         entriesByDeviceID[deviceID]?.status == "seeded"
     }
