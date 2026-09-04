@@ -7,10 +7,10 @@ import Foundation
 extension Workspace {
     // MARK: - Title Management
 
-    /// Who set a custom title. Auto-naming (AI-generated titles) and a remote
-    /// daemon observation must never overwrite a user intent. Remote is kept
-    /// separate from user so the next authoritative snapshot can converge a
-    /// projection without starting another write-through request.
+    /// Who set a custom title. Auto-naming must not overwrite a user or remote
+    /// title. A remote daemon observation is authoritative for a cloud-bound
+    /// projection and may replace a local title after another client changes the
+    /// daemon name. The separate source lets reconciliation avoid a write loop.
     enum CustomTitleSource: String, Codable, Sendable {
         case user
         case auto
@@ -181,7 +181,8 @@ extension Workspace {
     /// Sets, replaces, or clears (empty/nil `title`) the workspace custom title.
     ///
     /// `.auto` writes are rejected when a user or remote title exists, and
-    /// `.auto` never clears. Returns whether the write landed.
+    /// `.auto` never clears. `.remote` is the cloud daemon's canonical value and
+    /// may replace a local title. Returns whether the write landed.
     @discardableResult
     func setCustomTitle(_ title: String?, source: CustomTitleSource = .user) -> Bool {
         let trimmed = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""

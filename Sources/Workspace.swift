@@ -5314,7 +5314,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// Sets, replaces, or clears (empty/nil `title`) a panel custom title.
     ///
     /// `.auto` writes are rejected when a user or remote title exists, and
-    /// `.auto` never clears. Returns whether the write landed.
+    /// `.auto` never clears. `.remote` is the cloud daemon's canonical value and
+    /// may replace a local title. Returns whether the write landed.
     @discardableResult
     func setPanelCustomTitle(
         panelId: UUID,

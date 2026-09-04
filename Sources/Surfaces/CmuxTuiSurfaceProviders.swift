@@ -174,6 +174,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         case terminalNotCreated(String)
         case invalidSnapshot(String)
         case snapshotOnly(String)
+        case stateUnavailable(String)
         case badURL(String)
 
         var errorDescription: String? {
@@ -193,6 +194,14 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                     format: String(
                         localized: "cloudTree.error.snapshotOnly",
                         defaultValue: "%@ uses an older cmux-tui protocol. Refresh it to enable live sync and rename operations."
+                    ),
+                    id
+                )
+            case .stateUnavailable(let id):
+                return String(
+                    format: String(
+                        localized: "cloudTree.error.renameTerminalUnavailable",
+                        defaultValue: "The current state for %@ is unavailable. Refresh and retry before renaming."
                     ),
                     id
                 )
@@ -452,10 +461,11 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         async let stats = try? client.stats(id: machineID)
         var linkState: SurfaceLinkState = .connected
         var linkError: String?
-        // A successfully decoded snapshot is a successful read even when it
-        // loses an install race to a newer event. Callers must never use an old
-        // cached graph as proof that the target was freshly observed.
-        var snapshotReadSucceeded = false
+        // A decoded snapshot is not automatically an authorization boundary. It
+        // can lose an install race, or be older than the graph already accepted.
+        // Callers must use only a graph established by this refresh as mutation
+        // evidence, never the retained stale graph.
+        var snapshotEstablishedCurrentGraph = false
         do {
             guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
             let connected = try await links.connected(machineID: machineID)
@@ -468,8 +478,13 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let incoming = CmuxTuiSnapshotParser.state(fromSnapshot: object, machine: machine)
             else { throw ProviderError.invalidSnapshot(machineID) }
-            snapshotReadSucceeded = true
-            _ = installSnapshotIfNewer(incoming, requestVersion: requestVersion)
+            let installed = installSnapshotIfNewer(incoming, requestVersion: requestVersion)
+            // Equal cursors are a valid no-op refresh only when the accepted
+            // graph is byte-for-byte equivalent. A cursor alone is not proof
+            // that a malformed or misconfigured daemon returned the same graph.
+            // A newer event can also win the race while this snapshot is in
+            // flight; the final install-version check below covers that case.
+            snapshotEstablishedCurrentGraph = installed || cloudState == incoming
             // Derive compatibility maps from the graph that won the install race.
             // The event reader may have advanced it while this snapshot was in flight.
             let authoritative = cloudState?.snapshotObject() ?? object
@@ -558,19 +573,20 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         )
         if let cloudState {
             // A successful read or an event install proves the retained graph is
-            // current. A failed read keeps the graph for diagnosis but marks it
-            // stale, so agents can see it without treating it as writable truth.
+            // current. A failed or stale read keeps the graph for diagnosis but
+            // marks it stale, so agents can see it without treating it as truth.
             let stateAdvancedDuringRead = cloudStateInstallVersion != requestVersion
+            snapshotEstablishedCurrentGraph = snapshotEstablishedCurrentGraph || stateAdvancedDuringRead
             // A successful snapshot is current even when the subscription is degraded. The
             // warning stays in machine info, so agents see both the exact last read and the
             // missing live-feed guarantee instead of an apparently permanent stale graph.
-            let observation: CloudVMStateObservation = (snapshotReadSucceeded || stateAdvancedDuringRead)
+            let observation: CloudVMStateObservation = snapshotEstablishedCurrentGraph
                 ? .current
                 : .stale(reason: eventsFeedWarning ?? info.linkError ?? info.linkState.rawValue)
             publish(
                 cloudState,
                 ports: currentPorts,
-                reconcileTitles: snapshotReadSucceeded || stateAdvancedDuringRead,
+                reconcileTitles: snapshotEstablishedCurrentGraph,
                 observation: observation
             )
         } else {
@@ -592,7 +608,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         }
         guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
         reprojectRestoredPanes(generation: lifecycle)
-        return snapshotReadSucceeded
+        return snapshotEstablishedCurrentGraph
     }
 
     @discardableResult
@@ -1228,12 +1244,24 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         // Creation and rename can arrive back-to-back. Refresh before validating the
         // target, but use the creation receipt when the accepted snapshot still
         // trails it. The receipt's revision is a CAS fence, not a timing guess.
-        _ = await refresh(force: true)
+        let refreshEstablishedCurrentGraph = await refresh(force: true)
         try Task.checkCancellation()
         let pending = pendingCreation(forTabID: id)
-        if let observed = cloudState,
-           let previous = observed.tabs.first(where: { $0.id == id }),
-           let observedCursor = observed.cursor {
+        let observed = cloudState
+        let previous = observed?.tabs.first(where: { $0.id == id })
+        let observedCursor = observed?.cursor
+        let authority = CloudVMRemoteMutationAuthority.resolve(
+            refreshEstablishedCurrentGraph: refreshEstablishedCurrentGraph,
+            hasAcceptedState: observed != nil,
+            targetVisible: previous != nil,
+            hasVersionedCursor: observedCursor != nil,
+            hasPendingReceipt: pending?.tabID == id && pending?.receipt != nil
+        )
+        switch authority {
+        case .currentGraph:
+            guard let previous, let observedCursor else {
+                throw ProviderError.stateUnavailable(machineID)
+            }
             do {
                 let commitRevision = try await sendRenameTab(
                     id: id,
@@ -1255,18 +1283,21 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 )
                 recordPendingRename(tabID: id, name: normalizedName, revision: commitRevision)
             }
-        } else if let pending,
-                  pending.tabID == id,
-                  let receipt = pending.receipt {
+        case .pendingReceipt:
+            guard let pending, pending.tabID == id, let receipt = pending.receipt else {
+                throw ProviderError.stateUnavailable(machineID)
+            }
             let commitRevision = try await sendRenameTab(
                 id: id,
                 name: normalizedName,
                 expectedRevision: receipt.revision
             )
             recordPendingRename(tabID: id, name: normalizedName, revision: commitRevision)
-        } else if cloudState?.cursor == nil {
+        case .snapshotOnly:
             throw ProviderError.snapshotOnly(machineID)
-        } else {
+        case .unavailable:
+            throw ProviderError.stateUnavailable(machineID)
+        case .targetMissing:
             throw SurfaceCatalogError.unsupported(
                 String(localized: "cloudTree.error.renameTerminalNoView", defaultValue: "This terminal is not open in a remote workspace.")
             )
@@ -1287,40 +1318,52 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         // tab id, and use the fresh typed state for the old value. A creation
         // receipt supplies the one exact tab while the first snapshot catches
         // up, so an immediate rename cannot lose its target.
-        _ = await refresh(force: true)
+        let refreshEstablishedCurrentGraph = await refresh(force: true)
         try Task.checkCancellation()
         let pending = pendingCreation(for: id)
-        let catalogResource = catalog.snapshot.resources(on: machine).first(where: { $0.id == id })
         let observed = cloudState
+        // Derive every placement from the freshly accepted canonical graph. The
+        // catalog is a projection and may still contain a row from an older
+        // publication, so it cannot authorize a compatibility fan-out.
+        let freshTargets: [(tabID: String, previousName: String)] = {
+            guard refreshEstablishedCurrentGraph,
+                  let observed,
+                  observed.cursor != nil,
+                  observed.lookupIndex.terminal(id: id.key) != nil else { return [] }
+            return observed.lookupIndex
+                .tabs(contentKind: "terminal", contentID: id.key)
+                .map { ($0.id, $0.name ?? "") }
+        }()
+        let authority = CloudVMRemoteMutationAuthority.resolve(
+            refreshEstablishedCurrentGraph: refreshEstablishedCurrentGraph,
+            hasAcceptedState: observed != nil,
+            targetVisible: !freshTargets.isEmpty,
+            hasVersionedCursor: observed?.cursor != nil,
+            hasPendingReceipt: pending?.tabID != nil && pending?.receipt != nil
+        )
         let observedCursor: CloudVMCursor
         let targets: [(tabID: String, previousName: String)]
-        if let observed,
-           let cursor = observed.cursor,
-           let views = catalogResource?.remoteViews,
-           !views.isEmpty {
-            observedCursor = cursor
-            // A malformed snapshot cannot make one tab run twice or make
-            // compensation restore an arbitrary wire-order value.
-            var seenTabIDs = Set<String>()
-            targets = views.compactMap { view in
-                guard seenTabIDs.insert(view.tabID).inserted,
-                      let tab = observed.lookupIndex.tab(id: view.tabID) else { return nil }
-                return (view.tabID, tab.name ?? "")
+        switch authority {
+        case .currentGraph:
+            guard let cursor = observed?.cursor, !freshTargets.isEmpty else {
+                throw ProviderError.stateUnavailable(machineID)
             }
-        } else if let pending,
+            observedCursor = cursor
+            targets = freshTargets
+        case .pendingReceipt:
+            guard let pending,
                   let receipt = pending.receipt,
-                  let tabID = pending.tabID {
+                  let tabID = pending.tabID else {
+                throw ProviderError.stateUnavailable(machineID)
+            }
             observedCursor = receipt
             let previousName = pending.resource.remoteViews?.first(where: { $0.tabID == tabID })?.name ?? ""
             targets = [(tabID, previousName)]
-        } else if observed?.cursor == nil {
+        case .snapshotOnly:
             throw ProviderError.snapshotOnly(machineID)
-        } else {
-            throw SurfaceCatalogError.unsupported(
-                String(localized: "cloudTree.error.renameTerminalNoView", defaultValue: "This terminal is not open in a remote workspace.")
-            )
-        }
-        guard !targets.isEmpty else {
+        case .unavailable:
+            throw ProviderError.stateUnavailable(machineID)
+        case .targetMissing:
             throw SurfaceCatalogError.unsupported(
                 String(localized: "cloudTree.error.renameTerminalNoView", defaultValue: "This terminal is not open in a remote workspace.")
             )

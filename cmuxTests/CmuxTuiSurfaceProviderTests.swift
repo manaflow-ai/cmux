@@ -1392,6 +1392,56 @@ import Testing
         #expect(CloudVMStateSyncDecision.forSnapshot(incoming: nil, current: current) == .ignoreStale)
     }
 
+    @Test func remoteMutationAuthorityRejectsStaleGraphsAndScopesReceipts() {
+        #expect(
+            CloudVMRemoteMutationAuthority.resolve(
+                refreshEstablishedCurrentGraph: true,
+                hasAcceptedState: true,
+                targetVisible: true,
+                hasVersionedCursor: true,
+                hasPendingReceipt: false
+            ) == .currentGraph
+        )
+        #expect(
+            CloudVMRemoteMutationAuthority.resolve(
+                refreshEstablishedCurrentGraph: true,
+                hasAcceptedState: true,
+                targetVisible: false,
+                hasVersionedCursor: true,
+                hasPendingReceipt: true
+            ) == .pendingReceipt
+        )
+        // A receipt has only a revision. Without a successful current refresh
+        // its generation is unknown, so it cannot authorize a write.
+        #expect(
+            CloudVMRemoteMutationAuthority.resolve(
+                refreshEstablishedCurrentGraph: false,
+                hasAcceptedState: true,
+                targetVisible: false,
+                hasVersionedCursor: true,
+                hasPendingReceipt: true
+            ) == .unavailable
+        )
+        #expect(
+            CloudVMRemoteMutationAuthority.resolve(
+                refreshEstablishedCurrentGraph: true,
+                hasAcceptedState: true,
+                targetVisible: true,
+                hasVersionedCursor: false,
+                hasPendingReceipt: true
+            ) == .snapshotOnly
+        )
+        #expect(
+            CloudVMRemoteMutationAuthority.resolve(
+                refreshEstablishedCurrentGraph: true,
+                hasAcceptedState: true,
+                targetVisible: false,
+                hasVersionedCursor: true,
+                hasPendingReceipt: false
+            ) == .targetMissing
+        )
+    }
+
     @Test func snapshotClearsEventWarningOnlyAfterLiveFeedResumes() {
         let cursor = CloudVMCursor(generation: "daemon-a", revision: 7)
         #expect(!CloudVMEventFeedRecoveryDecision.shouldClearWarning(

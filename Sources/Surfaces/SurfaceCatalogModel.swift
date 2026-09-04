@@ -591,8 +591,10 @@ struct CloudVMStateIndex: Sendable {
 }
 
 /// One top-level JSON array kept as individually addressable canonical row bytes.
-/// The order array preserves daemon order. Rows without an id use a private
-/// positional key so unknown future fields remain lossless.
+/// `order` preserves the snapshot or storage order for lossless round trips. It
+/// is not semantic placement order after deltas. Consumers must use each row's
+/// explicit index and relationship fields for placement. Rows without an id use
+/// a private positional key so unknown future fields remain lossless.
 struct CloudVMRawCollection: Hashable, Codable, Sendable {
     var order: [String] = []
     var rows: [String: Data] = [:]
@@ -679,7 +681,8 @@ struct CloudVMStateDocument: Hashable, Codable, Sendable {
     }
 
     /// Decodes one collection's rows without materializing the complete graph.
-    /// The order is the daemon order recorded in `CloudVMRawCollection.order`.
+    /// The result follows the stable snapshot or storage order recorded in
+    /// `CloudVMRawCollection.order`. Semantic placement comes from row fields.
     func objects(forCollectionKey key: String) -> [[String: Any]]? {
         guard let collection = collections[key] else { return nil }
         var result: [[String: Any]] = []
@@ -691,6 +694,13 @@ struct CloudVMStateDocument: Hashable, Codable, Sendable {
             result.append(object)
         }
         return result
+    }
+
+    /// A delta may update only collections that were present in the accepted
+    /// snapshot. Creating a new collection from a delta would turn an omitted
+    /// collection into an apparently authoritative empty or partial graph.
+    func containsCollection(_ key: String) -> Bool {
+        collections[key] != nil
     }
 
     /// Returns opaque entities directly from the canonical fragments. This is
@@ -1243,6 +1253,41 @@ struct CloudVMStateObservation: Hashable, Codable, Sendable {
 
     static func stale(reason: String? = nil) -> Self {
         Self(freshness: .stale, reason: reason, pendingWrites: nil)
+    }
+}
+
+/// Authority available for a remote rename after one forced refresh. A stale
+/// graph is useful for display and export, but it never authorizes a mutation.
+/// A pending creation receipt is valid only when that same refresh established
+/// the current daemon generation. The tab command carries a revision, not a
+/// generation, so an old receipt cannot be used after a failed refresh.
+enum CloudVMRemoteMutationAuthority: Equatable, Sendable {
+    case currentGraph
+    case pendingReceipt
+    case snapshotOnly
+    case unavailable
+    case targetMissing
+
+    static func resolve(
+        refreshEstablishedCurrentGraph: Bool,
+        hasAcceptedState: Bool,
+        targetVisible: Bool,
+        hasVersionedCursor: Bool,
+        hasPendingReceipt: Bool
+    ) -> Self {
+        guard refreshEstablishedCurrentGraph, hasAcceptedState else {
+            return .unavailable
+        }
+        guard hasVersionedCursor else {
+            return .snapshotOnly
+        }
+        if targetVisible {
+            return .currentGraph
+        }
+        if hasPendingReceipt {
+            return .pendingReceipt
+        }
+        return .targetMissing
     }
 }
 

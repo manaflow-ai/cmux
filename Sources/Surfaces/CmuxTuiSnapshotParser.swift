@@ -580,7 +580,8 @@ struct CmuxTuiSnapshotParser: Sendable {
                     let alternate = resource == "agent"
                         ? valueTerminalID.map { (name: "terminal_id", value: $0) }
                         : nil
-                    guard document.upsert(
+                    guard document.containsCollection(key),
+                          document.upsert(
                         collectionKey: key,
                         id: id,
                         value: value,

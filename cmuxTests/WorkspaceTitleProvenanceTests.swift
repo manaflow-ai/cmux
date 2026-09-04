@@ -34,6 +34,16 @@ import Testing
         #expect(workspace.effectiveCustomTitleSource == .user)
     }
 
+    @Test func remoteObservationConvergesAfterAnotherClientRenames() {
+        let workspace = Workspace(title: "Terminal")
+        workspace.setCustomTitle("Local edit")
+        #expect(workspace.setCustomTitle("Remote edit", source: .remote))
+        #expect(workspace.customTitle == "Remote edit")
+        #expect(workspace.effectiveCustomTitleSource == .remote)
+        // Automatic naming still cannot displace the daemon-owned value.
+        #expect(!workspace.setCustomTitle("Generated", source: .auto))
+    }
+
     @Test func userWriteOverAutoTitleLandsAndClaimsOwnership() {
         let workspace = Workspace(title: "Terminal")
         workspace.setCustomTitle("Fix auth bug", source: .auto)
