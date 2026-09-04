@@ -8,6 +8,7 @@ import CmuxMobileSupport
 import CmuxMobileToast
 import CmuxMobileWorkspace
 import SwiftUI
+import UIKit
 
 /// The mobile app's settings page. Surfaces the signed-in account (so the user
 /// can confirm which cmux account this device uses — the account must match the
@@ -868,7 +869,8 @@ private struct MobileSettingsDiagnosticsSection: View {
     @Environment(\.irohSettingsController) private var irohSettingsController
     @Environment(\.mobileDiagnosticLog) private var diagnosticLog
     @Environment(\.mobileAppLog) private var appLog
-    @State private var logExportURL: URL?
+    @State private var logShareItem: MobileDiagnosticsShareItem?
+    @State private var isPreparingExport = false
     /// Owns the verbose-log toggle and the privacy-scrubbed connection report
     /// that used to live on the Networking screen. `nil` without a controller
     /// (previews, hosts without the app root).
@@ -877,8 +879,10 @@ private struct MobileSettingsDiagnosticsSection: View {
 
     var body: some View {
         Section {
-            if let logExportURL {
-                ShareLink(item: logExportURL) {
+            if appLog != nil {
+                Button {
+                    Task { @MainActor in await prepareLogExport() }
+                } label: {
                     Label(
                         L10n.string(
                             "mobile.settings.diagnostics.export",
@@ -887,6 +891,7 @@ private struct MobileSettingsDiagnosticsSection: View {
                         systemImage: "square.and.arrow.up"
                     )
                 }
+                .disabled(isPreparingExport)
                 .accessibilityIdentifier("MobileSettingsExportLogs")
             }
             if let model = irohSettingsModel {
@@ -937,7 +942,6 @@ private struct MobileSettingsDiagnosticsSection: View {
                     await diagnosticLog?.clear()
                     await appLog?.clear()
                     await MobileDebugLog.shared.clearPersistedLog()
-                    await refreshLogExport()
                 }
             }
             Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {}
@@ -947,8 +951,12 @@ private struct MobileSettingsDiagnosticsSection: View {
                 defaultValue: "This permanently removes the app, networking, verbose, and connection logs stored on this device."
             ))
         }
+        .sheet(item: $logShareItem) { item in
+            MobileDiagnosticsActivityView(fileURL: item.url) {
+                finishLogExport(item)
+            }
+        }
         .task {
-            await refreshLogExport()
             guard !Task.isCancelled else { return }
             guard let irohSettingsController else { return }
             // Reuse the model but restart observation on every appearance;
@@ -964,13 +972,53 @@ private struct MobileSettingsDiagnosticsSection: View {
     }
 
     @MainActor
-    private func refreshLogExport() async {
-        let previousURL = logExportURL
-        let nextURL = await appLog?.exportLogs()
-        logExportURL = nextURL
-        if let previousURL, previousURL != nextURL {
-            try? FileManager.default.removeItem(at: previousURL)
-        }
+    private func prepareLogExport() async {
+        guard !isPreparingExport, let appLog else { return }
+        isPreparingExport = true
+        defer { isPreparingExport = false }
+        guard let url = await appLog.exportLogs() else { return }
+        logShareItem = MobileDiagnosticsShareItem(url: url)
     }
+
+    @MainActor
+    private func finishLogExport(_ item: MobileDiagnosticsShareItem) {
+        logShareItem = nil
+        try? FileManager.default.removeItem(at: item.url)
+    }
+}
+
+private struct MobileDiagnosticsShareItem: Identifiable {
+    let url: URL
+
+    var id: String { url.path }
+}
+
+private struct MobileDiagnosticsActivityView: UIViewControllerRepresentable {
+    let fileURL: URL
+    let onFinish: () -> Void
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        let controller = UIActivityViewController(
+            activityItems: [fileURL],
+            applicationActivities: nil
+        )
+        controller.loadViewIfNeeded()
+        controller.popoverPresentationController?.sourceView = controller.view
+        controller.popoverPresentationController?.sourceRect = CGRect(
+            x: controller.view.bounds.midX,
+            y: controller.view.bounds.midY,
+            width: 1,
+            height: 1
+        )
+        controller.completionWithItemsHandler = { _, _, _, _ in
+            onFinish()
+        }
+        return controller
+    }
+
+    func updateUIViewController(
+        _ controller: UIActivityViewController,
+        context: Context
+    ) {}
 }
 #endif

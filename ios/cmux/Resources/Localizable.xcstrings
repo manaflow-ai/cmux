@@ -63862,55 +63862,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Clear Report"
+            "value": "Clear Logs"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "レポートを消去"
+            "value": "ログを消去"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Klarer Bericht"
+            "value": "Protokolle löschen"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Effacer le rapport"
+            "value": "Effacer les journaux"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "مسح التقرير"
+            "value": "مسح السجلات"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Borrar informe"
+            "value": "Borrar registros"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "清晰的報告"
+            "value": "清除日誌"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "清晰的报告"
+            "value": "清除日志"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "보고서 지우기"
+            "value": "로그 지우기"
           }
         }
       }
