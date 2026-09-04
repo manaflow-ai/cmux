@@ -4147,6 +4147,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private let scrollSpeedAccumulator = TerminalScrollSpeedAccumulator()
     private var visibleInUI: Bool = true
     private var pendingSurfaceSize: CGSize?
+    private var deferSurfaceSizeForPortalGeometrySettlement = false
     private var deferredSurfaceSizeRetryQueued = false, needsSurfaceSizeRetryAfterMetalLayerRealizes = false
     private var deferredSurfaceSizeNonMetalRetryCount = 0
     private var lastDrawableSize: CGSize = .zero
@@ -5209,6 +5210,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     private func activeSurfaceResizeDeferralReason() -> String? {
         if isWindowLiveResizeActive { return nil }
+        if deferSurfaceSizeForPortalGeometrySettlement { return "portalGeometrySettlement" }
         return Self.shouldDeferSurfaceResizeForActiveDrag(in: window) ? "tabDrag" : nil
     }
 
@@ -5371,6 +5373,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     @discardableResult
     fileprivate func pushTargetSurfaceSize(_ size: CGSize) -> Bool {
         updateSurfaceSize(size: size)
+    }
+
+    fileprivate func beginPortalGeometrySettlement() {
+        deferSurfaceSizeForPortalGeometrySettlement = true
+    }
+
+    fileprivate func finishPortalGeometrySettlement() {
+        guard deferSurfaceSizeForPortalGeometrySettlement else { return }
+        deferSurfaceSizeForPortalGeometrySettlement = false
+        _ = updateSurfaceSize()
     }
 
 #if DEBUG
@@ -5838,7 +5850,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private func copyCurrentGhosttySelectionToClipboard(surface: ghostty_surface_t) -> Bool {
-        let copyAction = "copy_to_clipboard"
+        let copyAction = GhosttyApp.shared.configuredCopyToClipboardAction
         let formattedRepresentations = GhosttyApp.terminalPasteboard
             .captureNextStandardClipboardRepresentations {
                 performBindingActionImmediately(copyAction)
@@ -5893,7 +5905,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
 
         return ghosttyConsumeMenuAction(
-            "copy_to_clipboard",
+            GhosttyApp.shared.configuredCopyToClipboardAction,
             for: event,
             surface: surface
         )
@@ -6064,7 +6076,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     @IBAction func copy(_ sender: Any?) {
         guard let surface else {
-            _ = performBindingActionImmediately("copy_to_clipboard")
+            _ = performBindingActionImmediately(
+                GhosttyApp.shared.configuredCopyToClipboardAction
+            )
             return
         }
         if keyboardCopyModeActive {
@@ -11621,6 +11635,9 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     var isVisibleInUI: Bool { surfaceView.isVisibleInUI }
+    func beginPortalGeometrySettlement() { surfaceView.beginPortalGeometrySettlement() }
+    func finishPortalGeometrySettlement() { surfaceView.finishPortalGeometrySettlement() }
+
     func setVisibleInUI(_ visible: Bool) {
         let wasVisible = surfaceView.isVisibleInUI
         // Make the AppKit portal presentable before asking Ghostty to realize its

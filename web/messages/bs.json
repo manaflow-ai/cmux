@@ -7,12 +7,14 @@
         "snapshot": "Ovaj Cloud VM ne podržava sačuvano stanje VM-a.",
         "restore": "Ova vrsta Cloud VM-a ne podržava vraćanje sačuvanog stanja VM-a.",
         "fork": "Ovaj Cloud VM ne podržava kopiranje u novi VM.",
+        "openPort": "Provajder ovog Cloud VM-a ne može izložiti portove mašine kao URL-ove za pregled.",
         "default": "Ovaj Cloud VM ne podržava traženu operaciju."
       },
       "action": {
         "snapshot": "Ne pokušavajte ponovo. Rad na ovoj vrsti mašine čuva se na njenom trajnom kućnom volumenu.",
         "restore": "Ne pokušavajte ponovo. Rad na ovoj vrsti mašine čuva se na njenom trajnom kućnom volumenu.",
         "fork": "Ne pokušavajte ponovo. Kreirajte novi VM pomoću `cmux vm new`.",
+        "openPort": "Ne pokušavajte ponovo. Pristupite usluzi iz mašine pomoću `cmux vm exec` ili koristite tip mašine koji može otvoriti portove.",
         "default": "Ne pokušavajte ponovo. Pokrenite `cmux vm ls` ili kontaktirajte podršku ako mislite da je ovo greška."
       }
     },
@@ -59,6 +61,15 @@
     "genericTitle": "Prijava nije dovršena",
     "genericBody": "Pokušajte ponovo. Ako problem potraje, kontaktirajte podršku.",
     "backToSignIn": "Nazad na prijavu"
+  },
+  "cloudPublicationAccess": {
+    "title": "Nemate pristup",
+    "signIn": "Prijavite se na cmux",
+    "signedInAs": "Prijavljeni ste kao {identity}",
+    "switchAccount": "Promijeni nalog",
+    "invalidTitle": "Ovaj link za pristup nije važeći",
+    "invalidBody": "Vratite se na stranicu i pokušajte ponovo.",
+    "footer": "Pristupom upravlja cmux."
   },
   "common": {
     "downloadForMac": "Preuzmi za Mac",
@@ -261,7 +272,18 @@
       "metaTitle": "coderouter — cmux",
       "metaDescription": "Upravljajte zajedničkim AI računima i usmjeravajte zahtjeve pomoću coderoutera.",
       "title": "coderouter",
-      "description": "coderouter usmjerava LLM zahtjeve između računa pružalaca uz prebacivanje i raspoređivanje prema potrošnji."
+      "description": "coderouter usmjerava LLM zahtjeve između računa pružalaca uz prebacivanje i raspoređivanje prema potrošnji.",
+      "machines": {
+        "title": "Mašine",
+        "description": "Korištenje coderoutera po mašini za {team} u posljednjih {days} dana.",
+        "machineColumn": "Mašina",
+        "tokensColumn": "Ukupno tokena",
+        "apiEquivalentColumn": "API ekvivalentna vrijednost",
+        "unnamed": "Mašina bez naziva",
+        "empty": "Nijedna mašina nije koristila coderouter u posljednjih {days} dana.",
+        "unavailable": "Korištenje po mašini trenutno nije dostupno.",
+        "estimateNote": "API ekvivalentna vrijednost je procjena na osnovu javnih cjenovnika, a ne stvarni trošak."
+      }
     },
     "accountMenu": {
       "label": "Meni računa",

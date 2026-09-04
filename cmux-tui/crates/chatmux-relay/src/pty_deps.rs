@@ -40,6 +40,16 @@ const PIPE_READ_POLL_MS: i32 = 100;
 // This is distinct from the relay's lower-level CONTROL_MIN_PROTOCOL floor.
 const DAEMON_LIFECYCLE_PROTOCOL_MIN: u64 = 12;
 
+fn append_dir_name(names: &mut Vec<String>, entry: Result<Option<String>, ()>) -> Result<bool, ()> {
+    match entry? {
+        Some(name) => {
+            names.push(name);
+            Ok(true)
+        }
+        None => Ok(false),
+    }
+}
+
 async fn control_ready(control: &Arc<dyn ControlHandle>, session: &str) -> bool {
     control.request("identify", serde_json::Value::Null).await.is_some_and(|response| {
         response.get("ok").and_then(serde_json::Value::as_bool) == Some(true)
@@ -589,7 +599,7 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
     let (completion, cancel_reader) =
         ProcessOutputCompletion::with_pty_cancellation(1, Arc::clone(&output))?;
     let spawned = pair.spawn(command)?;
-    let cmux_pty::SpawnedPty { mut master, child } = spawned;
+    let cmux_pty::SpawnedPty { master, child } = spawned;
     let mut child_cleanup = SpawnedChildCleanup::new(child);
     let writer = master.take_writer()?;
     let killer = child_cleanup.child().clone_killer();
@@ -809,15 +819,22 @@ async fn cleanup_daemon(mut child: tokio::process::Child) {
             let _ = libc::kill(-(pid as libc::pid_t), libc::SIGTERM);
         }
     }
-    if tokio::time::timeout(Duration::from_millis(250), child.wait()).await.is_ok() {
-        return;
+    match tokio::time::timeout(Duration::from_millis(250), child.wait()).await {
+        Ok(Ok(_status)) => return,
+        Ok(Err(_)) | Err(_) => {
+            // A timeout completion is not enough. `wait` has its own I/O
+            // result, and a failed reap must still go through escalation.
+        }
     }
     if let Some(pid) = child.id() {
         unsafe {
             let _ = libc::kill(-(pid as libc::pid_t), libc::SIGKILL);
         }
     }
-    let _ = child.kill().await;
+    // `kill` also waits for the child, so using it here would make the
+    // supposedly bounded cleanup unbounded. Send SIGKILL, then bound the
+    // explicit reap below.
+    let _ = child.start_kill();
     let _ = tokio::time::timeout(Duration::from_secs(1), child.wait()).await;
 }
 
@@ -994,8 +1011,15 @@ impl PtyDeps for RealPtyDeps {
     async fn read_dir(&self, path: &Path) -> Result<Vec<String>, ()> {
         let mut entries = tokio::fs::read_dir(path).await.map_err(|_| ())?;
         let mut names = Vec::new();
-        while let Ok(Some(entry)) = entries.next_entry().await {
-            names.push(entry.file_name().to_string_lossy().into_owned());
+        loop {
+            let entry = entries
+                .next_entry()
+                .await
+                .map(|entry| entry.map(|entry| entry.file_name().to_string_lossy().into_owned()))
+                .map_err(|_| ());
+            if !append_dir_name(&mut names, entry)? {
+                break;
+            }
         }
         Ok(names)
     }
@@ -1147,6 +1171,15 @@ mod tests {
             Some(std::fs::canonicalize(&executable).unwrap().to_string_lossy().into_owned())
         );
         let _ = tokio::fs::remove_dir_all(root).await;
+    }
+
+    #[test]
+    fn directory_entry_read_errors_fail_closed() {
+        let mut names = vec!["before-error".to_owned()];
+        let result = append_dir_name(&mut names, Err(()));
+
+        assert_eq!(result, Err(()));
+        assert_eq!(names, vec!["before-error".to_owned()]);
     }
 
     #[test]

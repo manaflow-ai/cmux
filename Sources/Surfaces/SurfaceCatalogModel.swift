@@ -139,6 +139,21 @@ struct SurfaceResource: Identifiable, Hashable, Codable, Sendable {
     /// How many remote views (daemon tabs) show this resource; 0 when views are not modeled.
     var remoteViewCount: Int { remoteViews?.count ?? 0 }
 
+    /// A live cloud terminal no daemon tab shows: it keeps running on the machine
+    /// and is out of every workspace's layout, so it lists only in the machine's
+    /// Terminals group, greyed as "detached"; a click re-attaches it in a pane and
+    /// only its kill verb ends it. Exited and unavailable records are never marked
+    /// detached, even when stale tab ids leave an empty resolved-view list.
+    var isDetachedTerminal: Bool {
+        guard kind == .terminal, remoteViews?.isEmpty == true else { return false }
+        switch lifecycle {
+        case .launching, .running:
+            return true
+        case .exited, .unavailable:
+            return false
+        }
+    }
+
     /// The daemon workspaces holding at least one view, first-view order, deduped.
     /// Falls back to `remoteWorkspace` for providers that report a single workspace.
     var remoteWorkspaces: [SurfaceRemoteWorkspace] {
@@ -254,6 +269,8 @@ enum SurfaceCatalogError: Error, LocalizedError, Equatable {
     case unavailable(SurfaceResourceID, reason: String)
     case destinationNotFound(String)
     case unsupported(String)
+    /// The target exists but holds nothing to open (an empty remote workspace).
+    case nothingToOpen(String)
 
     var errorDescription: String? {
         switch self {
@@ -262,6 +279,7 @@ enum SurfaceCatalogError: Error, LocalizedError, Equatable {
         case .unavailable(let id, let reason): return "\(id) is unavailable: \(reason)"
         case .destinationNotFound(let what): return "Destination not found: \(what)."
         case .unsupported(let what): return "Unsupported: \(what)."
+        case .nothingToOpen(let what): return "Nothing to open: \(what)."
         }
     }
 }

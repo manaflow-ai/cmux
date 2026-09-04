@@ -399,8 +399,8 @@ struct SessionEntryResumeLaunchTests {
         #expect(inheritedSplit.requestedWorkingDirectory == workingDirectory)
     }
 
-    @Test("Vault coordinator preserves matching-cwd and new-workspace placement")
-    func coordinatorPreservesWorkingDirectoryPlacement() throws {
+    @Test("Vault resume always creates a new workspace")
+    func coordinatorResumesInNewWorkspace() throws {
         let matchingDirectory = "/tmp/vault-coordinator-match"
         let manager = TabManager(
             initialWorkingDirectory: matchingDirectory,
@@ -408,7 +408,6 @@ struct SessionEntryResumeLaunchTests {
         )
         defer { manager.tabs.forEach { $0.teardownAllPanels() } }
         let originalWorkspace = try #require(manager.selectedWorkspace)
-        let originalPanelID = try #require(originalWorkspace.focusedPanelId)
 
         let matchingEntry = SessionEntry(
             id: "codex:matching-session",
@@ -431,20 +430,21 @@ struct SessionEntryResumeLaunchTests {
 
         SessionEntryResumeCoordinator.resume(matchingEntry, tabManager: manager)
 
-        #expect(manager.tabs.count == 1)
-        #expect(manager.selectedWorkspace === originalWorkspace)
-        let matchingPanelID = try #require(originalWorkspace.focusedPanelId)
-        #expect(matchingPanelID != originalPanelID)
+        #expect(manager.tabs.count == 2)
+        let matchingWorkspace = try #require(manager.selectedWorkspace)
+        #expect(matchingWorkspace !== originalWorkspace)
+        #expect(matchingWorkspace.currentDirectory == matchingDirectory)
+        let matchingPanelID = try #require(matchingWorkspace.focusedPanelId)
         #expect(
-            originalWorkspace.restoredAgentSnapshotsByPanelId[matchingPanelID]?.sessionId
+            matchingWorkspace.restoredAgentSnapshotsByPanelId[matchingPanelID]?.sessionId
                 == "matching-session"
         )
         #expect(
-            originalWorkspace.restoredResumeSessionWorkingDirectoriesByPanelId[matchingPanelID]
+            matchingWorkspace.restoredResumeSessionWorkingDirectoriesByPanelId[matchingPanelID]
                 == matchingDirectory
         )
         #expect(
-            originalWorkspace.terminalPanel(for: matchingPanelID)?
+            matchingWorkspace.terminalPanel(for: matchingPanelID)?
                 .surface.debugInitialInputForTesting() == matchingLaunch.initialInput
         )
 
@@ -470,9 +470,10 @@ struct SessionEntryResumeLaunchTests {
 
         SessionEntryResumeCoordinator.resume(differentEntry, tabManager: manager)
 
-        #expect(manager.tabs.count == 2)
+        #expect(manager.tabs.count == 3)
         let createdWorkspace = try #require(manager.selectedWorkspace)
         #expect(createdWorkspace !== originalWorkspace)
+        #expect(createdWorkspace !== matchingWorkspace)
         #expect(createdWorkspace.currentDirectory == differentDirectory)
         let createdPanelID = try #require(createdWorkspace.focusedPanelId)
         #expect(
@@ -485,7 +486,74 @@ struct SessionEntryResumeLaunchTests {
         )
         #expect(
             createdWorkspace.terminalPanel(for: createdPanelID)?
-                .surface.debugInitialInputForTesting() == differentLaunch.initialInput
+            .surface.debugInitialInputForTesting() == differentLaunch.initialInput
+        )
+    }
+
+    @Test("Open Session creates a split even when the session is already active")
+    func coordinatorOpensActiveSessionInCurrentWorkspaceSplit() throws {
+        let workingDirectory = "/tmp/vault-coordinator-open"
+        let manager = TabManager(
+            initialWorkingDirectory: workingDirectory,
+            autoWelcomeIfNeeded: false
+        )
+        defer { manager.tabs.forEach { $0.teardownAllPanels() } }
+        let workspace = try #require(manager.selectedWorkspace)
+        let initialPaneID = try #require(workspace.bonsplitController.focusedPaneId)
+
+        let entry = SessionEntry(
+            id: "codex:already-active-session",
+            agent: .codex,
+            sessionId: "already-active-session",
+            title: "Already active",
+            cwd: workingDirectory,
+            gitBranch: nil,
+            pullRequest: nil,
+            modified: Date(timeIntervalSince1970: 1_800_000_007),
+            fileURL: nil,
+            specifics: .codex(
+                model: nil,
+                approvalPolicy: nil,
+                sandboxMode: nil,
+                effort: nil
+            )
+        )
+        let launch = try #require(entry.resumeLaunch)
+        let snapshot = try #require(launch.startupRestoreAgent)
+
+        let existingPanel = try #require(workspace.newTerminalSurface(
+            inPane: initialPaneID,
+            focus: true,
+            workingDirectory: launch.workingDirectory,
+            initialInput: launch.initialInput,
+            startupRestoreAgent: snapshot
+        ))
+        #expect(
+            workspace.restoredAgentSnapshotsByPanelId[existingPanel.id]?.sessionId
+                == entry.sessionId
+        )
+        let paneCountBefore = workspace.bonsplitController.allPaneIds.count
+        let panelCountBefore = workspace.panels.count
+
+        SessionEntryResumeCoordinator.open(entry, tabManager: manager)
+
+        #expect(manager.tabs.count == 1)
+        #expect(manager.selectedWorkspace === workspace)
+        #expect(workspace.bonsplitController.allPaneIds.count == paneCountBefore + 1)
+        #expect(workspace.panels.count == panelCountBefore + 1)
+        let openedPanelID = try #require(workspace.focusedPanelId)
+        #expect(openedPanelID != existingPanel.id)
+        #expect(
+            workspace.restoredAgentSnapshotsByPanelId[openedPanelID]?.sessionId
+                == entry.sessionId
+        )
+        #expect(
+            workspace.restoredResumeSessionWorkingDirectoriesByPanelId[openedPanelID]
+                == workingDirectory
+        )
+        #expect(
+            workspace.terminalPanel(for: openedPanelID)?
+                .surface.debugInitialInputForTesting() == launch.initialInput
         )
     }
 }

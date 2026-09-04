@@ -6,7 +6,7 @@ import SwiftUI
 
 /// The Finder-like Cloud tree over the surface catalog: This Mac (local
 /// workspaces → terminals; Browsers) then every machine (Workspaces → cmux-tui
-/// workspace → terminals; Desktop; Ports), as an `NSOutlineView`. Rows are pure
+/// workspace → terminals; Ports; VNC Displays; Terminals), as an `NSOutlineView`. Rows are pure
 /// display (`CloudTreeRowContentView`); the coordinator owns selection,
 /// expansion, clicks, context menus, keyboard navigation, and the native
 /// drag whose drop projects the row as a pane in the main view.
@@ -336,7 +336,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             switch node.kind {
             case .machine(let machine, _):
                 let hasStats = machine.stats.flatMap(CloudTreeMachineRowContent.statsLine) != nil
-                return GlobalFontMagnification.scaledSize(style.machineRowHeight(hasStats: hasStats))
+                // Same rule as usageLine (nil for empty totals), without formatting text per row.
+                let hasUsage = machine.usage.map { !$0.totals.isEmpty } ?? false
+                return GlobalFontMagnification.scaledSize(style.machineRowHeight(hasStats: hasStats, hasUsage: hasUsage))
             case .localMachine, .pendingMachine:
                 return GlobalFontMagnification.scaledSize(style.machineRowHeight(hasStats: false))
             case .terminalsPool, .displaysPool, .workspacesGroup, .portsGroup, .browsersGroup, .workspace, .localWorkspace, .terminal, .display, .browser, .port, .placeholder:
@@ -449,8 +451,12 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 } else {
                     nodeActions.project(resource.id, .split, true)
                 }
-            case .port(let resource, _):
-                nodeActions.project(resource.id, .split, true)
+            case .port(let resource, _, let openIn):
+                if let openIn {
+                    nodeActions.projectInLocalWorkspace(resource.id, openIn)
+                } else {
+                    nodeActions.project(resource.id, .split, true)
+                }
             case .browser(let row):
                 nodeActions.project(row.resource.id, .split, true)
             case .placeholder(let machineID, let placeholder):
@@ -611,18 +617,37 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 }
                 return items
             case .terminal(let row):
-                var items = resourceMenuItems(row.resource, isLocal: row.resource.machine.isLocal)
+                var items = resourceMenuItems(
+                    row.resource,
+                    isLocal: row.resource.machine.isLocal,
+                    openAction: { [weak self] in self?.open(node) }
+                )
                 if !row.resource.machine.isLocal {
                     items.append(.separator())
                     items.append(item(String(localized: "cloudTree.menu.killTerminal", defaultValue: "Kill Terminal\u{2026}")) { [nodeActions] in nodeActions.closeTerminal(row.resource.id) })
                 }
                 return items
             case .browser(let row):
-                return resourceMenuItems(row.resource, isLocal: row.resource.machine.isLocal)
+                return resourceMenuItems(
+                    row.resource,
+                    isLocal: row.resource.machine.isLocal,
+                    openAction: { [weak self] in self?.open(node) }
+                )
             case .display(let resource, let openIn):
-                return resourceMenuItems(resource, isLocal: false, openInLocalWorkspace: openIn)
-            case .port(let resource, let url):
-                return resourceMenuItems(resource, isLocal: false, portURL: url)
+                return resourceMenuItems(
+                    resource,
+                    isLocal: false,
+                    openInLocalWorkspace: openIn,
+                    openAction: { [weak self] in self?.open(node) }
+                )
+            case .port(let resource, let url, let openIn):
+                return resourceMenuItems(
+                    resource,
+                    isLocal: false,
+                    openInLocalWorkspace: openIn,
+                    openAction: { [weak self] in self?.open(node) },
+                    portURL: url
+                )
             case .browsersGroup, .portsGroup:
                 return [
                     item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() },
@@ -640,12 +665,17 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             _ resource: SurfaceResource,
             isLocal: Bool,
             openInLocalWorkspace: UUID? = nil,
+            openAction: (@MainActor () -> Void)? = nil,
             portURL: String? = nil
         ) -> [NSMenuItem] {
             var items: [NSMenuItem] = [
                 item(String(localized: "cloudTree.menu.open", defaultValue: "Open")) { [nodeActions] in
-                    // Same scope rule as the row's open verb (one shared path).
-                    if let openInLocalWorkspace {
+                    // Use the exact row-open path when the row supplies one. This
+                    // keeps context-menu opens in lockstep with click/Return even
+                    // if a refresh changes the catalog after the menu is built.
+                    if let openAction {
+                        openAction()
+                    } else if let openInLocalWorkspace {
                         nodeActions.projectInLocalWorkspace(resource.id, openInLocalWorkspace)
                     } else {
                         nodeActions.project(resource.id, .split, true)
@@ -702,14 +732,16 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             return items
         }
 
-        /// A running create offers nothing but Refresh; a failed one offers the
-        /// same verbs as its hover buttons plus the transcript.
+        /// A running create can be cancelled immediately; a failed one offers
+        /// the same retry/dismiss verbs as its hover buttons plus the transcript.
         private func pendingMachineMenuItems(_ operation: MachineCreateOperation) -> [NSMenuItem] {
             let create = machineActions.create
             let nodeActions = nodeActions
             let id = operation.id
             var items: [NSMenuItem] = []
-            if !operation.isRunning {
+            if operation.isRunning {
+                items.append(item(String(localized: "machines.pending.cancel", defaultValue: "Cancel Create")) { create.cancel(id) })
+            } else {
                 items.append(item(String(localized: "machines.pending.retry", defaultValue: "Retry Create")) { create.retry(id) })
                 items.append(item(String(localized: "machines.pending.showError", defaultValue: "Show Error\u{2026}")) { create.showFailure(id) })
                 items.append(item(String(localized: "machines.pending.copyError", defaultValue: "Copy Error")) { create.copyFailure(id) })
