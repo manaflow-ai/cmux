@@ -38,6 +38,8 @@ private struct VaultHistoryContentView: View {
     let chromeBackgroundColor: NSColor
     @State private var sessionReloadGeneration = 0
     @State private var hasFreshSessionSnapshot = false
+    @State private var isGroupPickerHovered = false
+    @State private var isReloadHovered = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -67,7 +69,7 @@ private struct VaultHistoryContentView: View {
     }
 
     private var controlBar: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: RightSidebarChromeMetrics.headerControlSpacing) {
             Menu {
                 ForEach(VaultHistoryGroupKey.allCases) { key in
                     Button {
@@ -82,17 +84,22 @@ private struct VaultHistoryContentView: View {
                 }
             } label: {
                 HStack(spacing: 3) {
-                    Image(systemName: model.groupKey.symbolName)
-                        .cmuxFont(
-                            size: RightSidebarChromeControlStyle.secondaryIconSize,
-                            weight: RightSidebarChromeControlStyle.iconWeight
-                        )
+                    CmuxSystemSymbolImage(
+                        magnified: model.groupKey.symbolName,
+                        pointSize: RightSidebarChromeControlStyle.secondaryIconSize,
+                        weight: RightSidebarChromeControlStyle.iconWeight
+                    )
                     Text(model.groupKey.label)
                         .cmuxFont(
                             size: RightSidebarChromeControlStyle.labelSize,
                             weight: RightSidebarChromeControlStyle.labelWeight
                         )
                 }
+                .rightSidebarChromePill(
+                    isSelected: false,
+                    isHovered: isGroupPickerHovered,
+                    geometryKeyPrefix: "VaultHistoryGroupPickerControl"
+                )
             }
             .menuStyle(.borderlessButton)
             .fixedSize()
@@ -102,6 +109,7 @@ private struct VaultHistoryContentView: View {
             ))
             .accessibilityIdentifier("VaultHistoryGroupPicker")
             .titlebarInteractiveControl()
+            .onHover { isGroupPickerHovered = $0 }
 
             Spacer(minLength: 4)
 
@@ -109,16 +117,40 @@ private struct VaultHistoryContentView: View {
                 hasFreshSessionSnapshot = false
                 sessionReloadGeneration &+= 1
             } label: {
-                Image(systemName: "arrow.clockwise")
-                    .cmuxFont(size: 10, weight: .medium)
+                HeaderChromeIconStyle.symbol("arrow.clockwise")
+                    .foregroundStyle(
+                        HeaderChromeIconStyle.foregroundColor.opacity(
+                            isReloadHovered
+                                ? HeaderChromeIconStyle.hoveredOpacity
+                                : HeaderChromeIconStyle.opacity
+                        )
+                    )
+                    .frame(
+                        width: RightSidebarChromeMetrics.headerControlSize,
+                        height: RightSidebarChromeMetrics.headerControlSize
+                    )
+                    .background {
+                        if isReloadHovered {
+                            RoundedRectangle(
+                                cornerRadius: RightSidebarChromeMetrics.headerControlCornerRadius,
+                                style: .continuous
+                            )
+                            .fill(Color.primary.opacity(0.07))
+                        }
+                    }
             }
             .buttonStyle(.borderless)
             .help(reloadLabel)
             .accessibilityLabel(reloadLabel)
             .disabled(model.isLoading || sessionStore.isLoading)
             .titlebarInteractiveControl()
+            .onHover { isReloadHovered = $0 }
         }
-        .rightSidebarChromeBar()
+        .rightSidebarChromeBar(
+            leadingPadding: 4,
+            trailingPadding: 6,
+            height: RightSidebarChromeMetrics.secondaryBarHeight
+        )
         .rightSidebarChromeBottomBorder(backgroundColor: chromeBackgroundColor)
     }
 
@@ -131,6 +163,12 @@ private struct VaultHistoryContentView: View {
 
     private var loadingView: some View {
         VStack(spacing: 6) {
+            CmuxSystemSymbolImage(
+                magnified: "clock.arrow.circlepath",
+                pointSize: 22,
+                weight: .regular
+            )
+                .foregroundColor(.secondary.opacity(0.65))
             ProgressView().controlSize(.small)
             Text(String(
                 localized: "vaultHistory.loading",
@@ -143,7 +181,13 @@ private struct VaultHistoryContentView: View {
     }
 
     private var emptyView: some View {
-        VStack(spacing: 4) {
+        VStack(spacing: 7) {
+            CmuxSystemSymbolImage(
+                magnified: "clock.arrow.circlepath",
+                pointSize: 28,
+                weight: .light
+            )
+                .foregroundColor(.secondary.opacity(0.55))
             Text(String(
                 localized: "vaultHistory.empty.title",
                 defaultValue: "No history yet"
@@ -159,23 +203,34 @@ private struct VaultHistoryContentView: View {
             .multilineTextAlignment(.center)
             .padding(.horizontal, 16)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }
 
     private var timelineList: some View {
         let groups = model.groups
+        let backgroundHex = chromeBackgroundColor.hexString()
         return ScrollView {
             LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
                 ForEach(groups) { group in
                     Section {
                         ForEach(group.events) { event in
                             VaultHistoryEventRow(event: event)
+                                .equatable()
                         }
                     } header: {
-                        VaultHistoryGroupHeader(title: group.title, count: group.events.count)
+                        VaultHistoryGroupHeader(
+                            title: group.title,
+                            count: group.events.count,
+                            key: group.key,
+                            backgroundHex: backgroundHex
+                        )
+                        .equatable()
                     }
+                    .padding(.bottom, 4)
                 }
             }
+            .padding(.top, 4)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }

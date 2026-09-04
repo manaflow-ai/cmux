@@ -11,16 +11,17 @@ struct VaultPaneTabButton: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 3) {
-                Image(systemName: tab.symbolName)
-                    .cmuxFont(
-                        size: RightSidebarChromeControlStyle.secondaryIconSize,
-                        weight: RightSidebarChromeControlStyle.iconWeight
-                    )
+                CmuxSystemSymbolImage(
+                    magnified: tab.symbolName,
+                    pointSize: RightSidebarChromeControlStyle.secondaryIconSize,
+                    weight: RightSidebarChromeControlStyle.iconWeight
+                )
                 Text(tab.label)
                     .cmuxFont(
                         size: RightSidebarChromeControlStyle.labelSize,
                         weight: RightSidebarChromeControlStyle.labelWeight
                     )
+                    .lineLimit(1)
             }
             .rightSidebarChromePill(isSelected: isSelected, isHovered: isHovered)
         }
