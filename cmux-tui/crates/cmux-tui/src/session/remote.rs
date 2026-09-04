@@ -1471,6 +1471,20 @@ impl WorkerRuntime {
     }
 
     fn reserve_slot(&self) -> Option<WorkerSlot> {
+        if let Some(slot) = self.admission.try_reserve() {
+            return Some(slot);
+        }
+        // A failed reaper startup leaves completed handles owned by the
+        // runtime. Drain finished handles before rejecting new work, then
+        // give the reaper another chance for handles that are still running.
+        reap_completed_workers(&self.reaper);
+        let has_pending_without_reaper = {
+            let state = self.reaper.lock().unwrap_or_else(|poison| poison.into_inner());
+            state.sender.is_none() && !state.pending.is_empty()
+        };
+        if has_pending_without_reaper {
+            try_start_reaper(&self.reaper);
+        }
         self.admission.try_reserve()
     }
 
@@ -1583,8 +1597,8 @@ fn reap_completed_workers(state: &Arc<Mutex<ReaperState>>) {
     while index > 0 {
         index -= 1;
         if pending[index].0.thread().id() == current {
-            let (handle, completion) = pending.swap_remove(index);
-            completion.install_handle(handle);
+            // A worker cannot join its own handle. Keep it in the runtime's
+            // pending queue so a later admission or reaper wake retries it.
             continue;
         }
         if pending[index].1.is_done() {
@@ -1604,8 +1618,6 @@ fn enqueue_worker_reap_in_state(
     handle: std::thread::JoinHandle<()>,
     completion: Arc<WorkerCompletion>,
 ) {
-    let self_thread = handle.thread().id() == std::thread::current().id();
-    let completion_for_fallback = completion.clone();
     {
         let mut current = state.lock().unwrap_or_else(|poison| poison.into_inner());
         current.pending.push((handle, completion));
@@ -1621,21 +1633,6 @@ fn enqueue_worker_reap_in_state(
         try_start_reaper(state);
         if state.lock().unwrap_or_else(|poison| poison.into_inner()).sender.is_none() {
             reap_completed_workers(state);
-            if self_thread {
-                let retained = {
-                    let mut current = state.lock().unwrap_or_else(|poison| poison.into_inner());
-                    current
-                        .pending
-                        .iter()
-                        .position(|(pending, _)| {
-                            pending.thread().id() == std::thread::current().id()
-                        })
-                        .map(|index| current.pending.swap_remove(index).0)
-                };
-                if let Some(handle) = retained {
-                    completion_for_fallback.install_handle(handle);
-                }
-            }
         }
     }
 }
