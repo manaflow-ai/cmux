@@ -1,6 +1,7 @@
 // Authenticated REST facade over the VM control plane. Native clients use this surface so
 // provider credentials stay behind server-side ownership checks.
 
+import { preconnectFreestyle } from "../../../services/vms/drivers/freestyle";
 import {
   unauthorized,
   verifyRequest,
@@ -57,6 +58,7 @@ import {
 } from "../../../services/vms/routeHelpers";
 import { vmRequestLocale } from "../../../services/vms/vmErrorMessages";
 import { captureVmProvisionOutcome } from "../../../services/vms/observability";
+import { annotateVmRequestBilling } from "../../../services/vms/requestContext";
 import {
   createVm,
   listUserVms,
@@ -94,6 +96,7 @@ export async function GET(request: Request): Promise<Response> {
           });
           listEntitlements = entitlements;
           billingTeamId = entitlements.billingTeamId;
+          annotateVmRequestBilling(entitlements);
           setSpanAttributes(span, {
             "cmux.billing.team_id_set": !!billingTeamId,
             "cmux.billing.customer_type": entitlements.billingCustomerType,
@@ -117,6 +120,7 @@ export async function GET(request: Request): Promise<Response> {
       if (!listEntitlements) {
         try {
           listEntitlements = resolveVmEntitlements(user, process.env);
+          annotateVmRequestBilling(listEntitlements);
         } catch {
           listEntitlements = null;
         }
@@ -138,6 +142,9 @@ export async function GET(request: Request): Promise<Response> {
         capabilities: vmCapabilitiesFor(entry.provider),
         createdAt: entry.createdAt,
         displayName: entry.displayName,
+        // Generated three-word name; clients show it when no displayName is
+        // set. Null on rows created before names were assigned.
+        slug: entry.slug,
         // The machine's address on its owner's private network (reachable over
         // the WireGuard tunnel); null for machines created before private
         // networking. Clients surface it as "Copy IP Address".
@@ -160,6 +167,7 @@ export async function GET(request: Request): Promise<Response> {
               : earliest === null ? vm.freeAccessExpiresAt : Math.min(earliest, vm.freeAccessExpiresAt),
             null,
           ),
+          memoryOptionsMb: memoryOptionsMbForPlan(listEntitlements.planId, process.env),
           // Kinds a client may request (and the image each resolves to) for the
           // default provider, so a "new machine" dialog offers only kinds that work.
           imageKinds: listVmImageKinds(defaultProviderId(), process.env, {
@@ -173,6 +181,8 @@ export async function GET(request: Request): Promise<Response> {
 }
 
 export async function POST(request: Request): Promise<Response> {
+  // Warm the Freestyle connection while the caller is being verified.
+  preconnectFreestyle();
   return withAuthedVmApiRoute(
     request,
     "/api/vm",
@@ -392,8 +402,10 @@ export async function POST(request: Request): Promise<Response> {
         const memoryOptionsMb = memoryOptionsMbForPlan(entitlements.planId, process.env);
         const planMemoryMb = defaultMemoryMbForPlan(entitlements.planId, process.env);
         const requestedMemoryMb = candidate.memoryMb as number | undefined;
-        // Every plan sells exactly the plan machine, so a size the plan does
-        // not offer resolves to that machine instead of failing the create.
+        // The server owns the supported size ladder. A stale client request
+        // that is not on the ladder resolves to the plan default instead of
+        // failing the create. The paid plan's 5 vCPU / 20 GB RAM / 200 GB
+        // shared pool is enforced separately by the repository.
         // Clients ship their own size table and always trail the server: the
         // 2026-09-02 pricing change (#11610) left every installed nightly
         // sending its old 24 GB default and the server rejecting each create
@@ -488,7 +500,6 @@ export async function POST(request: Request): Promise<Response> {
             perMachineHome: candidate.perMachineHome === true,
             memoryMb,
             imageSize: imageSelection.size ?? undefined,
-            afterResponse: runAfterResponse,
             modelPlane,
             timing,
           }));
@@ -550,6 +561,8 @@ export async function POST(request: Request): Promise<Response> {
           kind: imageSelection.kind,
           ...(imageSelection.size ? { size: imageSelection.size } : {}),
           createdAt: created.createdAt,
+          displayName: created.displayName,
+          slug: created.slug,
         });
       }
     },

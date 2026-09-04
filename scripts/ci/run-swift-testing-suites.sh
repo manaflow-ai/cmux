@@ -29,17 +29,18 @@ while IFS= read -r suite; do
   [ -n "$suite" ] || continue
   echo "swift test $package_path --filter $suite"
   suite_status=0
+  # Keep the child from consuming the suite-list pipe that drives this loop.
   python3 "$script_dir/run_with_timeout.py" \
     --timeout-seconds "$suite_timeout_seconds" \
     -- swift test --package-path "$package_path" --filter "$suite" \
-    || suite_status=$?
+    < /dev/null || suite_status=$?
   if [ "$suite_status" -eq 124 ]; then
     echo "Swift test suite timed out; retrying $suite once." >&2
     suite_status=0
     python3 "$script_dir/run_with_timeout.py" \
       --timeout-seconds "$suite_timeout_seconds" \
       -- swift test --package-path "$package_path" --filter "$suite" \
-      || suite_status=$?
+      < /dev/null || suite_status=$?
   fi
   if [ "$suite_status" -ne 0 ]; then
     exit "$suite_status"

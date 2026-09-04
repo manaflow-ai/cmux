@@ -263,6 +263,9 @@ fn attached_event_json() {
 fn tree_delta_json() {}
 fn render_state_json() {}
 fn browser_state_json() {}
+fn complete_daemon_shutdown_after_ack() {
+    let _ = json!({"event": "daemon-shutdown"});
+}
 """
             )
             mux.write_text(
@@ -282,6 +285,7 @@ impl TreeDeltaKind {
                             "notification": {
                                 "streams": ["subscribe", "attach-byte"]
                             },
+                            "daemon-shutdown": {"streams": ["control"]},
                         }
                     }
                 )
@@ -296,6 +300,7 @@ impl TreeDeltaKind {
                     {
                         "bell": {"subscribe"},
                         "notification": {"subscribe", "attach-byte"},
+                        "daemon-shutdown": {"control"},
                     },
                 )
 
@@ -631,6 +636,18 @@ class InventoryContractTests(unittest.TestCase):
             f"mux-events-v{inventory['mux_protocol']}",
         }
         self.assertEqual(private_domains, expected)
+
+    def test_server_stats_uses_local_admin_profile_at_runtime_and_in_schema(self) -> None:
+        inventory = self.inventory()
+        self.assertIn("server-stats", inventory["commands"]["local-admin"])
+        self.assertNotIn("server-stats", inventory["commands"]["control"])
+
+        schema = json.loads((CHECKER.SPEC / "sdk-schema.json").read_text())
+        self.assertEqual(schema["commands"]["server-stats"]["authority"], "local-admin")
+
+        profiles = CHECKER.command_profiles()
+        self.assertIn("server-stats", profiles["local-admin"])
+        self.assertNotIn("server-stats", profiles["control"])
 
     def test_merged_terminal_shortcuts_head_is_not_pending(self) -> None:
         inventory = self.inventory()

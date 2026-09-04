@@ -2,8 +2,9 @@
 
 This is the private-beta runbook for billing convergence, webhook replay,
 latency evidence, and privacy-safe observability. Never paste route tokens,
-OAuth credentials, request bodies, email addresses, or provider-account IDs
-into tickets, logs, Sentry, PostHog, or ClickHouse.
+OAuth credentials, request bodies, email addresses, provider credentials, or
+account labels into tickets, logs, Sentry, PostHog, or ClickHouse. Bounded,
+server-minted account IDs may appear only in the closed telemetry fields.
 
 ## Access
 
@@ -78,19 +79,23 @@ the authenticated output if it contains a principal identifier.
 
 - Sentry project: `coderouter-web`; alert on new coderouter errors,
   reconciliation failure, refresh failure, and sustained provider failure.
-- PostHog project: a dedicated CodeRouter-only project with AI Observability
-  enabled and its project timezone pinned to UTC. Do not ingest ordinary cmux
-  product analytics into it.
-- CodeRouter model-usage events use PostHog's standard `$ai_generation`
-  schema in content-free privacy mode. They contain token counts, the
-  model/provider category required for pricing, and a pre-calculated
-  API-equivalent estimate. They do not include a prompt, output, trace,
-  request body, member identity, or raw Stack team ID.
-- The stable team scope is HMAC-SHA256 with the independent
-  `CODEROUTER_ANALYTICS_SCOPE_SECRET`; plain hashing is not sufficient because
-  known team IDs would be guessable. Person-profile processing is disabled.
+- PostHog project: the main cmux project (`244066`) for account/session
+  lifecycle and operational exceptions. It is not a CodeRouter usage ledger.
+- CodeRouter model usage uses the ClickHouse `usage_events` ledger. It contains
+  token counts, model/provider categories, and the API-equivalent estimate.
+  Authenticated rows carry the Stack user id and billing team.
 - PostHog must never contain prompts, outputs, bodies, credentials, route
-  tokens, email, payment-method details, or provider-account identifiers.
+  tokens, emails, payment-method details, or provider-account labels. The
+  canonical trace may carry a bounded opaque account ID for routing diagnostics;
+  it is not a credential or an account label.
+- Person-level product analytics live in the main cmux PostHog project through
+  `web/services/coderouter/analytics.ts`: closed account/session/upstream
+  lifecycle events and operational exceptions. Route outcomes and token usage
+  stay in ClickHouse. See
+  `docs/posthog/cloud-product-analytics.md` for the catalog and query shapes.
+- The former dedicated CodeRouter project (`549394`) is no longer a runtime
+  sink. Treat its dashboards and environment keys as legacy, and remove keys
+  only after checking operator tooling.
 
 ### Usage ledger (ClickHouse)
 
@@ -183,27 +188,41 @@ not the metrics store today: its hosted custom-event ingestion currently
 accepts only `$page-view` and `$click`. Reconsider it when Hexclave exposes a
 server-authenticated, team-scoped custom-event ingestion API.
 
-## Team Claude upstream from the CLI
+## Team Claude upstream accounts
 
-Cloud machines send `claude` traffic to `https://coderouter.dev/v1/messages`, and coderouter
-forwards it to exactly one per-team upstream (`coderouter_claude_upstreams`). The cmux CLI
-manages it through the app's session, so no credential is typed into a browser or argv:
+Cloud machines send `claude` traffic to `https://coderouter.dev/v1/messages`. coderouter
+forwards each request to one of the team's Claude upstream accounts (`coderouter_claude_accounts`):
+any number, any mix of Anthropic API keys, Claude Code OAuth tokens, and Bedrock credentials.
+Routing: a machine (its `cloud_vms.id`, else the route token) is pinned to one healthy account by
+rendezvous hashing so Anthropic's per-organization prompt cache keeps hitting; a 429 cools that
+account down for `retry-after` (else the earliest `anthropic-ratelimit-*-reset`, else 60 s), a 401/403
+for 15 minutes (`invalid_credential`), a 5xx/529 or transport failure for 20 s, and the same request
+is replayed on the next healthy account (up to `MAX_UPSTREAM_ATTEMPTS`, 4). Disabled accounts are
+skipped. When every account is cooling down the client gets 503 `overloaded_error` with the soonest
+`retry-after`; when none exists, 503 with the add instructions. `usage_events.upstream_account_id`
+and `route_events.upstream_account_id` (ClickHouse migration `002`) name the account that served a
+request. PostHog does not receive request-level LLM or token events.
+
+The cmux CLI manages the list through the app's session, so no credential is typed into a browser
+or argv:
 
 ```bash
-claude setup-token                              # mints a long-lived sk-ant-oat01-... token
-cmux coderouter claude set oauth-token          # hidden prompt; or CLAUDE_CODE_OAUTH_TOKEN / --stdin
-cmux coderouter claude show                     # kind + masked identifier, never the secret
-cmux coderouter machines                        # 30-day spend per Cloud machine
-cmux coderouter claude clear
+claude setup-token                                    # mints a long-lived sk-ant-oat01-... token
+cmux coderouter claude add oauth-token --label work   # runs claude setup-token; or CLAUDE_CODE_OAUTH_TOKEN / --stdin
+cmux coderouter claude add oauth-token --label personal
+cmux coderouter claude list                           # id, kind, masked identifier, label, health
+cmux coderouter claude disable work                   # out of routing, keeps the credential
+cmux coderouter claude remove personal                # by id, label, or identifier
+cmux coderouter machines                              # 30-day spend per Cloud machine
 ```
 
-`set api-key` takes `ANTHROPIC_API_KEY`; `set bedrock` takes `AWS_ACCESS_KEY_ID`,
+`add api-key` takes `ANTHROPIC_API_KEY`; `add bedrock` takes `AWS_ACCESS_KEY_ID`,
 `AWS_SECRET_ACCESS_KEY`, optional `AWS_SESSION_TOKEN`, `--region`, and `--model
-<claude-id>=<bedrock-id>`. The CLI is presentation only: it calls
-`coderouter.claude_upstream.{get,set,clear}` and `coderouter.machines` on the app socket,
-and `Sources/Cloud/CoderouterClient.swift` performs the `GET/PUT/DELETE
-/api/coderouter/claude-upstream` request with the Stack session and team header. Other
-`cmux coderouter` verbs, and all of `cmux cr`, still exec the installed CodeRouter CLI.
+<claude-id>=<bedrock-id>`. HTTP: `GET/POST/DELETE /api/coderouter/claude-upstream` (list, add,
+remove all; `PUT` is an alias of `POST`) and `PATCH/DELETE /api/coderouter/claude-upstream/<id>`
+(label, state; remove one). The dashboard's Claude upstream section lists the same accounts with
+add, enable/disable, and remove. Rows migrated from the single-upstream table keep their
+`aad_version 1` ciphertext binding and get a masked identifier on first read.
 
 ## Verifying the edge model plane locally
 
