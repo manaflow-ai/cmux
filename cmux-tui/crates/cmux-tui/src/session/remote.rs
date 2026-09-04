@@ -3920,15 +3920,12 @@ impl Drop for DumpDirectoryLock<'_> {
 fn lock_dump_directory(directory: &fs::File) -> io::Result<DumpDirectoryLock<'_>> {
     use std::os::fd::AsRawFd;
 
-    loop {
-        if unsafe { libc::flock(directory.as_raw_fd(), libc::LOCK_EX) } == 0 {
-            return Ok(DumpDirectoryLock { directory });
-        }
-        let error = io::Error::last_os_error();
-        if error.kind() != io::ErrorKind::Interrupted {
-            return Err(error);
-        }
+    // Dumping is best-effort. Never let a stalled peer holding this advisory
+    // lock block session teardown or directory cleanup.
+    if unsafe { libc::flock(directory.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
+        return Ok(DumpDirectoryLock { directory });
     }
+    Err(io::Error::last_os_error())
 }
 
 #[cfg(unix)]
@@ -4364,7 +4361,15 @@ where
         }
         return Err(error);
     }
-    let _output_lock = lock_dump_directory(&directory.output)?;
+    let _output_lock = match lock_dump_directory(&directory.output) {
+        Ok(lock) => lock,
+        Err(error) => {
+            unsafe {
+                libc::unlinkat(directory.temporary.as_raw_fd(), temp_name.as_ptr(), 0);
+            }
+            return Err(error);
+        }
+    };
     let status = unsafe {
         libc::renameat(
             directory.temporary.as_raw_fd(),
@@ -5338,10 +5343,8 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn private_dump_file_waits_for_directory_lock_before_creation() {
+    fn private_dump_file_skips_when_directory_lock_is_held() {
         use std::os::fd::AsRawFd;
-        use std::sync::mpsc::channel;
-        use std::time::Duration;
 
         let root = tempfile::tempdir().unwrap();
         let dump_path = root.path().join("dumps");
@@ -5349,19 +5352,13 @@ mod tests {
         let temporary_path = dump_path.join(".cmux-dump-files/.cmux-dump-tmp");
         let temp_path = temporary_path.join(".mirror-1.txt.tmp-99999999-1");
         assert_eq!(unsafe { libc::flock(directory.temporary.as_raw_fd(), libc::LOCK_EX) }, 0);
-        let (created_tx, created_rx) = channel();
-        let worker = std::thread::spawn(move || {
-            let temporary = fs::File::open(&temporary_path).unwrap();
-            let file = private_dump_file(&temporary, ".mirror-1.txt.tmp-99999999-1").unwrap();
-            created_tx.send(()).unwrap();
-            (temporary, file)
-        });
-
-        assert!(created_rx.recv_timeout(Duration::from_millis(100)).is_err());
+        let temporary = fs::File::open(&temporary_path).unwrap();
+        let error = private_dump_file(&temporary, ".mirror-1.txt.tmp-99999999-1").unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::WouldBlock);
         assert!(!temp_path.exists());
         assert_eq!(unsafe { libc::flock(directory.temporary.as_raw_fd(), libc::LOCK_UN) }, 0);
-        created_rx.recv_timeout(Duration::from_secs(2)).unwrap();
-        let (temporary, file) = worker.join().unwrap();
+        let file = private_dump_file(&temporary, ".mirror-1.txt.tmp-99999999-1").unwrap();
+        assert!(temp_path.exists());
         drop(file);
         drop(temporary);
     }
