@@ -48,6 +48,7 @@ import {
   openAttachEndpoint,
   openVmPort,
   openVmCmuxRemote,
+  resumeVmForAttach,
   openVmSession,
   revokeExpiredIdentityLeases,
   revokeUserIdentityLeasesForAccountDeletion,
@@ -1568,6 +1569,44 @@ describe("VM Effect workflows", () => {
     expect(attachCalls).toBe(1);
     expect(resumeCalls).toBe(0);
     expect(observedStatuses).toEqual([]);
+  });
+
+  test("resumeVmForAttach wakes only after direct dial recovery", async () => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000149",
+      userId: "user-workflow-remote-recovery",
+      providerVmId: "provider-vm-remote-recovery",
+      status: "paused",
+      billingTeamId: null,
+    });
+    const observedStatuses: ObservedStatusUpdate[] = [];
+    const repo = testWorkflowRepo({ vm, observedStatuses });
+    let resumeCalls = 0;
+    let statusCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      getStatus: () => Effect.sync(() => {
+        statusCalls += 1;
+        return "running" as const;
+      }),
+      resume: () => Effect.sync(() => {
+        resumeCalls += 1;
+        return testVmHandle({ providerVmId: "provider-vm-remote-recovery" });
+      }),
+    };
+
+    await Effect.runPromise(
+      resumeVmForAttach({
+        userId: "user-workflow-remote-recovery",
+        providerVmId: "provider-vm-remote-recovery",
+      }).pipe(Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(resumeCalls).toBe(1);
+    expect(statusCalls).toBe(0);
+    expect(observedStatuses).toEqual([
+      { id: "00000000-0000-4000-8000-000000000149", providerVmId: "provider-vm-remote-recovery", status: "running" },
+    ]);
   });
 
   test("openAttachEndpoint fails when resumed status persistence fails", async () => {

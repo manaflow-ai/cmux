@@ -2149,9 +2149,32 @@ export function resumeVmForAttach(input: {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* requireAccessibleUserVm(input);
-    yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "attach", {
-      forceProviderProbe: true,
-    });
+    if (!providers.resume) {
+      return yield* Effect.fail(
+        new VmProviderOperationError({
+          provider: vm.provider,
+          operation: "resume",
+          cause: new Error("provider resume is not supported by this deployment"),
+        }),
+      );
+    }
+    // Reserve a team slot from the durable row before waking the provider.
+    // The provider adapter owns the actual pause/resume and guest readiness
+    // work. No status probe is needed on this recovery-only path.
+    const reserved = yield* reservePausedResumeIfTeam(repo, vm, input.providerVmId);
+    yield* resumeUntilRunning(providers, vm, input.providerVmId).pipe(
+      Effect.tapError(() => rollbackPausedResumeReservation(repo, vm, input.providerVmId, reserved)),
+    );
+    yield* recordRunningTransition(
+      repo,
+      providers,
+      vm,
+      input.providerVmId,
+      new VmNotFoundError({ vmId: input.providerVmId }),
+    ).pipe(
+      Effect.tapError(() => rollbackPausedResumeReservation(repo, vm, input.providerVmId, reserved)),
+    );
+    if (reserved) yield* recordResumeUsageEvent(repo, vm, "attach");
     return vmEntryFromRow(vm);
   });
 }
