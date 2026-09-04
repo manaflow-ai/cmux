@@ -902,7 +902,7 @@ struct WorkspaceShellView: View {
             }
         }
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
+            ToolbarItem(placement: .topBarTrailing) {
                 // The system toolbar supplies the sidebar's shared glass group.
                 // Do not layer the detail bar's standalone glass capsule inside
                 // that group.
