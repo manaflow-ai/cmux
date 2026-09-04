@@ -14,6 +14,7 @@ import {
   parseNativeStackTokens,
 } from "../vms/auth";
 import { getStackServerApp } from "../../app/lib/stack";
+import { withStackAuthSpan } from "../auth/stackTelemetry";
 import {
   createHostedSubrouterClient,
   type HostedSubrouterClient,
@@ -112,9 +113,11 @@ export async function resolveSubrouterRequestContext(
       // authoritative token instead of the possibly stale request header.
       let accessToken: string | null | undefined;
       try {
-        const authoritativeTokens = await getStackServerApp().getAuthJson({
-          tokenStore,
-        });
+        const authoritativeTokens = await withStackAuthSpan(
+          "get_auth_json",
+          () => getStackServerApp().getAuthJson({ tokenStore }),
+          { "cmux.auth.flow": "subrouter_request" },
+        );
         accessToken = authoritativeTokens?.accessToken;
       } catch (error) {
         console.error("Subrouter Stack token refresh unavailable", {

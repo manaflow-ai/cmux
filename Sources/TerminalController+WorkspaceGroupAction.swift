@@ -223,11 +223,20 @@ extension TerminalController {
             let message: String
             switch error {
             case .nonString:
-                message = String(localized: "workspaceGroup.error.idempotencyKeyMustBeString", defaultValue: "external_id and idempotency_key must be strings")
+                message = String(
+                    localized: "workspaceGroup.error.idempotencyKeyMustBeString",
+                    defaultValue: "external_id and idempotency_key must be strings"
+                )
             case .empty:
-                message = String(localized: "workspaceGroup.error.idempotencyKeyMustNotBeEmpty", defaultValue: "The group identity must not be empty")
+                message = String(
+                    localized: "workspaceGroup.error.idempotencyKeyMustNotBeEmpty",
+                    defaultValue: "The group identity must not be empty"
+                )
             case .mismatchedAliases:
-                message = String(localized: "workspaceGroup.error.idempotencyKeysMustMatch", defaultValue: "external_id and idempotency_key must match")
+                message = String(
+                    localized: "workspaceGroup.error.idempotencyKeysMustMatch",
+                    defaultValue: "external_id and idempotency_key must match"
+                )
             }
             return (nil, .err(
                 code: "invalid_params",

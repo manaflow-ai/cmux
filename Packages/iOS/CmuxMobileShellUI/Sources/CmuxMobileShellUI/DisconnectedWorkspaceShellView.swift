@@ -78,7 +78,9 @@ struct DisconnectedWorkspaceShellView: View {
                     if let showComputers {
                         ToolbarItem(placement: .topBarLeading) {
                             Button(action: showComputers) {
-                                Image(systemName: "desktopcomputer")
+                                MobileDevicesToolbarLabel(
+                                    hasGateWarning: store?.hasMacVersionUpdateRequired ?? false
+                                )
                             }
                             .accessibilityLabel(L10n.string(
                                 "mobile.connections.title",

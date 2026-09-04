@@ -1,7 +1,9 @@
 "use client";
 
 import { useFormatter, useTranslations } from "next-intl";
-import { useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
+
+import { useAdminSearch } from "./admin-search-context";
 
 type GrantRecord = {
   readonly plan: string | null;
@@ -63,8 +65,6 @@ type Snapshot = {
   };
 };
 
-/** The server-rendered roster, passed from the page so nothing waits on a button. */
-export type ProListSnapshotProps = Snapshot;
 
 type ScanState = {
   readonly status: "idle" | "scanning" | "done" | "error";
@@ -84,7 +84,6 @@ type ListState =
       readonly teamGrants: readonly TeamGrant[];
       readonly userScan: ScanState;
       readonly teamScan: ScanState;
-      readonly loadedAt: string;
     };
 
 type Translate = ReturnType<typeof useTranslations<"dashboard.admin">>;
@@ -95,14 +94,10 @@ const MAX_SCAN_PAGES = 200;
 const buttonClass =
   "border border-border bg-background px-2.5 py-1 text-xs font-medium text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground hover:bg-foreground hover:text-background disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-background disabled:hover:text-foreground";
 
-export function AdminProList({
-  initialSnapshot,
-  onPickQuery,
-}: {
-  initialSnapshot: Snapshot | null;
-  onPickQuery?: (query: string) => void;
-}) {
+export function AdminProList({ initialSnapshot }: { initialSnapshot: Snapshot | null }) {
   const t = useTranslations("dashboard.admin");
+  const search = useAdminSearch();
+  const onPickQuery = search?.pickQuery;
   const [state, setState] = useState<ListState>(() =>
     initialSnapshot
       ? loadedState(initialSnapshot)
@@ -110,28 +105,85 @@ export function AdminProList({
   );
   const runSeq = useRef(0);
   const started = useRef(false);
+  const aborter = useRef<AbortController | null>(null);
 
-  // Streams the directory scans as soon as the section is on screen. A
-  // callback ref runs once per mount without an effect; reload restarts it.
-  function startOnMount(node: HTMLElement | null) {
-    if (!node || started.current) return;
-    started.current = true;
-    if (initialSnapshot) {
-      const seq = ++runSeq.current;
-      void walk("users", seq);
-      void walk("teams", seq);
-    } else {
-      void load();
+  /** Invalidates the current run: in-flight fetches abort and loops stop at their next check. */
+  const beginRun = useCallback((): { seq: number; signal: AbortSignal } => {
+    aborter.current?.abort();
+    const controller = new AbortController();
+    aborter.current = controller;
+    return { seq: ++runSeq.current, signal: controller.signal };
+  }, []);
+
+  const walk = useCallback(async (kind: "users" | "teams", seq: number, signal: AbortSignal) => {
+    // Only the run that started this scan may update it; a reload or unmount
+    // starts a new sequence and results from the old fetches are dropped.
+    const patchScan = (scan: ScanState) => {
+      if (seq !== runSeq.current) return;
+      setState((current) => {
+        if (current.kind !== "loaded") return current;
+        return kind === "users" ? { ...current, userScan: scan } : { ...current, teamScan: scan };
+      });
+    };
+    let cursor: string | null = null;
+    let pages = 0;
+    let scanned = 0;
+    while (pages < MAX_SCAN_PAGES) {
+      if (seq !== runSeq.current) return;
+      const params = new URLSearchParams({ kind });
+      if (cursor) params.set("cursor", cursor);
+      let response: Response;
+      try {
+        response = await fetch(`/api/admin/pro-users/scan?${params}`, { headers: { accept: "application/json" }, signal });
+      } catch {
+        // An abort means this run was superseded or the section unmounted.
+        if (signal.aborted) return;
+        patchScan({ status: "error", scanned, pages, message: t("errors.network") });
+        return;
+      }
+      if (seq !== runSeq.current) return;
+      if (!response.ok) {
+        patchScan({ status: "error", scanned, pages, message: errorMessage(t, response.status) });
+        return;
+      }
+      let page: { rows: unknown[]; scanned: number; nextCursor: string | null };
+      try {
+        page = (await response.json()) as typeof page;
+      } catch {
+        patchScan({ status: "error", scanned, pages, message: t("errors.generic") });
+        return;
+      }
+      if (seq !== runSeq.current) return;
+      const nextPages = pages + 1;
+      const nextScanned = scanned + page.scanned;
+      const rows = page.rows;
+      setState((current) => {
+        if (current.kind !== "loaded") return current;
+        return kind === "users"
+          ? { ...current, userGrants: [...current.userGrants, ...(rows as UserGrant[])], userScan: { status: "scanning", scanned: nextScanned, pages: nextPages } }
+          : { ...current, teamGrants: [...current.teamGrants, ...(rows as TeamGrant[])], teamScan: { status: "scanning", scanned: nextScanned, pages: nextPages } };
+      });
+      pages = nextPages;
+      scanned = nextScanned;
+      cursor = page.nextCursor;
+      if (!cursor) break;
     }
-  }
+    patchScan({
+      status: pages >= MAX_SCAN_PAGES && cursor ? "error" : "done",
+      scanned,
+      pages,
+      message: pages >= MAX_SCAN_PAGES && cursor ? t("list.scanTruncated") : undefined,
+    });
+  }, [t]);
 
-  async function load() {
-    const seq = ++runSeq.current;
+  const load = useCallback(async () => {
+    const { seq, signal } = beginRun();
     setState({ kind: "loading" });
     let response: Response;
     try {
-      response = await fetch("/api/admin/pro-users", { headers: { accept: "application/json" } });
+      response = await fetch("/api/admin/pro-users", { headers: { accept: "application/json" }, signal });
     } catch {
+      if (signal.aborted) return;
       if (seq === runSeq.current) setState({ kind: "error", message: t("errors.network") });
       return;
     }
@@ -151,69 +203,32 @@ export function AdminProList({
     setState(loadedState(snapshot));
     // Manual grants need a directory walk; run both walks after the snapshot
     // is on screen so the Stripe list is never blocked on them.
-    void walk("users", seq);
-    void walk("teams", seq);
-  }
+    void walk("users", seq, signal);
+    void walk("teams", seq, signal);
+  }, [beginRun, t, walk]);
 
-  async function walk(kind: "users" | "teams", seq: number) {
-    let cursor: string | null = null;
-    let pages = 0;
-    let scanned = 0;
-    while (pages < MAX_SCAN_PAGES) {
-      if (seq !== runSeq.current) return;
-      const params = new URLSearchParams({ kind });
-      if (cursor) params.set("cursor", cursor);
-      let response: Response;
-      try {
-        response = await fetch(`/api/admin/pro-users/scan?${params}`, { headers: { accept: "application/json" } });
-      } catch {
-        patchScan(kind, seq, { status: "error", scanned, pages, message: t("errors.network") });
-        return;
-      }
-      if (seq !== runSeq.current) return;
-      if (!response.ok) {
-        patchScan(kind, seq, { status: "error", scanned, pages, message: errorMessage(t, response.status) });
-        return;
-      }
-      let page: { rows: unknown[]; scanned: number; nextCursor: string | null };
-      try {
-        page = (await response.json()) as typeof page;
-      } catch {
-        patchScan(kind, seq, { status: "error", scanned, pages, message: t("errors.generic") });
-        return;
-      }
-      if (seq !== runSeq.current) return;
-      const nextPages = pages + 1;
-      const nextScanned = scanned + page.scanned;
-      const rows = page.rows;
-      setState((current) => {
-        if (current.kind !== "loaded") return current;
-        return kind === "users"
-          ? { ...current, userGrants: [...current.userGrants, ...(rows as UserGrant[])], userScan: { status: "scanning", scanned: nextScanned, pages: nextPages } }
-          : { ...current, teamGrants: [...current.teamGrants, ...(rows as TeamGrant[])], teamScan: { status: "scanning", scanned: nextScanned, pages: nextPages } };
-      });
-      pages = nextPages;
-      scanned = nextScanned;
-      cursor = page.nextCursor;
-      if (!cursor) break;
+  // Streams the directory scans as soon as the section is on screen, and
+  // stops them when it leaves. The callback is stable, so React invokes it
+  // with the element on mount and null on unmount only (StrictMode replays
+  // attach, detach, attach; the detach resets `started` so the re-attach can
+  // restart the aborted run). No effect is needed.
+  const startOnMount = useCallback((node: HTMLElement | null) => {
+    if (node === null) {
+      started.current = false;
+      aborter.current?.abort();
+      runSeq.current += 1;
+      return;
     }
-    patchScan(kind, seq, {
-      status: pages >= MAX_SCAN_PAGES && cursor ? "error" : "done",
-      scanned,
-      pages,
-      message: pages >= MAX_SCAN_PAGES && cursor ? t("list.scanTruncated") : undefined,
-    });
-  }
-
-  // Only the run that started this scan may update it; a reload starts a new
-  // sequence and results from the old fetches are dropped.
-  function patchScan(kind: "users" | "teams", seq: number, scan: ScanState) {
-    if (seq !== runSeq.current) return;
-    setState((current) => {
-      if (current.kind !== "loaded") return current;
-      return kind === "users" ? { ...current, userScan: scan } : { ...current, teamScan: scan };
-    });
-  }
+    if (started.current) return;
+    started.current = true;
+    if (initialSnapshot) {
+      const { seq, signal } = beginRun();
+      void walk("users", seq, signal);
+      void walk("teams", seq, signal);
+    } else {
+      void load();
+    }
+  }, [beginRun, initialSnapshot, load, walk]);
 
   return (
     <section ref={startOnMount} className="border border-border p-3">
@@ -432,7 +447,6 @@ function loadedState(snapshot: Snapshot): Extract<ListState, { kind: "loaded" }>
     teamGrants: [],
     userScan: { status: "scanning", scanned: 0, pages: 0 },
     teamScan: { status: "scanning", scanned: 0, pages: 0 },
-    loadedAt: new Date().toISOString(),
   };
 }
 
