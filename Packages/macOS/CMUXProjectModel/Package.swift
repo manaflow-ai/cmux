@@ -15,6 +15,10 @@ let package = Package(
             name: "cmux-project-dump",
             targets: ["CMUXProjectDump"]
         ),
+        .executable(
+            name: "cmux-add-tunnel-target",
+            targets: ["CMUXAddTunnelTarget"]
+        ),
     ],
     dependencies: [
         .package(
@@ -32,6 +36,12 @@ let package = Package(
         .executableTarget(
             name: "CMUXProjectDump",
             dependencies: ["CMUXProjectModel"]
+        ),
+        .executableTarget(
+            name: "CMUXAddTunnelTarget",
+            dependencies: [
+                .product(name: "XcodeProj", package: "XcodeProj"),
+            ]
         ),
         .testTarget(
             name: "CMUXProjectModelTests",
