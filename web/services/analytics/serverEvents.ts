@@ -196,6 +196,7 @@ async function deliver(body: string, fetchImpl: typeof fetch, posthogHost: strin
         method: "POST",
         headers: { "content-type": "application/json" },
         body,
+        redirect: "error",
         signal: AbortSignal.timeout(CAPTURE_TIMEOUT_MS),
       });
     } catch (error) {

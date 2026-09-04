@@ -157,6 +157,32 @@ describe("server event delivery", () => {
     expect(collected.sent).toHaveLength(0);
   });
 
+  test("does not follow an HTTP redirect from the PostHog host", async () => {
+    let calls = 0;
+    const deferred: Array<() => Promise<void>> = [];
+    const fetchImpl = (async (_input: string | URL | Request, init?: RequestInit) => {
+      calls += 1;
+      expect(init?.redirect).toBe("error");
+      return new Response(null, {
+        status: 307,
+        headers: { location: "http://posthog.invalid/capture/" },
+      });
+    }) as unknown as typeof fetch;
+    const delivery = captureServerEvent(
+      { event: "x", distinctId: "user-1" },
+      {
+        fetch: fetchImpl,
+        env: { CMUX_SERVER_ANALYTICS_FORCE: "1", POSTHOG_HOST: "https://posthog.example" },
+        defer: (task) => deferred.push(task),
+        now: () => new Date("2026-09-03T00:00:00.000Z"),
+      },
+    );
+
+    await deferred[0]!();
+    await delivery;
+    expect(calls).toBe(1);
+  });
+
   test("a failing defer hook cannot reject the best-effort sender", async () => {
     const collected = collector();
     await expect(captureServerEvent(
