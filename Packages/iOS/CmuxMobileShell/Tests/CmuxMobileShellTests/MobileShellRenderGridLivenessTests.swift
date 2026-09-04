@@ -604,6 +604,40 @@ import Testing
     )
 }
 
+/// A probe timeout is not proof that the control lane is unusable. Retry the
+/// idempotent subscription on that same client before promoting the next
+/// watchdog tick to a replacement dial.
+@MainActor
+@Test func watchdogRepairsSubscriptionAfterProbeTimeoutWithoutReplacingSession() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    defer {
+        Task { await router.releaseAllHeld() }
+    }
+
+    #expect(try await pollUntil {
+        await router.count(of: "mobile.events.subscribe") >= 1
+    })
+    let originalClient = try #require(store.remoteClient)
+    let originalGeneration = store.connectionGeneration
+
+    // The first read-only probe is a transient stall. The subscription
+    // re-assertion must recover the same live session without a redial.
+    await router.holdProbeRequest(number: 1)
+    clock.advance(by: 10)
+    store.debugRunRenderGridLivenessCheckForTesting()
+    #expect(await router.waitForCount(of: "mobile.events.probe", atLeast: 1))
+
+    #expect(try await pollUntil {
+        await router.count(of: "mobile.events.subscribe") >= 2
+    })
+    #expect(store.remoteClient === originalClient)
+    #expect(store.connectionGeneration == originalGeneration)
+    #expect(store.connectionState == .connected)
+}
+
 /// A successful probe that REPAIRED a lost registration (the host reports
 /// `already_subscribed: false`) must replay mounted surfaces: render-grid
 /// deltas emitted while the registration was absent were never delivered, so
