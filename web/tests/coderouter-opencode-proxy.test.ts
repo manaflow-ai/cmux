@@ -102,7 +102,10 @@ describe("coderouter OpenCode Go proxy VM-bound route tokens", () => {
 
   function dependencies(
     authenticated: string[] = [],
-    overrides: { fetch?: typeof fetch } = {},
+    overrides: {
+      fetch?: typeof fetch;
+      resolveProviderURL?: (value: string) => Promise<URL | null>;
+    } = {},
   ) {
     return {
       authenticate: async (token: string) => {
