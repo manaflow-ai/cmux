@@ -6,12 +6,14 @@ import SwiftUI
 
 /// The Finder-like Cloud tree over the surface catalog: This Mac (local
 /// workspaces → terminals; Browsers) then every machine (Workspaces → cmux-tui
-/// workspace → terminals; Desktop; Ports), as an `NSOutlineView`. Rows are pure
+/// workspace → terminals; Ports; VNC Displays; Terminals), as an `NSOutlineView`. Rows are pure
 /// display (`CloudTreeRowContentView`); the coordinator owns selection,
 /// expansion, clicks, context menus, keyboard navigation, and the native
 /// drag whose drop projects the row as a pane in the main view.
 struct CloudTreeOutlineView: NSViewRepresentable {
     let machines: [MachineSnapshot]
+    /// Creates still running or failed, shown as pending rows above the fleet.
+    var pendingCreates: [MachineCreateOperation] = []
     let snapshot: SurfaceCatalogSnapshot
     let localWorkspaces: [CloudTreeLocalWorkspace]
     let machineActions: MachineRowActions
@@ -25,6 +27,16 @@ struct CloudTreeOutlineView: NSViewRepresentable {
     var onDragStateChange: @MainActor (Bool) -> Void = { _ in }
     @Environment(\.tabDragTransferRegistry) private var tabDragTransferRegistry
     @Environment(\.colorScheme) private var colorScheme
+
+    /// A terminal rename needs a stable daemon tab placement. A terminal row
+    /// with only a legacy workspace hint is not enough, because the same
+    /// terminal can have zero or many tab placements.
+    static func canRenameTerminal(
+        resource: SurfaceResource,
+        remoteView: SurfaceRemoteView?
+    ) -> Bool {
+        remoteView != nil || resource.remoteViews?.isEmpty == false
+    }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
@@ -49,13 +61,18 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         context.coordinator.nodeActions = nodeActions
         context.coordinator.onDragStateChange = onDragStateChange
         context.coordinator.apply(style: style)
-        context.coordinator.apply(nodes: CloudTreeNodeBuilder.nodes(machines: machines, snapshot: snapshot, localWorkspaces: localWorkspaces))
+        context.coordinator.apply(nodes: CloudTreeNodeBuilder.nodes(
+            machines: machines,
+            pendingCreates: pendingCreates,
+            snapshot: snapshot,
+            localWorkspaces: localWorkspaces
+        ))
     }
 
     // MARK: - Coordinator
 
     @MainActor
-    final class Coordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuDelegate {
+    final class Coordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate {
         var machineActions: MachineRowActions
         var nodeActions: CloudTreeNodeActions
         let expansionStore: CloudTreeExpansionStore
@@ -329,8 +346,10 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             switch node.kind {
             case .machine(let machine, _):
                 let hasStats = machine.stats.flatMap(CloudTreeMachineRowContent.statsLine) != nil
-                return GlobalFontMagnification.scaledSize(style.machineRowHeight(hasStats: hasStats))
-            case .localMachine:
+                // Same rule as usageLine (nil for empty totals), without formatting text per row.
+                let hasUsage = machine.usage.map { !$0.totals.isEmpty } ?? false
+                return GlobalFontMagnification.scaledSize(style.machineRowHeight(hasStats: hasStats, hasUsage: hasUsage))
+            case .localMachine, .pendingMachine:
                 return GlobalFontMagnification.scaledSize(style.machineRowHeight(hasStats: false))
             case .terminalsPool, .displaysPool, .workspacesGroup, .portsGroup, .browsersGroup, .workspace, .localWorkspace, .terminal, .display, .browser, .port, .placeholder:
                 return GlobalFontMagnification.scaledSize(style.rowHeight)
@@ -401,6 +420,12 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 }
             case .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .portsGroup, .browsersGroup:
                 toggle(node)
+            case .pendingMachine(let operation):
+                // Nothing to open yet. A failed create's click shows why (the
+                // CLI transcript); a running one has nothing to say beyond its row.
+                if !operation.isRunning {
+                    machineActions.create.showFailure(operation.id)
+                }
             case .workspace(let machine, let workspace, _, let openIn):
                 // Open-or-focus (D13). Already showing in a local workspace -> go there
                 // instead of opening a second copy; a
@@ -415,27 +440,53 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     if case .terminal(let row) = child.kind { return row.isOpen }
                     return false
                 }), case .terminal(let openRow) = shown.kind {
-                    nodeActions.project(openRow.resource.id, .split, true)
+                    if let view = openRow.remoteView {
+                        nodeActions.projectRemoteView(openRow.resource.id, view, .tab, true)
+                    } else {
+                        // A terminal opens as a tab, not a new column: it joins the
+                        // existing layout instead of widening it every time.
+                        nodeActions.project(openRow.resource.id, .tab, true)
+                    }
                 } else if let group = node.dragGroup, !group.isEmpty {
                     nodeActions.openGroupAsWorkspace(machine, group, workspace.id)
                 }
             case .localWorkspace(let row):
                 nodeActions.selectLocalWorkspace(row.workspaceID)
             case .terminal(let row):
-                nodeActions.project(row.resource.id, .split, true)
-            case .display(let resource, let openIn):
+                if let view = row.remoteView {
+                    nodeActions.projectRemoteView(row.resource.id, view, .tab, true)
+                } else {
+                    // A terminal opens as a tab, not a new column: it joins the
+                    // existing layout instead of widening it every time.
+                    nodeActions.project(row.resource.id, .tab, true)
+                }
+            case .display(let resource, let openIn, let remoteView):
                 // A workspace's Desktop row opens INSIDE the local workspace showing
                 // that remote workspace — never a jump to a VNC pane in a different
                 // workspace. Pool rows (openIn == nil) keep the global open-or-focus.
+                if let openIn {
+                    if let remoteView {
+                        nodeActions.projectRemoteViewInLocalWorkspace(resource.id, remoteView, openIn)
+                    } else {
+                        nodeActions.projectInLocalWorkspace(resource.id, openIn)
+                    }
+                } else if let remoteView {
+                    nodeActions.projectRemoteView(resource.id, remoteView, .split, true)
+                } else {
+                    nodeActions.project(resource.id, .split, true)
+                }
+            case .port(let resource, _, let openIn):
                 if let openIn {
                     nodeActions.projectInLocalWorkspace(resource.id, openIn)
                 } else {
                     nodeActions.project(resource.id, .split, true)
                 }
-            case .port(let resource):
-                nodeActions.project(resource.id, .split, true)
             case .browser(let row):
-                nodeActions.project(row.resource.id, .split, true)
+                if let view = row.remoteView {
+                    nodeActions.projectRemoteView(row.resource.id, view, .split, true)
+                } else {
+                    nodeActions.project(row.resource.id, .split, true)
+                }
             case .placeholder(let machineID, let placeholder):
                 // "Asleep — open to wake": a fresh terminal on the machine is what wakes it.
                 if placeholder.style == .dimmed, let machine = machine(id: machineID) {
@@ -520,20 +571,27 @@ struct CloudTreeOutlineView: NSViewRepresentable {
 
         // MARK: Context menu
 
-        func menuNeedsUpdate(_ menu: NSMenu) {
-            menu.removeAllItems()
-            guard let outlineView else { return }
-            let row = outlineView.clickedRow >= 0 ? outlineView.clickedRow : outlineView.selectedRow
-            guard row >= 0, let node = outlineView.item(atRow: row) as? CloudTreeNode else { return }
+        func contextMenu(forRow row: Int) -> NSMenu? {
+            guard let outlineView else { return nil }
+            let resolvedRow = row >= 0 ? row : outlineView.selectedRow
+            guard resolvedRow >= 0, let node = outlineView.item(atRow: resolvedRow) as? CloudTreeNode else { return nil }
+            let menu = NSMenu()
+            menu.autoenablesItems = false
             for item in menuItems(for: node) {
                 menu.addItem(item)
             }
+            #if DEBUG
+            cmuxDebugLog("cloudTree.menu.build row=\(resolvedRow) items=\(menu.items.count)")
+            #endif
+            return menu.items.isEmpty ? nil : menu
         }
 
         private func menuItems(for node: CloudTreeNode) -> [NSMenuItem] {
             switch node.kind {
             case .machine(let machine, _):
                 return machineMenuItems(machine)
+            case .pendingMachine(let operation):
+                return pendingMachineMenuItems(operation)
             case .localMachine:
                 return [
                     item(String(localized: "cloudTree.menu.newTerminal", defaultValue: "New Terminal")) { [nodeActions] in nodeActions.newTerminal(.local, nil) },
@@ -587,18 +645,58 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 }
                 return items
             case .terminal(let row):
-                var items = resourceMenuItems(row.resource, isLocal: row.resource.machine.isLocal)
+                var items = resourceMenuItems(
+                    row.resource,
+                    isLocal: row.resource.machine.isLocal,
+                    openAction: { [weak self] in self?.open(node) },
+                    remoteView: row.remoteView
+                )
                 if !row.resource.machine.isLocal {
                     items.append(.separator())
+                    // A tab-specific row renames one view. A pool row with several
+                    // views has no single safe target, so expose the explicit
+                    // all-views operation. A detached zero-view resource has no
+                    // daemon tab to rename and keeps this item hidden.
+                    let canRename = CloudTreeOutlineView.canRenameTerminal(
+                        resource: row.resource,
+                        remoteView: row.remoteView
+                    )
+                    if canRename {
+                        let title = if row.remoteView == nil {
+                            String(localized: "cloudTree.menu.renameTerminalAllViews", defaultValue: "Rename all views\u{2026}")
+                        } else {
+                            String(localized: "cloudTree.menu.renameTerminal", defaultValue: "Rename\u{2026}")
+                        }
+                        items.append(item(title) { [nodeActions] in
+                            nodeActions.renameTerminal(row.resource, row.remoteView)
+                        })
+                    }
                     items.append(item(String(localized: "cloudTree.menu.killTerminal", defaultValue: "Kill Terminal\u{2026}")) { [nodeActions] in nodeActions.closeTerminal(row.resource.id) })
                 }
                 return items
             case .browser(let row):
-                return resourceMenuItems(row.resource, isLocal: row.resource.machine.isLocal)
-            case .display(let resource, let openIn):
-                return resourceMenuItems(resource, isLocal: false, openInLocalWorkspace: openIn)
-            case .port(let resource):
-                return resourceMenuItems(resource, isLocal: false)
+                return resourceMenuItems(
+                    row.resource,
+                    isLocal: row.resource.machine.isLocal,
+                    openAction: { [weak self] in self?.open(node) },
+                    remoteView: row.remoteView
+                )
+            case .display(let resource, let openIn, let remoteView):
+                return resourceMenuItems(
+                    resource,
+                    isLocal: false,
+                    openInLocalWorkspace: openIn,
+                    openAction: { [weak self] in self?.open(node) },
+                    remoteView: remoteView
+                )
+            case .port(let resource, let url, let openIn):
+                return resourceMenuItems(
+                    resource,
+                    isLocal: false,
+                    openInLocalWorkspace: openIn,
+                    openAction: { [weak self] in self?.open(node) },
+                    portURL: url
+                )
             case .browsersGroup, .portsGroup:
                 return [
                     item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() },
@@ -612,23 +710,54 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         /// The verbs every surface row shares: open (reusing an open pane), open as a
         /// tab, a second pane (cloud resources only — a local terminal has one pane),
         /// and copying the resource id agents use with `cmux vm open`.
-        private func resourceMenuItems(_ resource: SurfaceResource, isLocal: Bool, openInLocalWorkspace: UUID? = nil) -> [NSMenuItem] {
+        private func resourceMenuItems(
+            _ resource: SurfaceResource,
+            isLocal: Bool,
+            openInLocalWorkspace: UUID? = nil,
+            openAction: (@MainActor () -> Void)? = nil,
+            portURL: String? = nil,
+            remoteView: SurfaceRemoteView? = nil
+        ) -> [NSMenuItem] {
             var items: [NSMenuItem] = [
                 item(String(localized: "cloudTree.menu.open", defaultValue: "Open")) { [nodeActions] in
-                    // Same scope rule as the row's open verb (one shared path).
-                    if let openInLocalWorkspace {
-                        nodeActions.projectInLocalWorkspace(resource.id, openInLocalWorkspace)
+                    // Use the exact row-open path when the row supplies one. This
+                    // keeps context-menu opens in lockstep with click/Return even
+                    // if a refresh changes the catalog after the menu is built.
+                    if let openAction {
+                        openAction()
+                    } else if let openInLocalWorkspace {
+                        if let remoteView {
+                            nodeActions.projectRemoteViewInLocalWorkspace(resource.id, remoteView, openInLocalWorkspace)
+                        } else {
+                            nodeActions.projectInLocalWorkspace(resource.id, openInLocalWorkspace)
+                        }
+                    } else if let remoteView {
+                        nodeActions.projectRemoteView(resource.id, remoteView, .split, true)
                     } else {
                         nodeActions.project(resource.id, .split, true)
                     }
                 },
-                item(String(localized: "cloudTree.menu.openInNewTab", defaultValue: "Open in New Tab")) { [nodeActions] in nodeActions.project(resource.id, .tab, true) },
+                item(String(localized: "cloudTree.menu.openInNewTab", defaultValue: "Open in New Tab")) { [nodeActions] in
+                    if let remoteView {
+                        nodeActions.projectRemoteView(resource.id, remoteView, .tab, true)
+                    } else {
+                        nodeActions.project(resource.id, .tab, true)
+                    }
+                },
             ]
             if !isLocal {
-                items.append(item(String(localized: "cloudTree.menu.openInNewPane", defaultValue: "Open in New Pane")) { [nodeActions] in nodeActions.project(resource.id, .split, false) })
+                items.append(item(String(localized: "cloudTree.menu.openInNewPane", defaultValue: "Open in New Pane")) { [nodeActions] in
+                    if let remoteView {
+                        nodeActions.projectRemoteView(resource.id, remoteView, .split, false)
+                    } else {
+                        nodeActions.project(resource.id, .split, false)
+                    }
+                })
             }
             items.append(.separator())
-            if let port = resource.port, resource.kind == .browser {
+            if let portURL {
+                items.append(item(String(localized: "cloudTree.menu.copyLink", defaultValue: "Copy Link")) { [nodeActions] in nodeActions.copyToPasteboard(portURL) })
+            } else if let port = resource.port, resource.kind == .browser {
                 items.append(item(String(localized: "cloudTree.menu.copyPort", defaultValue: "Copy Port")) { [nodeActions] in nodeActions.copyToPasteboard(String(port)) })
             }
             items.append(item(String(localized: "cloudTree.menu.copySurfaceID", defaultValue: "Copy Surface ID")) { [nodeActions] in nodeActions.copyToPasteboard(resource.id.rawValue) })
@@ -652,9 +781,32 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 }
                 items.append(item(String(localized: "cloudTree.menu.openFullClient", defaultValue: "Open Full cmux-tui Client")) { actions.runCommand(id, ["vm", "tui"]) })
             }
+            if machine.freeAccess != .expired {
+                let diskMenu = NSMenu()
+                diskMenu.autoenablesItems = false
+                for gib in [64, 128, 256] {
+                    let diskItem = item(String(format: String(localized: "machines.menu.increaseDiskTo", defaultValue: "Increase to %d GiB"), gib)) {
+                        actions.resizeDisk(id, gib)
+                    }
+                    if let current = machine.stats?.diskTotalMb, current >= gib * 1024 {
+                        diskItem.isEnabled = false
+                    }
+                    diskMenu.addItem(diskItem)
+                }
+                let diskRoot = NSMenuItem(
+                    title: String(localized: "machines.menu.increaseDisk", defaultValue: "Increase Disk"),
+                    action: nil,
+                    keyEquivalent: ""
+                )
+                diskRoot.submenu = diskMenu
+                items.append(diskRoot)
+            }
             items.append(item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { nodeActions.refresh() })
             items.append(.separator())
             items.append(item(String(localized: "machines.menu.rename", defaultValue: "Rename\u{2026}")) { actions.promptRename(id, machine.label) })
+            if let address = machine.privateAddress {
+                items.append(item(String(localized: "machines.menu.copyIPAddress", defaultValue: "Copy IP Address")) { [nodeActions] in nodeActions.copyToPasteboard(address) })
+            }
             items.append(item(String(localized: "machines.menu.status", defaultValue: "Status")) { actions.runCommand(id, ["vm", "status"]) })
             // Only verbs this provider can honor: a Checkpoint that answers 502 is not a verb.
             if machine.capabilities.snapshot {
@@ -665,6 +817,29 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             }
             items.append(.separator())
             items.append(item(String(localized: "machines.menu.delete", defaultValue: "Delete…")) { actions.confirmDelete(id) })
+            return items
+        }
+
+        /// A running create can be cancelled immediately; a failed one offers
+        /// the same retry/dismiss verbs as its hover buttons plus the transcript.
+        private func pendingMachineMenuItems(_ operation: MachineCreateOperation) -> [NSMenuItem] {
+            let create = machineActions.create
+            let nodeActions = nodeActions
+            let id = operation.id
+            var items: [NSMenuItem] = []
+            if operation.isRunning {
+                items.append(item(String(localized: "machines.pending.cancel", defaultValue: "Cancel Create")) { create.cancel(id) })
+            } else {
+                items.append(item(String(localized: "machines.pending.retry", defaultValue: "Retry Create")) { create.retry(id) })
+                items.append(item(String(localized: "machines.pending.showError", defaultValue: "Show Error\u{2026}")) { create.showFailure(id) })
+                items.append(item(String(localized: "machines.pending.copyError", defaultValue: "Copy Error")) { create.copyFailure(id) })
+                items.append(.separator())
+            }
+            items.append(item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { nodeActions.refresh() })
+            if !operation.isRunning {
+                items.append(.separator())
+                items.append(item(String(localized: "machines.pending.dismiss", defaultValue: "Dismiss")) { create.dismiss(id) })
+            }
             return items
         }
 
@@ -852,11 +1027,16 @@ struct CloudTreeOutlineView: NSViewRepresentable {
 /// Menu item carrying its own closure; the outline's context menu is rebuilt
 /// per click from the clicked node, so items never outlive their target.
 final class CloudTreeMenuItem: NSMenuItem {
-    private let performAction: @MainActor () -> Void
+    private let runAction: @MainActor () -> Void
 
     init(title: String, action: @escaping @MainActor () -> Void) {
-        performAction = action
-        super.init(title: title, action: #selector(perform(_:)), keyEquivalent: "")
+        runAction = action
+        // The selector is deliberately NOT named `perform(_:)`: that compiles
+        // to `perform:`, which collides with NSObject's perform machinery and
+        // the click never reached the method. `execute` mirrors the sidebar's
+        // SidebarRowMenuActionItem, the proven shape.
+        super.init(title: title, action: #selector(execute), keyEquivalent: "")
+        target = self
     }
 
     @available(*, unavailable)
@@ -864,8 +1044,11 @@ final class CloudTreeMenuItem: NSMenuItem {
         fatalError("init(coder:) has not been implemented")
     }
 
-    @objc @MainActor private func perform(_ sender: Any?) {
-        performAction()
+    @objc @MainActor private func execute() {
+        #if DEBUG
+        cmuxDebugLog("cloudTree.menu.execute title=\(title)")
+        #endif
+        runAction()
     }
 }
 
@@ -928,9 +1111,9 @@ final class CloudTreeContainerView: NSView {
         }
         coordinator.outlineView = outlineView
 
-        let menu = NSMenu()
-        menu.delegate = coordinator
-        outlineView.menu = menu
+        outlineView.contextMenuBuilder = { [weak coordinator] row in
+            coordinator?.contextMenu(forRow: row)
+        }
 
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.hasVerticalScroller = true

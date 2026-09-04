@@ -93,10 +93,16 @@ struct RemoteDaemonUploadTests {
         let initialDate = try #require(
             fileManager.attributesOfItem(atPath: markerURL.path)[.modificationDate] as? Date
         )
-        Thread.sleep(forTimeInterval: 0.75)
-        let refreshedDate = try #require(
-            fileManager.attributesOfItem(atPath: markerURL.path)[.modificationDate] as? Date
-        )
+        // Filesystem timestamp granularity differs across the macOS versions
+        // used by local and hosted runners. Wait for the next observable
+        // heartbeat instead of assuming one fixed sleep crosses a timestamp
+        // boundary.
+        var refreshedDate = initialDate
+        let refreshDeadline = Date.now.addingTimeInterval(3)
+        while refreshedDate <= initialDate, Date.now < refreshDeadline {
+            Thread.sleep(forTimeInterval: 0.05)
+            refreshedDate = (try? fileManager.attributesOfItem(atPath: markerURL.path)[.modificationDate] as? Date) ?? initialDate
+        }
         #expect(refreshedDate > initialDate)
 
         try input.fileHandleForWriting.close()
@@ -455,7 +461,10 @@ struct RemoteDaemonUploadTests {
             buildInfo: ManifestBuildInfo(version: "test-version", manifest: manifest),
             daemonStrings: RemoteDaemonStrings(
                 missingPersistentPTYCapability: "",
-                missingRequiredFunctionality: ""
+                missingRequiredFunctionality: "",
+                cloudNotificationClearWorkspaceInvalid: "",
+                cloudNotificationClearWorkspaceDenied: "",
+                cloudNotificationClearSurfaceInvalid: ""
             ),
             strings: RemoteSessionStrings(
                 connectedVMNoProxyFormat: "%@",
@@ -636,7 +645,10 @@ struct RemoteDaemonUploadTests {
             buildInfo: SSHOverrideStubBuildInfo(),
             daemonStrings: RemoteDaemonStrings(
                 missingPersistentPTYCapability: "",
-                missingRequiredFunctionality: ""
+                missingRequiredFunctionality: "",
+                cloudNotificationClearWorkspaceInvalid: "",
+                cloudNotificationClearWorkspaceDenied: "",
+                cloudNotificationClearSurfaceInvalid: ""
             ),
             strings: RemoteSessionStrings(
                 connectedVMNoProxyFormat: "%@",
