@@ -1,9 +1,9 @@
 import Foundation
 
 /// ``CloudTunnelEnrolling`` over ``VMTunnelManager``: keypair and device
-/// identity on this Mac, `/api/vm/tunnel` for the peer half, the completed
-/// wg-quick config as the result. Idempotent per device, so it runs on every
-/// tunnel start and picks up a rotated peer or endpoint for free.
+/// identity on this Mac, `/api/vm/tunnel` for the peer half, and the completed
+/// WireGuard config as the result. A saved config is reused, so normal browser
+/// opens do not call the control plane or Freestyle.
 struct VMTunnelEnroller: CloudTunnelEnrolling {
     let manager: VMTunnelManager
 
@@ -12,6 +12,12 @@ struct VMTunnelEnroller: CloudTunnelEnrolling {
     }
 
     func enroll() async throws -> CloudTunnelEnrollment {
+        if let config = manager.writtenConfig() {
+            return CloudTunnelEnrollment(
+                wgQuickConfig: config,
+                serverAddress: "cmux Cloud"
+            )
+        }
         let client: VMClient? = await MainActor.run { VMClient.shared }
         guard let client else { throw CloudTunnelError.notSignedIn }
         let state = try await manager.enroll(client: client)

@@ -31,13 +31,9 @@
 #      (covers Sparkle's XPCServices and Updater.app).
 #   4b. The Cloud tunnel system extension under
 #      Contents/Library/SystemExtensions/* with its own entitlements and its
-#      own embedded provisioning profile — but only when the app's embedded
-#      profile grants the tunnel capability. Otherwise the extension is
-#      removed and the tunnel entitlements are dropped from the app's
-#      effective entitlements (scripts/reconcile-entitlements-with-profile.py),
-#      because macOS refuses to launch an app claiming a restricted
-#      entitlement its profile does not grant. The app then falls back to
-#      `cmux vpn up` (wg-quick) exactly as before the extension existed.
+#      own embedded provisioning profile. When the requested app entitlement
+#      is not granted by its profile, signing stops. Nightly and Stable must
+#      not ship without the browser tunnel.
 #   5. The main app bundle with the effective app-level entitlements,
 #      WITHOUT --deep. --deep here would overwrite helper/plugin
 #      signatures and re-introduce the app-id mismatch that amfi on
@@ -109,9 +105,15 @@ else
     --output "$EFFECTIVE_APP_ENTITLEMENTS" --json > "$RECONCILE_SUMMARY"
 fi
 TUNNEL_SUPPORTED="$(python3 -c 'import json,sys; print("1" if json.load(open(sys.argv[1]))["tunnel_supported"] else "0")' "$RECONCILE_SUMMARY")"
+TUNNEL_REQUESTED="$(python3 -c 'import json,sys; print("1" if json.load(open(sys.argv[1]))["tunnel_requested"] else "0")' "$RECONCILE_SUMMARY")"
+
+if [[ "$TUNNEL_REQUESTED" == "1" && "$TUNNEL_SUPPORTED" != "1" ]]; then
+  echo "error: app entitlements require the Cloud tunnel, but the embedded app profile does not grant it" >&2
+  exit 1
+fi
 
 if [[ "$TUNNEL_SUPPORTED" != "1" && -d "$SYSTEM_EXTENSIONS_DIR" ]]; then
-  echo "==> removing Contents/Library/SystemExtensions: the provisioning profile does not grant the Cloud tunnel capability (the app falls back to cmux vpn up / wg-quick)"
+  echo "==> removing Contents/Library/SystemExtensions: this entitlement set does not request the Cloud tunnel"
   rm -rf "$SYSTEM_EXTENSIONS_DIR"
 fi
 
@@ -171,7 +173,7 @@ if [[ "$SIGN_MODE" == "all" || "$SIGN_MODE" == "all-except-computer-use" ]]; the
       name="$(basename "$sysext")"
       binary="$sysext/Contents/MacOS/$(/usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$sysext/Contents/Info.plist")"
       if [[ ! -f "$sysext/Contents/embedded.provisionprofile" ]]; then
-        echo "error: $name has no embedded.provisionprofile. The app's profile grants the Cloud tunnel, so the extension needs its own Developer ID profile (App ID <app>.tunnel with Network Extensions). Embed it before signing or ship without the tunnel capability." >&2
+        echo "error: $name has no embedded.provisionprofile. Embed its Developer ID Network Extension profile before signing." >&2
         exit 1
       fi
       # Real engine or nothing: the stub cannot carry traffic (see the verifier
@@ -184,7 +186,7 @@ if [[ "$SIGN_MODE" == "all" || "$SIGN_MODE" == "all-except-computer-use" ]]; the
 fi
 
 # 5. Main app bundle (no --deep), with the effective entitlements.
-echo "==> signing main bundle ($SIGN_MODE; Cloud tunnel capability: $([[ "$TUNNEL_SUPPORTED" == "1" ]] && echo granted || echo not granted, wg-quick fallback))"
+echo "==> signing main bundle ($SIGN_MODE; Cloud tunnel capability: $([[ "$TUNNEL_SUPPORTED" == "1" ]] && echo granted || echo not requested))"
 /usr/bin/codesign "${COMMON[@]}" --entitlements "$EFFECTIVE_APP_ENTITLEMENTS" "$APP_PATH"
 
 echo "==> verifying"

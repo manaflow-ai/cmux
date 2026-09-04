@@ -3,15 +3,13 @@ import Foundation
 /// How this build brings the WireGuard tunnel into the Cloud VM network up.
 ///
 /// Decided once per launch by ``CloudTunnelBackendSelector`` from what the
-/// running binary can actually do, so the same source degrades to the CLI
-/// path on builds that lack the signed capability or the bundled extension.
+/// running binary can actually do. A build without the signed capability
+/// fails closed. It never asks for sudo or starts wg-quick.
 enum CloudTunnelBackend: Sendable, Equatable {
     /// The app owns the tunnel through its bundled network system extension:
     /// no sudo, no wg-quick, started on demand when the user opens a machine.
     case networkExtension(extensionBundleIdentifier: String)
-    /// `cmux vpn up` runs `sudo wg-quick` on the app-written config. The
-    /// shipping path until release signing carries the tunnel capability.
-    case wgQuick(CloudTunnelFallbackReason)
+    case unavailable(CloudTunnelFallbackReason)
 
     var isNetworkExtension: Bool {
         if case .networkExtension = self { return true }
@@ -23,8 +21,8 @@ enum CloudTunnelBackend: Sendable, Equatable {
         return nil
     }
 
-    var fallbackReason: CloudTunnelFallbackReason? {
-        if case .wgQuick(let reason) = self { return reason }
+    var unavailableReason: CloudTunnelFallbackReason? {
+        if case .unavailable(let reason) = self { return reason }
         return nil
     }
 
@@ -32,10 +30,9 @@ enum CloudTunnelBackend: Sendable, Equatable {
     var wireName: String {
         switch self {
         case .networkExtension: return "network-extension"
-        case .wgQuick: return "wg-quick"
+        case .unavailable: return "unavailable"
         }
     }
 }
 
-/// Why a build falls back to wg-quick. Each case names the exact missing
-/// piece so `cmux vpn status` can say what is absent instead of "unavailable".
+/// Why this build cannot start the browser Network Extension tunnel.

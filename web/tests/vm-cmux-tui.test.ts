@@ -1,5 +1,5 @@
-import { spawn } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
@@ -13,6 +13,7 @@ import {
   parseCmuxTuiManifest,
   parseEnrollmentInvitationUri,
   cmuxTuiAttachBundleCommand,
+  cmuxTuiApproveWaitCommand,
   parseCmuxTuiAttachBundle,
 } from "../services/vms/drivers/cmuxTuiDaemon";
 
@@ -766,6 +767,46 @@ describe("cmux-tui install and daemon commands", () => {
 });
 
 describe("enrollment invitation parsing", () => {
+  test("one provider command waits locally for the claim and approves it", () => {
+    const command = cmuxTuiApproveWaitCommand("inv_abc-123");
+    expect(command).toContain("while [ \"$cmux_approve_attempt\" -lt 120 ]");
+    expect(command).toContain("remote enroll approve 'inv_abc-123' --session cloud --json");
+    expect(command).toContain("sleep 0.25");
+    expect(() => cmuxTuiApproveWaitCommand("bad; rm -rf /")).toThrow(/unexpected shape/);
+  });
+
+  test("the one provider command retries only inside the VM", () => {
+    const root = mkdtempSync(join(tmpdir(), "cmux-approve-wait-"));
+    const binary = join(root, "cmux-tui");
+    const count = join(root, "count");
+    try {
+      writeFileSync(binary, [
+        "#!/bin/sh",
+        "n=$(cat \"$CMUX_APPROVE_COUNT\" 2>/dev/null || printf 0)",
+        "n=$((n + 1))",
+        "printf '%s' \"$n\" > \"$CMUX_APPROVE_COUNT\"",
+        "[ \"$n\" -ge 3 ] || exit 1",
+        "printf '%s\\n' '{\"fingerprint\":\"fp-approved\"}'",
+        "",
+      ].join("\n"));
+      chmodSync(binary, 0o755);
+      const command = cmuxTuiApproveWaitCommand("inv-abc", {
+        binaryPath: binary,
+        attempts: 4,
+        delaySeconds: 0.01,
+      });
+      const result = spawnSync("/bin/sh", ["-c", command], {
+        env: { ...process.env, CMUX_APPROVE_COUNT: count },
+        encoding: "utf8",
+      });
+      expect(result.status).toBe(0);
+      expect(result.stdout.trim()).toBe('{"fingerprint":"fp-approved"}');
+      expect(readFileSync(count, "utf8")).toBe("3");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("extracts the id and expiry the approve flow needs", () => {
     const payload = {
       version: 1,

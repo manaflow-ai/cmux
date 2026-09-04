@@ -1,6 +1,6 @@
 import Foundation
 
-/// The ``CloudTunnelControlling`` for the wg-quick backend: the coordinator
+/// The ``CloudTunnelControlling`` for a build without Network Extension support: the coordinator
 /// never calls it, and if something does, nothing happens. Keeps the
 /// coordinator total without optionals in every method.
 struct CloudTunnelInertController: CloudTunnelControlling {

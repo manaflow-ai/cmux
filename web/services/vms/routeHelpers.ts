@@ -668,7 +668,7 @@ export async function vmWorkflowErrorResponse(
     return vmErrorResponse({
       error: "vm_access_revoked",
       status: 403,
-      message: "Cloud access for this login session was revoked.",
+      message: "Cloud access for this Mac login was revoked.",
       action: "Sign out of cmux, then sign in again to enroll this Mac.",
       phase: "network",
     });

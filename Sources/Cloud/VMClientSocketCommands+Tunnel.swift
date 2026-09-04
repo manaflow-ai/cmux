@@ -1,9 +1,9 @@
 import Foundation
 
 /// `vm.tunnel_*`: this Mac's membership in the user's private Cloud VM
-/// network. Enrollment and status work on every build; `up`, `down`, and
-/// `wait` drive the app-managed tunnel and answer with the wg-quick backend
-/// (so `cmux vpn` falls back to sudo wg-quick) on builds without it.
+/// network. The terminal role uses the user-space hub. `up`, `down`, and
+/// `wait` control only the browser Network Extension and fail closed when the
+/// signed extension is not available.
 ///
 /// Trust boundary: the completed config never crosses the socket. `tunnel_config`
 /// returns only the path of the 0600 file the app wrote, the same boundary every
@@ -16,9 +16,8 @@ extension TerminalController {
     ) -> String? {
         switch method {
         case "vm.tunnel_config":
-            // Enrolls this Mac (idempotent) and writes the completed wg-quick
-            // config. `cmux vpn up` on the wg-quick backend brings up the path
-            // this returns; on the app-managed backend `vm.tunnel_up` does it.
+            // Enrolls the browser role and writes its WireGuard config. The
+            // Network Extension consumes it through `vm.tunnel_up`.
             return v2VmCall(id: id) {
                 let manager = VMTunnelManager()
                 let state = try await manager.enroll(client: VMClient.shared)
@@ -49,7 +48,7 @@ extension TerminalController {
                 guard let coordinator = await Self.cloudTunnelCoordinator(),
                       coordinator.backend.isNetworkExtension else {
                     throw CloudTunnelError.backendUnavailable(
-                        await Self.cloudTunnelCoordinator()?.backend.fallbackReason ?? .entitlementMissing
+                        await Self.cloudTunnelCoordinator()?.backend.unavailableReason ?? .entitlementMissing
                     )
                 }
                 await coordinator.beginUp(pin: true)
@@ -77,24 +76,6 @@ extension TerminalController {
                 }
                 return await Self.cloudTunnelStatusPayload(manager: VMTunnelManager())
             }
-        case "vm.tunnel_applied":
-            // wg-quick only: `cmux vpn up` reports which config it brought up
-            // (`applied: true`) and `vpn down` that none is (`applied: false`).
-            // The app keeps the digest, so a later enrollment on disk reads as
-            // stale instead of as "already up". The app-managed backend saves
-            // the current config into the VPN configuration on every start, so
-            // it never has a stale interface to record.
-            return v2VmCall(id: id) {
-                let manager = VMTunnelManager()
-                let applied = (params["applied"] as? Bool) ?? true
-                let expectedDigest = Self.socketWorkerString(params["config_digest"])
-                try manager.recordApplied(applied, expectedDigest: expectedDigest)
-                return [
-                    "applied": applied,
-                    "digest": manager.appliedDigest() ?? NSNull(),
-                    "stale": manager.isStale(),
-                ]
-            }
         case "vm.tunnel_revoke":
             // Unenrolls this Mac server-side, deletes the VPN configuration on
             // app-managed builds, and removes the local config so a later start
@@ -118,36 +99,31 @@ extension TerminalController {
         await MainActor.run { TerminalController.shared.cloudTunnel }
     }
 
-    /// The shared shape of every tunnel verb's answer: on-disk enrollment
-    /// state, the live interface, and the app-managed tunnel's backend/state.
-    ///
-    /// `interface_up` is backend-specific ground truth: the app-managed tunnel
-    /// reports through `NEVPNStatus` (there is no wg-quick name file to find),
-    /// wg-quick through ``VMTunnelManager/wgQuickInterfaceUp()``. `stale` only
-    /// exists for wg-quick, whose interface can outlive the enrollment it was
-    /// brought up for.
+    /// The shared shape of every tunnel verb's answer. Browser liveness comes
+    /// only from Network Extension status. Terminal liveness comes from the
+    /// user-space WireGuard hub.
     nonisolated static func cloudTunnelStatusPayload(manager: VMTunnelManager) async -> [String: Any] {
         let fingerprint = (try? manager.deviceFingerprint()) ?? ""
         let config = manager.writtenConfig()
         let coordinator = await cloudTunnelCoordinator()
         let status = await coordinator?.status()
         let backend = status?.backend ?? CloudTunnelBackendSelector.live().select()
-        let interfaceUp = backend.isNetworkExtension ? (status?.state == .up) : manager.wgQuickInterfaceUp()
+        let interfaceUp = backend.isNetworkExtension && status?.state == .up
         var payload: [String: Any] = [
             "config_path": manager.configURL.path,
             "config_present": config != nil,
             "config_digest": manager.configDigest() ?? NSNull(),
             "interface_name": manager.interfaceName,
             "interface_up": interfaceUp,
-            "stale": backend.isNetworkExtension ? false : manager.isStale(),
+            "stale": false,
             "device_fingerprint": fingerprint,
             "network_extension_available": backend.isNetworkExtension,
             "backend": backend.wireName,
             "tunnel_state": status?.state.wireName ?? (backend.isNetworkExtension ? CloudTunnelState.off.wireName : "unmanaged"),
             "pinned": status?.isPinned ?? false,
         ]
-        if let reason = backend.fallbackReason {
-            payload["fallback_reason"] = reason.rawValue
+        if let reason = backend.unavailableReason {
+            payload["unavailable_reason"] = reason.rawValue
         }
         if let extensionBundleIdentifier = backend.extensionBundleIdentifier {
             payload["extension_bundle_id"] = extensionBundleIdentifier
@@ -155,6 +131,22 @@ extension TerminalController {
         if let failure = status?.state.failureMessage {
             payload["tunnel_error"] = failure
         }
+        let terminalManager = VMTunnelManager(purpose: .terminal)
+        let hub = await MainActor.run { CmuxTuiSurfaceProviderRegistry.shared.wireGuardHub }
+        let hubStatus = await hub?.status()
+        payload["terminal_tunnel"] = [
+            "device_fingerprint": (try? terminalManager.deviceFingerprint()) ?? "",
+            "config_path": terminalManager.configURL.path,
+            "config_present": terminalManager.writtenConfig() != nil,
+            "routes": terminalManager.configuredRoutes(),
+            "hub_available": hub != nil,
+            "hub_running": hubStatus?.running ?? false,
+            "hub_socket": hubStatus?.socketPath ?? NSNull(),
+            "hub_leases": hubStatus?.leases ?? 0,
+            "hub_pinned": hubStatus?.pinnedByExternalClient ?? false,
+            "hub_restart_attempts": hubStatus?.restartAttempts ?? 0,
+            "hub_last_error": hubStatus?.lastError ?? NSNull(),
+        ] as [String: Any]
         if let config {
             payload["addresses"] = VMTunnelManager.interfaceAddresses(in: config).sorted()
         }

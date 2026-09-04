@@ -9,8 +9,8 @@ import Testing
 
 /// The tunnel policy as behavior: off until Cloud is used, one start per
 /// demand burst, idle stop only when nothing is using the network, pinned by
-/// `cmux vpn up`, torn down by sign-out and quit, and a no-op on the wg-quick
-/// backend. Time is virtual (`SidebarTestManualClock`); the NetworkExtension
+/// `cmux vpn up`, torn down by sign-out and quit, and fail-closed when the
+/// Network Extension is unavailable. Time is virtual (`SidebarTestManualClock`); the NetworkExtension
 /// side is a fake that records calls and emits link status on demand.
 @Suite(.timeLimit(.minutes(2)))
 struct CloudTunnelCoordinatorTests {
@@ -119,9 +119,9 @@ struct CloudTunnelCoordinatorTests {
         #expect(harness.enroller.enrollCount == 1)
     }
 
-    @Test("the wg-quick backend never touches NetworkExtension")
-    func wgQuickBackendIsInert() async {
-        let harness = Harness(backend: .wgQuick(.entitlementMissing))
+    @Test("an unavailable backend never touches NetworkExtension")
+    func unavailableBackendIsInert() async {
+        let harness = Harness(backend: .unavailable(.entitlementMissing))
         await harness.coordinator.prepareForPrivateNetworkUse(Self.use)
         #expect(await harness.coordinator.state == .off)
         #expect(harness.controller.calls.isEmpty)
@@ -129,6 +129,9 @@ struct CloudTunnelCoordinatorTests {
 
         await #expect(throws: CloudTunnelError.backendUnavailable(.entitlementMissing)) {
             try await harness.coordinator.requestUp(pin: true)
+        }
+        await #expect(throws: CloudTunnelError.backendUnavailable(.entitlementMissing)) {
+            try await harness.coordinator.requirePrivateNetworkUse(Self.use)
         }
         harness.coordinator.appWillTerminate()
         #expect(harness.controller.calls.isEmpty)
@@ -291,17 +294,17 @@ struct CloudTunnelCoordinatorTests {
     }
 
     @Test("the first activation surfaces the System Settings approval wait")
-    func awaitingApprovalIsVisible() async {
+    func awaitingApprovalIsVisible() async throws {
         let harness = Harness()
         harness.controller.holdInstallForApproval = true
-        let gate = Task { await harness.coordinator.prepareForPrivateNetworkUse(Self.use) }
+        let gate = Task { try await harness.coordinator.requirePrivateNetworkUse(Self.use) }
         #expect(await harness.awaitState(.awaitingApproval) == .awaitingApproval)
         let status = await harness.coordinator.status()
         #expect(status.state == .awaitingApproval)
         #expect(status.backend == Self.networkExtension)
 
         harness.controller.approve()
-        await gate.value
+        try await gate.value
         #expect(await harness.coordinator.state == .up)
     }
 

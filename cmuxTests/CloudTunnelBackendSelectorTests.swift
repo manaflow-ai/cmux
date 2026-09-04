@@ -7,8 +7,8 @@ import Testing
 @testable import cmux
 #endif
 
-/// Backend selection is the gate that keeps unentitled builds on the wg-quick
-/// path: every missing piece must name itself, and only a build with the
+/// Backend selection makes unentitled builds fail closed: every missing piece
+/// must name itself, and only a build with the
 /// signed capability, the install entitlement, and a bundled extension may
 /// claim the app-managed tunnel.
 @Suite
@@ -25,18 +25,18 @@ struct CloudTunnelBackendSelectorTests {
         )
     }
 
-    @Test("no NetworkExtension capability falls back to wg-quick")
+    @Test("no NetworkExtension capability is unavailable")
     func entitlementMissing() {
         let backend = selector(capabilities: [], canInstall: true, bundled: "x.tunnel").select()
-        #expect(backend == .wgQuick(.entitlementMissing))
+        #expect(backend == .unavailable(.entitlementMissing))
         #expect(!backend.isNetworkExtension)
-        #expect(backend.wireName == "wg-quick")
+        #expect(backend.wireName == "unavailable")
     }
 
     @Test("the app-extension flavor of the capability does not count on macOS")
     func appExtensionCapabilityIsNotEnough() {
         let backend = selector(capabilities: ["packet-tunnel-provider"], canInstall: true, bundled: "x.tunnel").select()
-        #expect(backend == .wgQuick(.entitlementMissing))
+        #expect(backend == .unavailable(.entitlementMissing))
     }
 
     @Test("the capability without system-extension install falls back")
@@ -46,18 +46,18 @@ struct CloudTunnelBackendSelectorTests {
             canInstall: false,
             bundled: "x.tunnel"
         ).select()
-        #expect(backend == .wgQuick(.systemExtensionInstallEntitlementMissing))
+        #expect(backend == .unavailable(.systemExtensionInstallEntitlementMissing))
     }
 
-    @Test("an entitled build whose signing dropped the extension falls back")
+    @Test("an entitled build whose signing dropped the extension is unavailable")
     func extensionNotBundled() {
         let backend = selector(
             capabilities: ["packet-tunnel-provider-systemextension"],
             canInstall: true,
             bundled: nil
         ).select()
-        #expect(backend == .wgQuick(.extensionNotBundled))
-        #expect(backend.fallbackReason == .extensionNotBundled)
+        #expect(backend == .unavailable(.extensionNotBundled))
+        #expect(backend.unavailableReason == .extensionNotBundled)
     }
 
     @Test("all three pieces select the app-managed tunnel")

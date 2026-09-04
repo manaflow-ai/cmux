@@ -130,9 +130,6 @@ final class NetworkExtensionTunnelController: CloudTunnelControlling {
         if let ours = existing.first(where: isOurs) {
             return ours
         }
-        if let first = existing.first {
-            return first
-        }
         return NETunnelProviderManager()
     }
 

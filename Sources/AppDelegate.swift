@@ -2361,6 +2361,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         CloudVMActionLauncher.shared.terminateAll()
         // No Cloud session survives the app, so neither does the tunnel.
         cloudTunnelCoordinator?.appWillTerminate()
+        CmuxTuiSurfaceProviderRegistry.shared.terminateWireGuardHubForAppQuit()
         CmuxSSHURLProcessLauncher.shared.terminateAll()
         caffeineController.setEnabled(false)
         MobileHostService.shared.stop()

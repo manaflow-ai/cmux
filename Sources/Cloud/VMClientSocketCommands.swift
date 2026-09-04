@@ -390,32 +390,74 @@ extension TerminalController {
                 params["client_capabilities"] ?? params["clientCapabilities"]
             )
             return v2VmCall(id: id) {
-                let endpoint = try await VMClient.shared.openCmuxRemote(
-                    id: vmId,
-                    deviceFingerprint: deviceFingerprint,
-                    clientCapabilities: clientCapabilities
-                )
-                var payload: [String: Any] = [
-                    "transport": "cmux-remote",
-                    "route": endpoint.route,
-                    "token": endpoint.token,
-                    "expires_at_unix": endpoint.expiresAtUnix,
-                    "session": endpoint.session,
-                ]
-                if let build = endpoint.daemonBuild {
-                    var raw: [String: Any] = [:]
-                    if let commit = build.commit { raw["commit"] = commit }
-                    if let remoteProtocol = build.remoteProtocol { raw["remote_protocol"] = remoteProtocol }
-                    if let version = build.version { raw["version"] = version }
-                    payload["daemon_build"] = raw
+                let registry = await MainActor.run { CmuxTuiSurfaceProviderRegistry.shared }
+                guard clientCapabilities.contains(CloudTuiCommandLine.wireGuardHubCapability) else {
+                    throw CloudMachineLinkManager.ManagerError.wireGuardHubUnsupported
                 }
-                if let invitation = endpoint.invitation {
-                    payload["invitation"] = [
-                        "uri": invitation.uri,
-                        "invitation_id": invitation.invitationId,
-                        "expires_at_unix": invitation.expiresAtUnix,
+                var payload: [String: Any]
+                if deviceFingerprint != nil {
+                    guard let knownRoute = await registry.privateRoute(machineID: vmId) else {
+                        throw CloudMachineLinkManager.ManagerError.privateRouteRequired(vmId)
+                    }
+                    // The daemon already knows this cmux-tui identity. Reuse
+                    // the private VPC route and local device key without a
+                    // Vercel request or a Freestyle exec.
+                    payload = [
+                        "transport": "cmux-remote",
+                        "route": knownRoute,
+                        "token": "",
+                        "expires_at_unix": 0,
+                        "session": "cmux",
                     ]
+                } else {
+                    let endpoint = try await VMClient.shared.openCmuxRemote(
+                        id: vmId,
+                        deviceFingerprint: deviceFingerprint,
+                        clientCapabilities: clientCapabilities
+                    )
+                    payload = [
+                        "transport": "cmux-remote",
+                        "route": endpoint.route,
+                        "token": endpoint.token,
+                        "expires_at_unix": endpoint.expiresAtUnix,
+                        "session": endpoint.session,
+                    ]
+                    if let build = endpoint.daemonBuild {
+                        var raw: [String: Any] = [:]
+                        if let commit = build.commit { raw["commit"] = commit }
+                        if let remoteProtocol = build.remoteProtocol { raw["remote_protocol"] = remoteProtocol }
+                        if let version = build.version { raw["version"] = version }
+                        payload["daemon_build"] = raw
+                    }
+                    if let invitation = endpoint.invitation {
+                        payload["invitation"] = [
+                            "uri": invitation.uri,
+                            "invitation_id": invitation.invitationId,
+                            "expires_at_unix": invitation.expiresAtUnix,
+                        ]
+                    }
                 }
+                // A `vm tui` pane execs its own client, which the app cannot watch, so a
+                // private-network route pins the hub for the rest of the app session.
+                let route = payload["route"] as? String ?? ""
+                guard CloudMachineLinkManager.usesWireGuardHub(
+                    route: route,
+                    clientCapabilities: clientCapabilities,
+                    enrolledRoutes: []
+                ) else {
+                    throw CloudMachineLinkManager.ManagerError.privateRouteRequired(route)
+                }
+                let hub = await MainActor.run { CmuxTuiSurfaceProviderRegistry.shared.wireGuardHub }
+                guard let hub else { throw CloudMachineLinkManager.ManagerError.wireGuardHubMissing }
+                let ready = try await hub.pinForExternalClient()
+                guard CloudMachineLinkManager.usesWireGuardHub(
+                    route: route,
+                    clientCapabilities: clientCapabilities,
+                    enrolledRoutes: ready.routes
+                ) else {
+                    throw CloudMachineLinkManager.ManagerError.privateRouteRequired(route)
+                }
+                payload["wireguard_hub_socket"] = ready.socketPath
                 return payload
             }
         case "vm.cmux_remote_approve":

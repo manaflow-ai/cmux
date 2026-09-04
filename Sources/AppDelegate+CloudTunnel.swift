@@ -8,11 +8,8 @@ extension AppDelegate {
     func makeCloudTunnelCoordinator() -> CloudTunnelCoordinator {
         CloudTunnelCoordinator.live(
             consumers: CloudTunnelAppConsumers(
-                cloudWorkspaceCount: { [weak self] in
-                    self?.cloudVMWorkspaceCount() ?? 0
-                },
-                connectedLinkCount: {
-                    await CmuxTuiSurfaceProviderRegistry.shared.connectedCloudLinkCount()
+                cloudBrowserCount: { [weak self] in
+                    self?.cloudVMBrowserCount() ?? 0
                 }
             )
         )
@@ -21,9 +18,9 @@ extension AppDelegate {
     /// Signing out ends every Cloud session at once; the tunnel goes with it.
     @MainActor
     func cloudTunnelAccessDidEnd() {
-        guard let coordinator = cloudTunnelCoordinator else { return }
         VMTunnelManager(purpose: .browser).removeLocalCredentials()
         VMTunnelManager(purpose: .terminal).removeLocalCredentials()
+        guard let coordinator = cloudTunnelCoordinator else { return }
         cloudTunnelTeardownTask?.cancel()
         cloudTunnelTeardownTask = Task {
             try? await coordinator.revoke()
@@ -46,5 +43,20 @@ extension AppDelegate {
             }
         }
         return count
+    }
+
+    /// Browser panels on Cloud machines are the only long-lived consumers of
+    /// the system Network Extension. Terminal panels use the user-space hub.
+    @MainActor
+    func cloudVMBrowserCount() -> Int {
+        var managers: [TabManager] = mainWindowContexts.values.map(\.tabManager)
+        if let tabManager, !managers.contains(where: { $0 === tabManager }) {
+            managers.append(tabManager)
+        }
+        return managers.reduce(into: 0) { count, manager in
+            for workspace in manager.workspacesById.values where workspace.isManagedCloudVMWorkspace {
+                count += workspace.panels.values.filter { $0.panelType == .browser }.count
+            }
+        }
     }
 }

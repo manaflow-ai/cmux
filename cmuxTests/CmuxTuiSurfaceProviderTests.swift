@@ -107,6 +107,26 @@ import Testing
         #expect(CmuxTuiSnapshotParser.localhostPort(fromURL: "not a url") == nil)
     }
 
+    @Test func privateBrowserURLPreservesTheVisibleURL() throws {
+        #expect(
+            CmuxTuiSurfaceProvider.privateBrowserURL(
+                "http://localhost:5173/docs/page?q=one#result",
+                privateAddress: "10.16.4.9"
+            ) == "http://10.16.4.9:5173/docs/page?q=one#result"
+        )
+        #expect(
+            CmuxTuiSurfaceProvider.privateBrowserURL(
+                "https://127.0.0.1:8443/path",
+                privateAddress: "fd98:deb9:4c94::8"
+            ) == "https://[fd98:deb9:4c94::8]:8443/path"
+        )
+        #expect(CmuxTuiSurfaceProvider.privateBrowserURL("https://cmux.com", privateAddress: "10.0.0.2") == nil)
+        #expect(
+            CmuxTuiSurfaceProvider.privateDesktopURL(privateAddress: "10.16.4.9")
+                == "http://10.16.4.9:6901/vnc.html?path=websockify&autoconnect=1&resize=remote&reconnect=1&reconnect_delay=2000"
+        )
+    }
+
     @Test func snapshotListsEveryWorkspaceIncludingEmptyOnes() {
         let workspaces = CmuxTuiSnapshotParser.workspaces(fromSnapshot: Self.sessionSnapshot)
         #expect(workspaces == [
@@ -321,6 +341,14 @@ import Testing
             ["remote", "connect", "wss://m.vm.cmux.sh/v1/link?t=1", "--device-name", "cmux-mac", "--state-dir", "/s", "--headless", "--json", "--invite-file", "/i"])
         #expect(CloudTuiCommandLine.linkArguments(route: "r", deviceName: "d", stateDir: "/s", inviteFilePath: nil) ==
             ["remote", "connect", "r", "--device-name", "d", "--state-dir", "/s", "--headless", "--json"])
+        // A private-network machine dials through the app's WireGuard hub; the flag is
+        // last so every earlier token stays byte-identical for older clients.
+        #expect(CloudTuiCommandLine.linkArguments(route: "ws://[fd00::10]:1337/v1/link", deviceName: "d", stateDir: "/s", inviteFilePath: "/i", wireguardHubSocket: "/h.sock") ==
+            ["remote", "connect", "ws://[fd00::10]:1337/v1/link", "--device-name", "d", "--state-dir", "/s", "--headless", "--json", "--invite-file", "/i", "--wireguard-hub", "/h.sock"])
+        #expect(CloudTuiCommandLine.linkArguments(route: "r", deviceName: "d", stateDir: "/s", inviteFilePath: nil, wireguardHubSocket: "") ==
+            ["remote", "connect", "r", "--device-name", "d", "--state-dir", "/s", "--headless", "--json"])
+        #expect(CloudTuiCommandLine.wireGuardHubArguments(configPath: "/w/cmux-app.conf", socketPath: "/w/hub-1.sock") ==
+            ["wg", "hub", "--config", "/w/cmux-app.conf", "--socket", "/w/hub-1.sock"])
         #expect(CloudTuiCommandLine.snapshotArguments(socketPath: "/k.sock") == ["--socket", "/k.sock", "--json", "session", "current", "snapshot"])
         #expect(CloudTuiCommandLine.eventsArguments(socketPath: "/k.sock") == ["--socket", "/k.sock", "--jsonl", "session", "current", "events"])
         #expect(CloudTuiCommandLine.runArguments(socketPath: "/k.sock", workspaceID: "ws_main", command: ["claude", "-p", "fix it"]) ==
@@ -358,21 +386,6 @@ import Testing
         #expect(raw?["vivid-newt"]?["deviceFingerprint"] as? String == "fp-1")
         #expect(raw?["vivid-newt"]?["updatedAtUnix"] != nil)
         #expect(CloudTuiClientPaths.deviceName(hostName: "Austin's MacBook.local").hasPrefix("cmux-Austin-s-MacBook"))
-    }
-
-    @Test func portEndpointsAreReusedUntilTheyExpire() {
-        var cache = SurfacePortEndpointCache(ttl: 60)
-        let t0 = Date(timeIntervalSince1970: 1_000)
-        #expect(cache.openURL(port: 6901, now: t0) == nil)
-        cache.store(openURL: "https://m-6901.vm.cmux.sh/?bl_preview_token=t1", port: 6901, now: t0)
-        #expect(cache.openURL(port: 6901, now: t0.addingTimeInterval(59)) == "https://m-6901.vm.cmux.sh/?bl_preview_token=t1")
-        #expect(cache.openURL(port: 3000, now: t0) == nil, "one entry per port")
-        #expect(cache.openURL(port: 6901, now: t0.addingTimeInterval(60)) == nil, "gone at ttl")
-        cache.store(openURL: "https://m-6901.vm.cmux.sh/?bl_preview_token=t2", port: 6901, now: t0.addingTimeInterval(60))
-        #expect(cache.openURL(port: 6901, now: t0.addingTimeInterval(61))?.hasSuffix("t2") == true)
-        cache.invalidate(port: 6901)
-        #expect(cache.openURL(port: 6901, now: t0.addingTimeInterval(61)) == nil)
-        #expect(SurfacePortEndpointCache.defaultTTL < 7 * 24 * 60 * 60, "well inside the preview token's 7-day life")
     }
 
     @Test @MainActor func optimisticPanePlaceholdersLabelAndEscape() {

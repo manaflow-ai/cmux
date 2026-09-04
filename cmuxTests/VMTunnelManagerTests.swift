@@ -95,11 +95,18 @@ struct VMTunnelManagerTests {
     }
 
     @Test
-    func interfaceUpIsFalseWithoutAWrittenConfig() throws {
+    func browserEnrollerReusesSavedConfigWithoutACloudClient() async throws {
         let home = try temporaryHome()
         defer { try? FileManager.default.removeItem(at: home) }
-        // No config on disk means nothing to match interfaces against.
-        #expect(VMTunnelManager(home: home, interfaceName: "cmux-test").wgQuickInterfaceUp() == false)
+        let manager = VMTunnelManager(home: home, interfaceName: "cmux-cache-test")
+        try FileManager.default.createDirectory(at: manager.stateDir, withIntermediateDirectories: true)
+        let config = "[Interface]\nPrivateKey = local\n\n[Peer]\nAllowedIPs = 10.40.0.0/24\n"
+        try config.write(to: manager.configURL, atomically: true, encoding: .utf8)
+
+        let enrollment = try await VMTunnelEnroller(manager: manager).enroll()
+
+        #expect(enrollment.wgQuickConfig == config)
+        #expect(enrollment.serverAddress == "cmux Cloud")
     }
 
     @Test
@@ -124,25 +131,6 @@ struct VMTunnelManagerTests {
     }
 
     @Test
-    func interfaceUpRequiresThePerInterfaceRuntimeMarker() throws {
-        let home = try temporaryHome()
-        defer { try? FileManager.default.removeItem(at: home) }
-        let manager = VMTunnelManager(home: home, interfaceName: "cmux-test")
-        try FileManager.default.createDirectory(at: manager.stateDir, withIntermediateDirectories: true)
-        // Loopback is always present, but it must not be enough to claim that
-        // this deployment's tunnel is up: another build may own the same
-        // tunnel-side address. The root-owned wg-quick marker is required.
-        try """
-        [Interface]
-        Address = 127.0.0.1/32
-
-        [Peer]
-        PublicKey = Y
-        """.write(to: manager.configURL, atomically: true, encoding: .utf8)
-        #expect(manager.wgQuickInterfaceUp() == false)
-    }
-
-    @Test
     func interfaceNameAndStateHaveALegacyDeploymentFallback() {
         #expect(VMTunnelManager.interfaceName(forAPIBaseURL: URL(string: "https://cmux.com")!) == "cmux")
         #expect(VMTunnelManager.interfaceName(forAPIBaseURL: URL(string: "https://cmux-staging.vercel.app")!) == "cmux-staging")
@@ -152,8 +140,6 @@ struct VMTunnelManagerTests {
         let home = URL(fileURLWithPath: "/tmp/cmux-tunnel-scope-tests", isDirectory: true)
         let manager = VMTunnelManager(home: home, interfaceName: "cmux-staging")
         #expect(manager.configURL.lastPathComponent == "cmux-staging.conf")
-        #expect(manager.appliedDigestURL.lastPathComponent == "cmux-staging.applied")
-        #expect(manager.runtimeNameFileURL.path == "/var/run/wireguard/cmux-staging.name")
     }
 
     @Test
@@ -270,42 +256,21 @@ struct VMTunnelManagerTests {
     }
 
     @Test
-    func staleConfigIsDetectedByDigest() throws {
-        #expect(!VMTunnelManager.isStale(interfaceUp: true, appliedDigest: "same", configDigest: "same"))
-        #expect(VMTunnelManager.isStale(interfaceUp: true, appliedDigest: "old", configDigest: "new"))
-        #expect(VMTunnelManager.isStale(interfaceUp: true, appliedDigest: nil, configDigest: "new"))
-        #expect(!VMTunnelManager.isStale(interfaceUp: false, appliedDigest: "old", configDigest: "new"))
-        #expect(!VMTunnelManager.isStale(interfaceUp: true, appliedDigest: nil, configDigest: nil))
-    }
-
-    @Test
-    func appliedDigestRoundTripRejectsAConfigChangedDuringBringUp() throws {
+    func removingCredentialsDeletesBothRoleSecrets() throws {
         let home = try temporaryHome()
         defer { try? FileManager.default.removeItem(at: home) }
-        let manager = VMTunnelManager(home: home, interfaceName: "cmux-test")
-        try FileManager.default.createDirectory(at: manager.stateDir, withIntermediateDirectories: true)
-        let first = """
-        [Interface]
-        PrivateKey = key
-        Address = 100.64.0.1/32
-
-        [Peer]
-        Endpoint = first.example:51820
-        """
-        let second = first.replacingOccurrences(of: "first.example", with: "second.example")
-        try first.write(to: manager.configURL, atomically: true, encoding: .utf8)
-        let firstDigest = try #require(manager.configDigest())
-        try manager.recordApplied(true, expectedDigest: firstDigest)
-        #expect(manager.appliedDigest() == firstDigest)
-        #expect(!VMTunnelManager.isStale(interfaceUp: true, appliedDigest: manager.appliedDigest(), configDigest: manager.configDigest()))
-
-        try second.write(to: manager.configURL, atomically: true, encoding: .utf8)
-        #expect(throws: VMTunnelManager.TunnelError.self) {
-            try manager.recordApplied(true, expectedDigest: firstDigest)
+        let terminal = VMTunnelManager(home: home, interfaceName: "cmux-test", purpose: .terminal)
+        let browser = VMTunnelManager(home: home, interfaceName: "cmux-test", purpose: .browser)
+        try FileManager.default.createDirectory(at: terminal.stateDir, withIntermediateDirectories: true)
+        for manager in [terminal, browser] {
+            try "private".write(to: manager.privateKeyURL, atomically: true, encoding: .utf8)
+            try "device".write(to: manager.deviceIDURL, atomically: true, encoding: .utf8)
+            try "config".write(to: manager.configURL, atomically: true, encoding: .utf8)
+            manager.removeLocalCredentials()
+            #expect(!FileManager.default.fileExists(atPath: manager.privateKeyURL.path))
+            #expect(!FileManager.default.fileExists(atPath: manager.deviceIDURL.path))
+            #expect(!FileManager.default.fileExists(atPath: manager.configURL.path))
         }
-        #expect(VMTunnelManager.isStale(interfaceUp: true, appliedDigest: manager.appliedDigest(), configDigest: manager.configDigest()))
-        try manager.recordApplied(false)
-        #expect(manager.appliedDigest() == nil)
     }
 
     @Test
@@ -328,5 +293,64 @@ struct VMTunnelManagerTests {
         #expect(completed.contains("PrivateKey = PRIVATE"))
         #expect(completed.contains("AllowedIPs = 10.16.170.0/24, fd98:deb9:4c94::/64"))
         #expect(!completed.contains("10.0.0.0/8"))
+    }
+
+    @Test
+    func terminalAndBrowserRolesUseSeparateKeysAndConfigs() throws {
+        let home = try temporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let browser = VMTunnelManager(home: home, purpose: .browser)
+        let terminal = VMTunnelManager(home: home, purpose: .terminal)
+
+        #expect(try terminal.deviceFingerprint() != browser.deviceFingerprint())
+
+        // Separate key material: one WireGuard key supports one live session.
+        let browserKeys = try browser.keypair()
+        let terminalKeys = try terminal.keypair()
+        #expect(browserKeys.privateKey != terminalKeys.privateKey)
+        #expect(terminal.privateKeyURL.lastPathComponent == "cmux.terminal.private.key")
+        #expect(browser.privateKeyURL.lastPathComponent == "private.key")
+        let attrs = try FileManager.default.attributesOfItem(atPath: terminal.privateKeyURL.path)
+        #expect((attrs[.posixPermissions] as? Int) == 0o600)
+
+        #expect(terminal.configURL.lastPathComponent == "cmux.terminal.conf")
+        #expect(browser.configURL.lastPathComponent == "cmux.conf")
+        #expect(terminal.configURL != browser.configURL)
+    }
+
+    @Test
+    func allowedIPsParseOnlyPeerSections() {
+        let config = """
+        [Interface]
+        PrivateKey = X
+        Address = 100.64.0.9/32
+        AllowedIPs = 1.2.3.4/32
+
+        [Peer]
+        PublicKey = Y
+        AllowedIPs = 10.0.0.0/8, fd00::/8
+        Endpoint = [2606:4700::1]:51820
+        """
+        #expect(VMTunnelManager.allowedIPs(in: config) == ["10.0.0.0/8", "fd00::/8"])
+    }
+
+    @Test
+    func configuredRoutesReadTheIdentityConfigOnDisk() throws {
+        let home = try temporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let terminal = VMTunnelManager(home: home, purpose: .terminal)
+        #expect(terminal.configuredRoutes() == [])
+        try FileManager.default.createDirectory(at: terminal.stateDir, withIntermediateDirectories: true)
+        try """
+        [Interface]
+        Address = 100.64.0.2/32
+
+        [Peer]
+        PublicKey = Y
+        AllowedIPs = 10.0.0.0/8
+        """.write(to: terminal.configURL, atomically: true, encoding: .utf8)
+        #expect(terminal.configuredRoutes() == ["10.0.0.0/8"])
+        // The browser role has no config here; it never reads the terminal role's.
+        #expect(VMTunnelManager(home: home).configuredRoutes() == [])
     }
 }

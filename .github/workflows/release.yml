@@ -412,9 +412,6 @@ jobs:
           APPLE_RELEASE_TUNNEL_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_RELEASE_TUNNEL_PROVISIONING_PROFILE_BASE64 }}
         run: |
           set -euo pipefail
-          # Optional until the Apple portal grants the Network Extensions capability
-          # (see docs in scripts/sign-cmux-bundle.sh): without it the release ships
-          # with the wg-quick fallback and no bundled extension.
           ./scripts/ci/embed-tunnel-extension-profile.sh \
             "build-universal/Build/Products/Release/cmux.app" \
             "7WLXT3NR37.com.cmuxterm.app.tunnel" \

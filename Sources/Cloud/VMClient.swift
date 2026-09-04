@@ -678,8 +678,7 @@ actor VMClient {
     @MainActor private(set) static var shared: VMClient!
 
     /// Build the shared client with its injected auth dependency. Call once at
-    /// the composition root. `privateNetwork` is consulted before every dial
-    /// into the private Cloud VM network (see ``CloudPrivateNetworkGate``).
+    /// the composition root. `privateNetwork` is used only for Cloud webviews.
     @MainActor
     static func bootstrap(
         auth: AuthCoordinator,
@@ -726,9 +725,8 @@ actor VMClient {
     private let session: URLSession
     private let auth: AuthCoordinator
     private let telemetry: VMClientTelemetry
-    /// The one hook every private-network dial passes through: attach, ssh,
-    /// cmux-remote, session attach, open-port. The app injects the tunnel
-    /// coordinator; unentitled builds and tests use the no-op gate.
+    /// The browser-only private-network gate. Terminal and metadata traffic
+    /// uses the separate user-space WireGuard hub.
     private let privateNetwork: any CloudPrivateNetworkGate
 
     init(
@@ -743,21 +741,12 @@ actor VMClient {
         self.privateNetwork = privateNetwork
     }
 
-    /// Bring the private network up concurrently with minting an endpoint for
-    /// `machineID`, then wait for it (bounded by the gate) before handing the
-    /// endpoint back, so the caller's dial finds the route in place. The
-    /// endpoint request and the tunnel start overlap instead of serializing.
-    private func mintingPrivateNetworkEndpoint<T>(
-        machineID: String,
-        purpose: CloudPrivateNetworkPurpose,
-        _ mint: () async throws -> T
-    ) async throws -> T {
-        let gate = privateNetwork
-        let use = CloudPrivateNetworkUse(machineID: machineID, purpose: purpose)
-        async let readiness: Void = gate.prepareForPrivateNetworkUse(use)
-        let endpoint = try await mint()
-        await readiness
-        return endpoint
+    /// Do not let a Cloud webview navigate until the browser tunnel is ready.
+    /// Direct private URLs call this without a control-plane request.
+    func requireCloudBrowserAccess(machineID: String) async throws {
+        try await privateNetwork.requirePrivateNetworkUse(
+            CloudPrivateNetworkUse(machineID: machineID, purpose: .openPort)
+        )
     }
 
     func list() async throws -> [VMSummary] {
@@ -1328,12 +1317,10 @@ actor VMClient {
 
     func openSSH(id: String) async throws -> VMSSHEndpoint {
         let encodedID = try pathSegment(id, fieldName: "vm id")
-        return try await mintingPrivateNetworkEndpoint(machineID: id, purpose: .ssh) {
-            let (data, http) = try await request("POST", path: "/api/vm/\(encodedID)/ssh-endpoint", jsonBody: [:])
-            try ensureOK(http, data: data)
-            let obj = try decodeJSONObject(data)
-            return try decodeSSHEndpoint(obj)
-        }
+        let (data, http) = try await request("POST", path: "/api/vm/\(encodedID)/ssh-endpoint", jsonBody: [:])
+        try ensureOK(http, data: data)
+        let obj = try decodeJSONObject(data)
+        return try decodeSSHEndpoint(obj)
     }
 
     func openAttach(
@@ -1354,17 +1341,15 @@ actor VMClient {
         if let title, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             body["title"] = title
         }
-        return try await mintingPrivateNetworkEndpoint(machineID: id, purpose: .attach) {
-            let (data, http) = try await request(
-                "POST",
-                path: "/api/vm/\(encodedID)/attach-endpoint",
-                jsonBody: body,
-                timeoutSeconds: Self.attachTimeoutSeconds
-            )
-            try ensureOK(http, data: data)
-            let obj = try decodeJSONObject(data)
-            return try decodeAttachEndpoint(obj)
-        }
+        let (data, http) = try await request(
+            "POST",
+            path: "/api/vm/\(encodedID)/attach-endpoint",
+            jsonBody: body,
+            timeoutSeconds: Self.attachTimeoutSeconds
+        )
+        try ensureOK(http, data: data)
+        let obj = try decodeJSONObject(data)
+        return try decodeAttachEndpoint(obj)
     }
 
     /// Transport capabilities a cmux-tui client may advertise (`remote-probe --json` →
@@ -1398,7 +1383,9 @@ actor VMClient {
         if !capabilities.isEmpty {
             body["clientCapabilities"] = capabilities
         }
-        let obj = try await mintingPrivateNetworkEndpoint(machineID: id, purpose: .cmuxRemote) {
+        // Terminal and metadata traffic uses the user-space WireGuard hub.
+        // Do not start or require the browser Network Extension here.
+        let obj = try await {
             let (data, http) = try await request(
                 "POST",
                 path: "/api/vm/\(encodedID)/attach-endpoint",
@@ -1407,7 +1394,7 @@ actor VMClient {
             )
             try ensureOK(http, data: data)
             return try decodeJSONObject(data)
-        }
+        }()
         guard (obj["transport"] as? String) == "cmux-remote",
               let route = obj["route"] as? String, !route.isEmpty,
               let token = obj["token"] as? String,
@@ -1572,16 +1559,14 @@ actor VMClient {
         if let title, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             body["title"] = title
         }
-        let obj = try await mintingPrivateNetworkEndpoint(machineID: id, purpose: .sessionAttach) {
-            let (data, http) = try await request(
-                "POST",
-                path: "/api/vm/\(encodedID)/sessions",
-                jsonBody: body,
-                timeoutSeconds: Self.attachTimeoutSeconds
-            )
-            try ensureOK(http, data: data)
-            return try decodeJSONObject(data)
-        }
+        let (data, http) = try await request(
+            "POST",
+            path: "/api/vm/\(encodedID)/sessions",
+            jsonBody: body,
+            timeoutSeconds: Self.attachTimeoutSeconds
+        )
+        try ensureOK(http, data: data)
+        let obj = try decodeJSONObject(data)
         guard let endpointObject = obj["endpoint"] as? [String: Any] else {
             throw VMClientError.malformedResponse("Cloud VM session response was missing endpoint.")
         }
@@ -1693,16 +1678,15 @@ actor VMClient {
 
     func openPort(id: String, port: Int) async throws -> VMOpenPortEndpoint {
         let encodedID = try pathSegment(id, fieldName: "vm id")
-        let obj = try await mintingPrivateNetworkEndpoint(machineID: id, purpose: .openPort) {
-            let (data, http) = try await request(
-                "POST",
-                path: "/api/vm/\(encodedID)/open-port",
-                jsonBody: ["port": port],
-                timeoutSeconds: 60
-            )
-            try ensureOK(http, data: data)
-            return try decodeJSONObject(data)
-        }
+        try await requireCloudBrowserAccess(machineID: id)
+        let (data, http) = try await request(
+            "POST",
+            path: "/api/vm/\(encodedID)/open-port",
+            jsonBody: ["port": port],
+            timeoutSeconds: 60
+        )
+        try ensureOK(http, data: data)
+        let obj = try decodeJSONObject(data)
         guard let url = obj["url"] as? String,
               let token = obj["token"] as? String,
               let openUrl = obj["openUrl"] as? String else {

@@ -23,13 +23,13 @@ struct CloudTunnelBackendSelector: Sendable {
 
     func select() -> CloudTunnelBackend {
         guard networkExtensionCapabilities().contains(Self.packetTunnelSystemExtensionCapability) else {
-            return .wgQuick(.entitlementMissing)
+            return .unavailable(.entitlementMissing)
         }
         guard canInstallSystemExtensions() else {
-            return .wgQuick(.systemExtensionInstallEntitlementMissing)
+            return .unavailable(.systemExtensionInstallEntitlementMissing)
         }
         guard let identifier = bundledExtensionIdentifier() else {
-            return .wgQuick(.extensionNotBundled)
+            return .unavailable(.extensionNotBundled)
         }
         return .networkExtension(extensionBundleIdentifier: identifier)
     }

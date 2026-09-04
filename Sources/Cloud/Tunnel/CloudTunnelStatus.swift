@@ -8,9 +8,7 @@ struct CloudTunnelStatus: Sendable, Equatable {
     let isPinned: Bool
 
     /// Why a private-network route cannot work right now on the app-managed
-    /// backend — the line the Machines sidebar shows ahead of a raw link error
-    /// — or nil when the tunnel is up. The wg-quick counterpart is
-    /// ``VMTunnelManager/privateRouteBlocker()``.
+    /// backend, or nil when the tunnel is up.
     var privateRouteBlocker: String? {
         switch state {
         case .up:

@@ -75,10 +75,6 @@ extension CMUXCLI {
             localized: "cli.vpn.appManaged.pinned",
             defaultValue: "Pinned up until `cmux vpn down`. Otherwise cmux starts the tunnel when you open a Cloud machine and stops it when no Cloud sessions remain."
         ))
-        print(String(
-            localized: "cli.vpn.appManaged.hostsHint",
-            defaultValue: "Internal hostnames: run `cmux vpn hosts` to map <machine>.internal in /etc/hosts (needs sudo)."
-        ))
     }
 
     /// `cmux vpn down` on the app-managed backend: release the pin and stop.

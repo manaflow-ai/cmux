@@ -1,17 +1,11 @@
 import Foundation
 
-/// The single hook every Cloud connection passes through before dialing a
-/// machine on the private network.
-///
-/// ``VMClient`` calls it from each endpoint-minting method (attach, ssh,
-/// cmux-remote, session attach, open-port), so the app's Machines panel, the
-/// CLI's `vm` verbs, and session restore all trigger the same on-demand tunnel
-/// start without knowing about it. Implementations never throw: the dial that
-/// follows decides what a tunnel failure means for the user.
+/// The gate used only by Cloud browser navigation. Terminals and their
+/// metadata use the separate user-space WireGuard hub.
 protocol CloudPrivateNetworkGate: Sendable {
-    /// Returns once the private network is reachable, the attempt failed, or
-    /// the readiness budget elapsed. Cheap when the tunnel is already up.
-    func prepareForPrivateNetworkUse(_ use: CloudPrivateNetworkUse) async
+    /// Require a working route before a browser is allowed to navigate to a
+    /// private address. This fails closed.
+    func requirePrivateNetworkUse(_ use: CloudPrivateNetworkUse) async throws
 }
 
 /// What is about to dial the private network, for logging and consumer

@@ -68,6 +68,8 @@ actor CloudMachineLink {
     private var eventsProcess: Process?
     private var inviteFileURL: URL?
     private var stderrTail: [String] = []
+    /// Releases this link's claim on the app's WireGuard hub; runs once when the link ends.
+    private var releaseHubLease: (@Sendable () async -> Void)?
 
     /// One tick per daemon-side change (from `session current events`) or link state
     /// change; ends when the link dies.
@@ -84,8 +86,23 @@ actor CloudMachineLink {
     var isConnected: Bool { connected != nil && state == .connected }
 
     /// Spawns the headless client against `route` and waits for its local socket.
-    func connect(route: String, session: String, invitationURI: String?, timeout: Duration = .seconds(60)) async throws -> Connected {
-        if let connected, state == .connected { return connected }
+    ///
+    /// `wireguardHubSocket` routes the client through the app's WireGuard hub for a
+    /// machine on the private network; `releaseHubLease` is called exactly once when the
+    /// link ends (disconnect, exit, or a failed connect), so the hub can idle out.
+    func connect(
+        route: String,
+        session: String,
+        invitationURI: String?,
+        timeout: Duration = .seconds(60),
+        wireguardHubSocket: String? = nil,
+        releaseHubLease: (@Sendable () async -> Void)? = nil
+    ) async throws -> Connected {
+        if let connected, state == .connected {
+            await releaseHubLease?()
+            return connected
+        }
+        self.releaseHubLease = releaseHubLease
         try paths.ensureStateDir()
         var inviteFilePath: String?
         if let invitationURI, !invitationURI.isEmpty {
@@ -102,7 +119,8 @@ actor CloudMachineLink {
             route: route,
             deviceName: CloudTuiClientPaths.deviceName(),
             stateDir: paths.stateDir.path,
-            inviteFilePath: inviteFilePath
+            inviteFilePath: inviteFilePath,
+            wireguardHubSocket: wireguardHubSocket
         )
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_REMOTE_STATE_DIR"] = paths.stateDir.path
@@ -124,6 +142,7 @@ actor CloudMachineLink {
             state = .error
             lastError = Self.errorText(error)
             removeInviteFile()
+            await releaseHubLeaseOnce()
             throw LinkError.spawnFailed(error.localizedDescription)
         }
         self.process = process
@@ -142,20 +161,31 @@ actor CloudMachineLink {
             }
             firstSocket.resolve(nil)
         }
-        let socketPath: String = try await withThrowingTaskGroup(of: String?.self) { group in
-            group.addTask { await firstSocket.result }
-            group.addTask {
-                try await Task.sleep(for: timeout)
-                return nil
+        let socketPath: String
+        do {
+            socketPath = try await withThrowingTaskGroup(of: String?.self) { group in
+                group.addTask { await firstSocket.result }
+                group.addTask {
+                    try await Task.sleep(for: timeout)
+                    return nil
+                }
+                defer { group.cancelAll() }
+                guard let first = try await group.next(), let socket = first else {
+                    throw LinkError.timedOut
+                }
+                return socket
             }
-            defer { group.cancelAll() }
-            guard let first = try await group.next(), let socket = first else {
-                throw LinkError.timedOut
+            guard process.isRunning else {
+                throw LinkError.exited(status: process.terminationStatus, output: stderrTail.joined(separator: "\n"))
             }
-            return socket
-        }
-        guard process.isRunning else {
-            throw LinkError.exited(status: process.terminationStatus, output: stderrTail.joined(separator: "\n"))
+        } catch {
+            process.terminate()
+            self.process = nil
+            state = .error
+            lastError = Self.errorText(error)
+            removeInviteFile()
+            await releaseHubLeaseOnce()
+            throw error
         }
         let connected = Connected(socketPath: socketPath, session: session)
         self.connected = connected
@@ -165,7 +195,7 @@ actor CloudMachineLink {
         return connected
     }
 
-    func disconnect() {
+    func disconnect() async {
         eventsProcess?.terminate()
         eventsProcess = nil
         process?.terminate()
@@ -174,6 +204,7 @@ actor CloudMachineLink {
         state = .unavailable
         removeInviteFile()
         changesContinuation.finish()
+        await releaseHubLeaseOnce()
     }
 
     /// Runs one cmux-tui command against the link's socket and returns its stdout.
@@ -258,7 +289,7 @@ actor CloudMachineLink {
         if stderrTail.count > 20 { stderrTail.removeFirst(stderrTail.count - 20) }
     }
 
-    private func linkProcessDidExit(status: Int32) {
+    private func linkProcessDidExit(status: Int32) async {
         eventsProcess?.terminate()
         eventsProcess = nil
         process = nil
@@ -270,6 +301,13 @@ actor CloudMachineLink {
         }
         changesContinuation.yield()
         changesContinuation.finish()
+        await releaseHubLeaseOnce()
+    }
+
+    private func releaseHubLeaseOnce() async {
+        guard let release = releaseHubLease else { return }
+        releaseHubLease = nil
+        await release()
     }
 
     private func removeInviteFile() {
@@ -375,9 +413,11 @@ final class CloudLinkFirstValue<Value: Sendable>: @unchecked Sendable {
         case done(Value?)
     }
 
+    // A GCD or Process callback and task cancellation can race to resume one
+    // continuation. This short lock protects only that synchronous handoff.
     private let lock = NSLock()
     private var state: State = .pending
-    private var waiters: [CheckedContinuation<Value?, Never>] = []
+    private var waiters: [UUID: CheckedContinuation<Value?, Never>] = [:]
 
     func resolve(_ value: Value?) {
         lock.lock()
@@ -386,8 +426,8 @@ final class CloudLinkFirstValue<Value: Sendable>: @unchecked Sendable {
             return
         }
         state = .done(value)
-        let waiting = waiters
-        waiters = []
+        let waiting = Array(waiters.values)
+        waiters.removeAll()
         lock.unlock()
         for waiter in waiting {
             waiter.resume(returning: value)
@@ -396,16 +436,31 @@ final class CloudLinkFirstValue<Value: Sendable>: @unchecked Sendable {
 
     var result: Value? {
         get async {
-            await withCheckedContinuation { continuation in
-                lock.lock()
-                if case .done(let value) = state {
-                    lock.unlock()
-                    continuation.resume(returning: value)
-                } else {
-                    waiters.append(continuation)
-                    lock.unlock()
+            let waiterID = UUID()
+            return await withTaskCancellationHandler {
+                await withCheckedContinuation { continuation in
+                    lock.lock()
+                    if case .done(let value) = state {
+                        lock.unlock()
+                        continuation.resume(returning: value)
+                    } else if Task.isCancelled {
+                        lock.unlock()
+                        continuation.resume(returning: nil)
+                    } else {
+                        waiters[waiterID] = continuation
+                        lock.unlock()
+                    }
                 }
+            } onCancel: {
+                cancel(waiterID: waiterID)
             }
         }
+    }
+
+    private func cancel(waiterID: UUID) {
+        lock.lock()
+        let waiter = waiters.removeValue(forKey: waiterID)
+        lock.unlock()
+        waiter?.resume(returning: nil)
     }
 }
