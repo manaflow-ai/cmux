@@ -472,7 +472,10 @@ pub fn draw_machines(app: &mut App, frame: &mut Frame) {
         hits.push((rail::row(area, y), Hit::ConnectMachine));
     }
     hits.push((rail::row(area, area.y), Hit::RailPad(RailKind::Machine)));
-    hits.push((rail::divider(area), Hit::RailResize(RailKind::Machine)));
+    hits.push((
+        rail::divider(area),
+        Hit::RailResize { kind: RailKind::Machine, view_token: None },
+    ));
     app.hits.extend(hits);
 }
 
@@ -541,7 +544,10 @@ pub fn draw_tabs(app: &mut App, frame: &mut Frame) {
         }
     }
     app.hits.push((rail::row(area, area.y), Hit::RailPad(RailKind::Tabs)));
-    app.hits.push((rail::divider(area), Hit::RailResize(RailKind::Tabs)));
+    app.hits.push((
+        rail::divider(area),
+        Hit::RailResize { kind: RailKind::Tabs, view_token: None },
+    ));
 }
 
 /// Render one configurable resource path as a dense native tree column.
@@ -729,7 +735,13 @@ pub fn draw_projection(app: &mut App, frame: &mut Frame, view_index: usize) {
     }
     app.hits
         .push((rail::row(rail_area, rail_area.y), Hit::RailPad(RailKind::Projection(view_index))));
-    app.hits.push((rail::divider(rail_area), Hit::RailResize(RailKind::Projection(view_index))));
+    app.hits.push((
+        rail::divider(rail_area),
+        Hit::RailResize {
+            kind: RailKind::Projection(view_index),
+            view_token: Some(sidebar_profile_token(&spec.id)),
+        },
+    ));
 }
 
 /// Draw the horizontal rule of every vertical split divider and register
@@ -793,7 +805,10 @@ fn draw_plugin(app: &mut App, frame: &mut Frame) {
     // The divider column is a drag handle exactly like the built-in sidebar's;
     // without this hit zone, drag-resize is dead whenever a plugin owns the
     // sidebar (the plugin rect stops one column short of the divider).
-    app.hits.push((rail::divider(area), Hit::RailResize(RailKind::Workspace)));
+    app.hits.push((
+        rail::divider(area),
+        Hit::RailResize { kind: RailKind::Workspace, view_token: None },
+    ));
     if let Some(surface_id) = app.sidebar_plugin_surface {
         let Some(surface) = app.session.surface(surface_id) else { return };
         surface.take_dirty();
@@ -1029,7 +1044,7 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
         );
         match action.target {
             crate::app::SidebarActionTarget::CreateWorkspace(mode) => {
-                hits.push((rail::row(area, y), Hit::CreateWorkspace { mode }));
+                hits.push((rail::row(area, y), Hit::CreateWorkspace { mode, view_token }));
             }
             crate::app::SidebarActionTarget::Run(_) => {
                 if let Some(view) = view_index {
@@ -1066,7 +1081,10 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
         );
     }
     hits.push((rail::row(area, area.y), Hit::RailPad(RailKind::Workspace)));
-    hits.push((rail::divider(area), Hit::RailResize(RailKind::Workspace)));
+    hits.push((
+        rail::divider(area),
+        Hit::RailResize { kind: RailKind::Workspace, view_token: None },
+    ));
     app.hits.extend(hits);
 }
 
@@ -1095,6 +1113,10 @@ fn draw_files(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
     app.reconcile_files_rail_selection();
     app.reveal_files_action_selection();
     let actions = app.workspace_sidebar_action_rows();
+    let view_index = app.view_index_for_rail(RailKind::Workspace);
+    let view_token = view_index
+        .and_then(|index| app.config.sidebar.views.get(index))
+        .map_or(0, |view| sidebar_profile_token(&view.id));
     let actions_position = app.workspace_actions_position();
     let geometry = app.files_layout_geometry(area);
     let body = geometry.body;
@@ -1329,7 +1351,7 @@ fn draw_files(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
         );
         match action.target {
             crate::app::SidebarActionTarget::CreateWorkspace(mode) => {
-                hits.push((rail::row(area, y), Hit::CreateWorkspace { mode }));
+                hits.push((rail::row(area, y), Hit::CreateWorkspace { mode, view_token }));
             }
             crate::app::SidebarActionTarget::Run(_) => {
                 if let Some(view) = app.view_index_for_rail(RailKind::Workspace) {
@@ -1347,7 +1369,10 @@ fn draw_files(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
             }
         }
     }
-    hits.push((rail::divider(area), Hit::RailResize(RailKind::Workspace)));
+    hits.push((
+        rail::divider(area),
+        Hit::RailResize { kind: RailKind::Workspace, view_token: None },
+    ));
     app.hits.extend(hits);
     input_cursor
 }

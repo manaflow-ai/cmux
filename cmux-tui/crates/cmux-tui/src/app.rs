@@ -4374,6 +4374,7 @@ pub enum Hit {
     },
     CreateWorkspace {
         mode: Option<WorkspaceCreationMode>,
+        view_token: u64,
     },
     /// A visible row in the built-in file browser.
     SidebarFile {
@@ -4428,7 +4429,10 @@ pub enum Hit {
     /// the rail without activating one of its rows.
     RailPad(RailKind),
     /// A rail's right border.
-    RailResize(RailKind),
+    RailResize {
+        kind: RailKind,
+        view_token: Option<u64>,
+    },
     /// A draggable divider between two panes of a sidebar split group.
     SidebarSplitDivider {
         group: usize,
@@ -14220,7 +14224,7 @@ impl App {
             | Hit::HorizontalScrollbar { .. }
             | Hit::WorkspaceScrollbar { .. }
             | Hit::FilesScrollbar { .. }
-            | Hit::RailResize(_)
+            | Hit::RailResize { .. }
             | Hit::SidebarSplitDivider { .. }
             | Hit::PaneResize { .. }
             | Hit::TabScroll { .. } => None,
@@ -25168,10 +25172,27 @@ impl App {
                     self.focus = FocusTarget::Pane;
                     self.request_restore_managed_workspace(&workspace_id);
                 }
-                Hit::CreateWorkspace { mode } => {
+                Hit::CreateWorkspace { mode, view_token } => {
                     let target = SidebarActionTarget::CreateWorkspace(mode);
+                    let Some(view_index) = self
+                        .config
+                        .sidebar
+                        .views
+                        .iter()
+                        .enumerate()
+                        .find_map(|(index, view)| {
+                            (self.rail_kind_for_view(index) == RailKind::Workspace
+                                && sidebar_profile_token(&view.id) == view_token)
+                                .then_some(index)
+                        })
+                    else {
+                        if self.sidebar_view == SidebarView::Files {
+                            self.set_files_rail_selection(FilesRailSelection::File);
+                        }
+                        return Ok(RenderAction::Draw);
+                    };
                     if !self
-                        .workspace_sidebar_action_rows()
+                        .sidebar_action_rows(view_index)
                         .iter()
                         .any(|candidate| candidate.target == target)
                     {
@@ -25266,7 +25287,12 @@ impl App {
                     self.sidebar_files.set_viewport_height(visible_rows);
                     self.start_files_scrollbar_drag(track, total_rows, visible_rows, y);
                 }
-                Hit::RailResize(kind) => {
+                Hit::RailResize { kind, view_token } => {
+                    if let RailKind::Projection(index) = kind
+                        && view_token != self.config.sidebar.views.get(index).map(|view| sidebar_profile_token(&view.id))
+                    {
+                        return Ok(RenderAction::Draw);
+                    }
                     // A horizontal split divider shares the left child's
                     // border column; a press there re-shares the split
                     // instead of resizing the whole column.
@@ -45235,7 +45261,7 @@ mod tests {
         assert!(
             app.hits.iter().any(|(rect, hit)| matches!(
                 hit,
-                super::Hit::RailResize(RailKind::Workspace)
+                super::Hit::RailResize { kind: RailKind::Workspace, .. }
             ) && rect.x == divider_x
                 && rect.width == 1),
             "plugin sidebar must register the workspace rail resize hit on the divider column"
@@ -45584,7 +45610,7 @@ mod tests {
         assert!(
             app.hits
                 .iter()
-                .any(|(_, hit)| matches!(hit, super::Hit::CreateWorkspace { mode: None }))
+                .any(|(_, hit)| matches!(hit, super::Hit::CreateWorkspace { mode: None, .. }))
         );
 
         mux.close_surface(surface.id).unwrap();
@@ -45678,7 +45704,7 @@ mod tests {
             terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
             assert!(
                 app.hits.iter().any(|(rect, hit)| {
-                    matches!(hit, super::Hit::RailResize(RailKind::Workspace))
+                    matches!(hit, super::Hit::RailResize { kind: RailKind::Workspace, .. })
                         && rect.x == app.sidebar_width - 1
                         && rect.width == 1
                 }),
@@ -48111,7 +48137,10 @@ mod tests {
             .find_map(|(rect, hit)| {
                 matches!(
                     hit,
-                    super::Hit::CreateWorkspace { mode: Some(WorkspaceCreationMode::Isolated) }
+                    super::Hit::CreateWorkspace {
+                        mode: Some(WorkspaceCreationMode::Isolated),
+                        ..
+                    }
                 )
                 .then_some(*rect)
             })
@@ -48122,7 +48151,10 @@ mod tests {
             .find_map(|(rect, hit)| {
                 matches!(
                     hit,
-                    super::Hit::CreateWorkspace { mode: Some(WorkspaceCreationMode::Host) }
+                    super::Hit::CreateWorkspace {
+                        mode: Some(WorkspaceCreationMode::Host),
+                        ..
+                    }
                 )
                 .then_some(*rect)
             })
@@ -48187,7 +48219,10 @@ mod tests {
             .find_map(|(rect, hit)| {
                 matches!(
                     hit,
-                    super::Hit::CreateWorkspace { mode: Some(WorkspaceCreationMode::Host) }
+                    super::Hit::CreateWorkspace {
+                        mode: Some(WorkspaceCreationMode::Host),
+                        ..
+                    }
                 )
                 .then_some(rect.y)
             })
@@ -48198,7 +48233,10 @@ mod tests {
             .find_map(|(rect, hit)| {
                 matches!(
                     hit,
-                    super::Hit::CreateWorkspace { mode: Some(WorkspaceCreationMode::Isolated) }
+                    super::Hit::CreateWorkspace {
+                        mode: Some(WorkspaceCreationMode::Isolated),
+                        ..
+                    }
                 )
                 .then_some(rect.y)
             })
@@ -48339,11 +48377,20 @@ mod tests {
         assert!(app.hits.iter().any(|(_, hit)| {
             matches!(
                 hit,
-                super::Hit::CreateWorkspace { mode: Some(WorkspaceCreationMode::Isolated) }
+                super::Hit::CreateWorkspace {
+                    mode: Some(WorkspaceCreationMode::Isolated),
+                    ..
+                }
             )
         }));
         assert!(app.hits.iter().any(|(_, hit)| {
-            matches!(hit, super::Hit::CreateWorkspace { mode: Some(WorkspaceCreationMode::Host) })
+            matches!(
+                hit,
+                super::Hit::CreateWorkspace {
+                    mode: Some(WorkspaceCreationMode::Host),
+                    ..
+                }
+            )
         }));
     }
 
@@ -48449,7 +48496,10 @@ mod tests {
         let divider = |app: &App, kind| {
             app.hits
                 .iter()
-                .find_map(|(rect, hit)| (*hit == super::Hit::RailResize(kind)).then_some(*rect))
+                .find_map(|(rect, hit)| {
+                    matches!(hit, super::Hit::RailResize { kind: candidate, .. } if *candidate == kind)
+                        .then_some(*rect)
+                })
                 .unwrap()
         };
 
@@ -48685,7 +48735,8 @@ mod tests {
             .hits
             .iter()
             .find_map(|(rect, hit)| {
-                (*hit == super::Hit::RailResize(RailKind::Workspace)).then_some(*rect)
+                matches!(hit, super::Hit::RailResize { kind: RailKind::Workspace, .. })
+                    .then_some(*rect)
             })
             .unwrap();
         let (thumb_y, _) = crate::ui::viewport_thumb_geometry(
@@ -48744,7 +48795,8 @@ mod tests {
             .hits
             .iter()
             .find_map(|(rect, hit)| {
-                (*hit == super::Hit::RailResize(RailKind::Workspace)).then_some(*rect)
+                matches!(hit, super::Hit::RailResize { kind: RailKind::Workspace, .. })
+                    .then_some(*rect)
             })
             .unwrap();
         let scrollbar_x = divider.x - 1;
