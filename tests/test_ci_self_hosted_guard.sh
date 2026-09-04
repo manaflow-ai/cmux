@@ -1117,7 +1117,10 @@ check_no_bare_github_hosted_runners() {
   # ephemeral runner that no repo variable can redirect, and every edit to it
   # needs a trusted approval through the CLA policy validator, so the marker
   # comment cannot be added there. Exempt the file here instead.
-  hits="$(grep -rnE "runs-on:[[:space:]]*(ubuntu-[a-z0-9.]+|macos-[a-z0-9]+)([[:space:]]*$|[[:space:]]+#)" "$ROOT_DIR/.github/workflows" | grep -v "github-hosted-required" | grep -v "/cla-policy-guard.yml:" || true)"
+  # web-complexity-trusted.yml is also a trusted control-plane workflow: it
+  # intentionally runs the untrusted candidate checker on an ephemeral
+  # GitHub-hosted runner and rejects edits to the policy in pull requests.
+  hits="$(grep -rnE "runs-on:[[:space:]]*(ubuntu-[a-z0-9.]+|macos-[a-z0-9]+)([[:space:]]*$|[[:space:]]+#)" "$ROOT_DIR/.github/workflows" | grep -v "github-hosted-required" | grep -v "/cla-policy-guard.yml:" | grep -v "/web-complexity-trusted.yml:" || true)"
   if [[ -n "$hits" ]]; then
     echo "FAIL: these jobs use a bare GitHub-hosted runner; route them through vars.LINUX_RUNNER / vars.MACOS_RUNNER_IOS so Blacksmith<->overflow stays a repo-variable flip:"
     echo "$hits"
