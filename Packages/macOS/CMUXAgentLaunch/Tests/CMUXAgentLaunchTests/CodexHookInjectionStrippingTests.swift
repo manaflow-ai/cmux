@@ -112,6 +112,21 @@ struct CodexHookInjectionStrippingTests {
         )
     }
 
+    @Test("Strips shell-quoted content-addressed hooks below a shell-significant home path")
+    func stripsShellQuotedContentAddressedHooksBelowShellSignificantHomePath() {
+        let arguments = ["codex"] + codexWrapperHookArguments { subcommand in
+            let path = "/Volumes/Home Disk/Example $HOME/O'Reilly/.cmux/hooks/cmux-codex-hook-0123456789abcdef-\(subcommand).sh"
+            return "'\(path.replacingOccurrences(of: "'", with: "'\"'\"'"))'"
+        } + ["--model", "gpt-5.5"]
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                arguments,
+                launcher: "",
+                fallbackKind: "codex"
+            ) == ["codex", "--model", "gpt-5.5"]
+        )
+    }
+
     @Test("Preserves malformed content-addressed Codex hook paths")
     func preservesMalformedContentAddressedCodexHookPaths() {
         let arguments = [
