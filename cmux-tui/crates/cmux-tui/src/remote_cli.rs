@@ -135,8 +135,6 @@ fn remote_help_requested(args: &[String]) -> bool {
         "--remote-state-dir",
         "--wireguard-config",
         "--wireguard-hub",
-        "--config",
-        "--socket",
         "--ssh-arg",
         "--workspace-root",
         "--host",
