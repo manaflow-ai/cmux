@@ -81,6 +81,11 @@ struct ArtifactPaneRow: View {
     }
 
     private var isRevealable: Bool {
-        snapshot.record.kind.isFileBacked
+        switch snapshot.record.kind {
+        case .unknown:
+            false
+        default:
+            snapshot.record.kind.isFileBacked
+        }
     }
 }

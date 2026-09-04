@@ -12,6 +12,10 @@ struct ArtifactActionRouter {
     /// Opens a record in the existing browser/file-preview/default-app routes.
     @discardableResult
     func open(_ record: ArtifactRecord, from workspace: Workspace) -> Bool {
+        if case .unknown = record.kind {
+            // Preserve/search unknown future kinds, but never guess an opener.
+            return false
+        }
         guard let targetWorkspace = ownerWorkspace(for: record, fallback: workspace) else { return false }
         switch record.representation {
         case .url(let value):
@@ -35,6 +39,8 @@ struct ArtifactActionRouter {
             return true
         case .directory(let path):
             let url = URL(fileURLWithPath: path, isDirectory: true)
+            guard FileManager.default.fileExists(atPath: url.path),
+                  !Self.isSymlink(url) else { return false }
             NSWorkspace.shared.activateFileViewerSelecting([url])
             return true
         case .inlineHTML(let html):
@@ -50,9 +56,12 @@ struct ArtifactActionRouter {
         switch record.representation {
         case .url(let value):
             guard let url = URL(string: value), url.isFileURL else { return }
+            guard FileManager.default.fileExists(atPath: url.path), !Self.isSymlink(url) else { return }
             NSWorkspace.shared.activateFileViewerSelecting([url])
         case .directory(let path):
-            NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path, isDirectory: true)])
+            let url = URL(fileURLWithPath: path, isDirectory: true)
+            guard FileManager.default.fileExists(atPath: url.path), !Self.isSymlink(url) else { return }
+            NSWorkspace.shared.activateFileViewerSelecting([url])
         case .managedFile:
             Task { @MainActor in
                 if let url = await targetWorkspace.artifactsState.materializedURL(for: record) {
@@ -183,6 +192,10 @@ struct ArtifactActionRouter {
         do {
             try Data(value.utf8).write(to: url, options: Data.WritingOptions.atomic)
             guard let pane = workspace.bonsplitController.focusedPaneId else { return NSWorkspace.shared.open(url) }
+            // FilePreview classifies `.html` as a text mode, so untrusted
+            // inline markup is displayed as source rather than executed in a
+            // normal browser profile. A future rich preview must use an
+            // explicit script-disabled WebKit configuration.
             return !workspace.openFileSurfaces(inPane: pane, filePaths: [url.path], focus: true).isEmpty
         } catch {
             return false
