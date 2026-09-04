@@ -321,13 +321,17 @@ enum CloudWorkspaceRenameWriteThrough {
             // exact text must reach the daemon unchanged.
             stripGeneratedPrefix: stripGeneratedPrefix
         ),
-              let provider = catalog.provider(for: target.machine) else { return }
+              catalog.provider(for: target.machine) != nil else { return }
         let expectedTitle = workspace.customTitle
         let manager = workspace.owningTabManager ?? AppDelegate.shared?.tabManagerFor(tabId: workspace.id)
-        let key = CloudRenameCoordinator.Key.workspace(machine: target.machine, id: target.remoteWorkspaceID)
-        catalog.cloudRenameCoordinator.enqueue(key: key, pendingName: name, operation: { [weak workspace, weak manager] in
-            do { try await provider.renameRemoteWorkspace(id: target.remoteWorkspaceID, name: name) }
-            catch {
+        Task { @MainActor [weak workspace, weak manager] in
+            do {
+                try await catalog.renameRemoteWorkspace(
+                    on: target.machine,
+                    id: target.remoteWorkspaceID,
+                    name: name
+                )
+            } catch {
                 guard let workspace,
                       workspace.customTitle == expectedTitle,
                       let manager else { return }
@@ -342,7 +346,7 @@ enum CloudWorkspaceRenameWriteThrough {
                 cmuxDebugLog("cloud.rename.workspace.failed ws=\(workspace.id) error=\(String(describing: error))")
                 #endif
             }
-        })
+        }
     }
 
     static func isGeneratedPrefixedTitle(
@@ -380,11 +384,11 @@ enum CloudWorkspaceRenameWriteThrough {
             #endif
             return
         }
-        guard let provider = catalog.provider(for: resource.machine) else { return }
-        let key = CloudRenameCoordinator.Key.tab(machine: resource.machine, id: tabID)
-        catalog.cloudRenameCoordinator.enqueue(key: key, pendingName: name, operation: { [weak workspace] in
-            do { try await provider.renameRemoteTab(id: tabID, name: name) }
-            catch {
+        guard catalog.provider(for: resource.machine) != nil else { return }
+        Task { @MainActor [weak workspace] in
+            do {
+                try await catalog.renameRemoteTab(on: resource.machine, id: tabID, name: name)
+            } catch {
                 guard let workspace,
                       workspace.panelCustomTitles[panelID] == expectedTitle else { return }
                 _ = workspace.setPanelCustomTitle(
@@ -398,7 +402,7 @@ enum CloudWorkspaceRenameWriteThrough {
                 cmuxDebugLog("cloud.rename.terminal.failed panel=\(panelID) error=\(String(describing: error))")
                 #endif
             }
-        })
+        }
     }
 
     /// Applies daemon-owned names to every local projection that carries an

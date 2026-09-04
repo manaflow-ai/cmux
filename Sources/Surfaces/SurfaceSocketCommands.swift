@@ -455,7 +455,7 @@ extension TerminalController {
     }
 
     /// `vm.workspace_rename {id, workspace_id, name}` → renames the cmux-tui workspace
-    /// (the sidebar's "Rename…", same `provider.renameRemoteWorkspace`).
+    /// (the sidebar's "Rename…", through the catalog's shared mutation lane).
     nonisolated func socketWorkerVMWorkspaceRenameResponse(id: Any?, params: [String: Any]) -> String {
         guard let vmId = Self.surfaceString(params["id"]), !vmId.isEmpty,
               let remoteWorkspaceID = Self.surfaceString(params["workspace_id"]), !remoteWorkspaceID.isEmpty else {
@@ -467,10 +467,7 @@ extension TerminalController {
         return v2VmCall(id: id, timeoutSeconds: 120) {
             let machine = SurfaceMachineID.cloud(vmId)
             let catalog = await SurfaceCatalog.shared
-            guard let provider = try await Self.surfaceProvider(for: machine, catalog: catalog) else {
-                throw SurfaceCatalogError.noProvider(machine)
-            }
-            try await provider.renameRemoteWorkspace(id: remoteWorkspaceID, name: name)
+            try await catalog.renameRemoteWorkspace(on: machine, id: remoteWorkspaceID, name: name)
             return ["machine": machine.rawValue, "remote_workspace_id": remoteWorkspaceID, "name": name, "renamed": true]
         }
     }
@@ -488,10 +485,11 @@ extension TerminalController {
         return v2VmCall(id: id, timeoutSeconds: 120) {
             let machine = SurfaceMachineID.cloud(vmId)
             let catalog = await SurfaceCatalog.shared
-            guard let provider = try await Self.surfaceProvider(for: machine, catalog: catalog) else {
-                throw SurfaceCatalogError.noProvider(machine)
-            }
-            try await provider.renameTerminal(SurfaceResourceID(machine: machine, kind: .terminal, key: terminalID), name: name)
+            try await catalog.renameTerminal(
+                on: machine,
+                id: SurfaceResourceID(machine: machine, kind: .terminal, key: terminalID),
+                name: name
+            )
             return ["machine": machine.rawValue, "terminal_id": terminalID, "name": name, "renamed": true]
         }
     }
@@ -513,11 +511,9 @@ extension TerminalController {
         do {
             let machine = SurfaceMachineID.cloud(vmId)
             let catalog = SurfaceCatalog.shared
-            guard let provider = try await Self.surfaceProvider(for: machine, catalog: catalog) else {
-                throw SurfaceCatalogError.noProvider(machine)
-            }
-            try await provider.renameTerminal(
-                SurfaceResourceID(machine: machine, kind: .terminal, key: terminalID),
+            try await catalog.renameTerminal(
+                on: machine,
+                id: SurfaceResourceID(machine: machine, kind: .terminal, key: terminalID),
                 name: name
             )
             return v2Ok(id: id, result: [
@@ -545,10 +541,7 @@ extension TerminalController {
         return v2VmCall(id: id, timeoutSeconds: 120) {
             let machine = SurfaceMachineID.cloud(vmId)
             let catalog = await SurfaceCatalog.shared
-            guard let provider = try await Self.surfaceProvider(for: machine, catalog: catalog) else {
-                throw SurfaceCatalogError.noProvider(machine)
-            }
-            try await provider.renameRemoteTab(id: tabID, name: name)
+            try await catalog.renameRemoteTab(on: machine, id: tabID, name: name)
             return ["machine": machine.rawValue, "tab_id": tabID, "name": name, "renamed": true]
         }
     }
@@ -567,10 +560,7 @@ extension TerminalController {
         do {
             let machine = SurfaceMachineID.cloud(vmId)
             let catalog = SurfaceCatalog.shared
-            guard let provider = try await Self.surfaceProvider(for: machine, catalog: catalog) else {
-                throw SurfaceCatalogError.noProvider(machine)
-            }
-            try await provider.renameRemoteTab(id: tabID, name: name)
+            try await catalog.renameRemoteTab(on: machine, id: tabID, name: name)
             return v2Ok(id: id, result: [
                 "machine": machine.rawValue,
                 "tab_id": tabID,

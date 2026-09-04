@@ -80,9 +80,12 @@ browsers, and agents. The macOS app must not create a second remote graph.
   Identity-less cloud displays, ports, and pool terminals are neutral; mixed or
   ambiguous workspaces stay unbound. Explicit `workspace.cloud_vm_bind` values
   remain authoritative across disconnects.
-- Rename intents are serialized by `(machine, scope, remote_id)` in one
-  process-wide coordinator, so two local windows cannot send the same remote
-  tab or workspace out of order. A local binding or projection stores the
+- Rename intents are serialized by one process-wide, machine-scoped mutation
+  lane. The intent map still keys optimistic names by `(machine, scope,
+  remote_id)`, but the lane covers workspace, exact-tab, and terminal fan-out
+  writes together because the daemon cursor is global to the VM. Tree, socket,
+  CLI, and local projection paths enter through `SurfaceCatalog`; provider
+  methods are transport primitives. A local binding or projection stores the
   exact remote ID; legacy fallback is allowed only for one unambiguous view.
 - Delta publication uses one canonical `CloudVMState.document` plus a
   materialized typed-graph index. The document stores every top-level value and

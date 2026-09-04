@@ -316,8 +316,7 @@ struct CloudTreeNodeActions {
                     current: workspace.name
                 ), name != workspace.name else { return }
                 run(String(format: String(localized: "cloudTree.operation.renameWorkspace", defaultValue: "Renaming %@\u{2026}"), workspace.name)) { catalog in
-                    guard let provider = catalog.provider(for: machine) else { throw SurfaceCatalogError.noProvider(machine) }
-                    try await provider.renameRemoteWorkspace(id: workspace.id, name: name)
+                    try await catalog.renameRemoteWorkspace(on: machine, id: workspace.id, name: name)
                 }
             },
             renameTerminal: { resource, view in
@@ -327,11 +326,10 @@ struct CloudTreeNodeActions {
                     current: current
                 ), name != current else { return }
                 run(String(format: String(localized: "cloudTree.operation.renameTerminal", defaultValue: "Renaming %@\u{2026}"), current)) { catalog in
-                    guard let provider = catalog.provider(for: resource.machine) else { throw SurfaceCatalogError.noProvider(resource.machine) }
                     if let view {
-                        try await provider.renameRemoteTab(id: view.tabID, name: name)
+                        try await catalog.renameRemoteTab(on: resource.machine, id: view.tabID, name: name)
                     } else {
-                        try await provider.renameTerminal(resource.id, name: name)
+                        try await catalog.renameTerminal(on: resource.machine, id: resource.id, name: name)
                     }
                 }
             },

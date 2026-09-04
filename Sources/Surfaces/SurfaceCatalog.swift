@@ -10,6 +10,7 @@ final class CloudRenameCoordinator {
         enum Scope: String, Hashable, Sendable {
             case workspace
             case tab
+            case terminal
         }
 
         let machine: SurfaceMachineID
@@ -23,11 +24,15 @@ final class CloudRenameCoordinator {
         static func tab(machine: SurfaceMachineID, id: String) -> Self {
             Self(machine: machine, scope: .tab, remoteID: id)
         }
+
+        static func terminal(machine: SurfaceMachineID, id: String) -> Self {
+            Self(machine: machine, scope: .terminal, remoteID: id)
+        }
     }
 
     private struct Entry {
         let generation: UInt64
-        let task: Task<Void, Never>
+        let task: Task<Void, Error>
     }
 
     private struct PendingName {
@@ -35,46 +40,52 @@ final class CloudRenameCoordinator {
         let value: String
     }
 
-    private var entries: [Key: Entry] = [:]
+    /// The daemon cursor is global to one machine, so all remote rename writes
+    /// share one lane. Identity keys remain separate for optimistic projection
+    /// reconciliation.
+    private var entries: [SurfaceMachineID: Entry] = [:]
     private var pendingNames: [Key: PendingName] = [:]
+    private var nextGeneration: UInt64 = 0
 
     func pendingName(for key: Key) -> String? {
         pendingNames[key]?.value
     }
 
-    /// Serializes one remote identity across every local window and retains only the
-    /// newest optimistic name. A failed operation can compensate its own local view;
-    /// an older completion cannot clear a newer intent or queue tail.
+    /// Serializes every remote rename for one machine across every local window and
+    /// retains the newest optimistic name for each identity. A failed operation can
+    /// compensate its own local view; an older completion cannot clear a newer intent
+    /// or queue tail.
     @discardableResult
     func enqueue(
         key: Key,
         pendingName: String,
-        operation: @escaping @MainActor () async -> Void
-    ) -> Task<Void, Never> {
-        let generation = (entries[key]?.generation ?? 0) &+ 1
-        let previous = entries[key]?.task
-        pendingNames[key] = PendingName(generation: generation, value: pendingName)
+        operation: @escaping @MainActor () async throws -> Void
+    ) -> Task<Void, Error> {
+        let lane = key.machine
+        nextGeneration &+= 1
+        let generation = nextGeneration
+        let pendingGeneration = generation
+        let previous = entries[lane]?.task
+        pendingNames[key] = PendingName(generation: pendingGeneration, value: pendingName)
         let task = Task { @MainActor [weak self] in
+            defer { self?.finish(key: key, lane: lane, generation: generation, pendingGeneration: pendingGeneration) }
             if let previous {
-                await previous.value
+                // A failed or cancelled rename must not strand later edits.
+                _ = try? await previous.value
             }
-            guard !Task.isCancelled else {
-                self?.finish(key: key, generation: generation)
-                return
-            }
-            await operation()
-            self?.finish(key: key, generation: generation)
+            try Task.checkCancellation()
+            try await operation()
         }
-        entries[key] = Entry(generation: generation, task: task)
+        entries[lane] = Entry(generation: generation, task: task)
         return task
     }
 
-    private func finish(key: Key, generation: UInt64) {
-        if pendingNames[key]?.generation == generation {
+    private func finish(key: Key, lane: SurfaceMachineID, generation: UInt64, pendingGeneration: UInt64) {
+        if pendingNames[key]?.generation == pendingGeneration {
             pendingNames[key] = nil
         }
-        guard entries[key]?.generation == generation else { return }
-        entries[key] = nil
+        guard entries[lane]?.generation == generation else { return }
+        entries[lane] = nil
     }
 }
 
@@ -278,7 +289,7 @@ final class SurfaceCatalog {
             }
         }
         providers[provider.machine] = provider
-        machines[provider.machine] = provider.info
+        machines[provider.machine] = machineInfoPreservingCanonicalCloudState(provider.info)
         notifyChange()
     }
 
@@ -364,6 +375,45 @@ final class SurfaceCatalog {
         }
     }
 
+    // MARK: Coordinated cloud renames
+
+    /// The catalog is the only application-level entrypoint for a remote rename.
+    /// Provider methods are transport primitives. Keeping coordination here gives
+    /// tree, socket, CLI, and local projection paths one ordering and pending-intent
+    /// policy.
+    func renameRemoteWorkspace(on machine: SurfaceMachineID, id: String, name: String) async throws {
+        guard let provider = providers[machine] else {
+            throw SurfaceCatalogError.noProvider(machine)
+        }
+        let key = CloudRenameCoordinator.Key.workspace(machine: machine, id: id)
+        let task = cloudRenameCoordinator.enqueue(key: key, pendingName: name) {
+            try await provider.renameRemoteWorkspace(id: id, name: name)
+        }
+        try await task.value
+    }
+
+    func renameRemoteTab(on machine: SurfaceMachineID, id: String, name: String) async throws {
+        guard let provider = providers[machine] else {
+            throw SurfaceCatalogError.noProvider(machine)
+        }
+        let key = CloudRenameCoordinator.Key.tab(machine: machine, id: id)
+        let task = cloudRenameCoordinator.enqueue(key: key, pendingName: name) {
+            try await provider.renameRemoteTab(id: id, name: name)
+        }
+        try await task.value
+    }
+
+    func renameTerminal(on machine: SurfaceMachineID, id: SurfaceResourceID, name: String) async throws {
+        guard let provider = providers[machine] else {
+            throw SurfaceCatalogError.noProvider(machine)
+        }
+        let key = CloudRenameCoordinator.Key.terminal(machine: machine, id: id.key)
+        let task = cloudRenameCoordinator.enqueue(key: key, pendingName: name) {
+            try await provider.renameTerminal(id, name: name)
+        }
+        try await task.value
+    }
+
     // MARK: Resources (called by providers)
 
     /// Replace everything the catalog knows about one machine. Projections whose resource
@@ -380,7 +430,7 @@ final class SurfaceCatalog {
             resources[resource.id] = resource
             resourceIDsByMachine[machine, default: []].insert(resource.id)
         }
-        if let info { machines[machine] = info }
+        if let info { machines[machine] = machineInfoPreservingCanonicalCloudState(info) }
         resolvePendingRestoredProjections(on: machine)
         notifyChange()
         return true
@@ -410,7 +460,7 @@ final class SurfaceCatalog {
     /// Update machine metadata, optionally validating the provider registration that supplied it.
     func updateMachine(_ info: SurfaceMachineInfo, from source: (any SurfaceProvider)? = nil) {
         guard accepts(writeFor: info.id, from: source) else { return }
-        machines[info.id] = info
+        machines[info.id] = machineInfoPreservingCanonicalCloudState(info)
         notifyChange()
     }
 
@@ -423,7 +473,7 @@ final class SurfaceCatalog {
         info: SurfaceMachineInfo? = nil
     ) {
         guard cloudStates[machine] != nil else {
-            if let info { machines[machine] = info }
+            if let info { machines[machine] = machineInfoPreservingCanonicalCloudState(info) }
             notifyChange()
             return
         }
@@ -433,7 +483,7 @@ final class SurfaceCatalog {
         cloudStateObservations[machine] = observation
         if let info {
             precondition(info.id == machine, "machine info and stale machine disagree")
-            machines[machine] = info
+            machines[machine] = machineInfoPreservingCanonicalCloudState(info)
         }
         notifyChange()
     }
@@ -523,7 +573,7 @@ final class SurfaceCatalog {
 
         cloudStates[state.machine] = state
         cloudStateObservations[state.machine] = observation
-        machines[state.machine] = info
+        machines[state.machine] = machineInfoPreservingCanonicalCloudState(info, state: state)
         resolvePendingRestoredProjections(on: state.machine)
         notifyChange()
         return changed
@@ -560,7 +610,7 @@ final class SurfaceCatalog {
         rebuildResourceIndex(for: state.machine)
         cloudStates[state.machine] = state
         cloudStateObservations[state.machine] = observation
-        machines[state.machine] = info
+        machines[state.machine] = machineInfoPreservingCanonicalCloudState(info, state: state)
         resolvePendingRestoredProjections(on: state.machine)
         notifyChange()
         return changed
@@ -604,7 +654,7 @@ final class SurfaceCatalog {
             resources[resource.id] = resource
         }
         rebuildResourceIndex(for: machine)
-        machines[machine] = info
+        machines[machine] = machineInfoPreservingCanonicalCloudState(info)
         resolvePendingRestoredProjections(on: machine)
         notifyChange()
     }
@@ -615,6 +665,29 @@ final class SurfaceCatalog {
     private func rebuildResourceIndex(for machine: SurfaceMachineID) {
         let ids = Set(resources.keys.filter { $0.machine == machine })
         resourceIDsByMachine[machine] = ids.isEmpty ? nil : ids
+    }
+
+    /// A provider summary can arrive after a newer daemon graph. Keep the graph's
+    /// workspace list authoritative so a stale status response cannot regress a
+    /// renamed workspace or resurrect a removed one in the tree. Pending creation
+    /// rows remain represented by their resource overlays until the next graph.
+    private func machineInfoPreservingCanonicalCloudState(
+        _ info: SurfaceMachineInfo,
+        state: CloudVMState? = nil
+    ) -> SurfaceMachineInfo {
+        guard case .cloud = info.id,
+              let state = state ?? cloudStates[info.id] else { return info }
+        var adjusted = info
+        let canonical = state.workspaces.map {
+            SurfaceRemoteWorkspace(id: $0.id, name: $0.name, index: $0.index, focused: $0.focused)
+        }
+        var seen = Set(canonical.map(\.id))
+        // A create response can expose a new empty workspace before the next
+        // journal snapshot. Keep such genuinely new rows, but never retain an
+        // incoming row whose id the accepted graph removed.
+        let pending = (info.remoteWorkspaces ?? []).filter { seen.insert($0.id).inserted }
+        adjusted.remoteWorkspaces = canonical + pending
+        return adjusted
     }
 
     // MARK: Projections

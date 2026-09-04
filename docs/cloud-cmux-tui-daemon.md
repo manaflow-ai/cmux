@@ -201,14 +201,19 @@ leaves the workspace unbound. An explicit `workspace.cloud_vm_bind` value stays
 authoritative through disconnects and temporary absence of rows. This prevents
 an existing-target open, a restore, or a pane move from losing the rename target.
 
-The process-wide `CloudRenameCoordinator` serializes pending writes by
-`(machine, scope, remote ID)` across windows. Workspace renames use a daemon
-revision compare-and-set. `tab rename` changes one tab placement. The explicit
-`terminal rename` compatibility operation fans out to every tab placement of a
-terminal, fences each write, and compensates only when a fresh revision proves
-that no other client changed the completed tabs. A transport failure can still
-leave a partial fan-out, so the operation returns an explicit partial-operation
-error instead of silently claiming success.
+The process-wide `CloudRenameCoordinator` serializes all remote rename writes
+for one machine in one lane across windows. Its pending-intent map remains
+keyed by `(machine, scope, remote ID)`, so each local projection can retain its
+own optimistic label while workspace, exact-tab, and terminal fan-out writes
+still respect the daemon's machine-wide revision cursor. `SurfaceCatalog` is
+the sole application-level mutation entrypoint; provider methods only perform
+the transport operation. Workspace renames use a daemon revision compare-and-set.
+`tab rename` changes one tab placement. The explicit `terminal rename`
+compatibility operation fans out to every tab placement of a terminal, fences
+each write, and compensates only when a fresh revision proves that no other
+client changed the completed tabs. A transport failure can still leave a
+partial fan-out, so the operation returns an explicit partial-operation error
+instead of silently claiming success.
 
 The socket rename handlers use one 120-second operation deadline for refresh,
 compare-and-set, retry, compensation, and final reconciliation. Each individual
