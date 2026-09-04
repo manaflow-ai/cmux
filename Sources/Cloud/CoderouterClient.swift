@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxControlSocket
 import Foundation
@@ -79,15 +80,29 @@ actor CoderouterClient {
     @MainActor private(set) static var shared: CoderouterClient!
 
     @MainActor
-    static func bootstrap(auth: AuthCoordinator, session: URLSession = .shared) {
-        shared = CoderouterClient(session: session, auth: auth)
+    static func bootstrap(auth: AuthCoordinator, session: URLSession? = nil) {
+        if let session {
+            // A caller-provided URLSession is a test seam. Production uses the
+            // cookie-free redirect-rejecting transport below.
+            shared = CoderouterClient(session: session, auth: auth)
+        } else {
+            shared = CoderouterClient(auth: auth)
+        }
     }
 
-    private let session: URLSession
+    private let session: URLSession?
+    private let credentialedSession: CmxCredentialedHTTPSession?
     private let auth: AuthCoordinator
 
-    init(session: URLSession = .shared, auth: AuthCoordinator) {
+    init(auth: AuthCoordinator) {
+        self.session = nil
+        self.credentialedSession = CmxCredentialedHTTPSession()
+        self.auth = auth
+    }
+
+    init(session: URLSession, auth: AuthCoordinator) {
         self.session = session
+        self.credentialedSession = nil
         self.auth = auth
     }
 
@@ -100,11 +115,14 @@ actor CoderouterClient {
         return try bridgedJSONObject(data)
     }
 
-    /// Adds an account. Returns `{ teamId, account, accountsTotal }`.
-    func addClaudeAccount(_ input: ClaudeUpstreamInput, label: String?, teamID: String?) async throws -> JSONValue {
+    /// Adds an account. The backend probes the credential first unless
+    /// `validate` is false, refusing a rejected one with 422. Returns
+    /// `{ teamId, account, accountsTotal, alreadyExists, validation }`.
+    func addClaudeAccount(_ input: ClaudeUpstreamInput, label: String?, validate: Bool, teamID: String?) async throws -> JSONValue {
         let (data, http) = try await request(
             "POST",
             path: "/api/coderouter/claude-upstream",
+            queryItems: validate ? [] : [URLQueryItem(name: "validate", value: "0")],
             jsonBody: input.jsonBody(label: label),
             teamID: teamID
         )
@@ -151,6 +169,27 @@ actor CoderouterClient {
         return try bridgedJSONObject(data)
     }
 
+    /// The team's subscription accounts (ChatGPT Codex, OpenCode Go) from
+    /// `GET /api/coderouter/accounts`: `{ teamId, accounts: [{ id, provider,
+    /// providerAccountId, label, state, cooldownUntil, lastFailureCode,
+    /// activeSessions, usage?, usageError? }], usageAsOf }`.
+    func subscriptionAccounts(teamID: String?) async throws -> JSONValue {
+        let (data, http) = try await request("GET", path: "/api/coderouter/accounts", teamID: teamID)
+        try ensureOK(http, data: data)
+        return try bridgedJSONObject(data)
+    }
+
+    /// Removes one subscription account. A 404 is reported as `removed: false`.
+    func removeSubscriptionAccount(id accountID: String, teamID: String?) async throws -> JSONValue {
+        let escaped = try pathSegment(accountID, fieldName: "account id")
+        let (data, http) = try await request("DELETE", path: "/api/coderouter/accounts/\(escaped)", teamID: teamID)
+        if http.statusCode == 404 {
+            return .object(["removed": .bool(false)])
+        }
+        try ensureOK(http, data: data)
+        return try bridgedJSONObject(data)
+    }
+
     /// Percent-encode a caller-provided value as a single URL path segment;
     /// `/`, `.`, and `..` would otherwise change the backend route.
     private func pathSegment(_ value: String, fieldName: String) throws -> String {
@@ -174,9 +213,17 @@ actor CoderouterClient {
     private func request(
         _ method: String,
         path: String,
+        queryItems: [URLQueryItem] = [],
         jsonBody: [String: Any]? = nil,
         teamID explicitTeamID: String?
     ) async throws -> (Data, HTTPURLResponse) {
+        // Validate the destination before loading bearer and refresh tokens.
+        // A malformed debug override must never receive credential headers.
+        let requestURL = try Self.validatedRequestURL(
+            baseURL: AuthEnvironment.vmAPIBaseURL,
+            path: path,
+            queryItems: queryItems
+        )
         let tokens: (accessToken: String, refreshToken: String)
         do {
             tokens = try await auth.currentTokens()
@@ -187,15 +234,7 @@ actor CoderouterClient {
         }
         let resolvedTeamID = await auth.resolvedTeamID
 
-        guard var comps = URLComponents(url: AuthEnvironment.vmAPIBaseURL, resolvingAgainstBaseURL: false) else {
-            throw CoderouterClientError.malformedResponse("the cmux backend URL is misconfigured")
-        }
-        comps.path = (comps.path.hasSuffix("/") ? String(comps.path.dropLast()) : comps.path) + path
-        guard let url = comps.url else {
-            throw CoderouterClientError.malformedResponse("could not build the request URL")
-        }
-
-        var req = URLRequest(url: url)
+        var req = URLRequest(url: requestURL)
         req.httpMethod = method
         req.timeoutInterval = 15
         req.setValue("Bearer \(tokens.accessToken)", forHTTPHeaderField: "Authorization")
@@ -212,7 +251,13 @@ actor CoderouterClient {
         let data: Data
         let response: URLResponse
         do {
-            (data, response) = try await session.data(for: req)
+            if let session {
+                (data, response) = try await session.data(for: req)
+            } else if let credentialedSession {
+                (data, response) = try await credentialedSession.data(for: req)
+            } else {
+                throw CoderouterClientError.malformedResponse("HTTP transport is unavailable")
+            }
         } catch let error as URLError {
             switch error.code {
             case .cannotConnectToHost, .cannotFindHost, .timedOut, .networkConnectionLost, .notConnectedToInternet:
@@ -226,6 +271,117 @@ actor CoderouterClient {
             throw CoderouterClientError.malformedResponse("non-HTTP response")
         }
         return (data, http)
+    }
+
+    /// Builds a coderouter request only when its URL stays on the configured
+    /// backend origin. Release builds require HTTPS. Debug builds may use HTTP
+    /// for a loopback server, which is the tag-local development transport.
+    static func validatedRequestURL(
+        baseURL: URL,
+        path: String,
+        queryItems: [URLQueryItem] = []
+    ) throws -> URL {
+        guard let base = URLComponents(url: baseURL, resolvingAgainstBaseURL: false),
+              let scheme = base.scheme?.lowercased(),
+              let host = base.host?.lowercased(),
+              !host.isEmpty,
+              base.user == nil,
+              base.password == nil,
+              base.query == nil,
+              base.fragment == nil,
+              base.path.isEmpty || base.path == "/",
+              path.hasPrefix("/"),
+              !path.unicodeScalars.contains(where: { $0.properties.generalCategory == .control }) else {
+            throw CoderouterClientError.malformedResponse("the cmux backend URL is misconfigured")
+        }
+
+        let https = scheme == "https"
+        #if DEBUG
+        let loopbackHTTP = scheme == "http" && Self.isLoopbackHost(host)
+        #else
+        let loopbackHTTP = false
+        #endif
+        guard https || loopbackHTTP else {
+            throw CoderouterClientError.malformedResponse("the cmux backend URL must use HTTPS")
+        }
+        guard loopbackHTTP || Self.isTrustedHTTPSOrigin(base) else {
+            throw CoderouterClientError.malformedResponse("the cmux backend URL is not an allowed credential destination")
+        }
+
+        var request = base
+        let basePath = base.path.hasSuffix("/") ? String(base.path.dropLast()) : base.path
+        request.path = basePath + path
+        request.queryItems = queryItems.isEmpty ? nil : queryItems
+        guard let url = request.url,
+              let requestComponents = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              Self.sameOrigin(base, requestComponents) else {
+            throw CoderouterClientError.malformedResponse("could not build the request URL")
+        }
+        return url
+    }
+
+    private static func sameOrigin(_ lhs: URLComponents, _ rhs: URLComponents) -> Bool {
+        lhs.scheme?.lowercased() == rhs.scheme?.lowercased()
+            && lhs.host?.lowercased() == rhs.host?.lowercased()
+            && effectivePort(lhs) == effectivePort(rhs)
+    }
+
+    private static func effectivePort(_ components: URLComponents) -> Int? {
+        if let port = components.port { return port }
+        switch components.scheme?.lowercased() {
+        case "http": return 80
+        case "https": return 443
+        default: return nil
+        }
+    }
+
+    private static func isLoopbackHost(_ host: String) -> Bool {
+        if host == "localhost" || host == "::1" { return true }
+        let octets = host.split(separator: ".")
+        guard octets.count == 4, octets.first == "127" else { return false }
+        return octets.dropFirst().allSatisfy { Int($0).map { (0...255).contains($0) } ?? false }
+    }
+
+    /// The VM API resolver has developer overrides for tagged builds. Keep
+    /// those overrides useful while refusing to send account credentials to an
+    /// arbitrary HTTPS host. Production has one origin; debug has that origin,
+    /// the shared staging deployment, and an explicitly declared direct
+    /// Tailscale backend.
+    private static func isTrustedHTTPSOrigin(_ components: URLComponents) -> Bool {
+        guard effectivePort(components) == 443 || components.port == nil else {
+            #if DEBUG
+            let environment = ProcessInfo.processInfo.environment
+            guard environment["CMUX_DEV_BACKEND_TRANSPORT"]?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "direct",
+                  let trustedHost = environment["CMUX_DEV_BACKEND_TAILSCALE_HOST"]?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+                  components.host?.lowercased() == trustedHost,
+                  trustedHost.hasSuffix(".ts.net"),
+                  let port = components.port,
+                  (3800...4799).contains(port) else {
+                return false
+            }
+            return true
+            #else
+            return false
+            #endif
+        }
+        guard let host = components.host?.lowercased() else { return false }
+        if host == "cmux.com" || host == "cmux-staging.vercel.app" {
+            return true
+        }
+        #if DEBUG
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["CMUX_DEV_BACKEND_TRANSPORT"]?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "direct",
+              let trustedHost = environment["CMUX_DEV_BACKEND_TAILSCALE_HOST"]?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+              host == trustedHost,
+              trustedHost.hasSuffix(".ts.net"),
+              let port = components.port,
+              (3800...4799).contains(port) else {
+            return false
+        }
+        return true
+        #else
+        return false
+        #endif
     }
 
     private func ensureOK(_ http: HTTPURLResponse, data: Data) throws {
@@ -245,13 +401,28 @@ actor CoderouterClient {
 
     static func formatHTTPError(status: Int, body: String) -> String {
         if status == 401 {
-            return "Not signed in or session expired. Run `cmux auth login`, then retry."
+            return coderouterClientLocalized(
+                "cli.coderouter.http.notSignedIn",
+                "Not signed in or session expired. Run `cmux auth login`, then retry."
+            )
         }
         if status == 403 {
-            return "This account cannot manage the team's coderouter settings."
+            return coderouterClientLocalized(
+                "cli.coderouter.http.forbidden",
+                "This account cannot manage the team's coderouter settings."
+            )
         }
         if status == 404 {
-            return "No Claude upstream account with that id exists on this team. Run `cmux coderouter claude list`."
+            return coderouterClientLocalized(
+                "cli.coderouter.http.notFound",
+                "No account with that id exists on this team. Run `cmux coderouter accounts`."
+            )
+        }
+        if status == 422 {
+            return coderouterClientLocalized(
+                "cli.coderouter.http.credentialRejected",
+                "The provider rejected this credential; nothing was stored. Check that the key or token is current, or pass --no-validate to store it anyway."
+            )
         }
         let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
         var serverError: String?
@@ -263,10 +434,31 @@ actor CoderouterClient {
         }
         if let serverError = serverError.map(AIAccountsClient.redactSecrets), !serverError.isEmpty {
             if status == 400 {
-                return "coderouter rejected the request (HTTP 400): \(serverError). Check the credential format and retry."
+                return coderouterClientFormatted(
+                    "cli.coderouter.http.badRequest",
+                    "coderouter rejected the request (HTTP 400): %@. Check the credential format and retry.",
+                    serverError
+                )
             }
-            return "coderouter request failed (HTTP \(status)): \(serverError)"
+            return coderouterClientFormatted(
+                "cli.coderouter.http.failedWithReason",
+                "coderouter request failed (HTTP %lld): %@",
+                Int64(status),
+                serverError
+            )
         }
-        return "coderouter request failed (HTTP \(status))."
+        return coderouterClientFormatted(
+            "cli.coderouter.http.failed",
+            "coderouter request failed (HTTP %lld).",
+            Int64(status)
+        )
     }
+}
+
+private func coderouterClientLocalized(_ key: String, _ defaultValue: String) -> String {
+    Bundle.main.localizedString(forKey: key, value: defaultValue, table: nil)
+}
+
+private func coderouterClientFormatted(_ key: String, _ defaultValue: String, _ arguments: CVarArg...) -> String {
+    String(format: coderouterClientLocalized(key, defaultValue), locale: Locale.current, arguments: arguments)
 }

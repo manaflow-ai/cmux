@@ -10,10 +10,10 @@
 // bind the ciphertext to (team, account id, kind) so a row cannot be replayed
 // for another team or account.
 import { createHash, randomUUID } from "node:crypto";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
 import { runWithCloudDbQuerySignal } from "../../db/queryScope";
-import { coderouterClaudeAccounts } from "../../db/schema";
+import { coderouterAccountHealthDeliveries, coderouterClaudeAccounts } from "../../db/schema";
 import {
   decryptSecretEnvelope,
   encryptSecretEnvelope,
@@ -32,7 +32,12 @@ export const CLAUDE_UPSTREAM_KINDS: readonly ClaudeUpstreamKind[] = [
   "bedrock",
 ];
 
-export type ClaudeAccountState = "active" | "disabled";
+/**
+ * `broken`: the upstream rejected the credential `BROKEN_AFTER_FAILURES` times
+ * in a row. The account leaves rotation until a human replaces it; the owner
+ * is emailed once (`brokenNotifiedAt`).
+ */
+export type ClaudeAccountState = "active" | "disabled" | "broken";
 
 export type ClaudeUpstreamSecret =
   | { readonly kind: "anthropic_api_key"; readonly apiKey: string }
@@ -74,6 +79,8 @@ export type ClaudeAccountDescription = {
   readonly state: ClaudeAccountState;
   readonly cooldownUntil: string | null;
   readonly lastFailureCode: string | null;
+  readonly consecutiveFailures: number;
+  readonly brokenAt: string | null;
   readonly lastUsedAt: string | null;
   readonly createdAt: string;
   readonly updatedAt: string;
@@ -111,6 +118,11 @@ export type ClaudeAccountRow = {
   readonly cooldownUntil: Date | null;
   readonly lastUsedAt: Date | null;
   readonly lastFailureCode: string | null;
+  readonly consecutiveFailures: number;
+  readonly brokenAt: Date | null;
+  readonly brokenNotifiedAt: Date | null;
+  /** Empty on rows written before fingerprints existed. */
+  readonly fingerprint: string;
   readonly aadVersion: 1 | 2;
   readonly config: Record<string, unknown>;
   readonly createdBy: string;
@@ -131,8 +143,26 @@ export type ClaudeAccountStore = {
   ): Promise<ClaudeAccountRow | null>;
   remove(teamId: string, accountId: string): Promise<boolean>;
   removeAll(teamId: string): Promise<number>;
-  markCooldown(accountId: string, until: Date, failureCode: string, signal?: AbortSignal): Promise<void>;
+  findByFingerprint(teamId: string, fingerprint: string): Promise<ClaudeAccountRow | null>;
+  /**
+   * Records a failure. `countTowardBroken` increments `consecutiveFailures`
+   * (credential rejections); other failures leave the counter alone. Returns
+   * the counter after the write.
+   */
+  markCooldown(
+    accountId: string,
+    until: Date,
+    failureCode: string,
+    countTowardBroken: boolean,
+    signal?: AbortSignal,
+  ): Promise<number>;
+  markBroken(accountId: string, at: Date, signal?: AbortSignal): Promise<void>;
+  setCooldownUntil(accountId: string, until: Date, signal?: AbortSignal): Promise<void>;
+  /** Success: bumps `lastUsedAt` and resets `consecutiveFailures`. */
   touchUsed(accountId: string, at: Date, signal?: AbortSignal): Promise<void>;
+  /** Broken accounts nobody has been emailed about yet, across all teams. */
+  listBrokenUnnotified(): Promise<readonly ClaudeAccountRow[]>;
+  markNotified(accountIds: readonly string[], at: Date): Promise<void>;
 };
 
 export type ClaudeUpstreamDependencies = {
@@ -180,6 +210,16 @@ const ACCOUNT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 const MIN_COOLDOWN_MS = 1_000;
 const MAX_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
 const DEFAULT_EXHAUSTED_RETRY_SECONDS = 15;
+/** Consecutive 401/403 answers before an account is `broken` and leaves rotation. */
+export const BROKEN_AFTER_FAILURES = 3;
+/**
+ * Rest after the first and second rejection. Short on purpose: a revoked key
+ * does not come back, so the account should reach `broken` (and its owner the
+ * email) within minutes of continuous use, while one transient 401 costs only
+ * a minute. A third rejection marks it broken instead of resting again.
+ */
+export const INVALID_CREDENTIAL_BACKOFF_MS: readonly number[] = [60_000, 5 * 60_000];
+export const INVALID_CREDENTIAL_FAILURE_CODE = "invalid_credential";
 
 export function isClaudeAccountId(value: unknown): value is string {
   return typeof value === "string" && ACCOUNT_ID.test(value);
@@ -256,7 +296,7 @@ function parseLabel(value: unknown): string | null {
   if (value === undefined || value === null) return "";
   if (typeof value !== "string") return null;
   const label = value.trim();
-  if (label.length > MAX_ACCOUNT_LABEL_CHARS || /[ -]/.test(label)) return null;
+  if (label.length > MAX_ACCOUNT_LABEL_CHARS || /[\x00-\x1f\x7f]/.test(label)) return null;
   return label;
 }
 
@@ -319,14 +359,23 @@ export function createClaudeUpstreamService(dependencies: ClaudeUpstreamDependen
     return described;
   }
 
+  /**
+   * Stores a new account, or returns the existing one when the same secret is
+   * already on the team (`alreadyExists`), so a re-run never makes duplicates.
+   */
   async function add(
     teamId: string,
     stackUserId: string,
     input: ClaudeUpstreamInput,
-  ): Promise<ClaudeAccountDescription> {
+  ): Promise<{ readonly account: ClaudeAccountDescription; readonly alreadyExists: boolean }> {
     if (!teamId || !stackUserId) throw new Error("invalid coderouter claude account owner");
     const secret = secretFromInput(input);
     const config = configFromInput(input);
+    const fingerprint = secretFingerprint(teamId, secret);
+    const existing = await store.findByFingerprint(teamId, fingerprint);
+    if (existing) {
+      return { account: describeRow(await withIdentifier(existing)), alreadyExists: true };
+    }
     const id = newId();
     const identity = { id, teamId, kind: input.kind, aadVersion: 2 as const };
     const envelope = await encryptSecretEnvelope({
@@ -336,22 +385,36 @@ export function createClaudeUpstreamService(dependencies: ClaudeUpstreamDependen
       keyId: dependencies.keyId,
       keys: dependencies.keys,
     });
-    const row = await store.insert({
-      id,
-      teamId,
-      kind: input.kind,
-      label: input.label ?? "",
-      identifier: maskedIdentifier(secret),
-      state: "active",
-      cooldownUntil: null,
-      lastUsedAt: null,
-      lastFailureCode: null,
-      aadVersion: 2,
-      config,
-      createdBy: stackUserId,
-      ...envelope,
-    });
-    return describeRow(row);
+    try {
+      const row = await store.insert({
+        id,
+        teamId,
+        kind: input.kind,
+        label: input.label ?? "",
+        identifier: maskedIdentifier(secret),
+        state: "active",
+        cooldownUntil: null,
+        lastUsedAt: null,
+        lastFailureCode: null,
+        consecutiveFailures: 0,
+        brokenAt: null,
+        brokenNotifiedAt: null,
+        fingerprint,
+        aadVersion: 2,
+        config,
+        createdBy: stackUserId,
+        ...envelope,
+      });
+      return { account: describeRow(row), alreadyExists: false };
+    } catch (error) {
+      // The preflight lookup is intentionally only an optimization. Two
+      // requests can pass it at the same time, so treat only this exact
+      // fingerprint index conflict as the idempotent duplicate case.
+      if (!isFingerprintConflict(error)) throw error;
+      const raced = await store.findByFingerprint(teamId, fingerprint);
+      if (!raced) throw error;
+      return { account: describeRow(await withIdentifier(raced)), alreadyExists: true };
+    }
   }
 
   async function update(
@@ -398,6 +461,11 @@ export function createClaudeUpstreamService(dependencies: ClaudeUpstreamDependen
     return { kind: "selected", upstream, total: rows.length, healthy: healthy.length };
   }
 
+  /**
+   * Rate limits and outages only rest the account. A rejected credential also
+   * counts toward `BROKEN_AFTER_FAILURES`; at the threshold the account is
+   * marked broken and stays out of rotation until replaced.
+   */
   async function cooldown(
     accountId: string,
     durationMs: number,
@@ -405,14 +473,39 @@ export function createClaudeUpstreamService(dependencies: ClaudeUpstreamDependen
     signal?: AbortSignal,
   ): Promise<void> {
     const clamped = Math.min(MAX_COOLDOWN_MS, Math.max(MIN_COOLDOWN_MS, Math.floor(durationMs)));
-    await store.markCooldown(accountId, new Date(now().getTime() + clamped), failureCode, signal);
+    const at = now();
+    const credentialFailure = failureCode === INVALID_CREDENTIAL_FAILURE_CODE;
+    const failures = await store.markCooldown(
+      accountId,
+      new Date(at.getTime() + clamped),
+      failureCode,
+      credentialFailure,
+      signal,
+    );
+    if (!credentialFailure) return;
+    if (failures >= BROKEN_AFTER_FAILURES) {
+      await store.markBroken(accountId, at, signal);
+      return;
+    }
+    const backoff = INVALID_CREDENTIAL_BACKOFF_MS[Math.min(failures, INVALID_CREDENTIAL_BACKOFF_MS.length) - 1]!;
+    await store.setCooldownUntil(accountId, new Date(at.getTime() + backoff), signal);
   }
 
   async function touchUsed(accountId: string, signal?: AbortSignal): Promise<void> {
     await store.touchUsed(accountId, now(), signal);
   }
 
-  return { list, add, update, remove, removeAll, select, cooldown, touchUsed };
+  /** For the health notifier: broken accounts whose owner has not been emailed. */
+  async function listBrokenUnnotifiedRows(): Promise<readonly ClaudeAccountRow[]> {
+    return store.listBrokenUnnotified();
+  }
+
+  async function markNotified(accountIds: readonly string[]): Promise<void> {
+    if (accountIds.length === 0) return;
+    await store.markNotified(accountIds, now());
+  }
+
+  return { list, add, update, remove, removeAll, select, cooldown, touchUsed, listBrokenUnnotifiedRows, markNotified };
 }
 
 function retryAfter(eligible: readonly ClaudeAccountRow[], at: Date): number {
@@ -430,7 +523,7 @@ export function rendezvousPick<T extends { readonly id: string }>(key: string, c
   let best: T | null = null;
   let bestScore = "";
   for (const candidate of candidates) {
-    const score = createHash("sha256").update(`${key} ${candidate.id}`).digest("hex");
+    const score = createHash("sha256").update(`${key}\x00${candidate.id}`).digest("hex");
     if (best === null || score > bestScore) {
       best = candidate;
       bestScore = score;
@@ -460,6 +553,8 @@ function describeRow(row: ClaudeAccountRow): ClaudeAccountDescription {
     state: row.state,
     cooldownUntil: row.cooldownUntil?.toISOString() ?? null,
     lastFailureCode: row.lastFailureCode,
+    consecutiveFailures: row.consecutiveFailures,
+    brokenAt: row.brokenAt?.toISOString() ?? null,
     lastUsedAt: row.lastUsedAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -476,6 +571,20 @@ export function maskedIdentifier(secret: ClaudeUpstreamSecret): string {
     case "bedrock":
       return `${secret.accessKeyId.slice(0, 4)}...${secret.accessKeyId.slice(-4)}`;
   }
+}
+
+/**
+ * Team-scoped digest of the credential for duplicate detection. The inputs are
+ * high-entropy tokens, so a plain hash is not brute-forceable; the team id
+ * keeps identical secrets on two teams from being linkable.
+ */
+export function secretFingerprint(teamId: string, secret: ClaudeUpstreamSecret): string {
+  const material = secret.kind === "bedrock"
+    ? [secret.accessKeyId, secret.secretAccessKey, secret.sessionToken ?? ""]
+    : [secret.kind === "anthropic_api_key" ? secret.apiKey : secret.token];
+  return createHash("sha256")
+    .update(JSON.stringify(["coderouter-claude-account-fingerprint", 1, teamId, secret.kind, ...material]))
+    .digest("hex");
 }
 
 function secretFromInput(input: ClaudeUpstreamInput): ClaudeUpstreamSecret {
@@ -611,32 +720,118 @@ const drizzleStore: ClaudeAccountStore = {
     return written ? rowFromDb(written) : null;
   },
   async remove(teamId, accountId) {
-    const deleted = await cloudDb()
-      .delete(coderouterClaudeAccounts)
-      .where(and(eq(coderouterClaudeAccounts.teamId, teamId), eq(coderouterClaudeAccounts.id, accountId)))
-      .returning({ id: coderouterClaudeAccounts.id });
-    return deleted.length > 0;
+    return await cloudDb().transaction(async (tx) => {
+      const deleted = await tx
+        .delete(coderouterClaudeAccounts)
+        .where(and(eq(coderouterClaudeAccounts.teamId, teamId), eq(coderouterClaudeAccounts.id, accountId)))
+        .returning({ id: coderouterClaudeAccounts.id });
+      if (deleted.length === 0) return false;
+      await tx
+        .delete(coderouterAccountHealthDeliveries)
+        .where(and(
+          eq(coderouterAccountHealthDeliveries.source, "claude"),
+          eq(coderouterAccountHealthDeliveries.accountId, accountId),
+        ));
+      return true;
+    });
   },
   async removeAll(teamId) {
-    const deleted = await cloudDb()
-      .delete(coderouterClaudeAccounts)
-      .where(eq(coderouterClaudeAccounts.teamId, teamId))
-      .returning({ id: coderouterClaudeAccounts.id });
-    return deleted.length;
+    return await cloudDb().transaction(async (tx) => {
+      const deleted = await tx
+        .delete(coderouterClaudeAccounts)
+        .where(eq(coderouterClaudeAccounts.teamId, teamId))
+        .returning({ id: coderouterClaudeAccounts.id });
+      if (deleted.length === 0) return 0;
+      await tx
+        .delete(coderouterAccountHealthDeliveries)
+        .where(and(
+          eq(coderouterAccountHealthDeliveries.source, "claude"),
+          inArray(coderouterAccountHealthDeliveries.accountId, deleted.map((row) => row.id)),
+        ));
+      return deleted.length;
+    });
   },
-  async markCooldown(accountId, until, failureCode, signal) {
+  async findByFingerprint(teamId, fingerprint) {
+    if (!fingerprint) return null;
+    const [row] = await cloudDb()
+      .select()
+      .from(coderouterClaudeAccounts)
+      .where(and(eq(coderouterClaudeAccounts.teamId, teamId), eq(coderouterClaudeAccounts.fingerprint, fingerprint)))
+      .limit(1);
+    return row ? rowFromDb(row) : null;
+  },
+  async markCooldown(accountId, until, failureCode, countTowardBroken, signal) {
+    const [written] = await runWithCloudDbQuerySignal(signal, () => cloudDb()
+      .update(coderouterClaudeAccounts)
+      .set({
+        cooldownUntil: until,
+        lastFailureCode: failureCode,
+        updatedAt: new Date(),
+        ...(countTowardBroken
+          ? { consecutiveFailures: sql`${coderouterClaudeAccounts.consecutiveFailures} + 1` }
+          : {}),
+      })
+      .where(eq(coderouterClaudeAccounts.id, accountId))
+      .returning({ consecutiveFailures: coderouterClaudeAccounts.consecutiveFailures }));
+    return written?.consecutiveFailures ?? 0;
+  },
+  async markBroken(accountId, at, signal) {
     await runWithCloudDbQuerySignal(signal, () => cloudDb()
       .update(coderouterClaudeAccounts)
-      .set({ cooldownUntil: until, lastFailureCode: failureCode, updatedAt: new Date() })
+      .set({ state: "broken", brokenAt: at, updatedAt: at })
+      .where(and(eq(coderouterClaudeAccounts.id, accountId), eq(coderouterClaudeAccounts.state, "active"))));
+  },
+  async setCooldownUntil(accountId, until, signal) {
+    await runWithCloudDbQuerySignal(signal, () => cloudDb()
+      .update(coderouterClaudeAccounts)
+      .set({ cooldownUntil: until })
       .where(eq(coderouterClaudeAccounts.id, accountId)));
   },
   async touchUsed(accountId, at, signal) {
     await runWithCloudDbQuerySignal(signal, () => cloudDb()
       .update(coderouterClaudeAccounts)
-      .set({ lastUsedAt: at })
+      .set({ lastUsedAt: at, consecutiveFailures: 0 })
       .where(eq(coderouterClaudeAccounts.id, accountId)));
   },
+  async listBrokenUnnotified() {
+    const rows = await cloudDb()
+      .select()
+      .from(coderouterClaudeAccounts)
+      .where(and(eq(coderouterClaudeAccounts.state, "broken"), isNull(coderouterClaudeAccounts.brokenNotifiedAt)))
+      .orderBy(asc(coderouterClaudeAccounts.brokenAt))
+      .limit(500);
+    return rows.map(rowFromDb);
+  },
+  async markNotified(accountIds, at) {
+    if (accountIds.length === 0) return;
+    await cloudDb()
+      .update(coderouterClaudeAccounts)
+      .set({ brokenNotifiedAt: at })
+      .where(and(inArray(coderouterClaudeAccounts.id, [...accountIds]), isNull(coderouterClaudeAccounts.brokenNotifiedAt)));
+  },
 };
+
+function isFingerprintConflict(error: unknown): boolean {
+  let current: unknown = error;
+  for (let depth = 0; depth < 4 && current; depth += 1) {
+    if (typeof current === "object") {
+      const candidate = current as { readonly code?: unknown; readonly constraint?: unknown; readonly constraint_name?: unknown; readonly message?: unknown; readonly cause?: unknown };
+      const constraint = candidate.constraint ?? candidate.constraint_name;
+      if (candidate.code === "23505" && constraint === "coderouter_claude_accounts_fingerprint_idx") {
+        return true;
+      }
+      if (typeof candidate.message === "string" && candidate.message.includes("coderouter_claude_accounts_fingerprint_idx")) {
+        return true;
+      }
+      current = candidate.cause;
+      continue;
+    }
+    const text = String(current);
+    if (text.includes("coderouter_claude_accounts_fingerprint_idx")) return true;
+    break;
+  }
+  return false;
+}
 
 function rowFromDb(row: typeof coderouterClaudeAccounts.$inferSelect): ClaudeAccountRow {
   if (row.algorithm !== "aes-256-gcm") {
@@ -655,6 +850,10 @@ function rowFromDb(row: typeof coderouterClaudeAccounts.$inferSelect): ClaudeAcc
     cooldownUntil: row.cooldownUntil,
     lastUsedAt: row.lastUsedAt,
     lastFailureCode: row.lastFailureCode,
+    consecutiveFailures: row.consecutiveFailures,
+    brokenAt: row.brokenAt,
+    brokenNotifiedAt: row.brokenNotifiedAt,
+    fingerprint: row.fingerprint,
     aadVersion: row.aadVersion,
     algorithm: row.algorithm,
     ciphertext: row.ciphertext,
@@ -680,3 +879,5 @@ export const removeAllClaudeAccounts = defaultService.removeAll;
 export const selectClaudeUpstream = defaultService.select;
 export const markClaudeAccountCooldown = defaultService.cooldown;
 export const touchClaudeAccountUsed = defaultService.touchUsed;
+export const listBrokenClaudeAccounts = defaultService.listBrokenUnnotifiedRows;
+export const markClaudeAccountsNotified = defaultService.markNotified;

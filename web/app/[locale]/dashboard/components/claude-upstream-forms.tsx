@@ -108,7 +108,9 @@ function AccountRow({
   const format = useFormatter();
   const now = useNow();
   const cooling = account.cooldownUntil !== null && new Date(account.cooldownUntil).getTime() > now.getTime();
-  const health = account.state === "disabled"
+  const health = account.state === "broken"
+    ? t("stateBroken", { code: account.lastFailureCode ?? "rejected" })
+    : account.state === "disabled"
     ? t("stateDisabled")
     : cooling
       ? t("coolingDown", { until: format.dateTime(new Date(account.cooldownUntil!), { timeStyle: "short" }) })
@@ -167,8 +169,16 @@ function AddAccountForm({ teamId }: { readonly teamId: string }) {
         });
         return;
       }
+      const result: { alreadyExists?: boolean; validation?: string } = await response.json().catch(() => ({}));
       form.reset();
-      setStatus({ state: "success", message: t("saveSuccess") });
+      setStatus({
+        state: "success",
+        message: result.alreadyExists
+          ? t("alreadyAdded")
+          : result.validation === "unreachable"
+            ? t("saveSuccessUnverified")
+            : t("saveSuccess"),
+      });
       router.refresh();
     } catch {
       setStatus({ state: "error", message: t("saveError") });
@@ -323,9 +333,11 @@ function AccountActions({
   return (
     <div className="text-right">
       <div className="flex justify-end gap-2">
-        <button type="button" onClick={toggle} disabled={status.state === "submitting"} className={buttonClass}>
-          {account.state === "disabled" ? t("enableAction") : t("disableAction")}
-        </button>
+        {account.state === "broken" ? null : (
+          <button type="button" onClick={toggle} disabled={status.state === "submitting"} className={buttonClass}>
+            {account.state === "disabled" ? t("enableAction") : t("disableAction")}
+          </button>
+        )}
         <button
           type="button"
           onClick={() => setConfirmOpen(true)}
@@ -394,5 +406,6 @@ function kindLabel(kind: ClaudeUpstreamKind, t: Translator): string {
 function errorMessageForStatus(status: number, t: Translator, fallback: string): string {
   if (status === 400) return t("validationError");
   if (status === 403) return t("teamAccessError");
+  if (status === 422) return t("credentialRejected");
   return fallback;
 }

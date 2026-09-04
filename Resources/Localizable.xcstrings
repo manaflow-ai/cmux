@@ -37171,6 +37171,727 @@
         }
       }
     },
+    "cli.coderouter.account.clearEmpty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No Claude upstream accounts were set." } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "No Claude upstream accounts were set." } }
+      }
+    },
+    "cli.coderouter.account.clearMany": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "OK removed %lld Claude upstream accounts. Cloud machines have no `claude` route until a new one is added." } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "OK removed %lld Claude upstream accounts. Cloud machines have no `claude` route until a new one is added." } }
+      }
+    },
+    "cli.coderouter.account.clearOne": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "OK removed %lld Claude upstream account. Cloud machines have no `claude` route until a new one is added." } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "OK removed %lld Claude upstream account. Cloud machines have no `claude` route until a new one is added." } }
+      }
+    },
+    "cli.coderouter.account.disabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "disabled" } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "disabled" } }
+      }
+    },
+    "cli.coderouter.account.enabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "enabled" } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "enabled" } }
+      }
+    },
+    "cli.coderouter.account.pauseState": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "OK %@ %@" } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "OK %@ %@" } }
+      }
+    },
+    "cli.coderouter.account.paused": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "paused" } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "paused" } }
+      }
+    },
+    "cli.coderouter.account.removeMissing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No Claude upstream account %@ exists." } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "No Claude upstream account %@ exists." } }
+      }
+    },
+    "cli.coderouter.account.removed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "OK removed %@" } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "OK removed %@" } }
+      }
+    },
+    "cli.coderouter.account.resumed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "resumed" } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "resumed" } }
+      }
+    },
+    "cli.coderouter.account.stateChanged": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "OK %@ %@" } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "OK %@ %@" } }
+      }
+    },
+    "cli.coderouter.account.subscriptionPause": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%@ is a subscription; subscriptions cannot be paused. Remove it with `cmux coderouter accounts remove` instead." } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "%@ is a subscription; subscriptions cannot be paused. Remove it with `cmux coderouter accounts remove` instead." } }
+      }
+    },
+    "cli.coderouter.accounts.ambiguous": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "'%@' matches %lld accounts. Use more of the id from `cmux coderouter accounts`." } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "'%@' matches %lld accounts. Use more of the id from `cmux coderouter accounts`." } }
+      }
+    },
+    "cli.coderouter.accounts.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No accounts. Cloud machines cannot run codex or claude until one is added:" } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "No accounts. Cloud machines cannot run codex or claude until one is added:" } }
+      }
+    },
+    "cli.coderouter.accounts.emptyCommand": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "  cmux coderouter accounts add" } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "  cmux coderouter accounts add" } }
+      }
+    },
+    "cli.coderouter.accounts.noMatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No account matches '%@'. Run `cmux coderouter accounts` and use the id, label, or identifier." } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "No account matches '%@'. Run `cmux coderouter accounts` and use the id, label, or identifier." } }
+      }
+    },
+    "cli.coderouter.add.alreadyAdded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Already added: %@ is on this team, nothing changed." } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "Already added: %@ is on this team, nothing changed." } }
+      }
+    },
+    "cli.coderouter.add.bedrock.credentialsRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "coderouter claude add bedrock reads AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY from your shell environment; export both, then retry." } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "coderouter claude add bedrock reads AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY from your shell environment; export both, then retry." } }
+      }
+    },
+    "cli.coderouter.add.bedrock.modelInvalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "coderouter claude add bedrock: --model expects <claude-model-id>=<bedrock-model-id>, got '%@'." } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "coderouter claude add bedrock: --model expects <claude-model-id>=<bedrock-model-id>, got '%@'." } }
+      }
+    },
+    "cli.coderouter.add.bedrock.modelRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "coderouter claude add bedrock: --model requires <claude-model-id>=<bedrock-model-id>." } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "coderouter claude add bedrock: --model requires <claude-model-id>=<bedrock-model-id>." } }
+      }
+    },
+    "cli.coderouter.add.bedrock.regionRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "coderouter claude add bedrock requires --region <r> or AWS_REGION / AWS_DEFAULT_REGION." } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "coderouter claude add bedrock requires --region <r> or AWS_REGION / AWS_DEFAULT_REGION." } }
+      }
+    },
+    "cli.coderouter.add.id": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "  id: %@" } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "  id: %@" } }
+      }
+    },
+    "cli.coderouter.add.invalidApiKey": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "That is not an Anthropic API key (expected sk-ant-...). For a Claude Code OAuth token use `cmux coderouter accounts add claude`." } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "That is not an Anthropic API key (expected sk-ant-...). For a Claude Code OAuth token use `cmux coderouter accounts add claude`." } }
+      }
+    },
+    "cli.coderouter.add.invalidOAuth": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "That is not a Claude Code OAuth token (expected sk-ant-oat01-...). For an Anthropic API key use `cmux coderouter accounts add anthropic-key`." } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "That is not a Claude Code OAuth token (expected sk-ant-oat01-...). For an Anthropic API key use `cmux coderouter accounts add anthropic-key`." } }
+      }
+    },
+    "cli.coderouter.add.region": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "  region: %@" } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "  region: %@" } }
+      }
+    },
+    "cli.coderouter.add.routeCount": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Cloud machines now route `claude` across %lld account%@." } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "Cloud machines now route `claude` across %lld account%@." } }
+      }
+    },
+    "cli.coderouter.add.subscriptionJSON": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "coderouter accounts add %@ cannot use --json because the CodeRouter CLI owns the sign-in flow." } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "coderouter accounts add %@ cannot use --json because the CodeRouter CLI owns the sign-in flow." } }
+      }
+    },
+    "cli.coderouter.add.subscriptionOption": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "coderouter accounts add %@ does not support %@; run `cmux coderouter subscriptions add %@` with no account options." } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "coderouter accounts add %@ does not support %@; run `cmux coderouter subscriptions add %@` with no account options." } }
+      }
+    },
+    "cli.coderouter.add.success": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "OK added Claude upstream account: %@%@" } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "OK added Claude upstream account: %@%@" } }
+      }
+    },
+    "cli.coderouter.add.team": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "  team: %@" } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "  team: %@" } }
+      }
+    },
+    "cli.coderouter.add.unknownKind": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unknown account kind '%@'. Use claude, codex, opencode, anthropic-key, or bedrock." } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "Unknown account kind '%@'. Use claude, codex, opencode, anthropic-key, or bedrock." } }
+      }
+    },
+    "cli.coderouter.add.unknownSecret": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Could not tell what that secret is. Pass the kind: cmux coderouter accounts add <claude|anthropic-key|bedrock|codex|opencode>." } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "Could not tell what that secret is. Pass the kind: cmux coderouter accounts add <claude|anthropic-key|bedrock|codex|opencode>." } }
+      }
+    },
+    "cli.coderouter.add.unreachable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": " (provider unreachable, stored unverified)" } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": " (provider unreachable, stored unverified)" } }
+      }
+    },
+    "cli.coderouter.add.unsupportedKind": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "coderouter claude add: unsupported credential kind '%@'. Use oauth-token, api-key, or bedrock." } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "coderouter claude add: unsupported credential kind '%@'. Use oauth-token, api-key, or bedrock." } }
+      }
+    },
+    "cli.coderouter.add.verified": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": " (verified with the provider)" } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": " (verified with the provider)" } }
+      }
+    },
+    "cli.coderouter.auth.claudeUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Claude upstream accounts: unavailable (%@)" } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "Claude upstream accounts: unavailable (%@)" } }
+      }
+    },
+    "cli.coderouter.auth.notSignedIn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Not signed in. Run `cmux auth login`, then retry." } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "Not signed in. Run `cmux auth login`, then retry." } }
+      }
+    },
+    "cli.coderouter.auth.signedInAs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Signed in as %@" } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "Signed in as %@" } }
+      }
+    },
+    "cli.coderouter.auth.team": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Team: %@" } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "Team: %@" } }
+      }
+    },
+    "cli.coderouter.claude.ambiguous": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "'%@' matches %lld Claude upstream accounts. Use the id from `cmux coderouter claude list`." } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "'%@' matches %lld Claude upstream accounts. Use the id from `cmux coderouter claude list`." } }
+      }
+    },
+    "cli.coderouter.claude.count": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Claude upstream accounts (%lld):" } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "Claude upstream accounts (%lld):" } }
+      }
+    },
+    "cli.coderouter.claude.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Claude upstream accounts: none. Cloud machines cannot run `claude` until one is added:" } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "Claude upstream accounts: none. Cloud machines cannot run `claude` until one is added:" } }
+      }
+    },
+    "cli.coderouter.claude.emptyCommand": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "  cmux coderouter accounts add claude" } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "  cmux coderouter accounts add claude" } }
+      }
+    },
+    "cli.coderouter.claude.noMatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No Claude upstream account matches '%@'. Run `cmux coderouter claude list` and use the id, label, or identifier." } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "No Claude upstream account matches '%@'. Run `cmux coderouter claude list` and use the id, label, or identifier." } }
+      }
+    },
+    "cli.coderouter.error.selectorRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%@ requires an account id, label, or identifier. Run `cmux coderouter claude list`." } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "%@ requires an account id, label, or identifier. Run `cmux coderouter claude list`." } }
+      }
+    },
+    "cli.coderouter.error.unexpectedArgument": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%@: unexpected argument '%@'." } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "%@: unexpected argument '%@'." } }
+      }
+    },
+    "cli.coderouter.error.unknownFlag": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%@: unknown flag '%@'.\n\n%@" } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "%@: unknown flag '%@'.\n\n%@" } }
+      }
+    },
+    "cli.coderouter.health.active": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "active" } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "active" } }
+      }
+    },
+    "cli.coderouter.health.broken": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "broken (%@)" } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "broken (%@)" } }
+      }
+    },
+    "cli.coderouter.health.coolingDown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "cooling down %llds" } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "cooling down %llds" } }
+      }
+    },
+    "cli.coderouter.health.disabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "disabled" } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "disabled" } }
+      }
+    },
+    "cli.coderouter.health.failureCode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%@" } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "%@" } }
+      }
+    },
+    "cli.coderouter.health.failureCodeWithComma": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": ", %@" } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": ", %@" } }
+      }
+    },
+    "cli.coderouter.health.lastUsed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "last used %@" } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "last used %@" } }
+      }
+    },
+    "cli.coderouter.http.badRequest": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "coderouter rejected the request (HTTP 400): %@. Check the credential format and retry." } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "coderouter rejected the request (HTTP 400): %@. Check the credential format and retry." } }
+      }
+    },
+    "cli.coderouter.http.credentialRejected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The provider rejected this credential; nothing was stored. Check that the key or token is current, or pass --no-validate to store it anyway." } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "The provider rejected this credential; nothing was stored. Check that the key or token is current, or pass --no-validate to store it anyway." } }
+      }
+    },
+    "cli.coderouter.http.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "coderouter request failed (HTTP %lld)." } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "coderouter request failed (HTTP %lld)." } }
+      }
+    },
+    "cli.coderouter.http.failedWithReason": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "coderouter request failed (HTTP %lld): %@" } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "coderouter request failed (HTTP %lld): %@" } }
+      }
+    },
+    "cli.coderouter.http.forbidden": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This account cannot manage the team's coderouter settings." } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "This account cannot manage the team's coderouter settings." } }
+      }
+    },
+    "cli.coderouter.http.notFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No account with that id exists on this team. Run `cmux coderouter accounts`." } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "No account with that id exists on this team. Run `cmux coderouter accounts`." } }
+      }
+    },
+    "cli.coderouter.http.notSignedIn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Not signed in or session expired. Run `cmux auth login`, then retry." } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "Not signed in or session expired. Run `cmux auth login`, then retry." } }
+      }
+    },
+    "cli.coderouter.input.none": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No input received." } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "No input received." } }
+      }
+    },
+    "cli.coderouter.machines.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No coderouter usage from Cloud machines in the last %lld days." } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "No coderouter usage from Cloud machines in the last %lld days." } }
+      }
+    },
+    "cli.coderouter.machines.total": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Total (%lldd): %lld machine%@, tokens=%lld, %@ API-equivalent" } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "Total (%lldd): %lld machine%@, tokens=%lld, %@ API-equivalent" } }
+      }
+    },
+    "cli.coderouter.machines.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Machine usage is unavailable right now (the coderouter usage ledger did not answer). Retry in a moment." } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "Machine usage is unavailable right now (the coderouter usage ledger did not answer). Retry in a moment." } }
+      }
+    },
+    "cli.coderouter.picker.anthropicKey": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Anthropic API key" } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "Anthropic API key" } }
+      }
+    },
+    "cli.coderouter.picker.bedrock": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Amazon Bedrock credentials (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)" } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "Amazon Bedrock credentials (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)" } }
+      }
+    },
+    "cli.coderouter.picker.choice": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Choice [1]: " } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "Choice [1]: " } }
+      }
+    },
+    "cli.coderouter.picker.claude": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Claude Code token (cmux runs `claude setup-token` for you)" } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "Claude Code token (cmux runs `claude setup-token` for you)" } }
+      }
+    },
+    "cli.coderouter.picker.codex": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "ChatGPT Codex subscription (signs in through the CodeRouter CLI)" } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "ChatGPT Codex subscription (signs in through the CodeRouter CLI)" } }
+      }
+    },
+    "cli.coderouter.picker.invalidChoice": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "'%@' is not a choice. Use 1-%lld or a kind name." } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "'%@' is not a choice. Use 1-%lld or a kind name." } }
+      }
+    },
+    "cli.coderouter.picker.item": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "  %lld) %@\n" } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "  %lld) %@\n" } }
+      }
+    },
+    "cli.coderouter.picker.noChoice": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No choice received." } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "No choice received." } }
+      }
+    },
+    "cli.coderouter.picker.opencode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "OpenCode Go subscription (signs in through the CodeRouter CLI)" } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "OpenCode Go subscription (signs in through the CodeRouter CLI)" } }
+      }
+    },
+    "cli.coderouter.picker.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Add which account?\n" } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "Add which account?\n" } }
+      }
+    },
+    "cli.coderouter.secret.apiKeyHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Create one in the Anthropic console." } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "Create one in the Anthropic console." } }
+      }
+    },
+    "cli.coderouter.secret.apiKeyLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Anthropic API key" } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "Anthropic API key" } }
+      }
+    },
+    "cli.coderouter.secret.credentialHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Paste a Claude Code OAuth token or an Anthropic API key." } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "Paste a Claude Code OAuth token or an Anthropic API key." } }
+      }
+    },
+    "cli.coderouter.secret.credentialLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "credential" } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "credential" } }
+      }
+    },
+    "cli.coderouter.secret.noStdin": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No %@ on stdin. %@" } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "No %@ on stdin. %@" } }
+      }
+    },
+    "cli.coderouter.secret.oauthHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Run `claude setup-token` to mint one." } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "Run `claude setup-token` to mint one." } }
+      }
+    },
+    "cli.coderouter.secret.oauthLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Claude Code OAuth token" } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "Claude Code OAuth token" } }
+      }
+    },
+    "cli.coderouter.secret.prompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%@ (input hidden; %@): " } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "%@ (input hidden; %@): " } }
+      }
+    },
+    "cli.coderouter.setup.noToken": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "`claude setup-token` did not print a token; paste one instead.\n" } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "`claude setup-token` did not print a token; paste one instead.\n" } }
+      }
+    },
+    "cli.coderouter.setup.prompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Claude Code OAuth token (input hidden; run `claude setup-token` to mint one): " } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "Claude Code OAuth token (input hidden; run `claude setup-token` to mint one): " } }
+      }
+    },
+    "cli.coderouter.setup.running": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Running `claude setup-token` to mint a long-lived token; finish the sign-in in your browser.\n" } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "Running `claude setup-token` to mint a long-lived token; finish the sign-in in your browser.\n" } }
+      }
+    },
+    "cli.coderouter.subscription.ambiguous": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "'%@' matches %lld subscription accounts. Use the id from `cmux coderouter subscriptions list`." } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "'%@' matches %lld subscription accounts. Use the id from `cmux coderouter subscriptions list`." } }
+      }
+    },
+    "cli.coderouter.subscription.lastRemoved": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "That was the last subscription: Codex sessions from Cloud machines fail until one is added." } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "That was the last subscription: Codex sessions from Cloud machines fail until one is added." } }
+      }
+    },
+    "cli.coderouter.subscription.noMatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No subscription account matches '%@'. Run `cmux coderouter subscriptions list` and use the id, label, or provider account id." } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "No subscription account matches '%@'. Run `cmux coderouter subscriptions list` and use the id, label, or provider account id." } }
+      }
+    },
+    "cli.coderouter.subscription.removeMissing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No subscription account %@ exists." } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "No subscription account %@ exists." } }
+      }
+    },
+    "cli.coderouter.subscription.removed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "OK removed %@" } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "OK removed %@" } }
+      }
+    },
+    "cli.coderouter.subscriptions.addFlag": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "coderouter subscriptions add does not support %@; run it with only an optional provider name." } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "coderouter subscriptions add does not support %@; run it with only an optional provider name." } }
+      }
+    },
+    "cli.coderouter.subscriptions.addJSON": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "coderouter subscriptions add cannot use --json because the CodeRouter CLI owns the sign-in flow." } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "coderouter subscriptions add cannot use --json because the CodeRouter CLI owns the sign-in flow." } }
+      }
+    },
+    "cli.coderouter.subscriptions.addUsage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "coderouter subscriptions add takes an optional provider: codex (default) or opencode." } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "coderouter subscriptions add takes an optional provider: codex (default) or opencode." } }
+      }
+    },
+    "cli.coderouter.subscriptions.cliMissing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The CodeRouter CLI is not installed. Add the subscription with:\n  npx coderouter@latest add %@\nThen run `cmux coderouter subscriptions list`." } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "The CodeRouter CLI is not installed. Add the subscription with:\n  npx coderouter@latest add %@\nThen run `cmux coderouter subscriptions list`." } }
+      }
+    },
+    "cli.coderouter.subscriptions.count": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Subscription accounts (%lld):" } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "Subscription accounts (%lld):" } }
+      }
+    },
+    "cli.coderouter.subscriptions.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Subscription accounts: none. Codex on Cloud machines needs one:" } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "Subscription accounts: none. Codex on Cloud machines needs one:" } }
+      }
+    },
+    "cli.coderouter.subscriptions.emptyCommand": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "  cmux coderouter subscriptions add codex" } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "  cmux coderouter subscriptions add codex" } }
+      }
+    },
+    "cli.coderouter.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux coderouter <accounts|machines> [options]\n\nThe accounts a team routes its Cloud machines through: ChatGPT Codex and\nOpenCode Go subscriptions, Claude Code OAuth tokens, Anthropic API keys,\nAmazon Bedrock credentials. Any other verb, and every `cmux cr ...`, runs\nthe installed CodeRouter CLI unchanged.\n\n  cmux coderouter accounts [--team <id>] [--json]\n      Every account with kind, label, masked identifier, state, usage.\n\n  cmux coderouter accounts add [claude|codex|opencode|anthropic-key|bedrock] [options]\n      Add one account. Without a kind, cmux infers it from\n      CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY, or a pasted secret,\n      and asks in a terminal otherwise. Secrets come from the environment,\n      --stdin, or a hidden prompt, never from argv.\n      The credential is checked against its provider before it is\n      stored (--no-validate skips that); the same secret twice is a no-op.\n      claude: in a terminal cmux runs `claude setup-token` for you and\n      keeps the token it prints; only setup-token tokens are accepted.\n      claude and anthropic-key: --label, --stdin, --no-validate, --team, --json.\n      bedrock: the same options, plus --region and --model; this kind must\n      be explicit and reads AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY.\n      codex and opencode accept no options and hand off to CodeRouter sign-in.\n\n  cmux coderouter accounts remove <account> [--team <id>] [--json]\n      <account> is an id prefix, a label, or a masked identifier that\n      matches exactly one account.\n\n  cmux coderouter accounts pause <account> | resume <account>\n      Take a Claude account out of routing, or put it back.\n\n  cmux coderouter machines [--team <id>] [--json]\n      30-day coderouter usage per Cloud machine (tokens, API-equivalent USD).\n\nOlder spellings keep working: status, claude <list|add|remove|enable|disable|clear>,\nsubscriptions <list|add|remove>.\n\nExamples:\n  cmux coderouter accounts add claude --label work\n  cmux coderouter accounts\n  cmux coderouter accounts remove work" } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "Usage: cmux coderouter <accounts|machines> [options]\n\nThe accounts a team routes its Cloud machines through: ChatGPT Codex and\nOpenCode Go subscriptions, Claude Code OAuth tokens, Anthropic API keys,\nAmazon Bedrock credentials. Any other verb, and every `cmux cr ...`, runs\nthe installed CodeRouter CLI unchanged.\n\n  cmux coderouter accounts [--team <id>] [--json]\n      Every account with kind, label, masked identifier, state, usage.\n\n  cmux coderouter accounts add [claude|codex|opencode|anthropic-key|bedrock] [options]\n      Add one account. Without a kind, cmux infers it from\n      CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY, or a pasted secret,\n      and asks in a terminal otherwise. Secrets come from the environment,\n      --stdin, or a hidden prompt, never from argv.\n      The credential is checked against its provider before it is\n      stored (--no-validate skips that); the same secret twice is a no-op.\n      claude: in a terminal cmux runs `claude setup-token` for you and\n      keeps the token it prints; only setup-token tokens are accepted.\n      claude and anthropic-key: --label, --stdin, --no-validate, --team, --json.\n      bedrock: the same options, plus --region and --model; this kind must\n      be explicit and reads AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY.\n      codex and opencode accept no options and hand off to CodeRouter sign-in.\n\n  cmux coderouter accounts remove <account> [--team <id>] [--json]\n      <account> is an id prefix, a label, or a masked identifier that\n      matches exactly one account.\n\n  cmux coderouter accounts pause <account> | resume <account>\n      Take a Claude account out of routing, or put it back.\n\n  cmux coderouter machines [--team <id>] [--json]\n      30-day coderouter usage per Cloud machine (tokens, API-equivalent USD).\n\nOlder spellings keep working: status, claude <list|add|remove|enable|disable|clear>,\nsubscriptions <list|add|remove>.\n\nExamples:\n  cmux coderouter accounts add claude --label work\n  cmux coderouter accounts\n  cmux coderouter accounts remove work" } }
+      }
+    },
+    "cli.coderouter.usage.fiveHour": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "5h %lld%%" } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "5h %lld%%" } }
+      }
+    },
+    "cli.coderouter.usage.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "  usage unavailable (%@)" } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "  usage unavailable (%@)" } }
+      }
+    },
+    "cli.coderouter.usage.used": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "  used %@" } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "  used %@" } }
+      }
+    },
+    "cli.coderouter.usage.week": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "week %lld%%" } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "week %lld%%" } }
+      }
+    },
     "cli.coderouter.aliases": {
       "extractionState": "manual",
       "localizations": {
@@ -37299,26 +38020,26 @@
     "cli.coderouter.commands": {
       "extractionState": "manual",
       "localizations": {
-        "ar": { "stringUnit": { "state": "translated", "value": "coderouter <status|machines|claude> [--team <id>] [--json]    (إعدادات مستوى النماذج للفريق؛ تُمرَّر الأوامر الأخرى كما هي)" } },
-        "bs": { "stringUnit": { "state": "translated", "value": "coderouter <status|machines|claude> [--team <id>] [--json]    (postavke modelne ravni tima; ostale komande se prosljeđuju)" } },
-        "da": { "stringUnit": { "state": "translated", "value": "coderouter <status|machines|claude> [--team <id>] [--json]    (teamets modelplan-indstillinger; andre kommandoer sendes videre)" } },
-        "de": { "stringUnit": { "state": "translated", "value": "coderouter <status|machines|claude> [--team <id>] [--json]    (Team-Einstellungen der Modellebene; andere Befehle werden durchgereicht)" } },
-        "en": { "stringUnit": { "state": "translated", "value": "coderouter <status|machines|claude> [--team <id>] [--json]    (team model-plane settings; other verbs pass through)" } },
-        "es": { "stringUnit": { "state": "translated", "value": "coderouter <status|machines|claude> [--team <id>] [--json]    (ajustes del plano de modelos del equipo; los demás verbos se pasan sin cambios)" } },
-        "fr": { "stringUnit": { "state": "translated", "value": "coderouter <status|machines|claude> [--team <id>] [--json]    (réglages du plan de modèles de l'équipe ; les autres verbes sont transmis tels quels)" } },
-        "it": { "stringUnit": { "state": "translated", "value": "coderouter <status|machines|claude> [--team <id>] [--json]    (impostazioni del piano modelli del team; gli altri comandi passano inalterati)" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "coderouter <status|machines|claude> [--team <id>] [--json]    (チームのモデルプレーン設定。その他のサブコマンドはそのまま渡されます)" } },
-        "km": { "stringUnit": { "state": "translated", "value": "coderouter <status|machines|claude> [--team <id>] [--json]    (ការកំណត់ model plane របស់ក្រុម; ពាក្យបញ្ជាផ្សេងទៀតត្រូវបានបញ្ជូនបន្ត)" } },
-        "ko": { "stringUnit": { "state": "translated", "value": "coderouter <status|machines|claude> [--team <id>] [--json]    (팀 모델 플레인 설정; 다른 하위 명령은 그대로 전달됩니다)" } },
-        "nb": { "stringUnit": { "state": "translated", "value": "coderouter <status|machines|claude> [--team <id>] [--json]    (teamets modellplan-innstillinger; andre kommandoer sendes videre)" } },
-        "pl": { "stringUnit": { "state": "translated", "value": "coderouter <status|machines|claude> [--team <id>] [--json]    (ustawienia płaszczyzny modeli zespołu; pozostałe polecenia są przekazywane dalej)" } },
-        "pt-BR": { "stringUnit": { "state": "translated", "value": "coderouter <status|machines|claude> [--team <id>] [--json]    (configurações do plano de modelos da equipe; outros verbos são repassados)" } },
-        "ru": { "stringUnit": { "state": "translated", "value": "coderouter <status|machines|claude> [--team <id>] [--json]    (настройки модельного плана команды; остальные команды передаются как есть)" } },
-        "th": { "stringUnit": { "state": "translated", "value": "coderouter <status|machines|claude> [--team <id>] [--json]    (การตั้งค่า model plane ของทีม; คำสั่งอื่นส่งผ่านตามเดิม)" } },
-        "tr": { "stringUnit": { "state": "translated", "value": "coderouter <status|machines|claude> [--team <id>] [--json]    (ekibin model düzlemi ayarları; diğer komutlar olduğu gibi iletilir)" } },
-        "uk": { "stringUnit": { "state": "translated", "value": "coderouter <status|machines|claude> [--team <id>] [--json]    (налаштування модельного плану команди; інші команди передаються без змін)" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "coderouter <status|machines|claude> [--team <id>] [--json]    (团队模型平面设置；其他子命令原样透传)" } },
-        "zh-Hant": { "stringUnit": { "state": "translated", "value": "coderouter <status|machines|claude> [--team <id>] [--json]    (團隊模型平面設定；其他子命令原樣透傳)" } }
+        "ar": { "stringUnit": { "state": "translated", "value": "coderouter <accounts|machines> [--team <id>] [--json]    (حسابات الفريق واستخدام الآلات؛ تُمرَّر الأوامر الأخرى كما هي)" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "coderouter <accounts|machines> [--team <id>] [--json]    (nalozi tima i upotreba mašina; ostale komande se prosljeđuju)" } },
+        "da": { "stringUnit": { "state": "translated", "value": "coderouter <accounts|machines> [--team <id>] [--json]    (teamkonti og maskinbrug; andre kommandoer sendes videre)" } },
+        "de": { "stringUnit": { "state": "translated", "value": "coderouter <accounts|machines> [--team <id>] [--json]    (Teamkonten und Maschinennutzung; andere Befehle werden durchgereicht)" } },
+        "en": { "stringUnit": { "state": "translated", "value": "coderouter <accounts|machines> [--team <id>] [--json]    (team accounts and machine usage; other verbs pass through)" } },
+        "es": { "stringUnit": { "state": "translated", "value": "coderouter <accounts|machines> [--team <id>] [--json]    (cuentas del equipo y uso de máquinas; los demás verbos se pasan sin cambios)" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "coderouter <accounts|machines> [--team <id>] [--json]    (comptes de l'équipe et utilisation des machines ; les autres verbes sont transmis tels quels)" } },
+        "it": { "stringUnit": { "state": "translated", "value": "coderouter <accounts|machines> [--team <id>] [--json]    (account del team e utilizzo delle macchine; gli altri comandi passano invariati)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "coderouter <accounts|machines> [--team <id>] [--json]    (チームのアカウントとマシン使用量。その他のサブコマンドはそのまま渡されます)" } },
+        "km": { "stringUnit": { "state": "translated", "value": "coderouter <accounts|machines> [--team <id>] [--json]    (គណនីក្រុម និងការប្រើប្រាស់ម៉ាស៊ីន; ពាក្យបញ្ជាផ្សេងទៀតត្រូវបានបញ្ជូនបន្ត)" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "coderouter <accounts|machines> [--team <id>] [--json]    (팀 계정 및 머신 사용량; 다른 하위 명령은 그대로 전달됩니다)" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "coderouter <accounts|machines> [--team <id>] [--json]    (teamkontoer og maskinbruk; andre kommandoer sendes videre)" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "coderouter <accounts|machines> [--team <id>] [--json]    (konta zespołu i użycie maszyn; pozostałe polecenia są przekazywane dalej)" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "coderouter <accounts|machines> [--team <id>] [--json]    (contas da equipe e uso das máquinas; outros verbos são repassados)" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "coderouter <accounts|machines> [--team <id>] [--json]    (аккаунты команды и использование машин; остальные команды передаются как есть)" } },
+        "th": { "stringUnit": { "state": "translated", "value": "coderouter <accounts|machines> [--team <id>] [--json]    (บัญชีทีมและการใช้งานเครื่อง; คำสั่งอื่นจะถูกส่งต่อโดยไม่เปลี่ยนแปลง)" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "coderouter <accounts|machines> [--team <id>] [--json]    (ekip hesapları ve makine kullanımı; diğer komutlar olduğu gibi iletilir)" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "coderouter <accounts|machines> [--team <id>] [--json]    (облікові записи команди та використання машин; інші команди передаються без змін)" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "coderouter <accounts|machines> [--team <id>] [--json]    (团队账户和机器使用量；其他子命令原样传递)" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "coderouter <accounts|machines> [--team <id>] [--json]    (團隊帳戶與機器使用量；其他子命令原樣傳遞)" } }
       }
     },
     "cli.coderouter.error.launchFailed": {

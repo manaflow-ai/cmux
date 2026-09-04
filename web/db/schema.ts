@@ -976,6 +976,8 @@ export const coderouterAccounts = pgTable(
     cooldownUntil: timestamp("cooldown_until", { withTimezone: true }),
     lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
     lastFailureCode: text("last_failure_code"),
+    /** When the team was emailed about this account being broken or expired; sent once. */
+    brokenNotifiedAt: timestamp("broken_notified_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -994,6 +996,42 @@ export const coderouterAccounts = pgTable(
       table.refreshLeaseExpiresAt,
     ),
     index("coderouter_accounts_cooldown_idx").on(table.cooldownUntil),
+  ],
+);
+
+/**
+ * Durable delivery receipts for account-health notices. The recipient is a
+ * SHA-256 hash of its normalized email address, so the retry ledger does not
+ * add another plain-email copy to the account tables. There is no foreign key
+ * because notices come from both coderouter account stores; removal paths
+ * delete the matching receipts explicitly.
+ */
+export const coderouterAccountHealthDeliveries = pgTable(
+  "coderouter_account_health_deliveries",
+  {
+    source: text("source").$type<"claude" | "subscription">().notNull(),
+    accountId: text("account_id").notNull(),
+    recipientHash: text("recipient_hash").notNull(),
+    sentAt: timestamp("sent_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      name: "coderouter_account_health_deliveries_pkey",
+      columns: [table.source, table.accountId, table.recipientHash],
+    }),
+    check(
+      "coderouter_account_health_deliveries_source_check",
+      sql`${table.source} IN ('claude', 'subscription')`,
+    ),
+    check(
+      "coderouter_account_health_deliveries_hash_check",
+      sql`${table.recipientHash} ~ '^[0-9a-f]{64}$'`,
+    ),
+    index("coderouter_account_health_deliveries_account_idx").on(
+      table.source,
+      table.accountId,
+    ),
   ],
 );
 
@@ -1775,10 +1813,17 @@ export const coderouterClaudeAccounts = pgTable(
     label: text("label").notNull().default(""),
     /** Masked credential (`sk-ant-...ab12`), non-secret, computed at insert. */
     identifier: text("identifier").notNull().default(""),
-    state: text("state").$type<"active" | "disabled">().notNull().default("active"),
+    state: text("state").$type<"active" | "disabled" | "broken">().notNull().default("active"),
     cooldownUntil: timestamp("cooldown_until", { withTimezone: true }),
     lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
     lastFailureCode: text("last_failure_code"),
+    /** Consecutive credential rejections (401/403); reset on success, broken at the threshold. */
+    consecutiveFailures: integer("consecutive_failures").notNull().default(0),
+    brokenAt: timestamp("broken_at", { withTimezone: true }),
+    /** When the owner was emailed about this account being broken; null = not yet. Sent once. */
+    brokenNotifiedAt: timestamp("broken_notified_at", { withTimezone: true }),
+    /** sha256 over (team, kind, secret); dedupes the same credential added twice. */
+    fingerprint: text("fingerprint").notNull().default(""),
     algorithm: text("algorithm").notNull().default("aes-256-gcm"),
     ciphertext: text("ciphertext").notNull(),
     nonce: text("nonce").notNull(),
@@ -1805,8 +1850,11 @@ export const coderouterClaudeAccounts = pgTable(
     ),
     check(
       "coderouter_claude_accounts_state_check",
-      sql`${table.state} IN ('active', 'disabled')`,
+      sql`${table.state} IN ('active', 'disabled', 'broken')`,
     ),
+    uniqueIndex("coderouter_claude_accounts_fingerprint_idx")
+      .on(table.teamId, table.fingerprint)
+      .where(sql`${table.fingerprint} <> ''`),
     check(
       "coderouter_claude_accounts_algorithm_check",
       sql`${table.algorithm} = 'aes-256-gcm'`,

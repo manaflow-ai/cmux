@@ -220,6 +220,50 @@ remove all; `PUT` is an alias of `POST`) and `PATCH/DELETE /api/coderouter/claud
 add, enable/disable, and remove. Rows migrated from the single-upstream table keep their
 `aad_version 1` ciphertext binding and get a masked identifier on first read.
 
+## Credential health: validation, broken accounts, and the one-time email
+
+`accounts add` probes the credential before storing it (`count_tokens` with the key, the token
+plus the OAuth beta, or a SigV4-signed Bedrock CountTokens): 401/403 answers 422
+`credential_rejected` and nothing is stored, any other answer stores it as verified, an unreachable
+provider stores it unverified (`validation: "unreachable"`), and `--no-validate` / `?validate=0`
+skips the probe. A Claude Code token's profile email becomes its label when none was given. The
+same secret added twice returns the existing account (`alreadyExists`, 200) via a team-scoped
+sha256 fingerprint. Claude accepts only `claude setup-token` tokens; in a terminal the CLI runs
+that command for the user and keeps the printed token. cmux never runs an OAuth flow of its own.
+
+In the proxy, a rejected credential rests the account one minute, then five minutes, and the third
+consecutive 401/403 (`consecutive_failures`, reset on any success) marks a Claude account `broken`: it leaves rotation, shows as `broken (invalid_credential)` with the
+repair command in the CLI and the dashboard, and is never retried until replaced. Codex/OpenCode
+subscriptions already reach `expired`/`broken` through the refresh path.
+
+`/api/cron/coderouter-account-health` (vercel.json, twice an hour, `CRON_SECRET`) emails the
+owners: the creator of a Claude account when known, otherwise every member of the team. One
+email per recipient per run lists every account of theirs that broke, with what happened, why
+(per kind: expired or revoked setup-token, rotated key, deactivated IAM key, refused refresh), and
+the exact commands plus the dashboard link. Each account is emailed about exactly once
+(`broken_notified_at`); a failed send leaves it unmarked for the next run, an account with no
+reachable recipient is marked so it is not re-queried forever. Sender `coderouter@cmux.com`
+(`CMUX_CODEROUTER_FROM_EMAIL` overrides), reply-to `support@cmux.com`, via Resend.
+
+## The flat CLI surface
+
+`cmux coderouter accounts` is the one list (Codex and OpenCode subscriptions, Claude Code OAuth
+tokens, Anthropic API keys, Bedrock credentials, with state and usage), `accounts add [kind]`
+infers the kind from the environment or the pasted secret and asks in a terminal otherwise,
+`accounts remove <account>` takes an id prefix, label, or identifier, and `accounts pause|resume`
+applies to Claude accounts. `machines` is per-machine spend. The deeper spellings below
+(`claude ...`, `subscriptions ...`, `status`) remain as aliases.
+
+## Subscription accounts on the dashboard and CLI
+
+The Codex leg spreads sessions across the team's `coderouter_accounts` (ChatGPT Codex, OpenCode
+Go), filled by `cr add codex` / `cr add opencode`. The cmux.com coderouter dashboard lists them
+(provider, label, state or cooldown, bound sessions, 5-hour and weekly usage windows) with a remove
+action, next to the Claude upstream accounts; the older hosted-subrouter tenant table below it is a
+separate legacy store. On the CLI: `cmux coderouter subscriptions list|remove <account>`, and
+`cmux coderouter subscriptions add [codex|opencode]` hands off to the CodeRouter CLI (the OAuth
+device flow lives there); `cmux coderouter status` prints both account lists.
+
 ## Verifying the edge model plane locally
 
 `web/scripts/coderouter/local-edge.mjs` stands in for the Freestyle TLS egress edge: a

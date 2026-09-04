@@ -16,6 +16,7 @@ type CodeRouterFailure =
   | "analytics_query"
   | "usage_ledger"
   | "upstream_transport"
+  | "account_health_email"
   | "route_crash"
   | "health_check"
   | "alerts";
@@ -38,6 +39,7 @@ const OPERATOR_FAULT_FAILURES: ReadonlySet<CodeRouterFailure> = new Set([
   "route_crash",
   "health_check",
   "alerts",
+  "account_health_email",
 ]);
 
 const SENSITIVE_CONTEXT_KEY = /account.?id|authorization|body|content|cookie|credential|email|header|key|prompt|response|secret|session|team.?id|token/i;

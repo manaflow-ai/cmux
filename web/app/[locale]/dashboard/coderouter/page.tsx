@@ -36,6 +36,11 @@ import {
 } from "../components/ai-account-forms";
 import { ClaudeUpstreamSection } from "../components/claude-upstream-forms";
 import { CoderouterPageHeader } from "../components/dashboard-page-headers";
+import {
+  CoderouterAccountsSection,
+  type CoderouterAccountView,
+} from "../components/coderouter-accounts";
+import { accountsWithUsage } from "@/services/coderouter/usage";
 
 // The page resolves as one server render. Keeping the auth and data work in
 // this Suspense boundary prevents a header-only response while the private
@@ -142,12 +147,13 @@ export async function CoderouterOverviewContent({
   }
 
   const { teams, selectedTeam, accessToken } = authorization.value;
-  const [tPage, t, accountState, metrics, claudeUpstream, machineUsage] = await Promise.all([
+  const [tPage, t, accountState, metrics, claudeUpstream, coderouterAccounts, machineUsage] = await Promise.all([
     getTranslations({ locale, namespace: "dashboard.coderouter" }),
     getTranslations({ locale, namespace: "dashboard.aiAccounts" }),
     loadAccounts(selectedTeam, accessToken),
     loadCoderouterTeamMetrics(selectedTeam.id),
     loadClaudeUpstream(selectedTeam.id),
+    loadCoderouterAccounts(selectedTeam.id),
     loadMachineUsage(selectedTeam.id),
   ]);
   const dateFormatter = new Intl.DateTimeFormat(locale, {
@@ -182,6 +188,13 @@ export async function CoderouterOverviewContent({
           locale={locale}
           metrics={metrics}
           teamName={selectedTeam.name}
+        />
+
+        <CoderouterAccountsSection
+          teamId={selectedTeam.id}
+          accounts={coderouterAccounts.kind === "ok" ? coderouterAccounts.accounts : []}
+          canManage={selectedTeam.manageAccounts}
+          loadFailed={coderouterAccounts.kind === "error"}
         />
 
         <ClaudeUpstreamSection
@@ -576,6 +589,20 @@ async function loadAccounts(
     });
     const accounts = await client.listAccounts(tenant.tenantKey);
     return { kind: "ok", accounts };
+  } catch {
+    return { kind: "error" };
+  }
+}
+
+type CoderouterAccountsState =
+  | { readonly kind: "ok"; readonly accounts: readonly CoderouterAccountView[] }
+  | { readonly kind: "error" };
+
+/** `coderouter_accounts` (Codex, OpenCode Go) with the provider usage fan-out. */
+async function loadCoderouterAccounts(teamId: string): Promise<CoderouterAccountsState> {
+  try {
+    const result = await accountsWithUsage(teamId);
+    return { kind: "ok", accounts: result.accounts };
   } catch {
     return { kind: "error" };
   }

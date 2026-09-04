@@ -2946,6 +2946,8 @@ class TerminalController {
             "coderouter.claude_upstream.update",
             "coderouter.claude_upstream.remove",
             "coderouter.claude_upstream.clear",
+            "coderouter.accounts.list",
+            "coderouter.accounts.remove",
             "coderouter.machines",
             "window.list",
             "window.current",

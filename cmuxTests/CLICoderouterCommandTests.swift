@@ -437,6 +437,318 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(state.commands.contains { $0.contains(#""method":"auth.status""#) })
     }
 
+    private static func subscription(id: String, provider: String, label: String, sessions: Int = 0, usedPercent: Int? = nil) -> [String: Any] {
+        var account: [String: Any] = [
+            "id": id,
+            "provider": provider,
+            "providerAccountId": "acct-\(label)",
+            "label": label,
+            "state": "active",
+            "credentialExpiresAt": NSNull(),
+            "lastFailureCode": NSNull(),
+            "cooldownUntil": NSNull(),
+            "activeSessions": sessions,
+        ]
+        if let usedPercent {
+            account["usage"] = ["rate_limit": ["primary_window": ["used_percent": usedPercent], "secondary_window": ["used_percent": 12]]]
+        }
+        return account
+    }
+
+    func testCoderouterSubscriptionsListPrintsUsageAndSessions() throws {
+        let (result, state) = try runCoderouterCLI(
+            ["coderouter", "subscriptions", "list"],
+            socketName: "coderouter-subs-list"
+        ) { method, _ in
+            guard method == "coderouter.accounts.list" else { return nil }
+            return self.okResponse([
+                "teamId": "team_local",
+                "accounts": [
+                    Self.subscription(id: Self.accountA, provider: "codex", label: "a@x.dev", sessions: 2, usedPercent: 40),
+                    Self.subscription(id: Self.accountB, provider: "opencode-go", label: "b@x.dev"),
+                ],
+            ])
+        }
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(
+            result.stdout,
+            """
+            Subscription accounts (2):
+              \(Self.accountA)  codex a@x.dev  active  sessions=2  used 5h 40% / week 12%
+              \(Self.accountB)  opencode-go b@x.dev  active  sessions=0
+
+            """
+        )
+        XCTAssertTrue(state.commands.contains { $0.contains(#""method":"coderouter.accounts.list""#) })
+    }
+
+    func testCoderouterSubscriptionsRemoveResolvesALabel() throws {
+        nonisolated(unsafe) var removedIDs: [String] = []
+        let (result, _) = try runCoderouterCLI(
+            ["coderouter", "subs", "remove", "b@x.dev"],
+            socketName: "coderouter-subs-remove"
+        ) { method, params in
+            switch method {
+            case "coderouter.accounts.list":
+                return self.okResponse(["teamId": "team_local", "accounts": [
+                    Self.subscription(id: Self.accountA, provider: "codex", label: "a@x.dev"),
+                    Self.subscription(id: Self.accountB, provider: "codex", label: "b@x.dev"),
+                ]])
+            case "coderouter.accounts.remove":
+                removedIDs.append((params["accountId"] as? String) ?? "")
+                return self.okResponse(["removed": true, "lastAccount": false, "legacyCleanupPending": false])
+            default:
+                return nil
+            }
+        }
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(removedIDs, [Self.accountB])
+        XCTAssertEqual(result.stdout, "OK removed codex b@x.dev\n")
+    }
+
+    func testCoderouterSubscriptionsAddWithoutTheCodeRouterCLIPrintsTheNpxCommand() throws {
+        let emptyPath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-empty-path-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: emptyPath, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: emptyPath) }
+        let (result, state) = try runCoderouterCLI(
+            ["coderouter", "subscriptions", "add", "codex"],
+            socketName: "coderouter-subs-add",
+            extraEnvironment: ["PATH": emptyPath.path],
+            waitForSocket: false
+        ) { _, _ in nil }
+        XCTAssertEqual(result.status, 127, result.stderr)
+        XCTAssertTrue(result.stderr.contains("npx coderouter@latest add codex"), result.stderr)
+        XCTAssertFalse(state.commands.contains { $0.contains("coderouter.accounts") })
+    }
+
+    func testCoderouterAccountsListsEveryKindInOneTable() throws {
+        let (result, state) = try runCoderouterCLI(
+            ["coderouter", "accounts"],
+            socketName: "coderouter-accounts-list"
+        ) { method, _ in
+            switch method {
+            case "coderouter.claude_upstream.get":
+                return self.okResponse(Self.listPayload([
+                    Self.account(id: Self.accountA, kind: "anthropic_oauth", identifier: "sk-ant-oat01-...HIJ", label: "work"),
+                ]))
+            case "coderouter.accounts.list":
+                return self.okResponse(["teamId": "team_local", "accounts": [
+                    Self.subscription(id: Self.accountB, provider: "codex", label: "a@x.dev", sessions: 2, usedPercent: 40),
+                ]])
+            default:
+                return nil
+            }
+        }
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let lines = result.stdout.split(separator: "\n").map(String.init)
+        XCTAssertEqual(lines.count, 3, result.stdout)
+        XCTAssertTrue(lines[0].hasPrefix("KIND"), lines[0])
+        for column in ["ACCOUNT", "STATE", "USAGE", "ID"] { XCTAssertTrue(lines[0].contains(column), lines[0]) }
+        let codexLine = try XCTUnwrap(lines.first { $0.hasPrefix("codex") })
+        for cell in ["a@x.dev", "active", "2 sessions, 5h 40%, week 12%", "66666666"] { XCTAssertTrue(codexLine.contains(cell), codexLine) }
+        let claudeLine = try XCTUnwrap(lines.first { $0.hasPrefix("claude") })
+        for cell in ["sk-ant-oat01-...HIJ (work)", "active", "11111111"] { XCTAssertTrue(claudeLine.contains(cell), claudeLine) }
+        XCTAssertFalse(result.stdout.contains(Self.accountB), "the table shows id prefixes, not full ids")
+        XCTAssertTrue(state.commands.contains { $0.contains(#""method":"coderouter.accounts.list""#) })
+        XCTAssertTrue(state.commands.contains { $0.contains(#""method":"coderouter.claude_upstream.get""#) })
+    }
+
+    func testCoderouterAccountsAddInfersClaudeFromTheEnvironment() throws {
+        nonisolated(unsafe) var receivedParams: [String: Any] = [:]
+        let (result, _) = try runCoderouterCLI(
+            ["coderouter", "accounts", "add", "--label", "work"],
+            socketName: "coderouter-accounts-add-env",
+            extraEnvironment: ["CLAUDE_CODE_OAUTH_TOKEN": Self.sampleOAuthToken]
+        ) { method, params in
+            guard method == "coderouter.claude_upstream.add" else { return nil }
+            receivedParams = params
+            return self.okResponse(["teamId": "team_local", "account": Self.account(id: Self.accountA, kind: "anthropic_oauth", identifier: "sk-ant-oat01-...HIJ", label: "work"), "accountsTotal": 1])
+        }
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(receivedParams["kind"] as? String, "anthropic_oauth")
+        XCTAssertEqual(receivedParams["token"] as? String, Self.sampleOAuthToken)
+        XCTAssertEqual(receivedParams["label"] as? String, "work")
+        XCTAssertTrue(result.stdout.hasPrefix("OK added Claude upstream account: anthropic_oauth sk-ant-oat01-...HIJ (work)"), result.stdout)
+    }
+
+    func testCoderouterAccountsAddInfersTheKindFromAPastedSecret() throws {
+        nonisolated(unsafe) var receivedParams: [String: Any] = [:]
+        let apiKey = "sk-ant-api03-0123456789abcdefghijklmnopqrstuvwxyz"
+        let (result, _) = try runCoderouterCLI(
+            ["coderouter", "accounts", "add", "--stdin"],
+            socketName: "coderouter-accounts-add-stdin",
+            standardInput: "\(apiKey)\n"
+        ) { method, params in
+            guard method == "coderouter.claude_upstream.add" else { return nil }
+            receivedParams = params
+            return self.okResponse(["teamId": "team_local", "account": Self.account(id: Self.accountB, kind: "anthropic_api_key", identifier: "sk-ant-...wxyz"), "accountsTotal": 2])
+        }
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(receivedParams["kind"] as? String, "anthropic_api_key")
+        XCTAssertEqual(receivedParams["apiKey"] as? String, apiKey)
+    }
+
+    func testCoderouterAccountsRemoveRoutesToTheOwningStore() throws {
+        nonisolated(unsafe) var methods: [String] = []
+        let (result, _) = try runCoderouterCLI(
+            ["coderouter", "accounts", "remove", "6666"],
+            socketName: "coderouter-accounts-remove"
+        ) { method, _ in
+            methods.append(method)
+            switch method {
+            case "coderouter.claude_upstream.get":
+                return self.okResponse(Self.listPayload([Self.account(id: Self.accountA, kind: "anthropic_oauth", identifier: "sk-ant-oat01-...HIJ", label: "work")]))
+            case "coderouter.accounts.list":
+                return self.okResponse(["teamId": "team_local", "accounts": [Self.subscription(id: Self.accountB, provider: "codex", label: "a@x.dev")]])
+            case "coderouter.accounts.remove":
+                return self.okResponse(["removed": true, "lastAccount": false, "legacyCleanupPending": false])
+            default:
+                return nil
+            }
+        }
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "OK removed codex a@x.dev\n")
+        XCTAssertTrue(methods.contains("coderouter.accounts.remove"))
+        XCTAssertFalse(methods.contains("coderouter.claude_upstream.remove"))
+    }
+
+    func testCoderouterAccountsPauseRefusesASubscription() throws {
+        let (result, state) = try runCoderouterCLI(
+            ["coderouter", "accounts", "pause", "a@x.dev"],
+            socketName: "coderouter-accounts-pause"
+        ) { method, _ in
+            switch method {
+            case "coderouter.claude_upstream.get":
+                return self.okResponse(Self.listPayload([]))
+            case "coderouter.accounts.list":
+                return self.okResponse(["teamId": "team_local", "accounts": [Self.subscription(id: Self.accountB, provider: "codex", label: "a@x.dev")]])
+            default:
+                return nil
+            }
+        }
+        XCTAssertNotEqual(result.status, 0)
+        XCTAssertTrue(result.stderr.contains("subscriptions cannot be paused"), result.stderr)
+        XCTAssertFalse(state.commands.contains { $0.contains("claude_upstream.update") })
+    }
+
+    func testCoderouterAccountsRemoveSanitizesServerControlledSummary() throws {
+        let hostileLabel = "work\u{1B}[31m\nINJECTED"
+        let (result, _) = try runCoderouterCLI(
+            ["coderouter", "accounts", "remove", "1111"],
+            socketName: "coderouter-accounts-remove-sanitize"
+        ) { method, _ in
+            switch method {
+            case "coderouter.claude_upstream.get":
+                return self.okResponse(Self.listPayload([
+                    Self.account(id: Self.accountA, kind: "anthropic_oauth", identifier: "sk-ant-oat01-...HIJ", label: hostileLabel),
+                ]))
+            case "coderouter.accounts.list":
+                return self.okResponse(["teamId": "team_local", "accounts": []])
+            case "coderouter.claude_upstream.remove":
+                return self.okResponse(["removed": true, "count": 1])
+            default:
+                return nil
+            }
+        }
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertFalse(result.stdout.contains("\u{1B}"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("work\u{FFFD}[31m\u{FFFD}INJECTED"), result.stdout)
+        XCTAssertFalse(result.stdout.contains("\nINJECTED"), result.stdout)
+    }
+
+    func testCoderouterUnknownAccountSubcommandSanitizesInput() throws {
+        let hostileSubcommand = "bad\u{1B}[31m\nINJECTED"
+        let (result, state) = try runCoderouterCLI(
+            ["coderouter", "accounts", hostileSubcommand],
+            socketName: "coderouter-accounts-unknown-sanitize",
+            waitForSocket: false
+        ) { _, _ in nil }
+        XCTAssertNotEqual(result.status, 0)
+        XCTAssertFalse(result.stderr.contains("\u{1B}"), result.stderr)
+        XCTAssertTrue(result.stderr.contains("bad\u{FFFD}[31m\u{FFFD}injected"), result.stderr)
+        XCTAssertFalse(result.stderr.contains("\nINJECTED"), result.stderr)
+        XCTAssertTrue(state.commands.isEmpty)
+    }
+
+    func testCoderouterUnknownSubscriptionSubcommandSanitizesInput() throws {
+        let hostileSubcommand = "bad\u{1B}[31m\nINJECTED"
+        let (result, state) = try runCoderouterCLI(
+            ["coderouter", "subscriptions", hostileSubcommand],
+            socketName: "coderouter-subscriptions-unknown-sanitize",
+            waitForSocket: false
+        ) { _, _ in nil }
+        XCTAssertNotEqual(result.status, 0)
+        XCTAssertFalse(result.stderr.contains("\u{1B}"), result.stderr)
+        XCTAssertTrue(result.stderr.contains("bad\u{FFFD}[31m\u{FFFD}injected"), result.stderr)
+        XCTAssertFalse(result.stderr.contains("\nINJECTED"), result.stderr)
+        XCTAssertTrue(state.commands.isEmpty)
+    }
+
+    func testCoderouterAccountsAddPassesNoValidateAndReportsVerification() throws {
+        nonisolated(unsafe) var receivedParams: [String: Any] = [:]
+        let apiKey = "sk-ant-api03-0123456789abcdefghijklmnopqrstuvwxyz"
+        let (verified, _) = try runCoderouterCLI(
+            ["coderouter", "accounts", "add", "anthropic-key"],
+            socketName: "coderouter-accounts-add-verified",
+            extraEnvironment: ["ANTHROPIC_API_KEY": apiKey]
+        ) { method, params in
+            guard method == "coderouter.claude_upstream.add" else { return nil }
+            receivedParams = params
+            return self.okResponse(["teamId": "team_local", "account": Self.account(id: Self.accountB, kind: "anthropic_api_key", identifier: "sk-ant-...wxyz"), "accountsTotal": 1, "alreadyExists": false, "validation": "ok"])
+        }
+        XCTAssertEqual(verified.status, 0, verified.stderr)
+        XCTAssertNil(receivedParams["validate"], "validation is the default; the param is only sent to opt out")
+        XCTAssertTrue(verified.stdout.contains("(verified with the provider)"), verified.stdout)
+
+        let (skipped, _) = try runCoderouterCLI(
+            ["coderouter", "accounts", "add", "anthropic-key", "--no-validate"],
+            socketName: "coderouter-accounts-add-skip",
+            extraEnvironment: ["ANTHROPIC_API_KEY": apiKey]
+        ) { method, params in
+            guard method == "coderouter.claude_upstream.add" else { return nil }
+            receivedParams = params
+            return self.okResponse(["teamId": "team_local", "account": Self.account(id: Self.accountB, kind: "anthropic_api_key", identifier: "sk-ant-...wxyz"), "accountsTotal": 1, "alreadyExists": false, "validation": "skipped"])
+        }
+        XCTAssertEqual(skipped.status, 0, skipped.stderr)
+        XCTAssertEqual(receivedParams["validate"] as? Bool, false)
+    }
+
+    func testCoderouterAccountsAddReportsAnAlreadyPresentSecret() throws {
+        let (result, _) = try runCoderouterCLI(
+            ["coderouter", "accounts", "add", "claude"],
+            socketName: "coderouter-accounts-add-dup",
+            extraEnvironment: ["CLAUDE_CODE_OAUTH_TOKEN": Self.sampleOAuthToken]
+        ) { method, _ in
+            guard method == "coderouter.claude_upstream.add" else { return nil }
+            return self.okResponse(["teamId": "team_local", "account": Self.account(id: Self.accountA, kind: "anthropic_oauth", identifier: "sk-ant-oat01-...HIJ", label: "work"), "accountsTotal": 1, "alreadyExists": true, "validation": "ok"])
+        }
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "Already added: anthropic_oauth sk-ant-oat01-...HIJ (work) is on this team, nothing changed.\n  id: \(Self.accountA)\n")
+    }
+
+    func testCoderouterAccountsShowsBrokenAccountsWithTheRepair() throws {
+        let (result, _) = try runCoderouterCLI(
+            ["coderouter", "accounts"],
+            socketName: "coderouter-accounts-broken"
+        ) { method, _ in
+            switch method {
+            case "coderouter.claude_upstream.get":
+                return self.okResponse(Self.listPayload([
+                    Self.account(id: Self.accountA, kind: "anthropic_oauth", identifier: "sk-ant-oat01-...HIJ", label: "work", state: "broken", lastFailureCode: "invalid_credential"),
+                ]))
+            case "coderouter.accounts.list":
+                return self.okResponse(["teamId": "team_local", "accounts": []])
+            default:
+                return nil
+            }
+        }
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let line = try XCTUnwrap(result.stdout.split(separator: "\n").map(String.init).first { $0.hasPrefix("claude") })
+        XCTAssertTrue(line.contains("broken (invalid_credential)"), line)
+        XCTAssertTrue(line.contains("replace it: cmux coderouter accounts add"), line)
+    }
+
     func testCoderouterUnknownVerbStillPassesThroughToTheInstalledCLI() throws {
         // With an empty PATH the passthrough cannot find `coderouter`/`cr`; the
         // point is that the socket is never consulted for a non-cmux verb.
@@ -446,7 +758,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         defer { try? FileManager.default.removeItem(at: emptyPath) }
 
         let (result, state) = try runCoderouterCLI(
-            ["coderouter", "accounts"],
+            ["coderouter", "login"],
             socketName: "coderouter-passthrough",
             extraEnvironment: ["PATH": emptyPath.path],
             waitForSocket: false
