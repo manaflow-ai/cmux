@@ -963,7 +963,7 @@
         },
         {
           "q": "What are Cloud VMs?",
-          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro includes up to 50 machines sharing a total of 5 vCPU, 20 GB of RAM, and 200 GB of disk. Team includes up to 50 machines and the same shared capacity for each user."
+          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro includes up to 50 machines sharing a total of 5 vCPU, 20 GB of RAM, and 200 GB of disk. Team includes up to 50 machines per user and the same shared capacity for each user."
         },
         {
           "q": "What is cmux Vault?",

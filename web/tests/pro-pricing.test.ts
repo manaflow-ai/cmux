@@ -172,6 +172,11 @@ describe("pricing copy matches the plan policy", () => {
       expect(faq).not.toContain(stalePerVmPhrase);
       expect(faq).toContain(faqSharedPhrase);
       expect(faq).toContain(faqPerUserPhrase);
+      if (locale === "en") {
+        expect(faq).toContain("Team includes up to 50 machines per user");
+      } else {
+        expect(faq).toContain("Team では、ユーザーごとに最大 50 台のマシン");
+      }
     });
   }
 });
