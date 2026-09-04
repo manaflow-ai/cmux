@@ -219,11 +219,18 @@ extension SurfaceCatalog {
         // `CloudTreeNodeBuilder.localWorkspaceShowing`, but in one pass. This
         // path runs for every port-row open, so sorting all local workspaces
         // needlessly turns a linear vote into O(W log W).
-        return projectionCounts.max { lhs, rhs in
-            lhs.value != rhs.value
-                ? lhs.value < rhs.value
-                : lhs.key.uuidString > rhs.key.uuidString
-        }?.key ?? fallback
+        var winner: (id: UUID, count: Int)?
+        for (id, count) in projectionCounts {
+            guard let current = winner else {
+                winner = (id, count)
+                continue
+            }
+            if count > current.count
+                || (count == current.count && id.uuidString < current.id.uuidString) {
+                winner = (id, count)
+            }
+        }
+        return winner?.id ?? fallback
     }
 
     /// Keeps a port that was added or reopened while a provider refresh was
@@ -366,7 +373,7 @@ extension CmuxTuiSurfaceProvider {
             parsedPortIDs.insert(id)
             if let index = portIndexes[id] {
                 var merged = parsedResources[index]
-                var seen = remoteViewKeysByPort[id] ?? []
+                var seen = remoteViewKeysByPort[id] ?? Set<String>()
                 mergeRemoteViews(from: resource, into: &merged, seen: &seen)
                 remoteViewKeysByPort[id] = seen
                 parsedResources[index] = merged
