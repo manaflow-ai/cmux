@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import Testing
 
 #if canImport(cmux_DEV)
@@ -60,5 +61,38 @@ struct TmuxWorkspacePaneOverlayModelTests {
         #expect(model.activePaneBorderRect == nil)
         #expect(model.activePaneBorderColorHex == nil)
         #expect(model.workspaceAttentionColor == WorkspaceAttentionColor(configuredHex: nil))
+    }
+
+    @Test
+    @MainActor
+    func geometryRefreshBurstUsesNewestStateProvider() async {
+        let window = NSWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 640, height: 400),
+            styleMask: [.titled, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.close() }
+
+        let controller = WindowTmuxWorkspacePaneOverlayController(window: window)
+        let deliveredProviders = AsyncStream<Int>.makeStream()
+        var deliveredProviderIterator = deliveredProviders.stream.makeAsyncIterator()
+
+        // A full-screen transition can enqueue an intermediate geometry update
+        // immediately before didEnter/didExit delivers the settled update. The
+        // pending refresh must evaluate the newest provider, not the one that
+        // happened to arrive first.
+        controller.scheduleGeometryRefresh {
+            deliveredProviders.continuation.yield(1)
+            return nil
+        }
+        controller.scheduleGeometryRefresh {
+            deliveredProviders.continuation.yield(2)
+            return nil
+        }
+
+        let deliveredProvider = await deliveredProviderIterator.next()
+        #expect(deliveredProvider == 2)
+        deliveredProviders.continuation.finish()
     }
 }
