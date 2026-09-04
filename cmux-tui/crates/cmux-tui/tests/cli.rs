@@ -493,6 +493,23 @@ fn wait_for_owner_server_ready(socket: &std::path::Path, owner: &mut PtyChild) {
 }
 
 #[cfg(unix)]
+struct DetachedOwnerShutdownGuard(PathBuf);
+
+#[cfg(unix)]
+impl Drop for DetachedOwnerShutdownGuard {
+    fn drop(&mut self) {
+        let _ = lifecycle_cli(&[
+            "--json",
+            "--socket",
+            self.0.to_str().unwrap(),
+            "session",
+            "current",
+            "shutdown",
+        ]);
+    }
+}
+
+#[cfg(unix)]
 struct SocketFileGuard(PathBuf);
 
 #[cfg(unix)]
@@ -2682,6 +2699,46 @@ impl PtyChild {
         Self { child: Some(spawned.child), output_drain: Some(output_drain) }
     }
 
+    fn start_with_host_colors(
+        args: &[&str],
+        env: &[(&str, &std::ffi::OsStr)],
+        foreground: &str,
+        background: &str,
+    ) -> Self {
+        let spawned = spawn_pty_child(args, env);
+        let mut reader = spawned.master.try_clone_reader().unwrap();
+        let mut writer = spawned.master.take_writer().unwrap();
+        let foreground = foreground.to_string();
+        let background = background.to_string();
+        let output_drain = std::thread::spawn(move || {
+            let query = b"\x1b]10;?\x1b\\\x1b]11;?\x1b\\";
+            let response = format!(
+                "\x1b]10;rgb:{foreground}\x1b\\\x1b]11;rgb:{background}\x1b\\"
+            );
+            let mut pending = Vec::new();
+            let mut buffer = [0; 8192];
+            loop {
+                let read = match reader.read(&mut buffer) {
+                    Ok(read) => read,
+                    Err(_) => break,
+                };
+                if read == 0 {
+                    break;
+                }
+                pending.extend_from_slice(&buffer[..read]);
+                if pending.windows(query.len()).any(|window| window == query) {
+                    let _ = writer.write_all(response.as_bytes());
+                    let _ = writer.flush();
+                    pending.clear();
+                } else if pending.len() > query.len() * 2 {
+                    let keep = query.len() * 2;
+                    pending.drain(..pending.len() - keep);
+                }
+            }
+        });
+        Self { child: Some(spawned.child), output_drain: Some(output_drain) }
+    }
+
     fn wait_for_exit(&mut self, timeout: Duration) -> Option<cmux_pty::ExitStatus> {
         let mut child = self.child.take().expect("PTY child already has an exit waiter");
         let mut killer = child.clone_killer();
@@ -2844,6 +2901,101 @@ fn plain_launch_attaches_to_existing_local_session() {
     }
 
     panic!("plain launch never attached to its committed initial terminal");
+}
+
+#[cfg(unix)]
+#[test]
+fn first_interactive_client_passes_host_colors_to_detached_owner() {
+    let dir = TestTempDir::create("detached-owner-host-colors");
+    let socket = dir.path().join("mux.sock");
+    let state = dir.path().join("state");
+    let home = dir.path().join("home");
+    let config_home = dir.path().join("config");
+    let config = dir.path().join("missing-config.json");
+    fs::create_dir_all(&home).unwrap();
+    let socket_arg = socket.to_str().unwrap();
+    let state_arg = state.to_str().unwrap();
+    let shutdown = DetachedOwnerShutdownGuard(socket.clone());
+    let mut client = PtyChild::start_with_host_colors(
+        &[
+            "--session",
+            "detached-owner-host-colors",
+            "--socket",
+            socket_arg,
+            "--state",
+            state_arg,
+        ],
+        &[
+            ("HOME", home.as_os_str()),
+            ("XDG_CONFIG_HOME", config_home.as_os_str()),
+            ("CMUX_TUI_CONFIG", config.as_os_str()),
+            ("CMUX_TUI_STATE_DIR", state.as_os_str()),
+        ],
+        "11/22/33",
+        "44/55/66",
+    );
+    wait_for_socket_path(&socket);
+    wait_for_owner_server_ready(&socket, &mut client);
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let surface = loop {
+        let tree = json_socket_request(
+            &socket,
+            serde_json::json!({"id": 1, "cmd": "list-workspaces"}),
+        );
+        if let Some(surface) = tree["workspaces"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .flat_map(|workspace| workspace["screens"].as_array().into_iter().flatten())
+            .flat_map(|screen| screen["panes"].as_array().into_iter().flatten())
+            .flat_map(|pane| pane["tabs"].as_array().into_iter().flatten())
+            .find_map(|tab| tab["surface"].as_u64())
+        {
+            break surface;
+        }
+        assert!(Instant::now() < deadline, "detached owner did not create an initial surface");
+        std::thread::sleep(Duration::from_millis(25));
+    };
+
+    let stream = transport::connect(&socket).unwrap();
+    let mut writer = stream.try_clone_box().unwrap();
+    let mut reader = BufReader::new(stream);
+    writeln!(
+        writer,
+        "{}",
+        serde_json::json!({
+            "id": 2,
+            "cmd": "attach-surface",
+            "surface": surface,
+            "mode": "render",
+            "cols": 80,
+            "rows": 24,
+        })
+    )
+    .unwrap();
+    let mut line = String::new();
+    reader.read_line(&mut line).unwrap();
+    let render_state: serde_json::Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(render_state["event"], "render-state", "unexpected render attach: {render_state}");
+    assert_eq!(render_state["default_fg"], "#112233", "host foreground was not retained");
+    assert_eq!(render_state["default_bg"], "#445566", "host background was not retained");
+
+    drop(reader);
+    drop(writer);
+    let _ = lifecycle_cli(&[
+        "--json",
+        "--socket",
+        socket_arg,
+        "session",
+        "current",
+        "shutdown",
+    ]);
+    assert!(
+        client.wait_for_exit(Duration::from_secs(10)).is_some(),
+        "interactive client did not exit after owner shutdown"
+    );
+    drop(shutdown);
 }
 
 #[cfg(unix)]
