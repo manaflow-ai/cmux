@@ -1,5 +1,6 @@
 import AppKit
 import CMUXMobileCore
+import CmuxBrowser
 import CoreGraphics
 import Foundation
 import WebKit
@@ -53,7 +54,12 @@ struct MobileBrowserInputReplayer {
             key: input.key,
             modifierNames: input.modifiers
         ) else { throw MobileBrowserInputReplayError.invalidKey }
-        try deliverKey(specification, characters: nil, webView: webView)
+        guard webView.replayBrowserKeyboardSpecification(
+            specification,
+            action: .press
+        ) else {
+            throw MobileBrowserInputReplayError.eventCreationFailed
+        }
     }
 
     func replayText(_ input: MobileBrowserTextInput, in webView: WKWebView) async throws {
@@ -67,7 +73,13 @@ struct MobileBrowserInputReplayer {
                 guard let specification = SyntheticKeyEventFactory.specification(forASCIICharacter: character) else {
                     throw MobileBrowserInputReplayError.invalidKey
                 }
-                try deliverKey(specification, characters: specification.characters, webView: webView)
+                guard webView.replayBrowserKeyboardSpecification(
+                    specification,
+                    action: .press,
+                    characters: specification.characters
+                ) else {
+                    throw MobileBrowserInputReplayError.eventCreationFailed
+                }
             } else {
                 scriptInsertedText.append(character)
             }
@@ -104,33 +116,6 @@ struct MobileBrowserInputReplayer {
         case (.right, .rightMouseUp): webView.rightMouseUp(with: event)
         default: throw MobileBrowserInputReplayError.eventCreationFailed
         }
-    }
-
-    private func deliverKey(
-        _ specification: SyntheticKeySpecification,
-        characters: String?,
-        webView: WKWebView
-    ) throws {
-        let timestamp = ProcessInfo.processInfo.systemUptime
-        guard let down = SyntheticKeyEventFactory.keyEvent(
-            specification: specification,
-            keyDown: true,
-            timestamp: timestamp,
-            characters: characters
-        ), let up = SyntheticKeyEventFactory.keyEvent(
-            specification: specification,
-            keyDown: false,
-            timestamp: timestamp,
-            characters: characters
-        ) else {
-            throw MobileBrowserInputReplayError.eventCreationFailed
-        }
-        if let cmuxWebView = webView as? CmuxWebView {
-            cmuxWebView.forwardKeyDownToWebKit(down)
-        } else {
-            webView.keyDown(with: down)
-        }
-        webView.keyUp(with: up)
     }
 
     private func insertTextWithJavaScript(_ text: String, in webView: WKWebView) async throws {

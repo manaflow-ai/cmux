@@ -1,5 +1,6 @@
 import AppKit
 import CoreGraphics
+import CmuxBrowser
 import Foundation
 
 struct SyntheticKeySpecification {
@@ -46,6 +47,63 @@ enum SyntheticKeyEventFactory {
             flags.insert(flag)
         }
         return specification(key: key, modifierFlags: flags)
+    }
+
+    /// Resolves the canonical browser automation key vocabulary into the
+    /// AppKit key specification used by the native WebKit input seam.
+    ///
+    /// Browser automation keys are expressed with W3C/Playwright names,
+    /// whereas the CGEvent factory uses macOS virtual-key names. Keeping this
+    /// conversion beside the existing factory makes mobile replay and socket
+    /// automation share one native mapping instead of maintaining two event
+    /// pipelines.
+    static func specification(forBrowserEvent event: BrowserKeyboardEvent) -> SyntheticKeySpecification? {
+        let keyToken: String
+        switch event.code {
+        case "ArrowLeft": keyToken = "left"
+        case "ArrowRight": keyToken = "right"
+        case "ArrowUp": keyToken = "up"
+        case "ArrowDown": keyToken = "down"
+        case "Enter", "NumpadEnter": keyToken = "return"
+        case "Tab": keyToken = "tab"
+        case "Escape": keyToken = "escape"
+        case "Backspace": keyToken = "delete"
+        case "Delete": keyToken = "forward_delete"
+        case "Home", "Numpad7": keyToken = "home"
+        case "End", "Numpad1": keyToken = "end"
+        case "PageUp", "Numpad9": keyToken = "page_up"
+        case "PageDown", "Numpad3": keyToken = "page_down"
+        case "Insert", "Numpad0": keyToken = "insert"
+        case "ShiftLeft": keyToken = "shift_left"
+        case "ShiftRight": keyToken = "shift_right"
+        case "ControlLeft": keyToken = "control_left"
+        case "ControlRight": keyToken = "control_right"
+        case "AltLeft": keyToken = "option_left"
+        case "AltRight": keyToken = "option_right"
+        case "MetaLeft": keyToken = "command_left"
+        case "MetaRight": keyToken = "command_right"
+        case "Numpad8": keyToken = "up"
+        case "Numpad2": keyToken = "down"
+        case "Numpad4": keyToken = "left"
+        case "Numpad6": keyToken = "right"
+        case "Numpad5": keyToken = "clear"
+        case "NumpadDivide": keyToken = "num_divide"
+        case "NumpadMultiply": keyToken = "num_multiply"
+        case "NumpadSubtract": keyToken = "num_minus"
+        case "NumpadAdd": keyToken = "num_plus"
+        case "NumpadDecimal": keyToken = "num_decimal"
+        case "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12":
+            keyToken = event.code
+        default:
+            if event.key.count == 1,
+               let character = event.key.first,
+               let printable = specification(forASCIICharacter: character) {
+                return printable
+            }
+            keyToken = event.key
+        }
+
+        return specification(key: keyToken, modifierFlags: [])
     }
 
     static func specification(forASCIICharacter character: Character) -> SyntheticKeySpecification? {
@@ -109,16 +167,47 @@ enum SyntheticKeyEventFactory {
         let keyCode: UInt16
         let charactersIgnoringModifiers: String
         switch key {
-        case "left": (storedKey, keyCode) = ("\u{F702}", 123)
-        case "right": (storedKey, keyCode) = ("\u{F703}", 124)
-        case "down": (storedKey, keyCode) = ("\u{F701}", 125)
-        case "up": (storedKey, keyCode) = ("\u{F700}", 126)
+        case "left", "arrowleft": (storedKey, keyCode) = ("\u{F702}", 123)
+        case "right", "arrowright": (storedKey, keyCode) = ("\u{F703}", 124)
+        case "down", "arrowdown": (storedKey, keyCode) = ("\u{F701}", 125)
+        case "up", "arrowup": (storedKey, keyCode) = ("\u{F700}", 126)
         case "enter", "return": (storedKey, keyCode) = ("\r", 36)
         case "tab": (storedKey, keyCode) = ("\t", 48)
         case "escape", "esc": (storedKey, keyCode) = ("\u{1b}", 53)
         case "delete", "backspace": (storedKey, keyCode) = ("\u{8}", 51)
         case "forward_delete": (storedKey, keyCode) = ("\u{f728}", 117)
         case "space": (storedKey, keyCode) = (" ", 49)
+        case "home": (storedKey, keyCode) = ("\u{F729}", 115)
+        case "end": (storedKey, keyCode) = ("\u{F72B}", 119)
+        case "page_up": (storedKey, keyCode) = ("\u{F72C}", 116)
+        case "page_down": (storedKey, keyCode) = ("\u{F72D}", 121)
+        case "insert": (storedKey, keyCode) = ("\u{F727}", 114)
+        case "clear": (storedKey, keyCode) = ("\u{F739}", 71)
+        case "shift_left": (storedKey, keyCode) = ("\u{F700}", 56)
+        case "shift_right": (storedKey, keyCode) = ("\u{F700}", 60)
+        case "control_left": (storedKey, keyCode) = ("\u{F701}", 59)
+        case "control_right": (storedKey, keyCode) = ("\u{F701}", 62)
+        case "option_left": (storedKey, keyCode) = ("\u{F702}", 58)
+        case "option_right": (storedKey, keyCode) = ("\u{F702}", 61)
+        case "command_left": (storedKey, keyCode) = ("\u{F703}", 55)
+        case "command_right": (storedKey, keyCode) = ("\u{F703}", 54)
+        case "num_divide": (storedKey, keyCode) = ("/", 75)
+        case "num_multiply": (storedKey, keyCode) = ("*", 67)
+        case "num_minus": (storedKey, keyCode) = ("-", 78)
+        case "num_plus": (storedKey, keyCode) = ("+", 69)
+        case "num_decimal": (storedKey, keyCode) = (".", 65)
+        case "f1": (storedKey, keyCode) = ("\u{F704}", 122)
+        case "f2": (storedKey, keyCode) = ("\u{F705}", 120)
+        case "f3": (storedKey, keyCode) = ("\u{F706}", 99)
+        case "f4": (storedKey, keyCode) = ("\u{F707}", 118)
+        case "f5": (storedKey, keyCode) = ("\u{F708}", 96)
+        case "f6": (storedKey, keyCode) = ("\u{F709}", 97)
+        case "f7": (storedKey, keyCode) = ("\u{F70A}", 98)
+        case "f8": (storedKey, keyCode) = ("\u{F70B}", 100)
+        case "f9": (storedKey, keyCode) = ("\u{F70C}", 101)
+        case "f10": (storedKey, keyCode) = ("\u{F70D}", 109)
+        case "f11": (storedKey, keyCode) = ("\u{F70E}", 103)
+        case "f12": (storedKey, keyCode) = ("\u{F70F}", 111)
         default:
             guard key.count == 1, let resolved = Self.keyCode(for: key) else { return nil }
             storedKey = key
