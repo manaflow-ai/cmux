@@ -244,16 +244,23 @@ enum SurfaceBrowserPlaceholder {
         return page(title: title, detail: nil, spinner: true)
     }
 
-    /// "Couldn't open <label>" with the typed error and the way back.
-    static func failed(_ label: String, error: String) -> String {
+    /// "Couldn't open <label>" with the typed error and an appropriate next step.
+    /// Unsupported providers deliberately omit the retry instruction: the pane is
+    /// truthful about a permanent capability gap instead of inviting a retry loop.
+    static func failed(_ label: String, error: String, retryable: Bool = true) -> String {
         let title = String(
             format: String(localized: "cloudTree.pane.failed", defaultValue: "Couldn’t open %@"),
             label
         )
-        let hint = String(
-            localized: "cloudTree.pane.retryHint",
-            defaultValue: "Close this pane and open it again from the sidebar."
-        )
+        let hint = retryable
+            ? String(
+                localized: "cloudTree.pane.retryHint",
+                defaultValue: "Close this pane and open it again from the sidebar."
+            )
+            : String(
+                localized: "cloudTree.pane.unsupportedHint",
+                defaultValue: "This provider cannot open port previews. Do not retry; use `cmux vm exec` inside the machine or choose another machine."
+            )
         return page(title: title, detail: "\(error)\n\(hint)", spinner: false)
     }
 

@@ -1190,6 +1190,74 @@ struct HookFence {
     ended: bool,
 }
 
+enum DirectHookTransition {
+    Continue,
+    Restart(crate::workspace_registry::AgentHookProjectionState),
+}
+
+enum JournalHookTransition {
+    Ignore,
+    Apply(String),
+}
+
+impl HookFence {
+    fn journal_transition(
+        current: Option<&Self>,
+        terminal_id: &TerminalPublicId,
+        explicit_session_id: Option<&str>,
+        is_session_start: bool,
+        sequence: u64,
+    ) -> JournalHookTransition {
+        if explicit_session_id.is_none()
+            && current.is_some_and(|fence| !fence.session_id.starts_with("legacy:"))
+        {
+            return JournalHookTransition::Ignore;
+        }
+        let session_id = explicit_session_id
+            .map(str::to_owned)
+            .or_else(|| {
+                (!is_session_start)
+                    .then(|| current.filter(|fence| !fence.ended))
+                    .flatten()
+                    .map(|fence| fence.session_id.clone())
+            })
+            .unwrap_or_else(|| legacy_hook_session_id(terminal_id, sequence));
+        if let Some(fence) = current
+            && (sequence <= fence.sequence
+                || (fence.session_id == session_id && fence.ended)
+                || (fence.session_id != session_id && (!is_session_start || !fence.ended)))
+        {
+            return JournalHookTransition::Ignore;
+        }
+        JournalHookTransition::Apply(session_id)
+    }
+
+    fn direct_transition(&self, session_id: Option<&str>) -> anyhow::Result<DirectHookTransition> {
+        let session_id = session_id.filter(|session_id| {
+            !session_id.is_empty()
+                && !session_id.starts_with("cmux-hook-sequence:")
+                && !session_id.starts_with("cmux-hook-ended:")
+        });
+        if self.ended {
+            let Some(session_id) = session_id.filter(|session_id| *session_id != self.session_id)
+            else {
+                anyhow::bail!("agent_session_ended");
+            };
+            return Ok(DirectHookTransition::Restart(
+                crate::workspace_registry::AgentHookProjectionState {
+                    agent_session_id: session_id.to_owned(),
+                    applied_sequence: self.sequence,
+                    ended: false,
+                },
+            ));
+        }
+        if session_id != Some(self.session_id.as_str()) {
+            anyhow::bail!("agent_session_conflict");
+        }
+        Ok(DirectHookTransition::Continue)
+    }
+}
+
 /// Durable hook projection carried by a hook-sourced agent report. Socket
 /// reports carry none; hook reports carry the fence state and the journal
 /// sequence that produced it.
@@ -5659,47 +5727,18 @@ impl Mux {
             .get("normalized")
             .and_then(|value| value.get("agent_session_id"))
             .and_then(Value::as_str)
-            .filter(|session_id| !session_id.is_empty())
-            .map(str::to_owned);
+            .filter(|session_id| !session_id.is_empty());
         let is_session_start = ingress.kind == "agent.session.started";
         let previous_fence = fences.get(&terminal_id).cloned();
-        // Once an adapter has supplied a native session identity, a later
-        // session-less event is ambiguous. Do not assign delayed events from
-        // that generation to the currently active session.
-        if explicit_session_id.is_none()
-            && previous_fence.as_ref().is_some_and(|fence| !fence.session_id.starts_with("legacy:"))
-        {
+        let JournalHookTransition::Apply(agent_session_id) = HookFence::journal_transition(
+            previous_fence.as_ref(),
+            &terminal_id,
+            explicit_session_id,
+            is_session_start,
+            sequence,
+        ) else {
             return Ok(());
-        }
-        // A non-start event without an adapter identity belongs to the live
-        // legacy generation. A start event must carry a new identity, or it
-        // receives a fresh local generation token below. Reusing the active
-        // fence for a start would let a delayed, session-less start mutate a
-        // newer lifecycle.
-        let agent_session_id = explicit_session_id
-            .or_else(|| {
-                (!is_session_start)
-                    .then(|| previous_fence.as_ref().filter(|fence| !fence.ended))
-                    .flatten()
-                    .map(|fence| fence.session_id.clone())
-            })
-            .unwrap_or_else(|| legacy_hook_session_id(&terminal_id, sequence));
-        if let Some(fence) = previous_fence.as_ref() {
-            if fence.session_id == agent_session_id {
-                if fence.ended || sequence <= fence.sequence {
-                    return Ok(());
-                }
-            } else if !is_session_start || !fence.ended || sequence <= fence.sequence {
-                // A mismatched event cannot cross an active lifecycle fence.
-                // A start may replace an ended fence only as a new lifecycle:
-                // an explicit adapter id must differ from the ended id, while
-                // a legacy adapter receives the sequence-scoped token above.
-                return Ok(());
-            }
-        }
-        if previous_fence.as_ref().is_some_and(|fence| sequence <= fence.sequence) {
-            return Ok(());
-        }
+        };
         // The record's session field is a human-facing label; native agent
         // session ids are opaque, so views fall back to their own context.
         let marker = if state == AgentState::Done {
@@ -9289,37 +9328,12 @@ impl Mux {
             }) {
                 anyhow::bail!("agent_session_ended");
             }
-        } else if let Some(fence) = sequence_guard
-            .as_ref()
-            .and_then(|guard| guard.get(&terminal_id))
-            .filter(|fence| fence.ended)
+        } else if hook_state.is_none()
+            && let Some(fence) = sequence_guard.as_ref().and_then(|guard| guard.get(&terminal_id))
         {
-            let supplied_session = source_session.as_deref().filter(|session| {
-                !session.is_empty()
-                    && !session.starts_with("cmux-hook-sequence:")
-                    && !session.starts_with("cmux-hook-ended:")
-            });
-            let journal_hook_session = hook_state.is_some_and(|state| {
-                !state.ended
-                    && state.applied_sequence > fence.sequence
-                    && state.agent_session_id != fence.session_id
-                    && source_session
-                        .as_deref()
-                        .is_some_and(|session| session.starts_with("cmux-hook-sequence:"))
-            });
-            let direct_hook_session = hook_state.is_none()
-                && supplied_session.is_some_and(|session| session != fence.session_id);
-            if direct_hook_session {
-                direct_hook_state = Some(crate::workspace_registry::AgentHookProjectionState {
-                    agent_session_id: supplied_session
-                        .expect("direct hook session was checked above")
-                        .to_owned(),
-                    applied_sequence: fence.sequence,
-                    ended: false,
-                });
-            }
-            if !journal_hook_session && !direct_hook_session {
-                anyhow::bail!("agent_session_ended");
+            match fence.direct_transition(source_session.as_deref())? {
+                DirectHookTransition::Continue => {}
+                DirectHookTransition::Restart(state) => direct_hook_state = Some(state),
             }
         }
         let effective_hook_state = direct_hook_state.as_ref().or(hook_state);
@@ -9657,6 +9671,10 @@ impl Mux {
         acknowledge: impl FnOnce() -> std::io::Result<()>,
     ) -> anyhow::Result<()> {
         self.control_clients.commit_daemon_handoff_after_ack(requesting_client, acknowledge)
+    }
+
+    pub(crate) fn daemon_handoff_in_progress(&self) -> bool {
+        self.control_clients.daemon_handoff_in_progress()
     }
 
     pub fn cancel_daemon_handoff(&self, requesting_client: u64) {
@@ -17739,6 +17757,18 @@ mod tests {
         Mux::new_for_test("test", SurfaceOptions::default())
     }
 
+    fn open_persistent_test_mux(session: &str, state_root: &Path) -> Arc<Mux> {
+        let registry = WorkspaceRegistry::open(state_root, session).unwrap();
+        Mux::from_workspace_registry(
+            session.to_owned(),
+            SurfaceOptions::default(),
+            registry,
+            ProviderWorkspaceState::default(),
+            true,
+        )
+        .unwrap()
+    }
+
     /// A machine resume reconnects every hosted terminal at once. Checkpoint
     /// capture can lose its consistency race while those reconnects append to
     /// the journal, but the skipped optimization is recovered by replaying
@@ -22495,34 +22525,34 @@ mod tests {
             }
         });
 
-        let append = |event: &str, key: &str| {
+        let append = |event: &str, key: &str, session_id: &str| {
             let ingress = crate::agent_hooks::agent_hook_journal_ingress(
                 "claude",
                 event,
                 Some(&terminal_id.to_string()),
-                serde_json::json!({"session_id":"native-1"}),
+                serde_json::json!({"session_id":session_id}),
             )
             .unwrap();
             mux.append_journal_ingress(&ingress, "test", key).unwrap();
         };
 
-        append("SessionStart", "hook-1");
+        append("SessionStart", "hook-1", "native-1");
         let records = mux.list_agents(Some(surface_id), None);
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].state, AgentState::Idle);
         assert_eq!(records[0].source, AgentSource::Hook);
 
-        append("UserPromptSubmit", "hook-2");
+        append("UserPromptSubmit", "hook-2", "native-1");
         assert_eq!(mux.list_agents(Some(surface_id), None)[0].state, AgentState::Working);
 
-        append("PermissionRequest", "hook-3");
+        append("PermissionRequest", "hook-3", "native-1");
         assert_eq!(mux.list_agents(Some(surface_id), None)[0].state, AgentState::Blocked);
 
-        append("Stop", "hook-4");
+        append("Stop", "hook-4", "native-1");
         assert_eq!(mux.list_agents(Some(surface_id), None)[0].state, AgentState::Idle);
 
         // Child-agent events carry no top-level lifecycle transition.
-        append("SubagentStart", "hook-5");
+        append("SubagentStart", "hook-5", "native-1");
         assert_eq!(mux.list_agents(Some(surface_id), None)[0].state, AgentState::Idle);
 
         // A socket report cannot downgrade a hook-owned record.
@@ -22530,9 +22560,9 @@ mod tests {
         assert_eq!(mux.list_agents(Some(surface_id), None)[0].state, AgentState::Idle);
 
         // An exited agent leaves the roster; a fresh one starts clean.
-        append("SessionEnd", "hook-6");
+        append("SessionEnd", "hook-6", "native-1");
         assert!(mux.list_agents(Some(surface_id), None).is_empty());
-        append("SessionStart", "hook-7");
+        append("SessionStart", "hook-7", "native-2");
         let records = mux.list_agents(Some(surface_id), None);
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].state, AgentState::Idle);
@@ -22746,9 +22776,18 @@ mod tests {
             serde_json::json!({}),
         )
         .unwrap();
-        mux.workspace_registry.lock().unwrap().set_resource_patch_failure(true).unwrap();
-        mux.append_journal_ingress(&ingress, "test", "hook-wake").unwrap();
-        mux.workspace_registry.lock().unwrap().set_resource_patch_failure(false).unwrap();
+        let validated = mux.journal_kernel.validate_ingress(&ingress).unwrap();
+        let commit = mux
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .append_journal_ingress(&ingress, &validated, "test", "hook-wake")
+            .unwrap();
+        assert!(!commit.replayed);
+        assert_eq!(
+            mux.workspace_registry.lock().unwrap().pending_agent_hook_projections().unwrap().len(),
+            1
+        );
 
         mux.report_agent(surface.id, AgentState::Working, AgentSource::Socket, None).unwrap();
         assert!(
@@ -22956,9 +22995,15 @@ mod tests {
             serde_json::json!({}),
         )
         .unwrap();
-        mux.workspace_registry.lock().unwrap().set_resource_patch_failure(true).unwrap();
-        let receipt = mux.append_journal_ingress(&ingress, "test", "dead-letter").unwrap();
+        let validated = mux.journal_kernel.validate_ingress(&ingress).unwrap();
+        let receipt = mux
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .append_journal_ingress(&ingress, &validated, "test", "dead-letter")
+            .unwrap();
         assert!(receipt.sequence > 0);
+        mux.workspace_registry.lock().unwrap().set_resource_patch_failure(true).unwrap();
         for _ in 0..crate::workspace_registry::AGENT_HOOK_MAX_RETRY_PAGES_PER_WAKE {
             mux.retry_pending_agent_hooks_for_terminal(&terminal_id).unwrap();
         }
@@ -22995,7 +23040,7 @@ mod tests {
     fn sessionless_legacy_hook_identity_survives_restart() {
         let root = std::env::temp_dir()
             .join(format!("cmux-agent-legacy-marker-{}", crate::workspace_registry::new_uuid_v4()));
-        let mux = Mux::open_persistent("legacy-marker", SurfaceOptions::default(), &root).unwrap();
+        let mux = open_persistent_test_mux("legacy-marker", &root);
         let surface = mux.new_workspace(None, None).unwrap();
         let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
         let ingress = |event: &str| {
@@ -23015,16 +23060,24 @@ mod tests {
         mux.shutdown();
         drop(mux);
 
-        let mux = Mux::open_persistent("legacy-marker", SurfaceOptions::default(), &root).unwrap();
+        let mux = open_persistent_test_mux("legacy-marker", &root);
         assert_eq!(
             mux.agent_hook_fences.lock().unwrap()[&terminal_id].session_id,
             first_session_id
         );
-        let reopened_surface = mux.resource_surface_for_terminal(&terminal_id).unwrap();
         let next = ingress("UserPromptSubmit");
         assert_eq!(next.kind, "agent.turn.started");
-        mux.apply_agent_hook_record(&next, 2).unwrap();
-        assert_eq!(mux.list_agents(Some(reopened_surface), None)[0].state, AgentState::Working);
+        let restored_fence = mux.agent_hook_fences.lock().unwrap()[&terminal_id].clone();
+        assert!(matches!(
+            HookFence::journal_transition(
+                Some(&restored_fence),
+                &terminal_id,
+                None,
+                false,
+                2,
+            ),
+            JournalHookTransition::Apply(session_id) if session_id == first_session_id
+        ));
         mux.shutdown();
         drop(mux);
         std::fs::remove_dir_all(root).unwrap();
@@ -23087,8 +23140,7 @@ mod tests {
     fn new_non_hook_session_can_start_after_hook_session_end() {
         let root = std::env::temp_dir()
             .join(format!("cmux-agent-hook-restart-{}", crate::workspace_registry::new_uuid_v4()));
-        let mux =
-            Mux::open_persistent("agent-hook-restart", SurfaceOptions::default(), &root).unwrap();
+        let mux = open_persistent_test_mux("agent-hook-restart", &root);
         let surface = mux.new_workspace(None, None).unwrap();
         let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
         let hook = |event: &str| {
@@ -23124,15 +23176,14 @@ mod tests {
 
         mux.shutdown();
         drop(mux);
-        let reopened =
-            Mux::open_persistent("agent-hook-restart", SurfaceOptions::default(), &root).unwrap();
-        let reopened_record = &reopened.list_agents(Some(surface.id), None)[0];
-        assert_eq!(reopened_record.source, AgentSource::Socket);
-        assert_eq!(reopened_record.session.as_deref(), Some("new-socket-session"));
-        assert_eq!(
-            crate::resource_api::public_session_snapshot(&reopened).unwrap()["agents"][0]["source_session"],
-            "new-socket-session"
+        let reopened = open_persistent_test_mux("agent-hook-restart", &root);
+        assert!(
+            reopened.list_agents(None, None).is_empty(),
+            "a detached terminal must not remain in the live agent cache"
         );
+        let public = crate::resource_api::public_session_snapshot(&reopened).unwrap();
+        assert_eq!(public["agents"][0]["source"], "socket");
+        assert_eq!(public["agents"][0]["source_session"], "new-socket-session");
         reopened.shutdown();
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -23167,15 +23218,18 @@ mod tests {
         mux.apply_agent_hook_record(&hook("UserPromptSubmit", "new"), 2).unwrap();
         assert_eq!(mux.agent_hook_fences.lock().unwrap()[&terminal_id].session_id, "new");
         assert_eq!(mux.agent_hook_fences.lock().unwrap()[&terminal_id].sequence, 2);
-        assert!(
-            mux.report_agent(
-                surface.id,
-                AgentState::Working,
-                AgentSource::Hook,
-                Some("old".into()),
-            )
-            .is_err()
-        );
+        mux.report_agent(surface.id, AgentState::Blocked, AgentSource::Hook, Some("new".into()))
+            .expect("the active hook identity must remain writable");
+
+        let error = mux
+            .report_agent(surface.id, AgentState::Working, AgentSource::Hook, Some("old".into()))
+            .unwrap_err();
+        assert!(error.to_string().contains("agent_session_conflict"));
+        let record = &mux.list_agents(Some(surface.id), None)[0];
+        assert_eq!(record.state, AgentState::Blocked);
+        assert_eq!(record.session.as_deref(), Some("new"));
+        assert_eq!(mux.agent_hook_fences.lock().unwrap()[&terminal_id].session_id, "new");
+        assert_eq!(mux.agent_hook_fences.lock().unwrap()[&terminal_id].sequence, 2);
     }
 
     #[test]
@@ -23364,8 +23418,7 @@ mod tests {
     fn persistent_hook_watermark_restores_from_journal() {
         let root = std::env::temp_dir()
             .join(format!("cmux-agent-watermark-{}", crate::workspace_registry::new_uuid_v4()));
-        let mux =
-            Mux::open_persistent("agent-watermark", SurfaceOptions::default(), &root).unwrap();
+        let mux = open_persistent_test_mux("agent-watermark", &root);
         let surface = mux.new_workspace(None, None).unwrap();
         let terminal_id = mux.with_state(|state| {
             match state.resource_indexes.content_ids.get(&surface.id).unwrap() {
@@ -23427,11 +23480,10 @@ mod tests {
     }
 
     #[test]
-    fn reopened_ended_hook_fence_rejects_late_events() {
+    fn reopened_ended_hook_fence_rejects_late_transitions() {
         let root = std::env::temp_dir()
             .join(format!("cmux-agent-ended-reopen-{}", crate::workspace_registry::new_uuid_v4()));
-        let mux =
-            Mux::open_persistent("agent-ended-reopen", SurfaceOptions::default(), &root).unwrap();
+        let mux = open_persistent_test_mux("agent-ended-reopen", &root);
         let surface = mux.new_workspace(None, None).unwrap();
         let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
         let ingress = |event: &str, session_id: Option<&str>| {
@@ -23451,23 +23503,27 @@ mod tests {
         mux.shutdown();
         drop(mux);
 
-        let reopened =
-            Mux::open_persistent("agent-ended-reopen", SurfaceOptions::default(), &root).unwrap();
-        let reopened_surface = reopened.resource_surface_for_terminal(&terminal_id).unwrap();
-        assert!(reopened.list_agents(Some(reopened_surface), None).is_empty());
-        assert!(reopened.agent_hook_fences.lock().unwrap()[&terminal_id].ended);
+        let reopened = open_persistent_test_mux("agent-ended-reopen", &root);
+        assert!(reopened.list_agents(None, None).is_empty());
+        let fence = reopened.agent_hook_fences.lock().unwrap()[&terminal_id].clone();
+        assert_eq!(fence.session_id, "ended-session");
+        assert_eq!(fence.sequence, 2);
+        assert!(fence.ended);
 
-        // Events from the ended identity, a different identity, and a
-        // session-less adapter must all remain behind the durable fence.
-        reopened
-            .apply_agent_hook_record(&ingress("UserPromptSubmit", Some("ended-session")), 3)
-            .unwrap();
-        reopened
-            .apply_agent_hook_record(&ingress("UserPromptSubmit", Some("different-session")), 4)
-            .unwrap();
-        reopened.apply_agent_hook_record(&ingress("UserPromptSubmit", None), 5).unwrap();
-        assert!(reopened.list_agents(Some(reopened_surface), None).is_empty());
-        assert_eq!(reopened.agent_hook_fences.lock().unwrap()[&terminal_id].sequence, 2);
+        for (session_id, sequence) in
+            [(Some("ended-session"), 3), (Some("different-session"), 4), (None, 5)]
+        {
+            assert!(matches!(
+                HookFence::journal_transition(
+                    Some(&fence),
+                    &terminal_id,
+                    session_id,
+                    false,
+                    sequence,
+                ),
+                JournalHookTransition::Ignore
+            ));
+        }
         reopened.shutdown();
         drop(reopened);
         std::fs::remove_dir_all(root).unwrap();

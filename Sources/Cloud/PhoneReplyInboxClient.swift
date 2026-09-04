@@ -12,9 +12,33 @@ struct PhoneReplyRecord: Decodable, Equatable, Sendable {
     let workspaceId: String
     let surfaceId: String
     let notificationId: String
+    /// Whether the notification may follow its surface to a new workspace.
+    /// Older parked records predate this field and remain retargetable.
+    let retargetsToLiveSurfaceOwner: Bool
     let text: String
     let createdAtMs: UInt64
     let expiresAtMs: UInt64
+
+    private enum CodingKeys: String, CodingKey {
+        case replyId, macDeviceId, workspaceId, surfaceId, notificationId
+        case retargetsToLiveSurfaceOwner, text, createdAtMs, expiresAtMs
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        replyId = try container.decode(String.self, forKey: .replyId)
+        macDeviceId = try container.decode(String.self, forKey: .macDeviceId)
+        workspaceId = try container.decode(String.self, forKey: .workspaceId)
+        surfaceId = try container.decode(String.self, forKey: .surfaceId)
+        notificationId = try container.decode(String.self, forKey: .notificationId)
+        retargetsToLiveSurfaceOwner = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .retargetsToLiveSurfaceOwner
+        ) ?? true
+        text = try container.decode(String.self, forKey: .text)
+        createdAtMs = try container.decode(UInt64.self, forKey: .createdAtMs)
+        expiresAtMs = try container.decode(UInt64.self, forKey: .expiresAtMs)
+    }
 }
 
 /// HTTPS half of the phone reply inbox: fetch this Mac's pending replies and
