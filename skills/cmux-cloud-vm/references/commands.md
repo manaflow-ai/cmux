@@ -9,8 +9,8 @@ cmux auth status                       # signed in?
 cmux vm ls                             # NAME / LABEL / STATE / PROVIDER / IMAGE + plan meter (+ free-window countdown)
 cmux vm ls --json                      # {vms: [{id, status, image, createdAt, freeAccessExpiresAt}], limits: {maxActiveVms, planId, freeAccessWindowDays, freeAccessExpiresAt}}
 cmux vpn status                        # this build's WireGuard tunnel to its private machine network (machines open no public port): up, down, or up for another enrollment (stale)
-cmux vpn up                            # enroll this Mac and bring the build-scoped tunnel up (sudo); a stale tunnel (rotated keys) is replaced. Stable production keeps `cmux`; nightly, staging, and tagged dev builds get distinct interfaces and credential files, so they can be up together
-cmux vpn down                          # take this build's tunnel down (sudo)
+cmux vpn up                            # run as your user (cmux invokes sudo); enroll this Mac and bring the build-scoped tunnel up. A stale tunnel (rotated keys) is replaced. Stable production keeps `cmux`; nightly, staging, and tagged dev builds get distinct interfaces and credential files, so they can be up together
+cmux vpn down                          # run as your user; cmux invokes sudo to take this build's tunnel down
 cmux vm tree                           # the surface catalog: This Mac (terminals by workspace, browsers), then every machine → Workspaces, Ports, VNC Displays, Terminals
 cmux vm tree <id> --refresh            # one machine (`local` for This Mac), re-synced first
 cmux vm workspace new <id> [--name n]  # a new cmux-tui workspace on the machine (⌘N there), opened as a new local workspace

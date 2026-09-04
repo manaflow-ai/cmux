@@ -21,9 +21,9 @@ import Security
 /// Bringing the interface up needs privileges the app process does not have,
 /// and there are two backends for it:
 ///
-/// - **wg-quick** (`cmux vpn up`) — the shipping path. The CLI runs
-///   `sudo wg-quick up` against the config this manager wrote; sudo in the
-///   user's own terminal is the honest privilege prompt.
+/// - **wg-quick** (`cmux vpn up`) — the shipping path. Run the CLI as the
+///   signed-in user; it invokes `sudo wg-quick up` against the config this
+///   manager wrote while preserving that user's build-scoped app socket.
 /// - **NetworkExtension** — the long-term path, pending the
 ///   `com.apple.developer.networking.networkextension` entitlement. When a
 ///   build carries it, the app can own the tunnel as a real macOS VPN with no

@@ -9,13 +9,15 @@ import Foundation
 /// inbound port, so their session daemons are reachable only through this
 /// tunnel. The cmux app owns enrollment (keypair, device identity, the
 /// build-scoped config file at `~/.cmuxterm/wireguard/<interface>.conf`); this
-/// command owns the
-/// privileged bring-up, because creating a utun and installing routes needs
-/// root and `sudo` in the user's own terminal is the honest way to ask.
+/// command owns the privileged bring-up, because creating a utun and installing
+/// routes needs root. Invoke `cmux vpn` as the signed-in user; it runs the
+/// narrowly-scoped `sudo` calls itself so the app socket and HOME stay tied to
+/// the selected build.
 ///
 /// Two backends, one command:
 /// - **wg-quick** (shipping): `up` runs `sudo wg-quick up` on the app-written
-///   config. Requires `brew install wireguard-tools`.
+///   config (do not prefix the `cmux` command with `sudo`). Requires `brew
+///   install wireguard-tools`.
 /// - **NetworkExtension** (long-term, entitlement-gated): when a build carries
 ///   the packet-tunnel entitlement, the app manages the tunnel itself and
 ///   `cmux vpn up` will hand off to it instead of shelling out. The socket

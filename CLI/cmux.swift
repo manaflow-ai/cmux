@@ -18627,8 +18627,9 @@ struct CMUXCLI {
             exec, and port verbs need this tunnel up.
 
             up      Enroll this Mac (first run), bring the tunnel up, and sync
-                    internal hostnames. Uses wg-quick and prompts for sudo;
-                    install with `brew install wireguard-tools`.
+                    internal hostnames. Run `cmux vpn up` as your user (do not
+                    prefix it with `sudo`); cmux invokes sudo for wg-quick.
+                    Install it with `brew install wireguard-tools`.
             down    Take the tunnel down. Enrollment is kept.
             status  Show tunnel state, config path, and backend.
             revoke  Take the tunnel down, unenroll this Mac, and clear its
