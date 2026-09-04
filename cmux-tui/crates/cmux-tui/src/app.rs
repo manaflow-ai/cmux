@@ -32631,10 +32631,9 @@ mod tests {
         assert!(app.drag.is_none(), "the old workspace gesture cannot cross profiles");
         assert!(app.pending_pointer_motion.is_none());
         assert_eq!(app.pointer_focus_generation, generation.wrapping_add(1));
-        assert!(!app
-            .deferred_input
-            .iter()
-            .any(|input| matches!(input.event, TerminalInput::Mouse(_))));
+        assert!(
+            !app.deferred_input.iter().any(|input| matches!(input.event, TerminalInput::Mouse(_)))
+        );
 
         mux.close_surface(surface.id).unwrap();
     }
