@@ -35,13 +35,12 @@ enum SidebarWorkspaceRenderItem {
     static func renderItems(
         tabs: [Workspace],
         groupsById: [UUID: WorkspaceGroup],
-        orderedGroups: [WorkspaceGroup]? = nil
+        orderedGroups: [WorkspaceGroup]? = nil,
+        effectiveMembership: [UUID: UUID?]? = nil
     ) -> [SidebarWorkspaceRenderItem] {
         guard !tabs.isEmpty || !groupsById.isEmpty else { return [] }
-        let effectiveMembershipByWorkspaceId = effectiveGroupIdByWorkspaceId(
-            tabs: tabs,
-            groupsById: groupsById
-        )
+        let effectiveMembershipByWorkspaceId = effectiveMembership
+            ?? effectiveGroupIdByWorkspaceId(tabs: tabs, groupsById: groupsById)
         var items: [SidebarWorkspaceRenderItem] = []
         items.reserveCapacity(tabs.count + groupsById.count)
         var lastEmittedGroupId: UUID? = nil
@@ -245,16 +244,16 @@ enum SidebarWorkspaceRenderItem {
     /// Builds the member index using effective, renderable group membership.
     static func memberWorkspaceIdsByGroupId(
         tabs: [Workspace],
-        groupsById: [UUID: WorkspaceGroup]?
+        groupsById: [UUID: WorkspaceGroup]?,
+        effectiveMembership: [UUID: UUID?]? = nil
     ) -> [UUID: [UUID]] {
         var result: [UUID: [UUID]] = [:]
-        let effectiveMembership = groupsById.map {
-            effectiveGroupIdByWorkspaceId(tabs: tabs, groupsById: $0)
-        }
+        let effectiveMembershipByWorkspaceId = effectiveMembership
+            ?? groupsById.map { effectiveGroupIdByWorkspaceId(tabs: tabs, groupsById: $0) }
         for tab in tabs {
             let groupId: UUID?
-            if let effectiveMembership {
-                groupId = effectiveMembership[tab.id] ?? nil
+            if let effectiveMembershipByWorkspaceId {
+                groupId = effectiveMembershipByWorkspaceId[tab.id] ?? nil
             } else {
                 groupId = tab.groupId
             }

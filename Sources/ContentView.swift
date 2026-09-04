@@ -11399,7 +11399,8 @@ struct VerticalTabsSidebar: View, Equatable {
         )
         let memberWorkspaceIdsByGroupId = SidebarWorkspaceRenderItem.memberWorkspaceIdsByGroupId(
             tabs: tabs,
-            groupsById: workspaceGroupById
+            groupsById: workspaceGroupById,
+            effectiveMembership: workspaceGroupIdByWorkspaceId
         )
         let workspaceGroupMenuSnapshot = WorkspaceGroupMenuSnapshot(
             items: workspaceGroups.map { WorkspaceGroupMenuSnapshot.Item(id: $0.id, name: $0.name) }
@@ -11407,7 +11408,8 @@ struct VerticalTabsSidebar: View, Equatable {
         let workspaceRenderItems = SidebarWorkspaceRenderItem.renderItems(
             tabs: tabs,
             groupsById: workspaceGroupById,
-            orderedGroups: workspaceGroups
+            orderedGroups: workspaceGroups,
+            effectiveMembership: workspaceGroupIdByWorkspaceId
         )
         let numberedWorkspaceIndexById = SidebarWorkspaceRenderItem.numberedWorkspaceIndexById(
             from: workspaceRenderItems
