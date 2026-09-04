@@ -486,6 +486,8 @@ jobs:
             -p cmux-tui-core --lib normalize_long_windows
           cargo test --release --locked --target x86_64-pc-windows-gnu \
             -p cmux-tui-core --lib registry_opens_and_persists_under_a_long_windows_state_root
+          cargo test --release --locked --target x86_64-pc-windows-gnu \
+            -p cmux-tui-core --lib socket_start_lock_acquires_a_new_lock_file
 
       - name: Verify long Windows state path
         shell: bash

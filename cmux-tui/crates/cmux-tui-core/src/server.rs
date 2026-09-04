@@ -13363,6 +13363,17 @@ mod tests {
         );
     }
 
+    #[test]
+    fn socket_start_lock_acquires_a_new_lock_file() {
+        let dir = TestSocketDir::create("start-lock-new-file");
+        let socket = dir.path().join("mux.sock");
+        let lock = dir.path().join("mux.sock.spawn-lock");
+
+        let _guard = SocketStartLock::acquire(&socket, Instant::now()).unwrap();
+
+        assert!(lock.is_file());
+    }
+
     #[cfg(unix)]
     #[test]
     fn socket_start_lock_rejects_a_fifo_without_blocking() {
