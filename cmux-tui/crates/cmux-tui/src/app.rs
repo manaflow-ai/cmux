@@ -4534,6 +4534,7 @@ pub enum Hit {
     /// A visible row in the built-in file browser.
     SidebarFile {
         index: usize,
+        token: u64,
     },
     /// The active filter editor in the built-in files sidebar footer.
     SidebarFilterInput,
@@ -7896,9 +7897,9 @@ pub struct App {
     pub machine_sidebar_width: u16,
     pub tabs_sidebar_width: u16,
     pub sidebar_layout: SidebarLayout,
-    /// Projection identity that produced the committed sidebar layout. The
-    /// hysteresis solver may reuse a prior layout only for the same profile
-    /// and view topology; a profile switch must pack its new rails afresh.
+    /// Inputs that produced the committed sidebar layout. The hysteresis
+    /// solver may reuse a prior layout only when its full presentation
+    /// topology and machine availability are unchanged.
     sidebar_layout_reuse_spec: Option<SidebarLayoutReuseSpec>,
     pub sidebar_plugin_surface: Option<SurfaceId>,
     pub sidebar_plugin_error: Option<String>,
