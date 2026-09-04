@@ -34,6 +34,10 @@ fun PairingScannerScreen(
         if (state is PairingState.Success) onPaired()
     }
 
+    if (BuildConfig.DEBUG) {
+        LaunchedEffect(Unit) { viewModel.connectDirect() }
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
         when (val s = state) {
             is PairingState.Idle, is PairingState.Scanning -> {
