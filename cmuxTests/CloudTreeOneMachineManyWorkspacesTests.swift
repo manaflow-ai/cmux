@@ -573,6 +573,26 @@ struct CloudTreeOneMachineManyWorkspacesTests {
         #expect(!result.stdout.contains("      ○ term_exited"), "an exited legacy terminal stays in the pool")
     }
 
+    @Test("CLI does not offer surface open for a stopped legacy terminal")
+    func cliDoesNotOfferOpenForStoppedLegacyTerminal() throws {
+        let machine: [String: Any] = [
+            "id": machineID,
+            "status": "running",
+            "link_state": "connected",
+        ]
+        let stopped: [String: Any] = [
+            "id": "\(machineID)/terminal/term_stopped",
+            "key": "term_stopped",
+            "kind": "terminal",
+            "running": false,
+        ]
+
+        let result = try runCLICloudTree(machine: machine, resources: [stopped])
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout.contains("term_stopped"))
+        #expect(!result.stdout.contains("cmux surface open"))
+    }
+
     @Test("Sidebar keeps machine-owned terminals visible for unavailable cloud links")
     func sidebarKeepsTerminalsWhenLinkUnavailable() throws {
         let terminal = terminal("term_sleeping", in: [])
