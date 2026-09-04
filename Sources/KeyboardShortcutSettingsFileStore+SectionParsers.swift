@@ -8,10 +8,62 @@ extension CmuxSettingsFileStore {
         sourcePath: String,
         snapshot: inout ResolvedSettingsSnapshot
     ) {
+        let fileEditorSettings = FilePreviewEditorSettings(defaults: .standard)
         if let value = jsonBool(section["wordWrap"]) {
             snapshot.managedUserDefaults[FilePreviewWordWrapSettings.key] = .bool(value)
         } else if section.keys.contains("wordWrap") {
             logInvalid("fileEditor.wordWrap", sourcePath: sourcePath)
+        }
+        parseFileEditorBool(
+            section,
+            jsonKey: "syntaxHighlighting",
+            defaultsKey: fileEditorSettings.catalog.syntaxHighlighting.userDefaultsKey,
+            sourcePath: sourcePath,
+            snapshot: &snapshot
+        )
+        parseFileEditorBool(
+            section,
+            jsonKey: "lineNumbers",
+            defaultsKey: fileEditorSettings.catalog.lineNumbers.userDefaultsKey,
+            sourcePath: sourcePath,
+            snapshot: &snapshot
+        )
+        parseFileEditorBool(
+            section,
+            jsonKey: "indentGuides",
+            defaultsKey: fileEditorSettings.catalog.indentGuides.userDefaultsKey,
+            sourcePath: sourcePath,
+            snapshot: &snapshot
+        )
+        parseFileEditorBool(
+            section,
+            jsonKey: "currentLineHighlight",
+            defaultsKey: fileEditorSettings.catalog.currentLineHighlight.userDefaultsKey,
+            sourcePath: sourcePath,
+            snapshot: &snapshot
+        )
+        if let value = jsonInt(section["tabWidth"]) {
+            if fileEditorSettings.catalog.tabWidthRange.contains(value) {
+                snapshot.managedUserDefaults[fileEditorSettings.catalog.tabWidth.userDefaultsKey] = .int(value)
+            } else {
+                logInvalid("fileEditor.tabWidth", sourcePath: sourcePath)
+            }
+        } else if section.keys.contains("tabWidth") {
+            logInvalid("fileEditor.tabWidth", sourcePath: sourcePath)
+        }
+    }
+
+    private func parseFileEditorBool(
+        _ section: [String: Any],
+        jsonKey: String,
+        defaultsKey: String,
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        if let value = jsonBool(section[jsonKey]) {
+            snapshot.managedUserDefaults[defaultsKey] = .bool(value)
+        } else if section.keys.contains(jsonKey) {
+            logInvalid("fileEditor.\(jsonKey)", sourcePath: sourcePath)
         }
     }
 
