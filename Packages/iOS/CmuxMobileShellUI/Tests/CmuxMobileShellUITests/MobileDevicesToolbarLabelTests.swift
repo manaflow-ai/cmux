@@ -31,5 +31,14 @@ import Testing
             hasOutdatedListAuth: false
         ))
     }
+
+    @Test func noComputersHaveNoToolbarIndicator() {
+        #expect(!MobileDevicesToolbarLabel.warningVisible(
+            hasGateWarning: true,
+            hasOutdatedListAuth: true,
+            hasUnverifiedListAuth: true,
+            hasComputers: false
+        ))
+    }
 }
 #endif

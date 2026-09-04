@@ -7,27 +7,44 @@ import SwiftUI
 /// standard SF Symbol overlay so the action remains recognizable while making
 /// a blocked Mac discoverable before the user opens the Computers sheet.
 struct MobileDevicesToolbarLabel: View {
-    /// A gate rejection observed by the shell store. The list-auth projection
-    /// is also checked here because it can identify an outdated or unverified
-    /// Mac before a connection attempt is made.
-    let hasGateWarning: Bool
+    /// Macs whose last authenticated attempt was rejected by the version gate.
+    let gateWarningDeviceIDs: Set<String>
+    /// The physical Macs represented by the Computers sheet opened by this
+    /// button. List-auth state is filtered to this set so an unrelated stale
+    /// entry cannot light the toolbar badge.
+    let computerDeviceIDs: Set<String>
 
     private var showsWarning: Bool {
+        let listAuth = MobileMacListAuthState.shared
+        let hasOutdatedListAuth = computerDeviceIDs.contains { deviceID in
+            listAuth.entry(deviceID: deviceID)?.isOutdated == true
+        }
+        let hasUnverifiedListAuth = computerDeviceIDs.contains { deviceID in
+            listAuth.entry(deviceID: deviceID)?.status == "seeded"
+        }
         Self.warningVisible(
-            hasGateWarning: hasGateWarning,
-            hasOutdatedListAuth: MobileMacListAuthState.shared.entriesByDeviceID.values
-                .contains(where: \.isOutdated),
-            hasUnverifiedListAuth: MobileMacListAuthState.shared.entriesByDeviceID.values
-                .contains(where: { $0.status == "seeded" })
+            hasGateWarning: !gateWarningDeviceIDs.isDisjoint(with: computerDeviceIDs),
+            hasOutdatedListAuth: hasOutdatedListAuth,
+            hasUnverifiedListAuth: hasUnverifiedListAuth,
+            hasComputers: !computerDeviceIDs.isEmpty
         )
+    }
+
+    init(
+        gateWarningDeviceIDs: Set<String> = [],
+        computerDeviceIDs: Set<String> = []
+    ) {
+        self.gateWarningDeviceIDs = gateWarningDeviceIDs
+        self.computerDeviceIDs = computerDeviceIDs
     }
 
     static func warningVisible(
         hasGateWarning: Bool,
         hasOutdatedListAuth: Bool,
-        hasUnverifiedListAuth: Bool = false
+        hasUnverifiedListAuth: Bool = false,
+        hasComputers: Bool = true
     ) -> Bool {
-        hasGateWarning || hasOutdatedListAuth || hasUnverifiedListAuth
+        hasComputers && (hasGateWarning || hasOutdatedListAuth || hasUnverifiedListAuth)
     }
 
     var body: some View {
