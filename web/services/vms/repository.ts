@@ -2251,18 +2251,25 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
         ...DEFAULT_VM_RESOURCE_RESERVATION,
         diskMb: PLAN_SHARED_DISK_MB,
       };
+      const sourceHasReservation = hasVmResourceReservationMetadata(event.sourceMetadata);
       const source = vmResourceReservationFromMetadata(event.sourceMetadata, conservativeFallback);
       const recordedVcpus = positiveReservationInteger(event.metadata?.vcpus);
       const recordedMemoryMb = positiveReservationInteger(event.metadata?.memoryMb);
       const recordedDiskMb = positiveReservationInteger(event.metadata?.diskMb);
       return {
-        // New snapshot events record the provider-confirmed shape. Keep the
-        // source claim as a floor so an older or partial provider report never
-        // lowers a durable reservation. Older events have no shape fields, so
-        // the conservative fallback claims the complete shared pool.
-        vcpus: Math.max(source.vcpus, recordedVcpus ?? conservativeFallback.vcpus),
-        memoryMb: Math.max(source.memoryMb, recordedMemoryMb ?? conservativeFallback.memoryMb),
-        diskMb: Math.max(source.diskMb, recordedDiskMb ?? PLAN_SHARED_DISK_MB),
+        // New snapshot events record the provider-confirmed shape. For a
+        // legacy source, a recorded dimension is authoritative; an absent
+        // dimension uses the conservative pool fallback. A valid source claim
+        // remains a floor because it can intentionally exceed provider shape.
+        vcpus: sourceHasReservation
+          ? Math.max(source.vcpus, recordedVcpus ?? source.vcpus)
+          : recordedVcpus ?? conservativeFallback.vcpus,
+        memoryMb: sourceHasReservation
+          ? Math.max(source.memoryMb, recordedMemoryMb ?? source.memoryMb)
+          : recordedMemoryMb ?? conservativeFallback.memoryMb,
+        diskMb: sourceHasReservation
+          ? Math.max(source.diskMb, recordedDiskMb ?? source.diskMb)
+          : recordedDiskMb ?? PLAN_SHARED_DISK_MB,
       };
     }),
 
