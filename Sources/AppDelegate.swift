@@ -1739,14 +1739,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
                 guard let self else { return }
-                if NSApp.windows.isEmpty {
+                // The SwiftUI WindowGroup's hidden bootstrap window may still
+                // be present while the registered cmux.main window is being
+                // created. Never treat that transient window as the UI-test
+                // target: doing so can move/close the bootstrap window and
+                // leave the real terminal window absent.
+                if self.mainWindowsForVisibilityController().isEmpty {
                     self.openNewMainWindow(nil)
                 }
                 self.moveUITestWindowToTargetDisplayIfNeeded()
                 NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
                 // On headless CI runners, activate() silently fails (no GUI session).
                 // Force windows visible so the terminal surface starts rendering.
-                for window in NSApp.windows {
+                for window in self.mainWindowsForVisibilityController() {
                     window.orderFrontRegardless()
                 }
                 self.writeUITestDiagnosticsIfNeeded(stage: "afterForceWindow")
@@ -1975,7 +1980,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return
         }
 
-        guard let window = NSApp.windows.first else {
+        guard let window = mainWindowsForVisibilityController().first else {
             if attempt < 20 {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
                     self?.moveUITestWindowToTargetDisplayIfNeeded(attempt: attempt + 1)
@@ -6372,69 +6377,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return nil
     }
 
-    func refreshTerminalSurfacesAfterGhosttyConfigReload(
-        source: String,
-        preferredColorScheme: GhosttyConfig.ColorSchemePreference
-    ) {
-        var refreshedCount = 0
-        forEachTerminalPanel { terminalPanel in
-            let liveSurface = terminalPanel.surface.liveSurfaceForGhosttyAccess(
-                reason: "appDelegate.refreshAfterGhosttyConfigReload"
-            )
-            GhosttySurfaceConfigurationRefresh.applyAfterAppConfigReload(
-                to: liveSurface,
-                source: source,
-                reloadSurfaceConfiguration: { surface, soft, source in
-                    GhosttyApp.shared.reloadSurfaceConfiguration(
-                        surface,
-                        soft: soft,
-                        source: source,
-                        preferredColorScheme: preferredColorScheme
-                    )
-                },
-                applySurfaceColorScheme: {
-                    terminalPanel.hostedView.reapplySurfaceColorSchemeAfterGhosttyConfigReload(
-                        preferredColorScheme: preferredColorScheme
-                    )
-                },
-                refreshHostBackground: {
-                    terminalPanel.hostedView.refreshHostBackgroundAfterGhosttyConfigReload()
-                },
-                forceRefresh: { reason in
-                    terminalPanel.surface.forceRefresh(reason: reason)
-                }
-            )
-            refreshedCount += 1
-        }
-#if DEBUG
-        cmuxDebugLog("reload.config.surfaceRefresh source=\(source) count=\(refreshedCount)")
-#endif
-    }
-
-    private func forEachTerminalPanel(_ body: (TerminalPanel) -> Void) {
-        var seenManagers: Set<ObjectIdentifier> = []
-        var seenTerminalIDs: Set<UUID> = []
-
-        func visitManager(_ manager: TabManager?) {
-            guard let manager else { return }
-            let managerId = ObjectIdentifier(manager)
-            guard seenManagers.insert(managerId).inserted else { return }
-            for workspace in manager.tabs {
-                for panelID in workspace.panels.keys {
-                    for terminalPanel in workspace.terminalPanels(projectedFromPanelID: panelID)
-                    where seenTerminalIDs.insert(terminalPanel.id).inserted {
-                        body(terminalPanel)
-                    }
-                }
-            }
-        }
-
-        visitManager(tabManager)
-        for context in mainWindowContexts.values {
-            visitManager(context.tabManager)
-        }
-    }
-
     func focusMainWindow(windowId: UUID) -> Bool {
         let window: NSWindow?
         if let route = recoverableMainWindowRoute(windowId: windowId) {
@@ -10614,11 +10556,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 windows.append(window)
             }
         }
-        for window in NSApp.windows where isMainTerminalWindow(window) {
-            if !windows.contains(where: { $0 === window }) {
-                windows.append(window)
-            }
-        }
+        // AppKit's SwiftUI WindowGroup briefly exposes an unregistered
+        // bootstrap window with the bare `cmux.main` identifier. It is
+        // intentionally absent from this context-owned list so UI-test
+        // recovery can create the real terminal window.
         return windows
     }
 
@@ -14083,7 +14024,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         reloadSettingsFromFile: Bool = true,
         preferredColorScheme: GhosttyConfig.ColorSchemePreference? = nil,
         completion:
-            GhosttyApp.ConfigurationReloadCompletion? = nil
+            GhosttyApp.ConfigurationReloadCompletion? = nil,
+        commitCompletion:
+            GhosttyApp.ConfigurationReloadCommitCompletion? = nil
     ) -> Bool {
 #if DEBUG
         cmuxDebugLog("reload.config.request source=\(source) soft=\(soft)")
@@ -14093,7 +14036,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             source: source,
             reloadSettingsFromFile: reloadSettingsFromFile,
             preferredColorScheme: preferredColorScheme,
-            completion: completion
+            completion: completion,
+            commitCompletion: commitCompletion
         )
     }
 

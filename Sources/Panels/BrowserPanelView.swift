@@ -338,8 +338,9 @@ struct BrowserPanelView: View {
     @State private var browserChromeStyle: BrowserChromeStyle
     // The browser top chrome scales with the tab bar font size so tabs and the
     // browser toolbar share one consistent scale. Seeded from the cached config
-    // and refreshed live on `.ghosttyConfigDidReload` (same path the tab strip
-    // and terminal panels use). See `BrowserChromeMetrics`.
+    // and refreshed live on `.ghosttySurfaceTabBarFontSizeDidChange` (same
+    // scoped metric path the tab strip and terminal panels use). See
+    // `BrowserChromeMetrics`.
     @State private var tabBarFontSize: CGFloat = GhosttyConfig.loadForCmux(globalFontMagnificationPercent: GlobalFontMagnification.storedPercent).surfaceTabBarFontSize
     // `.onAppear` is not a reliable once-signal for a portal-hosted pane: it can
     // re-fire on every CoreAnimation commit (issue #5303). This guards the first-
@@ -876,6 +877,7 @@ struct BrowserPanelView: View {
         )
         if visibleInUI {
             panel.cancelPendingDeveloperToolsVisibilityLossCheck()
+            refreshBrowserChromeStyle()
             return
         }
         // Pane/workspace churn can briefly mark the browser hidden before the
@@ -1080,7 +1082,7 @@ struct BrowserPanelView: View {
         .onReceive(NotificationCenter.default.publisher(for: .webViewDidReceiveClick)) { notification in
             handleBrowserWebViewClickIntent(notification)
         }
-        .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: .ghosttySurfaceTabBarFontSizeDidChange)) { _ in
             tabBarFontSize = GhosttyConfig.loadForCmux(globalFontMagnificationPercent: GlobalFontMagnification.storedPercent).surfaceTabBarFontSize
         }
         .onAppear {
@@ -1154,6 +1156,7 @@ struct BrowserPanelView: View {
             handleExternalAddressBarBlur(notification)
         }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in
+            guard isVisibleInUI else { return }
             refreshBrowserChromeStyle()
         }
         // Keep every SwiftUI browser control on the resolved cmux surface

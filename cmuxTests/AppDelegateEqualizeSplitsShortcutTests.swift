@@ -5638,8 +5638,8 @@ final class AppDelegateEqualizeSplitsShortcutTests {
         let request = coordinator.takePendingRequest()
         XCTAssertEqual(
             request?.completions.count,
-            maximumCompletionCount,
-            "Coalesced reloads must retain a bounded number of completion closures"
+            maximumCompletionCount - 1,
+            "Coalesced reloads must retain bounded optional completions while reserving a commit slot"
         )
 
         for index in 100..<200 {
@@ -5662,6 +5662,41 @@ final class AppDelegateEqualizeSplitsShortcutTests {
             0,
             "The completion bound must include the active reload, not only the pending request"
         )
+    }
+
+    @Test
+    func testConfigurationReloadCoordinatorReservesCommitCompletionCapacity() {
+        let coordinator =
+            TerminalConfigurationReloadCoordinator(
+                maximumOutstandingCompletionCount: 2
+            )
+
+        let finalAdmission = coordinator.enqueue(
+            TerminalPendingConfigurationReload(
+                soft: true,
+                source: "test.commitReservation.final",
+                reloadSettingsFromFile: false,
+                preferredColorScheme: nil,
+                completions: [{ }, { }]
+            )
+        )
+        XCTAssertFalse(finalAdmission.retainedAllCompletions)
+
+        let commitAdmission = coordinator.enqueue(
+            TerminalPendingConfigurationReload(
+                soft: true,
+                source: "test.commitReservation.commit",
+                reloadSettingsFromFile: false,
+                preferredColorScheme: nil,
+                completions: [],
+                commitCompletions: [{ _ in }]
+            )
+        )
+        XCTAssertTrue(commitAdmission.retainedAllCompletions)
+
+        let request = coordinator.takePendingRequest()
+        XCTAssertEqual(request?.completions.count, 1)
+        XCTAssertEqual(request?.commitCompletions.count, 1)
     }
 
     @Test

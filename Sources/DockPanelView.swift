@@ -99,14 +99,14 @@ struct DockPanelView: View {
             store.setRootDirectory(rootDirectory)
             store.setActive(isVisible: isSidebarVisible, mode: mode, visibilityHostId: visibilityHostId)
         }
-        .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
-            refreshAppearance(reason: "ghosttyConfigDidReload")
-        }
         .onReceive(NotificationCenter.default.publisher(for: PaneChromeSettings.didChangeNotification)) { _ in
             refreshAppearance(reason: "paneChromeSettingsDidChange")
         }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in
             refreshAppearance(reason: "ghosttyDefaultBackgroundDidChange")
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .ghosttyChromeConfigurationDidChange)) { _ in
+            refreshAppearance(reason: "ghosttyChromeConfigurationDidChange")
         }
         .onChange(of: windowAppearance.resolvedColorScheme) { _, _ in
             // The Dock's Bonsplit controller is an AppKit subtree and does not

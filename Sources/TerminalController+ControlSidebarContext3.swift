@@ -355,18 +355,25 @@ extension TerminalController {
 
     @discardableResult
     func controlSidebarReloadConfigWithAdmission(
+        /// Runs after surface propagation completes.
         completion:
-            GhosttyApp.ConfigurationReloadCompletion? = nil
+            GhosttyApp.ConfigurationReloadCompletion? = nil,
+        /// Runs as soon as the validated app configuration commits. `false`
+        /// means preparation failed and no new configuration was committed.
+        commitCompletion:
+            GhosttyApp.ConfigurationReloadCommitCompletion? = nil
     ) -> Bool {
         if let appDelegate = AppDelegate.shared {
             return appDelegate.reloadConfiguration(
                 source: "socket.reload_config",
-                completion: completion
+                completion: completion,
+                commitCompletion: commitCompletion
             )
         }
         return GhosttyApp.shared.reloadConfiguration(
             source: "socket.reload_config",
-            completion: completion
+            completion: completion,
+            commitCompletion: commitCompletion
         )
     }
 
