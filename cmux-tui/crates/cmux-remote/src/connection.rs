@@ -960,7 +960,7 @@ async fn establish_physical_links(
     let subsequent_auth = match &config.auth {
         ClientAuthMode::Invitation { .. } => ClientAuthMode::Enrolled,
         ClientAuthMode::Grant { token } => ClientAuthMode::Grant { token: token.clone() },
-        ref other => other.clone(),
+        other => other.clone(),
     };
     let mut pending = FuturesUnordered::new();
     for lanes in bindings.into_iter().skip(1) {
