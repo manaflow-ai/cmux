@@ -1614,7 +1614,10 @@ fn run_main() {
         None => run_server(args, provider_workspace_authority, config),
     };
     if let Err(e) = result {
-        crate::client_log::stderr_log!("startup", "cmux-tui: {e}");
+        if session::is_expected_remote_shutdown(&e) {
+            return;
+        }
+        crate::client_log::stderr_log!("startup", "cmux-tui: {e:#}");
         client_log::exit(1);
     }
 }
