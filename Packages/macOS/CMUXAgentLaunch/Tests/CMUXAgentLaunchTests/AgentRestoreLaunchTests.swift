@@ -263,6 +263,38 @@ import Testing
         #expect(invocation.environment["CMUX_CUSTOM_CODEX_PATH"] == executable)
     }
 
+    @Test func preparedArgumentsOverrideSynthesisForAnEmptyCapture() throws {
+        let preparedArguments = [
+            "/opt/custom-gemini",
+            "--model",
+            "gemini-2.5-pro",
+        ]
+        let request = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: "gemini",
+            checkpointID: "gemini-session-123",
+            source: "agent-hook",
+            workingDirectory: "/tmp/work",
+            environment: [:],
+            launchCommand: AgentLaunchCommand(
+                executablePath: "/opt/captured-gemini",
+                arguments: [],
+                workingDirectory: "/tmp/work"
+            ),
+            preparedArguments: preparedArguments,
+            observedPermissionMode: nil
+        )
+
+        let invocation = try #require(
+            AgentRestorePlanner(isExecutableFile: { _ in false }).invocation(
+                for: request,
+                ambientEnvironment: ["PATH": "/usr/bin:/bin"]
+            )
+        )
+
+        #expect(invocation.arguments == preparedArguments)
+    }
+
     @Test func directBindingPreservesStructuredArgumentsBeyondFormerInlineBudget() throws {
         let hazards = [
             "space value",

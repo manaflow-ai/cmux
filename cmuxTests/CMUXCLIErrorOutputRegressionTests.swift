@@ -452,6 +452,67 @@ import Testing
         XCTAssertEqual(clearParams["agent_session_ended"] as? Bool, true)
     }
 
+    @Test func testRestoreUsesPreparedArgumentsWhenLaunchCaptureHasNoArgv() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux restore prepared argv \(UUID().uuidString)", isDirectory: true)
+        let executable = root.appendingPathComponent("prepared-agent", isDirectory: false)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try """
+        #!/bin/sh
+        printf 'prepared=%s\\n' "$1"
+        printf 'environment=%s\\n' "$REJECTED_CAPTURE_ENV"
+        """.write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let checkpointID = "prepared-\(UUID().uuidString)"
+        let response = try restoreResponse(result: [
+            "restore_record": [
+                "mode": "direct",
+                "kind": "custom",
+                "checkpoint_id": checkpointID,
+                "environment": [:],
+                // A rejected capture has no replayable argv, but the producer
+                // may still provide a prepared argv for this restore request.
+                "launch_command": [
+                    "launcher": "custom",
+                    "arguments": [],
+                    "source": "rejected",
+                    "rejectionReason": "argvDecodeFailed",
+                    "environment": ["REJECTED_CAPTURE_ENV": "preserved"],
+                ],
+                "prepared_arguments": [executable.path, "from-prepared"],
+            ],
+        ])
+        let socketPath = "/tmp/cmux-restore-prepared-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(path: socketPath, response: response)
+        defer { responder.stop() }
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["HOME"] = root.path
+        environment["CFFIXED_USER_HOME"] = root.path
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["restore", "custom", checkpointID],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.diagnostics)
+        XCTAssertEqual(result.status, 0, result.diagnostics)
+        XCTAssertEqual(
+            result.stdout,
+            "prepared=from-prepared\nenvironment=preserved\n",
+            result.diagnostics
+        )
+    }
+
     @Test func testRestoreDoesNotResolveBareExecutableFromEmptyPATHComponent() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
