@@ -53,7 +53,9 @@ jobs:
     # not as a foregrounded Mac app, so the Blacksmith foreground limitation does
     # not apply.
     runs-on: ${{ vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
-    timeout-minutes: 60
+    # Nine localized languages are captured serially on each required device
+    # class. Keep enough budget for cold Xcode builds plus the frame lane.
+    timeout-minutes: 180
     steps:
       - name: Guard trusted upload ref
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.upload && (inputs.ref != '' || github.ref != 'refs/heads/main') }}
