@@ -86,6 +86,76 @@ tap_label() { # tap_label <label> [mode]
   axe tap -x "${xy%% *}" -y "${xy##* }" --udid "$UDID" >/dev/null
 }
 
+# The workspace detail changes education is useful during normal use, but it
+# is transient chrome rather than listing content. Dismiss it from each real
+# detail capture and fail if it survives, so a stale hint cannot leak into an
+# App Store screenshot.
+changes_hint_dismiss_xy() {
+  axe describe-ui --udid "$UDID" 2>/dev/null | python3 -c '
+import json, sys
+tree = json.load(sys.stdin)
+def walk(n):
+    yield n
+    for c in n.get("children") or []:
+        yield from walk(c)
+for root in tree:
+    for n in walk(root):
+        identifier = n.get("AXUniqueId") or n.get("AXIdentifier")
+        if identifier != "MobileChangesHint":
+            continue
+        for child in walk(n):
+            if child is n:
+                continue
+            if (child.get("AXLabel") or "").strip().lower() != "dismiss":
+                continue
+            f = child.get("frame")
+            if f:
+                x, y = f["x"], f["y"]
+                width, height = f["width"], f["height"]
+                print(f"{x + width / 2:.0f} {y + height / 2:.0f}")
+                raise SystemExit
+        # SwiftUI may flatten the button out of the identifier subtree.
+        f = n.get("frame")
+        if f:
+            x, y = f["x"], f["y"]
+            width, height = f["width"], f["height"]
+            print(f"{x + width - 36:.0f} {y + height / 2:.0f}")
+            raise SystemExit
+raise SystemExit(1)
+'
+}
+
+changes_hint_present() {
+  axe describe-ui --udid "$UDID" 2>/dev/null | python3 -c '
+import json, sys
+tree = json.load(sys.stdin)
+def walk(n):
+    yield n
+    for c in n.get("children") or []:
+        yield from walk(c)
+for root in tree:
+    for n in walk(root):
+        identifier = n.get("AXUniqueId") or n.get("AXIdentifier")
+        label = (n.get("AXLabel") or "").lower()
+        if identifier == "MobileChangesHint" or "review this workspace" in label:
+            raise SystemExit(0)
+raise SystemExit(1)
+'
+}
+
+dismiss_changes_hint() {
+  local xy
+  xy="$(changes_hint_dismiss_xy || true)"
+  if [ -n "$xy" ]; then
+    axe tap -x "${xy%% *}" -y "${xy##* }" --udid "$UDID" >/dev/null
+    sleep 0.5
+  fi
+  if changes_hint_present; then
+    echo "workspace changes education banner remained in a real capture" >&2
+    return 1
+  fi
+}
+
 # Readiness beats fixed sleeps: reconnect and hydration times vary.
 wait_label() { # wait_label <label> [timeout-s] [mode]
   local label="$1" timeout="${2:-45}" mode="${3:-prefix}" waited=0
@@ -225,6 +295,7 @@ open_session() { # open_session <row-label> <shot-name>
   wait_label "$1" 30 exact
   tap_label "$1"
   sleep 5
+  dismiss_changes_hint
   shot "$2"
   back_to_list
 }
@@ -235,6 +306,7 @@ open_session "Auth API" 07-Opencode
 # 06: per-file diff via the Auth API session's changes chip, then a file row.
 tap_label "Auth API"
 sleep 4
+dismiss_changes_hint
 tap_label "Changes:" prefix
 sleep 3
 XY="$(axe describe-ui --udid "$UDID" 2>/dev/null | python3 -c "

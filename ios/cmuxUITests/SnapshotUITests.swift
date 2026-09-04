@@ -89,6 +89,10 @@ final class SnapshotUITests: XCTestCase {
     private func shoot(_ name: String, _ env: [String: String], waitForRealNotification: Bool = false) {
         var full = env
         full["CMUX_UITEST_MOCK_DATA"] = "1"
+        // Workspace detail can show a one-time educational changes hint over
+        // the content. It is not listing content, so keep it out of every
+        // store capture and assert that the fixture honors the contract.
+        full["CMUX_UITEST_HIDE_WORKSPACE_CHANGES_HINT"] = "1"
         app.launchEnvironment = full
         app.launch()
         // The live App Store 13" iPad set is portrait full-bleed; landscape
@@ -103,6 +107,15 @@ final class SnapshotUITests: XCTestCase {
             settleForNotification()
         } else {
             settle()
+        }
+        if full["CMUX_UITEST_HIDE_WORKSPACE_CHANGES_HINT"] == "1" {
+            let hint = app.descendants(matching: .any)
+                .matching(identifier: "MobileChangesHint")
+                .firstMatch
+            XCTAssertFalse(
+                hint.waitForExistence(timeout: 1),
+                "workspace changes education banner must not be present in screenshots"
+            )
         }
         snapshot(name)
         app.terminate()

@@ -54,7 +54,8 @@ extension WorkspaceDetailView {
     }
 
     func refreshWorkspaceChangesHint() {
-        guard workspaceChangesAreAvailable else {
+        guard !UITestConfig.hideWorkspaceChangesHintForScreenshots,
+              workspaceChangesAreAvailable else {
             workspaceChangesHint = nil
             return
         }
