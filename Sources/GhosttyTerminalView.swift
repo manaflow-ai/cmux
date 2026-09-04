@@ -1149,6 +1149,17 @@ class GhosttyApp {
         )
     }
 
+    /// Injects a valid pair when the managed config contains a legacy one-sided theme.
+    private func loadCmuxManagedThemeRepairIfNeeded(_ config: ghostty_config_t) {
+        guard let repairedThemeValue = currentCmuxManagedThemeRepairValue() else { return }
+        loadInlineGhosttyConfig(
+            "theme = \(repairedThemeValue)",
+            into: config,
+            prefix: "cmux-managed-theme-repair",
+            logLabel: "cmux managed theme repair"
+        )
+    }
+
     /// Loads the user's resolved Ghostty config. When enabled, cmux's managed
     /// default appearance is applied only if the config contains no directives;
     /// otherwise Ghostty's own resolved colors are preserved.
@@ -1169,6 +1180,7 @@ class GhosttyApp {
         ghostty_config_load_default_files(config)
         loadLegacyGhosttyConfigIfNeeded(config)
         loadCmuxAppSupportGhosttyConfigIfNeeded(config)
+        loadCmuxManagedThemeRepairIfNeeded(config)
         ghostty_config_load_recursive_files(config)
         loadConditionalThemeOverrideIfNeeded(config, preferredColorScheme: themeColorScheme)
         // Ghostty's own default-file load also reads the native legacy app-support
@@ -1663,32 +1675,6 @@ class GhosttyApp {
             "loaded cmux app support ghostty config from: \(urls.map(\.path).joined(separator: ", "))"
         )
         #endif
-        #endif
-    }
-
-    private func currentCmuxAppSupportThemeValue() -> String? {
-        #if os(macOS)
-        let fm = FileManager.default
-        guard let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
-            return nil
-        }
-        let urls = Self.cmuxAppSupportConfigURLs(
-            currentBundleIdentifier: Bundle.main.bundleIdentifier,
-            appSupportDirectory: appSupport,
-            fileManager: fm
-        )
-
-        var lastValue: String?
-        for url in urls {
-            guard let contents = try? String(contentsOf: url, encoding: .utf8),
-                  let value = GhosttyConfig.lastThemeDirective(in: contents) else {
-                continue
-            }
-            lastValue = value
-        }
-        return lastValue
-        #else
-        return nil
         #endif
     }
 

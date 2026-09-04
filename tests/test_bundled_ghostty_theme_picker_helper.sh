@@ -81,6 +81,9 @@ CONFIG_PATH="$TMP_DIR/config.ghostty"
 SEARCH_CONFIG_PATH="$TMP_DIR/search-config.ghostty"
 CTRL_N_CONFIG_PATH="$TMP_DIR/ctrl-n-config.ghostty"
 CTRL_P_CONFIG_PATH="$TMP_DIR/ctrl-p-config.ghostty"
+SINGLE_LIGHT_CONFIG_PATH="$TMP_DIR/single-light-config.ghostty"
+SINGLE_DARK_CONFIG_PATH="$TMP_DIR/single-dark-config.ghostty"
+SINGLE_LIGHT_PRESERVE_CONFIG_PATH="$TMP_DIR/single-light-preserve-config.ghostty"
 ISOLATED_CONFIG_HOME="$TMP_DIR/xdg-config"
 RESULTS_PATH="$TMP_DIR/config-paths.txt"
 mkdir -p "$ISOLATED_CONFIG_HOME"
@@ -88,6 +91,9 @@ export CONFIG_PATH
 export SEARCH_CONFIG_PATH
 export CTRL_N_CONFIG_PATH
 export CTRL_P_CONFIG_PATH
+export SINGLE_LIGHT_CONFIG_PATH
+export SINGLE_DARK_CONFIG_PATH
+export SINGLE_LIGHT_PRESERVE_CONFIG_PATH
 export ISOLATED_CONFIG_HOME
 export RESULTS_PATH
 export GHOSTTY_RESOURCES_DIR
@@ -110,24 +116,40 @@ config_path = os.environ["CONFIG_PATH"]
 search_config_path = os.environ["SEARCH_CONFIG_PATH"]
 ctrl_n_config_path = os.environ["CTRL_N_CONFIG_PATH"]
 ctrl_p_config_path = os.environ["CTRL_P_CONFIG_PATH"]
+single_light_config_path = os.environ["SINGLE_LIGHT_CONFIG_PATH"]
+single_dark_config_path = os.environ["SINGLE_DARK_CONFIG_PATH"]
+single_light_preserve_config_path = os.environ["SINGLE_LIGHT_PRESERVE_CONFIG_PATH"]
 isolated_config_home = os.environ["ISOLATED_CONFIG_HOME"]
 results_path = os.environ["RESULTS_PATH"]
 ghostty_resources_dir = os.environ["GHOSTTY_RESOURCES_DIR"]
 
 
-def helper_environment(scenario_config_path):
+def helper_environment(
+    scenario_config_path,
+    target="both",
+    initial_light=None,
+    initial_dark=None,
+):
     env = os.environ.copy()
     env.update(
         {
             "CMUX_THEME_PICKER_CONFIG": scenario_config_path,
             "CMUX_THEME_PICKER_BUNDLE_ID": "com.cmuxterm.test",
-            "CMUX_THEME_PICKER_TARGET": "both",
+            "CMUX_THEME_PICKER_TARGET": target,
             "CMUX_THEME_PICKER_COLOR_SCHEME": "dark",
             "GHOSTTY_RESOURCES_DIR": ghostty_resources_dir,
             "TERM": "xterm-256color",
             "XDG_CONFIG_HOME": isolated_config_home,
         }
     )
+    if initial_light is not None:
+        env["CMUX_THEME_PICKER_INITIAL_LIGHT"] = initial_light
+    else:
+        env.pop("CMUX_THEME_PICKER_INITIAL_LIGHT", None)
+    if initial_dark is not None:
+        env["CMUX_THEME_PICKER_INITIAL_DARK"] = initial_dark
+    else:
+        env.pop("CMUX_THEME_PICKER_INITIAL_DARK", None)
     return env
 
 
@@ -155,7 +177,7 @@ if len(theme_names) < 2:
     sys.exit(1)
 
 
-def assert_theme_written(label, scenario_config_path, expected_theme):
+def assert_theme_written(label, scenario_config_path, expected_light, expected_dark):
     try:
         with open(scenario_config_path, "r", encoding="utf-8") as config:
             contents = config.read()
@@ -163,7 +185,7 @@ def assert_theme_written(label, scenario_config_path, expected_theme):
         sys.stderr.write(f"FAIL: theme picker did not write config for {label}.\n")
         sys.exit(1)
 
-    expected_line = f"theme = light:{expected_theme},dark:{expected_theme}"
+    expected_line = f"theme = light:{expected_light},dark:{expected_dark}"
     if expected_line not in contents:
         sys.stderr.write(
             f"FAIL: expected {label} to write {expected_line!r}.\n"
@@ -172,8 +194,22 @@ def assert_theme_written(label, scenario_config_path, expected_theme):
         sys.exit(1)
 
 
-def run_picker(label, scenario_config_path, scripted_input, expected_theme=None):
-    env = helper_environment(scenario_config_path)
+def run_picker(
+    label,
+    scenario_config_path,
+    scripted_input,
+    expected_light=None,
+    expected_dark=None,
+    target="both",
+    initial_light=None,
+    initial_dark=None,
+):
+    env = helper_environment(
+        scenario_config_path,
+        target=target,
+        initial_light=initial_light,
+        initial_dark=initial_dark,
+    )
 
     pid, master_fd = pty.fork()
     if pid == 0:
@@ -255,24 +291,58 @@ def run_picker(label, scenario_config_path, scripted_input, expected_theme=None)
     finally:
         os.close(master_fd)
 
-    if expected_theme is not None:
-        assert_theme_written(label, scenario_config_path, expected_theme)
+    if expected_light is not None and expected_dark is not None:
+        assert_theme_written(label, scenario_config_path, expected_light, expected_dark)
 
 # The test's XDG_CONFIG_HOME starts empty and each scenario writes to a fresh
 # CMUX_THEME_PICKER_CONFIG path, so the picker opens on the first listed theme.
 first_theme = theme_names[0]
 second_theme = theme_names[1]
 
-run_picker("normal mode", config_path, b"\r")
+run_picker("normal mode", config_path, b"\r", first_theme, first_theme)
 run_picker("search mode", search_config_path, b"/tokyo\r")
-run_picker("Ctrl-N navigation", ctrl_n_config_path, b"\x0e\r", second_theme)
-run_picker("Ctrl-P navigation", ctrl_p_config_path, b"\x0e\x10\r", first_theme)
+run_picker("Ctrl-N navigation", ctrl_n_config_path, b"\x0e\r", second_theme, second_theme)
+run_picker("Ctrl-P navigation", ctrl_p_config_path, b"\x0e\x10\r", first_theme, first_theme)
+
+# A single-target picker invocation starts with no opposite-side value. The
+# encoder must still write Ghostty's required two-sided conditional syntax.
+run_picker(
+    "single light target fallback",
+    single_light_config_path,
+    b"\r",
+    first_theme,
+    first_theme,
+    target="light",
+)
+run_picker(
+    "single dark target fallback",
+    single_dark_config_path,
+    b"\r",
+    first_theme,
+    first_theme,
+    target="dark",
+)
+
+# When the opposite side is known, selecting one side must preserve it.
+run_picker(
+    "single light target preserves dark",
+    single_light_preserve_config_path,
+    b"\x0e\r",
+    second_theme,
+    first_theme,
+    target="light",
+    initial_light=first_theme,
+    initial_dark=first_theme,
+)
 
 with open(results_path, "w", encoding="utf-8") as results:
     results.write(config_path + "\n")
     results.write(search_config_path + "\n")
     results.write(ctrl_n_config_path + "\n")
     results.write(ctrl_p_config_path + "\n")
+    results.write(single_light_config_path + "\n")
+    results.write(single_dark_config_path + "\n")
+    results.write(single_light_preserve_config_path + "\n")
 PY
 
 while IFS= read -r CONFIG_PATH; do

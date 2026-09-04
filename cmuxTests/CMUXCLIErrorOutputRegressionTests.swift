@@ -2993,6 +2993,63 @@ import Testing
         XCTAssertEqual(responder.receivedRequests, [])
     }
 
+    @Test func testThemesSetSingleSidedSelectionsAlwaysWriteBothGhosttyThemeSides() throws {
+        let cliPath = try bundledCLIPath()
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-themes-single-sided-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let resourcesURL = root.appendingPathComponent("resources", isDirectory: true)
+        let themesURL = resourcesURL.appendingPathComponent("themes", isDirectory: true)
+        try fileManager.createDirectory(at: themesURL, withIntermediateDirectories: true)
+        try writeTheme(named: "Theme A", background: "#101010", to: themesURL)
+        try writeTheme(named: "Theme B", background: "#f8f8f8", to: themesURL)
+        try writeTheme(named: "Theme C", background: "#003b49", to: themesURL)
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CFFIXED_USER_HOME"] = root.path
+        environment["HOME"] = root.path
+        environment["GHOSTTY_RESOURCES_DIR"] = resourcesURL.path
+        environment["CMUX_SOCKET_PATH"] = root.appendingPathComponent("cmux.sock").path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let configURL = root
+            .appendingPathComponent("Library", isDirectory: true)
+            .appendingPathComponent("Application Support", isDirectory: true)
+            .appendingPathComponent("com.cmuxterm.app", isDirectory: true)
+            .appendingPathComponent("config.ghostty", isDirectory: false)
+
+        func runThemesSet(_ arguments: [String]) throws {
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: arguments,
+                environment: environment
+            )
+            XCTAssertFalse(result.timedOut, result.diagnostics)
+            XCTAssertEqual(result.status, 0, result.diagnostics)
+        }
+
+        // With no existing opposite-side value, each single-sided flag must fall back to
+        // duplicating the selected theme so Ghostty receives its required light/dark pair.
+        try runThemesSet(["themes", "set", "--light", "Theme A"])
+        XCTAssertEqual(try managedThemeValue(in: configURL), "light:Theme A,dark:Theme A")
+
+        try runThemesSet(["themes", "clear"])
+        XCTAssertFalse(fileManager.fileExists(atPath: configURL.path))
+
+        try runThemesSet(["themes", "set", "--dark", "Theme B"])
+        XCTAssertEqual(try managedThemeValue(in: configURL), "light:Theme B,dark:Theme B")
+
+        // Once the opposite side is known, changing one side must preserve it.
+        try runThemesSet(["themes", "set", "--light", "Theme C"])
+        XCTAssertEqual(try managedThemeValue(in: configURL), "light:Theme C,dark:Theme B")
+    }
+
     @Test func testThemesSetTargetsResolvedTaggedSocketWhenBundleEnvironmentIsStale() throws {
         let cliPath = try bundledCLIPath()
         let fileManager = FileManager.default
@@ -3158,6 +3215,7 @@ import Testing
         let fakeGhosttyHelperURL = URL(fileURLWithPath: fakeCLIPath)
             .deletingLastPathComponent()
             .appendingPathComponent("ghostty", isDirectory: false)
+        let targetModeMarkerURL = root.appendingPathComponent("theme-picker-target", isDirectory: false)
         try """
         #!/usr/bin/env python3
         import os
@@ -3169,6 +3227,10 @@ import Testing
         while time.time() < deadline:
             try:
                 if os.isatty(0) and os.tcgetpgrp(0) == os.getpgrp():
+                    marker = os.environ.get("CMUX_THEME_PICKER_TARGET_MARKER")
+                    if marker:
+                        with open(marker, "w", encoding="utf-8") as marker_file:
+                            marker_file.write(os.environ.get("CMUX_THEME_PICKER_TARGET", ""))
                     sys.exit(0)
                 last_error = f"pgrp={os.getpgrp()} tpgid={os.tcgetpgrp(0)}"
             except OSError as error:
@@ -3187,6 +3249,20 @@ import Testing
         let responder = try UnixSocketResponder(path: socketPath, response: "OK")
         defer { responder.stop() }
         let bundleIdentifier = "com.cmuxterm.app.debug.theme-picker.\(UUID().uuidString.lowercased())"
+        let staleConfigURL = root
+            .appendingPathComponent("Library", isDirectory: true)
+            .appendingPathComponent("Application Support", isDirectory: true)
+            .appendingPathComponent(bundleIdentifier, isDirectory: true)
+            .appendingPathComponent("config.ghostty", isDirectory: false)
+        try fileManager.createDirectory(
+            at: staleConfigURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try """
+        # cmux themes start
+        theme = light:Legacy Theme
+        # cmux themes end
+        """.write(to: staleConfigURL, atomically: true, encoding: .utf8)
         let reloadExpectation = expectation(description: "bare cmux themes posts final reload notification")
         let notificationQueue = OperationQueue()
         notificationQueue.maxConcurrentOperationCount = 1
@@ -3216,6 +3292,7 @@ import Testing
             "CFFIXED_USER_HOME=\(shellSingleQuote(root.path))",
             "CMUX_SOCKET_PATH=\(shellSingleQuote(socketPath))",
             "CMUX_BUNDLE_ID=\(shellSingleQuote(bundleIdentifier))",
+            "CMUX_THEME_PICKER_TARGET_MARKER=\(shellSingleQuote(targetModeMarkerURL.path))",
             "CMUX_CLI_SENTRY_DISABLED=1",
             "PATH=/usr/bin:/bin",
             "/usr/bin/script",
@@ -3238,6 +3315,11 @@ import Testing
         XCTAssertEqual(reloads.map { $0.bundleIdentifier }, [bundleIdentifier])
         XCTAssertEqual(reloads.map { $0.phase }, ["final"])
         XCTAssertEqual(responder.receivedRequests, [], result.diagnostics)
+        XCTAssertEqual(
+            try String(contentsOf: targetModeMarkerURL, encoding: .utf8),
+            "both",
+            result.diagnostics
+        )
     }
 
     @Test func testBareInteractiveThemesTreatsSigintAsSilentCancel() throws {

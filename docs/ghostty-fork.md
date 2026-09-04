@@ -17,9 +17,31 @@ The submodule pinned by this branch is `abd40f6e4`, reachable from fork
 It carries the renderer/API compatibility pin plus the Fish SSH feature-gating
 fix (`fd13a3fc2`): the embedded Ghostty CLI wrapper is installed whenever
 either `ssh-env` or `ssh-terminfo` is enabled. The pin includes the prior fork
-changes below, including tokened iOS render dispositions, VT formatter cursor
-restoration, VT stream-boundary visibility, and Hangul canonical font
-resolution.
+changes below, including the cmux theme encoder at `987780a132`, tokened iOS
+render dispositions, VT formatter cursor restoration, VT stream-boundary
+visibility, and Hangul canonical font resolution.
+
+### Conditional cmux theme encoding
+
+- Pull request:
+  - https://github.com/manaflow-ai/ghostty/pull/201
+- Commits:
+  - `afd50666b` (test: cover two-sided cmux theme encoding)
+  - `987780a13` (fix: emit both sides for cmux theme selections)
+- File: `src/cli/list_themes.zig`
+- Summary:
+  - Ghostty's conditional `theme` syntax requires both `light:` and `dark:`
+    entries. The cmux picker now duplicates a selected side when the opposite
+    side is unavailable, so live preview and Enter apply a parser-valid value.
+- Conflict note:
+  - Preserve the two-sided output contract if upstream changes the picker or
+    conditional-theme parser. cmux-managed values must remain valid for the
+    upstream parser, which intentionally rejects single-sided conditionals.
+- Fixes:
+  - https://github.com/manaflow-ai/cmux/issues/10068
+- Artifact:
+  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-987780a132a33fd69ab800b09e254b4584537d04-crashsubdir-cmux-crash-sentry-off-v1
+  - SHA-256 `6f7a62fbc9ae63e85f12b78e42c0f8a8d7abecb07df13cf6d2a7d0c95dad91fd`
 
 ### Repeated word-selection drag anchor
 
@@ -88,6 +110,12 @@ pinned in `scripts/ghosttykit-checksums.txt`.
   - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-3da10da73ae848c0310e3e0f0cb29e509c2f6963-crashsubdir-cmux-crash-sentry-off-v1
   - SHA-256 `6a02a2ec3794de79a02af993083292a89517d2533eb20c746deca377f23456bd`
     is pinned in `scripts/ghosttykit-checksums.txt`.
+
+The prior fork-main pin `b17f1726f` has a ReleaseFast artifact at:
+
+- https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-b17f1726fc53495dd827f7d85c9ec38da3d03814-crashsubdir-cmux-crash-sentry-off-v1
+- SHA-256 `1a790e1363a03f2fbd2c2e0bca13e99efac0ac03ba8d7083ad335e4d39e45a0a`
+  is pinned in `scripts/ghosttykit-checksums.txt`.
 
 The pinned lineage also contains the hard-newline URL boundary fix from
 Ghostty PR #183. Its regression test and width-filled-row guard keep a short
@@ -949,15 +977,6 @@ declared architecture, and `_ghostty_surface_rebuild_renderer` plus
     to share the classifier; duplicating the continuation decision can make
     hover and activation disagree.
 
-- Follow-up regression coverage:
-  - Pull request: https://github.com/manaflow-ai/ghostty/pull/183
-  - Test commit: `28baa8649` rejects a short `https://google.com/` row from
-    joining the unrelated `foobar` row.
-  - Fix commit: `589856524` requires the upper physical row to be width-filled
-    (including a wide-glyph spacer head) before an unindented continuation joins.
-  - Merge commit: `1f78a79aa` carries the fix on fork `main`; the shared
-    classifier keeps hover, copy, preview, and activation consistent.
-
 ### Bounded Kitty graphics state
 
 - Pull request: https://github.com/manaflow-ai/ghostty/pull/137
@@ -1209,13 +1228,9 @@ and pinned in `scripts/ghosttykit-checksums.txt`.
   `ssh`.
 - `GHOSTTY_BIN_DIR` remains the directory contract for the independent `path`
   shell-integration feature; it is no longer used to reconstruct a CLI filename.
-- The Fish integration uses a nested feature check so Fish's `and`/`or`
-  command-list precedence cannot suppress the wrapper when only one SSH feature
-  is enabled.
 - Conflict note: future upstream merges must preserve the distinction between
   the exact CLI path (`GHOSTTY_BIN`) and its PATH directory
-  (`GHOSTTY_BIN_DIR`) across `src/termio/Exec.zig` and every shell integration,
-  including the nested Fish SSH feature check.
+  (`GHOSTTY_BIN_DIR`) across `src/termio/Exec.zig` and every shell integration.
 
 The earlier fork history below includes terminal-owned scrollbar snapshots,
 absolute row-space identity, OSC-boundary geometry, and compare-and-set

@@ -30,7 +30,7 @@ concurrency:
 
 jobs:
   browser-skill:
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ubuntu-24.04 # github-hosted-required: untrusted pull_request code
     timeout-minutes: 5
     steps:
       - name: Checkout
