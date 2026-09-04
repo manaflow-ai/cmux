@@ -93,6 +93,18 @@ resolve_hook_cmux_bin() {
     printf '%s' "cmux"
 }
 
+cmux_codex_load_skill_link_policy() {
+    local self_dir resource_dir policy
+    self_dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P)" || return 1
+    resource_dir="${self_dir%/bin}"
+    policy="$resource_dir/cmux-cua/link-policy.sh"
+    [[ -r "$policy" ]] || return 1
+    # The policy is shipped inside the same app resource directory as this
+    # wrapper. It is the one mutation path shared with the Claude wrapper.
+    # shellcheck source=/dev/null
+    . "$policy"
+}
+
 cmux_computer_use_surface_socket_available() {
     # CMUX_SURFACE_ID can outlive its owning cmux process in a detached shell.
     # Keep main's hook injection behavior independent of socket reachability,
@@ -243,66 +255,35 @@ cmux_computer_use_auth_token() {
 }
 
 cmux_codex_global_skill_install_enabled() {
-    # Codex's picker scans filesystem skill roots before it starts a session;
-    # an invocation-only `skills.config` override is not enough to make the
-    # bundled skill appear there. Keep the shared user link in sync by default,
-    # while allowing a user who wants a strictly session-local setup to opt out.
-    case "${CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL:-1}" in
-        0|false|FALSE|no|NO) return 1 ;;
+    # Codex's picker scans filesystem skill roots before it starts a session.
+    # Writing a user-global link is therefore an explicit opt-in, never a
+    # side effect of starting an agent.
+    case "${CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL:-0}" in
+        1|true|TRUE|yes|YES) return 0 ;;
     esac
-    return 0
+    return 1
 }
 
-cmux_codex_install_computer_use_skill() {
-    # Codex discovers user-wide skills under ~/.agents/skills. Keep the source
-    # inside the signed cmux app and link it instead of copying stale versions.
-    # Never replace a real directory or a symlink the user owns. Returns 0 only
-    # when the cmux-cua link now points at this app bundle, so callers can skip
-    # the namespaced invocation-scoped fallback.
-    local home="${HOME:-}"
-    [[ "$home" = /* ]] || return 1
-    local self_dir resource_dir source_dir skills_root destination target legacy legacy_target
+cmux_codex_reconcile_skill_links() {
+    local self_dir resource_dir source_dir install_requested=0
     self_dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P)" || return 1
     resource_dir="${self_dir%/bin}"
     source_dir="$resource_dir/cmux-cua"
     [[ -f "$source_dir/SKILL.md" ]] || return 1
+    cmux_codex_global_skill_install_enabled && install_requested=1
 
-    skills_root="$home/.agents/skills"
-    destination="$skills_root/cmux-cua"
-    /bin/mkdir -p "$skills_root" 2>/dev/null || return 1
-
-    # Retire the pre-rename cmux-computer-use link so pickers do not show two
-    # copies of the same skill. Only a symlink into a cmux app bundle is
-    # removed; user-owned paths at that name are left alone.
-    legacy="$skills_root/cmux-computer-use"
-    if [[ -L "$legacy" ]]; then
-        legacy_target="$(/usr/bin/readlink "$legacy" 2>/dev/null || /bin/readlink "$legacy" 2>/dev/null)" || legacy_target=""
-        case "$legacy_target" in
-            */Contents/Resources/cmux-computer-use|*/Contents/Resources/cmux-cua)
-                /bin/rm -f "$legacy" 2>/dev/null || true
-                ;;
-        esac
+    if ! cmux_codex_load_skill_link_policy; then
+        # An older app may not carry the policy helper. Fail closed rather than
+        # mutating an unknown global path or creating a duplicate picker row.
+        CMUX_COMPUTER_USE_GLOBAL_SKILL_INSTALLED=0
+        CMUX_COMPUTER_USE_SKILL_FALLBACK_ALLOWED=0
+        return 0
     fi
 
-    if [[ -L "$destination" ]]; then
-        target="$(/usr/bin/readlink "$destination" 2>/dev/null || /bin/readlink "$destination" 2>/dev/null)" || return 1
-        case "$target" in
-            */Contents/Resources/cmux-cua|*/Contents/Resources/cmux-computer-use)
-                /bin/ln -sfn "$source_dir" "$destination" 2>/dev/null || return 1
-                ;;
-            *)
-                return 1
-                ;;
-        esac
-    elif [[ -e "$destination" ]]; then
-        # A user-owned path wins; report not-installed so the invocation-scoped
-        # fallback still delivers the current bundled skill.
-        return 1
-    else
-        /bin/ln -s "$source_dir" "$destination" 2>/dev/null || return 1
-    fi
-    target="$(/usr/bin/readlink "$destination" 2>/dev/null || /bin/readlink "$destination" 2>/dev/null)" || return 1
-    [[ "$target" == "$source_dir" ]]
+    cmux_cua_skill_reconcile codex "$source_dir" "${PWD:-}" "$install_requested" || return 1
+    CMUX_COMPUTER_USE_GLOBAL_SKILL_INSTALLED="$CMUX_CUA_SKILL_GLOBAL_INSTALLED"
+    CMUX_COMPUTER_USE_SKILL_FALLBACK_ALLOWED="$CMUX_CUA_SKILL_FALLBACK_ALLOWED"
+    CMUX_COMPUTER_USE_PROJECT_SKILL_COLLISION="$CMUX_CUA_SKILL_PROJECT_COLLISION"
 }
 
 cmux_codex_computer_use_skill_path() {
@@ -408,7 +389,8 @@ cmux_codex_emit_computer_use_args() {
     # session.
     local skill_path
     skill_path=""
-    if [[ "${CMUX_COMPUTER_USE_GLOBAL_SKILL_INSTALLED:-0}" != 1 ]]; then
+    if [[ "${CMUX_COMPUTER_USE_GLOBAL_SKILL_INSTALLED:-0}" != 1 \
+          && "${CMUX_COMPUTER_USE_SKILL_FALLBACK_ALLOWED:-0}" == 1 ]]; then
         skill_path="$(cmux_codex_computer_use_skill_path 2>/dev/null)" || skill_path=""
     fi
     if [[ -n "$skill_path" ]]; then
@@ -700,18 +682,21 @@ cmux_codex_read_inject_args() {
     return 0
 }
 
-# Keep the bundled skill discoverable by Codex's picker before the session
-# starts. Installation is best-effort so an existing user-owned skill can
-# never prevent Codex from launching; set CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL=0
-# for a strictly invocation-scoped session. When the durable link is in place,
-# the emitter skips its invocation-scoped skills.config fallback so the picker
-# shows one plain cmux-cua entry.
+# Reconcile the bundled skill's discovery path before the session starts.
+# Normal launches clean up only links proven to be cmux-managed and use a
+# session-scoped path when it cannot create a same-name picker collision.
+# CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL=1 is the explicit opt-in for a durable
+# user-global link.
 CMUX_COMPUTER_USE_GLOBAL_SKILL_INSTALLED=0
+CMUX_COMPUTER_USE_SKILL_FALLBACK_ALLOWED=0
+CMUX_COMPUTER_USE_PROJECT_SKILL_COLLISION=0
 if cmux_codex_global_skill_install_enabled \
       && cmux_codex_computer_use_enabled_for_invocation "$@"; then
-    if cmux_codex_install_computer_use_skill; then
-        CMUX_COMPUTER_USE_GLOBAL_SKILL_INSTALLED=1
-    fi
+    cmux_codex_reconcile_skill_links || true
+elif cmux_codex_computer_use_enabled_for_invocation "$@"; then
+    # The policy helper also performs opt-out migration. Do not call it for a
+    # disabled/strict invocation, which must remain fully inert.
+    cmux_codex_reconcile_skill_links || true
 fi
 
 # Computer-use args are generated independently of hook injection: the bundled
