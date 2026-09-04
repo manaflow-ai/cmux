@@ -1143,6 +1143,11 @@ actor VMClient {
         if obj["capabilities"] != nil {
             summary.capabilities = VMCapabilities(json: obj["capabilities"])
         }
+        summary.freeAccessExpiresAt = Self.epochMilliseconds(obj["freeAccessExpiresAt"])
+        if let address = obj["address"] as? [String: Any] {
+            summary.addressIPv4 = (address["ipv4"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            summary.addressIPv6 = (address["ipv6"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        }
         return summary
     }
 

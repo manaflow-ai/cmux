@@ -436,12 +436,13 @@ describe("VM REST auth", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({
+    expect(await response.json()).toMatchObject({
       id: "provider-vm-1",
       provider: "freestyle",
       image: "snapshot-test",
       kind: "base",
       createdAt: 1_777_000_000_000,
+      capabilities: { attachTransports: ["cmux-remote"] },
     });
     expect(createVm).toHaveBeenCalledWith(expect.objectContaining({
       userId: "user-1",
