@@ -20,8 +20,25 @@ struct CloudTunnelBroadcastTests {
         var live: [AsyncStream<Int>] = []
         for index in 0..<5 {
             let stream = broadcast.subscribe(current: index) { id in idContinuation.yield(id) }
-            if index.isMultiple(of: 2) { live.append(stream) }
-            // Odd streams are dropped right away; their continuation terminates.
+            if index.isMultiple(of: 2) {
+                live.append(stream)
+                continue
+            }
+
+            // A retained continuation keeps a discarded stream alive. Start a
+            // consumer, prove it received the current value, then cancel its
+            // next read so AsyncStream reports termination to the owner.
+            let (readyStream, readyContinuation) = AsyncStream<Void>.makeStream()
+            let consumer = Task {
+                var iterator = stream.makeAsyncIterator()
+                _ = await iterator.next()
+                readyContinuation.yield(())
+                _ = await iterator.next()
+            }
+            var readyIterator = readyStream.makeAsyncIterator()
+            _ = await readyIterator.next()
+            consumer.cancel()
+            await consumer.value
         }
         var reported: [UUID] = []
         for await id in idStream {

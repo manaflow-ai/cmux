@@ -123,11 +123,15 @@ final class FakeTunnelController: CloudTunnelControlling, @unchecked Sendable {
 
     func stop() async throws {
         lock.withLock { recorded.append("stop") }
-        emit(.disconnecting)
         if holdStop {
             await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
                 lock.withLock { stopContinuations.append(continuation) }
+                // Publish stopping only after releaseStop() has a continuation
+                // to resume. This makes the observed state a real barrier.
+                emit(.disconnecting)
             }
+        } else {
+            emit(.disconnecting)
         }
         emit(.disconnected)
     }

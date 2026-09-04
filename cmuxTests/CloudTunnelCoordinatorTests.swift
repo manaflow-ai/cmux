@@ -56,7 +56,7 @@ struct CloudTunnelCoordinatorTests {
         /// Wait for a state through the coordinator's own stream, bounded by
         /// a real (not virtual) deadline so a regression fails instead of
         /// hanging the suite.
-        func awaitState(_ expected: CloudTunnelState) async -> CloudTunnelState {
+        func awaitState(_ expected: CloudTunnelState) async -> CloudTunnelState? {
             let updates = await coordinator.stateUpdates()
             return await withTaskGroup(of: CloudTunnelState?.self) { group in
                 group.addTask {
@@ -71,9 +71,23 @@ struct CloudTunnelCoordinatorTests {
                 }
                 let first = await group.next() ?? nil
                 group.cancelAll()
-                if let first { return first }
-                return await coordinator.state
+                return first
             }
+        }
+
+        /// Wait for an actor predicate without allowing a scheduler regression
+        /// to hang the whole test suite.
+        func waitUntil(
+            timeout: Duration = .seconds(5),
+            _ predicate: @escaping @Sendable () async -> Bool
+        ) async -> Bool {
+            let clock = ContinuousClock()
+            let deadline = clock.now.advanced(by: timeout)
+            while clock.now < deadline {
+                if await predicate() { return true }
+                await Task.yield()
+            }
+            return await predicate()
         }
     }
 
@@ -228,15 +242,27 @@ struct CloudTunnelCoordinatorTests {
 
         await harness.clock.waitUntilSleeping(for: harness.timing.failureBackoff)
         harness.clock.advance(by: harness.timing.failureBackoff)
-        // The backoff task clears the flag on the actor after its sleep resumes;
-        // wait on that predicate (bounded by the suite's time limit), not on
-        // scheduling order.
-        while await harness.coordinator.isInFailureBackoff {
-            await Task.yield()
-        }
+        // The backoff task clears the flag on the actor after its sleep resumes.
+        #expect(await harness.waitUntil { !(await harness.coordinator.isInFailureBackoff) })
         await harness.coordinator.prepareForPrivateNetworkUse(Self.use)
         #expect(await harness.coordinator.state == .up)
         #expect(harness.controller.calls == ["install", "start", "stop", "install", "start"])
+    }
+
+    @Test("unknown controller errors never expose raw provider details")
+    func genericControllerErrorIsSanitized() {
+        let rawDetail = "secret endpoint 203.0.113.9 rejected key material"
+        let error = NSError(
+            domain: "InternalTunnelProvider",
+            code: 91,
+            userInfo: [NSLocalizedDescriptionKey: rawDetail]
+        )
+
+        let message = CloudTunnelCoordinator.userMessage(for: error)
+
+        #expect(!message.isEmpty)
+        #expect(!message.contains(rawDetail))
+        #expect(!message.contains("203.0.113.9"))
     }
 
     @Test("`cmux vpn up` retries immediately, backoff or not")
