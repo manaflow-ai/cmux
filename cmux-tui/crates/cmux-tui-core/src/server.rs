@@ -20182,6 +20182,8 @@ mod tests {
         flush_entered
             .recv_timeout(Duration::from_secs(2))
             .expect("shutdown did not flush the requester shutdown notice");
+        assert!(!mux.daemon_shutdown_requested());
+        assert!(mux.control_clients.daemon_handoff_pending());
         release_flush.send(()).unwrap();
         assert!(worker.join().unwrap());
         assert!(mux.daemon_shutdown_requested());
@@ -20232,6 +20234,31 @@ mod tests {
         })
         .to_string();
         assert!(!handle_connection_message(&mux, requester, &pipelined, &writer, &scheduler,));
+        assert_eq!(mux.with_state(|state| state.workspaces.len()), workspace_count);
+        assert!(outbound.try_pop().is_none());
+    }
+
+    #[test]
+    fn daemon_handoff_fences_pipelined_messages_before_shutdown_flag() {
+        let mux = test_mux();
+        mux.mark_server_lifecycle_ready();
+        let (writer, outbound) = captured_writer();
+        let requester = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        mux.begin_daemon_handoff(requester, DaemonHandoffRequest::unfenced(false)).unwrap();
+        mux.commit_daemon_handoff_after_ack(requester, || Ok(())).unwrap();
+        assert!(mux.control_clients.daemon_handoff_pending());
+        assert!(!mux.daemon_shutdown_requested());
+
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let workspace_count = mux.with_state(|state| state.workspaces.len());
+        let pipelined = json!({
+            "id": 99,
+            "cmd": "new-workspace",
+            "name": "must-not-exist",
+        })
+        .to_string();
+        assert!(!handle_connection_message(&mux, requester, &pipelined, &writer, &scheduler));
         assert_eq!(mux.with_state(|state| state.workspaces.len()), workspace_count);
         assert!(outbound.try_pop().is_none());
     }
