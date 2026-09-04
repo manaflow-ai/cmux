@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   buildAccountHealthEmail,
+  accountHealthRecipientHash,
   noticeSection,
   runAccountHealthNotifications,
   selectAccountHealthNotices,
@@ -22,6 +23,7 @@ function notice(overrides: Partial<BrokenAccountNotice> = {}): BrokenAccountNoti
     failureCode: "invalid_credential",
     brokenAt: T0,
     createdBy: "user-1",
+    deliveredRecipientHashes: [],
     ...overrides,
   };
 }
@@ -35,9 +37,13 @@ function harness(input: {
 }) {
   const sent: AccountHealthEmail[] = [];
   const notified: { ids: string[]; at: Date }[] = [];
+  const delivered: { ids: string[]; recipientHash: string; at: Date }[] = [];
   const dependencies: AccountHealthDependencies = {
     brokenClaudeAccounts: async () => input.claude ?? [],
     brokenSubscriptionAccounts: async () => input.subscriptions ?? [],
+    markDelivered: async (notices, recipientHash, at) => {
+      delivered.push({ ids: notices.map((n) => n.accountId), recipientHash, at });
+    },
     markNotified: async (notices, at) => {
       notified.push({ ids: notices.map((n) => n.accountId), at });
     },
@@ -53,7 +59,7 @@ function harness(input: {
     fromEmail: () => "coderouter@cmux.com",
     now: () => T0,
   };
-  return { dependencies, sent, notified };
+  return { dependencies, sent, notified, delivered };
 }
 
 describe("account health email copy", () => {
@@ -224,6 +230,52 @@ describe("account health notification run", () => {
     expect(result).toMatchObject({ accounts: 1, emails: 1, recipients: 2, failures: 1 });
     expect(sent.map((email) => email.to)).toEqual(["ok@example.com"]);
     expect(notified).toEqual([]);
+  });
+
+  test("retries only the failed recipient after a mixed batch changes", async () => {
+    const subscription = notice({
+      source: "subscription",
+      accountId: "22222222-2222-4222-8222-222222222222",
+      kind: "codex",
+      identifier: "",
+      createdBy: null,
+    });
+    const claude = notice();
+    const first = harness({
+      claude: [claude],
+      subscriptions: [subscription],
+      recipients: (item) => item.source === "subscription"
+        ? [{ email: "ok@example.com", name: null }, { email: "down@example.com", name: null }]
+        : [{ email: "ok@example.com", name: null }],
+      failSendTo: "down@example.com",
+    });
+    const firstResult = await runAccountHealthNotifications(first.dependencies);
+    expect(firstResult).toMatchObject({ emails: 1, failures: 1 });
+    expect(first.sent).toHaveLength(1);
+    expect(first.sent[0]!.to).toBe("ok@example.com");
+    expect(first.sent[0]!.subject).toContain("2 coderouter accounts");
+    expect(first.notified).toEqual([{ ids: [claude.accountId], at: T0 }]);
+    expect(first.delivered).toEqual([{
+      ids: [claude.accountId, subscription.accountId],
+      recipientHash: accountHealthRecipientHash("ok@example.com"),
+      at: T0,
+    }]);
+
+    const second = harness({
+      subscriptions: [{
+        ...subscription,
+        deliveredRecipientHashes: [accountHealthRecipientHash("ok@example.com")],
+      }],
+      recipients: () => [
+        { email: "ok@example.com", name: null },
+        { email: "down@example.com", name: null },
+      ],
+    });
+    const secondResult = await runAccountHealthNotifications(second.dependencies);
+    expect(secondResult).toMatchObject({ emails: 1, recipients: 1, failures: 0 });
+    expect(second.sent.map((email) => email.to)).toEqual(["down@example.com"]);
+    expect(second.sent[0]!.subject).toContain("a coderouter account");
+    expect(second.notified).toEqual([{ ids: [subscription.accountId], at: T0 }]);
   });
 
   test("accounts with nobody to tell are marked so they are not re-queried forever", async () => {
