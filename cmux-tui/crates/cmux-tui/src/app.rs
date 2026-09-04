@@ -11654,6 +11654,7 @@ impl App {
                 Duration::from_millis(250)
             };
             let timeout = terminal_paints.wait_timeout(timeout, Instant::now());
+            let mut toast_expired_on_timeout = false;
             let first = match rx.recv_timeout(timeout) {
                 Ok(event) => Some(event),
                 Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
@@ -11664,6 +11665,7 @@ impl App {
                         action = action.merge(RenderAction::Draw);
                     }
                     if self.expire_toast() {
+                        toast_expired_on_timeout = true;
                         action = action.merge(RenderAction::Draw);
                     }
                     if self.tick_sidebar_files() {
@@ -11716,7 +11718,7 @@ impl App {
             if self.quit {
                 break;
             }
-            if self.expire_toast() {
+            if !toast_expired_on_timeout && self.expire_toast() {
                 action = action.merge(RenderAction::Draw);
             }
             action = action.merge(self.advance_viewport_animation(Instant::now()));
@@ -26379,10 +26381,12 @@ mod tests {
         let (events_tx, events_rx) = crossbeam_channel::bounded(1);
         events_tx.send(AppEvent::HostInputReady).unwrap();
         let input = runtime.producer(events_tx);
+        let (sent_tx, sent_rx) = std::sync::mpsc::sync_channel(1);
         let (finished_tx, finished_rx) = std::sync::mpsc::sync_channel(1);
         let reader = std::thread::spawn(move || {
             let key = Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
             assert!(input.send(key));
+            sent_tx.send(()).unwrap();
             while !ingress.is_closed() {
                 std::thread::yield_now();
             }
@@ -26390,6 +26394,7 @@ mod tests {
         });
 
         runtime.attach_reader(reader);
+        sent_rx.recv_timeout(Duration::from_secs(1)).unwrap();
         runtime.shutdown();
 
         assert!(
@@ -32910,6 +32915,7 @@ mod tests {
         app.replace_tree(browser_completion_tree(surface_id, surface_id));
         app.sidebar_visible = false;
         let area = browser_completion_area(surface_id);
+        app.outer_size = (40, 12);
         app.pane_areas = vec![area];
         app.rendered_pane_content_generations
             .insert(surface_id, PaneContentGeneration::Browser(41));
