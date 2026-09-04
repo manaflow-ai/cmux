@@ -26,6 +26,7 @@ import { vmCreateDisabledReason } from "./config";
 import {
   VM_DISK_MB_MAX,
   VM_DISK_MB_STEP,
+  hasVmResourceReservationMetadata,
   sharedResourceCapacityForMaxActiveVms,
   vmResourceReservationForCreate,
   vmResourceReservationFromMetadata,
@@ -1024,6 +1025,37 @@ export function restoreVm(input: {
   });
 }
 
+/**
+ * Resolve the source shape used by a fork. Legacy rows have no durable disk
+ * claim, so paid forks read provider stats and fail closed at the per-VM disk
+ * ceiling when the provider cannot report a size.
+ */
+function resourceReservationForFork(
+  providers: VmProviderGatewayShape,
+  source: CloudVmRow,
+  providerVmId: string,
+  billingPlanId: string,
+): Effect.Effect<VmResourceReservation, VmWorkflowError, never> {
+  const reservation = vmResourceReservationFromMetadata(source.providerMetadata);
+  if (!isPaidVmPlan(billingPlanId) || hasVmResourceReservationMetadata(source.providerMetadata)) {
+    return Effect.succeed(reservation);
+  }
+
+  // VM_DISK_MB_MAX is above Pro's shared pool. It is a conservative marker for
+  // an unknown legacy disk and therefore cannot silently permit an overage.
+  const unknownDisk = { ...reservation, diskMb: VM_DISK_MB_MAX };
+  if (!providers.getStats) return Effect.succeed(unknownDisk);
+  return providers.getStats(source.provider, source.providerVmId ?? providerVmId).pipe(
+    Effect.map((stats) => {
+      const diskMb = stats.diskTotalMb;
+      return typeof diskMb === "number" && Number.isSafeInteger(diskMb) && diskMb > 0
+        ? { ...reservation, diskMb: Math.max(reservation.diskMb, diskMb) }
+        : unknownDisk;
+    }),
+    Effect.catchAll(() => Effect.succeed(unknownDisk)),
+  );
+}
+
 export function forkVm(input: {
   readonly userId: string;
   readonly billingCustomerType: BillingCustomerType;
@@ -1061,6 +1093,15 @@ export function forkVm(input: {
       { forceProviderProbe: true },
     );
 
+    // A pre-policy VM can have a larger disk than the metadata fallback. Read
+    // it before cloning so the new row cannot undercount the shared disk pool.
+    const sourceReservation = yield* resourceReservationForFork(
+      providers,
+      source,
+      input.providerVmId,
+      input.billingPlanId,
+    );
+
     if (source.provider === "freestyle" && providers.fork) {
       const create = yield* beginCreateWithLazyProviderRefresh(repo, providers, {
         userId: input.userId,
@@ -1072,7 +1113,7 @@ export function forkVm(input: {
         maxActiveVms: input.maxActiveVms,
         ...(isPaidVmPlan(input.billingPlanId)
           ? {
-            resourceReservation: vmResourceReservationFromMetadata(source.providerMetadata),
+            resourceReservation: sourceReservation,
             sharedResourceCapacity: sharedResourceCapacityForMaxActiveVms(input.maxActiveVms),
           }
           : {}),
@@ -1223,7 +1264,7 @@ export function forkVm(input: {
       image: snapshot.id,
       imageVersion: null,
       ...(isPaidVmPlan(input.billingPlanId)
-        ? { resourceReservation: vmResourceReservationFromMetadata(source.providerMetadata) }
+        ? { resourceReservation: sourceReservation }
         : {}),
       idempotencyKey: input.idempotencyKey,
       origin: "fork",

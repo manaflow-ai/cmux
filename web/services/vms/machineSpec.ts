@@ -140,17 +140,14 @@ export function vmResourceReservationFromMetadata(
   fallback: VmResourceReservation = DEFAULT_VM_RESOURCE_RESERVATION,
 ): VmResourceReservation {
   const raw = metadata?.[VM_RESOURCE_RESERVATION_METADATA_KEY];
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return fallback;
-  const candidate = raw as Record<string, unknown>;
-  const vcpus = candidate.vcpus;
-  const memoryMb = candidate.memoryMb;
-  const diskMb = candidate.diskMb;
-  if (
-    typeof vcpus !== "number" || !Number.isSafeInteger(vcpus) || vcpus <= 0 ||
-    typeof memoryMb !== "number" || !Number.isSafeInteger(memoryMb) || memoryMb <= 0 ||
-    typeof diskMb !== "number" || !Number.isSafeInteger(diskMb) || diskMb <= 0
-  ) return fallback;
-  return { vcpus, memoryMb, diskMb };
+  return resourceReservationFromValue(raw) ?? fallback;
+}
+
+/** Whether a row has a complete, validated reservation marker. */
+export function hasVmResourceReservationMetadata(
+  metadata: Record<string, unknown> | null | undefined,
+): boolean {
+  return resourceReservationFromValue(metadata?.[VM_RESOURCE_RESERVATION_METADATA_KEY]) !== null;
 }
 
 /** Merge a reservation into provider metadata without exposing mutable input. */
@@ -171,6 +168,20 @@ function normalizeResourceReservation(input: VmResourceReservation): VmResourceR
     }
   }
   return input;
+}
+
+function resourceReservationFromValue(value: unknown): VmResourceReservation | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const candidate = value as Record<string, unknown>;
+  const vcpus = candidate.vcpus;
+  const memoryMb = candidate.memoryMb;
+  const diskMb = candidate.diskMb;
+  if (
+    typeof vcpus !== "number" || !Number.isSafeInteger(vcpus) || vcpus <= 0 ||
+    typeof memoryMb !== "number" || !Number.isSafeInteger(memoryMb) || memoryMb <= 0 ||
+    typeof diskMb !== "number" || !Number.isSafeInteger(diskMb) || diskMb <= 0
+  ) return null;
+  return { vcpus, memoryMb, diskMb };
 }
 
 /** Disk every machine is grown to at create, in MB. Env-overridable. */

@@ -26,6 +26,7 @@ export {
   sharedResourceUsage,
   vmResourceReservationForCreate,
   vmResourceReservationFromMetadata,
+  hasVmResourceReservationMetadata,
   withVmResourceReservationMetadata,
   vcpusForMemoryMb,
   vmDiskMb,
