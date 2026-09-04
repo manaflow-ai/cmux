@@ -25,15 +25,15 @@ extension WorkspaceArtifactsState {
         recordsByIdentity[incoming.identityKey] = incoming
         nextOrder &+= 1
         orderByID[incoming.id] = nextOrder
-        records = ordered(recordsByIdentity.values)
-        if records.count > retentionLimit, let oldest = records.last {
-            recordsByIdentity.removeValue(forKey: oldest.identityKey)
-            orderByID.removeValue(forKey: oldest.id)
-            titleStateByID.removeValue(forKey: oldest.id)
-            titleGenerationByID.removeValue(forKey: oldest.id)
-            activeTitleFetchIDByID.removeValue(forKey: oldest.id)
-            titleRetryAfterByID.removeValue(forKey: oldest.id)
-            records.removeLast()
+        let orderedRecords = ordered(recordsByIdentity.values)
+        records = Array(orderedRecords.prefix(retentionLimit))
+        for evicted in orderedRecords.dropFirst(retentionLimit) {
+            recordsByIdentity.removeValue(forKey: evicted.identityKey)
+            orderByID.removeValue(forKey: evicted.id)
+            titleStateByID.removeValue(forKey: evicted.id)
+            titleGenerationByID.removeValue(forKey: evicted.id)
+            activeTitleFetchIDByID.removeValue(forKey: evicted.id)
+            titleRetryAfterByID.removeValue(forKey: evicted.id)
         }
         return incoming
     }
