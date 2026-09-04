@@ -66,6 +66,31 @@ final class GhosttyConfigTests: XCTestCase {
         let blue: Int
     }
 
+    /// Verifies cmux-managed shell integration leaves Ghostty's prompt cursor
+    /// feature disabled, preserving the user's configured cursor shape.
+    func testCmuxShellIntegrationDoesNotEnableGhosttyPromptCursor() {
+        guard let config = GhosttyApp.shared.config else {
+            XCTFail("Expected loaded Ghostty config")
+            return
+        }
+
+        var features: CUnsignedInt = 0
+        let key = "shell-integration-features"
+        XCTAssertTrue(
+            ghostty_config_get(config, &features, key, UInt(key.utf8.count)),
+            "Expected Ghostty to expose shell integration features"
+        )
+
+        // ShellIntegrationFeatures is packed; its first field is `cursor`.
+        // Clearing it prevents the prompt hook's bar-cursor escape sequence.
+        XCTAssertEqual(
+            features & 1,
+            0,
+            "cmux-managed shell integration must not switch prompts to a bar cursor"
+        )
+    }
+
+    /// Verifies bundled Ghostty resources take precedence over inherited paths.
     func testLaunchGhosttyResourcesPreferCurrentBundleOverInheritedEnvironment() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
