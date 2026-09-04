@@ -1142,6 +1142,34 @@ import Testing
         #expect(next.otherEntities.contains { $0.kind == "notifications" && $0.id == "notice-173" })
     }
 
+    @Test func deltaUpsertRejectsAnOmittedOptionalCollection() throws {
+        // Current daemons emit an empty array for every auxiliary collection.
+        // An older or partially deployed daemon may omit one instead. A delta
+        // cannot safely create that collection, because its first upsert would
+        // look valid while silently losing any rows the snapshot did not carry.
+        var snapshot = Self.sessionSnapshot
+        snapshot["cursor"] = ["generation": "daemon-a", "revision": "7"]
+        snapshot.removeValue(forKey: "notifications")
+        let state = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: snapshot, machine: Self.machine))
+        let delta: [String: Any] = [
+            "kind": "delta",
+            "previous_revision": "7",
+            "revision": "8",
+            "changes": [[
+                "kind": "upsert",
+                "resource": "notification",
+                "id": "notice-1",
+                "value": ["id": "notice-1", "body": "should recover"],
+            ]],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: delta)
+        #expect(CmuxTuiSnapshotParser.applying(
+            deltaPayload: data,
+            cursor: CloudVMCursor(generation: "daemon-a", revision: 8),
+            to: state
+        ) == nil)
+    }
+
     @Test func fragmentedDocumentMatchesPayloadIdentityAndRejectsAmbiguity() throws {
         var legacyDocument = CloudVMStateDocument(snapshot: [
             "agents": [["terminal_id": "term_build", "state": "working"]],
