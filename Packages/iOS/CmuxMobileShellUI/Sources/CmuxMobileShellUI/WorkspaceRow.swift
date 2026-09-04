@@ -94,6 +94,12 @@ struct WorkspaceRow: View {
                         changesChipView(changesChip)
                     }
                 }
+                if let taskStatus = workspace.taskStatus {
+                    Label(taskStatus.label, systemImage: taskStatus.systemImage)
+                        .font(.caption)
+                        .foregroundStyle(taskStatus == .done ? .green : .secondary)
+                        .accessibilityIdentifier("MobileWorkspaceCompletionStatus-\(workspace.id.rawValue)")
+                }
             }
         }
         .overlay(alignment: .leading) {
@@ -118,6 +124,7 @@ struct WorkspaceRow: View {
             }
         }
         .contentShape(Rectangle())
+        .opacity(workspace.taskStatus == .done ? 0.6 : 1)
     }
 
     @ViewBuilder
