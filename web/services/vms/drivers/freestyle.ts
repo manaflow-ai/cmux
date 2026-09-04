@@ -610,6 +610,8 @@ function isNotFound(err: unknown): boolean {
  * the provider match what it is asked for.
  */
 class FreestylePrivateNetworking implements VMPrivateNetworking {
+  constructor(private readonly client: (timeoutMs?: number) => Freestyle = freestyleClient) {}
+
   /**
    * Create-first: a returning user's network id lives in our row, so this runs
    * for an account's first machine (or a heal). The create is the one call
@@ -626,7 +628,7 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
       "cmux.vm.provider.ensure_network",
       { "cmux.vm.provider": "freestyle", "cmux.vm.operation": "ensure_network", "cmux.vm.network.slug": slug, "cmux.vm.network.heal": options.heal === true },
       async (span) => {
-        const fs = freestyleClient();
+        const fs = this.client();
         if (options.heal) {
           const existing = await this.readNetworkBySlug(fs, slug);
           if (!existing) throw new ProviderError("freestyle", `ensureNetwork(${slug}): no network to heal`);
@@ -662,7 +664,7 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
 
   async getNetwork(networkId: string): Promise<ProviderNetwork | null> {
     try {
-      return mapFreestyleNetwork(await freestyleClient().vpc.get(networkId));
+      return mapFreestyleNetwork(await this.client().vpc.get(networkId));
     } catch (err) {
       if (isNotFound(err)) return null;
       throw new ProviderError("freestyle", `getNetwork(${networkId})`, err);
@@ -671,7 +673,7 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
 
   async deleteNetwork(networkId: string): Promise<void> {
     try {
-      await freestyleClient().vpc.delete(networkId);
+      await this.client().vpc.delete(networkId);
     } catch (err) {
       if (isNotFound(err)) return; // already gone; delete is idempotent
       throw new ProviderError("freestyle", `deleteNetwork(${networkId})`, err);
@@ -695,7 +697,7 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
           // clientPublicKey is always supplied, so the platform never mints or
           // holds a private key: the config comes back with a blank PrivateKey
           // for the Mac to fill in from its own Keychain.
-          const data = await freestyleClient().tunnels.create({
+          const data = await this.client().tunnels.create({
             slug: options.slug,
             displayName: options.displayName,
             clientPublicKey,
@@ -705,15 +707,65 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
           setSpanAttributes(span, { "cmux.vm.tunnel.id": tunnel.id });
           return tunnel;
         } catch (err) {
+          // The provider resource can outlive the local bookkeeping row (for
+          // example after a fresh local-dev database). The device slug is
+          // deterministic, so reconcile that surviving tunnel before turning a
+          // duplicate create into a retryable 502. This also closes the race
+          // where two enrollments create the same slug concurrently.
+          const recovered = await this.recoverExistingTunnel(
+            options.slug,
+            clientPublicKey,
+            options.networkId,
+          );
+          if (recovered) {
+            setSpanAttributes(span, {
+              "cmux.vm.tunnel.id": recovered.id,
+              "cmux.vm.tunnel.recovered": true,
+            });
+            return recovered;
+          }
           throw new ProviderError("freestyle", `createTunnel(${options.slug})`, err);
         }
       },
     );
   }
 
+  /** Reconciles a provider tunnel left behind when the control-plane row disappeared. */
+  private async recoverExistingTunnel(
+    slug: string,
+    clientPublicKey: string,
+    networkId: string,
+  ): Promise<ProviderTunnel | null> {
+    const normalizedSlug = slug.trim();
+    if (!normalizedSlug) return null;
+    try {
+      const fs = this.client();
+      const listed = await fs.tunnels.list();
+      const existing = listed.tunnels.find((tunnel) => tunnel.slug?.trim() === normalizedSlug);
+      if (!existing) return null;
+
+      const tunnelID = existing.tunnelId ?? existing.id;
+      let current: TunnelData = existing;
+      // Mirror enrollVmTunnel's lost-key behavior: the slug identifies this
+      // device, so rotate its public key in place rather than pairing a stale
+      // config with the new private key.
+      if (current.clientPublicKey.trim() !== clientPublicKey) {
+        current = await fs.tunnels.rotateKey(tunnelID, { clientPublicKey });
+      }
+      if (!current.attachments.some((attachment) => attachment.vpcId === networkId)) {
+        current = await fs.tunnels.attachVpc(tunnelID, networkId);
+      }
+      return mapFreestyleTunnel(current, networkId);
+    } catch {
+      // Preserve the original create failure. A failed reconciliation attempt
+      // must not hide a provider outage or turn it into an unrelated error.
+      return null;
+    }
+  }
+
   async getTunnel(tunnelId: string, networkId: string): Promise<ProviderTunnel | null> {
     try {
-      const fs = freestyleClient();
+      const fs = this.client();
       let data = await fs.tunnels.get(tunnelId);
       if (!data.attachments.some((entry) => entry.vpcId === networkId)) {
         // The tunnel outlives its attachments, so a network detached by hand
@@ -733,7 +785,7 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
     const key = clientPublicKey.trim();
     if (!key) throw new ProviderError("freestyle", "rotateTunnelKey requires the client's public key");
     try {
-      const data = await freestyleClient().tunnels.rotateKey(tunnelId, { clientPublicKey: key });
+      const data = await this.client().tunnels.rotateKey(tunnelId, { clientPublicKey: key });
       return mapFreestyleTunnel(data, networkId);
     } catch (err) {
       throw new ProviderError("freestyle", `rotateTunnelKey(${tunnelId})`, err);
@@ -742,7 +794,7 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
 
   async deleteTunnel(tunnelId: string): Promise<void> {
     try {
-      await freestyleClient().tunnels.delete(tunnelId);
+      await this.client().tunnels.delete(tunnelId);
     } catch (err) {
       if (isNotFound(err)) return; // already gone; delete is idempotent
       throw new ProviderError("freestyle", `deleteTunnel(${tunnelId})`, err);
@@ -812,14 +864,16 @@ export class FreestyleProvider implements VMProvider {
   /** ``create`` honors requested memory through the grow-only size ladder. */
   readonly capabilities = { sizing: true } as const;
 
+  readonly privateNetworking: VMPrivateNetworking;
+
   constructor(
     private readonly deps: FreestyleProviderDependencies = {
       client: freestyleClient,
       resolveDaemonSource: resolveCmuxTuiSource,
     },
-  ) {}
-
-  readonly privateNetworking: VMPrivateNetworking = new FreestylePrivateNetworking();
+  ) {
+    this.privateNetworking = new FreestylePrivateNetworking(this.deps.client);
+  }
 
   async create(options: CreateOptions): Promise<VMHandle> {
     const image = options.image.trim();
