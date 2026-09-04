@@ -4582,9 +4582,7 @@ fn current_schema_canonicalizes_equivalent_formatted_browser_view_predicate_once
         canonical_definition.split_whitespace().collect::<Vec<_>>().join(" "),
         "CREATE UNIQUE INDEX live_resource_browser_view ON resource_tabs(content_id) WHERE content_kind = 'browser' AND deleted_revision IS NULL"
     );
-    assert!(
-        !resource_tabs_needs_multiview_normalization(&reopened.connection).unwrap()
-    );
+    assert!(!resource_tabs_needs_multiview_normalization(&reopened.connection).unwrap());
     reopened
         .connection
         .execute(
@@ -4615,13 +4613,8 @@ fn current_schema_canonicalizes_equivalent_formatted_browser_view_predicate_once
         )
         .unwrap();
     assert_eq!(definition_after_second_open, canonical_definition);
-    assert_eq!(
-        sentinel_count, 1,
-        "resource_tabs was normalized more than once"
-    );
-    assert!(
-        !resource_tabs_needs_multiview_normalization(&reopened_again.connection).unwrap()
-    );
+    assert_eq!(sentinel_count, 1, "resource_tabs was normalized more than once");
+    assert!(!resource_tabs_needs_multiview_normalization(&reopened_again.connection).unwrap());
     drop(reopened_again);
     fs::remove_dir_all(root).unwrap();
 }
