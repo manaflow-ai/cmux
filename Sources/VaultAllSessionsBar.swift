@@ -212,7 +212,14 @@ private struct VaultToolbarIcon: View {
     @State private var isHovered = false
 
     var body: some View {
-        HeaderChromeIconStyle.symbol(systemName)
+        Group {
+            if isEmphasized {
+                Image(systemName: systemName)
+                    .font(.system(size: 15, weight: .semibold))
+            } else {
+                HeaderChromeIconStyle.symbol(systemName)
+            }
+        }
             .foregroundStyle(
                 isActive
                     ? Color.accentColor
@@ -225,8 +232,8 @@ private struct VaultToolbarIcon: View {
                     )
             )
             .frame(
-                width: RightSidebarChromeMetrics.headerControlSize,
-                height: RightSidebarChromeMetrics.headerControlSize
+                width: max(RightSidebarChromeMetrics.headerControlSize, 24),
+                height: max(RightSidebarChromeMetrics.headerControlSize, 24)
             )
             .background {
                 if isActive || isHovered || isEmphasized {
