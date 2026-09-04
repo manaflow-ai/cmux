@@ -16,12 +16,14 @@
         "snapshot": "This Cloud VM does not support saved VM state.",
         "restore": "This Cloud VM kind does not support restoring saved VM state.",
         "fork": "This Cloud VM does not support copying to a new VM.",
+        "openPort": "This Cloud VM's provider cannot expose machine ports as preview URLs.",
         "default": "This Cloud VM does not support the requested operation."
       },
       "action": {
         "snapshot": "Do not retry. Work on this machine kind is kept on its persistent home volume.",
         "restore": "Do not retry. Work on this machine kind is kept on its persistent home volume.",
         "fork": "Do not retry. Create a new VM with `cmux vm new`.",
+        "openPort": "Do not retry. Reach the service from inside the machine (`cmux vm exec`), or use a machine kind that can open ports.",
         "default": "Do not retry. Run `cmux vm ls` to see your machines, or contact support if you believe this is wrong."
       }
     },
@@ -813,7 +815,7 @@
       "featuresLead": "Everything in Free, plus:",
       "features": [
         "Cloud agents on Cloud VMs in isolated remote sandboxes",
-        "Up to 50 Cloud VMs, each with 5 vCPU, 20 GB RAM, and 200 GB disk",
+        "Up to 50 Cloud VMs, each with 5 vCPU, 20 GB RAM, and 32 GB disk",
         "Unlimited workspaces",
         "The cmux iOS app and email support"
       ],
@@ -913,8 +915,8 @@
         {
           "label": "Cloud VM size",
           "free": "false",
-          "pro": "5 vCPU, 20 GB RAM, 200 GB disk",
-          "team": "5 vCPU, 20 GB RAM, 200 GB disk",
+          "pro": "5 vCPU, 20 GB RAM, 32 GB disk",
+          "team": "5 vCPU, 20 GB RAM, 32 GB disk",
           "enterprise": "Custom"
         },
         {
@@ -993,7 +995,7 @@
         },
         {
           "q": "What are Cloud VMs?",
-          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro and Team include up to 50 machines per user, each with 5 vCPU, 20 GB of RAM, and 200 GB of disk."
+          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro and Team include up to 50 machines per user, each with 5 vCPU, 20 GB of RAM, and 32 GB of disk."
         },
         {
           "q": "What is cmux Vault?",
@@ -3326,6 +3328,9 @@
     "metaTitle": "cmux Pro is active",
     "title": "cmux Pro is active",
     "body": "We created or upgraded your account with {email}. You can open cmux now or add more sign-in methods.",
+    "purchaseComplete": "Purchase complete",
+    "proLabel": "Pro plan",
+    "dashboardLink": "Go to dashboard",
     "emailLabel": "Purchase email",
     "whatUnlockedTitle": "What you unlocked",
     "openCmux": "Open cmux",

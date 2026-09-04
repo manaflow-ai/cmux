@@ -557,9 +557,9 @@ describe("Freestyle client configuration", () => {
 });
 
 describe("Freestyle machine sizing", () => {
-  test("the plan machine is 5 vCPU / 20 GB / 200 GB, vCPUs following memory", () => {
-    expect(freestyleTargetResources(20480, {})).toEqual({ cpu: 5, memory: 20480, storage: 204800 });
-    expect(freestyleTargetResources(8192, {})).toEqual({ cpu: 2, memory: 8192, storage: 204800 });
+  test("the plan machine is 5 vCPU / 20 GB / 32 GB, vCPUs following memory", () => {
+    expect(freestyleTargetResources(20480, {})).toEqual({ cpu: 5, memory: 20480, storage: 32768 });
+    expect(freestyleTargetResources(8192, {})).toEqual({ cpu: 2, memory: 8192, storage: 32768 });
     expect(freestyleTargetResources(4096, { CMUX_VM_DISK_MB: "65536" })).toEqual({
       cpu: 1,
       memory: 4096,
@@ -572,25 +572,25 @@ describe("Freestyle machine sizing", () => {
     // 2 vCPU / 4 GB / 16 GB, so a fresh create must grow all three.
     expect(freestyleResizeRequest(
       { cpu: 2, memory: 4096, storage: 16384 },
-      { cpu: 5, memory: 20480, storage: 204800 },
-    )).toEqual({ cpu: 5, memory: 20480, storage: 204800 });
+      { cpu: 5, memory: 20480, storage: 32768 },
+    )).toEqual({ cpu: 5, memory: 20480, storage: 32768 });
   });
 
   test("resize is grow-only and sends only the dimensions that grow", () => {
     // A snapshot taken from an already-sized machine restores at that size:
     // nothing to do. A snapshot larger than the request is never shrunk.
     expect(freestyleResizeRequest(
-      { cpu: 5, memory: 20480, storage: 204800 },
-      { cpu: 5, memory: 20480, storage: 204800 },
+      { cpu: 5, memory: 20480, storage: 32768 },
+      { cpu: 5, memory: 20480, storage: 32768 },
     )).toBeNull();
     expect(freestyleResizeRequest(
       { cpu: 8, memory: 32768, storage: 262144 },
-      { cpu: 5, memory: 20480, storage: 204800 },
+      { cpu: 5, memory: 20480, storage: 32768 },
     )).toBeNull();
     expect(freestyleResizeRequest(
       { cpu: 5, memory: 20480, storage: 16384 },
-      { cpu: 5, memory: 20480, storage: 204800 },
-    )).toEqual({ storage: 204800 });
+      { cpu: 5, memory: 20480, storage: 32768 },
+    )).toEqual({ storage: 32768 });
   });
 });
 
