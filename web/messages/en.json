@@ -16,7 +16,7 @@
     "terminalCommand": "cmux 404",
     "terminalError": "error: route not found",
     "terminalHint": "hint: return home or open the docs",
-    "terminalWelcome": "  ::              cmux\n    ::::          the open source terminal\n      ::::        built for coding agents\n\n  Shortcuts\n\n  ⌘N  New workspace     ⌘T  New tab\n  ⌘P  Go to workspace   ⌘D  Split right\n  ⌘⇧P Command palette   ⌘⇧L New browser\n\n  Docs    https://cmux.com/docs\n  Discord https://discord.gg/xsgFEVrWCZ\n  GitHub  https://github.com/manaflow-ai/cmux\n  Email   founders@manaflow.com\n\n  Run cmux --help for all commands.",
+    "terminalWelcome": "  ::\n    ::::              cmux\n      ::::::\n        ::::::        the open source terminal\n      ::::::          built for coding agents\n    ::::\n  ::\n\n  Shortcuts\n\n  ⌘N                  New workspace\n  ⌘T                  New tab\n  ⌘P                  Go to workspace\n  ⌘B                  Toggle Left Sidebar\n  ⌘⌥B                 Toggle Right Sidebar\n  ⌘D                  Split right\n  ⌘⇧D                 Split down\n  ⌘⇧P                 Command palette\n  ⌘⇧R                 Rename workspace\n  ⌘⇧L                 New browser\n  ⌘⇧U                 Jump to latest unread\n  ⌥⌘U                 Toggle unread\n\n  Docs                https://cmux.com/docs\n  Discord             https://discord.gg/xsgFEVrWCZ\n  GitHub              https://github.com/manaflow-ai/cmux (please leave a star ⭐)\n  Email               founders@manaflow.com\n\n  Run cmux --help for all commands.\n  Run cmux shortcuts to edit shortcuts.\n  Run cmux feedback to report a bug.",
     "terminalDocs": "Docs",
     "terminalDiscord": "Discord",
     "terminalGithub": "GitHub",

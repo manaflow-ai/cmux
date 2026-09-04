@@ -19,6 +19,7 @@ type TerminalProps = {
 type AtlasTerminal = {
   open: (element: HTMLElement) => void;
   write: (text: string) => void;
+  atlasReady: Promise<void>;
   dispose?: () => void;
 };
 
@@ -30,9 +31,79 @@ type AtlasModule = {
   };
 };
 
+const ART_FRAME_A = [
+  "  ::",
+  "    ::::              cmux",
+  "      ::::::",
+  "        ::::::        the open source terminal",
+  "      ::::::          built for coding agents",
+  "    ::::",
+  "  ::",
+].join("\n");
+
+const ART_FRAME_B = [
+  "    ::",
+  "      ::::            cmux",
+  "        ::::::",
+  "          ::::::      the open source terminal",
+  "        ::::::        built for coding agents",
+  "      :::: ",
+  "    ::",
+].join("\n");
+
+const MONOKAI = {
+  background: "#272822",
+  foreground: "#fdfff1",
+  cursor: "#c0c1b5",
+  cursorAccent: "#8d8e82",
+  selectionBackground: "#57584f",
+  selectionForeground: "#fdfff1",
+  black: "#272822",
+  red: "#f92672",
+  green: "#a6e22e",
+  yellow: "#e6db74",
+  blue: "#66d9ef",
+  magenta: "#ae81ff",
+  cyan: "#a6e22e",
+  white: "#fdfff1",
+  brightBlack: "#75715e",
+  brightRed: "#f92672",
+  brightGreen: "#a6e22e",
+  brightYellow: "#e6db74",
+  brightBlue: "#66d9ef",
+  brightMagenta: "#ae81ff",
+  brightCyan: "#a6e22e",
+  brightWhite: "#f8f8f2",
+};
+
+function colorizeArt(art: string) {
+  const colors = ["#66d9ef", "#66d9ef", "#ae81ff", "#ae81ff", "#66d9ef", "#ae81ff", "#66d9ef"];
+  return art
+    .split("\n")
+    .map((line, index) => `\x1b[38;2;${hexRgb(colors[index])}m${line}\x1b[0m`)
+    .join("\r\n");
+}
+
+function hexRgb(color: string) {
+  const value = color.slice(1);
+  return `${parseInt(value.slice(0, 2), 16)};${parseInt(value.slice(2, 4), 16)};${parseInt(value.slice(4, 6), 16)}`;
+}
+
+function atlasTranscript(welcome: string, art: string, command: string) {
+  const gray = "\x1b[38;2;117;113;94m";
+  const cyan = "\x1b[38;2;102;217;239m";
+  const yellow = "\x1b[38;2;230;219;116m";
+  const reset = "\x1b[0m";
+  const readableWelcome = welcome
+    .replace(" (please leave a star ⭐)", "\n                      (please leave a star ⭐)")
+    .replace(" (スターをお願いします ⭐)", "\n                      (スターをお願いします ⭐)");
+  return `\x1b[2J\x1b[H${gray}Last login: Fri Sep  4 03:23:17 on ttys179${reset}\r\n${cyan}cmux%${reset} ${yellow}${command}${reset}\r\n${readableWelcome.replace(ART_FRAME_A, colorizeArt(art)).replaceAll("\n", "\r\n")}\r\n${cyan}user in ~/workspace on feat/better-404 ● ● λ${reset}`;
+}
+
 function startAtlasTerminal(
   container: HTMLElement,
   welcome: string,
+  command: string,
   onReady: () => void,
 ): (() => void) | undefined {
   const moduleUrl = process.env.NEXT_PUBLIC_GHOSTTY_WEB_MODULE_URL;
@@ -41,6 +112,7 @@ function startAtlasTerminal(
 
   let terminal: AtlasTerminal | undefined;
   let cancelled = false;
+  let animation: number | undefined;
   void (async () => {
     try {
       const atlasModule = (await import(
@@ -56,13 +128,19 @@ function startAtlasTerminal(
         renderer: "atlas",
         atlas,
         cols: 88,
-        rows: 32,
-        fontFamily: "Menlo, monospace",
-        fontSize: 12,
-        theme: { background: "#111318", foreground: "#f2f4f8" },
+        rows: 40,
+        theme: MONOKAI,
       });
       terminal.open(container);
-      terminal.write(welcome);
+      await terminal.atlasReady;
+      if (cancelled) return;
+      let frame = 0;
+      const render = () => terminal?.write(atlasTranscript(welcome, frame ? ART_FRAME_B : ART_FRAME_A, command));
+      render();
+      animation = window.setInterval(() => {
+        frame = frame ? 0 : 1;
+        render();
+      }, 1200);
       onReady();
     } catch {
       // The public site keeps its text renderer when the private Atlas build is absent.
@@ -71,6 +149,7 @@ function startAtlasTerminal(
 
   return () => {
     cancelled = true;
+    if (animation !== undefined) window.clearInterval(animation);
     terminal?.dispose?.();
   };
 }
@@ -88,15 +167,21 @@ export function NotFoundTerminal({
   supportHref,
 }: TerminalProps) {
   const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const [artFrame, setArtFrame] = useState(0);
   const drag = useRef<{ pointerId: number; x: number; y: number } | null>(null);
   const atlasContainer = useRef<HTMLDivElement>(null);
   const [atlasActive, setAtlasActive] = useState(false);
 
   useEffect(() => {
+    const animation = window.setInterval(() => setArtFrame((frame) => (frame ? 0 : 1)), 1200);
+    return () => window.clearInterval(animation);
+  }, []);
+
+  useEffect(() => {
     if (!atlasContainer.current) return;
-    const cleanup = startAtlasTerminal(atlasContainer.current, welcome, () => setAtlasActive(true));
+    const cleanup = startAtlasTerminal(atlasContainer.current, welcome, command, () => setAtlasActive(true));
     return cleanup;
-  }, [welcome]);
+  }, [welcome, command]);
 
   function beginDrag(event: ReactPointerEvent<HTMLDivElement>) {
     drag.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
@@ -122,7 +207,7 @@ export function NotFoundTerminal({
       className="relative mx-auto w-full max-w-[38rem] lg:mx-0"
       style={{ transform: `translate(${offset.x}px, ${offset.y}px)` }}
     >
-      <div className="overflow-hidden rounded-[0.9rem] border border-[#3a3f4b] bg-[#111318] shadow-[0_30px_80px_-28px_rgba(0,0,0,0.75)]">
+      <div className="overflow-hidden rounded-[0.9rem] border border-[#3a3f4b] bg-[#272822] shadow-[0_30px_80px_-28px_rgba(0,0,0,0.75)]">
         <div
           className="flex h-11 cursor-grab items-center border-b border-[#2c3039] bg-[#1d2027] px-4 active:cursor-grabbing"
           onPointerDown={beginDrag}
@@ -139,12 +224,12 @@ export function NotFoundTerminal({
           </div>
           <span className="mx-auto pr-14 font-mono text-[11px] text-[#aeb4c0]">{title}</span>
         </div>
-        <div className="relative min-h-[24rem] overflow-hidden px-5 py-5 font-mono text-[11px] leading-[1.65] text-[#f2f4f8] sm:px-6 sm:text-xs">
+        <div className="relative min-h-[45rem] overflow-hidden bg-[#272822] px-5 py-5 font-mono text-[11px] leading-[1.5] text-[#f2f4f8] sm:px-6 sm:text-xs">
           <div ref={atlasContainer} className="absolute inset-0" aria-hidden="true" />
           <div className={atlasActive ? "invisible" : undefined}>
             <p className="text-[#aeb4c0]">Last login: Fri Sep  4 03:23:17 on ttys179</p>
             <p><span className="text-[#66d9ef]">cmux%</span> <span className="text-[#f8d477]">{command}</span></p>
-            <pre className="mt-3 whitespace-pre-wrap text-[#e7eaf0]">{welcome}</pre>
+            <pre className="mt-3 whitespace-pre-wrap text-[#e7eaf0]">{welcome.replace(" (please leave a star ⭐)", "\n                      (please leave a star ⭐)").replace(" (スターをお願いします ⭐)", "\n                      (スターをお願いします ⭐)").replace(ART_FRAME_A, artFrame ? ART_FRAME_B : ART_FRAME_A)}</pre>
             <p className="mt-3"><span className="text-[#66d9ef]">user in ~/workspace on feat/404 ● ● λ</span> <span className="animate-blink inline-block h-3 w-1.5 bg-[#f2f4f8] align-[-1px]" /></p>
           </div>
           <div className="relative mt-4 flex flex-wrap gap-x-4 gap-y-1 border-t border-[#2c3039] pt-3 text-[10px] text-[#9ddcff] sm:text-[11px]">
