@@ -152,25 +152,25 @@ export async function CoderouterOverviewContent({
     withPrioritySpan(
       "cmux-coderouter-dashboard",
       "cmux.coderouter.accounts",
-      { "cmux.team_id": selectedTeam.id },
+      { "cmux.team_scope": "selected" },
       () => loadAccounts(selectedTeam, accessToken),
     ),
     withPrioritySpan(
       "cmux-coderouter-dashboard",
       "cmux.coderouter.team_metrics",
-      { "cmux.team_id": selectedTeam.id },
+      { "cmux.team_scope": "selected" },
       () => loadCoderouterTeamMetrics(selectedTeam.id),
     ),
     withPrioritySpan(
       "cmux-coderouter-dashboard",
       "cmux.coderouter.claude_upstream",
-      { "cmux.team_id": selectedTeam.id },
+      { "cmux.team_scope": "selected" },
       () => loadClaudeUpstream(selectedTeam.id),
     ),
     withPrioritySpan(
       "cmux-coderouter-dashboard",
       "cmux.coderouter.machine_usage",
-      { "cmux.team_id": selectedTeam.id },
+      { "cmux.team_scope": "selected" },
       () => loadMachineUsage(selectedTeam.id),
     ),
   ]);
