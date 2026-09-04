@@ -1967,7 +1967,8 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                  [ -s "$cmux_ssh_auth_owned" ]; then
                 cmux_ssh_auth_has_confirmed_journal=1
               fi
-              if [ "$cmux_ssh_auth_dynamic_discovery_failed" != 1 ] &&
+              if { [ "$cmux_ssh_auth_dynamic_discovery_failed" != 1 ] ||
+                   [ -z "${cmux_ssh_auth_event_token:-}" ]; } &&
                  { [ "$cmux_ssh_auth_tree_frozen" = 1 ] ||
                    [ "$cmux_ssh_auth_force_frozen" = 1 ] ||
                    [ "$cmux_ssh_auth_has_confirmed_journal" = 1 ]; }; then
