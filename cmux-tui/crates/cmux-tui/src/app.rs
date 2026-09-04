@@ -19947,10 +19947,15 @@ impl App {
                 self.focus = FocusTarget::Pane;
                 return KeyboardIngress::Handled(RenderAction::Draw);
             };
-            let was_sidebar_focused = self.workspace_sidebar_focused();
+            let was_sidebar_focused = self.sidebar_rail_focused();
             let keep_machine_rail_focus =
                 self.machine_sidebar_focused() && action == Action::ProviderMenu;
-            if !(keep_machine_rail_focus || was_sidebar_focused && action == Action::SendPrefix) {
+            let keep_sidebar_presentation_focus =
+                was_sidebar_focused && sidebar_presentation_action_keeps_focus(action);
+            if !(keep_machine_rail_focus
+                || keep_sidebar_presentation_focus
+                || was_sidebar_focused && action == Action::SendPrefix)
+            {
                 self.focus = FocusTarget::Pane;
             }
             if was_sidebar_focused && action == Action::FocusSidebar {
@@ -26682,6 +26687,16 @@ fn browser_only_action(action: Action) -> bool {
     )
 }
 
+fn sidebar_presentation_action_keeps_focus(action: Action) -> bool {
+    matches!(
+        action,
+        Action::ToggleSidebarCompact
+            | Action::ToggleSidebarView
+            | Action::PrevSidebarProfile
+            | Action::NextSidebarProfile
+    )
+}
+
 fn action_is_frontend_local(action: Action) -> bool {
     matches!(
         action,
@@ -30035,6 +30050,36 @@ mod tests {
         app.handle_left_down(menu.x, menu.y, KeyModifiers::NONE).unwrap();
         assert_eq!(app.focus, FocusTarget::WorkspaceRail);
         assert!(app.menu.is_some());
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn prefixed_sidebar_presentation_actions_preserve_rail_focus() {
+        let (mux, surface) = test_mux("sidebar-presentation-keyboard-focus-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_view = SidebarView::Workspaces;
+        app.sync_layout((100, 24));
+        let prefix = KeyEvent::new(KeyCode::Char('b'), KeyModifiers::CONTROL);
+
+        // The Work profile's Agents rail is a real keyboard target. Cycling
+        // to Focus must keep the user in the sidebar and restore its
+        // workspace-oriented semantic parent.
+        app.focus = FocusTarget::ProjectionRail(2);
+        app.handle_key(prefix).unwrap();
+        app.handle_key(KeyEvent::new(KeyCode::Char('L'), KeyModifiers::NONE)).unwrap();
+        assert_eq!(app.config.sidebar.active_profile, "focus");
+        assert_eq!(app.focus, FocusTarget::WorkspaceRail);
+
+        // Switching the native content mode from a non-host rail must also
+        // preserve sidebar intent, then move focus to the stable Files host.
+        app.activate_sidebar_profile(0);
+        app.sync_layout((100, 24));
+        app.focus = FocusTarget::ProjectionRail(2);
+        app.handle_key(prefix).unwrap();
+        app.handle_key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE)).unwrap();
+        assert_eq!(app.sidebar_view, SidebarView::Files);
+        assert_eq!(app.focus, FocusTarget::WorkspaceRail);
 
         mux.close_surface(surface.id).unwrap();
     }
