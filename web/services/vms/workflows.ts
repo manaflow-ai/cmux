@@ -1222,7 +1222,9 @@ export function forkVm(input: {
       provider: source.provider,
       image: snapshot.id,
       imageVersion: null,
-      resourceReservation: vmResourceReservationFromMetadata(source.providerMetadata),
+      ...(isPaidVmPlan(input.billingPlanId)
+        ? { resourceReservation: vmResourceReservationFromMetadata(source.providerMetadata) }
+        : {}),
       idempotencyKey: input.idempotencyKey,
       origin: "fork",
       timing: input.timing,
