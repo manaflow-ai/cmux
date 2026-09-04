@@ -244,8 +244,8 @@ public actor AppLog {
             return result
         }
 
-        func signal() {
-            resolve(true)
+        func signal(_ result: Bool = true) {
+            resolve(result)
         }
 
         private func resolve(_ result: Bool) {
@@ -569,13 +569,23 @@ public actor AppLog {
 
         /// Removes this file and every retained generation, then starts a new
         /// active generation with the normal header.
-        mutating func clear() {
+        @discardableResult
+        mutating func clear() -> Bool {
             close()
             let fileManager = FileManager.default
+            var didRemoveEverything = true
             for generation in AppLog.logFileURLs(for: url) {
-                try? fileManager.removeItem(at: generation)
+                do {
+                    try fileManager.removeItem(at: generation)
+                } catch {
+                    didRemoveEverything = false
+                }
             }
-            _ = openFreshGeneration()
+            guard didRemoveEverything else {
+                openExistingForAppending()
+                return false
+            }
+            return openFreshGeneration()
         }
     }
 
@@ -695,9 +705,9 @@ public actor AppLog {
             acknowledgement.signal()
         case .clear(let acknowledgement):
             pendingFrameRun = nil
-            appFile?.clear()
-            networkFile?.clear()
-            acknowledgement.signal()
+            let appCleared = appFile?.clear() ?? true
+            let networkCleared = networkFile?.clear() ?? true
+            acknowledgement.signal(appCleared && networkCleared)
         }
     }
 
@@ -715,8 +725,10 @@ public actor AppLog {
             return nil
         }
 
-        let appData = mergedData(for: appFile?.url)
-        let networkData = mergedData(for: networkFile?.url)
+        guard let appData = mergedData(for: appFile?.url),
+              let networkData = mergedData(for: networkFile?.url) else {
+            return nil
+        }
         return Self.writeZipArchive(entries: [
             ("\(Self.exportDirectoryName)/\(Self.exportAppFileName)", appData),
             ("\(Self.exportDirectoryName)/\(Self.exportNetworkFileName)", networkData),
@@ -726,18 +738,19 @@ public actor AppLog {
     /// Clears the structured log files, including all retained generations.
     /// Entries already admitted before this call are drained first, so a clear
     /// cannot be undone by an older write still waiting in the ingress stream.
-    public func clear() async {
+    @discardableResult
+    public func clear() async -> Bool {
         let acknowledgement = Acknowledgement()
         ingress.enqueue(.clear(acknowledgement))
-        _ = await acknowledgement.wait(timeoutNanoseconds: Self.drainWaitTimeoutNanoseconds)
+        return await acknowledgement.wait(timeoutNanoseconds: Self.drainWaitTimeoutNanoseconds)
     }
 
-    private func mergedData(for fileURL: URL?) -> Data {
-        guard let fileURL else { return Data() }
+    private func mergedData(for fileURL: URL?) -> Data? {
+        guard let fileURL else { return nil }
         let generations = Self.logFileURLs(for: fileURL).reversed()
         var merged = Data()
         for generation in generations {
-            guard let data = try? Data(contentsOf: generation) else { continue }
+            guard let data = try? Data(contentsOf: generation) else { return nil }
             merged.append(data)
         }
         return merged

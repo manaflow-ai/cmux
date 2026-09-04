@@ -961,7 +961,13 @@ private struct MobileSettingsDiagnosticsSection: View {
                     }
                     await irohSettingsModel?.clearDiagnosticReport()
                     await diagnosticLog?.clear()
-                    await appLog?.clear()
+                    let didClearAppLog = await appLog?.clear() ?? true
+                    if !didClearAppLog {
+                        exportErrorMessage = L10n.string(
+                            "mobile.settings.diagnostics.clear.failed",
+                            defaultValue: "Couldn’t clear every log generation. Check available storage and try again."
+                        )
+                    }
                 }
             }
             Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {}
@@ -1016,9 +1022,10 @@ private struct MobileSettingsDiagnosticsSection: View {
         logExportTaskID = taskID
         logExportTask = Task { @MainActor in
             defer {
-                guard logExportTaskID == taskID else { return }
-                logExportTask = nil
-                logExportTaskID = nil
+                if logExportTaskID == taskID {
+                    logExportTask = nil
+                    logExportTaskID = nil
+                }
             }
             await prepareLogExport()
         }

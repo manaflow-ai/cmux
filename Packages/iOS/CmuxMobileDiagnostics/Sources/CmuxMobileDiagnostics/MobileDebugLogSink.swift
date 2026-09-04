@@ -184,8 +184,22 @@ public actor MobileDebugLogSink {
         }
 
         let fileManager = FileManager.default
-        try? fileManager.removeItem(at: fileURL)
-        try? fileManager.removeItem(at: URL(fileURLWithPath: fileURL.path + ".1"))
+        var didRemoveEverything = true
+        for generation in [
+            fileURL,
+            URL(fileURLWithPath: fileURL.path + ".1"),
+        ] where fileManager.fileExists(atPath: generation.path) {
+            do {
+                try fileManager.removeItem(at: generation)
+            } catch {
+                didRemoveEverything = false
+            }
+        }
+        guard didRemoveEverything else {
+            fileLoggingEnabled = false
+            fileBytesWritten = 0
+            return false
+        }
 
         guard shouldReopen else {
             fileLoggingEnabled = false
