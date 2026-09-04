@@ -35,9 +35,9 @@ class SignInViewModel @Inject constructor(
     val state: StateFlow<SignInState> = _state.asStateFlow()
 
     private val stackBaseUrl = "https://api.stack-auth.com"
-    // Development project credentials (from AuthEnvironment.swift)
-    private val stackProjectId = "454ecd03-1db2-4050-845e-4ce5b0cd9895"
-    private val stackPublishableKey = "pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g"
+    // Production project credentials (matches --prod-auth Mac debug build)
+    private val stackProjectId = "9790718f-14cd-4f7e-824d-eaf527a82b82"
+    private val stackPublishableKey = "pck_kzj80gx4mh2jrzn1cx6y5e8jk0kwa01vkevh2p9zd4twr"
     // Same scheme Stack Auth whitelists for mobile OAuth (matches iOS SDK)
     private val redirectUri = "stack-auth-mobile-oauth-url://success"
 
