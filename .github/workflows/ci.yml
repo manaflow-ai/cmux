@@ -1,21 +1,10 @@
 name: CI
 
 on:
-  # Keep the full suite available for explicit validation, while always
-  # Changes to CI guard scripts also retrigger the full workflow through this path.
-  # running the lightweight GhosttyKit provenance check when its pointer,
-  # checksum, or helper changes in a PR.
+  # Run the router for every pull request. The changes job keeps docs and other
+  # cheap changes on narrow lanes, but a workflow-level path filter can skip the
+  # entire required CI check for an app-source PR before the router runs.
   pull_request:
-    paths:
-      - ghostty
-      - scripts/download-prebuilt-ghosttykit.sh
-      - scripts/validate-xcframework-archive.py
-      - scripts/ghosttykit-checksums.txt
-      - tests/test_ci_ghosttykit_release_check.sh
-      - Resources/bin/cmux-hermes-agent-wrapper
-      - tests/test_hermes_wrapper_hooks.py
-      - tests/test_ci_change_areas.py
-      - .github/workflows/ci.yml
   workflow_dispatch:
 
 permissions:
@@ -127,9 +116,9 @@ jobs:
           fi
 
           python3 scripts/ci/detect_ci_change_areas.py \
-            --event-name "$EVENT_NAME" \
-            --base-sha "$BASE_SHA" \
-            --head-sha "$HEAD_SHA"
+              --event-name "$EVENT_NAME" \
+              --base-sha "$BASE_SHA" \
+              --head-sha "$HEAD_SHA"
 
   workflow-guard-tests:
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
@@ -313,6 +302,12 @@ jobs:
 
       - name: Validate CI change area filter
         run: python3 tests/test_ci_change_areas.py
+
+      - name: Validate browser runtime verification contract
+        run: python3 tests/test_browser_runtime_verification.py
+
+      - name: Validate trusted CI watcher contract
+        run: python3 tests/test_required_ci_workflow.py
 
       - name: Validate Python R2 appcast upload guard
         run: ./tests/test_ci_r2_upload_python.sh
@@ -2311,9 +2306,10 @@ jobs:
       - name: Build universal app (Release)
         run: |
           set -euo pipefail
-          CMUX_SKIP_ZIG_BUILD=1 xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Release -derivedDataPath build-universal \
+          CMUX_CEF_ALLOW_DOWNLOAD=1 CMUX_CEF_REQUIRED=1 CMUX_SKIP_ZIG_BUILD=1 xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Release -derivedDataPath build-universal \
             -destination 'generic/platform=macOS' \
             -clonedSourcePackagesDirPath .spm-cache \
+            INFOPLIST_KEY_CMUXBuildSourceSHA="$GITHUB_SHA" \
             ARCHS="arm64 x86_64" \
             ONLY_ACTIVE_ARCH=NO \
             COMPILATION_CACHE_ENABLE_CACHING=YES \
@@ -2377,6 +2373,16 @@ jobs:
           codesign --verify --strict --verbose=4 "$CMUX_CUA_BINARY"
           ./scripts/verify-diff-sidecar-artifact.sh "$DIFF_SIDECAR"
           [[ "$SDK_VERSION" == 26.* ]]
+
+      - name: Verify browser runtime artifact
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/verify_browser_runtime_artifact.py \
+            --app build-universal/Build/Products/Release/cmux.app \
+            --source-root "$GITHUB_WORKSPACE" \
+            --expected-sha "$EXPECTED_SHA"
 
   ci-status:
     needs:

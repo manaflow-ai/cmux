@@ -113,10 +113,23 @@ check_e2e_runner_fallbacks() {
     /^on:$/ { in_on=1; next }
     in_on && /^[^[:space:]]/ { in_on=0 }
     in_on && /^  workflow_dispatch:$/ { saw_dispatch=1; next }
+    in_on && /^  workflow_call:$/ { saw_call=1; next }
     in_on && /^  [A-Za-z0-9_-]+:/ { saw_other_trigger=1 }
-    END { exit !(saw_dispatch && !saw_other_trigger) }
+    END { exit !(saw_dispatch && saw_call && !saw_other_trigger) }
   ' "$E2E_FILE"; then
-    echo "FAIL: test-e2e.yml must remain workflow_dispatch-only before it may expose the self-hosted Tart canary"
+    echo "FAIL: test-e2e.yml must expose only workflow_dispatch and the trusted workflow_call trigger"
+    exit 1
+  fi
+
+  if ! awk '
+    /^  workflow_call:$/ { in_call=1; next }
+    in_call && /^[^[:space:]#]/ { in_call=0; in_options=0; next }
+    in_call && /^  [^[:space:]#][^:]*:/ { exit }
+    in_call && /default: "blacksmith-[0-9]+vcpu-macos-/ { saw_trusted_default=1 }
+    in_call && /tart-/ { saw_tart=1 }
+    END { exit !(saw_trusted_default && !saw_tart) }
+  ' "$E2E_FILE"; then
+    echo "FAIL: workflow_call E2E runs must default to a trusted Blacksmith macOS runner and never expose Tart"
     exit 1
   fi
 

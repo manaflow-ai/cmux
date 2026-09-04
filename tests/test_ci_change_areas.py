@@ -1,6 +1,6 @@
 # Keep CI change-area routing exercised when guard policy files change.
 #!/usr/bin/env python3
-"""Behavioral tests for the CI path filter."""
+"""Behavioral tests for CI routing and its macOS compile gate."""
 
 from __future__ import annotations
 
@@ -126,6 +126,17 @@ def test_ios_only_skips_main_macos_ci() -> None:
 
 def test_app_source_runs_macos() -> None:
     assert_areas(["Sources/AppDelegate.swift"], macos=True, web=False)
+
+
+def test_pull_request_router_runs_for_every_pr() -> None:
+    # A workflow-level paths filter is evaluated before the changes job and can
+    # suppress every required CI check for an app-source pull request. The
+    # router itself remains the cost-control boundary for cheap changes.
+    workflow = CI_WORKFLOW.read_text(encoding="utf-8")
+    trigger = workflow.split("\njobs:\n", 1)[0]
+    assert "\n  pull_request:\n" in trigger
+    assert "\n    paths:" not in trigger
+    assert "\n    paths-ignore:" not in trigger
 
 
 def test_workflow_changes_run_everything() -> None:
