@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 0d60b5c04eb89444ff0b4a9354896f2ae81a2bf4c953aacadd12e2907c6d84a8.
+// cmux-tui mux protocol 12, IR 3a3553a8f8cecc86d06b471a5eb716c1ec86d931cbcf32dfb5f73f4316f2c714.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -580,6 +580,11 @@ pub struct ListWorkspacesRequest {
 
 #[rustfmt::skip]
 pub type ListWorkspacesResult = T::Tree;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct MachineListeningTcpRequest {
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -1526,6 +1531,10 @@ impl CmuxClient {
 
     pub fn list_workspaces(&mut self, request: ListWorkspacesRequest) -> Result<ListWorkspacesResult> {
         self.execute(&LIST_WORKSPACES_METADATA, &request)
+    }
+
+    pub fn machine_listening_tcp(&mut self, request: MachineListeningTcpRequest) -> Result<T::MachineListeningTcpResult> {
+        self.execute(&MACHINE_LISTENING_TCP_METADATA, &request)
     }
 
     pub fn machine_usage(&mut self, request: MachineUsageRequest) -> Result<T::MachineUsageResult> {

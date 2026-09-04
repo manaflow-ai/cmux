@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '0d60b5c04eb89444ff0b4a9354896f2ae81a2bf4c953aacadd12e2907c6d84a8'
+IR_SHA256 = '3a3553a8f8cecc86d06b471a5eb716c1ec86d931cbcf32dfb5f73f4316f2c714'
 
 
 @dataclass(frozen=True)
@@ -589,6 +589,16 @@ COMMANDS = {
         'control',
         5,
         None,
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+        },
+    ),
+    'machine-listening-tcp': CommandMetadata(
+        'machine-listening-tcp',
+        'control',
+        12,
+        'machine-listening-tcp-v1',
         ('control', 'frontend', 'local-admin', 'provider-authority'),
         None,
         {

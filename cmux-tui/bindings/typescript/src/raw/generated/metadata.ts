@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 0d60b5c04eb89444ff0b4a9354896f2ae81a2bf4c953aacadd12e2907c6d84a8. */
+/* cmux-tui mux protocol 12, IR 3a3553a8f8cecc86d06b471a5eb716c1ec86d931cbcf32dfb5f73f4316f2c714. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "0d60b5c04eb89444ff0b4a9354896f2ae81a2bf4c953aacadd12e2907c6d84a8" as const;
+export const SDK_IR_SHA256 = "3a3553a8f8cecc86d06b471a5eb716c1ec86d931cbcf32dfb5f73f4316f2c714" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -537,6 +537,16 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": []
+  },
+  "machine-listening-tcp": {
+    "authority": "control",
+    "since": 12,
+    "capability": "machine-listening-tcp-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Routine Cloud port inventory uses this command over the authenticated private cmux-tui link."
+    ]
   },
   "machine-usage": {
     "authority": "control",
@@ -3523,6 +3533,24 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
             "name": "Tab"
           },
           "kind": "array"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "MachineListeningTcpResult": {
+    "additional_properties": false,
+    "constraints": [
+      "The daemon runs only a fixed socket-listing command; callers cannot supply command text.",
+      "The output is limited to 524288 bytes."
+    ],
+    "fields": {
+      "stdout": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       }
     },
@@ -8560,6 +8588,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "Tree"
+    }
+  },
+  "machine-listening-tcp": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "MachineListeningTcpResult"
     }
   },
   "machine-usage": {

@@ -12,10 +12,13 @@ import {
 } from "@/services/vms/workflows";
 
 const MAX_DISPLAY_NAME_LENGTH = 63;
+type AccessGrantRouteContext = {
+  readonly params: Promise<{ readonly id: string }>;
+};
 
 export async function PATCH(
   request: Request,
-  context: RouteContext<"/api/vm/access-grants/[id]">,
+  context: AccessGrantRouteContext,
 ): Promise<Response> {
   const { id } = await context.params;
   return withAuthedVmApiRoute(
@@ -56,7 +59,7 @@ export async function PATCH(
 
 export async function DELETE(
   request: Request,
-  context: RouteContext<"/api/vm/access-grants/[id]">,
+  context: AccessGrantRouteContext,
 ): Promise<Response> {
   const { id } = await context.params;
   return withAuthedVmApiRoute(

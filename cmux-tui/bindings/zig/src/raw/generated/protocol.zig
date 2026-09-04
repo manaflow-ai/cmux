@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "0d60b5c04eb89444ff0b4a9354896f2ae81a2bf4c953aacadd12e2907c6d84a8";
+pub const ir_sha256 = "3a3553a8f8cecc86d06b471a5eb716c1ec86d931cbcf32dfb5f73f4316f2c714";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -642,6 +642,10 @@ pub const LivePane = struct {
         "focused_at",
         "short_id",
     };
+};
+
+pub const MachineListeningTcpResult = struct {
+    stdout: []const u8,
 };
 
 pub const MachineUsage = struct {
@@ -2864,6 +2868,21 @@ pub fn listWorkspaces(client: anytype, request: ListWorkspacesRequest) !wire.Dec
             .authority = "control",
             .since = 5,
             .capability = null,
+        },
+        request,
+    );
+}
+
+pub const MachineListeningTcpRequest = struct {};
+
+pub fn machineListeningTcp(client: anytype, request: MachineListeningTcpRequest) !wire.Decoded(MachineListeningTcpResult) {
+    return client.callTyped(
+        MachineListeningTcpResult,
+        .{
+            .name = "machine-listening-tcp",
+            .authority = "control",
+            .since = 12,
+            .capability = "machine-listening-tcp-v1",
         },
         request,
     );
@@ -5105,7 +5124,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 105;
+pub const command_count: usize = 106;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "apply-layout", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "attach-surface", .authority = "frontend", .since = 5, .capability = null, .stream = "attach" },
@@ -5150,6 +5169,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "list-clients", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "list-terminals", .authority = "control", .since = 9, .capability = null, .stream = null },
     .{ .name = "list-workspaces", .authority = "control", .since = 5, .capability = null, .stream = null },
+    .{ .name = "machine-listening-tcp", .authority = "control", .since = 12, .capability = "machine-listening-tcp-v1", .stream = null },
     .{ .name = "machine-usage", .authority = "control", .since = 12, .capability = "machine-usage-v1", .stream = null },
     .{ .name = "mark-workspaces-provider-managed", .authority = "provider-authority", .since = 9, .capability = "provider-managed-workspace-authority-v2", .stream = null },
     .{ .name = "mint-terminal-renderer", .authority = "frontend", .since = 9, .capability = null, .stream = null },
