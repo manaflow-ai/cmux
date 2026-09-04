@@ -38,6 +38,7 @@ import {
 } from "./errors";
 import {
   DEFAULT_VM_RESOURCE_RESERVATION,
+  VM_DISK_MB_MAX,
   VM_RESOURCE_RESERVATION_METADATA_KEY,
   firstExceededSharedResource,
   sharedResourceCapacityForMaxActiveVms,
@@ -306,6 +307,13 @@ export type VmRepositoryShape = {
     readonly provider: ProviderId;
     readonly snapshotId: string;
   }) => Effect.Effect<boolean, VmDatabaseError>;
+  /** Return the durable resource claim for an owned snapshot, or null when absent. */
+  readonly ownedSnapshotResourceReservation?: (input: {
+    readonly userId: string;
+    readonly billingTeamId?: string | null;
+    readonly provider: ProviderId;
+    readonly snapshotId: string;
+  }) => Effect.Effect<VmResourceReservation | null, VmDatabaseError>;
   readonly findUserVm: (input: {
     readonly userId: string;
     readonly billingTeamId?: string | null;
@@ -521,11 +529,20 @@ function reservedResourceField(
   end`;
 }
 
+function positiveReservationInteger(value: unknown): number | null {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0
+    ? value
+    : null;
+}
+
 function reservedResourceFields() {
   return {
     vcpus: reservedResourceField("vcpus", DEFAULT_VM_RESOURCE_RESERVATION.vcpus),
     memoryMb: reservedResourceField("memoryMb", DEFAULT_VM_RESOURCE_RESERVATION.memoryMb),
-    diskMb: reservedResourceField("diskMb", DEFAULT_VM_RESOURCE_RESERVATION.diskMb),
+    // A legacy row can already have a disk larger than the 32 GB starting
+    // profile. Until a provider-confirmed claim is recorded, reserve the
+    // per-VM maximum so a quota read cannot undercount persistent storage.
+    diskMb: reservedResourceField("diskMb", VM_DISK_MB_MAX),
   };
 }
 
@@ -1868,6 +1885,43 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
         )
         .limit(1);
       return !!event;
+    }),
+
+  ownedSnapshotResourceReservation: (input) =>
+    dbEffect("ownedSnapshotResourceReservation", async () => {
+      const db = cloudDb();
+      const [event] = await db
+        .select({
+          metadata: cloudVmUsageEvents.metadata,
+          sourceMetadata: cloudVms.providerMetadata,
+        })
+        .from(cloudVmUsageEvents)
+        .leftJoin(cloudVms, eq(cloudVmUsageEvents.vmId, cloudVms.id))
+        .where(
+          and(
+            accountUsageScopeWhere({ userId: input.userId, billingTeamId: input.billingTeamId }),
+            eq(cloudVmUsageEvents.provider, input.provider),
+            eq(cloudVmUsageEvents.eventType, "vm.snapshot.created"),
+            sql`${cloudVmUsageEvents.metadata}->>'snapshotId' = ${input.snapshotId}`,
+          ),
+        )
+        .orderBy(desc(cloudVmUsageEvents.createdAt), desc(cloudVmUsageEvents.id))
+        .limit(1);
+      if (!event) return null;
+
+      const conservativeFallback = {
+        ...DEFAULT_VM_RESOURCE_RESERVATION,
+        diskMb: VM_DISK_MB_MAX,
+      };
+      const source = vmResourceReservationFromMetadata(event.sourceMetadata, conservativeFallback);
+      const recordedDiskMb = positiveReservationInteger(event.metadata?.diskMb);
+      return {
+        ...source,
+        // New snapshot events record the source disk. Older events have no
+        // durable size, so keep the conservative maximum rather than trusting
+        // a source VM that may have grown after the snapshot was taken.
+        diskMb: recordedDiskMb ?? VM_DISK_MB_MAX,
+      };
     }),
 
   findUserVm: (input) =>

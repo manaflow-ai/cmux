@@ -25,6 +25,7 @@ import {
 } from "./billingGateway";
 import { vmCreateDisabledReason } from "./config";
 import {
+  DEFAULT_VM_RESOURCE_RESERVATION,
   VM_DISK_MB_MAX,
   VM_DISK_MB_STEP,
   hasVmResourceReservationMetadata,
@@ -968,6 +969,15 @@ export function snapshotVm(input: {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* requireUserVm(input);
+    // Snapshot storage is the source VM's provider-confirmed disk, not merely
+    // the 32 GB starting profile. A failed or unavailable stats read fails
+    // closed to the per-VM maximum so a later restore cannot undercount it.
+    const snapshotDiskMb = providers.getStats
+      ? yield* providers.getStats(vm.provider, vm.providerVmId ?? input.providerVmId).pipe(
+        Effect.map((stats) => positiveDiskSize(stats.diskTotalMb)),
+        Effect.catchAll(() => Effect.succeed(null)),
+      )
+      : null;
     const snapshot = yield* (providers.snapshot
       ? providers.snapshot(vm.provider, vm.providerVmId ?? input.providerVmId, input.name)
       : Effect.fail(new VmOperationUnsupportedError({
@@ -982,7 +992,14 @@ export function snapshotVm(input: {
       eventType: "vm.snapshot.created",
       provider: vm.provider,
       imageId: vm.imageId,
-      metadata: { snapshotId: snapshot.id, named: !!input.name, name: input.name ?? null },
+      metadata: {
+        snapshotId: snapshot.id,
+        named: !!input.name,
+        name: input.name ?? null,
+        // Persist the source claim with the snapshot event. Restores can then
+        // reserve the captured disk even after the source VM is gone or grows.
+        diskMb: snapshotDiskMb ?? VM_DISK_MB_MAX,
+      },
     });
     return snapshot;
   });
@@ -1012,6 +1029,23 @@ export function restoreVm(input: {
     if (!hasSnapshot) {
       return yield* Effect.fail(new VmSnapshotNotFoundError({ snapshotId: input.snapshotId }));
     }
+    let snapshotReservation: VmResourceReservation | null = null;
+    if (isPaidVmPlan(input.billingPlanId) && repo.ownedSnapshotResourceReservation) {
+      snapshotReservation = yield* repo.ownedSnapshotResourceReservation({
+        userId: input.userId,
+        billingTeamId: input.billingTeamId,
+        provider: input.provider,
+        snapshotId: input.snapshotId,
+      });
+    }
+    const resourceReservation = isPaidVmPlan(input.billingPlanId)
+      ? snapshotReservation ?? {
+        ...DEFAULT_VM_RESOURCE_RESERVATION,
+        // A snapshot event written before resource metadata existed has no
+        // trustworthy disk size. Fail closed until it is measured.
+        diskMb: VM_DISK_MB_MAX,
+      }
+      : undefined;
     return yield* createVm({
       userId: input.userId,
       billingCustomerType: input.billingCustomerType,
@@ -1023,6 +1057,7 @@ export function restoreVm(input: {
       imageVersion: null,
       idempotencyKey: input.idempotencyKey,
       origin: "restore",
+      ...(resourceReservation ? { resourceReservation } : {}),
       modelPlane: input.modelPlane,
       timing: input.timing,
     });
@@ -1058,6 +1093,13 @@ function resourceReservationForFork(
     }),
     Effect.catchAll(() => Effect.succeed(unknownDisk)),
   );
+}
+
+/** Accept only a provider-reported positive disk size for snapshot claims. */
+function positiveDiskSize(value: unknown): number | null {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0
+    ? value
+    : null;
 }
 
 export function forkVm(input: {
