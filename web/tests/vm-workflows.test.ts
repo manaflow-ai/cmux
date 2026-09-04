@@ -205,6 +205,67 @@ describe("VM Effect workflows", () => {
     expect(reservation).toEqual({ vcpus: 16, memoryMb: 32768, diskMb: 65536 });
   });
 
+  test("uses the shared-pool fallback for implausible legacy fork stats", async () => {
+    const source = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000155",
+      userId: "user-workflow-legacy-fork-invalid-shape",
+      billingTeamId: "team-workflow-legacy-fork-invalid-shape",
+      billingPlanId: "pro",
+      providerVmId: "provider-vm-legacy-fork-invalid-source",
+      status: "running",
+      providerMetadata: {},
+    });
+    const pendingFork = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000156",
+      userId: source.userId,
+      billingTeamId: source.billingTeamId,
+      billingPlanId: "pro",
+      providerVmId: null,
+      status: "provisioning",
+      providerMetadata: {},
+    });
+    let reservation: unknown;
+    const repo = {
+      ...testWorkflowRepo({ vm: source }),
+      beginCreate: (input: { resourceReservation?: unknown }) => {
+        reservation = input.resourceReservation;
+        return Effect.succeed({ inserted: true, vm: pendingFork });
+      },
+      markCreateRunning: () => Effect.succeed({
+        ...pendingFork,
+        providerVmId: "provider-vm-legacy-fork-invalid-copy",
+        status: "running" as const,
+      }),
+    } as unknown as VmRepositoryShape;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      getStatus: () => Effect.succeed("running"),
+      resume: () => Effect.succeed(testVmHandle({ providerVmId: source.providerVmId! })),
+      getStats: () => Effect.succeed({
+        state: "awake" as const,
+        sampledAt: Date.now(),
+        cpus: 1,
+        memoryTotalMb: 512,
+        diskTotalMb: 1,
+      }),
+      fork: () => Effect.succeed(testVmHandle({ providerVmId: "provider-vm-legacy-fork-invalid-copy" })),
+    };
+
+    await Effect.runPromise(
+      forkVm({
+        userId: source.userId,
+        billingCustomerType: "team",
+        billingTeamId: source.billingTeamId!,
+        teamIds: [source.billingTeamId!],
+        billingPlanId: "pro",
+        maxActiveVms: 50,
+        providerVmId: source.providerVmId!,
+      }).pipe(Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(reservation).toEqual({ vcpus: 5, memoryMb: 20 * 1024, diskMb: 200 * 1024 });
+  });
+
   test("records CPU and memory in new snapshot claims", async () => {
     const source = testCloudVmRow({
       id: "00000000-0000-4000-8000-000000000153",
