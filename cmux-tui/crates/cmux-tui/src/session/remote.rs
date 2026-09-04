@@ -4266,6 +4266,12 @@ fn private_dump_file(directory: &fs::File, name: &str) -> io::Result<fs::File> {
         return Err(io::Error::last_os_error());
     }
     let file = unsafe { fs::File::from_raw_fd(descriptor) };
+    // Claim the temporary file before any validation work. The stale-temp
+    // reaper uses the same advisory lock and must never see this file as idle
+    // while it is being prepared for a dump.
+    if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
     let metadata = file.metadata()?;
     if !metadata.is_file() || metadata.uid() != unsafe { libc::geteuid() } || metadata.nlink() != 1
     {
@@ -4277,9 +4283,6 @@ fn private_dump_file(directory: &fs::File, name: &str) -> io::Result<fs::File> {
     // Exclusive creation means an existing hard link or symlink is never
     // opened, and no previously existing file is truncated.
     file.set_permissions(fs::Permissions::from_mode(0o600))?;
-    if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
-        return Err(io::Error::last_os_error());
-    }
     Ok(file)
 }
 
