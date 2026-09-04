@@ -27,9 +27,14 @@ import {
   resolveBillingTeam,
   type BillingTeamLike,
 } from "../billing/teamResolution";
+import {
+  isDevelopmentProAccessEnabled,
+  PRO_PLAN_ID,
+} from "../billing/pro";
 
 export type AuthedUser = {
   id: string;
+  isAnonymous?: boolean;
   displayName: string | null;
   primaryEmail: string | null;
   billingCustomerType: "team" | "user";
@@ -277,6 +282,29 @@ export async function verifySubrouterRequest(
     ...options,
     subrouterAuthorizationSignal: signal,
   });
+}
+
+/**
+ * Verify a browser session without resolving its team or billing state.
+ * Dashboard layouts use this narrow check before they render any private UI.
+ * The shared authorization slot makes the Stack SDK call obey the caller's
+ * deadline even though the SDK does not accept an AbortSignal itself.
+ */
+export async function verifyBrowserSessionRequest(
+  request: Request,
+  signal: AbortSignal,
+) {
+  if (!isStackConfigured()) return null;
+  const user = await stackAuthorizationCall(
+    () => getStackServerApp().getUser({
+      or: "return-null",
+      tokenStore: request as unknown as {
+        headers: { get(name: string): string | null };
+      },
+    }),
+    signal,
+  );
+  return user && !user.isAnonymous ? user : null;
 }
 
 export function isSubrouterAuthorizationError(
@@ -746,19 +774,27 @@ async function authedUserFromStackUser(
     selectedTeam,
     listTeams: async () => listedTeams,
   });
-  const userBillingPlanId = billingPlanIdFromMetadata(user.clientReadOnlyMetadata) ?? null;
-  const billingPlanId = billingPlanIdFromMetadata(billingTeam?.clientReadOnlyMetadata) ?? userBillingPlanId;
+  const developmentPro = !user.isAnonymous && isDevelopmentProAccessEnabled();
+  const userBillingPlanId = developmentPro
+    ? PRO_PLAN_ID
+    : billingPlanIdFromMetadata(user.clientReadOnlyMetadata) ?? null;
+  const billingPlanId = developmentPro
+    ? PRO_PLAN_ID
+    : billingPlanIdFromMetadata(billingTeam?.clientReadOnlyMetadata) ?? userBillingPlanId;
   const billingSeats = billingSeatsFromMetadata(billingTeam?.clientReadOnlyMetadata);
   const authedTeams = teams.map((team) => ({
     id: team.id,
     displayName: team.displayName,
-    billingPlanId: billingPlanIdFromMetadata(team.clientReadOnlyMetadata),
+    billingPlanId: developmentPro
+      ? PRO_PLAN_ID
+      : billingPlanIdFromMetadata(team.clientReadOnlyMetadata),
     billingSeats: billingSeatsFromMetadata(team.clientReadOnlyMetadata),
   }));
 
   return {
     user: {
       id: user.id,
+      isAnonymous: user.isAnonymous === true,
       displayName: user.displayName,
       primaryEmail: user.primaryEmail,
       billingCustomerType: billingTeam ? "team" : "user",
@@ -850,6 +886,7 @@ function hasAccountDeletionMetadataFlag(metadata: unknown): boolean {
 
 type StackUserLike = {
   readonly id: string;
+  readonly isAnonymous?: boolean;
   readonly displayName: string | null;
   readonly primaryEmail: string | null;
   readonly clientReadOnlyMetadata?: unknown;

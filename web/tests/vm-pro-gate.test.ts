@@ -6,12 +6,36 @@ import {
   isVmFreeProvisioningAllowed,
   isVmProGateBlocked,
   isVmProGateEnforced,
+  resolveVmEntitlements,
 } from "../services/vms/entitlements";
+import { PRO_PLAN_ID } from "../services/billing/pro";
 import { vmRequiresProResponse } from "../services/vms/routeHelpers";
 
 const ent = (planId: string) => ({ planId });
 
 describe("Cloud VM Pro gate", () => {
+  test("local development Stack accounts resolve to the paid plan", () => {
+    const entitlements = resolveVmEntitlements({
+      id: "local-dev-user",
+      displayName: null,
+      primaryEmail: "dev@example.com",
+      billingCustomerType: "user",
+      billingTeamId: "local-dev-user",
+      selectedTeamId: null,
+      teams: [],
+      teamIds: [],
+      userBillingPlanId: null,
+      billingPlanId: null,
+      billingSeats: null,
+    }, {
+      NODE_ENV: "development",
+      CMUX_LOCAL_DEV_PRO: "1",
+      NEXT_PUBLIC_STACK_PROJECT_ID: "454ecd03-1db2-4050-845e-4ce5b0cd9895",
+    });
+    expect(entitlements.planId).toBe(PRO_PLAN_ID);
+    expect(entitlements.maxActiveVms).toBeGreaterThan(0);
+  });
+
   test("isPaidVmPlan recognizes pro, team, and founders, not free", () => {
     expect(isPaidVmPlan("pro")).toBe(true);
     expect(isPaidVmPlan("team")).toBe(true);
