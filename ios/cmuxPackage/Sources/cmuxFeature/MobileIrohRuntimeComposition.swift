@@ -1765,7 +1765,16 @@ public final class MobileIrohRuntimeComposition:
         // identity and binding reads below. Start it immediately so a cold
         // activation overlaps secure-storage work instead of adding another
         // serial keychain read before the runtime can start.
-        async let cachedManagedRelayURLsTask: Set<String> = {
+        // Keep this independent read unstructured so a fallible identity or
+        // binding lookup below can return immediately after cancelling it.
+        // Structured `async let` would implicitly await the cache read while
+        // unwinding an activation failure, turning an unrelated slow secure
+        // store into a failure-path stall.
+        let cachedManagedRelayURLsTask = Task { [
+            relayPolicyCache,
+            relayPolicyTrustRoot,
+            now
+        ] in
             guard let relayPolicyTrustRoot,
                   let cachedPolicy = try? await relayPolicyCache.load(
                       trustRoot: relayPolicyTrustRoot,
@@ -1774,7 +1783,8 @@ public final class MobileIrohRuntimeComposition:
                 return []
             }
             return Set(cachedPolicy.relays.map(\.url))
-        }()
+        }
+        defer { cachedManagedRelayURLsTask.cancel() }
         let appInstanceID = try await appInstances.appInstanceID(
             accountID: accountID,
             tag: tag
