@@ -154,7 +154,12 @@ struct VMTunnelManagerTests {
         [Peer]
         PublicKey = Y
         """.write(to: manager.configURL, atomically: true, encoding: .utf8)
-        #expect(manager.wgQuickInterfaceUp() == true)
+        let configOnDisk = try String(contentsOf: manager.configURL, encoding: .utf8)
+        #expect(VMTunnelManager.interfaceIsUp(
+            runtimeNamePresent: true,
+            config: configOnDisk,
+            liveInterfaceAddresses: ["127.0.0.1"]
+        ))
     }
 
     @Test
