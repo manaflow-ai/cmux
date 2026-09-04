@@ -27,6 +27,10 @@ import {
   resolveBillingTeam,
   type BillingTeamLike,
 } from "../billing/teamResolution";
+import {
+  isDevelopmentProAccessEnabled,
+  PRO_PLAN_ID,
+} from "../billing/pro";
 
 export type AuthedUser = {
   id: string;
@@ -746,13 +750,20 @@ async function authedUserFromStackUser(
     selectedTeam,
     listTeams: async () => listedTeams,
   });
-  const userBillingPlanId = billingPlanIdFromMetadata(user.clientReadOnlyMetadata) ?? null;
-  const billingPlanId = billingPlanIdFromMetadata(billingTeam?.clientReadOnlyMetadata) ?? userBillingPlanId;
+  const developmentPro = !user.isAnonymous && isDevelopmentProAccessEnabled();
+  const userBillingPlanId = developmentPro
+    ? PRO_PLAN_ID
+    : billingPlanIdFromMetadata(user.clientReadOnlyMetadata) ?? null;
+  const billingPlanId = developmentPro
+    ? PRO_PLAN_ID
+    : billingPlanIdFromMetadata(billingTeam?.clientReadOnlyMetadata) ?? userBillingPlanId;
   const billingSeats = billingSeatsFromMetadata(billingTeam?.clientReadOnlyMetadata);
   const authedTeams = teams.map((team) => ({
     id: team.id,
     displayName: team.displayName,
-    billingPlanId: billingPlanIdFromMetadata(team.clientReadOnlyMetadata),
+    billingPlanId: developmentPro
+      ? PRO_PLAN_ID
+      : billingPlanIdFromMetadata(team.clientReadOnlyMetadata),
     billingSeats: billingSeatsFromMetadata(team.clientReadOnlyMetadata),
   }));
 
@@ -850,6 +861,7 @@ function hasAccountDeletionMetadataFlag(metadata: unknown): boolean {
 
 type StackUserLike = {
   readonly id: string;
+  readonly isAnonymous?: boolean;
   readonly displayName: string | null;
   readonly primaryEmail: string | null;
   readonly clientReadOnlyMetadata?: unknown;
