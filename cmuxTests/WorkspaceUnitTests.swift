@@ -6049,6 +6049,98 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         )
     }
 
+    func testOpenOrFocusMarkdownSurfaceDuplicatesOnlyWhenAlreadyFocused() throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-duplicate-md-\(UUID().uuidString).md")
+        try "# Duplicate occurrence\n".write(to: fileURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let initialPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+
+        let first = try XCTUnwrap(workspace.openOrFocusMarkdownSurface(
+            inPane: paneId,
+            filePath: fileURL.path,
+            focus: true,
+            duplicateWhenFocused: true
+        ))
+        XCTAssertEqual(workspace.focusedPanelId, first.id)
+
+        // Socket/CLI opens stay idempotent: reuse even while focused.
+        let reused = try XCTUnwrap(workspace.openOrFocusMarkdownSurface(
+            inPane: paneId,
+            filePath: fileURL.path,
+            focus: true
+        ))
+        XCTAssertEqual(reused.id, first.id)
+
+        // Interactive re-activation while focused opens a second occurrence.
+        let second = try XCTUnwrap(workspace.openOrFocusMarkdownSurface(
+            inPane: paneId,
+            filePath: fileURL.path,
+            focus: true,
+            duplicateWhenFocused: true
+        ))
+        XCTAssertNotEqual(second.id, first.id)
+        XCTAssertEqual(
+            workspace.panels.values.compactMap { $0 as? MarkdownPanel }.count,
+            2
+        )
+
+        // While the file's panels are unfocused, activation reveals one of them
+        // instead of stacking a third occurrence.
+        workspace.focusPanel(initialPanelId)
+        let revealed = try XCTUnwrap(workspace.openOrFocusMarkdownSurface(
+            inPane: paneId,
+            filePath: fileURL.path,
+            focus: true,
+            duplicateWhenFocused: true
+        ))
+        XCTAssertTrue([first.id, second.id].contains(revealed.id))
+        XCTAssertEqual(
+            workspace.panels.values.compactMap { $0 as? MarkdownPanel }.count,
+            2
+        )
+    }
+
+    func testOpenOrFocusFilePreviewSurfaceDuplicatesOnlyWhenAlreadyFocused() throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-duplicate-preview-\(UUID().uuidString).txt")
+        try "duplicate occurrence\n".write(to: fileURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+
+        let first = try XCTUnwrap(workspace.openOrFocusFilePreviewSurface(
+            inPane: paneId,
+            filePath: fileURL.path,
+            focus: true,
+            duplicateWhenFocused: true
+        ))
+        XCTAssertEqual(workspace.focusedPanelId, first.id)
+
+        let reused = try XCTUnwrap(workspace.openOrFocusFilePreviewSurface(
+            inPane: paneId,
+            filePath: fileURL.path,
+            focus: true
+        ))
+        XCTAssertEqual(reused.id, first.id)
+
+        let second = try XCTUnwrap(workspace.openOrFocusFilePreviewSurface(
+            inPane: paneId,
+            filePath: fileURL.path,
+            focus: true,
+            duplicateWhenFocused: true
+        ))
+        XCTAssertNotEqual(second.id, first.id)
+        XCTAssertEqual(
+            workspace.panels.values.compactMap { $0 as? FilePreviewPanel }.count,
+            2
+        )
+    }
+
     func testOpenOrFocusRightSidebarToolSurfaceReusesExistingMode() {
         let workspace = Workspace()
         guard let paneId = workspace.bonsplitController.focusedPaneId else {
