@@ -237,17 +237,15 @@ final class ClosedItemHistoryStore: ObservableObject {
                 }
                 return lhs.offset > rhs.offset
             }
-            .map { _, record in (id: record.id, entry: record.entry) }
+            .map { index, record in (index: index, id: record.id, entry: record.entry) }
         for candidate in candidates {
             guard restore(candidate.entry) else {
                 onFailure?(candidate.id)
                 continue
             }
-            if let index = records.firstIndex(where: { $0.id == candidate.id }) {
-                records.remove(at: index)
-                revision &+= 1
-                persistRecords()
-            }
+            records.remove(at: candidate.index)
+            revision &+= 1
+            persistRecords()
             return true
         }
         return false
