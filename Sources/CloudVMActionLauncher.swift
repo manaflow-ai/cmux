@@ -75,11 +75,8 @@ final class CloudVMActionLauncher {
             let words = arguments.filter { !$0.hasPrefix("-") }
             guard words.first == "vm", words.count > 1 else { return startCloudVM }
             let generic = String(
-                format: String(
-                    localized: "command.cloudVM.failed.action.generic",
-                    defaultValue: "Retry, or run `cmux %@` in a terminal to see the full output."
-                ),
-                arguments.joined(separator: " ")
+                localized: "command.cloudVM.failed.action.generic",
+                defaultValue: "Retry, or run the Cloud VM command in a terminal to see the full output."
             )
             switch words[1] {
             case "base", "new":
@@ -296,10 +293,7 @@ final class CloudVMActionLauncher {
                         defaultValue: "The bundled cmux CLI is missing from this app build."
                     ),
                     output: "",
-                    action: String(
-                        localized: "command.cloudVM.failed.action.missingCLI",
-                        defaultValue: "Install or reload a fresh cmux build, then try Start Cloud VM again. You can also run `cmux vm base open` in a terminal to see the full error."
-                    ),
+                    action: failure.action,
                     preferredWindow: preferredWindow
                 )
             }
@@ -330,7 +324,6 @@ final class CloudVMActionLauncher {
         }
         outputCollector.start()
         let launchWindow = preferredWindow
-        let commandLine = arguments.joined(separator: " ")
         let launchID = UUID()
         process.terminationHandler = { terminatedProcess in
             let output = outputCollector.finish()
@@ -366,11 +359,11 @@ final class CloudVMActionLauncher {
                       !failure.isSilent(completion) else { return }
                 let format = String(
                     localized: "command.cloudVM.failed.exit",
-                    defaultValue: "cmux %1$@ exited with status %2$d."
+                    defaultValue: "The Cloud VM command exited with status %d."
                 )
                 Self.shared.presentStartFailure(
                     title: failure.title,
-                    summary: String(format: format, commandLine, Int(terminationStatus)),
+                    summary: String(format: format, Int(terminationStatus)),
                     output: output,
                     action: failure.action,
                     preferredWindow: launchWindow
@@ -396,13 +389,10 @@ final class CloudVMActionLauncher {
                     title: failure.title,
                     summary: String(
                         localized: "command.cloudVM.failed.launch",
-                        defaultValue: "cmux vm base open could not be launched."
+                        defaultValue: "The Cloud VM command could not be launched."
                     ),
                     output: error.localizedDescription,
-                    action: String(
-                        localized: "command.cloudVM.failed.action.launch",
-                        defaultValue: "Reload cmux so the bundled CLI is available, then try again. If it still fails, run `cmux vm base open` in a terminal and send us the output."
-                    ),
+                    action: failure.action,
                     preferredWindow: preferredWindow
                 )
             }

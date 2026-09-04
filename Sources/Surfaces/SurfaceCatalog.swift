@@ -226,8 +226,9 @@ final class SurfaceCatalog {
     /// disappeared are kept only if the pane still exists (the pane shows an exited/unknown
     /// terminal until it is closed); the caller prunes dead panes through `endProjection`.
     /// `from` identifies the provider that produced the snapshot, when one is available.
-    func replaceResources(_ list: [SurfaceResource], on machine: SurfaceMachineID, info: SurfaceMachineInfo? = nil, from source: (any SurfaceProvider)? = nil) {
-        guard accepts(writeFor: machine, from: source) else { return }
+    @discardableResult
+    func replaceResources(_ list: [SurfaceResource], on machine: SurfaceMachineID, info: SurfaceMachineInfo? = nil, from source: (any SurfaceProvider)? = nil) -> Bool {
+        guard accepts(writeFor: machine, from: source) else { return false }
         for id in resourceIDsByMachine[machine] ?? [] { resources[id] = nil }
         resourceIDsByMachine[machine] = nil
         for resource in list {
@@ -238,6 +239,7 @@ final class SurfaceCatalog {
         if let info { machines[machine] = info }
         resolvePendingRestoredProjections(on: machine)
         notifyChange()
+        return true
     }
 
     /// Insert or replace one resource. A cloud provider may identify itself with `from` so a

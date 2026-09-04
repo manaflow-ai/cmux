@@ -416,7 +416,9 @@ final class MachineCreateCoordinator {
         // The CLI's `machine=` token is the authoritative created-machine
         // signal; the localized "Created Cloud VM" line is the fallback for
         // older bundled CLIs.
-        let createdMachineID = completion.machineId ?? Self.createdMachineID(fromOutput: output)
+        let createdMachineID = completion.machineId
+            ?? operation.createdMachineID
+            ?? Self.createdMachineID(fromOutput: output)
         if let createdMachineID {
             operation.createdMachineID = createdMachineID
             operations[index].createdMachineID = createdMachineID

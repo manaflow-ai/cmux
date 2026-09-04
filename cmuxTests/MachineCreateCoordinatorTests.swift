@@ -378,6 +378,22 @@ struct MachineCreateCoordinatorTests {
         #expect(notice?.body == "attach failed (HTTP 502)\nOpen it from the Machines list.", "the reason, not the CLI's progress line, leads the body")
     }
 
+    @Test func completionWithoutMachineIDUsesTheProgressMarker() {
+        let (coordinator, launches, _, changes, _) = makeCoordinator()
+        coordinator.start(Self.newMachineRequest(), launch: launches.launch)
+        let id = coordinator.operations[0].id
+        launches.progressHandlers[0]("OK machine=calm-petrel\n")
+
+        launches.complete(status: 1, output: "Error: attach failed")
+
+        #expect(coordinator.operations.isEmpty)
+        #expect(changes.finished.first?.outcome == .createdButOpenFailed(
+            machineID: "calm-petrel",
+            output: "Error: attach failed"
+        ))
+        #expect(!coordinator.retry(id), "a machine already announced by progress must not be created again")
+    }
+
     /// An older bundled CLI without the `machine=` token still classifies via
     /// the localized "Created Cloud VM" line.
     @Test func createdButOpenFailedFallsBackToTheLocalizedCreatedLine() {

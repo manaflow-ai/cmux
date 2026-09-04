@@ -67287,13 +67287,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Retry, or run `cmux %@` in a terminal to see the full output."
+            "value": "Retry, or run the Cloud VM command in a terminal to see the full output."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "再試行するか、ターミナルで `cmux %@` を実行して完全な出力を確認してください。"
+            "value": "再試行するか、ターミナルで Cloud VM コマンドを実行して完全な出力を確認してください。"
           }
         }
       }
@@ -67321,13 +67321,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reload cmux so the bundled CLI is available, then try again. If it still fails, run `cmux vm base open` in a terminal and send us the output."
+            "value": "Reload cmux so its command-line tools are available, then retry. If it still fails, run the Cloud VM command in a terminal and send us the output."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "バンドルされた CLI を使えるように cmux を再読み込みしてから再試行してください。それでも失敗する場合は、ターミナルで `cmux vm base open` を実行して出力を送ってください。"
+            "value": "コマンドラインツールを使えるように cmux を再読み込みしてから再試行してください。それでも失敗する場合は、ターミナルで Cloud VM コマンドを実行して出力を送ってください。"
           }
         }
       }
@@ -67338,13 +67338,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Install or reload a fresh cmux build, then try Start Cloud VM again. You can also run `cmux vm base open` in a terminal to see the full error."
+            "value": "Install or reload a fresh cmux build, then retry. You can also run the Cloud VM command in a terminal to see the full error."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "新しい cmux ビルドをインストールまたは再読み込みしてから、Start Cloud VM をもう一度試してください。ターミナルで `cmux vm base open` を実行すると完全なエラーも確認できます。"
+            "value": "新しい cmux ビルドをインストールまたは再読み込みしてから再試行してください。ターミナルで Cloud VM コマンドを実行すると完全なエラーも確認できます。"
           }
         }
       }
@@ -67389,13 +67389,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux %1$@ exited with status %2$d."
+            "value": "The Cloud VM command exited with status %d."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux %1$@ がステータス %2$d で終了しました。"
+            "value": "Cloud VM コマンドがステータス %d で終了しました。"
           }
         }
       }
@@ -67406,13 +67406,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux vm base open could not be launched."
+            "value": "The Cloud VM command could not be launched."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux vm base open を起動できませんでした。"
+            "value": "Cloud VM コマンドを起動できませんでした。"
           }
         }
       }
