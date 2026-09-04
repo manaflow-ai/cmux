@@ -1,4 +1,5 @@
 import type { AuthedUser } from "../../../../services/vms/auth";
+import { defaultMemoryMbForPlan } from "../../../../services/vms/entitlements";
 import { assertVmCreateEnabled } from "../../../../services/vms/config";
 import { defaultProviderId, isProviderId, type ProviderId } from "../../../../services/vms/drivers";
 import {
@@ -8,6 +9,7 @@ import {
   isVmCreateInProgressError,
   isVmImageConfigError,
   isVmLimitExceededError,
+  isVmSharedResourceLimitExceededError,
 } from "../../../../services/vms/errors";
 import {
   inferVmProviderForImage,
@@ -24,6 +26,7 @@ import {
   requestedVmTeamIdFromRequest,
   vmActiveLimitExceededResponse,
   vmErrorResponse,
+  vmSharedResourceLimitExceededResponse,
   vmWorkflowErrorResponse,
   resolveVmProvisioningAccountScope,
 } from "../../../../services/vms/routeHelpers";
@@ -59,7 +62,10 @@ export async function runBaseRoute(input: {
   let imageSelection;
   try {
     assertVmCreateEnabled(provider);
-    imageSelection = resolveVmImage(provider, parsed.body.image, process.env, { kind: parsed.body.kind });
+    imageSelection = resolveVmImage(provider, parsed.body.image, process.env, {
+      kind: parsed.body.kind,
+      memoryMb: defaultMemoryMbForPlan(entitlements.planId, process.env),
+    });
   } catch (err) {
     if (isVmCreateDisabledError(err)) {
       return vmErrorResponse({
@@ -179,6 +185,9 @@ async function baseWorkflowErrorResponse(
         : "Delete another active Cloud VM, then retry opening Base.",
       phase: "create",
     });
+  }
+  if (isVmSharedResourceLimitExceededError(err)) {
+    return vmSharedResourceLimitExceededResponse(err, "create", locale);
   }
   if (isVmCreateCreditsInsufficientError(err)) {
     return vmErrorResponse({

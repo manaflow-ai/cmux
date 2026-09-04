@@ -1,6 +1,7 @@
 import { getTranslations } from "next-intl/server";
 import { Suspense } from "react";
 import { SiteHeader } from "../components/site-header";
+import { Link } from "../../../i18n/navigation";
 import { ProCtaLink } from "../components/pro-cta-link";
 import { ProWelcomeBanner } from "../components/pro-welcome-banner";
 import {
@@ -159,6 +160,14 @@ export default async function PricingPage({
         <PricingIntervalProvider initialInterval={interval}>
           {/* Title */}
           <h1 className="text-2xl font-medium tracking-tight">{t("title")}</h1>
+          <p className="mt-3 text-sm text-muted">
+            <Link
+              href="/billing/recover"
+              className="underline underline-offset-2 decoration-link-underline hover:text-foreground"
+            >
+              {t("alreadyPaid")}
+            </Link>
+          </p>
           <PricingIntervalSelector
             billingPeriodLabel={t("billingPeriod")}
             monthlyLabel={t("monthly")}
@@ -189,7 +198,7 @@ export default async function PricingPage({
               name={t("pro.name")}
               price={
                 <PricingIntervalValue
-                  monthly={t("pro.price")}
+                  monthly={`$${PRO_PRICING_USD.month.billedAmount}`}
                   annual={`$${PRO_PRICING_USD.year.monthlyEquivalent}`}
                 />
               }
@@ -217,7 +226,7 @@ export default async function PricingPage({
                   {t("manageBilling")}
                 </SecondaryLink>
               ) : (
-                <ProCtaLink checkoutHrefs={proCheckoutHrefs} size="compact">
+                <ProCtaLink checkoutHrefs={proCheckoutHrefs}>
                   {t("pro.cta")}
                 </ProCtaLink>
               )}
@@ -230,7 +239,7 @@ export default async function PricingPage({
               name={t("team.name")}
               price={
                 <PricingIntervalValue
-                  monthly={t("team.price")}
+                  monthly={`$${TEAM_PRICING_USD.month.billedAmount}`}
                   annual={`$${TEAM_PRICING_USD.year.monthlyEquivalent}`}
                 />
               }
@@ -245,7 +254,6 @@ export default async function PricingPage({
                 hrefs={teamCheckoutHrefs}
                 location="pricing_page"
                 plan="team"
-                size="compact"
               >
                 {t("team.cta")}
               </PricingCheckoutButton>
@@ -284,7 +292,7 @@ export default async function PricingPage({
                 free: t("free.price"),
                 pro: (
                   <PricingIntervalValue
-                    monthly={`${t("pro.price")} ${t("perMonth")}`}
+                    monthly={`$${PRO_PRICING_USD.month.billedAmount} ${t("perMonth")}`}
                     annual={annualComparePrice}
                   />
                 ),

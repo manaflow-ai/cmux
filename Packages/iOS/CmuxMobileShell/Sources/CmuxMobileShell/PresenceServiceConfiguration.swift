@@ -62,6 +62,12 @@ extension PresenceClient {
         isDebugBuild: Bool = PresenceClient.isDebugBuild,
         isDevelopmentAuthChannel: Bool? = nil
     ) -> String? {
+        // Release and production-auth builds must use the production worker
+        // before consulting any stale environment, defaults, or baked value.
+        // This protects already-installed artifacts from staging injection.
+        if !isDebugBuild || isDevelopmentAuthChannel == false {
+            return productionServiceURL
+        }
         let override = environment[serviceURLEnvKey]?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             ?? defaults.string(forKey: serviceURLDefaultsKey)?

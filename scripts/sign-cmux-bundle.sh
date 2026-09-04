@@ -79,6 +79,13 @@ if [[ "$SIGN_MODE" == "all" || "$SIGN_MODE" == "all-except-computer-use" ]]; the
   for helper_dir in bin libexec; do
     for helper in "$APP_PATH/Contents/Resources/$helper_dir"/*; do
       [[ -f "$helper" && -x "$helper" ]] || continue
+      # Scripts are sealed by the bundle signature. Code-signing them directly
+      # stores the signature in an extended attribute, which Sparkle's
+      # BinaryDelta refuses to diff, so it would block delta updates.
+      if ! /usr/bin/file -b "$helper" | grep -q 'Mach-O'; then
+        echo "==> leaving non-Mach-O helper $(basename "$helper") to the bundle seal"
+        continue
+      fi
       echo "==> signing helper $(basename "$helper")"
       /usr/bin/codesign "${COMMON[@]}" --entitlements "$HELPER_ENTITLEMENTS" "$helper"
     done
@@ -123,8 +130,11 @@ if [[ -d "$COMPUTER_USE_HELPER" ]]; then
   /usr/bin/codesign --verify --strict --verbose=2 "$COMPUTER_USE_HELPER"
 fi
 "$SCRIPT_DIR/verify-command-palette-nucleo-ffi-artifact.sh" "$APP_PATH"
+# The sidecar must carry exactly the slices the app does: universal for stable
+# and the transitional nightly, one architecture for thinned nightlies.
 "$SCRIPT_DIR/verify-diff-sidecar-artifact.sh" \
   "$APP_PATH/Contents/Resources/bin/cmux-diff-sidecar" \
+  --archs "$(lipo -archs "$APP_PATH/Contents/MacOS/cmux")" \
   --require-signed
 
 APP_ID="$(/usr/libexec/PlistBuddy -c "Print :com.apple.application-identifier" \
@@ -168,6 +178,7 @@ done
 for helper_dir in bin libexec; do
   for helper in "$APP_PATH/Contents/Resources/$helper_dir"/*; do
     [[ -f "$helper" && -x "$helper" ]] || continue
+    /usr/bin/file -b "$helper" | grep -q 'Mach-O' || continue
     if /usr/bin/codesign -d --entitlements :- "$helper" 2>&1 \
          | grep -q "application-identifier"; then
       echo "error: helper $(basename "$helper") unexpectedly carries application-identifier" >&2
