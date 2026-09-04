@@ -451,6 +451,10 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         }
 
         let command = """
+        # The fixture shares a process group with this harness. Ignore the
+        # group-delivered signals from the intentionally terminated tree so
+        # the harness can finish reporting cleanup assertions.
+        trap '' HUP INT TERM
         \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
         CMUX_TEST_CHAIN_DEPTH=24 /bin/sh "$CMUX_TEST_CHAIN_SCRIPT" &
         cmux_test_auth_root=$!
@@ -494,7 +498,6 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             "CMUX_TEST_CLEANUP_STARTED_MARKER": cleanupStartedMarker.path,
             "CMUX_TEST_READY_MARKER": readyMarker.path,
             "CMUX_TEST_PID_LOG": pidLog.path,
-            "CMUX_SSH_AUTH_DEBUG": "1",
         ]) { _, override in override }
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
@@ -519,9 +522,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             .compactMap { Int32($0) }
         waitForProcessesToExit(processIDs)
 
-        let capturedStderr = (try? String(contentsOf: stderrCapture.url, encoding: .utf8)) ?? ""
-        let stderrTail = capturedStderr.split(separator: "\n").suffix(400).joined(separator: "\n")
-        #expect(process.terminationStatus == 0, "terminator stderr:\n\(stderrTail)")
+        #expect(process.terminationStatus == 0)
         #expect(processIDs.count == 25)
         // The helper has one shared two-second discovery budget plus a bounded
         // force pass. Keep a wall-clock assertion so a per-node timeout or a
