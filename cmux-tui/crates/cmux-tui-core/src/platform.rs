@@ -1168,11 +1168,11 @@ pub fn spawn_cwd_to_local_path(value: &str) -> Option<PathBuf> {
     if value.is_empty() || value.contains('\0') {
         return None;
     }
-    if !value.get(..5).is_some_and(|prefix| prefix.eq_ignore_ascii_case("file:")) {
-        return Some(PathBuf::from(value));
-    }
     if value.starts_with("cmux-tui:spawn-cwd:") {
         return None;
+    }
+    if !value.get(..5).is_some_and(|prefix| prefix.eq_ignore_ascii_case("file:")) {
+        return Some(PathBuf::from(value));
     }
     // Legacy daemons serialized the authenticated spawn path directly.
     // Snapshot data is received over the owner-token authenticated host
