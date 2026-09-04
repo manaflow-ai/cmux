@@ -243,27 +243,31 @@ pub fn normalize_filesystem_path(path: PathBuf) -> PathBuf {
         use std::os::windows::ffi::{OsStrExt, OsStringExt};
 
         const WINDOWS_PATH_HEADROOM: usize = 240;
-        let has_path_prefix = path
+        let original = path;
+        let has_path_prefix = original
             .components()
             .next()
             .is_some_and(|component| matches!(component, std::path::Component::Prefix(_)));
-        let path = if path.is_absolute() || has_path_prefix {
-            path
+        if matches!(original.components().next(), Some(std::path::Component::RootDir)) {
+            return original;
+        }
+        let candidate = if original.is_absolute() || has_path_prefix {
+            original.clone()
         } else {
             match std::env::current_dir() {
                 Ok(current) => {
-                    let resolved = current.join(&path);
+                    let resolved = current.join(&original);
                     if resolved.as_os_str().encode_wide().count() < WINDOWS_PATH_HEADROOM {
-                        return path;
+                        return original;
                     }
                     resolved
                 }
-                Err(_) => return path,
+                Err(_) => return original,
             }
         };
-        let mut wide = path.as_os_str().encode_wide().collect::<Vec<_>>();
+        let mut wide = candidate.as_os_str().encode_wide().collect::<Vec<_>>();
         if wide.len() < WINDOWS_PATH_HEADROOM {
-            return path;
+            return original;
         }
         for unit in &mut wide {
             if *unit == b'/' as u16 {
@@ -271,7 +275,7 @@ pub fn normalize_filesystem_path(path: PathBuf) -> PathBuf {
             }
         }
         if has_windows_device_prefix(&wide) {
-            return path;
+            return original;
         }
         // A verbatim path disables Win32's component parsing. Removing a
         // parent component here would therefore change the meaning of a path
@@ -280,16 +284,16 @@ pub fn normalize_filesystem_path(path: PathBuf) -> PathBuf {
         // This is a deliberate fail-closed choice for the uncommon long path
         // case, and preserves the pre-upgrade filesystem target.
         if has_windows_parent_component(&wide) {
-            return path;
+            return original;
         }
         let Some(normalized) = normalize_windows_absolute_path(&wide) else {
-            return path;
+            return original;
         };
         // `\\?\` disables Win32 string parsing. Prefix only components that
         // already have ordinary Win32 file-name semantics, or the same input
         // could select a different filesystem object after normalization.
         if !windows_absolute_path_is_verbatim_safe(&normalized) {
-            return path;
+            return original;
         }
         let is_unc = normalized.starts_with(&[b'\\' as u16, b'\\' as u16]);
         let mut prefixed = if is_unc {
@@ -407,6 +411,7 @@ fn windows_component_is_reserved_device_name(stem: &[u16]) -> bool {
 
 #[cfg(windows)]
 fn normalize_windows_absolute_path(path: &[u16]) -> Option<Vec<u16>> {
+    let had_trailing_separator = path.last() == Some(&(b'\\' as u16));
     let is_drive = path.len() >= 3
         && path[0] <= 0x7f
         && (path[0] as u8).is_ascii_alphabetic()
@@ -465,6 +470,9 @@ fn normalize_windows_absolute_path(path: &[u16]) -> Option<Vec<u16>> {
             output.push(b'\\' as u16);
         }
         output.extend_from_slice(&segment);
+    }
+    if had_trailing_separator && output.last() != Some(&(b'\\' as u16)) {
+        output.push(b'\\' as u16);
     }
     Some(output)
 }
