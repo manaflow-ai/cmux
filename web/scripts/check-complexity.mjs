@@ -165,42 +165,33 @@ function functionNodeAt(sourceFile, characterOffset) {
   return match;
 }
 
-function directChild(parent, target) {
-  let child = target;
-  while (child.parent && child.parent !== parent) child = child.parent;
-  return child;
-}
-
-function containsFunctionBody(node) {
-  let found = false;
-  function visit(child) {
-    if (ts.isFunctionLike(child) && child.body) {
-      found = true;
-      return;
-    }
-    ts.forEachChild(child, visit);
+function functionBodyAnchor(node, sourceFile) {
+  if (!node.body) return "";
+  if (ts.isBlock(node.body)) {
+    const firstStatement = node.body.statements[0];
+    return firstStatement ? normalizedSyntax(firstStatement.getText(sourceFile)).slice(0, 200) : "<empty>";
   }
-  visit(node);
-  return found;
+  return normalizedSyntax(node.body.getText(sourceFile)).slice(0, 200);
 }
 
-function isContextContainer(node) {
-  return (
-    ts.isBlock(node) ||
-    ts.isObjectLiteralExpression(node) ||
-    ts.isArrayLiteralExpression(node) ||
-    ts.isCaseBlock(node) ||
-    ts.isCaseClause(node) ||
-    ts.isIfStatement(node) ||
-    ts.isIterationStatement(node) ||
-    ts.isSwitchStatement(node) ||
-    ts.isTryStatement(node) ||
-    ts.isCatchClause(node)
-  );
+function contextDescriptor(node, sourceFile) {
+  if (ts.isIfStatement(node)) return `if:${normalizedSyntax(node.expression.getText(sourceFile))}`;
+  if (ts.isIterationStatement(node)) return `loop:${normalizedSyntax(node.expression?.getText(sourceFile) ?? "")}`;
+  if (ts.isSwitchStatement(node)) return `switch:${normalizedSyntax(node.expression.getText(sourceFile))}`;
+  if (ts.isCaseClause(node)) return `case:${normalizedSyntax(node.expression.getText(sourceFile))}`;
+  if (ts.isCatchClause(node)) return `catch:${normalizedSyntax(node.variableDeclaration?.getText(sourceFile) ?? "")}`;
+  if (ts.isObjectLiteralExpression(node)) {
+    return `object:${node.properties.map((property) => normalizedSyntax(property.name?.getText(sourceFile) ?? "")).join(",")}`;
+  }
+  if (ts.isArrayLiteralExpression(node)) return `array:${node.elements.length}`;
+  if (ts.isTryStatement(node)) return "try";
+  if (ts.isBlock(node)) return "block";
+  return undefined;
 }
 
 function functionIdentity(sourceFile, node) {
   const parts = [`self:${nodeName(node, sourceFile) || "anonymous"}`, `header:${functionHeader(node, sourceFile)}`];
+  if (!nodeName(node, sourceFile)) parts.push(`body:${functionBodyAnchor(node, sourceFile)}`);
   let child = node;
   for (let parent = node.parent; parent && !ts.isSourceFile(parent); parent = parent.parent) {
     if (ts.isCallExpression(parent)) {
@@ -223,10 +214,8 @@ function functionIdentity(sourceFile, node) {
     } else if (ts.isElementAccessExpression(parent) && parent.argumentExpression) {
       parts.push(`element:${normalizedSyntax(parent.argumentExpression.getText(sourceFile))}`);
     }
-    if (isContextContainer(parent)) {
-      const containingChildren = parent.getChildren(sourceFile).filter(containsFunctionBody);
-      parts.push(`container:${ts.SyntaxKind[parent.kind]}#${containingChildren.indexOf(directChild(parent, child))}`);
-    }
+    const context = contextDescriptor(parent, sourceFile);
+    if (context) parts.push(`context:${context}`);
     child = parent;
   }
   return parts.reverse().join("/");
@@ -273,7 +262,8 @@ function baselineEntryPath(entry) {
 
 function readBaseline(repoRoot) {
   const file = path.join(repoRoot, BASELINE_FILE);
-  return existsSync(file) ? baselineEntries(readFileSync(file, "utf8")) : new Map();
+  if (!existsSync(file)) fail(`${BASELINE_FILE} is required; restore it instead of disabling the gate`);
+  return baselineEntries(readFileSync(file, "utf8"));
 }
 
 function baselineAt(repoRoot, revision) {

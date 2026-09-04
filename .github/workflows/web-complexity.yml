@@ -21,7 +21,9 @@ concurrency:
 jobs:
   complexity:
     name: Web complexity
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # Pull requests execute contributor-controlled package install scripts. Keep
+    # those runs on an ephemeral GitHub-hosted runner.
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     steps:
       - name: Checkout
