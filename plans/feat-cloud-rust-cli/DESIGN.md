@@ -518,6 +518,12 @@ unless a directed peer grant allows them. Address checks canonicalize IPv4,
 IPv6, mapped, integer, and DNS forms before every connection. VPC reachability
 never grants cmux control of another VM.
 
+The daemon control endpoint is not exposed as a peer service. Bind it to VM
+loopback when possible. If a private listener is required, its firewall admits
+only the authenticated host or relay route, and cmux-remote still performs its
+end-to-end handshake. A directed peer grant may expose an application port,
+never the daemon control port.
+
 Use `vm-vpc` as the default agent egress policy. It permits the VM's loopback,
 assigned interface addresses, and exact peer IP and port grants. `internet` is
 an explicit user or team policy that adds public destinations. An own published

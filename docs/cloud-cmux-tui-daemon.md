@@ -60,6 +60,14 @@ The cmux-tui stack already solves each of these on `main`:
   lane (`.github/workflows/cmux-tui-build-package.yml`) already produces the
   needed artifact: a static `x86_64-unknown-linux-musl` build.
 
+The daemon control endpoint is not an open machine service. Prefer a loopback
+bind inside the VM. If the selected transport needs a private listener, the
+VM firewall allows only the authenticated host or relay route, and the
+listener still requires the end-to-end cmux-remote handshake. A machine-to-
+machine grant may expose an application port, never the daemon control port.
+The browser proxy and the daemon use separate listeners and credentials, so a
+browser or VPC route cannot become a topology or terminal control channel.
+
 ## What the spike proved (2026-08-26)
 
 Historical record. The spike ran against a temporary sandbox and a

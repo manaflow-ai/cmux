@@ -472,6 +472,12 @@ Address checks canonicalize IPv4, IPv6, mapped, integer, and DNS forms before
 each connection.
 VPC network access does not grant another VM's cmux control.
 
+The VM daemon control endpoint is not a peer service. It binds to loopback or
+to a private listener that admits only the authenticated host or relay route.
+The firewall may expose an application port through a directed grant, never
+the daemon control port. The cmux-remote handshake remains required after a
+packet reaches the listener.
+
 Local files and the local browser are not remote agent targets. A user may
 start a separate local `cmux open` action or explicitly transfer one selected,
 bounded file to the VM. The VM cannot supply a host path, request a picker, or

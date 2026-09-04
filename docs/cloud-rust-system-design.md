@@ -413,6 +413,7 @@ the backend may mint a short-lived machine-scoped principal and store only its
 hash. The managed edge injects the principal only to the named cmux API origin.
 Scopes are deny-by-default:
 
+- control only resources in the named machine and leased workspace;
 - read the machine's own status and allowed peers;
 - attach, exec, or notify only through an explicit peer grant;
 - never create, destroy, snapshot, change billing, or widen a grant.
@@ -528,6 +529,14 @@ An own published domain must be separately allowlisted if the agent needs to
 test it. Every policy keeps host, metadata, and unapproved private ranges
 blocked. The URL parser is only a user-facing check; the guest firewall and
 proxy are the enforcement points.
+
+The cmux daemon control endpoint is not a VPC service. It binds to the VM
+loopback when the transport allows it, or to a private listener whose firewall
+allows only the authenticated host or relay route. Peer grants may expose an
+application port, never the daemon control port. The daemon still requires the
+end-to-end session handshake after a packet reaches the listener. A VPC peer
+cannot turn an allowed application route into a cmux session or use a browser
+port as a control channel.
 
 Browser downloads stay in the VM file grant. Moving one to the Mac uses an
 explicit host-side `cloud vm pull` action with a selected destination. Drag,
