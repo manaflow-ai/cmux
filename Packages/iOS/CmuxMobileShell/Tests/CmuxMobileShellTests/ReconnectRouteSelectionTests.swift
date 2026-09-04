@@ -895,4 +895,114 @@ import Testing
         #expect(store.connectionError != nil)
         #expect(factory.attemptedKinds() == [.iroh, .tailscale])
     }
+
+    /// A strict Tailscale foreground selection must not be hidden by reconnect
+    /// promoting a different saved computer over Iroh after the selected Mac
+    /// fails.
+    @Test func failingSelectedTailscaleDoesNotPromoteAnotherSavedIrohMac()
+        async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        let liveTransportBox = TransportBox()
+        let factory = KindRecordingTransportFactory(
+            router: router,
+            box: liveTransportBox,
+            failingKinds: [.tailscale]
+        )
+        let tailscale = try tailscale()
+        let iroh = try iroh()
+        let otherIroh = try CmxAttachRoute(
+            id: "iroh-other",
+            kind: .iroh,
+            endpoint: .peer(
+                identity: CmxIrohPeerIdentity(
+                    endpointID: String(repeating: "b", count: 64)
+                ),
+                pathHints: []
+            ),
+            priority: -10_000
+        )
+        let (pairedStore, directory) = try makePairedMacStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try await pairedStore.upsert(
+            macDeviceID: "selected-mac",
+            displayName: "Selected Mac",
+            routes: [tailscale, iroh],
+            instanceTag: "default",
+            markActive: true,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: clock.now
+        )
+        try await pairedStore.authorizeUserTailscaleRoutes(
+            macDeviceID: "selected-mac",
+            instanceTag: "default",
+            stackUserID: "user-1",
+            teamID: nil,
+            routes: [tailscale]
+        )
+        try await pairedStore.upsert(
+            macDeviceID: "other-mac",
+            displayName: "Other Mac",
+            routes: [otherIroh],
+            instanceTag: "default",
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: clock.now
+        )
+        await router.setHostIdentity(
+            deviceID: "selected-mac",
+            instanceTag: "default",
+            displayName: "Selected Mac"
+        )
+        await router.setHostIdentity(
+            deviceID: "other-mac",
+            instanceTag: "default",
+            displayName: "Other Mac"
+        )
+        let methodStore = MobileConnectionMethodStore(
+            defaults: UserDefaults(
+                suiteName: "connection-method-strict-other-mac-\(UUID().uuidString)"
+            )!
+        )
+        let store = MobileShellComposite(
+            runtime: LivenessTestRuntime(
+                transportFactory: factory,
+                now: { clock.now },
+                supportedRouteKinds: [.iroh, .tailscale]
+            ),
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            connectionMethodStore: methodStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            reachability: AlwaysOnlineReachability(),
+            pairingHintDefaults: UserDefaults(
+                suiteName: "connection-method-strict-other-mac-hint-\(UUID().uuidString)"
+            )!,
+            hiddenMacStore: InMemoryPairedMacHiddenStore()
+        )
+        await store.loadPairedMacs()
+
+        await store.setConnectionMethod(
+            .tailscale,
+            macDeviceID: "selected-mac",
+            instanceTag: "default"
+        )
+
+        let failed = try await pollUntil {
+            store.connectionState == .disconnected
+                && store.macConnectionStatus == .unavailable
+                && store.connectionError != nil
+        }
+        #expect(failed)
+        #expect(
+            store.connectionMethod(
+                forMacDeviceID: "selected-mac",
+                instanceTag: "default"
+            ) == .tailscale
+        )
+        #expect(store.foregroundMacDeviceID == nil)
+        #expect(factory.attemptedKinds() == [.tailscale])
+    }
 }
