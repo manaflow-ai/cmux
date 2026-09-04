@@ -4,6 +4,8 @@ import CmuxAuthRuntime
 import CmuxMobileAnalytics
 import CmuxMobilePairedMac
 import CmuxMobileBrowserStream
+import CmuxMobileCloud
+import CmuxMobileCloudUI
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
@@ -83,6 +85,10 @@ public struct CMUXMobileRootScene: View {
     /// Injected as a plain environment value through
     /// `\.mobileWebAppSession`.
     private let webAppSession: MobileWebAppSessionBroker
+    /// The Cloud section's tunnel and link owner, built once per scene and
+    /// injected through `\.cloudSessionController`. Nil when the build has
+    /// no API origin, which hides the Cloud entry.
+    @State private var cloudSessionController: CloudSessionController?
     #endif
     /// Per-terminal composer drafts for the app session, so an unsent message
     /// survives keyboard dismiss and terminal switches. In-memory only for now;
@@ -179,6 +185,7 @@ public struct CMUXMobileRootScene: View {
             apiBaseURL: auth.config.apiBaseURL,
             projectID: auth.config.stack.projectId
         )
+        _cloudSessionController = State(initialValue: MobileCloudComposition(auth: auth).makeController())
     }
     #else
     /// Creates the root scene (non-iOS: no push).
@@ -409,6 +416,7 @@ public struct CMUXMobileRootScene: View {
             .environment(whatsNewCenter)
             .environment(macCompatCenter)
             .environment(\.mobileWebAppSession, webAppSession)
+            .environment(\.cloudSessionController, cloudSessionController)
             #endif
     }
 
