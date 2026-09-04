@@ -368,7 +368,7 @@ pub fn file_url(path: &Path) -> Result<String, FileUrlError> {
     } else {
         url.push('/');
     }
-    url.push_str(&encode_uri_path(path));
+    url.push_str(&encode_uri_path(&path));
     Ok(url)
 }
 

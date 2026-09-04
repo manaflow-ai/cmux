@@ -19255,14 +19255,14 @@ impl App {
                     self.terminal_tab_size_hint(self.active_pane()),
                 )
             }
-            FileCommand::OpenBrowser(path) => {
-                let url = file_url(&path).map_err(|error| anyhow::anyhow!(error))?;
-                self.session.new_browser_tab(
+            FileCommand::OpenBrowser(path) => match file_url(&path) {
+                Ok(url) => self.session.new_browser_tab(
                     url,
                     self.active_pane(),
                     self.browser_tab_size_hint(self.active_pane()),
-                )
-            }
+                ),
+                Err(error) => Err(anyhow::anyhow!(error)),
+            },
         };
         match result {
             Ok(()) => self

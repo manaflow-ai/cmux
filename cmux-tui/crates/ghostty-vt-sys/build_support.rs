@@ -46,16 +46,8 @@ mod tests {
     #[test]
     fn cross_targets_keep_their_explicit_zig_abi() {
         let cases = [
-            (
-                "x86_64-pc-windows-gnu",
-                "aarch64-unknown-linux-gnu",
-                "-Dtarget=x86_64-windows-gnu",
-            ),
-            (
-                "x86_64-pc-windows-msvc",
-                "aarch64-unknown-linux-gnu",
-                "-Dtarget=x86_64-windows-msvc",
-            ),
+            ("x86_64-pc-windows-gnu", "aarch64-unknown-linux-gnu", "-Dtarget=x86_64-windows-gnu"),
+            ("x86_64-pc-windows-msvc", "aarch64-unknown-linux-gnu", "-Dtarget=x86_64-windows-msvc"),
             (
                 "aarch64-pc-windows-msvc",
                 "x86_64-unknown-linux-gnu",
@@ -63,16 +55,8 @@ mod tests {
             ),
             ("x86_64-apple-darwin", "aarch64-unknown-linux-gnu", "-Dtarget=x86_64-macos"),
             ("aarch64-apple-darwin", "x86_64-unknown-linux-gnu", "-Dtarget=aarch64-macos"),
-            (
-                "x86_64-unknown-linux-gnu",
-                "aarch64-unknown-linux-gnu",
-                "-Dtarget=x86_64-linux-gnu",
-            ),
-            (
-                "aarch64-unknown-linux-gnu",
-                "x86_64-unknown-linux-gnu",
-                "-Dtarget=aarch64-linux-gnu",
-            ),
+            ("x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu", "-Dtarget=x86_64-linux-gnu"),
+            ("aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu", "-Dtarget=aarch64-linux-gnu"),
             (
                 "x86_64-unknown-linux-musl",
                 "aarch64-unknown-linux-gnu",
