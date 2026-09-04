@@ -45,7 +45,7 @@ extension MobileShellComposite {
     /// Rechecks the live foreground Mac after a background policy refresh.
     /// Startup remains non-blocking, but a newly stricter remote policy cannot
     /// leave an already-connected older Mac admitted indefinitely.
-    func revalidateActiveMacCompatibilityPolicy() {
+    public func revalidateActiveMacCompatibilityPolicy() {
         guard connectionState == .connected else {
             pendingMacCompatibilityPolicyRevalidation = true
             return
