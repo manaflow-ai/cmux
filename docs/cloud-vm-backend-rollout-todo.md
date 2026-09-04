@@ -10,7 +10,8 @@ This is the scoped todo list for making the Cloud VM backend production-ready wi
 > **2026-09-04 current-main re-audit:** The terminal placement rename and
 > canonical remote-state synchronization remain absent from `main`; current
 > `main` adds no replacement for them. The branch is rebased on
-> `6720b9859aed35ccf0d6bc250ffe9deb655d2a5a`. Freestyle is still the only
+> `f83815917330efd70e2156f40425bcf72bc405dd` (`Clarify Cloud VM capacity is
+> shared (#11897)`). Freestyle is still the only
 > active provider. The direct development backend is healthy, but the shared
 > free account has `maxActiveVms=0`, so an authenticated live VM rename smoke
 > remains pending a paid or explicitly provisioned test VM.
