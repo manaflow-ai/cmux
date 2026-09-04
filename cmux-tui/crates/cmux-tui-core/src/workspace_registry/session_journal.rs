@@ -1470,7 +1470,8 @@ fn decode_journal_segment(row: JournalSegmentRow) -> anyhow::Result<DecodedJourn
             "journal segment {segment_id} contains trailing data"
         );
     }
-    let (decoder, bytes_read, digest) = reader.into_inner().finish();
+    let (limited_decoder, bytes_read, digest) = reader.into_inner().finish();
+    let decoder = limited_decoder.into_inner();
     let mut compressed_reader = decoder.into_inner();
     anyhow::ensure!(
         compressed_reader.fill_buf()?.is_empty(),
