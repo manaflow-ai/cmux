@@ -257262,6 +257262,40 @@
         }
       }
     },
+    "titlebar.captureScreenshot.accessibilityLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Capture Full Screenshot"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デスクトップ全体を撮影"
+          }
+        }
+      }
+    },
+    "titlebar.captureScreenshot.tooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Capture the full desktop"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デスクトップ全体を撮影"
+          }
+        }
+      }
+    },
     "titlebar.notifications.tooltip": {
       "extractionState": "manual",
       "localizations": {
