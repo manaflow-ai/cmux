@@ -2584,6 +2584,117 @@ describe("VM Effect workflows", () => {
     expect(secondLegacyWrite).toBeLessThan(secondBegin);
   });
 
+  dbTest("does not stamp an unmeasured reservation on a free VM row", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+
+    const result = await Effect.runPromise(
+      Effect.gen(function* () {
+        const repo = yield* VmRepository;
+        return yield* repo.beginCreate({
+          userId: "user-workflow-free-unmeasured",
+          billingTeamId: "team-workflow-free-unmeasured",
+          billingPlanId: "free",
+          provider: "freestyle",
+          image: "snapshot-test",
+          maxActiveVms: 3,
+          idempotencyKey: "free-unmeasured",
+        });
+      }).pipe(Effect.provide(VmRepositoryLive)),
+    );
+
+    expect(result.inserted).toBe(true);
+    expect(result.vm.providerMetadata).toEqual({});
+    const [row] = await sql<{ providerMetadata: Record<string, unknown> }[]>`
+      select provider_metadata as "providerMetadata"
+      from cloud_vms
+      where id = ${result.vm.id}
+    `;
+    expect(row?.providerMetadata).toEqual({});
+  });
+
+  dbTest("holds shared disk headroom until a provider resize is confirmed", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    const vmId = "00000000-0000-4000-8000-000000000147";
+    const teamId = "team-workflow-resize-headroom";
+    await sql`
+      insert into cloud_vms (
+        id, user_id, billing_team_id, billing_plan_id, provider, provider_vm_id,
+        image_id, status, provider_metadata
+      ) values (
+        ${vmId}, 'user-workflow-resize-headroom', ${teamId}, 'pro', 'freestyle',
+        'provider-vm-resize-headroom', 'snapshot-test', 'running',
+        ${JSON.stringify({
+          cmuxResourceReservation: { vcpus: 5, memoryMb: 20 * 1024, diskMb: 32768 },
+        })}::jsonb
+      )
+    `;
+
+    const runRepo = <T,>(operation: (repo: VmRepositoryShape) => Effect.Effect<T, never>) =>
+      Effect.runPromise(
+        Effect.gen(function* () {
+          const repo = yield* VmRepository;
+          return yield* operation(repo);
+        }).pipe(Effect.provide(VmRepositoryLive)),
+      );
+    const reservation = await runRepo((repo) => repo.reserveVmResize!({
+      id: vmId,
+      userId: "user-workflow-resize-headroom",
+      billingTeamId: teamId,
+      providerVmId: "provider-vm-resize-headroom",
+      currentDiskMb: 32768,
+      storageMb: 65536,
+      maxActiveVms: 50,
+    }));
+
+    expect(reservation).toEqual({ previousDiskMb: 32768, reservedDiskMb: 200 * 1024 });
+    const blocked = await Effect.runPromise(
+      Effect.gen(function* () {
+        const repo = yield* VmRepository;
+        return yield* repo.beginCreate({
+          userId: "user-workflow-resize-headroom",
+          billingTeamId: teamId,
+          billingPlanId: "pro",
+          provider: "freestyle",
+          image: "snapshot-test",
+          maxActiveVms: 50,
+          idempotencyKey: "blocked-while-resizing",
+          resourceReservation: { vcpus: 5, memoryMb: 20 * 1024, diskMb: 32768 },
+          sharedResourceCapacity: { vcpus: 5, memoryMb: 20 * 1024, diskMb: 200 * 1024 },
+        });
+      }).pipe(Effect.flip, Effect.provide(VmRepositoryLive)),
+    );
+    expect(blocked).toMatchObject({ _tag: "VmSharedResourceLimitExceededError", resource: "diskMb" });
+
+    const confirmed = await runRepo((repo) => repo.confirmVmResize!({
+      id: vmId,
+      expectedDiskMb: reservation!.reservedDiskMb,
+      confirmedDiskMb: 73728,
+    }));
+    expect(confirmed).toBe(true);
+
+    const created = await runRepo((repo) => repo.beginCreate({
+      userId: "user-workflow-resize-headroom",
+      billingTeamId: teamId,
+      billingPlanId: "pro",
+      provider: "freestyle",
+      image: "snapshot-test",
+      maxActiveVms: 50,
+      idempotencyKey: "after-resize-confirmed",
+      resourceReservation: { vcpus: 5, memoryMb: 20 * 1024, diskMb: 32768 },
+      sharedResourceCapacity: { vcpus: 5, memoryMb: 20 * 1024, diskMb: 200 * 1024 },
+    }));
+    expect(created.inserted).toBe(true);
+
+    const [stored] = await sql<{ diskMb: number }[]>`
+      select (provider_metadata->'cmuxResourceReservation'->>'diskMb')::integer as "diskMb"
+      from cloud_vms
+      where id = ${vmId}
+    `;
+    expect(stored?.diskMb).toBe(73728);
+  });
+
   dbTest("resets Base by retaining the previous generation when capacity allows", async () => {
     if (!sql) throw new Error("test database not initialized");
     await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
