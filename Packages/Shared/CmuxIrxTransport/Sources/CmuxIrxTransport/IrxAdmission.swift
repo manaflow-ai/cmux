@@ -68,7 +68,10 @@ public enum IrxAdmission {
             admit = nil
         }
         guard let admit else {
-            // EOF or timeout: the reason, if any, is in the termination.
+            // A stalled QUIC read can outlive the deadline and ignore task
+            // cancellation. Close the connection first so the read loses its
+            // transport owner before we inspect the termination reason.
+            await connection.close(code: .admissionTimeout, origin: .transport)
             let termination = await connection.termination()
             journal.record(
                 "admission", "denied-or-timeout",
