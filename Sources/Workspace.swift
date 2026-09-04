@@ -711,8 +711,6 @@ extension Workspace {
                 browserSnapshot = SessionBrowserPanelSnapshot(
                     urlString: browserPanel.preferredURLStringForSessionSnapshot(),
                     profileID: browserPanel.profileID,
-                    engine: browserPanel.engineKind,
-                    chromiumStorageID: browserPanel.engineKind == .chromium ? browserPanel.chromiumStorageID : nil,
                     shouldRenderWebView: browserPanel.shouldRenderWebViewForSessionSnapshot(),
                     pageZoom: Double(browserPanel.currentPageZoomFactor()),
                     developerToolsVisible: browserPanel.isDeveloperToolsVisible(),
@@ -2146,9 +2144,7 @@ extension Workspace {
                 focus: false,
                 preferredProfileID: snapshot.browser?.profileID,
                 creationPolicy: .restoration,
-                transparentBackground: snapshot.browser?.transparentBackground ?? false,
-                engine: snapshot.browser?.engine ?? .webkit,
-                chromiumStorageID: snapshot.browser?.chromiumStorageID
+                transparentBackground: snapshot.browser?.transparentBackground ?? false
             ) else {
                 return nil
             }
@@ -2766,32 +2762,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
     /// Subscriptions for panel updates (e.g., browser title changes)
     var panelSubscriptions: [UUID: AnyCancellable] = [:]
-    /// Chromium shutdowns that must complete before a recently closed pane's
-    /// persisted storage identity is reused during an immediate reopen.
-    private var pendingChromiumShutdownsByStorageID: [UUID: Task<Bool, Never>] = [:]
-    private var pendingChromiumShutdownTokensByStorageID: [UUID: UUID] = [:]
-
-    /// Retains a Chromium shutdown barrier for a closed-panel restore path.
-    func retainChromiumShutdownTask(_ task: Task<Bool, Never>, for storageID: UUID) {
-        let token = UUID()
-        pendingChromiumShutdownsByStorageID[storageID] = task
-        pendingChromiumShutdownTokensByStorageID[storageID] = token
-        Task { @MainActor [weak self, task, token] in
-            _ = await task.value
-            guard let self,
-                  self.pendingChromiumShutdownTokensByStorageID[storageID] == token else {
-                return
-            }
-            self.pendingChromiumShutdownsByStorageID.removeValue(forKey: storageID)
-            self.pendingChromiumShutdownTokensByStorageID.removeValue(forKey: storageID)
-        }
-    }
-
-    /// Consumes the barrier for an immediate same-storage reopen.
-    private func takeChromiumShutdownTask(for storageID: UUID) -> Task<Bool, Never>? {
-        pendingChromiumShutdownTokensByStorageID.removeValue(forKey: storageID)
-        return pendingChromiumShutdownsByStorageID.removeValue(forKey: storageID)
-    }
     private var agentSessionPanelCallbackIds: Set<UUID> = []
 
     /// Aggregate media-device activity across every browser pane in this
@@ -4712,7 +4682,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                     focus: true,
                     preferredProfileID: sourcePanel.profileID,
                     allowsExternalBrowserFallback: false,
-                    engine: sourcePanel.engineKind,
                     websiteDataStore: websiteDataStore
                 ) != nil
             },
@@ -4724,7 +4693,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                     preferredProfileID: sourcePanel.profileID,
                     focus: true,
                     allowsExternalBrowserFallback: false,
-                    engine: sourcePanel.engineKind,
                     websiteDataStore: websiteDataStore
                 ) != nil
             },
@@ -4741,7 +4709,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                     insertAtEnd: true,
                     preferredProfileID: sourcePanel.profileID,
                     allowsExternalBrowserFallback: false,
-                    engine: sourcePanel.engineKind,
                     websiteDataStore: websiteDataStore
                 ) != nil
             },
@@ -4774,7 +4741,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                     focus: true,
                     preferredProfileID: sourcePanel.profileID,
                     allowsExternalBrowserFallback: false,
-                    engine: sourcePanel.engineKind,
                     websiteDataStore: websiteDataStore
                 ) != nil
             },
@@ -4786,7 +4752,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                     preferredProfileID: sourcePanel.profileID,
                     focus: true,
                     allowsExternalBrowserFallback: false,
-                    engine: sourcePanel.engineKind,
                     websiteDataStore: websiteDataStore
                 ) != nil
             },
@@ -4803,7 +4768,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                     insertAtEnd: true,
                     preferredProfileID: sourcePanel.profileID,
                     allowsExternalBrowserFallback: false,
-                    engine: sourcePanel.engineKind,
                     websiteDataStore: websiteDataStore
                 ) != nil
             },
@@ -9554,8 +9518,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         chromeVisibility: BrowserChromeVisibility = .visible,
         transparentBackground: Bool = false,
         bypassRemoteProxy: Bool = false,
-        engine: BrowserEngineKind? = nil,
-        chromiumStorageID: UUID? = nil,
         initialDividerPosition: CGFloat? = nil,
         websiteDataStore: WKWebsiteDataStore? = nil
     ) -> BrowserPanel? {
@@ -9592,13 +9554,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
         guard let paneId = sourcePaneId else { return nil }
 
-        // A just-closed Chromium panel may still be releasing its profile
-        // lock. Carry that task into the replacement so startup waits for the
-        // exact old child instead of racing the reused storage identity.
-        let chromiumStartPrerequisite = chromiumStorageID.flatMap {
-            takeChromiumShutdownTask(for: $0)
-        }
-
         // Create browser panel
         let browserPanel = BrowserPanel(
             workspaceId: id,
@@ -9606,7 +9561,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 preferredProfileID: preferredProfileID,
                 sourcePanelId: panelId
             ),
-            chromiumStorageID: chromiumStorageID,
             initialURL: url,
             initialRequest: initialRequest,
             renderInitialNavigation: browserEnabled || creationPolicy != .restoration,
@@ -9615,11 +9569,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             transparentBackground: transparentBackground,
             proxyEndpoint: remoteProxyEndpoint,
             bypassRemoteProxy: bypassRemoteProxy,
-            engine: engine,
             isRemoteWorkspace: isRemoteWorkspace,
             remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !bypassRemoteProxy ? id : nil,
-            websiteDataStore: websiteDataStore,
-            chromiumStartPrerequisite: chromiumStartPrerequisite
+            websiteDataStore: websiteDataStore
         )
         configureBrowserPanel(browserPanel)
         panels[browserPanel.id] = browserPanel
@@ -9647,9 +9599,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             removeSurfaceMapping(forSurfaceId: newTab.id)
             panels.removeValue(forKey: browserPanel.id)
             panelTitles.removeValue(forKey: browserPanel.id)
-            if let chromiumStorageID, let chromiumStartPrerequisite {
-                retainChromiumShutdownTask(chromiumStartPrerequisite, for: chromiumStorageID)
-            }
             return nil
         }
         applyInitialSplitDividerPosition(initialDividerPosition, sourcePaneId: paneId, newPaneId: newPaneId)
@@ -9697,8 +9646,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         chromeVisibility: BrowserChromeVisibility = .visible,
         transparentBackground: Bool = false,
         bypassRemoteProxy: Bool = false,
-        engine: BrowserEngineKind? = nil,
-        chromiumStorageID: UUID? = nil,
         websiteDataStore: WKWebsiteDataStore? = nil
     ) -> BrowserPanel? {
         guard !isRetiredFromOwningTabManager else { return nil }
@@ -9728,16 +9675,12 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalInputTarget()?.panel.hostedView
 
-        let chromiumStartPrerequisite = chromiumStorageID.flatMap {
-            takeChromiumShutdownTask(for: $0)
-        }
         let browserPanel = BrowserPanel(
             workspaceId: id,
             profileID: resolvedNewBrowserProfileID(
                 preferredProfileID: preferredProfileID,
                 sourcePanelId: sourcePanelId
             ),
-            chromiumStorageID: chromiumStorageID,
             initialURL: url,
             initialRequest: initialRequest,
             renderInitialNavigation: browserEnabled || creationPolicy != .restoration,
@@ -9747,11 +9690,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             transparentBackground: transparentBackground,
             proxyEndpoint: remoteProxyEndpoint,
             bypassRemoteProxy: bypassRemoteProxy,
-            engine: engine,
             isRemoteWorkspace: isRemoteWorkspace,
             remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !bypassRemoteProxy ? id : nil,
-            websiteDataStore: websiteDataStore,
-            chromiumStartPrerequisite: chromiumStartPrerequisite
+            websiteDataStore: websiteDataStore
         )
         configureBrowserPanel(browserPanel)
         panels[browserPanel.id] = browserPanel
@@ -9770,9 +9711,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         ) else {
             panels.removeValue(forKey: browserPanel.id)
             panelTitles.removeValue(forKey: browserPanel.id)
-            if let chromiumStorageID, let chromiumStartPrerequisite {
-                retainChromiumShutdownTask(chromiumStartPrerequisite, for: chromiumStorageID)
-            }
             return nil
         }
 
@@ -10687,8 +10625,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             workspaceId: id,
             url: resolvedURL,
             profileID: browserPanel.profileID,
-            engine: browserPanel.engineKind,
-            chromiumStorageID: browserPanel.engineKind == .chromium ? browserPanel.chromiumStorageID : nil,
             originalPaneId: pane.id,
             originalTabIndex: tabIndex,
             fallbackSplitOrientation: fallbackPlan?.orientation,
@@ -12000,10 +11936,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
 
     private func browserPortalReady(for browserPanel: BrowserPanel) -> Bool {
-        // Chromium is painted by its own host view. It has no WKWebView portal
-        // entry to bind, so the portal registry must never gate layout follow-up.
-        if browserPanel.isChromiumBacked { return true }
-        return browserPortalAnchorReady(for: browserPanel) &&
+        browserPortalAnchorReady(for: browserPanel) &&
             browserPanel.webView.window != nil &&
             browserPanel.webView.cmuxBrowserViewportAttachmentSuperview != nil &&
             BrowserWindowPortalRegistry.isWebView(browserPanel.webView, boundTo: browserPanel.portalAnchorView)
@@ -12018,9 +11951,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         let selectionConverged =
             bonsplitController.focusedPaneId == paneId &&
             bonsplitController.selectedTab(inPane: paneId)?.id == tabId
-        if browserPanel.isChromiumBacked {
-            return !selectionConverged
-        }
         return !selectionConverged || !browserPortalAnchorReady(for: browserPanel)
     }
 
@@ -12037,7 +11967,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
               let browserPanel = browserPanel(for: panelId) else {
             return false
         }
-        if browserPanel.isChromiumBacked { return false }
         return !browserPortalReady(for: browserPanel)
     }
 
@@ -12089,25 +12018,21 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
         if let browserPanelId = layoutFollowUpBrowserPanelId {
             if let browserPanel = browserPanel(for: browserPanelId) {
-                if browserPanel.isChromiumBacked {
+                let anchorReady = browserPortalAnchorReady(for: browserPanel)
+                let wasReady = browserPortalReady(for: browserPanel)
+                if anchorReady && !wasReady {
+                    BrowserWindowPortalRegistry.synchronizeForAnchor(browserPanel.portalAnchorView)
+                }
+                let isReady = browserPortalReady(for: browserPanel)
+                if isReady,
+                   (!wasReady || BrowserWindowPortalRegistry.debugSnapshot(for: browserPanel.webView)?.containerHidden == true) {
+                    BrowserWindowPortalRegistry.refresh(
+                        webView: browserPanel.webView,
+                        reason: reason
+                    )
+                }
+                if isReady {
                     layoutFollowUpBrowserPanelId = nil
-                } else {
-                    let anchorReady = browserPortalAnchorReady(for: browserPanel)
-                    let wasReady = browserPortalReady(for: browserPanel)
-                    if anchorReady && !wasReady {
-                        BrowserWindowPortalRegistry.synchronizeForAnchor(browserPanel.portalAnchorView)
-                    }
-                    let isReady = browserPortalReady(for: browserPanel)
-                    if isReady,
-                       (!wasReady || BrowserWindowPortalRegistry.debugSnapshot(for: browserPanel.webView)?.containerHidden == true) {
-                        BrowserWindowPortalRegistry.refresh(
-                            webView: browserPanel.webView,
-                            reason: reason
-                        )
-                    }
-                    if isReady {
-                        layoutFollowUpBrowserPanelId = nil
-                    }
                 }
             } else {
                 layoutFollowUpBrowserPanelId = nil
@@ -12366,7 +12291,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
         for panel in panels.values {
             guard let browserPanel = panel as? BrowserPanel else { continue }
-            if browserPanel.isChromiumBacked { continue }
             // Canvas-inline-hosted webviews live in the pane hierarchy; portal
             // rebinds/refreshes here would steal them back into the portal.
             if browserPanel.canvasInlineHostingActive { continue }
@@ -12429,7 +12353,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
         for panel in panels.values {
             guard let browserPanel = panel as? BrowserPanel else { continue }
-            if browserPanel.isChromiumBacked { continue }
             guard visiblePanelIds.contains(browserPanel.id) else { continue }
             let anchorView = browserPanel.portalAnchorView
             let anchorReady =
@@ -12508,7 +12431,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             url: url,
             focus: true,
             preferredProfileID: sourceBrowser?.profileID,
-            engine: sourceBrowser?.engineKind,
             websiteDataStore: sourceBrowser?.explicitEphemeralWebsiteDataStoreForSibling
         ) else { return }
         _ = reorderSurface(panelId: newPanel.id, toIndex: targetIndex)
@@ -12527,7 +12449,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             preferredProfileID: browser.profileID,
             chromeVisibility: browser.chromeVisibility,
             bypassRemoteProxy: browser.bypassesRemoteWorkspaceProxyForTabDuplication,
-            engine: browser.engineKind,
             websiteDataStore: browser.explicitEphemeralWebsiteDataStoreForSibling
         ) else { return nil }
         newPanel.setMuted(browser.isMuted)

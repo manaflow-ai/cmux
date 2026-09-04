@@ -70,7 +70,6 @@ extension Workspace {
             focus: true,
             preferredProfileID: panel.profileID,
             bypassInsecureHTTPHostOnce: seed.bypassInsecureHTTPHostOnce,
-            engine: panel.engineKind,
             websiteDataStore: panel.explicitEphemeralWebsiteDataStoreForSibling
         ) != nil
     }
@@ -89,7 +88,6 @@ extension Workspace {
                 focus: true,
                 preferredProfileID: panel.profileID,
                 bypassInsecureHTTPHostOnce: seed.bypassInsecureHTTPHostOnce,
-                engine: panel.engineKind,
                 websiteDataStore: panel.explicitEphemeralWebsiteDataStoreForSibling
             ) != nil
         }
@@ -158,8 +156,6 @@ extension DockSplitStore {
         preloadInitialNavigationInBackground: Bool = false,
         transparentBackground: Bool = false,
         bypassRemoteProxy: Bool? = nil,
-        engine: BrowserEngineKind? = nil,
-        chromiumStorageID: UUID? = nil,
         websiteDataStore: WKWebsiteDataStore? = nil
     ) -> BrowserPanel {
         let settings = currentRemoteBrowserSettings()
@@ -169,7 +165,6 @@ extension DockSplitStore {
             id: id,
             workspaceId: workspaceId,
             profileID: preferredProfileID,
-            chromiumStorageID: chromiumStorageID,
             initialURL: url,
             initialRequest: initialRequest,
             renderInitialNavigation: renderInitialNavigation,
@@ -180,7 +175,6 @@ extension DockSplitStore {
             transparentBackground: transparentBackground,
             proxyEndpoint: settings.proxyEndpoint,
             bypassRemoteProxy: resolvedBypassRemoteProxy,
-            engine: engine,
             isRemoteWorkspace: settings.isRemoteWorkspace,
             remoteWebsiteDataStoreIdentifier: resolvedBypassRemoteProxy
                 ? nil
@@ -270,7 +264,6 @@ extension DockSplitStore {
                     initialRequest: request,
                     focus: true,
                     preferredProfileID: sourcePanel.profileID,
-                    engine: sourcePanel.engineKind,
                     allowsExternalBrowserFallback: false,
                     websiteDataStore: websiteDataStore
                 ) != nil
@@ -283,7 +276,6 @@ extension DockSplitStore {
                     sourcePanelId: sourcePanel.id,
                     initialRequest: request,
                     preferredProfileID: sourcePanel.profileID,
-                    engine: sourcePanel.engineKind,
                     allowsExternalBrowserFallback: false,
                     websiteDataStore: websiteDataStore,
                     focus: true
@@ -296,7 +288,6 @@ extension DockSplitStore {
                     initialRequest: request,
                     focus: true,
                     preferredProfileID: sourcePanel.profileID,
-                    engine: sourcePanel.engineKind,
                     allowsExternalBrowserFallback: false,
                     websiteDataStore: websiteDataStore
                 ) != nil
@@ -333,7 +324,6 @@ extension DockSplitStore {
                     url: url,
                     focus: true,
                     preferredProfileID: sourcePanel.profileID,
-                    engine: sourcePanel.engineKind,
                     allowsExternalBrowserFallback: false,
                     websiteDataStore: websiteDataStore
                 ) != nil
@@ -347,7 +337,6 @@ extension DockSplitStore {
                     sourcePanelId: sourcePanel.id,
                     url: url,
                     preferredProfileID: sourcePanel.profileID,
-                    engine: sourcePanel.engineKind,
                     allowsExternalBrowserFallback: false,
                     websiteDataStore: websiteDataStore,
                     focus: true
@@ -361,7 +350,6 @@ extension DockSplitStore {
                     url: url,
                     focus: true,
                     preferredProfileID: sourcePanel.profileID,
-                    engine: sourcePanel.engineKind,
                     allowsExternalBrowserFallback: false,
                     websiteDataStore: websiteDataStore
                 ) != nil

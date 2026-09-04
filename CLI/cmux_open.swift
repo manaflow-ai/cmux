@@ -1,5 +1,4 @@
 import CryptoKit
-import CmuxBrowser
 import Darwin
 import Foundation
 
@@ -141,7 +140,6 @@ extension CMUXCLI {
         var window: String?
         var surface: String?
         var pane: String?
-        var engine: String?
         var focus: String?
         var noFocus = false
         var targets: [String] = []
@@ -827,18 +825,6 @@ extension CMUXCLI {
         let fileFocus = explicitFocus ?? true
 
         let targets = try parsedArgs.targets.map(resolveOpenTarget)
-        if parsedArgs.engine != nil,
-           targets.contains(where: { target in
-               switch target {
-               case .url: return false
-               case .file, .directory: return true
-               }
-           }) {
-            throw CLIError(message: String(
-                localized: "cli.browser.engine.error.urlOnly",
-                defaultValue: "--engine is only supported when opening a browser URL"
-            ))
-        }
         var fileCount = 0
         var urlCount = 0
         var directoryCount = 0
@@ -890,9 +876,6 @@ extension CMUXCLI {
             case .url(let url, let defaultFocus):
                 try flushPendingFiles()
                 var params: [String: Any] = ["url": url, "focus": explicitFocus ?? defaultFocus]
-                if let engine = parsedArgs.engine {
-                    params["engine"] = engine
-                }
                 if let windowHandle { params["window_id"] = windowHandle }
                 if let workspaceHandle { params["workspace_id"] = workspaceHandle }
                 if let surfaceHandle { params["surface_id"] = surfaceHandle }
@@ -1287,17 +1270,6 @@ extension CMUXCLI {
                     parsed.pane = try openOptionValue(commandArgs, index: index, name: arg)
                     index += 2
                     continue
-                case "--engine":
-                    let raw = try openOptionValue(commandArgs, index: index, name: arg)
-                    guard let engine = BrowserEngineKind.parse(raw) else {
-                        throw CLIError(message: String(
-                            localized: "cli.browser.engine.error.invalid",
-                            defaultValue: "--engine requires webkit or chromium"
-                        ))
-                    }
-                    parsed.engine = engine.rawValue
-                    index += 2
-                    continue
                 case "--focus":
                     parsed.focus = try openOptionValue(commandArgs, index: index, name: arg)
                     index += 2
@@ -1307,24 +1279,8 @@ extension CMUXCLI {
                     index += 1
                     continue
                 default:
-                    if arg.hasPrefix("--engine=") {
-                        let raw = String(arg.dropFirst("--engine=".count))
-                        guard let engine = BrowserEngineKind.parse(raw) else {
-                            throw CLIError(message: String(
-                                localized: "cli.browser.engine.error.invalid",
-                                defaultValue: "--engine requires webkit or chromium"
-                            ))
-                        }
-                        parsed.engine = engine.rawValue
-                        index += 1
-                        continue
-                    }
                     if arg.hasPrefix("-") {
-                        let format = String(
-                            localized: "cli.open.error.unknownFlag",
-                            defaultValue: "open: unknown flag '%@'. Usage: cmux open <path-or-url>... [--engine <webkit|chromium>] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>] [--focus true|false] [--no-focus]"
-                        )
-                        throw CLIError(message: String.localizedStringWithFormat(format, arg))
+                        throw CLIError(message: "open: unknown flag '\(arg)'. Usage: cmux open <path-or-url>... [--workspace <id|ref|index>] [--surface <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>] [--focus true|false] [--no-focus]")
                     }
                 }
             }
@@ -7928,7 +7884,6 @@ extension CMUXCLI {
           --surface <id|ref|index>     Target surface whose pane should receive file tabs (default: $CMUX_SURFACE_ID)
           --pane <id|ref|index>        Target pane for file tabs
           --window <id|ref|index>      Target window
-          --engine <webkit|chromium>   Browser engine for URL targets only
           --focus <true|false>         Focus opened file previews (default: true)
           --no-focus                   Do not focus opened file previews
 
@@ -7937,7 +7892,6 @@ extension CMUXCLI {
           cmux open image-a.png image-b.jpg
           cmux open ~/Downloads/movie.mov --pane pane:1
           cmux open https://example.com
-          cmux open https://example.com --engine chromium
         """
     }
 

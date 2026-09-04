@@ -1,7 +1,6 @@
 import Foundation
 import AppKit
 import Bonsplit
-import CmuxBrowser
 import CmuxCanvas
 import CmuxCanvasUI
 
@@ -234,8 +233,7 @@ extension Workspace {
     func openNewCanvasPane(
         type: CanvasNewPaneType,
         focus: Bool = true,
-        direction: CanvasDirection? = nil,
-        engine: BrowserEngineKind? = nil
+        direction: CanvasDirection? = nil
     ) -> UUID? {
         guard layoutMode == .canvas else { return nil }
         guard let focusedPaneId = bonsplitController.focusedPaneId else { return nil }
@@ -251,7 +249,7 @@ extension Workspace {
             }
             newPanelId = panel.id
         case .browser:
-            guard let panel = newBrowserSurface(inPane: focusedPaneId, focus: focus, engine: engine) else {
+            guard let panel = newBrowserSurface(inPane: focusedPaneId, focus: focus) else {
                 return nil
             }
             newPanelId = panel.id
