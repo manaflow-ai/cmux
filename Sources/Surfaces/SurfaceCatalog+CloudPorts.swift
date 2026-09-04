@@ -206,13 +206,12 @@ extension SurfaceCatalog {
         for projection in projections where relatedIDs.contains(projection.resource) {
             projectionCounts[projection.workspaceID, default: 0] += 1
         }
-        return projectionCounts
-            .sorted {
-                lhs.value != rhs.value
-                    ? lhs.value > rhs.value
-                    : lhs.key.uuidString < rhs.key.uuidString
-            }
-            .first?.key ?? fallback
+        let orderedCounts = projectionCounts.sorted(by: { lhs, rhs in
+            lhs.value != rhs.value
+                ? lhs.value > rhs.value
+                : lhs.key.uuidString < rhs.key.uuidString
+        })
+        return orderedCounts.first?.key ?? fallback
     }
 
     /// Keeps a port that was added or reopened while a provider refresh was
@@ -263,7 +262,7 @@ extension CmuxTuiSurfaceProvider {
         previousResources: [SurfaceResource],
         privateAddress: String?
     ) -> [SurfaceResource] {
-        let previous = Dictionary(
+        let previous: [SurfaceResourceID: SurfaceResource] = Dictionary(
             previousResources.filter { $0.id.isForwardedPort },
             uniquingKeysWith: { first, _ in first }
         )
@@ -282,9 +281,11 @@ extension CmuxTuiSurfaceProvider {
 
         var seen = Set<Int>()
         return scannedPorts
-            .filter { (1...65_535).contains($0) && seen.insert($0).inserted }
-            .sorted()
-            .map { port in
+            .filter { (port: Int) in
+                (1...65_535).contains(port) && seen.insert(port).inserted
+            }
+            .sorted(by: <)
+            .map { (port: Int) -> SurfaceResource in
                 let id = SurfaceResourceID(machine: machine, kind: .browser, key: SurfaceResourceID.portKey(port))
                 if var existing = previous[id] {
                     existing.port = port
@@ -315,7 +316,7 @@ extension CmuxTuiSurfaceProvider {
         parsed: [SurfaceResource],
         privateAddress: String?
     ) -> [SurfaceResource] {
-        let priorPorts = Dictionary(
+        let priorPorts: [SurfaceResourceID: SurfaceResource] = Dictionary(
             pool.filter { $0.id.isForwardedPort },
             uniquingKeysWith: { first, _ in first }
         )
