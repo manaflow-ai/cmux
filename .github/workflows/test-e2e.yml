@@ -561,7 +561,7 @@ jobs:
           set -euo pipefail
           app_path="$CMUX_DERIVED_DATA_PATH/Build/Products/Debug/cmux.app"
           if [ ! -d "$app_path" ]; then
-            app_path="$(find "$CMUX_DERIVED_DATA_PATH/Build/Products/Debug" -maxdepth 1 -type d -name '*.app' -print -quit)"
+            app_path="$(find "$CMUX_DERIVED_DATA_PATH/Build/Products/Debug" -maxdepth 1 -type d -name 'cmux*.app' -print -quit)"
           fi
           [ -n "$app_path" ] && [ -d "$app_path" ] || {
             echo "::error::could not locate the exact browser app bundle" >&2
@@ -575,7 +575,34 @@ jobs:
           python3 "$verifier" \
             --app "$app_path" \
             --source-root "$GITHUB_WORKSPACE" \
-            --expected-sha "$EXPECTED_SHA"
+            --expected-sha "$EXPECTED_SHA" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Validate browser engine selector from artifact
+        if: ${{ inputs.verify_browser_runtime == true }}
+        env:
+          RUNTIME_MODE: ${{ steps.browser_artifact.outputs.runtime_mode }}
+          BROWSER_ENGINE: ${{ steps.browser_artifact.outputs.runtime_mode == 'native-cef' && 'chromium' || '' }}
+        run: |
+          set -euo pipefail
+          case "$RUNTIME_MODE" in
+            fallback)
+              [ -z "$BROWSER_ENGINE" ] || {
+                echo "::error::fallback artifact was mapped to a native browser engine" >&2
+                exit 1
+              }
+              ;;
+            native-cef)
+              [ "$BROWSER_ENGINE" = "chromium" ] || {
+                echo "::error::native CEF artifact was not mapped to the Chromium UI-test engine" >&2
+                exit 1
+              }
+              ;;
+            *)
+              echo "::error::runtime verifier did not publish a recognized runtime mode" >&2
+              exit 1
+              ;;
+          esac
 
       - name: Run selected tests
         id: tests
@@ -799,6 +826,34 @@ jobs:
             } >> "$GITHUB_OUTPUT"
             exit 1
           fi
+
+      - name: Re-verify browser runtime after tests
+        if: ${{ always() && inputs.verify_browser_runtime == true }}
+        env:
+          EXPECTED_SHA: ${{ steps.sha.outputs.sha }}
+        run: |
+          set -euo pipefail
+          # `xcodebuild test` may rebuild the host app after the pre-test
+          # artifact check. Verify the exact product that the UI test actually
+          # launched, so a second build cannot silently fall back to WebKit or
+          # reintroduce stale CEF helpers after the initial check.
+          app_path="$CMUX_DERIVED_DATA_PATH/Build/Products/Debug/cmux.app"
+          if [ ! -d "$app_path" ]; then
+            app_path="$(find "$CMUX_DERIVED_DATA_PATH/Build/Products/Debug" -maxdepth 1 -type d -name 'cmux*.app' -print -quit)"
+          fi
+          [ -n "$app_path" ] && [ -d "$app_path" ] || {
+            echo "::error::could not locate the post-test browser app bundle" >&2
+            exit 1
+          }
+          verifier="$RUNNER_TEMP/cmux-trusted-browser-verifier/scripts/ci/verify_browser_runtime_artifact.py"
+          [ -f "$verifier" ] || {
+            echo "::error::trusted browser verifier is unavailable after tests" >&2
+            exit 1
+          }
+          python3 "$verifier" \
+            --app "$app_path" \
+            --source-root "$GITHUB_WORKSPACE" \
+            --expected-sha "$EXPECTED_SHA"
 
       - name: Verify browser helper cleanup
         if: ${{ always() && inputs.verify_browser_runtime == true }}

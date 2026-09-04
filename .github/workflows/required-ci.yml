@@ -59,6 +59,14 @@ jobs:
             echo "browser_engine=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          # These guards are themselves the trust boundary. Keep this check in
+          # the base-controlled shell so a PR cannot weaken its detector and
+          # then classify the detector change as a cheap, unverified edit.
+          if grep -Eq '^(scripts/ci/detect_browser_engine_changes\.py|scripts/ci/verify_browser_runtime_artifact\.py|scripts/ci/verify_required_ci_run\.py)$' "$files"; then
+            echo "Browser verification guard changed; running browser verification."
+            echo "browser_engine=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           python3 trusted/scripts/ci/detect_browser_engine_changes.py \
             --event-name pull_request \
             --files-from "$files"
@@ -100,6 +108,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+          EXPECTED_PR_NUMBER: ${{ github.event.pull_request.number }}
+          EXPECTED_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           BROWSER_REQUIRED: ${{ needs.route.outputs.browser_engine || 'unknown' }}
           BROWSER_RESULT: ${{ needs.browser-runtime.result }}
           ROUTE_RESULT: ${{ needs.route.result }}
@@ -111,4 +121,6 @@ jobs:
           fi
           python3 trusted/scripts/ci/verify_required_ci_run.py \
             --browser-required "$BROWSER_REQUIRED" \
-            --browser-result "$BROWSER_RESULT"
+            --browser-result "$BROWSER_RESULT" \
+            --pr-number "$EXPECTED_PR_NUMBER" \
+            --base-sha "$EXPECTED_BASE_SHA"

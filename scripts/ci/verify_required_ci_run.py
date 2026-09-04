@@ -81,6 +81,38 @@ class RunSummary:
     created_at: str
 
 
+def _run_belongs_to_pull_request(
+    raw_run: dict[str, Any],
+    *,
+    expected_pr_number: int | None,
+    expected_base_sha: str | None,
+) -> bool:
+    """Return whether a run's GitHub PR metadata matches the request."""
+
+    if expected_pr_number is None and expected_base_sha is None:
+        return True
+    pull_requests = raw_run.get("pull_requests")
+    if not isinstance(pull_requests, list):
+        return False
+    for pull_request in pull_requests:
+        if not isinstance(pull_request, dict):
+            continue
+        try:
+            number = int(pull_request.get("number"))
+        except (TypeError, ValueError):
+            continue
+        if expected_pr_number is not None and number != expected_pr_number:
+            continue
+        if expected_base_sha is not None:
+            base = pull_request.get("base")
+            if not isinstance(base, dict):
+                continue
+            if str(base.get("sha", "")).lower() != expected_base_sha.lower():
+                continue
+        return True
+    return False
+
+
 def _run_summary(raw: dict[str, Any]) -> RunSummary:
     try:
         run_id = int(raw["id"])
@@ -100,6 +132,8 @@ def select_exact_ci_run(
     runs: Iterable[dict[str, Any]],
     *,
     expected_sha: str,
+    expected_pr_number: int | None = None,
+    expected_base_sha: str | None = None,
 ) -> RunSummary | None:
     """Select the newest CI workflow run whose head and workflow path match."""
 
@@ -108,6 +142,12 @@ def select_exact_ci_run(
         if not isinstance(raw_run, dict):
             continue
         if str(raw_run.get("head_sha", "")).lower() != expected_sha.lower():
+            continue
+        if not _run_belongs_to_pull_request(
+            raw_run,
+            expected_pr_number=expected_pr_number,
+            expected_base_sha=expected_base_sha,
+        ):
             continue
         workflow_path = str(raw_run.get("path", "")).split("@", 1)[0]
         if workflow_path != ".github/workflows/ci.yml":
@@ -172,6 +212,8 @@ def verify_repository_ci(
     *,
     repository: str,
     expected_sha: str,
+    expected_pr_number: int | None = None,
+    expected_base_sha: str | None = None,
     browser_required: str = "unknown",
     browser_result: str = "unknown",
     timeout_seconds: int = 5_400,
@@ -185,6 +227,13 @@ def verify_repository_ci(
 
     if len(expected_sha) != 40 or any(character not in "0123456789abcdef" for character in expected_sha.lower()):
         raise RequiredCIVerificationError("expected SHA must be a full 40-character commit SHA")
+    if expected_pr_number is not None and expected_pr_number <= 0:
+        raise RequiredCIVerificationError("expected pull request number is invalid")
+    if expected_base_sha is not None and (
+        len(expected_base_sha) != 40
+        or any(character not in "0123456789abcdef" for character in expected_base_sha.lower())
+    ):
+        raise RequiredCIVerificationError("expected base SHA must be a full 40-character commit SHA")
     if browser_required not in {"true", "false"}:
         raise RequiredCIVerificationError("browser verification route was not resolved")
     if browser_required == "true" and browser_result != "success":
@@ -210,7 +259,12 @@ def verify_repository_ci(
         raw_runs = payload.get("workflow_runs", [])
         if not isinstance(raw_runs, list):
             raise RequiredCIVerificationError("GitHub API returned malformed workflow_runs")
-        run = select_exact_ci_run(raw_runs, expected_sha=expected_sha)
+        run = select_exact_ci_run(
+            raw_runs,
+            expected_sha=expected_sha,
+            expected_pr_number=expected_pr_number,
+            expected_base_sha=expected_base_sha,
+        )
         if run is not None:
             if run.status == "completed":
                 if run.conclusion != "success":
@@ -237,6 +291,8 @@ def parse_args(argv: Iterable[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repository", default=os.environ.get("GITHUB_REPOSITORY", ""))
     parser.add_argument("--sha", default=os.environ.get("EXPECTED_SHA", ""))
+    parser.add_argument("--pr-number", type=int, default=None)
+    parser.add_argument("--base-sha", default=os.environ.get("EXPECTED_BASE_SHA"))
     parser.add_argument("--timeout-seconds", type=int, default=5_400)
     parser.add_argument("--poll-seconds", type=int, default=30)
     parser.add_argument("--browser-required", default=os.environ.get("BROWSER_REQUIRED", "unknown"))
@@ -249,6 +305,13 @@ def main(argv: Iterable[str] | None = None) -> int:
     if not args.repository:
         print("::error::repository is required", file=sys.stderr)
         return 1
+    pr_number = args.pr_number
+    if pr_number is None and os.environ.get("EXPECTED_PR_NUMBER"):
+        try:
+            pr_number = int(os.environ["EXPECTED_PR_NUMBER"])
+        except ValueError:
+            print("::error::required CI verification failed", file=sys.stderr)
+            return 1
     waiter = CancellationAwareWait()
     previous_handlers: dict[int, Any] = {}
 
@@ -262,6 +325,8 @@ def main(argv: Iterable[str] | None = None) -> int:
         verify_repository_ci(
             repository=args.repository,
             expected_sha=args.sha,
+            expected_pr_number=pr_number,
+            expected_base_sha=args.base_sha or None,
             browser_required=args.browser_required,
             browser_result=args.browser_result,
             timeout_seconds=args.timeout_seconds,

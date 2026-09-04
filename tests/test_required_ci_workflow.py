@@ -40,6 +40,54 @@ def test_select_exact_ci_run_uses_newest_matching_run() -> None:
     assert selected.run_id == 2
 
 
+def test_select_exact_ci_run_requires_the_expected_pull_request_and_base() -> None:
+    expected = "a" * 40
+    base = "b" * 40
+    runs = [
+        {
+            "id": 1,
+            "head_sha": expected,
+            "path": ".github/workflows/ci.yml@refs/pull/1/merge",
+            "created_at": "2026-01-03T00:00:00Z",
+            "pull_requests": [{"number": 99, "base": {"sha": base}}],
+        },
+        {
+            "id": 2,
+            "head_sha": expected,
+            "path": ".github/workflows/ci.yml@refs/pull/1/merge",
+            "created_at": "2026-01-04T00:00:00Z",
+            "pull_requests": [{"number": 17, "base": {"sha": base}}],
+        },
+    ]
+    selected = module.select_exact_ci_run(
+        runs,
+        expected_sha=expected,
+        expected_pr_number=17,
+        expected_base_sha=base,
+    )
+    assert selected is not None
+    assert selected.run_id == 2
+
+
+def test_select_exact_ci_run_rejects_missing_pull_request_metadata_when_bound() -> None:
+    expected = "a" * 40
+    assert (
+        module.select_exact_ci_run(
+            [
+                {
+                    "id": 1,
+                    "head_sha": expected,
+                    "path": ".github/workflows/ci.yml@refs/pull/17/merge",
+                    "created_at": "2026-01-01T00:00:00Z",
+                }
+            ],
+            expected_sha=expected,
+            expected_pr_number=17,
+        )
+        is None
+    )
+
+
 def test_select_exact_ci_run_ignores_malformed_matching_items() -> None:
     expected = "a" * 40
     runs = [
@@ -150,6 +198,8 @@ def test_workflow_runs_from_base_and_checks_exact_head() -> None:
     assert "types: [opened, edited, synchronize, reopened, ready_for_review]" in workflow
     assert "ref: ${{ github.event.pull_request.base.sha }}" in workflow
     assert "EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}" in workflow
+    assert "EXPECTED_PR_NUMBER: ${{ github.event.pull_request.number }}" in workflow
+    assert "EXPECTED_BASE_SHA: ${{ github.event.pull_request.base.sha }}" in workflow
     assert "verify_required_ci_run.py" in workflow
     assert "required-browser-runtime" in workflow
     assert "uses: ./.github/workflows/test-e2e.yml" in workflow
@@ -163,6 +213,8 @@ def test_workflow_runs_from_base_and_checks_exact_head() -> None:
     assert "runs-on: ubuntu-24.04 # github-hosted-required" in workflow
     assert "previous_filename // empty" in workflow
     assert "EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}" in workflow
+    assert "--pr-number \"$EXPECTED_PR_NUMBER\"" in workflow
+    assert "--base-sha \"$EXPECTED_BASE_SHA\"" in workflow
     assert "observed_head_sha" in workflow
     assert "group: required-ci-${{ github.event.pull_request.number }}" in workflow
     assert "head.sha }}" not in workflow.split("concurrency:", 1)[1].split("jobs:", 1)[0]

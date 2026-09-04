@@ -72,12 +72,18 @@ def is_browser_engine_path(path: str) -> bool:
 
     normalized = _normalize_path(path)
     lower = normalized.lower()
+    # Keep clearly non-macOS documentation and standalone projects out of the
+    # paid macOS runtime lane before applying the broader fail-closed rules.
+    if lower.startswith(("docs/", "design/", "plans/", "skills/", "web/", "webviews/", "cmux-tui/")):
+        return False
+    if lower in {"readme.md", "readme.txt", "license", "license.md"}:
+        return False
     # The native browser runtime gate is macOS-only. iOS browser surfaces have
     # their own build/test lane and must not be mistaken for a macOS CEF edit
     # merely because their directory name contains "browser".
     if lower.startswith(("ios/", "packages/ios/")):
         return False
-    if lower.startswith(".github/workflows/"):
+    if lower.startswith(".github/"):
         return True
     # Browser panes are composed through the macOS app target, not only the
     # files whose names mention Browser/Chromium. Route the complete macOS
@@ -135,13 +141,14 @@ def is_browser_engine_path(path: str) -> bool:
     if lower.startswith("vendor/"):
         return True
     if any(token in lower for token in ("/browser", "/chromium", "/cmuxcef", "cef/")):
-        # Keep documentation and generated web assets out of the paid macOS
-        # runtime lane; product source/tests with these path components still
-        # fail closed into the gate.
-        if lower.startswith(("docs/", "skills/", "web/", "webviews/")):
-            return False
         return True
-    return False
+    # Unknown repository paths are unsafe to classify as cheap. A new app
+    # target, build input, bundled source tree (for example cmux-browser/), or
+    # control-plane helper can change the runtime without containing a familiar
+    # Browser/Chromium token. Keep only clearly non-macOS documentation and
+    # standalone web/mobile projects on the cheap side; everything else must
+    # receive the real runtime gate.
+    return True
 
 
 def _source_contains_cef(source_root: Path) -> bool:

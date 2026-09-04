@@ -207,9 +207,19 @@ def test_unknown_macos_app_and_guard_paths_fail_closed() -> None:
     assert module.is_browser_engine_path("cmuxTests/UnfamiliarBrowserHostTests.swift")
     assert module.is_browser_engine_path(".github/workflows/ci.yml")
     assert module.is_browser_engine_path(".github/workflows/ci-status-fallback.yml")
+    assert module.is_browser_engine_path(".github/actions/build-browser/action.yml")
+    assert module.is_browser_engine_path("cmux-browser/overlay/chrome/browser/cmux_term/protocol.cc")
+    assert module.is_browser_engine_path("config/browser.xcconfig")
     assert module.is_browser_engine_path("scripts/ci/verify_browser_runtime_artifact.py")
     assert not module.is_browser_engine_path("Packages/iOS/CmuxMobileBrowser/Sources/Mobile.swift")
     assert not module.is_browser_engine_path("web/app/page.tsx")
+
+
+def test_unknown_paths_fail_closed_but_known_non_macos_paths_stay_cheap() -> None:
+    assert module.is_browser_engine_path("NewAppTarget/Runtime.swift")
+    assert module.is_browser_engine_path("Package.resolved")
+    assert not module.is_browser_engine_path("docs/verification.md")
+    assert not module.is_browser_engine_path("README.md")
 
 
 def test_renamed_browser_path_is_classified_when_both_names_are_supplied() -> None:
@@ -297,6 +307,7 @@ def test_browser_change_detector_routes_guard_implementation_edits() -> None:
         required_ci = (ROOT / ".github" / "workflows" / "required-ci.yml").read_text(encoding="utf-8")
         assert "Checkout trusted verifier" in required_ci
         assert "trusted/scripts/ci/detect_browser_engine_changes.py" in required_ci
+        assert "Browser verification guard changed; running browser verification." in required_ci
 
 
 def test_ci_workflow_runs_for_every_pull_request() -> None:
@@ -345,6 +356,7 @@ def test_browser_gate_uses_exact_head_and_nonzero_test_contract() -> None:
     assert "Stage trusted browser verifier and build tooling" in workflow
     assert '"$RUNNER_TEMP/cmux-trusted-browser-verifier/scripts/download-prebuilt-ghosttykit.sh"' in workflow
     assert 'verifier="$RUNNER_TEMP/cmux-trusted-browser-verifier/scripts/ci/verify_browser_runtime_artifact.py"' in workflow
+    assert '--github-output "$GITHUB_OUTPUT"' in workflow
     assert workflow.count("verify_browser_runtime:") == 2
     assert "Require immutable browser verification ref" in workflow
     assert "workflow_call/browser runtime verification requires a full 40-character commit SHA" in workflow
@@ -359,6 +371,9 @@ def test_browser_gate_uses_exact_head_and_nonzero_test_contract() -> None:
     assert "requires an approved runner" in workflow
     assert "CMUX_UI_TEST_BROWSER_ENGINE=${CMUX_UI_TEST_BROWSER_ENGINE:-}" in workflow
     assert "Verify browser helper cleanup" in workflow
+    assert "Validate browser engine selector from artifact" in workflow
+    assert "Re-verify browser runtime after tests" in workflow
+    assert "xcodebuild test" in workflow
     assert "pgrep -af '[c]mux CEF Helper'" in workflow
 
 
