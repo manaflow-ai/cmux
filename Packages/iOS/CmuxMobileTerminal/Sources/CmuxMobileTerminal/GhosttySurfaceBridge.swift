@@ -6,12 +6,12 @@ import UIKit
 
 /// Bridges libghostty C callbacks (which run on the IO read thread or
 /// other Ghostty-internal threads) onto the main actor where the
-/// `GhosttySurfaceView` lives. The single mutable property is the
-/// `weak var surfaceView`; we serialise reads/writes through the main
-/// actor, which lets us conform to `Sendable` for the `Task { @MainActor }`
-/// hops below.
+/// `GhosttySurfaceView` lives. The deliberate strong back-reference keeps the
+/// raw UIKit pointer valid until dismantle detaches it; we serialise
+/// reads/writes through a lock because callbacks arrive off-main, which lets
+/// us safely perform the `Task { @MainActor }` hops below.
 final class GhosttySurfaceBridge: @unchecked Sendable {
-    // lint:allow lock — sanctioned carve-out: serial low-level primitive hidden behind the type, guarding a single weak ref on the libghostty-callback / typing-latency path; actor rewrite tracked as the GhosttySurfaceView split follow-up.
+    // lint:allow lock — sanctioned carve-out: serial low-level primitive hidden behind the type, guarding a single strong ref on the libghostty-callback / typing-latency path; actor rewrite tracked as the GhosttySurfaceView split follow-up.
     private let lock = NSLock()
     // Deliberately STRONG: libghostty holds the raw view pointer
     // (`ghostty_platform_ios_s.uiview`, passUnretained in `makeSurface`), so
