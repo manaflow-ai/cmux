@@ -63,7 +63,7 @@ extension VMTunnelManager {
         let hooks = routes.flatMap { route in
             [
                 routeHook(key: "PostUp", action: "add", route: route),
-                routeHook(key: "PostDown", action: "delete", route: route),
+                routeHook(key: "PreDown", action: "delete", route: route),
             ]
         }
         let existing = Set(lines[interfaceStart..<interfaceEnd])
@@ -155,7 +155,10 @@ extension VMTunnelManager {
         let family = route.contains(":") ? "inet6" : "inet"
         let quotedRoute = shellQuote(route)
         if action == "add" {
-            return "\(key) = /sbin/route -q -n add -\(family) \(quotedRoute) -interface %i -ifscope %i || true"
+            // A stale route for this same utun is harmless (for example after
+            // a killed wg-quick process).  Treat that one case as success,
+            // but let a real route-install failure abort wg-quick's bring-up.
+            return "\(key) = /sbin/route -q -n add -\(family) \(quotedRoute) -interface %i -ifscope %i || /sbin/route -n get -\(family) -ifscope %i \(quotedRoute) >/dev/null 2>&1"
         }
         return "\(key) = /sbin/route -q -n delete -\(family) -ifscope %i \(quotedRoute) || true"
     }
