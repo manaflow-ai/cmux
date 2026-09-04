@@ -1169,7 +1169,6 @@ export function forkVm(input: {
       const create = yield* beginCreateWithLazyProviderRefresh(repo, providers, {
         userId: input.userId,
         billingTeamId: input.billingTeamId,
-        billingPlanId: input.billingPlanId,
         provider: source.provider,
         image: source.imageId,
         imageVersion: source.imageVersion,
@@ -1180,6 +1179,9 @@ export function forkVm(input: {
             sharedResourceCapacity: sharedResourceCapacityForMaxActiveVms(input.maxActiveVms),
           }
           : {}),
+        // The helper uses the plan to reconcile legacy rows before its shared
+        // resource transaction. Keep this field explicit after all spreads.
+        billingPlanId: input.billingPlanId,
         idempotencyKey: input.idempotencyKey,
         timing: input.timing,
       });
