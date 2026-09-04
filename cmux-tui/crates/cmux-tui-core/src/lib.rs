@@ -11,6 +11,7 @@
 mod agent_hooks;
 mod browser;
 mod browser_provider;
+pub mod diagnostics;
 mod event_bus;
 mod journal_checkpoint;
 mod journal_hooks;

@@ -89,6 +89,7 @@ function vmRow(overrides: Partial<CloudVmRow> = {}): CloudVmRow {
     provider: "freestyle",
     providerVmId: "stale-sandbox",
     displayName: null,
+    slug: null,
     imageId: "cmux-devbox:devbox-20260828b",
     imageVersion: null,
     status: "provisioning",

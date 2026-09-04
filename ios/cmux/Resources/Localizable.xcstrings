@@ -18373,13 +18373,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Requires cmux 0.64.20 or later on your Mac."
+            "value": "Same-account Macs connect automatically."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac版cmux 0.64.20以降が必要です。"
+            "value": "同じアカウントのMacに自動で接続します。"
           }
         },
         "de": {
@@ -18491,13 +18491,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Works with cmux 0.64.17 or later. Scan once to authorize the Mac."
+            "value": "Scan once to authorize the Mac."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac版cmux 0.64.17以降で動作します。一度スキャンしてMacを承認します。"
+            "value": "一度スキャンしてMacを承認します。"
           }
         },
         "de": {
@@ -18668,13 +18668,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Works with cmux 0.64.17 or later. Install Tailscale on both devices and join the same network. On 0.64.17, choose Connect iPhone/iPad and scan the Pair iPhone code once."
+            "value": "Install Tailscale on both devices and join the same network, then scan the pairing code once."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 0.64.17以降で動作します。両方のデバイスにTailscaleをインストールし、同じネットワークに参加してください。0.64.17では「Connect iPhone/iPad」を選び、「Pair iPhone」のコードを一度スキャンします。"
+            "value": "両方のデバイスにTailscaleをインストールして同じネットワークに参加し、ペアリングコードを一度スキャンしてください。"
           }
         },
         "de": {
@@ -62086,6 +62086,108 @@
         }
       }
     },
+    "mobile.screenshot.notification.reply.action": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reply"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "返信"
+          }
+        }
+      }
+    },
+    "mobile.screenshot.notification.reply.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Implemented the fix and opened the PR. Ready for your review — reply to continue."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "修正を実装して PR を作成しました。レビューできます。返信して続行してください。"
+          }
+        }
+      }
+    },
+    "mobile.screenshot.notification.reply.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Message the agent…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントにメッセージ…"
+          }
+        }
+      }
+    },
+    "mobile.screenshot.notification.reply.send": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信"
+          }
+        }
+      }
+    },
+    "mobile.screenshot.notification.reply.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux agent"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux エージェント"
+          }
+        }
+      }
+    },
+    "mobile.screenshot.notification.reply.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude finished in workspace ~"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude がワークスペース ~ で完了しました"
+          }
+        }
+      }
+    },
     "mobile.screenshot.notification.title": {
       "extractionState": "manual",
       "localizations": {
@@ -83080,13 +83182,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This Mac is running %@. Update it to %@ or later."
+            "value": "This Mac is running cmux %@. Update cmux on this Mac to %@ or later."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この Mac は %@ を実行しています。%@ 以降にアップデートしてください。"
+            "value": "この Mac は cmux %@ を実行しています。この Mac の cmux を %@ 以降にアップデートしてください。"
           }
         }
       }
@@ -83148,13 +83250,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This Mac is running %@. Update it to %@ or later."
+            "value": "This Mac is running cmux %@. Update cmux on this Mac to %@ or later."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この Mac は %@ を実行しています。%@ 以降にアップデートしてください。"
+            "value": "この Mac は cmux %@ を実行しています。この Mac の cmux を %@ 以降にアップデートしてください。"
           }
         }
       }
@@ -83454,52 +83556,171 @@
         }
       }
     },
+    "mobile.onboarding.connect.bodyWithMinVersionFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use the same cmux account on both devices. Requires cmux %1$@ or newer on your Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "両方の端末で同じcmuxアカウントを使用してください。Mac版cmux %1$@以降が必要です。"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.connect.tailscaleBodyWithMinVersionFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Requires cmux %1$@ or newer on your Mac. Install Tailscale on both devices and join the same network, then scan the pairing code once."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac版cmux %1$@以降が必要です。両方のデバイスにTailscaleをインストールして同じネットワークに参加し、ペアリングコードを一度スキャンしてください。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.macVersionTooOld.format": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac is running cmux %1$@. Update cmux on this Mac to %2$@ or newer to connect."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacはcmux %1$@を実行しています。接続するには、このMacのcmuxを%2$@以降にアップデートしてください。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.macVersionTooOld.unknownFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac is running an older version of cmux. Update cmux on this Mac to %1$@ or newer to connect."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacは古いバージョンのcmuxを実行しています。接続するには、このMacのcmuxを%1$@以降にアップデートしてください。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.macVersionTooOld.nightlyFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac is running cmux %1$@. Update cmux on this Mac to Nightly %2$@ or later to connect."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacはcmux %1$@を実行しています。接続するには、このMacのcmux Nightlyを%2$@以降にアップデートしてください。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.guidance.macVersionTooOld": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On the Mac, update cmux (cmux menu > Check for Updates, or download the latest from cmux.com). This computer reconnects automatically after the update."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macでcmuxをアップデートしてください（cmuxメニュー > アップデートを確認、またはcmux.comから最新版をダウンロード）。アップデート後、このコンピュータには自動的に再接続します。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.macVersionTooOld.nightlyUnknownFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac needs a newer cmux Nightly. Update cmux on this Mac to %1$@ or later to connect."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacのcmux Nightlyを%1$@以降にアップデートして接続してください。"
+          }
+        }
+      }
+    },
+    "mobile.connections.irohUnavailableWarning": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"No iroh route is available for this computer — update cmux on the Mac or choose another mode."}},"ja":{"stringUnit":{"state":"translated","value":"このコンピュータで iroh 経路を利用できません。Mac の cmux を更新するか、別のモードを選択してください。"}}}},
+    "mobile.connections.lanUnavailableWarning": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"No LAN route is advertised for this computer — it stays disconnected until both devices share a local network."}},"ja":{"stringUnit":{"state":"translated","value":"このコンピュータの LAN 経路が公開されていません。両方のデバイスを同じローカルネットワークに接続するまで切断されたままです。"}}}},
+    "mobile.connections.method.lan": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"LAN"}},"ja":{"stringUnit":{"state":"translated","value":"LAN"}}}},
     "mobile.notificationFeed.filter.all": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"All"}},"ja":{"stringUnit":{"state":"translated","value":"すべて"}}}},
     "mobile.notificationFeed.row.workspace": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Workspace"}},"ja":{"stringUnit":{"state":"translated","value":"ワークスペース"}}}},
     "mobile.notificationFeed.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Notifications"}},"ja":{"stringUnit":{"state":"translated","value":"通知"}}}},
+    "mobile.onboarding.connect.irohBody": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Use the same cmux account on both devices. Only authenticated iroh direct or relay paths are allowed."}},"ja":{"stringUnit":{"state":"translated","value":"両方のデバイスで同じcmuxアカウントを使用してください。認証済みの iroh 直接経路またはリレー経路のみが許可されます。"}}}},
+    "mobile.onboarding.connect.irohTitle": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Connect over iroh"}},"ja":{"stringUnit":{"state":"translated","value":"irohで接続"}}}},
+    "mobile.onboarding.connect.lanBody": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The iPhone and Mac must be on the same local network. cmux stays disconnected instead of switching transports when they are not."}},"ja":{"stringUnit":{"state":"translated","value":"iPhoneとMacを同じローカルネットワークに接続してください。異なるネットワークでは、別のトランスポートに切り替えず切断されたままです。"}}}},
+    "mobile.onboarding.connect.lanTitle": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Connect over LAN"}},"ja":{"stringUnit":{"state":"translated","value":"LANで接続"}}}},
     "mobile.onboarding.connect.method.auto": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Auto"}},"ja":{"stringUnit":{"state":"translated","value":"自動"}}}},
     "mobile.onboarding.connect.method.autoDetail": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Use the normal authenticated route selection."}},"ja":{"stringUnit":{"state":"translated","value":"通常の認証済み経路選択を使用します。"}}}},
-    "mobile.onboarding.connect.method.lan": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"LAN Only"}},"ja":{"stringUnit":{"state":"translated","value":"LANのみ"}}}},
-    "mobile.onboarding.connect.method.lanDetail": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Use only the Mac's local-network address."}},"ja":{"stringUnit":{"state":"translated","value":"Macのローカルネットワークアドレスのみを使用します。"}}}},
     "mobile.onboarding.connect.method.iroh": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"iroh Only"}},"ja":{"stringUnit":{"state":"translated","value":"irohのみ"}}}},
     "mobile.onboarding.connect.method.irohDetail": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Use only authenticated iroh direct or relay paths."}},"ja":{"stringUnit":{"state":"translated","value":"認証済みの iroh 直接経路またはリレー経路のみを使用します。"}}}},
-    "mobile.onboarding.connect.lanTitle": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Connect over LAN"}},"ja":{"stringUnit":{"state":"translated","value":"LANで接続"}}}},
-    "mobile.onboarding.connect.lanBody": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The iPhone and Mac must be on the same local network. cmux stays disconnected instead of switching transports when they are not."}},"ja":{"stringUnit":{"state":"translated","value":"iPhoneとMacを同じローカルネットワークに接続してください。異なるネットワークでは、別のトランスポートに切り替えず切断されたままです。"}}}},
-    "mobile.onboarding.connect.irohTitle": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Connect over iroh"}},"ja":{"stringUnit":{"state":"translated","value":"irohで接続"}}}},
-    "mobile.onboarding.connect.irohBody": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Use the same cmux account on both devices. Only authenticated iroh direct or relay paths are allowed."}},"ja":{"stringUnit":{"state":"translated","value":"両方のデバイスで同じcmuxアカウントを使用してください。認証済みの iroh 直接経路またはリレー経路のみが許可されます。"}}}},
-    "mobile.settings.activeTransport.lanFormat": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"LAN · %@"}},"ja":{"stringUnit":{"state":"translated","value":"LAN · %@"}}}},
-    "mobile.settings.activeTransport.tailscaleFormat": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Tailscale · %@"}},"ja":{"stringUnit":{"state":"translated","value":"Tailscale · %@"}}}},
+    "mobile.onboarding.connect.method.lan": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"LAN Only"}},"ja":{"stringUnit":{"state":"translated","value":"LANのみ"}}}},
+    "mobile.onboarding.connect.method.lanDetail": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Use only the Mac's local-network address."}},"ja":{"stringUnit":{"state":"translated","value":"Macのローカルネットワークアドレスのみを使用します。"}}}},
+    "mobile.pairing.transport.unavailable": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Neither iroh nor Tailscale is reachable for this Mac."}},"ja":{"stringUnit":{"state":"translated","value":"この Mac では iroh と Tailscale のどちらにも到達できません。"}}}},
     "mobile.settings.activeTransport.irohDirect": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"iroh direct"}},"ja":{"stringUnit":{"state":"translated","value":"iroh直接"}}}},
     "mobile.settings.activeTransport.irohRelay": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"iroh relay"}},"ja":{"stringUnit":{"state":"translated","value":"irohリレー"}}}},
     "mobile.settings.activeTransport.irohRelayFormat": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"iroh relay %@"}},"ja":{"stringUnit":{"state":"translated","value":"irohリレー %@"}}}},
+    "mobile.settings.activeTransport.lanFormat": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"LAN · %@"}},"ja":{"stringUnit":{"state":"translated","value":"LAN · %@"}}}},
+    "mobile.settings.activeTransport.tailscaleFormat": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Tailscale · %@"}},"ja":{"stringUnit":{"state":"translated","value":"Tailscale · %@"}}}},
     "mobile.settings.activeTransport.unavailable": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Transport unavailable"}},"ja":{"stringUnit":{"state":"translated","value":"接続経路を取得できません"}}}},
+    "mobile.settings.connectionMethod.auto": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Auto"}},"ja":{"stringUnit":{"state":"translated","value":"自動"}}}},
+    "mobile.settings.connectionMethod.iroh": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"iroh Only"}},"ja":{"stringUnit":{"state":"translated","value":"irohのみ"}}}},
+    "mobile.settings.connectionMethod.irohFooter": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Uses only authenticated iroh paths (direct or relay). LAN and Tailscale routes are not used."}},"ja":{"stringUnit":{"state":"translated","value":"認証済みの iroh 経路（直接またはリレー）のみを使用します。LAN と Tailscale の経路は使用しません。"}}}},
+    "mobile.settings.connectionMethod.lan": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"LAN Only"}},"ja":{"stringUnit":{"state":"translated","value":"LANのみ"}}}},
+    "mobile.settings.connectionMethod.lanFooter": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Uses only the Mac's advertised local-network address. If the devices are not on the same network, cmux stays disconnected and does not switch transports."}},"ja":{"stringUnit":{"state":"translated","value":"Mac が公開するローカルネットワークアドレスのみを使用します。同じネットワークにない場合、cmux は別のトランスポートに切り替えず切断されたままです。"}}}},
     "mobile.taskComposer.directoryPicker.browse.more": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Show More"}},"ja":{"stringUnit":{"state":"translated","value":"さらに表示"}}}},
     "mobile.taskComposer.directoryPicker.browse.parent": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Parent Folder"}},"ja":{"stringUnit":{"state":"translated","value":"親フォルダ"}}}},
-    "mobile.connections.method.lan": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"LAN"}},"ja":{"stringUnit":{"state":"translated","value":"LAN"}}}},
-    "mobile.settings.connectionMethod.auto": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Auto"}},"ja":{"stringUnit":{"state":"translated","value":"自動"}}}},
-    "mobile.settings.connectionMethod.lan": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"LAN Only"}},"ja":{"stringUnit":{"state":"translated","value":"LANのみ"}}}},
-    "mobile.settings.connectionMethod.iroh": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"iroh Only"}},"ja":{"stringUnit":{"state":"translated","value":"irohのみ"}}}},
-    "mobile.settings.connectionMethod.lanFooter": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Uses only the Mac's advertised local-network address. If the devices are not on the same network, cmux stays disconnected and does not switch transports."}},"ja":{"stringUnit":{"state":"translated","value":"Mac が公開するローカルネットワークアドレスのみを使用します。同じネットワークにない場合、cmux は別のトランスポートに切り替えず切断されたままです。"}}}},
-    "mobile.settings.connectionMethod.irohFooter": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Uses only authenticated iroh paths (direct or relay). LAN and Tailscale routes are not used."}},"ja":{"stringUnit":{"state":"translated","value":"認証済みの iroh 経路（直接またはリレー）のみを使用します。LAN と Tailscale の経路は使用しません。"}}}},
-    "mobile.connections.lanUnavailableWarning": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"No LAN route is advertised for this computer — it stays disconnected until both devices share a local network."}},"ja":{"stringUnit":{"state":"translated","value":"このコンピュータの LAN 経路が公開されていません。両方のデバイスを同じローカルネットワークに接続するまで切断されたままです。"}}}},
-    "mobile.connections.irohUnavailableWarning": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"No iroh route is available for this computer — update cmux on the Mac or choose another mode."}},"ja":{"stringUnit":{"state":"translated","value":"このコンピュータで iroh 経路を利用できません。Mac の cmux を更新するか、別のモードを選択してください。"}}}},
-    "mobile.transportMode.thisComputer": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"this computer"}},"ja":{"stringUnit":{"state":"translated","value":"このコンピュータ"}}}},
-    "mobile.transportMode.noLANRoute": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"LAN only is selected, but no LAN route to %@ is available."}},"ja":{"stringUnit":{"state":"translated","value":"LANのみが選択されていますが、%@へのLAN経路がありません。"}}}},
-    "mobile.transportMode.noTailscaleRoute": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Tailscale only is selected, but no Tailscale route to %@ is available."}},"ja":{"stringUnit":{"state":"translated","value":"Tailscaleのみが選択されていますが、%@へのTailscale経路がありません。"}}}},
-    "mobile.transportMode.noIrohRoute": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"iroh only is selected, but no iroh route to %@ is available."}},"ja":{"stringUnit":{"state":"translated","value":"irohのみが選択されていますが、%@へのiroh経路がありません。"}}}},
-    "mobile.transportMode.noDirectRoute": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Direct mode is selected, but no configured direct route to %@ is available."}},"ja":{"stringUnit":{"state":"translated","value":"ダイレクトモードが選択されていますが、%@への設定済みの直接経路がありません。"}}}},
-    "mobile.transportMode.noRoute": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"No route to %@ is available."}},"ja":{"stringUnit":{"state":"translated","value":"%@への経路がありません。"}}}},
-    "mobile.transportMode.routeClassMismatch": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Selected %@ transport cannot use a %@ route."}},"ja":{"stringUnit":{"state":"translated","value":"選択した%@トランスポートでは%@経路を使用できません。"}}}},
-    "mobile.transportMode.routeClassMismatchSameClass": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The selected transport mode cannot use a %@ route."}},"ja":{"stringUnit":{"state":"translated","value":"選択したトランスポートモードでは%@経路を使用できません。"}}}},
     "mobile.transportMode.directCandidatesRequireDirect": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Direct address candidates require Direct mode; %@ was selected."}},"ja":{"stringUnit":{"state":"translated","value":"直接アドレス候補にはダイレクトモードが必要です。%@が選択されています。"}}}},
-    "mobile.transportMode.pathNotAllowed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The selected %@ mode cannot use a %@ route."}},"ja":{"stringUnit":{"state":"translated","value":"選択した%@モードでは%@経路を使用できません。"}}}},
-    "mobile.transportMode.guidance.lan": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Put the iPhone and Mac on the same local network, make sure cmux is running, then retry."}},"ja":{"stringUnit":{"state":"translated","value":"iPhoneとMacを同じローカルネットワークに接続し、cmuxを起動してから再試行してください。"}}}},
-    "mobile.transportMode.guidance.tailscale": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Open Tailscale on both devices and confirm the Mac is advertising its Tailscale address, then retry."}},"ja":{"stringUnit":{"state":"translated","value":"両方のデバイスでTailscaleを起動し、MacがTailscaleアドレスを公開していることを確認してから再試行してください。"}}}},
-    "mobile.transportMode.guidance.iroh": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Make sure both devices are signed in to the same cmux account and the Mac's iroh endpoint is online, then retry."}},"ja":{"stringUnit":{"state":"translated","value":"両方のデバイスが同じcmuxアカウントでサインインし、Macのirohエンドポイントがオンラインであることを確認してから再試行してください。"}}}},
     "mobile.transportMode.guidance.auto": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Check that cmux is running on the Mac, then retry."}},"ja":{"stringUnit":{"state":"translated","value":"Macでcmuxが起動していることを確認してから再試行してください。"}}}},
     "mobile.transportMode.guidance.direct": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Enable a direct address for this computer or choose another transport mode."}},"ja":{"stringUnit":{"state":"translated","value":"このコンピュータの直接アドレスを有効にするか、別のトランスポートモードを選択してください。"}}}},
+    "mobile.transportMode.guidance.iroh": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Make sure both devices are signed in to the same cmux account and the Mac's iroh endpoint is online, then retry."}},"ja":{"stringUnit":{"state":"translated","value":"両方のデバイスが同じcmuxアカウントでサインインし、Macのirohエンドポイントがオンラインであることを確認してから再試行してください。"}}}},
+    "mobile.transportMode.guidance.lan": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Put the iPhone and Mac on the same local network, make sure cmux is running, then retry."}},"ja":{"stringUnit":{"state":"translated","value":"iPhoneとMacを同じローカルネットワークに接続し、cmuxを起動してから再試行してください。"}}}},
     "mobile.transportMode.guidance.mismatch": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Change the transport mode or restore a route in the selected network."}},"ja":{"stringUnit":{"state":"translated","value":"トランスポートモードを変更するか、選択したネットワークの経路を復旧してください。"}}}},
-    "mobile.pairing.transport.unavailable": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Neither iroh nor Tailscale is reachable for this Mac."}},"ja":{"stringUnit":{"state":"translated","value":"この Mac では iroh と Tailscale のどちらにも到達できません。"}}}}
+    "mobile.transportMode.guidance.tailscale": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Open Tailscale on both devices and confirm the Mac is advertising its Tailscale address, then retry."}},"ja":{"stringUnit":{"state":"translated","value":"両方のデバイスでTailscaleを起動し、MacがTailscaleアドレスを公開していることを確認してから再試行してください。"}}}},
+    "mobile.transportMode.noDirectRoute": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Direct mode is selected, but no configured direct route to %@ is available."}},"ja":{"stringUnit":{"state":"translated","value":"ダイレクトモードが選択されていますが、%@への設定済みの直接経路がありません。"}}}},
+    "mobile.transportMode.noIrohRoute": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"iroh only is selected, but no iroh route to %@ is available."}},"ja":{"stringUnit":{"state":"translated","value":"irohのみが選択されていますが、%@へのiroh経路がありません。"}}}},
+    "mobile.transportMode.noLANRoute": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"LAN only is selected, but no LAN route to %@ is available."}},"ja":{"stringUnit":{"state":"translated","value":"LANのみが選択されていますが、%@へのLAN経路がありません。"}}}},
+    "mobile.transportMode.noRoute": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"No route to %@ is available."}},"ja":{"stringUnit":{"state":"translated","value":"%@への経路がありません。"}}}},
+    "mobile.transportMode.noTailscaleRoute": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Tailscale only is selected, but no Tailscale route to %@ is available."}},"ja":{"stringUnit":{"state":"translated","value":"Tailscaleのみが選択されていますが、%@へのTailscale経路がありません。"}}}},
+    "mobile.transportMode.pathNotAllowed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The selected %@ mode cannot use a %@ route."}},"ja":{"stringUnit":{"state":"translated","value":"選択した%@モードでは%@経路を使用できません。"}}}},
+    "mobile.transportMode.routeClassMismatch": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Selected %@ transport cannot use a %@ route."}},"ja":{"stringUnit":{"state":"translated","value":"選択した%@トランスポートでは%@経路を使用できません。"}}}},
+    "mobile.transportMode.routeClassMismatchSameClass": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The selected transport mode cannot use a %@ route."}},"ja":{"stringUnit":{"state":"translated","value":"選択したトランスポートモードでは%@経路を使用できません。"}}}},
+    "mobile.transportMode.thisComputer": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"this computer"}},"ja":{"stringUnit":{"state":"translated","value":"このコンピュータ"}}}}
   },
   "version": "1.0"
 }

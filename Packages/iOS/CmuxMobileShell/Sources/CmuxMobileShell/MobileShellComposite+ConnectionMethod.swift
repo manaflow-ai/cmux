@@ -92,15 +92,10 @@ extension MobileShellComposite {
         // Only replace the foreground session when this exact pairing owns it.
         // A secondary Computer's setting must not interrupt the user's active
         // terminal; its next pool reconciliation will use the persisted mode.
-        let foregroundTargetDeviceID = foregroundMacDeviceID
-            ?? recoveryTargetMacDeviceID
-        let foregroundTargetInstanceTag = foregroundMacDeviceID != nil
-            ? activeMacInstanceTag
-            : recoveryTargetInstanceTag
-        let affectsForeground = cmxCanonicalDeviceID(foregroundTargetDeviceID ?? "")
-            == canonical
-            && (targetInstanceTag == nil || foregroundTargetInstanceTag == targetInstanceTag)
-        if affectsForeground {
+        if connectionMethodChangeAffectsSelectedMac(
+            macDeviceID: canonical,
+            instanceTag: targetInstanceTag
+        ) {
             recoverMobileConnection(trigger: .connectionMethodChanged)
         } else {
             scheduleSecondaryAggregation()
@@ -127,20 +122,38 @@ extension MobileShellComposite {
         )
         await loadPairedMacs()
         if connectionMethod(forMacDeviceID: canonical, instanceTag: targetInstanceTag) == .direct {
-            let foregroundTargetDeviceID = foregroundMacDeviceID
-                ?? recoveryTargetMacDeviceID
-            let foregroundTargetInstanceTag = foregroundMacDeviceID != nil
-                ? activeMacInstanceTag
-                : recoveryTargetInstanceTag
-            let affectsForeground = cmxCanonicalDeviceID(foregroundTargetDeviceID ?? "")
-                == canonical
-                && (targetInstanceTag == nil || foregroundTargetInstanceTag == targetInstanceTag)
-            if affectsForeground {
+            if connectionMethodChangeAffectsSelectedMac(
+                macDeviceID: canonical,
+                instanceTag: targetInstanceTag
+            ) {
                 recoverMobileConnection(trigger: .connectionMethodChanged)
             } else {
                 scheduleSecondaryAggregation()
             }
         }
+    }
+
+    /// Before the first foreground connection, the active saved row owns
+    /// method changes, matching startup recovery's selected-Computer policy.
+    private func connectionMethodChangeAffectsSelectedMac(
+        macDeviceID: String,
+        instanceTag: String?
+    ) -> Bool {
+        let pairings = pairedMacsForIdentityMatching
+        let retainedDeviceID = foregroundMacDeviceID ?? recoveryTargetMacDeviceID
+        let retainedKey = retainedDeviceID.map {
+            MacPairingKey(
+                macDeviceID: $0,
+                instanceTag: foregroundMacDeviceID != nil
+                    ? activeMacInstanceTag : recoveryTargetInstanceTag
+            )
+        }
+        let selectedKey = retainedKey.flatMap { key in
+            foregroundMacDeviceID != nil || pairings.contains { MacPairingKey($0) == key }
+                ? key : nil
+        } ?? pairings.first(where: \.isActive).map(MacPairingKey.init)
+        return selectedKey?.isOnDevice(macDeviceID) == true
+            && (instanceTag == nil || selectedKey?.normalizedInstanceTag == instanceTag)
     }
 
     /// The method-pinned Iroh dial allowlist for one pairing, or `nil` when the

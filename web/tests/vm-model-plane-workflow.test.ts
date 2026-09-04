@@ -34,7 +34,6 @@ import {
 
 const ROW_ID = "00000000-0000-4000-8000-00000000c0de";
 const MATERIALS: VmModelPlaneMaterials = {
-  envs: { OPENAI_BASE_URL: "https://coderouter.dev/v1", OPENAI_API_KEY: "cmux-vm-edge-placeholder", CMUX_VM_ID: ROW_ID },
   edgeRules: [{ domain: "coderouter.dev", headers: { "x-coderouter-route-token": "crt_t", "x-cmux-vm-id": ROW_ID } }],
 };
 
@@ -51,6 +50,7 @@ function row(overrides: Partial<CloudVmRow> = {}): CloudVmRow {
     provider: "freestyle",
     providerVmId: null,
     displayName: null,
+    slug: null,
     imageId: "snapshot-test",
     imageVersion: null,
     status: "provisioning",
@@ -227,7 +227,6 @@ describe("createVm model plane", () => {
     expect(provisioned).toEqual([ROW_ID]);
     expect(order).toEqual(["provision", "provider_create"]);
     expect(creates).toHaveLength(1);
-    expect(creates[0]?.envs).toEqual(MATERIALS.envs);
     expect(creates[0]?.edgeRules).toEqual(MATERIALS.edgeRules);
     expect(revoked).toEqual([]);
   });
@@ -237,7 +236,6 @@ describe("createVm model plane", () => {
     await Effect.runPromise(
       createVm(createInput).pipe(Effect.provide(layer(fakeRepo({ usageEvents: [], failed: [] }), fakeProviders({ creates })))),
     );
-    expect(creates[0]?.envs).toBeUndefined();
     expect(creates[0]?.edgeRules).toBeUndefined();
   });
 
@@ -445,7 +443,7 @@ describe("model-plane error responses", () => {
     });
     expect(JSON.stringify(createPayload)).not.toContain("db down");
 
-    const restore = vmCreateLikeErrorResponse(err, { operation: "restore", planId: "pro", retryAction: "unused" });
+    const restore = await vmCreateLikeErrorResponse(err, { operation: "restore", planId: "pro", retryAction: "unused" });
     expect(restore?.status).toBe(503);
     expect(await restore!.json()).toMatchObject({ error: "vm_model_plane_unavailable", phase: "restore" });
   });
