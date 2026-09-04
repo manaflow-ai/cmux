@@ -22,6 +22,9 @@ extension CMUXCLI {
         let clientPath: String
         let stateDir: String
         let deviceName: String
+        /// The app's WireGuard hub socket for a private-network route (`--wireguard-hub`);
+        /// nil when the route is public or the client predates the flag.
+        var wireguardHubSocket: String? = nil
     }
 
     /// How an entrypoint wants the machine's workspace shaped; the session itself is
@@ -379,7 +382,8 @@ extension CMUXCLI {
                 invitationId: invitationId,
                 clientPath: clientPath,
                 stateDir: stateDir.path,
-                deviceName: Self.vmTuiDeviceName()
+                deviceName: Self.vmTuiDeviceName(),
+                wireguardHubSocket: info["wireguard_hub_socket"] as? String
             )
             let configURL = FileManager.default.temporaryDirectory
                 .appendingPathComponent("cmux-vm-tui-\(UUID().uuidString.lowercased()).json")
@@ -522,6 +526,9 @@ extension CMUXCLI {
         var arguments = ["remote", "connect", config.route, "--device-name", config.deviceName, "--state-dir", config.stateDir]
         if let inviteFilePath, !inviteFilePath.isEmpty {
             arguments += ["--invite-file", inviteFilePath]
+        }
+        if let hubSocket = config.wireguardHubSocket, !hubSocket.isEmpty {
+            arguments += ["--wireguard-hub", hubSocket]
         }
         return arguments
     }

@@ -33,7 +33,7 @@ use cmux_remote::identity::{
 };
 use cmux_remote::observability::ClientConnectionSnapshot;
 use cmux_remote::provider::{
-    ConnectRequest, DirectWebSocketProvider, IrohListener, IrohPathMode, IrohProvider,
+    ConnectRequest, Dialer, DirectWebSocketProvider, IrohListener, IrohPathMode, IrohProvider,
     IrohProviderConfig, LinkGroup, ProviderError, RelayClientConfig, RelayCredentialSource,
     RelayDaemonConfig, RelayDaemonRegistration, RelayProvider, SshProvider, SshProviderConfig,
     SupportedClientAuthModes, TransportProvider, UnixProvider, load_or_create_iroh_secret,
@@ -432,13 +432,23 @@ impl TransportProvider for RoutedRelayProvider {
     }
 }
 
+/// The client-side transport registry.
+///
+/// `direct_dialer` replaces the operating-system TCP dial for `ws`/`wss`
+/// routes: an in-process WireGuard tunnel (`WireGuardDialer`) or a shared hub
+/// (`SocksDialer`). Every other scheme is unaffected.
 pub fn client_provider_registry(
     ssh: SshProviderConfig,
     relay_routes: BTreeMap<String, RelayClientOptions>,
     iroh_path: IrohPathMode,
+    direct_dialer: Option<Arc<dyn Dialer>>,
 ) -> Result<cmux_remote::provider::ProviderRegistry, ProviderError> {
     let mut providers = cmux_remote::provider::ProviderRegistry::default();
-    providers.register(Arc::new(DirectWebSocketProvider::new(MAX_CARRIER_FRAME_BYTES)))?;
+    let direct = match direct_dialer {
+        Some(dialer) => DirectWebSocketProvider::with_dialer(MAX_CARRIER_FRAME_BYTES, dialer),
+        None => DirectWebSocketProvider::new(MAX_CARRIER_FRAME_BYTES),
+    };
+    providers.register(Arc::new(direct))?;
     #[cfg(unix)]
     providers.register(Arc::new(UnixProvider::new(MAX_CARRIER_FRAME_BYTES)))?;
     providers.register(Arc::new(SshProvider::new(ssh)?))?;
@@ -2874,7 +2884,7 @@ mod tests {
     }
 
     fn test_providers(ssh: SshProviderConfig) -> Arc<cmux_remote::provider::ProviderRegistry> {
-        Arc::new(client_provider_registry(ssh, BTreeMap::new(), IrohPathMode::Auto).unwrap())
+        Arc::new(client_provider_registry(ssh, BTreeMap::new(), IrohPathMode::Auto, None).unwrap())
     }
 
     #[derive(Debug, PartialEq, Eq)]
@@ -4910,7 +4920,8 @@ mod tests {
             ..SshProviderConfig::default()
         };
         let providers = Arc::new(
-            client_provider_registry(ssh.clone(), BTreeMap::new(), IrohPathMode::Auto).unwrap(),
+            client_provider_registry(ssh.clone(), BTreeMap::new(), IrohPathMode::Auto, None)
+                .unwrap(),
         );
         let mut unix_route = Url::parse("unix:///").unwrap();
         unix_route.set_path(proxy_link.to_str().unwrap());
