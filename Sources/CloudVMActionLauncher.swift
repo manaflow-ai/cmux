@@ -229,7 +229,9 @@ final class CloudVMActionLauncher {
     /// Best-effort cleanup for a machine that was announced by a cancelled
     /// create. Delete is idempotent at the socket boundary, so a race with the
     /// create finalizer is safe; the local workspace/catalog cleanup is handled
-    /// by the same destroy path as a user-initiated delete.
+    /// by the same destroy path as a user-initiated delete. The auth-transition
+    /// override keeps a late tombstone from opening a sign-in sheet; the socket
+    /// still enforces the account's server-side authorization.
     func destroyMachineBestEffort(_ machineID: String) {
         let id = machineID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !id.isEmpty else { return }
@@ -241,6 +243,7 @@ final class CloudVMActionLauncher {
             preferredWindow: nil,
             arguments: ["vm", "rm", id],
             presentsFailureAlert: false,
+            allowDuringAuthTransition: true,
             onCompletion: { completion in
                 guard completion.succeeded || completion.indicatesCloudVMNotFound else { return }
                 AppDelegate.shared?.closeWorkspaces(forManagedCloudVMID: id)
@@ -256,6 +259,10 @@ final class CloudVMActionLauncher {
         successTitle: String? = nil,
         presentOutputOnSuccess: Bool = false,
         presentsFailureAlert: Bool = true,
+        /// Internal cleanup operations may be delivered after sign-out has
+        /// started. They still use the app's authenticated socket path but must
+        /// not open a sign-in sheet when the transition has cleared local UI.
+        allowDuringAuthTransition: Bool = false,
         failurePresentation: FailurePresentation? = nil,
         environmentOverrides: [String: String] = [:],
         onCancellationReady: (@MainActor (CancellationHandle) -> Void)? = nil,
@@ -267,7 +274,7 @@ final class CloudVMActionLauncher {
             isAuthenticated: accountFlow?.isAuthenticated == true,
             isWorkingOnAuth: accountFlow?.isWorkingOnAuth == true
         )
-        if !authState.allowsAuthenticatedOperation {
+        if !authState.allowsAuthenticatedOperation, !allowDuringAuthTransition {
             // Keep every native launcher entrypoint aligned with the Machines
             // panel: a signed-out action opens the shared sign-in screen and
             // never starts a child CLI that could create or attach a VM.

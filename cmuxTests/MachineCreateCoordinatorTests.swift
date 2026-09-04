@@ -446,6 +446,35 @@ struct MachineCreateCoordinatorTests {
         #expect(coordinator.operations.isEmpty)
         #expect(notices.notices.isEmpty, "the account this belonged to is gone; nobody to tell")
     }
+
+    @Test func signOutRetainsCreateTombstoneForLateMachineCleanup() {
+        let center = NotificationCenter()
+        let launches = LaunchRecorder()
+        var cleanedMachineIDs: [String] = []
+        let coordinator = MachineCreateCoordinator(
+            notifier: { _ in },
+            notificationCenter: center,
+            cancelCreatedMachine: { cleanedMachineIDs.append($0) }
+        )
+
+        #expect(coordinator.start(Self.newMachineRequest(), cancellableLaunch: launches.cancellableLaunch))
+        launches.progressHandlers[0]("OK machine=late-box\n")
+        center.post(name: .cmuxCloudVMAccessDidEnd, object: nil)
+
+        #expect(coordinator.operations.isEmpty)
+        #expect(cleanedMachineIDs == ["late-box"], "known machine is cleaned before auth state is cleared")
+
+        // The process can flush the same marker after sign-out. The retained
+        // tombstone reconciles it without resurrecting a row or issuing a
+        // duplicate delete.
+        launches.completions[0](CloudVMActionLauncher.Completion(
+            terminationStatus: 1,
+            output: "OK machine=late-box",
+            workspaceId: nil,
+            machineId: "late-box"
+        ))
+        #expect(cleanedMachineIDs == ["late-box"])
+    }
 }
 
 /// The Machines panel mirrors the coordinator: pending rows above the fleet,

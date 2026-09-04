@@ -267,7 +267,21 @@ final class MachineCreateCoordinator {
     /// Forgets every operation. Completions for the dropped ids are ignored.
     func cancelAllForAuthTransition() {
         guard !operations.isEmpty || !cancellableLaunches.isEmpty else { return }
-        for handle in cancellationHandles.values { handle.cancel() }
+        // Install tombstones before terminating the children. A create can
+        // announce its machine after the cancellation handle runs, and that
+        // late output still needs to reach the cleanup path during sign-out.
+        let runningOperations = operations.filter(\.isRunning)
+        for operation in runningOperations where !operation.request.isBaseSetup {
+            var cancelled = CancelledCreate(
+                isBaseSetup: false,
+                markerCarry: progressMarkerCarry[operation.id] ?? ""
+            )
+            if let machineID = operation.createdMachineID {
+                cancelled.cleanedMachineID = machineID
+            }
+            retainCancelledCreate(cancelled, for: operation.id)
+        }
+        let handles = Array(cancellationHandles.values)
         operations.removeAll()
         cancellableLaunches.removeAll()
         cancellationHandles.removeAll()
@@ -280,6 +294,12 @@ final class MachineCreateCoordinator {
         for (id, cancelled) in cancelledCreates where cancelled.isBaseSetup {
             cancelledCreates[id] = nil
         }
+        for operation in runningOperations where !operation.request.isBaseSetup {
+            if let machineID = operation.createdMachineID {
+                cleanupCancelledMachine(machineID)
+            }
+        }
+        for handle in handles { handle.cancel() }
         postDidChange(finished: nil)
     }
 
