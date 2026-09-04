@@ -514,7 +514,7 @@ import Testing
         }
         """)
         let cm = ctx?.modifiers.first { $0.name == "contextMenu" }
-        #expect(cm?.children.first?.kind == .button)
+        #expect(cm?.materializedChildren().first?.kind == .button)
     }
 
     @Test func gridRowsAndViewThatFits() {
