@@ -1798,8 +1798,43 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var safeAreaInsetsBottom: CGFloat {
         TerminalLetterboxGeometry.resolvedBottomSafeAreaInset(
             viewInset: safeAreaInsets.bottom,
-            windowInset: window?.safeAreaInsets.bottom ?? 0
+            windowInset: window?.safeAreaInsets.bottom ?? 0,
+            capturedInset: capturedBottomSafeAreaInset,
+            ancestorInsets: safeAreaAncestorBottomInsets
         )
+    }
+
+    /// Safe-area value captured outside the SwiftUI subtree that intentionally
+    /// ignores the terminal's bottom container region. This stays as a
+    /// fallback: a live view or window inset still wins when UIKit provides it.
+    private var capturedBottomSafeAreaInset: CGFloat = 0
+
+    /// Updates the outer safe-area fallback and immediately re-seats the dock
+    /// and grid when the ignored SwiftUI subtree first reports its physical
+    /// bottom inset.
+    func setCapturedBottomSafeAreaInset(_ inset: CGFloat) {
+        let next = max(0, inset)
+        guard abs(next - capturedBottomSafeAreaInset) > 0.25 else { return }
+        capturedBottomSafeAreaInset = next
+        layoutBottomDock(using: viewportSnapshot())
+        bottomDockHostView?.setNeedsLayout()
+        setNeedsGeometrySync()
+    }
+
+    /// The terminal is deliberately mounted inside a SwiftUI subtree that
+    /// ignores the container's bottom safe area. In that arrangement the
+    /// surface and its immediate UIKit host can both report zero even though
+    /// an outer hosting container still carries the device inset. Keep the
+    /// fallback resolver aware of that chain, while leaving the window inset
+    /// authoritative whenever UIKit exposes it.
+    private var safeAreaAncestorBottomInsets: [CGFloat] {
+        var insets: [CGFloat] = []
+        var ancestor = superview
+        while let view = ancestor {
+            insets.append(view.safeAreaInsets.bottom)
+            ancestor = view.superview
+        }
+        return insets
     }
 
     /// Reconcile the docked bar's visibility (and its reserved grid height) with

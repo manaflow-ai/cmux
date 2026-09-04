@@ -35,6 +35,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     /// SwiftUI geometry OUTSIDE the safe-area expansion, because a UIKit
     /// view inside `ignoresSafeArea` reads a zero top inset.
     var topContentInset: CGFloat = 0
+    /// Bottom safe-area inset captured outside the terminal's ignored SwiftUI
+    /// subtree. UIKit leaf and window values remain authoritative when present;
+    /// this is the fallback for edge-to-edge disconnected layouts.
+    var bottomSafeAreaInset: CGFloat = 0
     /// Raw Mac Ghostty defaults installed into the local mirror surface.
     var terminalConfigTheme: TerminalTheme
     /// The store's raw config generation. This drives a surface-local
@@ -118,6 +122,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         view.setComposerActive(isComposerActive)
         context.coordinator.setComposerMounted(isComposerActive)
         view.setTopContentInset(topContentInset)
+        view.setCapturedBottomSafeAreaInset(bottomSafeAreaInset)
         context.coordinator.themeApplicationScheduler.seed(generation: configThemeGeneration)
         // The composition root's tracker spans host lifetimes, so a host built
         // for a reattached surface recovers keyboard transitions it missed.
@@ -127,7 +132,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             surfaceView: view,
             keyboardFrameTracker: context.environment.mobileKeyboardFrameTracker
                 ?? context.coordinator.fallbackKeyboardFrameTracker,
-            keyboardDockRebuildRevertEnabled: context.environment.keyboardDockRebuildRevertEnabled
+            keyboardDockRebuildRevertEnabled: context.environment.keyboardDockRebuildRevertEnabled,
+            capturedBottomSafeAreaInset: bottomSafeAreaInset
         )
     }
 
@@ -145,6 +151,9 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         surfaceView.terminalTheme = terminalTheme
         surfaceView.terminalConfigTheme = terminalConfigTheme
         surfaceView.setTopContentInset(topContentInset)
+        if let hostView = uiView as? GhosttySurfaceHostView {
+            hostView.setCapturedBottomSafeAreaInset(bottomSafeAreaInset)
+        }
         context.coordinator.onArtifactFilesRequested = onArtifactFilesRequested
         context.coordinator.onArtifactPathTapped = onArtifactPathTapped
         context.coordinator.onVisibleArtifactCountChanged = onVisibleArtifactCountChanged

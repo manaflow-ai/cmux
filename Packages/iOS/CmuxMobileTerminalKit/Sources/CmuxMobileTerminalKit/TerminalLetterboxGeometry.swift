@@ -106,10 +106,39 @@ public struct TerminalLetterboxGeometry {
     ///
     /// - Parameters:
     ///   - viewInset: The view's `safeAreaInsets.bottom` (may be a stale 0).
-    ///   - windowInset: The window's `safeAreaInsets.bottom` (authoritative).
+    ///   - windowInset: The window's `safeAreaInsets.bottom` (authoritative
+    ///     when the window reports it).
+    ///   - capturedInset: A safe-area value captured outside an ignored
+    ///     SwiftUI subtree, when UIKit cannot expose it to the terminal leaf.
+    ///   - ancestorInsets: Safe-area values reported by UIKit ancestors. A
+    ///     SwiftUI `ignoresSafeArea` subtree can make both the surface and its
+    ///     immediate host report zero even though an outer hosting container
+    ///     still carries the device's bottom inset.
     /// - Returns: The inset to reserve in points.
-    public static func resolvedBottomSafeAreaInset(viewInset: CGFloat, windowInset: CGFloat) -> CGFloat {
-        viewInset > 0 ? viewInset : max(0, windowInset)
+    public static func resolvedBottomSafeAreaInset(
+        viewInset: CGFloat,
+        windowInset: CGFloat,
+        capturedInset: CGFloat = 0,
+        ancestorInsets: [CGFloat] = []
+    ) -> CGFloat {
+        if viewInset > 0 {
+            return viewInset
+        }
+        if windowInset > 0 {
+            return windowInset
+        }
+        if capturedInset > 0 {
+            return capturedInset
+        }
+        // Ancestors may add their own bottom chrome (for example a tab or
+        // navigation container), so use the smallest positive inset rather
+        // than inheriting the largest container reservation. This recovers
+        // the physical device safe area without reserving a parent bar twice.
+        return ancestorInsets
+            .filter { $0 > 0 }
+            .min()
+            .map { max(0, $0) }
+            ?? 0
     }
 
     /// The container size in device pixels for libghostty's `set_size`.
