@@ -54,6 +54,45 @@ struct SessionEntryResumeLaunchTests {
         #expect(arguments.contains("model_reasoning_effort=high"))
     }
 
+    @Test("Vault Codex restore keeps the transcript's effective Codex home")
+    func vaultCodexRestorePreservesEffectiveCodexHome() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-vault-codex-home-\(UUID().uuidString)", isDirectory: true)
+        let codexHome = root.appendingPathComponent("codex-account", isDirectory: true)
+        let transcript = codexHome
+            .appendingPathComponent("sessions/2026/09/04/rollout-session.jsonl", isDirectory: false)
+        try FileManager.default.createDirectory(
+            at: transcript.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let entry = SessionEntry(
+            id: "codex:\(transcript.path)",
+            agent: .codex,
+            sessionId: "vault-session-home",
+            title: "Account-scoped Codex session",
+            cwd: root.path,
+            gitBranch: nil,
+            pullRequest: nil,
+            modified: Date(timeIntervalSince1970: 1_800_000_000),
+            fileURL: transcript,
+            specifics: .codex(
+                model: "gpt-5.5",
+                approvalPolicy: nil,
+                sandboxMode: nil,
+                effort: nil
+            )
+        )
+
+        let launch = try #require(entry.resumeLaunch)
+        let snapshot = try #require(launch.startupRestoreAgent)
+        #expect(
+            snapshot.launchCommand?.environment?["CODEX_HOME"] == codexHome.path,
+            "Vault restore must probe and resume the account that owns the transcript"
+        )
+    }
+
     @Test("Registered Vault agents use structured restore argv")
     func registeredAgentUsesStructuredRestore() throws {
         let registration = CmuxVaultAgentRegistration(
