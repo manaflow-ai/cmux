@@ -131,6 +131,9 @@ class SignInViewModel @Inject constructor(
             connection.setRequestProperty("X-Stack-Project-Id", stackProjectId)
             connection.setRequestProperty("X-Stack-Publishable-Client-Key", stackPublishableKey)
             connection.setRequestProperty("X-Stack-Access-Type", "client")
+            connection.setRequestProperty("X-Hexclave-Project-Id", stackProjectId)
+            connection.setRequestProperty("X-Hexclave-Publishable-Client-Key", stackPublishableKey)
+            connection.setRequestProperty("X-Hexclave-Access-Type", "client")
             connection.doOutput = true
             connection.outputStream.use { it.write(body.toByteArray()) }
 
