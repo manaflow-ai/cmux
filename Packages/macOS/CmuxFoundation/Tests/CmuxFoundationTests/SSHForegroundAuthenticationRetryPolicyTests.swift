@@ -494,6 +494,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             "CMUX_TEST_CLEANUP_STARTED_MARKER": cleanupStartedMarker.path,
             "CMUX_TEST_READY_MARKER": readyMarker.path,
             "CMUX_TEST_PID_LOG": pidLog.path,
+            "CMUX_SSH_AUTH_DEBUG": "1",
         ]) { _, override in override }
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice

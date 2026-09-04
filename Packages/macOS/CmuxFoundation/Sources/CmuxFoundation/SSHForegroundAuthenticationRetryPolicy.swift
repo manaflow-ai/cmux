@@ -1841,6 +1841,11 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             cmux_ssh_auth_resume_kernel_journal "$cmux_ssh_auth_resume_path"
           }
 
+          cmux_ssh_auth_debug() {
+            [ "${CMUX_SSH_AUTH_DEBUG:-0}" = 1 ] || return 0
+            printf 'cmux-ssh-debug: %s\n' "$*" >&2
+          }
+
           # Emergency cleanup for a fork-starved host. The first process-table
           # snapshot is retained before the graceful walk starts. A direct
           # identity-aware STOP pass records only rows whose PID, parent,
@@ -1851,6 +1856,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           cmux_ssh_auth_force_initial_tree() {
             cmux_ssh_auth_force_input="$1"
             [ -s "$cmux_ssh_auth_force_input" ] || return 1
+            cmux_ssh_auth_debug "force input=$cmux_ssh_auth_force_input"
             # Preserve rows that an earlier STOP pass already acquired. A
             # second identity-aware STOP intentionally does not journal a row
             # that is already stopped, so dropping the existing journal here
@@ -1881,6 +1887,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               printf '%s\n' "$cmux_ssh_auth_force_input_line" >> "$cmux_ssh_auth_pending" || return 1
             done < "$cmux_ssh_auth_force_input"
             [ -s "$cmux_ssh_auth_pending" ] || return 1
+            cmux_ssh_auth_debug "force pending populated"
             # Repeat STOP with the shell builtin so the subsequent KILL does
             # not depend on another process-table scan or a successful fork.
             # The identity-aware pass above is the ownership fence for each
@@ -1896,6 +1903,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                   ;;
               esac
             done < "$cmux_ssh_auth_pending"
+            cmux_ssh_auth_debug "force stop pass complete"
             while IFS=' ' read -r cmux_ssh_auth_force_depth cmux_ssh_auth_force_pid \
               cmux_ssh_auth_force_parent cmux_ssh_auth_force_group \
               cmux_ssh_auth_force_state cmux_ssh_auth_force_started; do
@@ -1905,6 +1913,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                   ;;
               esac
             done < "$cmux_ssh_auth_pending"
+            cmux_ssh_auth_debug "force kill pass complete"
             return 0
           }
 
@@ -2004,9 +2013,12 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           # input if process pressure prevents the graceful walk from freezing
           # every level.
           : > "$cmux_ssh_auth_initial_members" || exit 0
+          cmux_ssh_auth_initial_count=0
           while IFS= read -r cmux_ssh_auth_initial_line; do
             printf '%s\n' "$cmux_ssh_auth_initial_line" >> "$cmux_ssh_auth_initial_members" || exit 0
+            cmux_ssh_auth_initial_count=$((cmux_ssh_auth_initial_count + 1))
           done < "$cmux_ssh_auth_members"
+          cmux_ssh_auth_debug "initial members=$cmux_ssh_auth_initial_count"
           cmux_ssh_auth_start_cleanup_clock
           # The authentication wrapper derives this same path from the fresh
           # per-attempt nonce. A pre-existing path is never removed or reused,
@@ -2073,6 +2085,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             cmux_ssh_auth_freeze_attempt=$((cmux_ssh_auth_freeze_attempt + 1))
           done
           if [ "$cmux_ssh_auth_tree_frozen" != 1 ]; then
+            cmux_ssh_auth_debug "initial freeze failed; emergency pass"
             if cmux_ssh_auth_force_initial_tree "$cmux_ssh_auth_initial_members"; then
               cmux_ssh_auth_cleanup_complete=1
             else
@@ -2235,6 +2248,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             cmux_ssh_auth_force_attempt=$((cmux_ssh_auth_force_attempt + 1))
           done
           if [ "$cmux_ssh_auth_force_frozen" != 1 ]; then
+            cmux_ssh_auth_debug "force freeze failed; emergency pass"
             # A discovery-tool failure after TERM must not discard the
             # identity-fenced tree captured before the walk. Reuse the same
             # fork-free emergency pass used when initial freezing times out.
@@ -2251,6 +2265,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           # snapshot was unavailable.
           if ! cmux_ssh_auth_filter_current_records \
             "$cmux_ssh_auth_live" "$cmux_ssh_auth_kill_candidates" 1; then
+            cmux_ssh_auth_debug "final filter failed; emergency pass"
             if cmux_ssh_auth_force_initial_tree "$cmux_ssh_auth_initial_members"; then
               cmux_ssh_auth_cleanup_complete=1
             else
@@ -2266,6 +2281,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
              [ "$cmux_ssh_auth_dynamic_discovery_failed" = 0 ]; then
             cmux_ssh_auth_cleanup_complete=1
           else
+            cmux_ssh_auth_debug "final kill failed or dynamic discovery failed; emergency pass"
             if cmux_ssh_auth_force_initial_tree "$cmux_ssh_auth_initial_members"; then
               cmux_ssh_auth_cleanup_complete=1
             else
