@@ -818,6 +818,7 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
             }
             for route in grantRoutes {
                 let encoded = try Self.encodeRoute(route)
+                let encodedEndpoint = try Self.encodeRouteEndpoint(route)
                 try exec("""
                     INSERT INTO legacy_tailscale_route_grants (
                         mac_device_id, owner_key, endpoint_json, origin
@@ -829,6 +830,22 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                     .text(macDeviceID),
                     .text(ownerKey),
                     .text(encoded),
+                ])
+                // A pairing-code scan is a fresh, explicit authorization for
+                // this exact destination. Clear only its local deletion marker;
+                // passive route refreshes never reach this path and therefore
+                // cannot resurrect a route the user removed.
+                try exec("""
+                    DELETE FROM mac_route_removals
+                    WHERE mac_device_id = ?
+                      AND owner_key = ?
+                      AND kind = ?
+                      AND endpoint_json = ?;
+                """, binding: [
+                    .text(macDeviceID),
+                    .text(ownerKey),
+                    .text(route.kind.rawValue),
+                    .text(encodedEndpoint),
                 ])
             }
         }
