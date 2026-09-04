@@ -241,7 +241,7 @@ describe("localized pricing page", () => {
 
     expect(html).toContain("$50");
     expect(html).toContain("$60");
-    expect(html).toContain("Up to 50 Cloud VMs, each with 5 vCPU, 20 GB RAM, and 200 GB disk");
+    expect(html).toContain("Up to 50 Cloud VMs, each with 5 vCPU, 20 GB RAM, and 32 GB disk");
     expect(html).toContain("Unlimited workspaces");
     expect(html).not.toContain("Unlimited active Cloud VMs");
     expect(html).toContain(

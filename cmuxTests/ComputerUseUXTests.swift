@@ -209,6 +209,30 @@ struct ComputerUseUXTests {
             directCaptureReady: false))
     }
 
+    /// The first protected call for `$cmux-cua open cllcualtor and click 10 + 123`
+    /// must re-open onboarding when a persisted direct-capture marker outlives
+    /// either helper TCC grant, while a fully ready helper stays immediate.
+    @MainActor
+    @Test func firstProtectedInvocationGatesStaleHelperReadinessButReadyPathIsImmediate() {
+        #expect(ComputerUseOnboardingWindowController.shouldPresentAutomatically(
+            seen: true, featureEnabled: true, permissionStatusIsKnown: true,
+            accessibilityGranted: false, screenRecordingGranted: true,
+            directCaptureReady: true))
+        #expect(ComputerUseOnboardingWindowController.shouldPresentAutomatically(
+            seen: true, featureEnabled: true, permissionStatusIsKnown: true,
+            accessibilityGranted: true, screenRecordingGranted: false,
+            directCaptureReady: true))
+        // Unknown TCC status is fail-safe: the protected call remains gated.
+        #expect(ComputerUseOnboardingWindowController.shouldPresentAutomatically(
+            seen: true, featureEnabled: true, permissionStatusIsKnown: false,
+            accessibilityGranted: true, screenRecordingGranted: true,
+            directCaptureReady: true))
+        #expect(!ComputerUseOnboardingWindowController.shouldPresentAutomatically(
+            seen: true, featureEnabled: true, permissionStatusIsKnown: true,
+            accessibilityGranted: true, screenRecordingGranted: true,
+            directCaptureReady: true))
+    }
+
     @Test func computerUseRuntimePermissionReadinessRequiresExplicitCompletion() {
         var phase = ComputerUseRuntimePermissionPhase.disabled(
             onboardingComplete: false

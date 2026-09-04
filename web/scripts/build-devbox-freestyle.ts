@@ -3,7 +3,7 @@
  * Build the cmux Cloud devbox Freestyle snapshot on the public platform
  * (freestyle@0.2.x; api.freestyle.sh) on top of the `freestyle/ubuntu` base,
  * plus the desktop layer (web/services/vms/images/devbox/desktop, ported
- * from the retired Blaxel cmux-devbox image): an openbox/TigerVNC desktop
+ * from the legacy cmux-devbox image): an openbox/TigerVNC desktop
  * with a tint2 dock, Ghostty, Chrome, Thunar, and noVNC on 6901.
  *
  * Usage:
