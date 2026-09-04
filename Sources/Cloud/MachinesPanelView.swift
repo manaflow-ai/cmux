@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import CmuxSettings
 import SwiftUI
 
@@ -947,14 +948,18 @@ struct MachineRowActions {
 private struct MachinesTunnelBanner: View {
     let backgroundColor: NSColor
     @State private var isHovered = false
-    @State private var isWorking = false
+    @State private var installTask: Task<Void, Never>?
     @State private var errorText: String?
     /// Re-read after the install so the banner can retire itself.
     @State private var refreshToken = 0
 
+    private var isWorking: Bool { installTask != nil }
+
     private var tunnelReady: Bool {
         _ = refreshToken
-        return VMTunnelAutostart.isInstalled() && VMTunnelManager().wgQuickInterfaceUp()
+        let manager = VMTunnelManager()
+        return CmuxVPNAutostart(interfaceName: manager.interfaceName).isInstalled()
+            && manager.wgQuickInterfaceUp()
     }
 
     var body: some View {
@@ -998,30 +1003,37 @@ private struct MachinesTunnelBanner: View {
                 defaultValue: "Asks for an administrator once, then keeps the tunnel up automatically — including after a restart."
             ))
             .accessibilityIdentifier("MachinesPanel.tunnelBanner")
+            .onDisappear {
+                installTask?.cancel()
+                installTask = nil
+            }
         }
     }
 
     private func turnOn() {
-        guard !isWorking else { return }
-        isWorking = true
+        guard installTask == nil else { return }
         errorText = nil
-        Task {
-            let manager = VMTunnelManager()
-            let configPath = manager.configURL.path
-            do {
-                // The config is written by enrollment. Without it the job would
-                // install and then no-op, which looks like it worked.
-                guard FileManager.default.fileExists(atPath: configPath) else {
-                    throw VMTunnelAutostart.InstallError.failed(String(
-                        localized: "machines.tunnel.notEnrolled",
-                        defaultValue: "This Mac is not enrolled yet. Open a cloud machine once, then try again."
+        let manager = VMTunnelManager()
+        let interfaceName = manager.interfaceName
+        let configPath = manager.configURL.path
+        // The install blocks on an authorization dialog and a privileged
+        // shell, so it runs off the main actor; only its result comes back.
+        installTask = Task { @MainActor in
+            let result: Result<Bool, Error> = await Task.detached(priority: .userInitiated) {
+                do {
+                    return .success(try VMTunnelAutostart.install(
+                        interfaceName: interfaceName,
+                        userConfigPath: configPath
                     ))
+                } catch {
+                    return .failure(error)
                 }
-                try VMTunnelAutostart.installWithAdminPrompt(configPath: configPath)
-            } catch {
-                errorText = String(describing: error)
+            }.value
+            if case .failure(let error) = result {
+                errorText = (error as? VMTunnelAutostart.InstallError)?.description
+                    ?? VMTunnelAutostart.InstallError.failed.description
             }
-            isWorking = false
+            installTask = nil
             refreshToken += 1
         }
     }

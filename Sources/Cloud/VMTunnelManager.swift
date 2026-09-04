@@ -381,7 +381,13 @@ struct VMTunnelManager: Sendable {
             let advertised = lines[index]
                 .split(separator: "=", maxSplits: 1).last
                 .flatMap { Int($0.trimmingCharacters(in: .whitespaces)) }
-            lines[index] = "MTU = \(min(advertised ?? safeTunnelMTU, safeTunnelMTU))"
+            // A malformed or absent value falls back rather than being
+            // written through: `MTU = 0` parses fine and then the tunnel
+            // cannot start at all.
+            let usable = (advertised ?? safeTunnelMTU) >= minimumTunnelMTU
+                ? (advertised ?? safeTunnelMTU)
+                : safeTunnelMTU
+            lines[index] = "MTU = \(min(usable, safeTunnelMTU))"
         } else if let interfaceIndex = lines.firstIndex(where: {
             $0.trimmingCharacters(in: .whitespaces).lowercased() == "[interface]"
         }) {
@@ -394,6 +400,10 @@ struct VMTunnelManager: Sendable {
     /// ~1370 the provider path actually carries, with room for a peer whose
     /// underlay is slightly smaller, and well above IPv6's 1280 floor.
     static let safeTunnelMTU = 1360
+
+    /// IPv6's minimum link MTU. Anything at or below this is a malformed
+    /// advertisement rather than a small link.
+    static let minimumTunnelMTU = 1280
 
     private func ensureStateDir() throws {
         try FileManager.default.createDirectory(
