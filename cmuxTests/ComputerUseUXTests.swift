@@ -307,6 +307,240 @@ struct ComputerUseUXTests {
         #expect(!ComputerUseUXCoordinator.isComputerUseToolInvocation(permissionProbe))
     }
 
+    @Test func computerUseIntentBoundarySeparatesPromptAndProtectedAction() throws {
+        let explicitPrompt = WorkstreamEvent(
+            sessionId: "session-1",
+            hookEventName: .userPromptSubmit,
+            source: "codex",
+            context: WorkstreamContext(
+                lastUserMessage: "Please use $cmux-cua to open Calculator"
+            )
+        )
+        guard case .turnStarted(let turn) = ComputerUseIntentBoundary.observation(
+            for: explicitPrompt
+        ) else {
+            #expect(
+                false,
+                "an explicit $cmux-cua prompt must begin an intent turn"
+            )
+            return
+        }
+        let promptSignal = try #require(turn.signal)
+        #expect(promptSignal.kind == .explicitPrompt)
+
+        let ordinaryPrompt = WorkstreamEvent(
+            sessionId: "session-1",
+            hookEventName: .userPromptSubmit,
+            source: "codex",
+            context: WorkstreamContext(lastUserMessage: "Run the unit tests")
+        )
+        guard case .turnStarted(let ordinaryTurn) = ComputerUseIntentBoundary.observation(
+            for: ordinaryPrompt
+        ) else {
+            #expect(false, "an ordinary prompt must still be a lifecycle boundary")
+            return
+        }
+        #expect(ordinaryTurn.signal == nil)
+
+        let protectedAction = WorkstreamEvent(
+            sessionId: "session-1",
+            hookEventName: .preToolUse,
+            source: "codex",
+            toolName: "mcp__cmux-cua__get_app_state"
+        )
+        guard case .request(let actionSignal) = ComputerUseIntentBoundary.observation(
+            for: protectedAction
+        ) else {
+            #expect(
+                false,
+                "a namespaced protected action must create an intent signal"
+            )
+            return
+        }
+        #expect(actionSignal.kind == .protectedAction(toolName: "get_app_state"))
+
+        let explicitSkill = WorkstreamEvent(
+            sessionId: "session-1",
+            hookEventName: .preToolUse,
+            source: "codex",
+            toolName: "Skill",
+            toolInputJSON: "{\"skill\":\"cmux-cua\",\"explicit\":true}"
+        )
+        guard case .request(let skillSignal) = ComputerUseIntentBoundary.observation(
+            for: explicitSkill
+        ) else {
+            #expect(false, "an explicitly executed cmux-cua skill must arm onboarding")
+            return
+        }
+        #expect(skillSignal.kind == .explicitSkill)
+
+        let discoveredSkill = WorkstreamEvent(
+            sessionId: "session-1",
+            hookEventName: .preToolUse,
+            source: "codex",
+            toolName: "Skill",
+            toolInputJSON: "{\"skill\":\"cmux-cua\",\"discovery\":true}"
+        )
+        #expect(
+            ComputerUseIntentBoundary.observation(for: discoveredSkill) == .ignored,
+            "a catalog/discovery pass must not be treated as an explicit invocation"
+        )
+
+        let passiveProbe = WorkstreamEvent(
+            sessionId: "session-1",
+            hookEventName: .preToolUse,
+            source: "codex",
+            toolName: "mcp__cmux-cua__health_report"
+        )
+        #expect(
+            ComputerUseIntentBoundary.observation(for: passiveProbe) == .ignored,
+            "status/discovery calls must not arm onboarding"
+        )
+
+        let lifecycleProbe = WorkstreamEvent(
+            sessionId: "session-1",
+            hookEventName: .preToolUse,
+            source: "codex",
+            toolName: "mcp__cmux-cua__set_agent_cursor_enabled"
+        )
+        #expect(ComputerUseIntentBoundary.observation(for: lifecycleProbe) == .ignored)
+    }
+
+    @Test func computerUseIntentBoundaryDoesNotTreatGenericUIPhraseAsIntent() {
+        let uiText = WorkstreamEvent(
+            sessionId: "session-1",
+            hookEventName: .userPromptSubmit,
+            source: "claude",
+            context: WorkstreamContext(
+                lastUserMessage: "The settings button says Enable cmux Computer Use"
+            )
+        )
+        guard case .turnStarted(let turn) = ComputerUseIntentBoundary.observation(for: uiText)
+        else {
+            #expect(false, "generic UI text must remain a prompt boundary")
+            return
+        }
+        #expect(turn.signal == nil)
+
+        let documentationPrompt = WorkstreamEvent(
+            sessionId: "session-4",
+            hookEventName: .userPromptSubmit,
+            source: "claude",
+            context: WorkstreamContext(
+                lastUserMessage: "Update the docs explaining how to use cmux computer use"
+            )
+        )
+        guard case .turnStarted(let documentationTurn) = ComputerUseIntentBoundary.observation(
+            for: documentationPrompt
+        ) else {
+            #expect(false, "documentation requests must remain prompt boundaries")
+            return
+        }
+        #expect(documentationTurn.signal == nil)
+
+        let assistantOnlyText = WorkstreamEvent(
+            sessionId: "session-2",
+            hookEventName: .userPromptSubmit,
+            source: "claude",
+            context: WorkstreamContext(
+                assistantPreamble: "I can use cmux computer use later",
+                toolSummary: "The Computer Use button is available"
+            )
+        )
+        guard case .turnStarted(let assistantTurn) = ComputerUseIntentBoundary.observation(
+            for: assistantOnlyText
+        ) else {
+            #expect(false, "assistant/UI text must not be treated as a user intent")
+            return
+        }
+        #expect(assistantTurn.signal == nil)
+
+        let naturalPrompt = WorkstreamEvent(
+            sessionId: "session-3",
+            hookEventName: .userPromptSubmit,
+            source: "claude",
+            context: WorkstreamContext(
+                lastUserMessage: "Use cmux computer use to click the Save button"
+            )
+        )
+        guard case .turnStarted(let naturalTurn) = ComputerUseIntentBoundary.observation(
+            for: naturalPrompt
+        ) else {
+            #expect(false, "an imperative Computer Use prompt must arm onboarding")
+            return
+        }
+        #expect(naturalTurn.signal?.kind == .explicitPrompt)
+    }
+
+    @Test func computerUseIntentLedgerCoalescesConcurrentAndRetriedRequests() throws {
+        let session = ComputerUseIntentBoundary.Session(
+            source: "codex",
+            sessionID: "session-1",
+            surfaceID: UUID().uuidString.lowercased()
+        )
+        let firstSignal = ComputerUseIntentBoundary.Signal(
+            kind: .protectedAction(toolName: "click"),
+            session: session,
+            requestToken: "request:first"
+        )
+        let secondSignal = ComputerUseIntentBoundary.Signal(
+            kind: .protectedAction(toolName: "type_text"),
+            session: session,
+            requestToken: "request:second"
+        )
+        var ledger = ComputerUseIntentBoundary.Ledger()
+        let firstClaim = try #require(
+            ledger.observe(.request(firstSignal))
+        )
+        #expect(ledger.observe(.request(firstSignal)) == nil)
+        #expect(
+            ledger.observe(.request(secondSignal)) == nil,
+            "a concurrent action in the same turn must share the first gate"
+        )
+
+        ledger.finish(firstClaim, completion: .handled)
+        #expect(ledger.observe(.request(secondSignal)) == nil)
+
+        ledger.observe(.completed(session))
+        let nextClaim = try #require(ledger.observe(.request(secondSignal)))
+        #expect(nextClaim.signal == secondSignal)
+    }
+
+    @MainActor
+    @Test func onboardingIntentCoordinatorRunsOneEvaluationPerTurn() async throws {
+        let session = ComputerUseIntentBoundary.Session(
+            source: "claude",
+            sessionID: "session-1",
+            surfaceID: UUID().uuidString.lowercased()
+        )
+        let signal = ComputerUseIntentBoundary.Signal(
+            kind: .protectedAction(toolName: "get_window_state"),
+            session: session,
+            requestToken: "request:one"
+        )
+        var evaluationCount = 0
+        let coordinator = ComputerUseOnboardingIntentCoordinator { _ in
+            evaluationCount += 1
+            return .handled
+        }
+
+        coordinator.observe(.request(signal))
+        coordinator.observe(.request(signal))
+        await coordinator.waitForIdle()
+
+        #expect(evaluationCount == 1)
+        coordinator.observe(.completed(session))
+        let secondSignal = ComputerUseIntentBoundary.Signal(
+            kind: .protectedAction(toolName: "click"),
+            session: session,
+            requestToken: "request:two"
+        )
+        coordinator.observe(.request(secondSignal))
+        await coordinator.waitForIdle()
+        #expect(evaluationCount == 2)
+        coordinator.stop()
+    }
+
     @Test @MainActor
     func toolInvocationCannotOverrideDisabledComputerUseSetting() {
         #expect(ComputerUseUXCoordinator.shouldReconcileToolInvocation(

@@ -70,16 +70,23 @@ the main cmux app:
 - **Accessibility** — inspect and drive app UI (`AXIsProcessTrusted`).
 - **Screen Recording** — screenshots / vision (`CGPreflightScreenCaptureAccess`).
 
-Onboarding appears on the first real Computer Use tool invocation, not on cmux
-or agent startup. Settings → Computer Use always shows the two authoritative
-permission states; choosing **Grant…** for an ungranted permission opens that
-same permission step and its draggable helper-app recovery path. Each **Allow**
-action opens the matching permanent System Settings pane in one step and stays
-labeled **Allow** until the helper reports the grant; pressing it again simply
-reopens the same pane. If macOS has not listed the helper yet, drag or add the
-**cmux Computer Use** app tile to the list, then turn it on. cmux reads status
-from the helper over its Unix socket, advances beside System Settings to the
-next missing permission, and shows completion in place once both are granted.
+Onboarding is demand-driven and starts only at the host's accepted workstream
+intent boundary: a protected namespaced `cmux-cua` tool call, a canonical
+`$cmux-cua`/imperative Computer Use user prompt, or an explicitly executed
+`cmux-cua` skill call. cmux startup/resume, MCP initialize/tools-list or skill
+discovery, `check_permissions`/health/config probes, helper lifecycle events,
+and generic UI/assistant text are passive and never open it. A per-surface turn
+ledger coalesces concurrent/retried signals, so dismissing one flow stays quiet
+until a new explicit request. Settings → Computer Use always shows the two
+authoritative permission states; choosing **Grant…** for an ungranted
+permission opens that same permission step and its draggable helper-app
+recovery path. Each **Allow** action opens the matching permanent System
+Settings pane in one step and stays labeled **Allow** until the helper reports
+the grant; pressing it again simply reopens the same pane. If macOS has not
+listed the helper yet, drag or add the **cmux Computer Use** app tile to the
+list, then turn it on. cmux reads status from the helper over its Unix socket,
+advances beside System Settings to the next missing permission, and shows
+completion in place once both are granted.
 On macOS Tahoe a third confirmation follows Screen Recording: the system's
 direct-capture consent, an alert that says **cmux Computer Use** "is attempting
 to bypass the system private window picker". That alert is expected — it comes

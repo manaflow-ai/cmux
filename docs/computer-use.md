@@ -52,20 +52,30 @@ diagnostic tools.
 cmux's injection disables the upstream cmux-cua engine's telemetry and self-update
 checks; cmux manages application updates through Sparkle.
 
-The first real tool invocation opens cmux's onboarding. Its first **Allow**
-action goes directly to the matching permanent System Settings pane instead of
-raising a second native TCC prompt first. If the helper is absent from the
-permission list, the compact companion supplies a draggable **cmux Computer
-Use** app tile; add it, turn it on, and let onboarding advance after the helper
-reports the grant. The companion is a nonactivating panel: dragging its tile or
-pressing Back never activates cmux, so the main terminal window cannot rise
-over the System Settings pane mid-drag. On macOS Tahoe, turning Screen
-Recording on is followed by the system's separate direct-capture consent —
-an alert saying the helper "is attempting to bypass the system private window
-picker". This is expected; onboarding says so in place, and allowing it is
-required before setup can complete. Agents must not call a standalone helper's permission
-prompt while onboarding is active, because that creates unrelated permission
-dialogs under the wrong process identity.
+Onboarding is demand-driven. Its authoritative intent boundary is an accepted
+`feed.push` workstream event: a protected, namespaced `cmux-cua` tool call, a
+canonical `$cmux-cua`/imperative Computer Use user prompt, or an explicitly
+executed `cmux-cua` skill call. Helper startup, MCP initialize/tools-list
+discovery, `check_permissions`/health/config probes, skill-link installation,
+session resume, and rendered UI or assistant text are passive and cannot open
+the window. A per-surface turn ledger makes one explicit request single-flight;
+dismissal or a transient retry does not re-open it until a new prompt or
+protected request arrives.
+
+When that boundary finds a missing grant, the first **Allow** action goes
+directly to the matching permanent System Settings pane instead of raising a
+second native TCC prompt first. If the helper is absent from the permission
+list, the compact companion supplies a draggable **cmux Computer Use** app tile;
+add it, turn it on, and let onboarding advance after the helper reports the
+grant. The companion is a nonactivating panel: dragging its tile or pressing
+Back never activates cmux, so the main terminal window cannot rise over the
+System Settings pane mid-drag. On macOS Tahoe, turning Screen Recording on is
+followed by the system's separate direct-capture consent — an alert saying the
+helper "is attempting to bypass the system private window picker". This is
+expected; onboarding says so in place, and allowing it is required before setup
+can complete. Agents must not call a standalone helper's permission prompt
+while onboarding is active, because that creates unrelated permission dialogs
+under the wrong process identity.
 
 Risk gating is handled by the MCP client harness. Claude Code and Codex show
 their normal tool approval UI for actions, and `cmux-cua` advertises the

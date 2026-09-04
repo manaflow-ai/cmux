@@ -60,6 +60,10 @@ extension TerminalController {
                case .accepted(let authoritativeEvents, let authoritativeItemIds) = ingestion {
                 for (event, itemId) in zip(authoritativeEvents, authoritativeItemIds) {
                     CmuxAutomationInvocationContext.$eventOrigin.withValue(automationOrigin) {
+                        NotificationCenter.default.post(
+                            name: .workstreamEventReceived,
+                            object: event
+                        )
                         CmuxEventBus.shared.publishWorkstreamEvent(event, phase: "received")
                         let result = FeedCoordinator.IngestBlockingResult.acknowledged(itemId: itemId)
                         CmuxEventBus.shared.publishWorkstreamEvent(
@@ -149,6 +153,14 @@ extension TerminalController {
                     self.agentChatTranscriptService?.noteHookEvent(authoritativeEvent)
                 }
                 CmuxAutomationInvocationContext.$eventOrigin.withValue(automationOrigin) {
+                    // Computer Use onboarding consumes this notification only
+                    // after Feed has accepted and revalidated the event's
+                    // ownership. Posting at receipt allowed stale/foreign
+                    // frames to look like explicit CUA intent.
+                    NotificationCenter.default.post(
+                        name: .workstreamEventReceived,
+                        object: authoritativeEvent
+                    )
                     CmuxEventBus.shared.publishWorkstreamEvent(authoritativeEvent, phase: "received")
                     if !waitsForDecision {
                         let acknowledgment = FeedCoordinator.IngestBlockingResult.acknowledged(itemId: nil)
