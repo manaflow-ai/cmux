@@ -2899,6 +2899,7 @@
 		913100000000000000000006 /* VaultHistoryGroupKey+Presentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 913100000000000000000106 /* VaultHistoryGroupKey+Presentation.swift */; };
 		43BD568F3478D9570FE15C58 /* VaultHistoryLifecycleRecording.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E034666E49FE351590FF447 /* VaultHistoryLifecycleRecording.swift */; };
 		913100000000000000000007 /* VaultHistoryRecordingPhase.swift in Sources */ = {isa = PBXBuildFile; fileRef = 913100000000000000000107 /* VaultHistoryRecordingPhase.swift */; };
+		913100000000000000000023 /* VaultHistoryRowLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 913100000000000000000123 /* VaultHistoryRowLayoutTests.swift */; };
 		913100000000000000000022 /* VaultHistorySessionEventProjectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 913100000000000000000122 /* VaultHistorySessionEventProjectionTests.swift */; };
 		609ADABD10C16EA8FAF9D794 /* VaultHistorySessionEvents.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9A7D805E6B00757D85E0F11 /* VaultHistorySessionEvents.swift */; };
 		913100000000000000000008 /* VaultHistoryStoreLocation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 913100000000000000000108 /* VaultHistoryStoreLocation.swift */; };
@@ -6022,6 +6023,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		913100000000000000000106 /* VaultHistoryGroupKey+Presentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VaultHistoryGroupKey+Presentation.swift"; sourceTree = "<group>"; };
 		5E034666E49FE351590FF447 /* VaultHistoryLifecycleRecording.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultHistoryLifecycleRecording.swift; sourceTree = "<group>"; };
 		913100000000000000000107 /* VaultHistoryRecordingPhase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultHistoryRecordingPhase.swift; sourceTree = "<group>"; };
+		913100000000000000000123 /* VaultHistoryRowLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultHistoryRowLayoutTests.swift; sourceTree = "<group>"; };
 		913100000000000000000122 /* VaultHistorySessionEventProjectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultHistorySessionEventProjectionTests.swift; sourceTree = "<group>"; };
 		C9A7D805E6B00757D85E0F11 /* VaultHistorySessionEvents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultHistorySessionEvents.swift; sourceTree = "<group>"; };
 		913100000000000000000108 /* VaultHistoryStoreLocation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultHistoryStoreLocation.swift; sourceTree = "<group>"; };
@@ -9284,6 +9286,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				42092CDB2109E250F7F2A76E /* TabManagerUnitTests.swift */,
 				913100000000000000000121 /* VaultHistoryEventLogTests.swift */,
 				913100000000000000000122 /* VaultHistorySessionEventProjectionTests.swift */,
+				913100000000000000000123 /* VaultHistoryRowLayoutTests.swift */,
 				C0A710120000000000000001 /* ComputerUseUXTests.swift */,
 				9492CAFE0000000000000001 /* LastTerminalChildExitRecoveryTests.swift */,
 				C9D9924AC89D7C3408DBC56A /* WorkspaceRecoveryTests.swift */,
@@ -13078,6 +13081,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A36C009DF2E44501AA774136 /* VaultCheckpointForkTests.swift in Sources */,
 				C2A04B60729A4FA6B38C8BC1 /* VaultCheckpointHarnessTests.swift in Sources */,
 				913100000000000000000021 /* VaultHistoryEventLogTests.swift in Sources */,
+				913100000000000000000023 /* VaultHistoryRowLayoutTests.swift in Sources */,
 				913100000000000000000022 /* VaultHistorySessionEventProjectionTests.swift in Sources */,
 				469200054692000146920001 /* VaultNativeDragSourceTests.swift in Sources */,
 				469200014692000146920001 /* VaultPaneDropRoutingTests.swift in Sources */,
