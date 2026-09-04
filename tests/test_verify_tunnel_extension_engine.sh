@@ -27,7 +27,11 @@ export PATH="/usr/local/go/bin:/opt/homebrew/bin:/usr/local/bin:${HOME}/go/bin:$
 if command -v go >/dev/null 2>&1; then
   CMUX_WIREGUARD_GO_REQUIRE=1 CMUX_WIREGUARD_GO_OUTPUT="$TMP_DIR/real.a" TARGET_TEMP_DIR="$TMP_DIR/real-tmp" ARCHS="$(uname -m | sed 's/aarch64/arm64/')" \
     "$ROOT/scripts/build-wireguard-go.sh" >/dev/null 2>&1
-  "$VERIFIER" "$TMP_DIR/real.a" >/dev/null
+  # Run repeatedly because the old grep -q pipelines failed nondeterministically
+  # when otool or nm received SIGPIPE after grep found its first match.
+  for _ in $(seq 1 20); do
+    "$VERIFIER" "$TMP_DIR/real.a" >/dev/null
+  done
   echo "PASS: verify-tunnel-extension-engine.sh (stub rejected, real engine accepted)"
 else
   echo "PASS: verify-tunnel-extension-engine.sh (stub rejected; real-engine half skipped, no Go)"

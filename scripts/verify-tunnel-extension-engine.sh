@@ -23,11 +23,14 @@ BINARY="$1"
 OTOOL="${CMUX_OTOOL:-otool}"
 NM="${CMUX_NM:-nm}"
 
-if ! "$OTOOL" -l "$BINARY" 2>/dev/null | grep -q "__go_buildinfo"; then
+# Do not use grep -q in these pipelines. With pipefail enabled, grep can close
+# the pipe after the first match and make otool/nm exit with SIGPIPE. That made
+# valid Go engines fail verification nondeterministically on large binaries.
+if ! "$OTOOL" -l "$BINARY" 2>/dev/null | grep "__go_buildinfo" >/dev/null; then
   echo "error: $BINARY has no Go build info section; it was built with the stub WireGuard bridge (Go missing at build time) and cannot carry traffic" >&2
   exit 1
 fi
-if ! "$NM" "$BINARY" 2>/dev/null | grep -qE " T _?wgTurnOn$"; then
+if ! "$NM" "$BINARY" 2>/dev/null | grep -E " T _?wgTurnOn$" >/dev/null; then
   echo "error: $BINARY does not export wgTurnOn; the WireGuard bridge is missing" >&2
   exit 1
 fi
