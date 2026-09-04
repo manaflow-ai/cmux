@@ -11,6 +11,8 @@ import {
   trustedNativeCallbackScheme,
   validatedNativeCallbackScheme,
 } from "../../lib/native-callback";
+import { appPricingNativeReturnURL } from "../../lib/billing";
+import { requestOrigin } from "../../lib/request-origin";
 import {
   isCmuxCheckoutSession,
   isActiveStripeSubscriptionStatus,
@@ -107,14 +109,18 @@ export default async function BillingSuccessPage({
 
   const email = purchaseEmail(session) ?? "";
   const { locale, messages } = await billingSuccessMessages(requestHeaders);
-  const openCmuxHref = nativeCallbackHrefForScheme(scheme);
+  const openCmuxHref = appPricingNativeReturnURL(
+    new URL("/handler/after-sign-in", requestOrigin(request)),
+    nativeCallbackHrefForScheme(scheme),
+    sessionId,
+  );
   const dashboardBillingHref = localizedDashboardPath(locale, "/dashboard/billing");
   const dashboardHref = localizedDashboardPath(locale, "/dashboard");
   const featureCards: readonly {
     key: BillingSuccessFeatureKey;
     href: string;
   }[] = [
-    { key: "cloudAgents", href: openCmuxHref },
+    { key: "cloudAgents", href: openCmuxHref.toString() },
     { key: "modelGateway", href: localizedDashboardPath(locale, "/dashboard/coderouter") },
     { key: "aiAccounts", href: localizedDashboardPath(locale, "/dashboard/ai-accounts") },
     { key: "iosApp", href: localizedDashboardPath(locale, "/dashboard/testflight") },
@@ -142,7 +148,9 @@ export default async function BillingSuccessPage({
           <div className="mt-6 flex flex-wrap items-center gap-2">
             <a
               className="inline-flex min-h-10 items-center border border-foreground bg-foreground px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-background hover:text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground"
-              href={openCmuxHref}
+              href={openCmuxHref.toString()}
+              target="_blank"
+              rel="noreferrer"
             >
               {messages.openCmux}
               <span aria-hidden="true" className="ml-3">→</span>
@@ -178,7 +186,7 @@ export default async function BillingSuccessPage({
                     <h3 className="text-sm font-medium sm:text-base">{feature.title}</h3>
                     <p className="mt-3 max-w-md text-sm leading-6 text-muted">{feature.body}</p>
                   </div>
-                  <a className="mt-5 inline-flex w-fit items-center text-sm font-medium underline decoration-border underline-offset-4 hover:decoration-foreground" href={card.href}>
+                  <a className="mt-5 inline-flex w-fit items-center text-sm font-medium underline decoration-border underline-offset-4 hover:decoration-foreground" href={card.href} target={card.key === "cloudAgents" ? "_blank" : undefined} rel={card.key === "cloudAgents" ? "noreferrer" : undefined}>
                     {feature.action}
                     <span aria-hidden="true" className="ml-2">→</span>
                   </a>
