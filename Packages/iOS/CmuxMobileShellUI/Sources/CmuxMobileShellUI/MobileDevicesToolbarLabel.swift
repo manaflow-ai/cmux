@@ -34,11 +34,19 @@ struct MobileDevicesToolbarLabel: View {
         ZStack(alignment: .topTrailing) {
             Image(systemName: "desktopcomputer")
             if showsWarning {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(.orange)
-                    .background(.background, in: Circle().inset(by: -1))
-                    .offset(x: 5, y: -5)
+                // Keep the toolbar signal subordinate to the Computers glyph.
+                // The full orange triangle remains in each Mac row and detail
+                // section, where there is room for its explanation. A small
+                // status dot avoids making the toolbar button look like it has
+                // two competing icons.
+                Circle()
+                    .fill(.orange)
+                    .frame(width: 7, height: 7)
+                    .overlay {
+                        Circle()
+                            .stroke(.background, lineWidth: 1.5)
+                    }
+                    .offset(x: 4, y: -4)
                     .accessibilityHidden(true)
             }
         }
