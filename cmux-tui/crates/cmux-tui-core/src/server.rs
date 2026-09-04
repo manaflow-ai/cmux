@@ -4919,7 +4919,10 @@ impl SocketStartLock {
         name.push(".spawn-lock");
         let path = socket.with_file_name(name);
         let mut options = std::fs::OpenOptions::new();
-        options.create(true).append(true);
+        // fs4 uses LockFileEx on Windows, which rejects Rust's append-only
+        // handle because it has neither GENERIC_READ nor GENERIC_WRITE.
+        // Lock files need both rights and must keep existing contents.
+        options.create(true).truncate(false).read(true).write(true);
         #[cfg(unix)]
         {
             use std::os::unix::fs::OpenOptionsExt as _;
