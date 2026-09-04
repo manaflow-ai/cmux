@@ -10,7 +10,7 @@ import Testing
 @Suite(.serialized)
 struct ClaudeBackgroundWorkNotifyTests {
     private func notifyLine(_ snapshot: [String], containing needle: String) -> String? {
-        snapshot.first { $0.hasPrefix("notify_target_async ") && $0.contains(needle) }
+        (snapshot.compactMap(AgentHookTestNotificationPipeline.candidatePresentation) + snapshot).first { $0.hasPrefix("notify_target_async ") && $0.contains(needle) }
     }
 
     private func statusLine(_ snapshot: [String], value: String) -> String? {

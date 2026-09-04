@@ -29,6 +29,7 @@ final class FeedCoordinator: @unchecked Sendable {
     // The store runs on the main actor. The coordinator is not isolated,
     // so it hops to main explicitly when touching the store.
     @MainActor private(set) var store: WorkstreamStore!
+    @MainActor var notificationJournal: AgentJournalLifecycleCenter = .shared
     @MainActor private var userNotificationCenter: (any UserNotificationCenterServing)?
 
     /// The bounded notification-center boundary. `install(store:)` injects it;
@@ -85,9 +86,11 @@ final class FeedCoordinator: @unchecked Sendable {
     @MainActor
     func install(
         store: WorkstreamStore,
-        userNotificationCenter: (any UserNotificationCenterServing)? = nil
+        userNotificationCenter: (any UserNotificationCenterServing)? = nil,
+        notificationJournal: AgentJournalLifecycleCenter = .shared
     ) {
         self.store = store
+        self.notificationJournal = notificationJournal
         // Resolved here rather than as a default argument: default-argument
         // expressions evaluate outside the method's main-actor isolation.
         self.userNotificationCenter = userNotificationCenter
@@ -149,6 +152,7 @@ final class FeedCoordinator: @unchecked Sendable {
     func ingestRevalidatedOnMainActor(_ event: WorkstreamEvent) -> UUID? {
         guard let store else { return nil }
         store.ingest(event)
+        observeSemanticLifecycle(event)
         if let ppid = event.ppid, ppid > 0 {
             armPidWatcher(ppid: ppid)
         }
@@ -518,7 +522,7 @@ final class FeedCoordinator: @unchecked Sendable {
         cancelNotification(requestId: requestId)
     }
 
-    fileprivate func isAwaitingDecision(requestId: String) -> Bool {
+    func isAwaitingDecision(requestId: String) -> Bool {
         waiterLock.lock()
         defer { waiterLock.unlock() }
         guard let waiter = waiters[requestId] else { return false }
@@ -670,7 +674,6 @@ extension FeedCoordinator {
 
         let owner: ControlSidebarPanelOwner
         let panelId: UUID?
-        let reorderWorkspaceId: UUID?
         if let dock = AppDelegate.shared?.existingWindowDock(forWindowId: resolved.ownerId) {
             guard let resolvedPanelId = resolved.surfaceId ?? dock.focusedPanelId,
                   dock.containsPanel(resolvedPanelId) else {
@@ -683,7 +686,6 @@ extension FeedCoordinator {
             }
             owner = .dock(dock)
             panelId = resolvedPanelId
-            reorderWorkspaceId = nil
         } else {
             guard let tabManager,
                   let tab = tabManager.tabs.first(where: { $0.id == resolved.ownerId }) else {
@@ -699,7 +701,6 @@ extension FeedCoordinator {
             // Window-owned Docks have no workspace mute state and continue
             // through the separate branch above.
             guard !tab.isMuted else { return nil }
-            reorderWorkspaceId = tab.id
             if let surfaceId = resolved.surfaceId,
                let target = tab.surfaceOwnershipTarget(for: surfaceId) {
                 owner = .workspace(tab)
@@ -748,16 +749,6 @@ extension FeedCoordinator {
             color: "#4C8DFF",
             timestamp: Date()
         ), key: statusKey, panelId: panelId)
-
-        // Elevate the workspace so it floats to the top of the sidebar,
-        // honoring the user's Reorder on Notification preference.
-        if let reorderWorkspaceId,
-           let tabManager,
-           UserDefaultsSettingsClient(defaults: .standard).value(
-               for: SettingCatalog().app.reorderOnNotification
-           ) {
-            tabManager.moveTabToTopForNotification(reorderWorkspaceId)
-        }
 
         return target
     }
@@ -1231,6 +1222,10 @@ private extension FeedCoordinator {
             effects: effects
         )
         let effectiveEffects = deliveryDecision.effects
+        guard deliveryDecision.disposition != .muted,
+              await acceptSemanticFeedNotification(event: event, requestId: requestId,
+                title: title, subtitle: subtitle, body: body, effects: effectiveEffects,
+                soundContext: soundContext) else { return }
         guard effectiveEffects.desktop || effectiveEffects.sound || effectiveEffects.command else {
             return
         }
@@ -1561,6 +1556,7 @@ private extension FeedCoordinator {
             TerminalNotificationStore.shared.cancelNotificationFeedback(
                 ownerID: identifier
             )
+            self.clearSemanticFeedNotification(requestId: requestId)
             let center = self.resolvedUserNotificationCenter
             let pendingResult = await center.removePendingNotificationRequests(
                 withIdentifiers: [identifier]

@@ -1,6 +1,13 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "cli.notification.invalidPayload": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Invalid notification payload" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "通知のペイロードが無効です" } }
+      }
+    },
     "cli.help.readScreen": {
       "extractionState": "manual",
       "localizations": {

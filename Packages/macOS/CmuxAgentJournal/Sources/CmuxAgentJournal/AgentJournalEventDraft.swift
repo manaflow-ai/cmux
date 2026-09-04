@@ -58,6 +58,9 @@ public struct AgentJournalEventDraft: Codable, Sendable, Equatable {
     /// ``maximumDetailLength``.
     public var detail: String?
 
+    /// Structured causal identity and optional notification carried by this event.
+    public var attention: AgentAttentionContext?
+
     private enum CodingKeys: String, CodingKey {
         case schemaVersion = "schema_version"
         case eventId = "event_id"
@@ -74,6 +77,7 @@ public struct AgentJournalEventDraft: Codable, Sendable, Equatable {
         case nativeEvent = "native_event"
         case declaredPhase = "declared_phase"
         case detail
+        case attention
     }
 
     /// Creates a draft, stamping the current schema version and truncating
@@ -94,6 +98,7 @@ public struct AgentJournalEventDraft: Codable, Sendable, Equatable {
     ///   - nativeEvent: The adapter's native hook event name.
     ///   - declaredPhase: Explicit phase assertion for `stateChanged` events.
     ///   - detail: Short human-readable context.
+    ///   - attention: Structured causal identity and optional notification.
     public init(
         eventId: String = UUID().uuidString,
         kind: AgentJournalEventKind,
@@ -108,7 +113,8 @@ public struct AgentJournalEventDraft: Codable, Sendable, Equatable {
         pendingWork: Bool = false,
         nativeEvent: String? = nil,
         declaredPhase: AgentLifecyclePhase? = nil,
-        detail: String? = nil
+        detail: String? = nil,
+        attention: AgentAttentionContext? = nil
     ) {
         self.schemaVersion = Self.currentSchemaVersion
         self.eventId = eventId
@@ -125,6 +131,7 @@ public struct AgentJournalEventDraft: Codable, Sendable, Equatable {
         self.nativeEvent = nativeEvent
         self.declaredPhase = declaredPhase
         self.detail = detail.map(Self.boundedDetail)
+        self.attention = attention
     }
 
     /// Validates the draft for journal admission.

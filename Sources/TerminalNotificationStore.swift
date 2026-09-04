@@ -1386,7 +1386,7 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
 
-    private struct NotificationCooldownReservation: Sendable {
+    struct NotificationCooldownReservation: Sendable {
         let key: String
         let previousDate: Date?
     }
@@ -1579,7 +1579,7 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     @discardableResult
-    private func applyNotification(
+    func applyNotification(
         request: TerminalNotificationPolicyRequest,
         effects: TerminalNotificationPolicyEffects,
         now: Date,

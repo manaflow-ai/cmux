@@ -59,7 +59,8 @@ public struct AgentLifecycleReducer: Sendable {
             // lifecycle-bearing event alone, independent of delivery order.
             return false
         }
-        if let previous, event.sequence <= previous.lastSequence {
+        if let previous, event.draft.occurredAtMs < previous.lastOccurredAtMs
+            || (event.draft.occurredAtMs == previous.lastOccurredAtMs && event.sequence <= previous.lastSequence) {
             // Duplicate or out-of-order stale arrival: the newest
             // lifecycle-bearing event by journal sequence already governs
             // this session.

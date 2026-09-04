@@ -22,23 +22,7 @@ enum ClaudeHookLiveDeliveryHarness {
         }
     }
 
-    final class ServerState: @unchecked Sendable {
-        private let lock = NSLock()
-        private var commands: [String] = []
 
-        func append(_ command: String) {
-            lock.lock()
-            commands.append(command)
-            lock.unlock()
-        }
-
-        func snapshot() -> [String] {
-            lock.lock()
-            let value = commands
-            lock.unlock()
-            return value
-        }
-    }
 
     struct ProcessRunResult {
         let status: Int32
