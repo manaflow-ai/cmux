@@ -19,11 +19,11 @@ extension MobileHostIrohRuntime {
         }
         switch routePublicationPhase {
         case .unavailable:
-            .inactive
+            return .inactive
         case .starting:
-            .activating
+            return .activating
         case .active:
-            .active
+            return .active
         }
     }
 
