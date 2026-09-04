@@ -5,6 +5,8 @@ import { getStackServerApp, isStackConfigured } from "@/app/lib/stack";
 import { localizedVaultPath, vaultSignInHref } from "@/app/lib/vault-auth";
 import { ADMIN_EMAIL_DOMAINS, isAdminUser } from "@/services/admin/access";
 import { loadProListSnapshot, type ProListSnapshot } from "@/services/admin/proList";
+import { withPrioritySpan } from "@/services/telemetry";
+import { withStackAuthSpan } from "@/services/auth/stackTelemetry";
 
 import { AdminProPanel } from "./admin-pro-panel";
 
@@ -20,7 +22,16 @@ export default async function DashboardAdminPage({
   if (!isStackConfigured()) {
     redirect("/");
   }
-  const user = await getStackServerApp().getUser({ or: "return-null" });
+  const user = await withPrioritySpan(
+    "cmux-admin-dashboard",
+    "cmux.admin.auth",
+    { "http.route": "/dashboard/admin", "cmux.locale": locale },
+    () => withStackAuthSpan(
+      "get_user",
+      () => getStackServerApp().getUser({ or: "return-null" }),
+      { "cmux.auth.flow": "admin_page" },
+    ),
+  );
   if (!user || user.isAnonymous) {
     redirect(vaultSignInHref(localizedVaultPath(locale, "/dashboard/admin")));
   }
@@ -35,7 +46,12 @@ export default async function DashboardAdminPage({
   // error state with a retry, but never blocks the rest of the page.
   let initialSnapshot: ProListSnapshot | null = null;
   try {
-    initialSnapshot = await loadProListSnapshot();
+    initialSnapshot = await withPrioritySpan(
+      "cmux-admin-dashboard",
+      "cmux.admin.pro_list",
+      { "http.route": "/dashboard/admin", "cmux.locale": locale },
+      () => loadProListSnapshot(),
+    );
   } catch (error) {
     console.error("admin.pro_list.initial_load_failed", {
       failure: error instanceof Error ? error.name : "unknown",
