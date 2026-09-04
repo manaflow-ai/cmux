@@ -237,6 +237,7 @@
       "detach-attached-view"
     ],
     "local-admin": [
+      "server-stats",
       "register-browser-provider",
       "get-browser-provider",
       "unregister-browser-provider",
@@ -303,6 +304,12 @@
       "name": "config-reload-requested",
       "streams": [
         "subscribe"
+      ]
+    },
+    {
+      "name": "daemon-shutdown",
+      "streams": [
+        "control"
       ]
     },
     {

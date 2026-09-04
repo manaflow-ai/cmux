@@ -48,6 +48,10 @@ cmux_write_agent_configs() {
     )
   elif [ -f "$HOME/.config/cmux/model-plane.env" ]; then
     . "$HOME/.config/cmux/model-plane.env" 2>/dev/null || true
+  elif [ -f /etc/cmux/model-plane.env ]; then
+    # Baked into the image: the same alias origin for every machine; the
+    # machine's TLS edge rule routes it and adds the credential.
+    . /etc/cmux/model-plane.env 2>/dev/null || true
   fi
   unset cmux_model_plane_vars cmux_var cmux_val
 

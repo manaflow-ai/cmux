@@ -7,12 +7,14 @@
         "snapshot": "Bu Cloud VM, kaydedilmiş VM durumunu desteklemiyor.",
         "restore": "Bu Cloud VM türü, kaydedilmiş VM durumunu geri yüklemeyi desteklemiyor.",
         "fork": "Bu Cloud VM, yeni bir VM'ye kopyalamayı desteklemiyor.",
+        "openPort": "Bu Cloud VM'nin sağlayıcısı makine bağlantı noktalarını önizleme URL'leri olarak sunamıyor.",
         "default": "Bu Cloud VM, istenen işlemi desteklemiyor."
       },
       "action": {
         "snapshot": "Tekrar denemeyin. Bu makine türündeki çalışmalar kalıcı ana dizin biriminde tutulur.",
         "restore": "Tekrar denemeyin. Bu makine türündeki çalışmalar kalıcı ana dizin biriminde tutulur.",
         "fork": "Tekrar denemeyin. `cmux vm new` ile yeni bir VM oluşturun.",
+        "openPort": "Tekrar denemeyin. Hizmete makinenin içinden `cmux vm exec` ile erişin veya bağlantı noktalarını açabilen bir makine türü kullanın.",
         "default": "Tekrar denemeyin. `cmux vm ls` komutunu çalıştırın veya bunun yanlış olduğunu düşünüyorsanız destek ekibine başvurun."
       }
     },
@@ -20,6 +22,11 @@
       "title": "cmux Pro gerekli",
       "message": "Cloud VM'ler için cmux Pro planı gerekir.",
       "action": "Cloud VM oluşturmak için {upgradeUrl} adresinden cmux Pro'ya yükseltin."
+    },
+    "sharedResource": {
+      "message": "Cloud VM için paylaşılan {resource} kaynak havuzu dolu.",
+      "action": "Kullanılmayan bir Cloud VM'yi silip tekrar deneyin.",
+      "oversizedAction": "Paylaşılan havuza sığan daha küçük bir Cloud VM {resource} boyutu isteyin."
     }
   },
   "billingRecovery": {
@@ -59,6 +66,15 @@
     "genericTitle": "Giriş tamamlanamadı",
     "genericBody": "Lütfen tekrar deneyin. Sorun devam ederse destek ekibiyle iletişime geçin.",
     "backToSignIn": "Girişe dön"
+  },
+  "cloudPublicationAccess": {
+    "title": "Erişim izniniz yok",
+    "signIn": "cmux'ta oturum aç",
+    "signedInAs": "{identity} olarak oturum açıldı",
+    "switchAccount": "Hesap değiştir",
+    "invalidTitle": "Bu erişim bağlantısı geçerli değil",
+    "invalidBody": "Siteye dönüp tekrar deneyin.",
+    "footer": "Erişim cmux tarafından yönetilir."
   },
   "common": {
     "downloadForMac": "Mac için İndir",
@@ -1871,8 +1887,6 @@
     "metaDescription": "cmux NIGHTLY indirin. main deki en son commit ten otomatik olarak derlenen bağımsız bir uygulama. Kararlı sürümle yan yana çalışır ve kendi otomatik güncellemelerine sahiptir.",
     "description": "cmux NIGHTLY, main deki en son commit ten otomatik olarak derlenir. Kendi bundle ID sine sahip olduğundan kararlı sürümle çakışmadan yan yana çalışır. Yeni özellikleri yayınlanmadan önce test etmek için kullanın.",
     "download": "Mac için NIGHTLY indir",
-    "appleSilicon": "Apple silicon",
-    "intel": "Intel",
     "warning": "Nightly derlemeler hatalar veya tamamlanmamış özellikler içerebilir. Bir sorun oluşursa <githubLink>GitHub</githubLink> veya <discordLink>Discord daki #nightly-bugs</discordLink> kanalında bildirin ve kararlı sürüme geçin."
   },
   "languageSwitcher": {

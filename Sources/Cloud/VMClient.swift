@@ -283,6 +283,10 @@ struct VMSummary {
     var capabilities: VMCapabilities = .all
     /// User-chosen label; the id stays the machine's address.
     var displayName: String?
+    /// Server-generated three-word name (`sleepy-teal-otter`), fixed for the
+    /// machine's life and unique among the owner's live machines. Nil on
+    /// machines created before the backend assigned names.
+    var slug: String?
     /// When the free plan's access window closes for this machine (epoch ms);
     /// nil on paid plans or when the window is disabled server-side.
     var freeAccessExpiresAt: Int64?
@@ -291,8 +295,13 @@ struct VMSummary {
     var addressIPv4: String?
     var addressIPv6: String?
 
-    /// The name to show people: the label when set, otherwise the machine id.
-    var preferredName: String { displayName?.isEmpty == false ? displayName! : id }
+    /// The name to show people: the label when set, else the generated slug,
+    /// else the machine id.
+    var preferredName: String {
+        if let displayName, !displayName.isEmpty { return displayName }
+        if let slug, !slug.isEmpty { return slug }
+        return id
+    }
 
     /// The address to hand a person who asked for "the IP": v4 when the network
     /// allocated one (shorter, pasteable anywhere), else v6.
@@ -313,8 +322,10 @@ struct VMPlanLimits {
     /// The earliest free-access expiry across the caller's machines (epoch ms);
     /// nil when no machine is on a window. Server-authoritative.
     var freeAccessExpiresAt: Int64?
-    /// Which image each kind provisions on the caller's provider, for the New
-    /// Machine sheet's summary line. Empty on control planes that predate it.
+    /// Memory sizes the server accepts for new base machines, in MB.
+    var memoryOptionsMb: [Int] = []
+    /// Legacy compatibility data for older clients. The current New Machine
+    /// sheet always creates one base kind and does not display this field.
     var imageKinds: [VMImageKindOption] = []
 }
 
@@ -351,7 +362,7 @@ struct VMBaseSummary {
     let retainedProviderVmId: String?
 }
 
-struct VMExecResult {
+struct VMExecResult: Sendable {
     let exitCode: Int
     let stdout: String
     let stderr: String
@@ -364,16 +375,19 @@ struct VMCapabilities: Equatable, Sendable {
     var snapshot: Bool
     var restore: Bool
     var fork: Bool
+    /// The provider can mint a browser preview URL for a machine port.
+    var ports: Bool
 
-    static let all = VMCapabilities(snapshot: true, restore: true, fork: true)
+    static let all = VMCapabilities(snapshot: true, restore: true, fork: true, ports: true)
 
-    init(snapshot: Bool, restore: Bool, fork: Bool) {
+    init(snapshot: Bool, restore: Bool, fork: Bool, ports: Bool = true) {
         self.snapshot = snapshot
         self.restore = restore
         self.fork = fork
+        self.ports = ports
     }
 
-    /// `{snapshot, restore, fork}`; a missing object or flag reads as supported.
+    /// `{snapshot, restore, fork, ports}`; a missing object or flag reads as supported.
     init(json: Any?) {
         let dict = json as? [String: Any]
         func flag(_ key: String) -> Bool {
@@ -381,7 +395,12 @@ struct VMCapabilities: Equatable, Sendable {
             if let number = dict?[key] as? NSNumber { return number.boolValue }
             return true
         }
-        self.init(snapshot: flag("snapshot"), restore: flag("restore"), fork: flag("fork"))
+        self.init(
+            snapshot: flag("snapshot"),
+            restore: flag("restore"),
+            fork: flag("fork"),
+            ports: flag("ports")
+        )
     }
 }
 
@@ -391,6 +410,126 @@ struct VMOpenPortEndpoint {
     /// URL with the preview token embedded as a query parameter, ready for a browser.
     let openUrl: String
 }
+
+enum VMPublicationAccessMode: String, CaseIterable, Sendable {
+    case personal
+    case team
+    case `public`
+}
+
+/// One DNS change returned for a custom-domain publication. The control-plane
+/// contract deliberately keeps records typed so CLI JSON remains stable when
+/// additional record kinds are introduced later.
+struct VMPublicationDNSInstruction: Equatable, Sendable {
+    let purpose: String
+    let recordTypes: [String]
+    let name: String
+    let value: String
+
+    var foundationObject: [String: Any] {
+        [
+            "purpose": purpose,
+            "recordTypes": recordTypes,
+            "name": name,
+            "value": value,
+        ]
+    }
+}
+
+struct VMPublicationVerification: Equatable, Sendable {
+    let verificationID: String
+    let domain: String
+    let state: String
+    let verificationInstruction: VMPublicationDNSInstruction
+    let routingInstruction: VMPublicationDNSInstruction
+    let certificateInstruction: VMPublicationDNSInstruction
+
+    var foundationObject: [String: Any] {
+        [
+            "verificationId": verificationID,
+            "domain": domain,
+            "state": state,
+            "dnsInstructions": [
+                "verification": verificationInstruction.foundationObject,
+                "routing": routingInstruction.foundationObject,
+                "certificate": certificateInstruction.foundationObject,
+            ],
+        ]
+    }
+}
+
+/// Stable native view of `/api/vm/publications`. Optional values are emitted
+/// as JSON null by the socket layer instead of disappearing, which keeps
+/// scripts independent of a publication's access mode or domain kind.
+struct VMPublication: Equatable, Sendable {
+    let id: String
+    let hostname: String
+    let url: String
+    let domainKind: String
+    let vmID: String
+    let port: Int
+    let accessMode: VMPublicationAccessMode
+    let teamID: String?
+    let state: String
+    let routingRevision: Int
+    let verification: VMPublicationVerification?
+
+    var foundationObject: [String: Any] {
+        [
+            "id": id,
+            "hostname": hostname,
+            "url": url,
+            "domainKind": domainKind,
+            "vmId": vmID,
+            "port": port,
+            "accessMode": accessMode.rawValue,
+            "teamId": teamID.map { $0 as Any } ?? NSNull(),
+            "state": state,
+            "routingRevision": routingRevision,
+            "verification": verification.map { $0.foundationObject as Any } ?? NSNull(),
+        ]
+    }
+}
+
+/// One publication routed through a custom zone, as listed with that zone.
+struct VMPublicationDomainPublication: Equatable, Sendable {
+    let id: String
+    let hostname: String
+    let state: String
+
+    var foundationObject: [String: Any] {
+        ["id": id, "hostname": hostname, "state": state]
+    }
+}
+
+/// Stable native view of `/api/vm/domains`: the custom domains one account
+/// owns, listed apart from the publications routed through them. The DNS
+/// checklist is ordered as it should be added: ownership TXT, apex routing,
+/// `*` routing, and the `_acme-challenge` delegation.
+struct VMPublicationDomain: Equatable, Sendable {
+    let id: String
+    let hostname: String
+    let verificationState: String
+    let certificateState: String
+    let createdAt: String?
+    let dnsInstructions: [VMPublicationDNSInstruction]
+    let publications: [VMPublicationDomainPublication]
+
+    var foundationObject: [String: Any] {
+        [
+            "id": id,
+            "hostname": hostname,
+            "verificationState": verificationState,
+            "certificateState": certificateState,
+            "createdAt": createdAt.map { $0 as Any } ?? NSNull(),
+            "dnsInstructions": dnsInstructions.isEmpty
+                ? NSNull()
+                : dnsInstructions.map(\.foundationObject),
+            "publications": publications.map(\.foundationObject),
+        ]
+    }
+}
+
 
 struct VMSnapshotResult {
     let id: String
@@ -471,6 +610,15 @@ struct VMCmuxRemoteEndpoint {
     let expiresAtUnix: Int64
     let session: String
     let invitation: Invitation?
+    /// The machine's private addresses, when the provider returned them. Keep
+    /// this metadata on the client boundary so agents and diagnostics can see
+    /// the same route state the backend used, without reconstructing it.
+    struct NetworkAddresses {
+        let ipv4: String?
+        let ipv6: String?
+    }
+
+    let networkAddresses: NetworkAddresses?
     /// The machine daemon's build identity, for naming a protocol mismatch.
     struct DaemonBuild {
         let commit: String?
@@ -584,6 +732,7 @@ actor VMClient {
                 planId: planId,
                 freeAccessWindowDays: freeAccessWindowDays,
                 freeAccessExpiresAt: Self.epochMilliseconds(rawLimits["freeAccessExpiresAt"]),
+                memoryOptionsMb: Self.decodeIntArray(rawLimits["memoryOptionsMb"]),
                 imageKinds: Self.decodeImageKinds(rawLimits["imageKinds"])
             )
         }
@@ -607,6 +756,7 @@ actor VMClient {
             if let label = dict["displayName"] as? String, !label.isEmpty {
                 summary.displayName = label
             }
+            summary.slug = (dict["slug"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             summary.freeAccessExpiresAt = Self.epochMilliseconds(dict["freeAccessExpiresAt"])
             if let address = dict["address"] as? [String: Any] {
                 summary.addressIPv4 = (address["ipv4"] as? String).flatMap { $0.isEmpty ? nil : $0 }
@@ -615,6 +765,279 @@ actor VMClient {
             return summary
         }
         return VMListPage(vms: vms, limits: limits)
+    }
+
+    func listPublications() async throws -> [VMPublication] {
+        let (data, http) = try await request("GET", path: "/api/vm/publications")
+        try ensureOK(http, data: data)
+        let object = try decodeJSONObject(data)
+        guard let items = (object["publications"] as? [[String: Any]])
+            ?? (object["items"] as? [[String: Any]]) else {
+            throw VMClientError.malformedResponse(String(
+                localized: "cloudVM.publication.error.missingList",
+                defaultValue: "Cloud VM publication list response was missing `publications`."
+            ))
+        }
+        return try items.map(Self.decodePublication)
+    }
+
+    func listPublicationDomains() async throws -> [VMPublicationDomain] {
+        let (data, http) = try await request("GET", path: "/api/vm/domains")
+        try ensureOK(http, data: data)
+        let object = try decodeJSONObject(data)
+        guard let items = object["domains"] as? [[String: Any]] else {
+            throw VMClientError.malformedResponse(String(
+                localized: "cloudVM.publication.error.missingDomainList",
+                defaultValue: "Cloud VM domain list response was missing `domains`."
+            ))
+        }
+        return try items.map(Self.decodePublicationDomain)
+    }
+
+    /// Verify a zone by name; a publication hostname or id resolves to its zone server-side.
+    func verifyPublicationDomain(name: String) async throws -> VMPublicationDomain {
+        let encodedName = try pathSegment(name, fieldName: "domain")
+        let (data, http) = try await request(
+            "POST",
+            path: "/api/vm/domains/\(encodedName)/verify"
+        )
+        try ensureOK(http, data: data)
+        let object = try decodeJSONObject(data)
+        guard let domain = object["domain"] as? [String: Any] else {
+            throw VMClientError.malformedResponse(String(
+                localized: "cloudVM.publication.error.missingDomain",
+                defaultValue: "Cloud VM domain verification response was missing `domain`."
+            ))
+        }
+        return try Self.decodePublicationDomain(domain)
+    }
+
+    func createPublication(
+        vmID: String,
+        port: Int,
+        hostname: String?,
+        accessMode: VMPublicationAccessMode,
+        teamID: String?
+    ) async throws -> VMPublication {
+        var body: [String: Any] = [
+            "vmId": vmID,
+            "port": port,
+            "accessMode": accessMode.rawValue,
+        ]
+        if let hostname, !hostname.isEmpty { body["hostname"] = hostname }
+        if let teamID, !teamID.isEmpty { body["teamId"] = teamID }
+        let (data, http) = try await request(
+            "POST",
+            path: "/api/vm/publications",
+            jsonBody: body
+        )
+        try ensureOK(http, data: data)
+        return try Self.decodePublicationMutation(try decodeJSONObject(data))
+    }
+
+    func verifyPublication(id: String) async throws -> VMPublication {
+        let encodedID = try pathSegment(id, fieldName: "publication id")
+        let (data, http) = try await request(
+            "POST",
+            path: "/api/vm/publications/\(encodedID)/verify"
+        )
+        try ensureOK(http, data: data)
+        return try Self.decodePublicationMutation(try decodeJSONObject(data))
+    }
+
+    func updatePublicationAccess(
+        id: String,
+        accessMode: VMPublicationAccessMode,
+        teamID: String?
+    ) async throws -> VMPublication {
+        let encodedID = try pathSegment(id, fieldName: "publication id")
+        let body: [String: Any] = [
+            "accessMode": accessMode.rawValue,
+            // An explicit null clears a team left over from a previous team publication.
+            "teamId": teamID.map { $0 as Any } ?? NSNull(),
+        ]
+        let (data, http) = try await request(
+            "PATCH",
+            path: "/api/vm/publications/\(encodedID)",
+            jsonBody: body
+        )
+        try ensureOK(http, data: data)
+        return try Self.decodePublicationMutation(try decodeJSONObject(data))
+    }
+
+    func deletePublication(id: String) async throws {
+        let encodedID = try pathSegment(id, fieldName: "publication id")
+        let (data, http) = try await request("DELETE", path: "/api/vm/publications/\(encodedID)")
+        try ensureOK(http, data: data)
+    }
+
+    private nonisolated static func decodePublicationMutation(_ object: [String: Any]) throws -> VMPublication {
+        let publication = (object["publication"] as? [String: Any]) ?? object
+        return try decodePublication(publication)
+    }
+
+    private nonisolated static func decodePublication(_ object: [String: Any]) throws -> VMPublication {
+        guard let id = publicationString(object, keys: ["id"]),
+              let hostname = publicationString(object, keys: ["hostname", "domain"]),
+              let vmID = publicationString(object, keys: ["vmId", "vm_id"]),
+              let port = optionalInt(object["port"]), (1...65_535).contains(port),
+              let accessRaw = publicationString(object, keys: ["accessMode", "access_mode"])?.lowercased(),
+              let accessMode = VMPublicationAccessMode(rawValue: accessRaw) else {
+            throw VMClientError.malformedResponse(String(
+                localized: "cloudVM.publication.error.missingFields",
+                defaultValue: "Cloud VM publication response was missing required fields."
+            ))
+        }
+        let url = publicationString(object, keys: ["url"]) ?? "https://\(hostname)"
+        let state = publicationString(object, keys: ["state"]) ?? "unknown"
+        let routingRevision = optionalInt(object["routingRevision"] ?? object["routing_revision"]) ?? 0
+        let teamID = publicationString(object, keys: ["teamId", "team_id"])
+        let verification: VMPublicationVerification?
+        if let rawVerification = object["verification"] as? [String: Any] {
+            verification = try decodePublicationVerification(rawVerification)
+        } else {
+            verification = nil
+        }
+        let domainKind = publicationString(object, keys: ["domainKind", "domain_kind"])?
+            .lowercased()
+            ?? (verification == nil ? "generated" : "custom")
+        return VMPublication(
+            id: id,
+            hostname: hostname,
+            url: url,
+            domainKind: domainKind,
+            vmID: vmID,
+            port: port,
+            accessMode: accessMode,
+            teamID: teamID,
+            state: state,
+            routingRevision: routingRevision,
+            verification: verification
+        )
+    }
+
+    private nonisolated static func decodePublicationVerification(
+        _ object: [String: Any]
+    ) throws -> VMPublicationVerification {
+        guard let verificationID = publicationString(object, keys: ["verificationId", "verification_id"]),
+              let domain = publicationString(object, keys: ["domain", "hostname"]),
+              let state = publicationString(object, keys: ["state"]),
+              let dns = (object["dnsInstructions"] as? [String: Any])
+                ?? (object["dns_instructions"] as? [String: Any]),
+              let routingObject = dns["routing"] as? [String: Any],
+              let certificateObject = dns["certificate"] as? [String: Any] else {
+            throw VMClientError.malformedResponse(String(
+                localized: "cloudVM.publication.error.missingDNS",
+                defaultValue: "Cloud VM publication verification response was missing DNS instructions."
+            ))
+        }
+        guard let verificationObject = (dns["verification"] as? [String: Any])
+            ?? (object["verificationRecord"] as? [String: Any])
+            ?? (object["verification_record"] as? [String: Any]) else {
+            throw VMClientError.malformedResponse(String(
+                localized: "cloudVM.publication.error.missingDNS",
+                defaultValue: "Cloud VM publication verification response was missing DNS instructions."
+            ))
+        }
+        return VMPublicationVerification(
+            verificationID: verificationID,
+            domain: domain,
+            state: state,
+            verificationInstruction: try decodePublicationDNSInstruction(
+                verificationObject,
+                fallbackPurpose: "verification"
+            ),
+            routingInstruction: try decodePublicationDNSInstruction(
+                routingObject,
+                fallbackPurpose: "routing"
+            ),
+            certificateInstruction: try decodePublicationDNSInstruction(
+                certificateObject,
+                fallbackPurpose: "certificate"
+            )
+        )
+    }
+
+    private nonisolated static func decodePublicationDNSInstruction(
+        _ object: [String: Any],
+        fallbackPurpose: String
+    ) throws -> VMPublicationDNSInstruction {
+        let recordTypes = ((object["recordTypes"] as? [String])
+            ?? (object["record_types"] as? [String])
+            ?? publicationString(object, keys: ["type"]).map { [$0] }
+            ?? [])
+            .map { $0.uppercased() }
+            .filter { !$0.isEmpty }
+        guard !recordTypes.isEmpty,
+              let name = publicationString(object, keys: ["name"]),
+              let value = publicationString(object, keys: ["value"]) else {
+            throw VMClientError.malformedResponse(String(
+                localized: "cloudVM.publication.error.invalidDNS",
+                defaultValue: "Cloud VM publication response contained an invalid DNS instruction."
+            ))
+        }
+        return VMPublicationDNSInstruction(
+            purpose: publicationString(object, keys: ["purpose"]) ?? fallbackPurpose,
+            recordTypes: recordTypes,
+            name: name,
+            value: value
+        )
+    }
+
+    private nonisolated static func decodePublicationDomain(_ object: [String: Any]) throws -> VMPublicationDomain {
+        let missingFields = String(
+            localized: "cloudVM.publication.error.missingDomainFields",
+            defaultValue: "Cloud VM domain response was missing required fields."
+        )
+        guard let id = publicationString(object, keys: ["id"]),
+              let hostname = publicationString(object, keys: ["hostname"]) else {
+            throw VMClientError.malformedResponse(missingFields)
+        }
+        let rawInstructions = (object["dnsInstructions"] as? [[String: Any]])
+            ?? (object["dns_instructions"] as? [[String: Any]])
+            ?? []
+        let dnsInstructions = try rawInstructions.map { raw in
+            try decodePublicationDNSInstruction(raw, fallbackPurpose: "routing")
+        }
+        let rawPublications = (object["publications"] as? [[String: Any]]) ?? []
+        let publications = try rawPublications.map { raw -> VMPublicationDomainPublication in
+            guard let publicationID = publicationString(raw, keys: ["id"]),
+                  let publicationHostname = publicationString(raw, keys: ["hostname"]) else {
+                throw VMClientError.malformedResponse(missingFields)
+            }
+            return VMPublicationDomainPublication(
+                id: publicationID,
+                hostname: publicationHostname,
+                state: publicationString(raw, keys: ["state"]) ?? "unknown"
+            )
+        }
+        return VMPublicationDomain(
+            id: id,
+            hostname: hostname,
+            verificationState: publicationString(
+                object,
+                keys: ["verificationState", "verification_state"]
+            ) ?? "unknown",
+            certificateState: publicationString(
+                object,
+                keys: ["certificateState", "certificate_state"]
+            ) ?? "unknown",
+            createdAt: publicationString(object, keys: ["createdAt", "created_at"]),
+            dnsInstructions: dnsInstructions,
+            publications: publications
+        )
+    }
+
+    private nonisolated static func publicationString(
+        _ object: [String: Any],
+        keys: [String]
+    ) -> String? {
+        for key in keys {
+            guard let raw = object[key] as? String else { continue }
+            let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !value.isEmpty { return value }
+        }
+        return nil
     }
 
     /// A valid `kind` string → the kind; anything else → nil so the image
@@ -631,6 +1054,20 @@ actor VMClient {
             guard let kind = decodeKind(item["kind"]),
                   let image = item["image"] as? String, !image.isEmpty else { return nil }
             return VMImageKindOption(kind: kind, image: image)
+        }
+    }
+
+    /// `limits.memoryOptionsMb: [number]`; malformed or non-positive entries are skipped.
+    private static func decodeIntArray(_ raw: Any?) -> [Int] {
+        guard let items = raw as? [Any] else { return [] }
+        return items.compactMap { item in
+            let value: Int?
+            if let item = item as? Int { value = item }
+            else if let item = item as? NSNumber, item.doubleValue.isFinite { value = Int(exactly: item.doubleValue) }
+            else if let item = item as? Double, item.isFinite { value = Int(exactly: item) }
+            else { value = nil }
+            guard let value, value > 0 else { return nil }
+            return value
         }
     }
 
@@ -682,6 +1119,9 @@ actor VMClient {
         let displayStatus = rawStatus.flatMap { $0.isEmpty ? nil : $0 } ?? "running"
         var summary = VMSummary(id: id, provider: providerValue, status: displayStatus, image: imageValue, createdAt: createdAt, base: nil)
         summary.kind = Self.decodeKind(obj["kind"])
+        summary.capabilities = VMCapabilities(json: obj["capabilities"])
+        summary.displayName = (obj["displayName"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        summary.slug = (obj["slug"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         return summary
     }
 
@@ -725,6 +1165,7 @@ actor VMClient {
         let displayStatus = rawStatus.flatMap { $0.isEmpty ? nil : $0 } ?? "running"
         var summary = VMSummary(id: id, provider: providerValue, status: displayStatus, image: imageValue, createdAt: createdAt, base: decodeBaseSummary(obj["base"]))
         summary.kind = Self.decodeKind(obj["kind"])
+        summary.capabilities = VMCapabilities(json: obj["capabilities"])
         return summary
     }
 
@@ -745,9 +1186,11 @@ actor VMClient {
         let displayStatus = rawStatus.flatMap { $0.isEmpty ? nil : $0 } ?? "unknown"
         var summary = VMSummary(id: id, provider: provider, status: displayStatus, image: image, createdAt: createdAt, base: decodeBaseSummary(obj["base"]))
         summary.kind = Self.decodeKind(obj["kind"])
+        summary.capabilities = VMCapabilities(json: obj["capabilities"])
         if let label = obj["displayName"] as? String, !label.isEmpty {
             summary.displayName = label
         }
+        summary.slug = (obj["slug"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         return summary
     }
 
@@ -823,9 +1266,18 @@ actor VMClient {
             ?? Int64((obj["createdAt"] as? Double) ?? 0)
         let status = (obj["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         let snapshotID = obj["snapshotId"] as? String
+        var forked = VMSummary(
+            id: vmID,
+            provider: provider,
+            status: status?.isEmpty == false ? status! : "running",
+            image: image,
+            createdAt: createdAt,
+            base: nil
+        )
+        forked.capabilities = VMCapabilities(json: obj["capabilities"])
         return (
             snapshot: snapshotID.map { VMSnapshotResult(id: $0, name: nil, createdAt: Int64(Date().timeIntervalSince1970 * 1000)) },
-            vm: VMSummary(id: vmID, provider: provider, status: status?.isEmpty == false ? status! : "running", image: image, createdAt: createdAt, base: nil)
+            vm: forked
         )
     }
 
@@ -850,7 +1302,9 @@ actor VMClient {
         let createdAt = (obj["createdAt"] as? Int64)
             ?? Int64((obj["createdAt"] as? Double) ?? 0)
         let status = (obj["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return VMSummary(id: id, provider: providerValue, status: status?.isEmpty == false ? status! : "running", image: image, createdAt: createdAt, base: nil)
+        var restored = VMSummary(id: id, provider: providerValue, status: status?.isEmpty == false ? status! : "running", image: image, createdAt: createdAt, base: nil)
+        restored.capabilities = VMCapabilities(json: obj["capabilities"])
+        return restored
     }
 
     func openSSH(id: String) async throws -> VMSSHEndpoint {
@@ -951,12 +1405,24 @@ actor VMClient {
                 version: raw["version"] as? String
             )
         }
+        var networkAddresses: VMCmuxRemoteEndpoint.NetworkAddresses?
+        // The HTTP API uses camelCase. The local control socket uses the
+        // snake_case wire contract. Accept both at this boundary so a proxy
+        // or an older app cannot silently drop the address metadata.
+        if let raw = (obj["network_addresses"] ?? obj["networkAddresses"]) as? [String: Any] {
+            let ipv4 = raw["ipv4"] as? String
+            let ipv6 = raw["ipv6"] as? String
+            if ipv4 != nil || ipv6 != nil {
+                networkAddresses = .init(ipv4: ipv4, ipv6: ipv6)
+            }
+        }
         return VMCmuxRemoteEndpoint(
             route: route,
             token: token,
             expiresAtUnix: expiresAtUnix,
             session: session,
             invitation: invitation,
+            networkAddresses: networkAddresses,
             daemonBuild: daemonBuild
         )
     }
@@ -1179,6 +1645,39 @@ actor VMClient {
             cpus: int("cpus"),
             cpuPercent: double("cpuPercent"),
             loadAverage1m: double("loadAverage1m"),
+            memoryTotalMb: int("memoryTotalMb"),
+            memoryUsedMb: int("memoryUsedMb"),
+            diskTotalMb: int("diskTotalMb"),
+            diskUsedMb: int("diskUsedMb")
+        )
+    }
+
+    /// Grow a machine's disk and return the provider's post-resize reading.
+    func resizeDisk(id: String, diskMb: Int) async throws -> VMStats {
+        let encodedID = try pathSegment(id, fieldName: "vm id")
+        let (data, http) = try await request(
+            "POST",
+            path: "/api/vm/\(encodedID)/resize",
+            jsonBody: ["storageMb": diskMb],
+            timeoutSeconds: 120
+        )
+        try ensureOK(http, data: data)
+        let obj = try decodeJSONObject(data)
+        let state = VMStats.State(rawValue: (obj["state"] as? String) ?? "") ?? .unknown
+        func int(_ key: String) -> Int? {
+            if let v = obj[key] as? Int { return v }
+            if let v = obj[key] as? Double { return Int(v) }
+            return nil
+        }
+        let sampledAtMs = (obj["sampledAt"] as? Double)
+            ?? (obj["sampledAt"] as? Int).map(Double.init)
+            ?? Date().timeIntervalSince1970 * 1000
+        return VMStats(
+            state: state,
+            sampledAt: Date(timeIntervalSince1970: sampledAtMs / 1000),
+            cpus: int("cpus"),
+            cpuPercent: nil,
+            loadAverage1m: nil,
             memoryTotalMb: int("memoryTotalMb"),
             memoryUsedMb: int("memoryUsedMb"),
             diskTotalMb: int("diskTotalMb"),

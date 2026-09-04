@@ -1,9 +1,11 @@
 import Foundation
 
 /// What one cmux-tui workspace on a cloud machine holds, in the order the
-/// sidebar opens and drags it: the terminals it views, then its browsers, then
-/// the displays it pins. One machine hosts many of these; each is a pointer
-/// list into the machine's pools, never a machine of its own.
+/// sidebar opens and drags it: the terminals in its layout (it views), then its
+/// browsers, then the displays it pins. One machine hosts many of these; each
+/// is a pointer list into the machine's Terminals group, never a machine of its
+/// own. A terminal that left the layout is not in the workspace any more — it
+/// lists only in the Terminals group, greyed as detached.
 struct CloudTreeRemoteWorkspaceMembers: Equatable {
     var terminals: [SurfaceResource]
     var browsers: [SurfaceResource]

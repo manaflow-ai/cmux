@@ -7,12 +7,14 @@
         "snapshot": "Denne Cloud VM-en støtter ikke lagret VM-tilstand.",
         "restore": "Denne Cloud VM-typen støtter ikke gjenoppretting av lagret VM-tilstand.",
         "fork": "Denne Cloud VM-en støtter ikke kopiering til en ny VM.",
+        "openPort": "Leverandøren til denne Cloud VM-en kan ikke eksponere maskinporter som forhåndsvisnings-URL-er.",
         "default": "Denne Cloud VM-en støtter ikke den forespurte operasjonen."
       },
       "action": {
         "snapshot": "Ikke prøv på nytt. Arbeid på denne maskintypen lagres på det permanente hjem-volumet.",
         "restore": "Ikke prøv på nytt. Arbeid på denne maskintypen lagres på det permanente hjem-volumet.",
         "fork": "Ikke prøv på nytt. Opprett en ny VM med `cmux vm new`.",
+        "openPort": "Ikke prøv på nytt. Nå tjenesten fra maskinen med `cmux vm exec`, eller bruk en maskintype som kan åpne porter.",
         "default": "Ikke prøv på nytt. Kjør `cmux vm ls`, eller kontakt brukerstøtte hvis du mener dette er feil."
       }
     },
@@ -20,6 +22,11 @@
       "title": "cmux Pro kreves",
       "message": "Cloud VM-er krever en cmux Pro-plan.",
       "action": "Oppgrader til cmux Pro på {upgradeUrl} for å opprette Cloud VM-er."
+    },
+    "sharedResource": {
+      "message": "Det delte {resource}-ressurspoolen for Cloud VM er fullt.",
+      "action": "Slett en ubrukt Cloud VM, og prøv igjen.",
+      "oversizedAction": "Be om en mindre {resource}-størrelse for Cloud VM som passer i det delte poolen."
     }
   },
   "billingRecovery": {
@@ -59,6 +66,15 @@
     "genericTitle": "Innloggingen kunne ikke fullføres",
     "genericBody": "Prøv igjen. Kontakt kundestøtte hvis problemet fortsetter.",
     "backToSignIn": "Tilbake til innlogging"
+  },
+  "cloudPublicationAccess": {
+    "title": "Du har ikke tilgang",
+    "signIn": "Logg på cmux",
+    "signedInAs": "Logget på som {identity}",
+    "switchAccount": "Bytt konto",
+    "invalidTitle": "Denne tilgangslenken er ugyldig",
+    "invalidBody": "Gå tilbake til nettstedet og prøv på nytt.",
+    "footer": "Tilgang administreres av cmux."
   },
   "common": {
     "downloadForMac": "Last ned for Mac",
@@ -1870,8 +1886,6 @@
     "metaDescription": "Last ned cmux NIGHTLY, en separat app som bygges automatisk fra siste main-commit. Kjører ved siden av den stabile versjonen med egne automatiske oppdateringer.",
     "description": "cmux NIGHTLY bygges automatisk fra siste commit på main. Den har sin egen bundle-ID, så den kjører ved siden av den stabile versjonen uten konflikter. Bruk den til å teste nye funksjoner før de lanseres.",
     "download": "Last ned NIGHTLY for Mac",
-    "appleSilicon": "Apple silicon",
-    "intel": "Intel",
     "warning": "Nightly-bygg kan inneholde feil eller uferdige funksjoner. Hvis noe går galt, rapporter det på <githubLink>GitHub</githubLink> eller i <discordLink>#nightly-bugs på Discord</discordLink> og bytt tilbake til den stabile versjonen."
   },
   "languageSwitcher": {

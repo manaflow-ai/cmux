@@ -10,6 +10,7 @@
 // machine, or a guest that forges the header, cannot spend a token that is
 // not its own. Unbound tokens (the `cr` CLI) ignore the header.
 import { authenticateRouteToken } from "./repository";
+import { recordCoderouterIdentity, recordCoderouterSpan } from "./requestTelemetry";
 
 export const ROUTE_TOKEN_HEADER = "x-coderouter-route-token";
 export const VM_ID_HEADER = "x-cmux-vm-id";
@@ -20,7 +21,8 @@ export const VM_ID_HEADER = "x-cmux-vm-id";
  * token the edge injects. Never matches the `crt_` token grammar, so it can
  * never be mistaken for a token by any verifier.
  */
-export const VM_PLACEHOLDER_API_KEY = "cmux-vm-edge-placeholder";
+import { VM_PLACEHOLDER_API_KEY } from "./vmGuestEnv";
+export { VM_PLACEHOLDER_API_KEY };
 
 export type RouteTokenIdentity = {
   readonly teamId: string;
@@ -62,6 +64,22 @@ type Authenticate = (
 export async function authenticateRequestRouteToken(
   request: Request,
   authenticate: Authenticate = authenticateRouteToken,
+): Promise<RouteTokenAuthResult> {
+  const startedAt = performance.now();
+  const result = await authenticateUnobserved(request, authenticate);
+  recordCoderouterSpan({
+    name: "auth",
+    startedAt,
+    ...(result.ok ? {} : { error: result.reason }),
+    attributes: { outcome: result.ok ? "accepted" : result.reason },
+  });
+  if (result.ok) recordCoderouterIdentity(result.identity);
+  return result;
+}
+
+async function authenticateUnobserved(
+  request: Request,
+  authenticate: Authenticate,
 ): Promise<RouteTokenAuthResult> {
   const token = routeTokenFromRequest(request);
   if (!token) return { ok: false, reason: "missing_route_token" };

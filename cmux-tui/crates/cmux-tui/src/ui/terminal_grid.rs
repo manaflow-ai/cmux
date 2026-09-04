@@ -872,9 +872,11 @@ mod tests {
                 columns,
                 "Ghostty width {width:?} must remain authoritative"
             );
-            let expected_diff_option = forced
-                .then(|| CellDiffOption::ForcedWidth(NonZeroU16::new(columns).unwrap()))
-                .unwrap_or(CellDiffOption::None);
+            let expected_diff_option = if forced {
+                CellDiffOption::ForcedWidth(NonZeroU16::new(columns).unwrap())
+            } else {
+                CellDiffOption::None
+            };
             assert_eq!(target.diff_option, expected_diff_option);
         }
     }
@@ -895,7 +897,7 @@ mod tests {
             palette_overridden: std::array::from_fn(|idx| state.palette_overridden(idx as u8)),
         };
         let mut output = RatatuiTerminal::new(TestBackend::new(4, 1)).unwrap();
-        output
+        let completed = output
             .draw(|frame| {
                 draw_render_frame_with_catalog(
                     frame,
@@ -913,8 +915,8 @@ mod tests {
             .unwrap();
 
         let expected_bg = Theme::default().selection_bg;
-        assert_eq!(output.backend().buffer()[(1, 0)].bg, expected_bg);
-        assert_eq!(output.backend().buffer()[(2, 0)].bg, expected_bg);
+        assert_eq!(completed.buffer[(1, 0)].bg, expected_bg);
+        assert_eq!(completed.buffer[(2, 0)].bg, expected_bg);
     }
 
     #[test]
@@ -933,7 +935,7 @@ mod tests {
             palette_overridden: std::array::from_fn(|idx| state.palette_overridden(idx as u8)),
         };
         let mut output = RatatuiTerminal::new(TestBackend::new(4, 3)).unwrap();
-        output
+        let completed = output
             .draw(|frame| {
                 draw_render_frame_with_catalog(
                     frame,
@@ -952,7 +954,7 @@ mod tests {
             })
             .unwrap();
 
-        let buffer = output.backend().buffer();
+        let buffer = completed.buffer;
         let selection_bg = Theme::default().selection_bg;
         assert_ne!(buffer[(3, 0)].bg, selection_bg);
         assert_eq!(buffer[(0, 1)].bg, selection_bg);

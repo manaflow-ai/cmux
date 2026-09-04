@@ -7,12 +7,14 @@
         "snapshot": "此雲端虛擬機不支援已儲存的虛擬機狀態。",
         "restore": "此雲端虛擬機類型不支援還原已儲存的虛擬機狀態。",
         "fork": "此雲端虛擬機不支援複製到新的虛擬機。",
+        "openPort": "此 Cloud VM 的提供者無法將機器連接埠公開為預覽 URL。",
         "default": "此雲端虛擬機不支援要求的操作。"
       },
       "action": {
         "snapshot": "請勿重試。此機器類型的工作內容會保存在持久化主目錄磁碟區。",
         "restore": "請勿重試。此機器類型的工作內容會保存在持久化主目錄磁碟區。",
         "fork": "請勿重試。請使用 `cmux vm new` 建立新的虛擬機。",
+        "openPort": "請勿重試。請在機器內使用 `cmux vm exec` 存取服務，或使用支援開啟連接埠的機器類型。",
         "default": "請勿重試。使用 `cmux vm ls` 查看虛擬機；如果你認為這是錯誤，請聯絡支援團隊。"
       }
     },
@@ -20,6 +22,11 @@
       "title": "需要 cmux Pro",
       "message": "雲端虛擬機需要 cmux Pro 方案。",
       "action": "請前往 {upgradeUrl} 升級至 cmux Pro 以建立雲端虛擬機。"
+    },
+    "sharedResource": {
+      "message": "共用 Cloud VM 的 {resource} 資源池已滿。",
+      "action": "刪除未使用的 Cloud VM，然後再試一次。",
+      "oversizedAction": "要求較小的 Cloud VM {resource} 大小，使其符合共用資源池。"
     }
   },
   "billingRecovery": {
@@ -59,6 +66,15 @@
     "genericTitle": "無法完成登入",
     "genericBody": "請重試。如果問題仍然存在，請聯絡支援。",
     "backToSignIn": "返回登入"
+  },
+  "cloudPublicationAccess": {
+    "title": "你沒有存取權限",
+    "signIn": "登入 cmux",
+    "signedInAs": "已以 {identity} 的身分登入",
+    "switchAccount": "切換帳號",
+    "invalidTitle": "此存取連結無效",
+    "invalidBody": "返回網站，然後再試一次。",
+    "footer": "存取權限由 cmux 管理。"
   },
   "common": {
     "downloadForMac": "下載 Mac 版",
@@ -1872,8 +1888,6 @@
     "metaDescription": "下載 cmux NIGHTLY，從最新 main 提交自動建置的獨立應用。與穩定版並行運行，擁有獨立的自動更新。",
     "description": "cmux NIGHTLY 從 main 的最新提交自動建置。它擁有獨立的 Bundle ID，因此可以與穩定版並行運行，互不衝突。用它來測試尚未發佈的新功能。",
     "download": "下載 Mac 版 NIGHTLY",
-    "appleSilicon": "Apple silicon",
-    "intel": "Intel",
     "warning": "每夜建置可能包含錯誤或不完整的功能。如果遇到問題，請在 <githubLink>GitHub</githubLink> 或 <discordLink>Discord 的 #nightly-bugs</discordLink> 上回報，並切換回穩定版。"
   },
   "languageSwitcher": {

@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '3abe68cfbb73abb8aab5265d34cdafd7207a111cbe9e1923c8637f5376abb929'
+IR_SHA256 = '3081404cdf961727b704a56041bf714f07cdaf815429b37e305ad54a08a29b04'
 
 
 @dataclass(frozen=True)
@@ -1144,6 +1144,16 @@ COMMANDS = {
             'surface': CommandFieldMetadata(None, None),
         },
     ),
+    'server-stats': CommandMetadata(
+        'server-stats',
+        'local-admin',
+        12,
+        'server-stats-v1',
+        ('local-admin',),
+        None,
+        {
+        },
+    ),
     'set-cell-pixels': CommandMetadata(
         'set-cell-pixels',
         'frontend',
@@ -1399,6 +1409,7 @@ EVENTS = {
     'client-list-invalidated': EventMetadata('client-list-invalidated', 9, None, ('subscribe',), 'serialized-never-emitted'),
     'colors-changed': EventMetadata('colors-changed', 6, None, ('attach-byte',), 'emitted'),
     'config-reload-requested': EventMetadata('config-reload-requested', 6, None, ('subscribe',), 'emitted'),
+    'daemon-shutdown': EventMetadata('daemon-shutdown', 12, None, ('control',), 'emitted'),
     'detached': EventMetadata('detached', 5, None, ('attach-byte', 'attach-render', 'attach-browser'), 'emitted'),
     'empty': EventMetadata('empty', 5, None, ('subscribe',), 'emitted'),
     'frame': EventMetadata('frame', 6, None, ('attach-browser',), 'emitted'),

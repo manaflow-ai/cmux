@@ -417,7 +417,7 @@ private struct NativePricingPlansView: View {
                 isProminent: true,
                 features: [
                     String(localized: "pricing.native.pro.feature.vms", defaultValue: "Cloud agents on isolated Cloud VMs"),
-                    String(localized: "pricing.native.pro.feature.hours", defaultValue: "Up to 50 Cloud VMs, each with 5 vCPU, 20 GB RAM, and 200 GB disk"),
+                    String(localized: "pricing.native.pro.feature.hours", defaultValue: "Up to 50 Cloud VMs, all sharing a total pool of 5 vCPU, 20 GB RAM, and 200 GB disk; each VM starts at 8 GB RAM and 32 GB disk, with sizes from 4 to 64 GB RAM available as capacity allows"),
                     String(localized: "pricing.native.pro.feature.gateway", defaultValue: "Unlimited workspaces"),
                     String(localized: "pricing.native.pro.feature.ios", defaultValue: "cmux iOS app and email support"),
                 ]
@@ -432,7 +432,7 @@ private struct NativePricingPlansView: View {
                 features: [
                     String(localized: "pricing.native.team.feature.billing", defaultValue: "Unified billing for the whole team"),
                     String(localized: "pricing.native.team.feature.seats", defaultValue: "Centralized seat management"),
-                    String(localized: "pricing.native.team.feature.compute", defaultValue: "Up to 50 Cloud VMs per user"),
+                    String(localized: "pricing.native.team.feature.compute", defaultValue: "Up to 50 Cloud VMs per user, all sharing a total pool of 5 vCPU, 20 GB RAM, and 200 GB disk; each VM starts at 8 GB RAM and 32 GB disk, with sizes from 4 to 64 GB RAM available as capacity allows"),
                     String(localized: "pricing.native.team.feature.gateway", defaultValue: "Team-wide model gateway analytics"),
                     String(localized: "pricing.native.team.feature.support", defaultValue: "Priority email support"),
                 ]
@@ -762,12 +762,12 @@ private struct NativePricingTableCell: View {
 private struct NativePricingSizeSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(String(localized: "pricing.native.sizes.title", defaultValue: "Cloud VM sizes"))
+            Text(String(localized: "pricing.native.sizes.title", defaultValue: "Shared Cloud VM resources"))
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(.secondary)
             Text(String(
                 localized: "pricing.native.sizes.body",
-                defaultValue: "Every Cloud VM is 5 vCPU, 20 GB RAM, and 200 GB disk. Pro and Team include up to 50 machines with no metering or overages."
+                defaultValue: "Pro includes up to 50 Cloud VMs sharing a total pool of 5 vCPU, 20 GB RAM, and 200 GB disk. Team includes the same shared pool per user. The default VM size is 8 GB RAM and 32 GB disk; sizes from 4 to 64 GB RAM are available as capacity allows. New VM disks start at 32 GB and can grow within the shared pool. There is no metering or overage billing."
             ))
             .font(.system(size: 13))
             .foregroundStyle(.secondary)
