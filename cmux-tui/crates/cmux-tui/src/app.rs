@@ -18823,6 +18823,7 @@ impl App {
         let actions = self.sidebar_action_rows(view_index);
         {
             let state = self.projection_rail_state_mut(view_index);
+            state.reconcile_action_selection(actions.len());
             state.reconcile_selection(&rows);
         }
         let selectable_rows = rows.len().saturating_add(actions.len());
@@ -18878,7 +18879,6 @@ impl App {
                 state.selected_action = Some(next.saturating_sub(rows.len()));
             }
             state.follow_selection = true;
-            self.bump_sidebar_generation();
             return Ok(RenderAction::Draw);
         }
         if matches!(key.code, KeyCode::Char(' '))

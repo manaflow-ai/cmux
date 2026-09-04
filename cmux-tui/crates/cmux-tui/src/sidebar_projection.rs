@@ -91,6 +91,17 @@ impl Default for ProjectionRailState {
 }
 
 impl ProjectionRailState {
+    /// Keep action selection valid when the current view changes its actions.
+    /// An unavailable action remains in action mode until navigation chooses a
+    /// new item, so input cannot fall through to a resource row.
+    pub(crate) fn reconcile_action_selection(&mut self, action_count: usize) {
+        if let Some(index) = self.selected_action
+            && let Some(last) = action_count.checked_sub(1)
+        {
+            self.selected_action = Some(index.min(last));
+        }
+    }
+
     /// Keep resource selection attached to its target when rows reorder.
     pub(crate) fn reconcile_selection(&mut self, rows: &[ProjectionRow]) {
         if self.selected_action.is_some() {
