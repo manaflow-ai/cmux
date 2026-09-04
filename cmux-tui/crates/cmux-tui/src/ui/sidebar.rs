@@ -69,6 +69,9 @@ fn projection_detail<'a>(row: &'a crate::sidebar_projection::ProjectionRow) -> C
     Cow::Owned(detail)
 }
 
+type ProfileLabel = (usize, String);
+type PresentationCandidate = (Vec<ProfileLabel>, Vec<String>, bool);
+
 /// Draw the shared profile strip above all native sidebar rails. Profile
 /// names stay in stable configuration order when they fit. At narrow widths
 /// the active profile remains visible and the overflow count opens the same
@@ -128,14 +131,14 @@ pub fn draw_presentation(app: &mut App, frame: &mut Frame) {
     };
     let profile_token_width =
         |(_, label): &(usize, String)| UnicodeWidthStr::width(label.as_str()).saturating_add(2);
-    let profiles_width = |profiles: &[(usize, String)]| {
+    let profiles_width = |profiles: &[ProfileLabel]| {
         profiles
             .iter()
             .map(profile_token_width)
             .sum::<usize>()
             .saturating_add(profiles.len().saturating_sub(1))
     };
-    let fits = |profiles: &[(usize, String)], tail: &[String]| {
+    let fits = |profiles: &[ProfileLabel], tail: &[String]| {
         let profile_width = profiles_width(profiles);
         let tail_width = joined_width(tail);
         profile_width
@@ -157,8 +160,8 @@ pub fn draw_presentation(app: &mut App, frame: &mut Frame) {
     // is present in every candidate and is never lost to truncation. Build one
     // candidate at a time so the fallback path does not clone labels that are
     // never rendered.
-    let mut chosen: Option<(Vec<(usize, String)>, Vec<String>, bool)> = None;
-    let mut try_candidate = |profiles: &[(usize, String)], tail: Vec<String>| {
+    let mut chosen: Option<PresentationCandidate> = None;
+    let mut try_candidate = |profiles: &[ProfileLabel], tail: Vec<String>| {
         if chosen.is_none() {
             let profiles_fit = profiles.len() == labels.len();
             if fits(profiles, &tail) {

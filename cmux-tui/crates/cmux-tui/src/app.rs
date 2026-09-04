@@ -4362,7 +4362,7 @@ pub(crate) fn projection_row_spans(
         // herdr-style second line through `row_lines`; other resource rows
         // remain one line even when the built-in rail height is two.
         let height =
-            row.agent_state.as_ref().map_or(1, |_| usize::from(spec.row_lines.max(1).min(2)));
+            row.agent_state.as_ref().map_or(1, |_| usize::from(spec.row_lines.clamp(1, 2)));
         spans.push(crate::ui::rail::RowSpan::new(total, height));
         total = total.saturating_add(height);
         if index + 1 < rows.len() {
@@ -11605,10 +11605,10 @@ impl App {
             .filter(|agent| {
                 agent.state == "blocked"
                     || agent.state == "idle"
-                        && !self
-                            .agent_focus_stamps
-                            .get(&agent.surface)
-                            .is_some_and(|stamp| *stamp >= agent.updated_at_ms)
+                    && self
+                        .agent_focus_stamps
+                        .get(&agent.surface)
+                        .is_none_or(|stamp| *stamp < agent.updated_at_ms)
             })
             .count();
         let working = agents.iter().filter(|agent| agent.state == "working").count();
@@ -11729,7 +11729,7 @@ impl App {
         let newly_seen = agents.iter().any(|agent| {
             agent.surface == surface
                 && agent.state == "idle"
-                && !previous.is_some_and(|stamp| stamp >= agent.updated_at_ms)
+                && previous.is_none_or(|stamp| stamp < agent.updated_at_ms)
                 && now_ms >= agent.updated_at_ms
         });
         self.agent_focus_stamps.insert(surface, now_ms);
@@ -12478,7 +12478,7 @@ impl App {
                 else {
                     return Ok(false);
                 };
-                return Ok(self.activate_workspace(index));
+                Ok(self.activate_workspace(index))
             }
             ProjectionTarget::Pane { workspace_id, screen_id, pane, .. } => {
                 if !self.prepare_pty_input_before_mutation() {
@@ -12514,10 +12514,10 @@ impl App {
                 self.tree.set_active_pane(workspace, screen, pane);
                 self.pane_focus_history.record(pane);
                 self.claim_active_terminal_geometry(true);
-                return Ok(true);
+                Ok(true)
             }
             ProjectionTarget::Surface { workspace, screen, pane, index, surface, .. } => {
-                return self.activate_sidebar_tab(&SidebarTabTarget {
+                self.activate_sidebar_tab(&SidebarTabTarget {
                     workspace,
                     screen,
                     pane,
@@ -12526,7 +12526,7 @@ impl App {
                     name: String::new(),
                     subtitle: String::new(),
                     active: false,
-                });
+                })
             }
         }
     }
@@ -17074,7 +17074,7 @@ impl App {
                 let state = self.active_sidebar_profile_state_mut();
                 state.content_mode = Some(SidebarView::Files);
                 state.files_restore_pending = true;
-                state.files_restore_host = files_host_id.clone();
+                state.files_restore_host = files_host_id;
                 self.sidebar_view = SidebarView::Workspaces;
                 self.sidebar_followed_surface = None;
                 self.status_message = Some(
@@ -20737,31 +20737,6 @@ impl App {
         }
     }
 
-    fn request_purge_managed_workspace(&mut self, workspace_id: &str) {
-        let Some(workspace) = self
-            .machine_ui
-            .as_ref()
-            .and_then(|ui| ui.managed_workspace(workspace_id))
-            .filter(|workspace| {
-                workspace.status == ManagedWorkspaceStatus::Recoverable
-                    && workspace.capabilities.purge
-            })
-            .cloned()
-        else {
-            return;
-        };
-        let Some(machine) = self.machine_ui.as_ref().and_then(|ui| ui.snapshot.active) else {
-            return;
-        };
-        if let Some(ui) = self.machine_ui.as_mut() {
-            ui.request = Some(MachineRequest::PurgeManagedWorkspace {
-                machine,
-                workspace_id: workspace.id,
-                expected_version: workspace.version,
-            });
-        }
-    }
-
     fn managed_workspace_purge_receipt(
         &self,
         index: usize,
@@ -21977,10 +21952,9 @@ impl App {
             self.tabs_rail_selection = next;
         } else if key.code == KeyCode::Enter
             && let Some(target) = targets.get(self.tabs_rail_selection)
+            && self.activate_sidebar_tab(target)?
         {
-            if self.activate_sidebar_tab(target)? {
-                self.focus = FocusTarget::Pane;
-            }
+            self.focus = FocusTarget::Pane;
         }
         Ok(RenderAction::Draw)
     }
@@ -22030,7 +22004,7 @@ impl App {
                     .unwrap_or_else(|| "vi".to_string());
                 let cwd = path
                     .parent()
-                    .unwrap_or_else(|| std::path::Path::new("/"))
+                    .unwrap_or_else(|| Path::new("/"))
                     .to_string_lossy()
                     .into_owned();
                 self.session.run_command(
@@ -24020,7 +23994,7 @@ impl App {
         // each workspace. Aggregate those receipts into row spans instead of
         // duplicating row height, gap, and scroll arithmetic here. A delayed
         // tree update must not turn an old row index into a new workspace.
-        let mut rows = Vec::new();
+        let mut rows: Vec<(usize, u16, u16)> = Vec::new();
         for (rect, hit) in &self.hits {
             let Hit::Workspace { index, id } = hit else { continue };
             let Some(current_index) =
@@ -27520,7 +27494,6 @@ impl App {
                                 .find(|(_, workspace)| {
                                     sidebar_profile_token(&workspace.id) == token
                                 })
-                                .map(|(index, workspace)| (index, workspace))
                         })
                     {
                         let mut actions = Vec::new();
@@ -28722,7 +28695,7 @@ mod tests {
         DEFERRED_INPUT_CAPACITY, DeferredInput, DeferredInputAdmission, DeferredInputQueue,
         DeferredReplayDisposition, Drag, EventCancellation, FocusTarget, ForwardMuxOutcome,
         FrontendJournalQueue, FrontendJournalWorker, GraphicIdentity, GraphicPlacement,
-        GraphicSourceRect, GraphicsSceneCache, GuardedMouseEncode, Hit, HostInputIngress,
+        GraphicSourceRect, GraphicsSceneCache, GuardedMouseEncode, HostInputIngress,
         HostInputMessage, HostInputRuntime, MachineActionWorker, MachineConnectRoute, MenuAction,
         MenuItem, MutationImpact, MuxTitleIngress, OmnibarHit, OmnibarState, OrderedSession,
         OuterCursorSpec, PaneArea, PaneAreaProjection, PaneContentGeneration, PaneEdge,
@@ -33402,10 +33375,10 @@ mod tests {
             .hits
             .iter()
             .find_map(|(rect, hit)| {
-                matches!(hit, Hit::SidebarSplitDivider { .. }).then_some((*rect, *hit))
+                matches!(hit, super::Hit::SidebarSplitDivider { .. }).then_some((*rect, *hit))
             })
             .expect("horizontal split has an explicit divider receipt");
-        assert!(matches!(receipt, Hit::SidebarSplitDivider { .. }));
+        assert!(matches!(receipt, super::Hit::SidebarSplitDivider { .. }));
 
         app.handle_left_down(handle.x, handle.y, KeyModifiers::NONE).unwrap();
         assert!(matches!(app.drag, Some(Drag::SidebarSplit { .. })));
