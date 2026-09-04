@@ -13,7 +13,9 @@ public struct TerminalSummary: Sendable, Equatable, Codable {
 }
 
 /// Decoding of the JSON the C ABI hands back.
-public enum TerminalCatalogDecoding {
+public struct TerminalCatalogDecoding {
+    public init() {}
+
     /// `terminal.list` returns an array of terminal snapshots.
     public static func terminals(fromListResult data: Data) throws -> [TerminalSummary] {
         try JSONDecoder().decode([TerminalSummary].self, from: data)
