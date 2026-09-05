@@ -12,7 +12,7 @@ final class ScrollDragSession: NSObject, UIDragSession {
     var localContext: Any?
     var localDragSession: UIDragSession? { self }
     var progressIndicatorStyle: UIDropSessionProgressIndicatorStyle = .default
-    nonisolated var progress: Progress { Progress() }
+    nonisolated var progress: Progress { Progress(totalUnitCount: 0) }
     var items: [UIDragItem] { dragItems }
     var allowsMoveOperation: Bool { true }
     var isRestrictedToDraggingApplication: Bool { false }
@@ -23,6 +23,6 @@ final class ScrollDragSession: NSObject, UIDragSession {
     func loadObjects(
         ofClass aClass: NSItemProviderReading.Type,
         completion: @escaping ([NSItemProviderReading]) -> Void
-    ) -> Progress { Progress() }
+    ) -> Progress { Progress(totalUnitCount: 0) }
 }
 #endif
