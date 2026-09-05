@@ -815,14 +815,20 @@ actor MobileCoreRPCSession {
             )
         }
         let nextTransportClosureTask = Task { [weak self] in
-            guard let observation = await (
-                candidate as? any CmxByteTransportClosureObserving
-            )?.transportClosureObservation() else {
-                return
+            while !Task.isCancelled {
+                if let observation = await (
+                    candidate as? any CmxByteTransportClosureObserving
+                )?.transportClosureObservation() {
+                    await observation.waitUntilClosed()
+                    guard !Task.isCancelled else { return }
+                    await self?.transportDidClose(connectionID: connectionID)
+                    return
+                }
+                // Deferred transports may not expose their native connection
+                // until activation finishes. Keep the watcher alive so the
+                // later connection generation is still observed.
+                try? await Task.sleep(for: .milliseconds(100))
             }
-            await observation.waitUntilClosed()
-            guard !Task.isCancelled else { return }
-            await self?.transportDidClose(connectionID: connectionID)
         }
 
         // Publish one coherent installed generation without suspending. Readers
