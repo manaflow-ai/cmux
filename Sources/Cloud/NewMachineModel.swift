@@ -49,7 +49,7 @@ struct MachineSizeOption: Equatable, Sendable {
     /// The localized, compact row title shown in the size menu.
     var menuTitle: String {
         String(
-            format: String(localized: "machines.new.size.menu", defaultValue: "%d GB RAM · %d GB disk"),
+            format: String(localized: "machines.new.size.menu", defaultValue: "%1$d GB RAM · %2$d GB disk"),
             memoryMb / 1024,
             diskMb / 1024
         )
