@@ -59,6 +59,7 @@ public struct ProjectWorktreeSidebar: CmuxSidebarProvider {
     }
 
     private func branchSubtitle(_ workspace: CmuxSidebarProviderWorkspace) -> CmuxSidebarProviderText? {
-        trimmed(workspace.branchSummary).map(CmuxSidebarProviderText.plain)
+        trimmed(workspace.customDescription).map(CmuxSidebarProviderText.plain)
+            ?? trimmed(workspace.branchSummary).map(CmuxSidebarProviderText.plain)
     }
 }
