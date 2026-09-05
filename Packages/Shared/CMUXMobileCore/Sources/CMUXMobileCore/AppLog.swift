@@ -753,20 +753,12 @@ public actor AppLog {
             return nil
         }
 
-        guard let appGenerations = snapshotData(for: appFile?.url),
-              let networkGenerations = snapshotData(for: networkFile?.url) else {
-            return nil
-        }
-        let supplementalGenerations = await supplementalAppLogSnapshot()
-            ?? snapshotData(for: supplementalAppLogURLs())
-            ?? []
-        let inputs = ExportInputs(
-            appGenerations: appGenerations,
-            networkGenerations: networkGenerations,
-            supplementalGenerations: supplementalGenerations
-        )
         let completion = ExportCompletion()
-        let exportTask = Task.detached(priority: .utility) {
+        let exportTask = Task.detached(priority: .utility) { [self] in
+            guard let inputs = await captureExportInputs() else {
+                completion.resolve(nil)
+                return
+            }
             completion.resolve(Self.writeExportArchive(inputs: inputs))
         }
         let timeoutTask = Task.detached {
@@ -785,6 +777,34 @@ public actor AppLog {
         timeoutTask.cancel()
         _ = exportTask
         return result
+    }
+
+    /// Captures all live generations through AppLog actor ownership. Running
+    /// this in the worker task keeps the settings task cancellable while the
+    /// actor still prevents structured writes and rotation during each read.
+    private func captureExportInputs() async -> ExportInputs? {
+        guard let appGenerations = snapshotData(for: appFile?.url),
+              let networkGenerations = snapshotData(for: networkFile?.url) else {
+            return nil
+        }
+        let supplementalGenerations: [Data]
+        if let snapshot = await supplementalAppLogSnapshot() {
+            supplementalGenerations = snapshot
+        } else {
+            let supplementalURLs = supplementalAppLogURLs()
+            if supplementalURLs.isEmpty {
+                guard !Task.isCancelled else { return nil }
+                supplementalGenerations = []
+            } else {
+                guard let fallback = snapshotData(for: supplementalURLs) else { return nil }
+                supplementalGenerations = fallback
+            }
+        }
+        return ExportInputs(
+            appGenerations: appGenerations,
+            networkGenerations: networkGenerations,
+            supplementalGenerations: supplementalGenerations
+        )
     }
 
     /// Reads generations while AppLog actor ownership prevents append and
