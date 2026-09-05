@@ -20127,7 +20127,6 @@ impl App {
                         && width_changes_expected
                         && (!change.viewport_base_changed
                             || change.viewport_base_width == Some(width))
-                        && (!change.viewport_split_values_changed || width_changes_expected)
                 })
             };
             if !split_changes_expected || !viewport_changes_expected {
@@ -36943,7 +36942,7 @@ mod tests {
                 screen: &screen,
                 layout: &layout,
                 stacked_headers: &HashSet::new(),
-                area: Rect { x: 0, y: 0, width: 80, height: 24 }.into(),
+                area: Rect { x: 0, y: 0, width: 80, height: 24 },
                 scrollbar_position: ScrollbarPosition::Column,
                 pane_padding: 0,
                 surface_only: None,
@@ -37002,7 +37001,7 @@ mod tests {
                 screen: &screen,
                 layout: &layout,
                 stacked_headers: &HashSet::new(),
-                area: Rect { x: 0, y: 0, width: 80, height: 24 }.into(),
+                area: Rect { x: 0, y: 0, width: 80, height: 24 },
                 scrollbar_position: ScrollbarPosition::Column,
                 pane_padding: 0,
                 surface_only: None,
