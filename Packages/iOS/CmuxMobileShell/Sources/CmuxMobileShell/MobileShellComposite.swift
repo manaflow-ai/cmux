@@ -2619,12 +2619,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     public func connectPreviewHost() {
+        _ = startPreviewHostConnection()
+    }
+
+    @discardableResult
+    private func startPreviewHostConnection() -> Bool {
         let trimmedCode = pairingCode.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedCode.isEmpty else {
-            return
+            return false
         }
         if CmxPairingURLScheme(urlString: trimmedCode) != nil {
-            return
+            return false
         }
         let attemptID = beginPairingAttempt()
         replaceRemoteClient(with: nil)
@@ -2632,13 +2637,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         activeTicket = nil
         activeRoute = nil
         connectedHostName = PreviewMobileHost.hostName
-        guard isCurrentPairingAttempt(attemptID) else { return }
+        guard isCurrentPairingAttempt(attemptID) else { return false }
         connectionState = .connected
         markMacConnectionHealthy()
         if selectedWorkspaceID == nil {
             selectedWorkspaceID = workspaces.first?.id
         }
         syncSelectedTerminalForWorkspace()
+        return true
     }
 
     /// Connect using the current pairing input, accepting either a code or pairing URL.
@@ -2671,8 +2677,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             return .failed
         }
-        connectPreviewHost()
-        return .connected
+        return startPreviewHostConnection() ? .connected : .superseded
     }
 
     /// Connect to a manually-entered Mac host and optionally associate the
