@@ -6,7 +6,36 @@ struct WorkspaceToolbarTitleView: View {
     let title: String
     let subtitle: String?
     let connectionStatus: MobileMacConnectionStatus
+#if os(iOS)
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+#endif
+
+    private var regularWidthHorizontalPadding: CGFloat {
+#if os(iOS)
+        if horizontalSizeClass == .regular {
+            return WorkspaceRootToolbarSizing.regularControlHorizontalPadding
+        }
+#endif
+        return MobileCompactToolbarTitleStack.horizontalContentPadding
+    }
+
+    private var regularWidthVerticalPadding: CGFloat {
+#if os(iOS)
+        if horizontalSizeClass == .regular {
+            return WorkspaceRootToolbarSizing.regularControlVerticalPadding
+        }
+#endif
+        return 0
+    }
+
+    private var regularWidthMinHeight: CGFloat? {
+#if os(iOS)
+        if horizontalSizeClass == .regular {
+            return WorkspaceRootToolbarSizing.controlHeight
+        }
+#endif
+        return nil
+    }
 
     var body: some View {
         HStack(spacing: 6) {
@@ -36,9 +65,7 @@ struct WorkspaceToolbarTitleView: View {
         }
         .padding(
             .horizontal,
-            horizontalSizeClass == .regular
-                ? WorkspaceRootToolbarSizing.regularControlHorizontalPadding
-                : MobileCompactToolbarTitleStack.horizontalContentPadding
+            regularWidthHorizontalPadding
         )
         // The regular-width iPad title lives in a standalone glass capsule.
         // Give its two-line label enough vertical breathing room to avoid
@@ -46,14 +73,10 @@ struct WorkspaceToolbarTitleView: View {
         // metrics unchanged.
         .padding(
             .vertical,
-            horizontalSizeClass == .regular
-                ? WorkspaceRootToolbarSizing.regularControlVerticalPadding
-                : 0
+            regularWidthVerticalPadding
         )
         .frame(
-            minHeight: horizontalSizeClass == .regular
-                ? WorkspaceRootToolbarSizing.controlHeight
-                : nil
+            minHeight: regularWidthMinHeight
         )
         .accessibilityElement(children: .combine)
         .accessibilityValue(connectionStatus == .connected ? "" : connectionStatus.label)
