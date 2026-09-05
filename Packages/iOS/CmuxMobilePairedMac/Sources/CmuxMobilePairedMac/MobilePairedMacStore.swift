@@ -1175,6 +1175,15 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 ownerKey: ownerKey,
                 origin: "user"
             )
+            let explicitlyGrantedRouteKeys = Set<String>(
+                try fetchLegacyTailscaleRoutes(
+                    macDeviceID: macDeviceID,
+                    ownerKey: ownerKey
+                ).compactMap { route in
+                    guard let endpoint = try? Self.encodeRouteEndpoint(route) else { return nil }
+                    return "\(route.kind.rawValue)\u{1F}\(endpoint)"
+                }
+            )
             // A presence or backup refresh can publish only Iroh and Debug
             // routes after the user explicitly paired over Tailscale. Keep the
             // exact user-authorized endpoint in the visible route set while it
@@ -1197,7 +1206,11 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
             for route in routes {
                 let endpoint = try Self.encodeRouteEndpoint(route)
                 let key = "\(route.kind.rawValue)\u{1F}\(endpoint)"
-                guard !removedRouteKeys.contains(key) else { continue }
+                let wildcardKey =
+                    "\(route.kind.rawValue)\u{1F}\(Self.routeRemovalWildcardEndpoint)"
+                guard !removedRouteKeys.contains(key),
+                      !(removedRouteKeys.contains(wildcardKey)
+                        && !explicitlyGrantedRouteKeys.contains(key)) else { continue }
                 routesToPersist.append(route)
             }
             if !pinnedIrohRoutes.isEmpty, !incomingHasIroh {
