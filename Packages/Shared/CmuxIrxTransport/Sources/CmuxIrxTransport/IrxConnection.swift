@@ -144,6 +144,7 @@ public actor IrxConnection {
     public private(set) var lastPongAt: ContinuousClock.Instant?
     private let journal: IrxJournal
     private var closedFlag = false
+    private var nativeClosureObserved = false
     private var localTermination: IrxTermination?
     private var keepaliveTask: Task<Void, Never>?
     private var pingSeq: UInt64 = 0
@@ -162,7 +163,7 @@ public actor IrxConnection {
     public nonisolated var underlying: Connection { connection }
 
     public var isClosed: Bool {
-        closedFlag || connection.closeReason() != nil
+        closedFlag || nativeClosureObserved || connection.closeReason() != nil
     }
 
     /// Explicit method form for callers that need to query liveness across
@@ -222,7 +223,7 @@ public actor IrxConnection {
         // Native closure can race registration. Mark the terminal state before
         // draining waiters so a waiter registered after the watcher fires
         // completes immediately instead of hanging forever.
-        closedFlag = true
+        nativeClosureObserved = true
         let waiters = closureWaiters
         closureWaiters.removeAll(keepingCapacity: false)
         cancelledClosureWaiters.removeAll(keepingCapacity: false)
