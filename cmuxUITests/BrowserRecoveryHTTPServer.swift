@@ -132,10 +132,16 @@ port = int(sys.argv[1])
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
+        global first_request
         print('REQUEST', flush=True)
-        if sys.stdin.readline().strip() != 'RELEASE':
-            self.send_error(500)
-            return
+        # Hold only the first request. Browsers may issue a favicon or other
+        # follow-up request after the document commits; those must not occupy
+        # the single-threaded fixture server and starve the next navigation.
+        if first_request:
+            first_request = False
+            if sys.stdin.readline().strip() != 'RELEASE':
+                self.send_error(500)
+                return
         body = b'<!doctype html><body data-cmux-recovered="true">recovered</body>'
         self.send_response(200)
         self.send_header('Content-Type', 'text/html; charset=utf-8')
@@ -147,6 +153,7 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
 server = HTTPServer(('127.0.0.1', port), Handler)
+first_request = True
 print('READY', flush=True)
 server.serve_forever()
 """#

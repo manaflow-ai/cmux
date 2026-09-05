@@ -73,6 +73,25 @@ jobs:
         with:
           ref: ${{ inputs.ref || github.ref }}
           submodules: recursive
+          persist-credentials: false
+
+      - name: Checkout trusted browser verifier
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: ${{ github.repository }}
+          # reload-cloud dispatches this workflow from main while building an
+          # ephemeral source ref. workflow_sha therefore pins the verifier to
+          # the immutable workflow revision, never to source-controlled code.
+          ref: ${{ github.workflow_sha }}
+          path: trusted-browser-verifier
+          sparse-checkout: |
+            scripts/ci/verify_browser_runtime_artifact.py
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Capture exact source SHA
+        id: source_sha
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Start timer
         id: t0
@@ -438,7 +457,10 @@ jobs:
         id: build_macos
         env:
           BUILD_TAG: ${{ inputs.tag }}
+          CMUX_BUILD_SOURCE_SHA: ${{ steps.source_sha.outputs.sha }}
           CMUX_GHOSTTYKIT_PREPROVISIONED: "1"
+          CMUX_CEF_ALLOW_DOWNLOAD: "1"
+          CMUX_CEF_REQUIRED: "1"
           CMUX_SOURCE_PACKAGES_DIR: ${{ github.workspace }}/.ci-source-packages
           SPM_CACHE_STATUS: ${{ steps.spm_sanitize.outputs.status }}
           DERIVED_DATA_CACHE_STATUS: ${{ steps.derived_data_restore.outputs.status }}
@@ -497,6 +519,26 @@ jobs:
           app_path="$(awk '/^App path:/{getline; sub(/^  /,""); print; exit}' "$log")"
           [ -n "$app_path" ] && [ -d "$app_path" ] || { echo "could not locate built app" >&2; exit 1; }
           echo "app_path=$app_path" >> "$GITHUB_OUTPUT"
+
+      - name: Verify browser runtime artifact
+        if: ${{ inputs.platform == 'macos' }}
+        env:
+          EXPECTED_SHA: ${{ steps.source_sha.outputs.sha }}
+        run: |
+          set -euo pipefail
+          verifier="$GITHUB_WORKSPACE/trusted-browser-verifier/scripts/ci/verify_browser_runtime_artifact.py"
+          [ -f "$verifier" ] || { echo "trusted browser verifier is unavailable" >&2; exit 1; }
+          python3 "$verifier" \
+            --app "${{ steps.build_macos.outputs.app_path }}" \
+            --source-root "$GITHUB_WORKSPACE" \
+            --expected-sha "$EXPECTED_SHA"
+
+      - name: Archive verified macOS app
+        if: ${{ success() && inputs.platform == 'macos' }}
+        run: |
+          set -euo pipefail
+          app_path="${{ steps.build_macos.outputs.app_path }}"
+          [ -d "$app_path" ] || { echo "verified app bundle disappeared: $app_path" >&2; exit 1; }
           mkdir -p artifact
           ( cd "$(dirname "$app_path")" && ditto -c -k --sequesterRsrc --keepParent "$(basename "$app_path")" "$GITHUB_WORKSPACE/artifact/app.zip" )
 

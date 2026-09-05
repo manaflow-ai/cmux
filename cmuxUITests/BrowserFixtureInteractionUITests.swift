@@ -163,13 +163,35 @@ class BrowserFixtureSocketTestCase: XCTestCase {
             file: file,
             line: line
         )
+        var openParameters: [String: Any] = [
+            "workspace_id": workspaceID,
+            "surface_id": sourceSurfaceID,
+        ]
+        let requestedEngine = ProcessInfo.processInfo.environment["CMUX_UI_TEST_BROWSER_ENGINE"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let requestedEngine, !requestedEngine.isEmpty {
+            // The CI browser gate sets this only after it has proved that the
+            // exact artifact contains native CEF.  Keep ordinary WebKit tests
+            // unchanged when the variable is absent.
+            openParameters["engine"] = requestedEngine
+        }
+
         let opened = try socketResult(
             method: "browser.open_split",
-            params: ["workspace_id": workspaceID, "surface_id": sourceSurfaceID],
+            params: openParameters,
             responseTimeout: 15.0,
             file: file,
             line: line
         )
+        if let requestedEngine, !requestedEngine.isEmpty {
+            XCTAssertEqual(
+                opened["engine"] as? String,
+                requestedEngine,
+                "browser.open_split did not create the requested \(requestedEngine) engine: \(opened)",
+                file: file,
+                line: line
+            )
+        }
         return try XCTUnwrap(
             opened["surface_id"] as? String,
             "browser.open_split returned no surface_id: \(opened)",

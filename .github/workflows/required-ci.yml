@@ -1,0 +1,126 @@
+name: Required CI watcher
+
+# This workflow is intentionally pull_request_target-only. GitHub evaluates it
+# from the base branch, so a pull request cannot remove or weaken the watcher by
+# editing its own CI YAML. It routes browser changes to the trusted reusable E2E
+# workflow, then verifies both that evidence and the exact PR-head CI aggregate.
+on:
+  pull_request_target:
+    branches:
+      - main
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: required-ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  route:
+    name: required-ci-route
+    runs-on: ubuntu-24.04 # github-hosted-required: route is trusted control plane
+    timeout-minutes: 10
+    outputs:
+      browser_engine: ${{ steps.detect.outputs.browser_engine }}
+    steps:
+      - name: Checkout trusted verifier
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: trusted
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Detect browser-engine paths from the pull request
+        id: detect
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          files="$RUNNER_TEMP/required-ci-files.txt"
+          if ! observed_head_sha="$(gh api \
+            "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq '.head.sha')" || \
+            [ "$observed_head_sha" != "$EXPECTED_HEAD_SHA" ]; then
+            echo "Pull-request head changed while reading its file list; running browser verification."
+            echo "browser_engine=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if ! gh api --paginate \
+            "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files?per_page=100" \
+            --jq '.[] | .filename, (.previous_filename // empty)' > "$files"; then
+            echo "Could not read the pull-request file list; running browser verification."
+            echo "browser_engine=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # These guards are themselves the trust boundary. Keep this check in
+          # the base-controlled shell so a PR cannot weaken its detector and
+          # then classify the detector change as a cheap, unverified edit.
+          if grep -Eq '^(\.github/|scripts/)' "$files"; then
+            echo "Browser/build control-plane changed; running browser verification."
+            echo "browser_engine=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          python3 trusted/scripts/ci/detect_browser_engine_changes.py \
+            --event-name pull_request \
+            --files-from "$files"
+
+  browser-runtime:
+    name: required-browser-runtime
+    needs: route
+    if: ${{ needs.route.result == 'success' && needs.route.outputs.browser_engine == 'true' }}
+    uses: ./.github/workflows/test-e2e.yml
+    with:
+      trusted_ref: ${{ github.event.pull_request.base.sha }}
+      ref: ${{ github.event.pull_request.head.sha }}
+      test_filter: cmuxUITests/BrowserReliabilityRegressionUITests/testBrowserEngineSmokeRendersEvaluatesScreenshotsAndReopens
+      test_timeout: "180"
+      job_timeout: "60"
+      record_video: false
+      runner: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+      verify_browser_runtime: true
+
+  required-ci:
+    name: required-ci
+    needs:
+      - route
+      - browser-runtime
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04 # github-hosted-required: trusted watcher must not be redirected
+    timeout-minutes: 95
+    steps:
+      - name: Checkout trusted verifier
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: trusted
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify exact CI run and aggregate gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+          EXPECTED_PR_NUMBER: ${{ github.event.pull_request.number }}
+          EXPECTED_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BROWSER_REQUIRED: ${{ needs.route.outputs.browser_engine || 'unknown' }}
+          BROWSER_RESULT: ${{ needs.browser-runtime.result }}
+          ROUTE_RESULT: ${{ needs.route.result }}
+        run: |
+          set -euo pipefail
+          if [ "$ROUTE_RESULT" != "success" ]; then
+            echo "::error::required CI verification failed"
+            exit 1
+          fi
+          python3 trusted/scripts/ci/verify_required_ci_run.py \
+            --browser-required "$BROWSER_REQUIRED" \
+            --browser-result "$BROWSER_RESULT" \
+            --pr-number "$EXPECTED_PR_NUMBER" \
+            --base-sha "$EXPECTED_BASE_SHA"

@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: Branch or SHA to test
+        description: Branch or SHA to test (workflow_call requires a full SHA)
         required: false
         default: ""
       test_filter:
@@ -40,6 +40,54 @@ on:
           - tart-canary
           - tart-dual
           - tart-small
+      verify_browser_runtime:
+        description: Require and validate the built browser runtime artifact
+        required: false
+        default: false
+        type: boolean
+  # CI calls this workflow for browser-engine changes.  Keep the original
+  # dispatch interface for ad-hoc runs, but make the called path accept an
+  # immutable SHA and an artifact verification request.
+  workflow_call:
+    inputs:
+      trusted_ref:
+        description: Full base-branch SHA containing the trusted verifier
+        required: true
+        type: string
+      ref:
+        description: Branch or full commit SHA to test (workflow_call requires a full SHA)
+        required: false
+        default: ""
+        type: string
+      test_filter:
+        description: Test class or class/method (optionally target-qualified)
+        required: true
+        type: string
+      test_timeout:
+        description: Per-test timeout in seconds
+        required: false
+        default: "120"
+        type: string
+      job_timeout:
+        description: Job timeout in minutes
+        required: false
+        default: "60"
+        type: string
+      record_video:
+        description: Record the virtual display during UI tests
+        required: false
+        default: false
+        type: boolean
+      runner:
+        description: Trusted macOS runner label
+        required: false
+        default: "blacksmith-6vcpu-macos-15"
+        type: string
+      verify_browser_runtime:
+        description: Require and validate the built browser runtime artifact
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: e2e-${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner }}-${{ inputs.ref || github.ref_name }}-${{ inputs.test_filter }}
@@ -47,11 +95,36 @@ concurrency:
 
 jobs:
   e2e:
-    runs-on: ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner }}
+    # A reusable call is part of required CI and must never be able to select a
+    # self-hosted/Tart runner from a pull-request-editable input.  Dispatch
+    # callers retain the explicit runner choices below; called runs are pinned
+    # to the trusted Blacksmith lane.
+    runs-on: ${{ inputs.verify_browser_runtime && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner) }}
     timeout-minutes: ${{ fromJSON(inputs.job_timeout || '20') }}
     env:
       TEST_REF: ${{ inputs.ref || github.ref }}
+      # Native Chromium verification must provision CEF instead of silently
+      # accepting the streamed fallback.  Dispatch callers retain the old
+      # opt-in behavior unless they request verify_browser_runtime.
+      CMUX_CEF_ALLOW_DOWNLOAD: ${{ inputs.verify_browser_runtime && '1' || '0' }}
+      CMUX_CEF_REQUIRED: ${{ inputs.verify_browser_runtime && '1' || '0' }}
     steps:
+      - name: Validate required browser runner identity
+        if: ${{ inputs.verify_browser_runtime == true }}
+        env:
+          RUNNER_CONTEXT_NAME: ${{ runner.name }}
+        run: |
+          set -euo pipefail
+          case "$RUNNER_CONTEXT_NAME" in
+            blacksmith-*|warp-*|depot-*)
+              echo "Required browser runner identity verified"
+              ;;
+            *)
+              echo "::error::required browser verification requires an approved runner"
+              exit 1
+              ;;
+          esac
+
       - name: Validate Depot runner identity
         if: ${{ startsWith((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner, 'depot-macos-') }}
         env:
@@ -102,15 +175,153 @@ jobs:
             find "$ws/.git/modules" -type f -name "*.lock" -delete 2>/dev/null || true
           fi
 
+      - name: Require immutable browser verification ref
+        if: ${{ inputs.trusted_ref != '' || inputs.verify_browser_runtime == true }}
+        env:
+          REQUESTED_REF: ${{ inputs.ref }}
+          TRUSTED_REF: ${{ inputs.trusted_ref }}
+          VERIFY_BROWSER_RUNTIME: ${{ inputs.verify_browser_runtime }}
+        run: |
+          set -euo pipefail
+          # workflow_call always supplies trusted_ref; dispatch has no such
+          # input. Use the value itself rather than relying on the caller's
+          # event_name, which is inherited by reusable workflows.
+          if [ -n "$TRUSTED_REF" ]; then
+            if [[ ! "$TRUSTED_REF" =~ ^[0-9a-fA-F]{40}$ ]]; then
+              echo "::error::workflow_call requires a full 40-character trusted verifier SHA"
+              exit 1
+            fi
+            if [[ ! "$REQUESTED_REF" =~ ^[0-9a-fA-F]{40}$ ]]; then
+              echo "::error::workflow_call/browser runtime verification requires a full 40-character commit SHA"
+              exit 1
+            fi
+          elif [ "$VERIFY_BROWSER_RUNTIME" = "true" ] && [[ ! "$REQUESTED_REF" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "::error::workflow_call/browser runtime verification requires a full 40-character commit SHA"
+            exit 1
+          fi
+
+      - name: Checkout trusted browser verifier and build tooling
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: ${{ github.repository }}
+          # Reusable PR calls pass the immutable base policy explicitly; manual
+          # dispatches use the immutable workflow revision. Never load this
+          # verifier from the pull-request source checkout.
+          ref: ${{ inputs.trusted_ref || github.workflow_sha }}
+          path: trusted-browser-verifier
+          sparse-checkout: |
+            scripts/ci/verify_browser_runtime_artifact.py
+            scripts/download-prebuilt-ghosttykit.sh
+            scripts/validate-xcframework-archive.py
+            scripts/ghosttykit-checksums.txt
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Stage trusted browser verifier and build tooling
+        run: |
+          set -euo pipefail
+          trusted_dir="$RUNNER_TEMP/cmux-trusted-browser-verifier"
+          mkdir -p "$trusted_dir/scripts/ci"
+          cp "$GITHUB_WORKSPACE/trusted-browser-verifier/scripts/ci/verify_browser_runtime_artifact.py" \
+            "$trusted_dir/scripts/ci/verify_browser_runtime_artifact.py"
+          cp "$GITHUB_WORKSPACE/trusted-browser-verifier/scripts/download-prebuilt-ghosttykit.sh" \
+            "$trusted_dir/scripts/download-prebuilt-ghosttykit.sh"
+          cp "$GITHUB_WORKSPACE/trusted-browser-verifier/scripts/validate-xcframework-archive.py" \
+            "$trusted_dir/scripts/validate-xcframework-archive.py"
+          cp "$GITHUB_WORKSPACE/trusted-browser-verifier/scripts/ghosttykit-checksums.txt" \
+            "$trusted_dir/scripts/ghosttykit-checksums.txt"
+          chmod 755 "$trusted_dir/scripts/download-prebuilt-ghosttykit.sh"
+
+      - name: Resolve source Ghostty revision with trusted API access
+        id: source_ghostty
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          SOURCE_REF: ${{ inputs.ref || github.ref }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || {
+            echo "::error::source repository identifier is invalid"
+            exit 1
+          }
+          [[ "$SOURCE_REF" =~ ^[A-Za-z0-9._/-]+$ ]] || {
+            echo "::error::source ref identifier is invalid"
+            exit 1
+          }
+          source_commit="$SOURCE_REF"
+          source_commit="${source_commit#refs/heads/}"
+          source_commit="${source_commit#refs/tags/}"
+          if [[ ! "$source_commit" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            source_commit="$(gh api "repos/$SOURCE_REPOSITORY/commits?sha=$source_commit&per_page=1" --jq '.[0].sha')"
+          fi
+          [[ "$source_commit" =~ ^[0-9a-fA-F]{40}$ ]]
+          ghostty_sha="$(gh api "repos/$SOURCE_REPOSITORY/git/trees/$source_commit?recursive=0" \
+            --jq '.tree[] | select(.path == "ghostty" and .mode == "160000") | .sha')"
+          [[ "$ghostty_sha" =~ ^[0-9a-fA-F]{40}$ ]] || {
+            echo "::error::source ref has no valid Ghostty submodule revision"
+            exit 1
+          }
+          echo "sha=$ghostty_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Download GhosttyKit with trusted tooling
+        env:
+          GHOSTTY_SHA: ${{ steps.source_ghostty.outputs.sha }}
+          GHOSTTYKIT_OUTPUT_DIR: ${{ runner.temp }}/GhosttyKit.xcframework
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/cmux-trusted-browser-verifier/scripts/download-prebuilt-ghosttykit.sh"
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
           ref: ${{ inputs.ref || github.ref }}
           submodules: recursive
+          persist-credentials: false
 
-      - name: Capture SHA
+      - name: Install and bind GhosttyKit
+        env:
+          EXPECTED_GHOSTTY_SHA: ${{ steps.source_ghostty.outputs.sha }}
+        run: |
+          set -euo pipefail
+          actual_ghostty_sha="$(git -C ghostty rev-parse HEAD)"
+          [[ "$actual_ghostty_sha" == "$EXPECTED_GHOSTTY_SHA" ]] || {
+            echo "::error::checked-out Ghostty revision does not match trusted source metadata"
+            exit 1
+          }
+          source_framework="$RUNNER_TEMP/GhosttyKit.xcframework"
+          [ -d "$source_framework" ] || {
+            echo "::error::trusted GhosttyKit download is missing"
+            exit 1
+          }
+          [ ! -e "$GITHUB_WORKSPACE/GhosttyKit.xcframework" ] || {
+            echo "::error::source checkout unexpectedly supplied GhosttyKit"
+            exit 1
+          }
+          mv "$source_framework" "$GITHUB_WORKSPACE/GhosttyKit.xcframework"
+
+      - name: Capture and verify exact SHA
         id: sha
-        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+        env:
+          REQUESTED_REF: ${{ inputs.ref || github.ref }}
+          VERIFY_BROWSER_RUNTIME: ${{ inputs.verify_browser_runtime }}
+          TRUSTED_REF: ${{ inputs.trusted_ref }}
+        run: |
+          set -euo pipefail
+          actual_sha="$(git rev-parse HEAD)"
+          if [ -n "$TRUSTED_REF" ] || [ "$VERIFY_BROWSER_RUNTIME" = "true" ]; then
+            expected_sha="$REQUESTED_REF"
+          elif [[ "$REQUESTED_REF" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            expected_sha="$REQUESTED_REF"
+          else
+            expected_sha="$(git rev-parse "$REQUESTED_REF^{commit}")"
+          fi
+          if [ "$actual_sha" != "$expected_sha" ]; then
+            echo "::error::checkout SHA $actual_sha does not match requested ref $REQUESTED_REF ($expected_sha)"
+            exit 1
+          fi
+          echo "sha=$actual_sha" >> "$GITHUB_OUTPUT"
+          echo "Verified exact checkout SHA: $actual_sha"
 
       - name: Normalize test filter
         id: filter
@@ -179,13 +390,6 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: latest
-
-      - name: Download pre-built GhosttyKit.xcframework
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          ./scripts/download-prebuilt-ghosttykit.sh
 
       - name: Install zig
         run: |
@@ -330,6 +534,76 @@ jobs:
             sleep $((attempt * 5))
           done
 
+      - name: Build exact browser app for runtime verification
+        if: ${{ inputs.verify_browser_runtime == true }}
+        env:
+          SOURCE_SHA: ${{ steps.sha.outputs.sha }}
+        run: |
+          set -euo pipefail
+          xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$PWD/.ci-source-packages" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            CMUXBuildSourceSHA="$SOURCE_SHA" \
+            CMUX_CEF_ALLOW_DOWNLOAD=1 \
+            CMUX_CEF_REQUIRED=1 \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            build
+
+      - name: Verify exact browser runtime artifact
+        if: ${{ inputs.verify_browser_runtime == true }}
+        id: browser_artifact
+        env:
+          EXPECTED_SHA: ${{ steps.sha.outputs.sha }}
+        run: |
+          set -euo pipefail
+          app_path="$CMUX_DERIVED_DATA_PATH/Build/Products/Debug/cmux.app"
+          if [ ! -d "$app_path" ]; then
+            app_path="$(find "$CMUX_DERIVED_DATA_PATH/Build/Products/Debug" -maxdepth 1 -type d -name 'cmux*.app' -print -quit)"
+          fi
+          [ -n "$app_path" ] && [ -d "$app_path" ] || {
+            echo "::error::could not locate the exact browser app bundle" >&2
+            exit 1
+          }
+          verifier="$RUNNER_TEMP/cmux-trusted-browser-verifier/scripts/ci/verify_browser_runtime_artifact.py"
+          if [ ! -f "$verifier" ]; then
+            echo "::error::trusted browser verifier is unavailable in the base revision" >&2
+            exit 1
+          fi
+          python3 "$verifier" \
+            --app "$app_path" \
+            --source-root "$GITHUB_WORKSPACE" \
+            --expected-sha "$EXPECTED_SHA" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Validate browser engine selector from artifact
+        if: ${{ inputs.verify_browser_runtime == true }}
+        env:
+          RUNTIME_MODE: ${{ steps.browser_artifact.outputs.runtime_mode }}
+          BROWSER_ENGINE: ${{ steps.browser_artifact.outputs.runtime_mode == 'native-cef' && 'chromium' || '' }}
+        run: |
+          set -euo pipefail
+          case "$RUNTIME_MODE" in
+            fallback)
+              [ -z "$BROWSER_ENGINE" ] || {
+                echo "::error::fallback artifact was mapped to a native browser engine" >&2
+                exit 1
+              }
+              ;;
+            native-cef)
+              [ "$BROWSER_ENGINE" = "chromium" ] || {
+                echo "::error::native CEF artifact was not mapped to the Chromium UI-test engine" >&2
+                exit 1
+              }
+              ;;
+            *)
+              echo "::error::runtime verifier did not publish a recognized runtime mode" >&2
+              exit 1
+              ;;
+          esac
+
       - name: Run selected tests
         id: tests
         env:
@@ -339,6 +613,8 @@ jobs:
           NORMALIZED_FILTER: ${{ steps.filter.outputs.filter }}
           TEST_TIMEOUT: ${{ inputs.test_timeout || '120' }}
           RECORD_VIDEO: ${{ steps.filter.outputs.record_video }}
+          CMUX_UI_TEST_BROWSER_ENGINE: ${{ steps.browser_artifact.outputs.runtime_mode == 'native-cef' && 'chromium' || '' }}
+          CMUX_BUILD_SOURCE_SHA: ${{ steps.sha.outputs.sha }}
           # App-host crash recovery must not stall on interactive backtraces
           # (mirrors ci.yml's tests job hardening).
           SWIFT_BACKTRACE: "interactive=no,timeout=0s,symbolicate=off,color=no"
@@ -414,6 +690,9 @@ jobs:
             "GITHUB_WORKSPACE=${GITHUB_WORKSPACE:-$PWD}"
             "RUNNER_TEMP=${RUNNER_TEMP:-}"
             "TMPDIR=${TMPDIR:-/tmp}"
+            "CMUX_CEF_ALLOW_DOWNLOAD=${CMUX_CEF_ALLOW_DOWNLOAD:-0}"
+            "CMUX_CEF_REQUIRED=${CMUX_CEF_REQUIRED:-0}"
+            "CMUX_UI_TEST_BROWSER_ENGINE=${CMUX_UI_TEST_BROWSER_ENGINE:-}"
           )
           if [ "${#DISPLAY_ENV_PREFIX[@]}" -gt 0 ]; then
             XCODEBUILD_ENV+=("${DISPLAY_ENV_PREFIX[@]}")
@@ -456,6 +735,7 @@ jobs:
               -maximum-test-execution-time-allowance "$TEST_TIMEOUT"
               "$ONLY_TESTING"
               CMUX_SKIP_ZIG_BUILD=1
+              CMUXBuildSourceSHA="$CMUX_BUILD_SOURCE_SHA"
               test
             )
           else
@@ -467,6 +747,7 @@ jobs:
               -destination "platform=macOS"
               -maximum-test-execution-time-allowance "$TEST_TIMEOUT"
               "$ONLY_TESTING"
+              CMUXBuildSourceSHA="$CMUX_BUILD_SOURCE_SHA"
               test
             )
           fi
@@ -545,6 +826,49 @@ jobs:
             } >> "$GITHUB_OUTPUT"
             exit 1
           fi
+
+      - name: Re-verify browser runtime after tests
+        if: ${{ always() && inputs.verify_browser_runtime == true }}
+        env:
+          EXPECTED_SHA: ${{ steps.sha.outputs.sha }}
+        run: |
+          set -euo pipefail
+          # `xcodebuild test` may rebuild the host app after the pre-test
+          # artifact check. Verify the exact product that the UI test actually
+          # launched, so a second build cannot silently fall back to WebKit or
+          # reintroduce stale CEF helpers after the initial check.
+          app_path="$CMUX_DERIVED_DATA_PATH/Build/Products/Debug/cmux.app"
+          if [ ! -d "$app_path" ]; then
+            app_path="$(find "$CMUX_DERIVED_DATA_PATH/Build/Products/Debug" -maxdepth 1 -type d -name 'cmux*.app' -print -quit)"
+          fi
+          [ -n "$app_path" ] && [ -d "$app_path" ] || {
+            echo "::error::could not locate the post-test browser app bundle" >&2
+            exit 1
+          }
+          verifier="$RUNNER_TEMP/cmux-trusted-browser-verifier/scripts/ci/verify_browser_runtime_artifact.py"
+          [ -f "$verifier" ] || {
+            echo "::error::trusted browser verifier is unavailable after tests" >&2
+            exit 1
+          }
+          python3 "$verifier" \
+            --app "$app_path" \
+            --source-root "$GITHUB_WORKSPACE" \
+            --expected-sha "$EXPECTED_SHA"
+
+      - name: Verify browser helper cleanup
+        if: ${{ always() && inputs.verify_browser_runtime == true }}
+        run: |
+          set -euo pipefail
+          # The app-host wrapper must tear down every CEF child before the
+          # verification job can pass. A leftover helper retains profile locks
+          # and can poison the next tagged run on a reused macOS host.
+          leftovers="$(pgrep -af '[c]mux CEF Helper' || true)"
+          if [ -n "$leftovers" ]; then
+            echo "::error::CEF helper processes survived browser verification:"
+            echo "$leftovers"
+            exit 1
+          fi
+          echo "No CEF helper processes remain after browser verification."
 
       - name: Stop recording and trim
         if: ${{ always() && steps.filter.outputs.record_video == 'true' && env.RECORD_PID != '' }}

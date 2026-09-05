@@ -30,7 +30,7 @@ check_cla_guard_runner() {
 
   echo "PASS: CLA policy guard uses the fixed GitHub-hosted runner"
 }
-
+WEB_COMPLEXITY_TRUSTED_FILE="$ROOT_DIR/.github/workflows/web-complexity-trusted.yml"
 check_macos_runner() {
   local file="$1" job="$2"
   if ! awk -v job="$job" '
@@ -113,10 +113,23 @@ check_e2e_runner_fallbacks() {
     /^on:$/ { in_on=1; next }
     in_on && /^[^[:space:]]/ { in_on=0 }
     in_on && /^  workflow_dispatch:$/ { saw_dispatch=1; next }
+    in_on && /^  workflow_call:$/ { saw_call=1; next }
     in_on && /^  [A-Za-z0-9_-]+:/ { saw_other_trigger=1 }
-    END { exit !(saw_dispatch && !saw_other_trigger) }
+    END { exit !(saw_dispatch && saw_call && !saw_other_trigger) }
   ' "$E2E_FILE"; then
-    echo "FAIL: test-e2e.yml must remain workflow_dispatch-only before it may expose the self-hosted Tart canary"
+    echo "FAIL: test-e2e.yml must expose only workflow_dispatch and the trusted workflow_call trigger"
+    exit 1
+  fi
+
+  if ! awk '
+    /^  workflow_call:$/ { in_call=1; next }
+    in_call && /^[^[:space:]#]/ { in_call=0; in_options=0; next }
+    in_call && /^  [^[:space:]#][^:]*:/ { exit }
+    in_call && /default: "blacksmith-[0-9]+vcpu-macos-/ { saw_trusted_default=1 }
+    in_call && /tart-/ { saw_tart=1 }
+    END { exit !(saw_trusted_default && !saw_tart) }
+  ' "$E2E_FILE"; then
+    echo "FAIL: workflow_call E2E runs must default to a trusted Blacksmith macOS runner and never expose Tart"
     exit 1
   fi
 
@@ -1132,10 +1145,11 @@ check_no_bare_github_hosted_runners() {
   # deliberate single-runner pins such as the testmanagerd-wedged
   # `app-host-unit-tests` job.
   local hits
-  # cla-policy-guard.yml and web-complexity-trusted.yml are control-plane
-  # workflows. They deliberately run on GitHub-hosted ephemeral runners so
-  # untrusted policy/source bytes cannot redirect execution to a persistent
-  # or contributor-controlled machine. Exempt both files here instead.
+  # The CLA and trusted web-complexity workflows are control-plane files: they
+  # must run on an ephemeral GitHub-hosted runner that no repository variable
+  # can redirect. Their own base-controlled policies protect edits, so they
+  # are exempted from the product-runner scan below and checked explicitly in
+  # check_protected_workflow_runners.
   hits="$(grep -rnE "runs-on:[[:space:]]*(ubuntu-[a-z0-9.]+|macos-[a-z0-9]+)([[:space:]]*$|[[:space:]]+#)" "$ROOT_DIR/.github/workflows" | grep -v "github-hosted-required" | grep -v "/cla-policy-guard.yml:" | grep -v "/web-complexity-trusted.yml:" || true)"
   if [[ -n "$hits" ]]; then
     echo "FAIL: these jobs use a bare GitHub-hosted runner; route them through vars.LINUX_RUNNER / vars.MACOS_RUNNER_IOS so Blacksmith<->overflow stays a repo-variable flip:"
@@ -1143,6 +1157,56 @@ check_no_bare_github_hosted_runners() {
     exit 1
   fi
   echo "PASS: no workflow pins a bare GitHub-hosted runner; all route through runner repo variables"
+}
+
+check_protected_workflow_runners() {
+  local runner
+
+  runner="$(awk '
+    /^  validate:/ { in_job=1; next }
+    in_job && /^  [^[:space:]#][^:]*:/ { in_job=0 }
+    in_job && /^    runs-on:/ { print; exit }
+  ' "$ROOT_DIR/.github/workflows/cla-policy-guard.yml")"
+  if [[ "$runner" != "    runs-on: ubuntu-24.04" ]]; then
+    echo "FAIL: CLA policy guard must stay pinned to the GitHub-hosted ephemeral runner"
+    exit 1
+  fi
+
+  runner="$(awk '
+    /^  complexity:/ { in_job=1; next }
+    in_job && /^  [^[:space:]#][^:]*:/ { in_job=0 }
+    in_job && /^    runs-on:/ { print; exit }
+  ' "$WEB_COMPLEXITY_TRUSTED_FILE")"
+  if [[ "$runner" != "    runs-on: ubuntu-24.04" ]]; then
+    echo "FAIL: trusted web-complexity policy must stay pinned to the GitHub-hosted ephemeral runner"
+    exit 1
+  fi
+
+  for job in route required-ci; do
+    runner="$(awk -v job="$job" '
+      $0 ~ "^  " job ":" { in_job=1; next }
+      in_job && /^  [^[:space:]#][^:]*:/ { in_job=0 }
+      in_job && /^    runs-on:/ { sub(/[[:space:]]+#.*/, ""); print; exit }
+    ' "$ROOT_DIR/.github/workflows/required-ci.yml")"
+    if [[ "$runner" != "    runs-on: ubuntu-24.04" ]]; then
+      echo "FAIL: required-ci $job must stay pinned to the GitHub-hosted ephemeral runner"
+      exit 1
+    fi
+  done
+
+  echo "PASS: protected control-plane workflows stay pinned to GitHub-hosted ephemeral runners"
+}
+
+check_no_duplicate_ci_status_workflow() {
+  local duplicate
+  duplicate="$(grep -rlE '^([[:space:]]+name: ci-status|[[:space:]]+ci-status:)' \
+    "$ROOT_DIR/.github/workflows" | grep -v '/ci.yml$' || true)"
+  if [[ -n "$duplicate" ]]; then
+    echo "FAIL: only .github/workflows/ci.yml may publish the required ci-status context"
+    echo "$duplicate"
+    exit 1
+  fi
+  echo "PASS: no fallback workflow can publish the required ci-status context"
 }
 
 check_no_self_hosted_fleet_runners() {
@@ -1263,6 +1327,8 @@ check_cla_guard_runner
 
 # ci.yml jobs
 check_no_bare_github_hosted_runners
+check_protected_workflow_runners
+check_no_duplicate_ci_status_workflow
 check_no_self_hosted_fleet_runners
 check_macos_runner "$CI_FILE" "app-host-unit-tests"
 check_macos_runner "$CI_FILE" "tests-build-and-lag"

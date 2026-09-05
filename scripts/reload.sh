@@ -1388,6 +1388,16 @@ if [[ -z "$TAG" ]]; then
   )
 fi
 XCODEBUILD_ARGS+=(PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID")
+# CI artifact verification can bind the built app to the exact checkout. Keep
+# this optional for normal local reloads, but reject malformed values whenever a
+# caller supplies the provenance setting so a moving ref cannot be stamped.
+if [[ -n "${CMUX_BUILD_SOURCE_SHA:-}" ]]; then
+  if [[ ! "${CMUX_BUILD_SOURCE_SHA}" =~ ^[0-9a-fA-F]{40}$ ]]; then
+    echo "error: CMUX_BUILD_SOURCE_SHA must be a full 40-character commit SHA" >&2
+    exit 1
+  fi
+  XCODEBUILD_ARGS+=(CMUXBuildSourceSHA="${CMUX_BUILD_SOURCE_SHA}")
+fi
 # The helper is assembled before Xcode emits the host's processed Info.plist.
 # Pass the final tagged display name explicitly so its TCC entry matches the
 # app the user is dogfooding instead of falling back to the untagged product.

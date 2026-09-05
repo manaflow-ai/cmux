@@ -154,6 +154,136 @@ final class BrowserReliabilityRegressionUITests: BrowserFixtureSocketTestCase {
         XCTAssertEqual(result["url"] as? String, "about:blank")
     }
 
+    /// End-to-end browser-engine smoke: a real pane must render a document,
+    /// expose its DOM/title, produce a non-empty PNG, and release cleanly before
+    /// another pane is opened.  When the CI artifact contains CEF, the shared
+    /// fixture harness requests Chromium and verifies the returned engine.
+    func testBrowserEngineSmokeRendersEvaluatesScreenshotsAndReopens() throws {
+        try launchApp()
+        let firstSurface = try openFixture("csp-no-unsafe-eval")
+
+        XCTAssertEqual(
+            try evalString("document.title", surfaceID: firstSurface),
+            "csp-no-unsafe-eval",
+            "the browser engine must commit a document that can be evaluated"
+        )
+
+        let firstOrigin = try BrowserRecoveryHTTPServer()
+        let secondOrigin = try BrowserRecoveryHTTPServer()
+        try firstOrigin.start()
+        try secondOrigin.start()
+        defer {
+            firstOrigin.stop()
+            secondOrigin.stop()
+        }
+
+        func navigateThroughHeldResponse(
+            _ server: BrowserRecoveryHTTPServer,
+            path: String
+        ) throws {
+            let request = try beginPendingSocketRequest(
+                method: "browser.navigate",
+                params: [
+                    "surface_id": firstSurface,
+                    "url": "http://127.0.0.1:\(server.port)\(path)",
+                ],
+                responseTimeout: 20.0
+            )
+            defer { closePendingSocketRequest(request) }
+            try server.waitForRequest()
+            try server.releaseResponse()
+            let envelope = try XCTUnwrap(
+                finishPendingSocketRequest(request),
+                "Expected navigation response from origin \(server.port)"
+            )
+            XCTAssertEqual(envelope["ok"] as? Bool, true, "Navigation failed: \(envelope)")
+            try socketResult(
+                method: "browser.wait",
+                params: [
+                    "surface_id": firstSurface,
+                    "load_state": "complete",
+                    "timeout_ms": 10_000,
+                ],
+                responseTimeout: 16.0
+            )
+        }
+
+        // Same-origin navigation must commit twice on the first origin.
+        try navigateThroughHeldResponse(firstOrigin, path: "/same-origin")
+        XCTAssertEqual(
+            try evalString("window.location.port", surfaceID: firstSurface),
+            String(firstOrigin.port)
+        )
+        try navigateThroughHeldResponse(firstOrigin, path: "/same-origin?second")
+        XCTAssertEqual(
+            try evalString("window.location.port", surfaceID: firstSurface),
+            String(firstOrigin.port)
+        )
+
+        // A different loopback port is a distinct origin. This catches stale
+        // renderer/CDP targets that appear healthy while navigation is still
+        // attached to the prior origin.
+        try navigateThroughHeldResponse(secondOrigin, path: "/cross-origin")
+        XCTAssertEqual(
+            try evalString("window.location.port", surfaceID: firstSurface),
+            String(secondOrigin.port)
+        )
+        XCTAssertEqual(
+            try evalString("document.body.dataset.cmuxRecovered || ''", surfaceID: firstSurface),
+            "true"
+        )
+
+        let screenshot = try socketResult(
+            method: "browser.screenshot",
+            params: ["surface_id": firstSurface],
+            responseTimeout: 20.0
+        )
+        let pngBase64 = try XCTUnwrap(
+            screenshot["png_base64"] as? String,
+            "browser.screenshot must return PNG data"
+        )
+        let png = try XCTUnwrap(
+            Data(base64Encoded: pngBase64),
+            "browser.screenshot returned invalid base64"
+        )
+        XCTAssertGreaterThan(png.count, 128, "browser.screenshot returned an empty image")
+        XCTAssertTrue(
+            png.starts(with: [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]),
+            "browser.screenshot must return a PNG signature"
+        )
+        if png.count >= 24 {
+            let width = png[16..<20].reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
+            let height = png[20..<24].reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
+            XCTAssertGreaterThan(width, 10, "browser.screenshot width is invalid")
+            XCTAssertGreaterThan(height, 10, "browser.screenshot height is invalid")
+        } else {
+            XCTFail("browser.screenshot PNG is too short to contain dimensions")
+        }
+
+        let closed = try socketResult(
+            method: "browser.tab.close",
+            params: ["surface_id": firstSurface],
+            responseTimeout: 15.0
+        )
+        XCTAssertEqual(
+            closed["surface_id"] as? String,
+            firstSurface,
+            "browser.tab.close must close the requested browser surface"
+        )
+
+        let reopenedSurface = try openFixture("sticky-input")
+        XCTAssertNotEqual(
+            reopenedSurface,
+            firstSurface,
+            "a closed browser surface must not be reused as a stale live handle"
+        )
+        XCTAssertEqual(
+            try evalString("document.title", surfaceID: reopenedSurface),
+            "sticky-input",
+            "a browser pane must render normally after close/reopen"
+        )
+    }
+
     /// Regression: page CSP without 'unsafe-eval' blocks page-world script
     /// evaluation; browser.eval must fall back to the isolated content world
     /// and still return a result.
