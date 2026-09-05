@@ -14942,13 +14942,22 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     MobileDebugLog.anchormux("CMUX_REPLAY stale_request_failed surface=\(surfaceID)")
                     return
                 }
-                mobileShellLog.error("CMUX_REPLAY failed surface=\(surfaceID, privacy: .public) error=\(String(describing: error), privacy: .private)")
-                self.recordAppEvent(
-                    .terminalReplayFailed,
-                    correlationID: surfaceID,
-                    startedAt: diagnosticStartedAt,
-                    failure: DiagnosticFailureKind.classify(error)
-                )
+                // A viewport transition is the host's expected readiness
+                // signal while Ghostty applies the viewport this request
+                // reported (it fires on essentially every geometry change:
+                // keyboard, rotation, split-column animation). Logging it at
+                // error level and counting it as a replay failure buried real
+                // failures behind per-resize noise; the deferred-replay
+                // anchormux line below is its record.
+                if !self.isTerminalReplayViewportTransition(error) {
+                    mobileShellLog.error("CMUX_REPLAY failed surface=\(surfaceID, privacy: .public) error=\(String(describing: error), privacy: .private)")
+                    self.recordAppEvent(
+                        .terminalReplayFailed,
+                        correlationID: surfaceID,
+                        startedAt: diagnosticStartedAt,
+                        failure: DiagnosticFailureKind.classify(error)
+                    )
+                }
                 guard self.remoteClient === client else {
                     self.clearTerminalReplayInFlightIfCurrent(
                         surfaceID: surfaceID,

@@ -46,13 +46,23 @@ struct WorkspaceDetailView: View {
     let safeAreaContext: MobileTerminalSafeAreaContext
     let backButtonConfiguration: WorkspaceBackButtonConfiguration?
     let signOut: (@MainActor @Sendable () -> Void)?
+    /// Regular-width split owner action. Compact navigation leaves this nil
+    /// and continues to use its existing back-button/system-toolbar path.
+    var toggleSidebar: (() -> Void)? = nil
+    /// The regular-width split owner shows this action in the detail bar only
+    /// while the sidebar column is hidden. When visible, the sidebar toolbar
+    /// owns the same action instead.
+    var showsSidebarToggle = false
     @Environment(BrowserSurfaceStore.self) var browserStore
     @Environment(BrowserStreamStore.self) var browserStreamStore
     @Environment(MobileSimulatorStreamStore.self) var simulatorStreamStore
-    @Environment(MobileDisplaySettings.self) private var displaySettings
+    @Environment(MobileDisplaySettings.self) var displaySettings
     @Environment(ToastCenter.self) private var toasts
     @Environment(\.mobileChildPresentationProvider) private var childPresentationProvider
     @Environment(\.terminalFilesChipEnabled) var isTerminalFilesChipEnabled
+#if os(iOS)
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+#endif
     /// Drives the destructive close-workspace confirmation dialog.
     @State var isConfirmingClose = false
     #if canImport(UIKit)
@@ -209,7 +219,7 @@ struct WorkspaceDetailView: View {
         }
 
         #if os(iOS)
-        content
+        let navigationContent = content
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
             .navigationTitle(systemNavigationTitle)
             // With the scroll-edge band active (iOS 26, terminal surface),
@@ -219,12 +229,21 @@ struct WorkspaceDetailView: View {
                 theme: store.activeTerminalTheme,
                 scrollEdgeGlass: terminalScrollEdgeGlassActive
             )
+            // Paint the navigation container, including the status-bar safe
+            // area, with the same theme as the terminal surface below it. A
+            // plain view background only covers the content bounds, leaving
+            // the split view's top safe area on the default system color.
+            .containerBackground(
+                store.activeTerminalTheme.terminalBackgroundColor,
+                for: .navigation
+            )
             // The browser and chat surfaces scroll; without this the system
             // minimizes the whole bar into a floating "…" pill, unlike the
             // terminal surface, which has no system scroll view.
             .mobilePinnedNavigationBar()
             .trackBarPresence(barPresence)
-            .toolbar { workspaceDetailToolbar }
+
+        detailNavigationChrome(navigationContent)
             .task(id: workspace.rpcWorkspaceID.rawValue) {
                 await store.refreshMobileBrowserPanels(workspaceID: workspace.rpcWorkspaceID.rawValue)
                 syncSimulatorStreamPanels()
@@ -322,6 +341,28 @@ struct WorkspaceDetailView: View {
         #endif
     }
 
+#if os(iOS)
+    /// The regular-width detail column uses a SwiftUI-owned bar. A system
+    /// navigation toolbar is allowed to recompute its item placement when the
+    /// split sidebar changes width, which briefly removes and re-inserts the
+    /// terminal picker. Owning this row keeps the trailing controls attached to
+    /// the detail column throughout that transition. Compact iPhone navigation
+    /// retains the existing system toolbar unchanged.
+    @ViewBuilder
+    private func detailNavigationChrome<Content: View>(_ content: Content) -> some View {
+        if horizontalSizeClass == .regular {
+            content
+                .toolbar(.hidden, for: .navigationBar)
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    workspaceOwnedTopBar
+                }
+        } else {
+            content
+                .toolbar { workspaceDetailToolbar }
+        }
+    }
+#endif
+
     private func terminalCreationRecovery(message: String) -> some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: "exclamationmark.triangle.fill")
@@ -348,7 +389,7 @@ struct WorkspaceDetailView: View {
     }
 
     #if os(iOS)
-    private var altScreenNoticeIsVisible: Bool {
+    var altScreenNoticeIsVisible: Bool {
         guard let selectedTerminalID else { return false }
         return store.isAlternateScreen(surfaceID: selectedTerminalID)
             && displaySettings.showAltScreenNotice
@@ -474,6 +515,13 @@ struct WorkspaceDetailView: View {
     }
 
     private var workspaceTitleToolbarMenu: some View {
+        workspaceTitleMenu(usesNaturalWidth: false)
+    }
+
+    /// Builds the shared title menu for either the system toolbar or the
+    /// regular-width owned iPad bar. The latter lays out its fixed trailing
+    /// cluster itself, so it must not use the system-toolbar width cap.
+    func workspaceTitleMenu(usesNaturalWidth: Bool = false) -> some View {
         let measuredWidths = structuralTrailingItemKeys.compactMap { trailingToolbarItemWidths[$0] }
         // Reconnect lives in the title menu now that no pill covers the
         // terminal; reauthentication keeps its own blocking banner.
@@ -502,6 +550,7 @@ struct WorkspaceDetailView: View {
         )
         return WorkspaceTitleMenu(
             value: value,
+            usesNaturalWidth: usesNaturalWidth,
             menuContent: {
                 WorkspaceTitleMenuContent(
                     workspaceName: value.workspaceName,
@@ -823,7 +872,7 @@ struct WorkspaceDetailView: View {
     #if os(iOS)
     /// Leading back-button island; iOS 26 supplies toolbar glass.
     @ViewBuilder
-    private var workspaceBackToolbarButton: some View {
+    var workspaceBackToolbarButton: some View {
         if let backButtonConfiguration {
             WorkspaceBackButton(
                 unreadCount: backButtonConfiguration.unreadCount,
