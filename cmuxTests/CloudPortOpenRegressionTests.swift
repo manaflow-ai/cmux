@@ -337,6 +337,18 @@ struct CloudPortOpenRegressionTests {
         ).first?.url == nil, "an address withdrawal cannot leave a stale browser URL")
     }
 
+    @Test("Port discovery uses the private cmux-tui link")
+    func portDiscoveryUsesPrivateMachineLink() throws {
+        let arguments = try #require(
+            CloudTuiCommandLine.listeningPortsArguments(socketPath: "/tmp/cmux-cloud.sock")
+        )
+        #expect(arguments == [
+            "--socket", "/tmp/cmux-cloud.sock",
+            "--json", "raw", "command",
+            "--request-json", #"{"cmd":"machine-listening-tcp","id":1}"#,
+        ])
+    }
+
     @Test("Sidebar and repeated opens use the machine-owned local workspace and one catalog identity")
     func rowOpenUsesSharedCatalogPath() async throws {
         let catalog = SurfaceCatalog()
