@@ -34,6 +34,9 @@ public struct MobileAnalyticsComposition {
     public let anonymousID: String
     /// Important transport and backend outcomes sent to the authenticated Axiom bridge.
     public let networkOutcomeReporter: MobileNetworkOutcomeReporter
+    /// The network emitter owns the same consent provider and revocation
+    /// observer as the product emitter, so opt-out cancels both upload paths.
+    public let networkOutcomeEmitter: AnalyticsEmitter
     /// The default mobile evaluation context sent to `/api/client-config`.
     public let clientConfigContext: ClientConfigEvaluationContext
     /// A request for anonymous mobile flag evaluation.
@@ -112,6 +115,7 @@ public struct MobileAnalyticsComposition {
         self.emitter = emitter
         self.clientConfig = HTTPClientConfigLoader(apiBaseURL: apiBaseURL, session: networkSession)
         self.anonymousID = anonymousID
+        self.networkOutcomeEmitter = networkOutcomeEmitter
         self.networkOutcomeReporter = MobileNetworkOutcomeReporter(emitter: networkOutcomeEmitter)
         self.clientConfigContext = ClientConfigEvaluationContext(
             personProperties: Self.clientConfigDeviceProperties(anonymousID: anonymousID),
