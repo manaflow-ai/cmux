@@ -122,3 +122,11 @@
 1	Sources/Workspace.swift	main actor-isolated instance method 'splitTabBar(_:shouldCloseTab:inPane:)' cannot be used to satisfy nonisolated requirement from protocol 'BonsplitDelegate'
 1	Sources/Workspace.swift	switch must be exhaustive
 22	Sources/cmuxApp.swift	'onChange(of:perform:)' was deprecated in macOS 14.0: Use `onChange` with a two or zero parameter action closure instead.
+2	Sources/AppDelegate+PaneMemoryGuardrail.swift	trailing closure in this context is confusable with the body of the statement; pass as a parenthesized argument to silence this warning
+1	Sources/Cloud/MachinesPanelView.swift	backward matching of the unlabeled trailing closure is deprecated; label the argument with 'onCompletion' to suppress this warning
+1	Sources/Cloud/MachinesPanelViewModel.swift	main actor-isolated static property 'finishedUserInfoKey' can not be referenced from a Sendable closure
+1	Sources/Cloud/MachinesPanelViewModel.swift	main actor-isolated static property 'shared' can not be referenced from a nonisolated context
+1	Sources/Cloud/NewMachineSheetPresenter.swift	main actor-isolated static property 'shared' can not be referenced from a nonisolated context
+2	Sources/Cloud/VMClient.swift	'nonisolated' can not be applied to variable with non-'Sendable' type 'ISO8601DateFormatter'
+1	Sources/SessionIndexTableController.swift	call to main actor-isolated instance method 'reconcilePresentation(in:)' in a synchronous nonisolated context
+1	Sources/SessionIndexTableController.swift	main actor-isolated property 'isApplyingRows' can not be referenced from a Sendable closure

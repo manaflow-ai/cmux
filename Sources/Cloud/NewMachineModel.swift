@@ -74,7 +74,7 @@ final class NewMachineModel {
     /// 24/96, 32/128, or 64/128 GB of memory/disk. The server's list trims
     /// this set for plan limits. The 128 MiB BusyBox image is intentionally
     /// not a coding-machine option because it has no baked dev tools.
-    static let memoryOptionsMb: [Int] = [4096, 8192, 16384, 24576, 32768, 65536]
+    nonisolated static let memoryOptionsMb: [Int] = [4096, 8192, 16384, 24576, 32768, 65536]
     static let planMachineMemoryMb = 8192
     /// The pre-ladder backend default. It is used only when the server omits
     /// `limits.memoryOptionsMb`, so the client does not send an unsupported
