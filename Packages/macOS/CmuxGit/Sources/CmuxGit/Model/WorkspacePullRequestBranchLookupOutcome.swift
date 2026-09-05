@@ -5,4 +5,5 @@ import Foundation
 struct WorkspacePullRequestBranchLookupOutcome: Sendable {
     let cacheEntry: WorkspacePullRequestRepoCacheEntry
     let transientBranches: Set<String>
+    let authLeases: Set<GitHubAuthHeaderLease>
 }

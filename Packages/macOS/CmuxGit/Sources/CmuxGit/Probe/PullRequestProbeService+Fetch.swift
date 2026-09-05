@@ -34,7 +34,7 @@ extension PullRequestProbeService {
             return (repoResults: [:], rateLimitRetryDate: nil)
         }
 
-        guard let authHeader = await authHeaderValue() else {
+        guard let authLease = await authHeaderValue() else {
             debugLog("workspace.prRefresh.authUnavailable")
             return (
                 repoResults: Dictionary(
@@ -44,14 +44,15 @@ extension PullRequestProbeService {
             )
         }
         var results: [String: WorkspacePullRequestRepoFetchResult] = [:]
+        var authLeases: Set<GitHubAuthHeaderLease> = []
 
         let fetchedResults = await withTaskGroup(
-            of: (String, WorkspacePullRequestRepoFetchResult).self,
-            returning: [(String, WorkspacePullRequestRepoFetchResult)].self
+            of: (String, WorkspacePullRequestRepoFetchOutcome).self,
+            returning: [(String, WorkspacePullRequestRepoFetchOutcome)].self
         ) { group in
             for repoSlug in repoDirectoriesBySlug.keys {
                 group.addTask {
-                    let result = await self.repoFetchResult(
+                    let outcome = await self.repoFetchOutcome(
                         repoSlug: repoSlug,
                         candidateBranches: candidateBranchesByRepo[repoSlug] ?? [],
                         cachedEntry: cacheBySlug[repoSlug],
@@ -59,25 +60,42 @@ extension PullRequestProbeService {
                             && (cacheBySlug[repoSlug].map {
                                 now.timeIntervalSince($0.fetchedAt) < Self.repoCacheLifetime
                             } ?? false),
-                        authHeader: authHeader
+                        authLease: authLease
                     )
-                    return (repoSlug, result)
+                    return (repoSlug, outcome)
                 }
             }
 
-            var collected: [(String, WorkspacePullRequestRepoFetchResult)] = []
+            var collected: [(String, WorkspacePullRequestRepoFetchOutcome)] = []
             for await result in group {
                 collected.append(result)
             }
             return collected
         }
 
-        for (repoSlug, result) in fetchedResults {
-            results[repoSlug] = result
+        for (repoSlug, outcome) in fetchedResults {
+            results[repoSlug] = outcome.result
+            authLeases.formUnion(outcome.authLeases)
+        }
+        let rateLimitRetryDate = await withTaskGroup(
+            of: Date?.self,
+            returning: Date?.self
+        ) { group in
+            for authLease in authLeases {
+                group.addTask {
+                    await self.requestCoordinator.retryDate(authHeader: authLease.value)
+                }
+            }
+            var latestRetryDate: Date?
+            for await retryDate in group {
+                guard let retryDate else { continue }
+                latestRetryDate = max(latestRetryDate ?? .distantPast, retryDate)
+            }
+            return latestRetryDate
         }
         return (
             repoResults: results,
-            rateLimitRetryDate: await requestCoordinator.retryDate(authHeader: authHeader)
+            rateLimitRetryDate: rateLimitRetryDate
         )
     }
 
@@ -88,8 +106,26 @@ extension PullRequestProbeService {
         candidateBranches: Set<String>,
         cachedEntry: WorkspacePullRequestRepoCacheEntry?,
         useFreshCache: Bool,
-        authHeader: String
+        authLease: GitHubAuthHeaderLease
     ) async -> WorkspacePullRequestRepoFetchResult {
+        let outcome = await repoFetchOutcome(
+            repoSlug: repoSlug,
+            candidateBranches: candidateBranches,
+            cachedEntry: cachedEntry,
+            useFreshCache: useFreshCache,
+            authLease: authLease
+        )
+        return outcome.result
+    }
+
+    /// Fetches one repository and reports the leases used by its requests.
+    nonisolated func repoFetchOutcome(
+        repoSlug: String,
+        candidateBranches: Set<String>,
+        cachedEntry: WorkspacePullRequestRepoCacheEntry?,
+        useFreshCache: Bool,
+        authLease: GitHubAuthHeaderLease
+    ) async -> WorkspacePullRequestRepoFetchOutcome {
         let normalizedCandidateBranches = Set(
             candidateBranches.compactMap(GitMetadataService.normalizedBranchName)
         )
@@ -105,7 +141,10 @@ extension PullRequestProbeService {
                     "workspace.prRefresh.repo.cache repo=\(repoSlug) " +
                     "branches=\(cachedEntry.pullRequestsByBranch.count)"
                 )
-                return .success(cachedEntry, usedCache: true, transientBranches: [])
+                return WorkspacePullRequestRepoFetchOutcome(
+                    result: .success(cachedEntry, usedCache: true, transientBranches: []),
+                    authLeases: [authLease]
+                )
             }
 
             let lookupOutcome = await branchLookupOutcome(
@@ -113,16 +152,19 @@ extension PullRequestProbeService {
                 candidateBranches: unresolvedBranches,
                 baseEntry: cachedEntry,
                 refreshedAt: Date(),
-                authHeader: authHeader
+                authLease: authLease
             )
             debugLog(
                 "workspace.prRefresh.repo.cache.miss repo=\(repoSlug) " +
                 "branchLookups=\(unresolvedBranches.count) transient=\(lookupOutcome.transientBranches.count)"
             )
-            return .success(
-                lookupOutcome.cacheEntry,
-                usedCache: false,
-                transientBranches: lookupOutcome.transientBranches
+            return WorkspacePullRequestRepoFetchOutcome(
+                result: .success(
+                    lookupOutcome.cacheEntry,
+                    usedCache: false,
+                    transientBranches: lookupOutcome.transientBranches
+                ),
+                authLeases: lookupOutcome.authLeases
             )
         }
 
@@ -136,7 +178,7 @@ extension PullRequestProbeService {
             candidateBranches: normalizedCandidateBranches.sorted(),
             baseEntry: baseEntry,
             refreshedAt: fetchTimestamp,
-            authHeader: authHeader
+            authLease: authLease
         )
         debugLog(
             "workspace.prRefresh.repo.perBranch repo=\(repoSlug) " +
@@ -144,10 +186,13 @@ extension PullRequestProbeService {
             "branches=\(lookupOutcome.cacheEntry.pullRequestsByBranch.count) " +
             "transient=\(lookupOutcome.transientBranches.count)"
         )
-        return .success(
-            lookupOutcome.cacheEntry,
-            usedCache: false,
-            transientBranches: lookupOutcome.transientBranches
+        return WorkspacePullRequestRepoFetchOutcome(
+            result: .success(
+                lookupOutcome.cacheEntry,
+                usedCache: false,
+                transientBranches: lookupOutcome.transientBranches
+            ),
+            authLeases: lookupOutcome.authLeases
         )
     }
 
@@ -171,31 +216,32 @@ extension PullRequestProbeService {
         candidateBranches: [String],
         baseEntry: WorkspacePullRequestRepoCacheEntry,
         refreshedAt: Date,
-        authHeader: String
+        authLease: GitHubAuthHeaderLease
     ) async -> WorkspacePullRequestBranchLookupOutcome {
         guard !candidateBranches.isEmpty else {
             return WorkspacePullRequestBranchLookupOutcome(
                 cacheEntry: baseEntry,
-                transientBranches: []
+                transientBranches: [],
+                authLeases: [authLease]
             )
         }
 
         let branchResults = await withTaskGroup(
-            of: (String, WorkspacePullRequestBranchFetchResult).self,
-            returning: [(String, WorkspacePullRequestBranchFetchResult)].self
+            of: (String, WorkspacePullRequestBranchFetchOutcome).self,
+            returning: [(String, WorkspacePullRequestBranchFetchOutcome)].self
         ) { group in
             for branch in candidateBranches {
                 group.addTask {
                     let result = await self.branchFetchResult(
                         repoSlug: repoSlug,
                         branch: branch,
-                        authHeader: authHeader
+                        authLease: authLease
                     )
                     return (branch, result)
                 }
             }
 
-            var collected: [(String, WorkspacePullRequestBranchFetchResult)] = []
+            var collected: [(String, WorkspacePullRequestBranchFetchOutcome)] = []
             for await result in group {
                 collected.append(result)
             }
@@ -205,9 +251,11 @@ extension PullRequestProbeService {
         var pullRequestsByBranch = baseEntry.pullRequestsByBranch
         var knownAbsentBranches = baseEntry.knownAbsentBranches
         var transientBranches: Set<String> = []
+        var authLeases: Set<GitHubAuthHeaderLease> = []
 
-        for (branch, result) in branchResults {
-            switch result {
+        for (branch, outcome) in branchResults {
+            authLeases.insert(outcome.authLease)
+            switch outcome.result {
             case .found(let pullRequest):
                 pullRequestsByBranch[branch] = pullRequest
                 knownAbsentBranches.remove(branch)
@@ -224,7 +272,8 @@ extension PullRequestProbeService {
                 pullRequestsByBranch: pullRequestsByBranch,
                 knownAbsentBranches: knownAbsentBranches
             ),
-            transientBranches: transientBranches
+            transientBranches: transientBranches,
+            authLeases: authLeases
         )
     }
 
@@ -232,21 +281,65 @@ extension PullRequestProbeService {
     nonisolated func branchFetchResult(
         repoSlug: String,
         branch: String,
-        authHeader: String
-    ) async -> WorkspacePullRequestBranchFetchResult {
+        authLease: GitHubAuthHeaderLease,
+        allowAuthRefresh: Bool = true
+    ) async -> WorkspacePullRequestBranchFetchOutcome {
         guard let endpoint = Self.branchEndpoint(
             repoSlug: repoSlug,
             branch: branch
         ) else {
-            return .transientFailure
+            return WorkspacePullRequestBranchFetchOutcome(
+                result: .transientFailure,
+                authLease: authLease
+            )
         }
 
         guard let response = await performRequest(
             endpoint: endpoint,
-            authHeader: authHeader
+            authHeader: authLease.value
         ) else {
             debugLog("workspace.prRefresh.branch.fail repo=\(repoSlug) branch=\(branch) status=nil")
-            return .transientFailure
+            return WorkspacePullRequestBranchFetchOutcome(
+                result: .transientFailure,
+                authLease: authLease
+            )
+        }
+
+        if response.statusCode == 200 {
+            await recordAuthHeaderSuccess(authLease)
+        }
+
+        if response.statusCode == 401 {
+            // A 401 means the credential itself is no longer accepted. Drop
+            // only the credential used by this request, resolve a replacement,
+            // and retry this branch once. If the replacement is rejected too,
+            // back off the next resolution so an invalid credential cannot
+            // recreate an approval prompt on every sidebar refresh. Other 4xx
+            // responses (notably 403 permission/rate-limit responses) are
+            // intentionally not treated as an auth refresh signal.
+            debugLog(
+                "workspace.prRefresh.authRejected repo=\(repoSlug) branch=\(branch)"
+            )
+            if allowAuthRefresh {
+                await invalidateAuthHeader(authLease)
+                guard let refreshedAuthLease = await authHeaderValue() else {
+                    return WorkspacePullRequestBranchFetchOutcome(
+                        result: .transientFailure,
+                        authLease: authLease
+                    )
+                }
+                return await branchFetchResult(
+                    repoSlug: repoSlug,
+                    branch: branch,
+                    authLease: refreshedAuthLease,
+                    allowAuthRefresh: false
+                )
+            }
+            await recordAuthHeaderFailure(authLease)
+            return WorkspacePullRequestBranchFetchOutcome(
+                result: .transientFailure,
+                authLease: authLease
+            )
         }
 
         // A 404 on this `head=` lookup is repo-level, not branch-level: the pulls
@@ -268,7 +361,10 @@ extension PullRequestProbeService {
             debugLog(
                 "workspace.prRefresh.branch.notFound repo=\(repoSlug) branch=\(branch)"
             )
-            return .notFound
+            return WorkspacePullRequestBranchFetchOutcome(
+                result: .notFound,
+                authLease: authLease
+            )
         }
 
         guard response.statusCode == 200,
@@ -277,18 +373,27 @@ extension PullRequestProbeService {
                 "workspace.prRefresh.branch.fail repo=\(repoSlug) " +
                 "branch=\(branch) status=\(response.statusCode)"
             )
-            return .transientFailure
+            return WorkspacePullRequestBranchFetchOutcome(
+                result: .transientFailure,
+                authLease: authLease
+            )
         }
 
         let matchingPullRequests = pullRequests
             .map(Self.probeItem)
             .filter { GitMetadataService.normalizedBranchName($0.headRefName) == branch }
         if let preferredPullRequest = Self.preferredPullRequest(from: matchingPullRequests) {
-            return .found(preferredPullRequest)
+            return WorkspacePullRequestBranchFetchOutcome(
+                result: .found(preferredPullRequest),
+                authLease: authLease
+            )
         }
         // `200` with no PR matching this branch's head: same `.notFound` /
         // bounded known-absent backoff as the repo-level 404 above.
-        return .notFound
+        return WorkspacePullRequestBranchFetchOutcome(
+            result: .notFound,
+            authLease: authLease
+        )
     }
 
     /// Builds the `pulls?head=owner:branch` endpoint, or `nil` for a malformed
