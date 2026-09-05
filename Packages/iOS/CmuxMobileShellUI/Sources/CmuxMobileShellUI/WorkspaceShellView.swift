@@ -79,7 +79,9 @@ enum WorkspaceRootToolbarSizing {
 /// feed from drifting away from the workspace-list toolbar contract.
 struct WorkspaceRootToolbarContent: ToolbarContent {
     @Environment(\.workspaceRootToolbarContentWidth) private var contentWidth
+#if os(iOS)
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+#endif
 
     let openSettings: () -> Void
     let openDevices: () -> Void
