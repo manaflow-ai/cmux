@@ -3270,20 +3270,46 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             // resize/reflow since the previous applied frame, must not paint:
             // fail the apply so the caller resets its queue and replays.
             if let renderGridContract {
-                let measuredGrid = ghostty_surface_size(surface)
-                let gridGeneration = workQueue.noteObservedGrid(
-                    columns: Int(measuredGrid.columns),
-                    rows: Int(measuredGrid.rows)
-                )
-                let dimsMatch = Int(measuredGrid.columns) == renderGridContract.columns
-                    && Int(measuredGrid.rows) == renderGridContract.rows
+                // Screen-anchored primary deltas are chained to the exact
+                // locally observed grid. Querying libghostty's size for each
+                // keystroke adds a cross-thread surface read directly in the
+                // input-to-paint path, while the serial queue's generation is
+                // already updated by every local resize/reflow operation.
+                let measuredGrid: ghostty_surface_size_s?
+                let gridGeneration: UInt64
+                let dimsMatch: Bool
+                if renderGridContract.requiresSurfaceDimensionCheck {
+                    let measured = ghostty_surface_size(surface)
+                    measuredGrid = measured
+                    gridGeneration = workQueue.noteObservedGrid(
+                        columns: Int(measured.columns),
+                        rows: Int(measured.rows)
+                    )
+                    dimsMatch = Int(measured.columns) == renderGridContract.columns
+                        && Int(measured.rows) == renderGridContract.rows
+                } else {
+                    measuredGrid = nil
+                    gridGeneration = workQueue.observedGridGeneration
+                    // The producer's dimensions are stable for this direct
+                    // delta path. Compare them with the last locally observed
+                    // grid so stale daemon frames still fail closed; the
+                    // generation fence also rejects a delta that followed a
+                    // local reflow.
+                    dimsMatch = workQueue.observedGridMatches(
+                        columns: renderGridContract.columns,
+                        rows: renderGridContract.rows
+                    )
+                }
                 let deltaBaseIntact = !renderGridContract.isDelta
                     || workQueue.gridGenerationAtLastRenderGridApply == gridGeneration
                 if !dimsMatch || !deltaBaseIntact {
                     let appliedGeneration = workQueue.gridGenerationAtLastRenderGridApply
                         .map(String.init) ?? "nil"
+                    let localGrid = measuredGrid.map {
+                        "\($0.columns)x\($0.rows)"
+                    } ?? workQueue.observedGridDescription
                     MobileDebugLog.anchormux(
-                        "render_grid.apply_fence local=\(measuredGrid.columns)x\(measuredGrid.rows) " +
+                        "render_grid.apply_fence local=\(localGrid) " +
                             "frame=\(renderGridContract.columns)x\(renderGridContract.rows) " +
                             "delta=\(renderGridContract.isDelta) gen=\(gridGeneration) " +
                             "applied=\(appliedGeneration)"

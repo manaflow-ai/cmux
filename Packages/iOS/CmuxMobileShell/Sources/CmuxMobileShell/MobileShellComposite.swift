@@ -821,9 +821,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     private func clearSettledTerminalSendStatus(forTerminalID terminalID: String) {
-        guard terminalSendStatusesByTerminalID[terminalID] != .sending else { return }
-        terminalSendStatusesByTerminalID[terminalID] = nil
-        terminalSendOperationIDsByTerminalID[terminalID] = nil
+        // This method runs for every non-submit keystroke. Avoid mutating the
+        // observed status dictionary when there is no settled status to clear:
+        // an otherwise invisible `nil` assignment still invalidates every
+        // SwiftUI observer of the terminal status and makes the main actor do
+        // a full shell update per character.
+        guard let status = terminalSendStatusesByTerminalID[terminalID],
+              status != .sending else { return }
+        terminalSendStatusesByTerminalID.removeValue(forKey: terminalID)
+        terminalSendOperationIDsByTerminalID.removeValue(forKey: terminalID)
     }
 
     private func finishRawTerminalSend(
@@ -1586,10 +1592,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// down when its own token is still current, so it never deletes the new
     /// stream's continuation.
     private var terminalLiveFontTokensBySurfaceID: [String: UUID]
-    private var rawTerminalInputBuffer: MobileTerminalInputSendBuffer
-    private var terminalInputRPCPipeline: MobileTerminalInputRPCPipeline
-    private var rawTerminalInputDrainWaiters: [CheckedContinuation<Void, Never>]
-    private var isRawTerminalInputDrainLoopRunning: Bool
+    // Transport bookkeeping is deliberately outside the observed surface:
+    // these values change for every terminal keystroke but no view reads them.
+    // Letting @Observable instrument them adds registrar bookkeeping to every
+    // enqueue and can invalidate the shell on the input hot path.
+    @ObservationIgnored private var rawTerminalInputBuffer: MobileTerminalInputSendBuffer
+    @ObservationIgnored private var terminalInputRPCPipeline: MobileTerminalInputRPCPipeline
+    @ObservationIgnored private var rawTerminalInputDrainWaiters: [CheckedContinuation<Void, Never>]
+    @ObservationIgnored private var isRawTerminalInputDrainLoopRunning: Bool
     #if DEBUG
     var latencyProbeAutoNavigationTask: Task<Void, Never>?
     var latencyProbeTask: Task<Void, Never>?
