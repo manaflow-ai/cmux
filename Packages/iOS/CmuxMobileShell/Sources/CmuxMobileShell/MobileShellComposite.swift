@@ -2650,9 +2650,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         guard allowPreview else {
             applyPairingValidationFailure(.invalidCode)
-            connectionState = .disconnected
-            macConnectionStatus = .unavailable
-            clearRemoteConnectionContext()
+            if connectionState != .connected {
+                connectionState = .disconnected
+                macConnectionStatus = .unavailable
+                clearRemoteConnectionContext()
+            }
             return .failed
         }
         connectPreviewHost()
@@ -9787,13 +9789,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // account/session. Preserve the explicit pairing event only when this
         // ticket itself names the authorized Tailscale endpoint; stored and
         // unrelated tickets remain pinned to their Direct candidates.
-        let hasFreshExplicitTailscaleAuthorization = pairedMacDeviceID == nil
-            && ticket.routes.contains { route in
-                Self.userTailscalePairingAuthorization(
-                    for: route,
-                    authorizations: userTailscalePairingAuthorizations
-                ) != nil
-            }
+        let hasFreshExplicitTailscaleAuthorization = ticket.routes.contains { route in
+            Self.userTailscalePairingAuthorization(
+                for: route,
+                authorizations: userTailscalePairingAuthorizations
+            ) != nil
+        }
         let directOnlyDialCandidates = directOnlyDialCandidates
             ?? (resolvedMethod == .direct
                 && !hasFreshExplicitTailscaleAuthorization

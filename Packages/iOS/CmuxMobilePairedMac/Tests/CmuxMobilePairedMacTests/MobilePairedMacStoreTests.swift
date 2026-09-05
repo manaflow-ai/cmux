@@ -341,6 +341,56 @@ import Testing
         )
     }
 
+    @Test func replacingPairingRoutesRemovesStaleTailscaleGrant() async throws {
+        let (store, directory) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let oldRoute = try tailscaleRoute(host: "100.64.0.40")
+        let newRoute = try tailscaleRoute(host: "100.64.0.41")
+
+        try await store.upsert(
+            macDeviceID: "replace-mac",
+            displayName: "Replace Mac",
+            routes: [oldRoute],
+            markActive: true,
+            stackUserID: "user-1",
+            now: Date(timeIntervalSince1970: 1)
+        )
+        try await store.authorizeUserTailscaleRoutes(
+            macDeviceID: "replace-mac",
+            instanceTag: nil,
+            stackUserID: "user-1",
+            teamID: nil,
+            routes: [oldRoute]
+        )
+        try await store.upsert(
+            macDeviceID: "replace-mac",
+            displayName: "Replace Mac",
+            routes: [oldRoute, newRoute],
+            markActive: true,
+            stackUserID: "user-1",
+            now: Date(timeIntervalSince1970: 2)
+        )
+
+        try await store.replaceTailscaleRoutesIfAuthorized(
+            macDeviceID: "replace-mac",
+            condition: .unclaimed,
+            stackUserID: "user-1",
+            teamID: nil,
+            routes: [newRoute]
+        )
+        try await store.authorizeUserTailscaleRoutes(
+            macDeviceID: "replace-mac",
+            instanceTag: nil,
+            stackUserID: "user-1",
+            teamID: nil,
+            routes: [newRoute]
+        )
+
+        let current = try #require(await store.activeMac(stackUserID: "user-1"))
+        #expect(current.routes == [newRoute])
+        #expect(current.legacyTailscaleRoutes == [newRoute])
+    }
+
     @Test func userGrantSurvivesAuthenticatedIrohPublication() async throws {
         // Unlike the v8 migration capability, a grant the user minted by
         // entering the Mac's pairing code stays available after Iroh persists,

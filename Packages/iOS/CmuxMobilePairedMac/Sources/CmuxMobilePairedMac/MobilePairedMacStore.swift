@@ -753,6 +753,11 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 .text(removed.kind.rawValue),
                 .text(encoded),
             ])
+            try revokeLegacyTailscaleGrant(
+                macDeviceID: macDeviceID,
+                ownerKey: ownerKey,
+                endpoint: removed.endpoint
+            )
             try compactRouteRemovalTombstones(
                 macDeviceID: macDeviceID,
                 ownerKey: ownerKey
@@ -793,6 +798,45 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
             didWrite = true
         }
         return didWrite
+    }
+
+    /// A route removal also revokes its device-local compatibility grant. The
+    /// grant stores the full route JSON, while route identity is endpoint-based
+    /// so a refreshed route id or metadata cannot leave an old bearer behind.
+    private func revokeLegacyTailscaleGrant(
+        macDeviceID: String,
+        ownerKey: String,
+        endpoint: CmxAttachEndpoint
+    ) throws {
+        var statement: OpaquePointer?
+        defer { sqlite3_finalize(statement) }
+        let result = sqlite3_prepare_v2(
+            db,
+            "SELECT endpoint_json FROM legacy_tailscale_route_grants WHERE mac_device_id = ? AND owner_key = ?;",
+            -1,
+            &statement,
+            nil
+        )
+        guard result == SQLITE_OK else {
+            throw MobilePairedMacStoreError.prepareFailed(result, lastErrorMessage())
+        }
+        try bind(statement: statement, parameters: [.text(macDeviceID), .text(ownerKey)])
+        let decoder = JSONDecoder()
+        var encodedMatches: [String] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            guard let raw = Self.readNullableText(statement, column: 0),
+                  let data = raw.data(using: .utf8),
+                  let route = try? decoder.decode(CmxAttachRoute.self, from: data),
+                  route.kind == .tailscale,
+                  route.endpoint == endpoint else { continue }
+            encodedMatches.append(raw)
+        }
+        for encoded in encodedMatches {
+            try exec(
+                "DELETE FROM legacy_tailscale_route_grants WHERE mac_device_id = ? AND owner_key = ? AND endpoint_json = ?;",
+                binding: [.text(macDeviceID), .text(ownerKey), .text(encoded)]
+            )
+        }
     }
 
     /// Persist `'user'`-origin Tailscale compatibility grants for routes the
@@ -874,6 +918,10 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                     currentRoutes.append(disclosed)
                 }
             }
+            try compactRouteRemovalTombstones(
+                macDeviceID: macDeviceID,
+                ownerKey: ownerKey
+            )
             try exec(
                 "DELETE FROM mac_routes WHERE mac_device_id = ? AND owner_key = ?;",
                 binding: [.text(macDeviceID), .text(ownerKey)]

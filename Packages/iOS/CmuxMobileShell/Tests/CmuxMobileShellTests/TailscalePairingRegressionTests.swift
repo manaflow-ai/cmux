@@ -46,6 +46,48 @@ import Testing
         #expect(requests.first?.stackAccessToken == "test-stack-token")
     }
 
+    @Test func replacementScanCanExplicitlyAuthorizeTailscaleForDirectMac() async throws {
+        let router = LivenessHostRouter()
+        let box = TransportBox()
+        let factory = KindRecordingTransportFactory(router: router, box: box)
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let pairedMacStore = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
+        )
+        try await pairedMacStore.upsert(
+            macDeviceID: "test-mac",
+            displayName: "Test Mac",
+            routes: [try tailscaleRoute()],
+            instanceTag: "default",
+            markActive: true,
+            stackUserID: "phone-user",
+            now: Self.fixedNow
+        )
+        let runtime = LivenessTestRuntime(
+            transportFactory: factory,
+            now: { Self.fixedNow },
+            supportedRouteKinds: [.iroh, .tailscale]
+        )
+        let store = makeStore(
+            runtime: runtime,
+            pairedMacStore: pairedMacStore,
+            connectionMethod: .direct
+        )
+        store.pairingCode = currentQRCode()
+
+        let result = await store.connectPairingInput(
+            allowPreview: false,
+            pairedMacDeviceID: "test-mac",
+            instanceTag: "default"
+        )
+
+        #expect(result == .connected)
+        #expect(store.activeRoute?.kind == .tailscale)
+    }
+
     @Test func legacyTokenlessQRCodeEnteredThroughPasteUsesTheSameAuthorization() async throws {
         let router = LivenessHostRouter()
         let box = TransportBox()
@@ -274,6 +316,26 @@ import Testing
         #expect(result == .failed)
         #expect(store.connectionState == .disconnected)
         #expect(store.connectionError?.isEmpty == false)
+    }
+
+    @Test func invalidScannerPayloadDoesNotClearConnectedSession() async throws {
+        let router = LivenessHostRouter()
+        let box = TransportBox()
+        let factory = KindRecordingTransportFactory(router: router, box: box)
+        let runtime = LivenessTestRuntime(
+            transportFactory: factory,
+            now: { Self.fixedNow },
+            supportedRouteKinds: [.tailscale]
+        )
+        let store = makeStore(runtime: runtime)
+        store.pairingCode = currentQRCode()
+        #expect(await store.connectPairingInput() == .connected)
+        let connectedRoute = store.activeRoute
+
+        store.pairingCode = "https://example.com/not-a-cmux-pairing-code"
+        #expect(await store.connectPairingInput(allowPreview: false) == .failed)
+        #expect(store.connectionState == .connected)
+        #expect(store.activeRoute == connectedRoute)
     }
 
     @Test func replacementPairingRejectsDifferentMacIdentity() async throws {

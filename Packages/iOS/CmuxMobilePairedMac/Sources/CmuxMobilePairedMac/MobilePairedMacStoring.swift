@@ -241,6 +241,51 @@ public protocol MobilePairedMacStoring: Sendable {
 }
 
 extension MobilePairedMacStoring {
+    /// Replace the device-local Tailscale authorization set for one exact
+    /// pairing. The incoming QR routes are already persisted by the caller;
+    /// remove only older Tailscale endpoints so a replacement cannot keep
+    /// dialing a route that the newly scanned Mac no longer advertised.
+    public func replaceTailscaleRoutesIfAuthorized(
+        macDeviceID: String,
+        condition: MobilePairedMacRouteWriteCondition,
+        stackUserID: String?,
+        teamID: String?,
+        routes: [CmxAttachRoute]
+    ) async throws {
+        let incomingRoutes = routes.filter { $0.kind == .tailscale }
+        guard !incomingRoutes.isEmpty else { return }
+        let instanceTag: String?
+        switch condition {
+        case .matchingInstanceTag(let tag): instanceTag = tag
+        case .unclaimed: instanceTag = nil
+        }
+        let current = try await loadAll(stackUserID: stackUserID, teamID: teamID)
+            .first {
+                cmxCanonicalDeviceID($0.macDeviceID) == cmxCanonicalDeviceID(macDeviceID)
+                    && CmxMacAppInstanceIdentity(
+                        macDeviceID: $0.macDeviceID,
+                        instanceTag: $0.instanceTag
+                    ).id == CmxMacAppInstanceIdentity(
+                        macDeviceID: macDeviceID,
+                        instanceTag: instanceTag
+                    ).id
+            }
+        guard let current else { return }
+        for route in current.routes where route.kind == .tailscale {
+            guard !incomingRoutes.contains(where: { $0.endpoint == route.endpoint }) else {
+                continue
+            }
+            _ = try await removeRouteIfAuthorized(
+                macDeviceID: macDeviceID,
+                route: route,
+                condition: condition,
+                stackUserID: stackUserID,
+                teamID: teamID,
+                now: Date()
+            )
+        }
+    }
+
     /// In-memory/test fallback for stores that do not persist route tombstones.
     /// Production SQLite and scope decorators override this requirement.
     @discardableResult

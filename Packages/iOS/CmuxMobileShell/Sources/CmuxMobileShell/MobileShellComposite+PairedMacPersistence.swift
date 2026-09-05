@@ -173,6 +173,21 @@ extension MobileShellComposite {
                     )
                 }
                 if !userAuthorizedTailscaleRoutes.isEmpty {
+                    // A fresh pairing code is a replacement authorization for
+                    // this Mac. Remove old Tailscale destinations after the
+                    // incoming ticket is persisted, so at least one route
+                    // remains and the store can record endpoint tombstones.
+                    let condition: MobilePairedMacRouteWriteCondition =
+                        instanceTag.map { .matchingInstanceTag($0) } ?? .unclaimed
+                    try await pairedMacStore.replaceTailscaleRoutesIfAuthorized(
+                        macDeviceID: ticket.macDeviceID,
+                        condition: condition,
+                        stackUserID: stackUserID,
+                        teamID: scope?.teamID,
+                        routes: userAuthorizedTailscaleRoutes
+                    )
+                }
+                if !userAuthorizedTailscaleRoutes.isEmpty {
                     // The user just proved control of this Mac by entering its
                     // pairing code; record the device-local grant so later
                     // preference-ordered dials use the evidence path.
