@@ -9556,10 +9556,12 @@ private final class CloudTerminalReconnectOverlayView: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard !isHidden, alphaValue > 0 else { return nil }
-        if let buttonHit = reconnectButton.hitTest(convert(point, to: reconnectButton)) {
+        let pointInSelf = convert(point, from: superview)
+        if let buttonSuperview = reconnectButton.superview,
+           let buttonHit = reconnectButton.hitTest(convert(pointInSelf, to: buttonSuperview)) {
             return buttonHit
         }
-        if cardView.frame.contains(point) {
+        if cardView.frame.contains(pointInSelf) {
             return self
         }
         return nil
@@ -9929,7 +9931,6 @@ final class GhosttySurfaceScrollView: NSView {
 
         documentView = NSView(frame: .zero)
         scrollView.documentView = documentView
-        documentView.addSubview(surfaceView)
 
         super.init(frame: .zero)
         wantsLayer = true
@@ -9941,6 +9942,10 @@ final class GhosttySurfaceScrollView: NSView {
         backgroundView.terminalSurfaceView = surfaceView
         backgroundView.terminalScrollView = scrollView
         addSubview(backgroundView)
+        // The document view is virtual scrollbar geometry. Keeping the Metal
+        // renderer outside that subtree prevents AppKit's scroll blits from
+        // compositing pixels captured at different viewport positions.
+        addSubview(surfaceView)
         addSubview(scrollView)
         mobileViewportBorderOverlayView.isHidden = true
         addSubview(mobileViewportBorderOverlayView, positioned: .above, relativeTo: scrollView)
@@ -10125,15 +10130,6 @@ final class GhosttySurfaceScrollView: NSView {
         linkHoverIndicatorView.autoresizingMask = [.width, .height]
         addSubview(linkHoverIndicatorView)
 
-        scrollView.contentView.postsBoundsChangedNotifications = true
-        observers.append(NotificationCenter.default.addObserver(
-            forName: NSView.boundsDidChangeNotification,
-            object: scrollView.contentView,
-            queue: .main
-        ) { [weak self] _ in
-            self?.handleScrollChange()
-        })
-
         observers.append(NotificationCenter.default.addObserver(
             forName: NSScrollView.willStartLiveScrollNotification,
             object: scrollView,
@@ -10297,12 +10293,19 @@ final class GhosttySurfaceScrollView: NSView {
     override var safeAreaInsets: NSEdgeInsets { NSEdgeInsetsZero }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
+        // AppKit supplies hit-test points in this view's superview coordinates.
+        let pointInSelf = convert(point, from: superview)
         if let overlay = cloudTerminalReconnectOverlayView,
            overlay.superview === self,
-           let hit = overlay.hitTest(convert(point, to: overlay)) {
+           let hit = overlay.hitTest(pointInSelf) {
             return hit
         }
-        return super.hitTest(point)
+
+        let hit = super.hitTest(point)
+        guard hit === scrollView.contentView || hit === documentView else {
+            return hit
+        }
+        return surfaceView.hitTest(pointInSelf)
     }
 
     // Avoid stealing focus on scroll; focus is managed explicitly by the surface view.
@@ -10407,17 +10410,6 @@ final class GhosttySurfaceScrollView: NSView {
         _ = setFrameIfNeeded(backgroundView, to: bounds)
         let contentFrame = sessionContentFrame
         _ = setFrameIfNeeded(scrollView, to: contentFrame)
-        let targetSize = scrollView.bounds.size
-#if DEBUG
-        logLayoutDuringActiveDrag(targetSize: targetSize)
-#endif
-        let targetSurfaceFrame = CGRect(origin: surfaceView.frame.origin, size: targetSize)
-        _ = setFrameIfNeeded(surfaceView, to: targetSurfaceFrame)
-        let targetDocumentFrame = CGRect(
-            origin: documentView.frame.origin,
-            size: CGSize(width: scrollView.bounds.width, height: documentView.frame.height)
-        )
-        _ = setFrameIfNeeded(documentView, to: targetDocumentFrame)
         _ = setFrameIfNeeded(mobileViewportBorderOverlayView, to: contentFrame)
         _ = setFrameIfNeeded(inactiveOverlayView, to: bounds)
         _ = setFrameIfNeeded(paneDropTargetView, to: bounds)
@@ -10457,6 +10449,19 @@ final class GhosttySurfaceScrollView: NSView {
             scrollView.tile()
         }
         scrollView.layoutSubtreeIfNeeded()
+        // Size the sibling renderer from the clip view, not the outer scroll view:
+        // legacy scrollers reserve a gutter that must stay outside the terminal grid.
+        let targetSize = scrollView.contentView.bounds.size
+#if DEBUG
+        logLayoutDuringActiveDrag(targetSize: targetSize)
+#endif
+        let targetSurfaceFrame = CGRect(origin: contentFrame.origin, size: targetSize)
+        _ = setFrameIfNeeded(surfaceView, to: targetSurfaceFrame)
+        let targetDocumentFrame = CGRect(
+            origin: documentView.frame.origin,
+            size: CGSize(width: scrollView.contentView.bounds.width, height: documentView.frame.height)
+        )
+        _ = setFrameIfNeeded(documentView, to: targetDocumentFrame)
         updateNotificationRingPath()
         updateFlashPath(style: lastFlashStyle)
         updateFlashAppearance(style: lastFlashStyle)
@@ -10464,7 +10469,6 @@ final class GhosttySurfaceScrollView: NSView {
             forceViewportSync: forceViewportSync,
             preservedReviewOriginY: preservedReviewOriginY
         )
-        synchronizeSurfaceView()
         let didCoreSurfaceChange = synchronizeCoreSurface()
         return !sizeApproximatelyEqual(previousSurfaceSize, targetSize) || didCoreSurfaceChange
     }
@@ -12950,15 +12954,6 @@ final class GhosttySurfaceScrollView: NSView {
         // Intentionally no-op (no retry loops).
     }
 
-    private func synchronizeSurfaceView() {
-        let visibleRect = scrollView.contentView.documentVisibleRect
-        guard !pointApproximatelyEqual(surfaceView.frame.origin, visibleRect.origin) else { return }
-#if DEBUG
-        logDragGeometryChange(event: "surfaceOrigin", old: surfaceView.frame.origin, new: visibleRect.origin)
-#endif
-        surfaceView.frame.origin = visibleRect.origin
-    }
-
     /// Match upstream Ghostty behavior: use content area width (excluding non-content
     /// regions such as scrollbar space) when telling libghostty the terminal size.
     @discardableResult
@@ -13074,10 +13069,6 @@ final class GhosttySurfaceScrollView: NSView {
         if didChangeGeometry {
             scrollView.reflectScrolledClipView(scrollView.contentView)
         }
-    }
-
-    private func handleScrollChange() {
-        synchronizeSurfaceView()
     }
 
     private func beginExplicitScrollbarSync(
@@ -13203,14 +13194,13 @@ final class GhosttySurfaceScrollView: NSView {
     private func synchronizeTerminalGeometryAfterScrollerStyleChange() {
         scrollView.layoutSubtreeIfNeeded()
         let targetSize = scrollView.contentView.bounds.size
-        let targetSurfaceFrame = CGRect(origin: surfaceView.frame.origin, size: targetSize)
+        let targetSurfaceFrame = CGRect(origin: sessionContentFrame.origin, size: targetSize)
         _ = setFrameIfNeeded(surfaceView, to: targetSurfaceFrame)
         let targetDocumentFrame = CGRect(
             origin: documentView.frame.origin,
             size: CGSize(width: scrollView.contentView.bounds.width, height: documentView.frame.height)
         )
         _ = setFrameIfNeeded(documentView, to: targetDocumentFrame)
-        synchronizeSurfaceView()
         _ = synchronizeCoreSurface()
     }
 
