@@ -26,6 +26,10 @@ struct SessionIndexView: View {
     /// Day sections whose "Show more" expanded them inline (day buckets have
     /// no popover — their key space doesn't map to a popover search scope).
     @State private var expandedDaySections: Set<SectionKey> = []
+    /// Persisted row-density preference shared by every Vault presentation.
+    /// Default view is deliberately the information-rich layout shown in the
+    /// Recent grouping; Compact view hides only the repository/branch line.
+    @AppStorage("sessionIndex.compactView") private var isCompactView = false
     let onResume: ((SessionEntry) -> Void)?
     /// Launches the indexed session in a new split in the selected workspace.
     let onOpen: ((SessionEntry) -> Void)?
@@ -73,6 +77,10 @@ struct SessionIndexView: View {
         !trimmedSearchText.isEmpty
     }
 
+    private var showsDetails: Bool {
+        !isCompactView
+    }
+
     /// Search results use the same section builder as the unfiltered list.
     /// Keeping this projection in the parent view means table rows continue
     /// to receive immutable snapshots and the AppKit controller can preserve
@@ -99,7 +107,9 @@ struct SessionIndexView: View {
                 title: section.title,
                 icon: section.icon,
                 entries: section.entries,
-                accessories: section.accessories,
+                accessories: section.accessories.mapValues {
+                    $0.withDetailVisibility(showsDetails)
+                },
                 activeEntryIDs: activeEntryIDs
             )
         }
@@ -109,12 +119,8 @@ struct SessionIndexView: View {
         VStack(spacing: 0) {
             controlBar
             VaultAllSessionsBar(
-                store: store,
-                // Search stays intentionally quiet: the category buttons and
-                // search field remain, while secondary sort/filter chrome is
-                // hidden until the query is cleared.
-                showsSortAndFilter: store.grouping == .recency && !isShowingSearchResults,
                 searchText: $searchText,
+                isCompactView: $isCompactView,
                 onPeekTopResult: { peekTopSearchResult() },
                 onResumeTopResult: { resumeTopSearchResult() }
             )
@@ -232,6 +238,12 @@ struct SessionIndexView: View {
         let onResumeClosure = onResume
         let onOpenClosure = onOpen
         let onFocusClosure = onFocus
+        let statusSnapshot = SessionIndexStatusSnapshot(
+            activeSessionKeys: activeSessionKeys,
+            liveSessionKeys: store.liveSessionKeys,
+            now: .now,
+            showsDetails: showsDetails
+        )
         let gapActions = SectionGapActions(
             currentDraggedKey: { dragCoordinator.draggedKey },
             moveSection: { key, before in store.moveSection(key, before: before) },
@@ -272,7 +284,8 @@ struct SessionIndexView: View {
                 onOpen: onOpenClosure,
                 onFocus: onFocusClosure,
                 search: searchFn,
-                loadSnapshot: loadSnapshotFn
+                loadSnapshot: loadSnapshotFn,
+                statusSnapshot: statusSnapshot
             )
             // Day buckets are computed, not user-orderable: their gaps reject
             // drops. Search projections retain the active category's normal
@@ -507,6 +520,7 @@ struct IndexSectionActions {
     let onFocus: ((SessionEntry) -> Void)?
     let search: SessionSearchFn
     let loadSnapshot: DirectorySnapshotFn
+    let statusSnapshot: SessionIndexStatusSnapshot
 
     init(
         onBeginDrag: @escaping @MainActor () -> Void,
@@ -517,7 +531,8 @@ struct IndexSectionActions {
         onOpen: ((SessionEntry) -> Void)?,
         onFocus: ((SessionEntry) -> Void)? = nil,
         search: @escaping SessionSearchFn,
-        loadSnapshot: @escaping DirectorySnapshotFn
+        loadSnapshot: @escaping DirectorySnapshotFn,
+        statusSnapshot: SessionIndexStatusSnapshot = .init()
     ) {
         self.onBeginDrag = onBeginDrag
         self.beginSessionDrag = beginSessionDrag
@@ -528,6 +543,7 @@ struct IndexSectionActions {
         self.onFocus = onFocus
         self.search = search
         self.loadSnapshot = loadSnapshot
+        self.statusSnapshot = statusSnapshot
     }
 }
 
@@ -781,8 +797,9 @@ private struct SectionGapDropDelegate: DropDelegate {
 
 private struct SessionRow: View, Equatable {
     let entry: SessionEntry
-    /// Extra display facts for recency/search rows (status dot, folder/branch
-    /// subtitle, message count); nil in agent/folder groupings.
+    /// Shared display facts for the status circle and optional repository /
+    /// branch subtitle. Every Vault grouping receives the same projection;
+    /// compact mode removes only the subtitle before this row is built.
     var accessory: VaultSessionRowAccessory?
     let isPreviewPresented: Bool
     let beginSessionDrag: SessionDragBeginAction
@@ -819,41 +836,21 @@ private struct SessionRow: View, Equatable {
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer(minLength: 8)
-                if isActive {
-                    RoundedRectangle(cornerRadius: 1.5, style: .continuous)
-                        .fill(Color.green)
-                        .frame(width: 6, height: 6)
-                        .help(Self.activeSessionLabel)
-                        .accessibilityLabel(Text(Self.activeSessionLabel))
-                } else if let accessory {
-                    Circle()
-                        .fill(accessory.liveStatus.dotColor)
-                        .frame(width: 6, height: 6)
-                        .help(accessory.liveStatus.label)
-                        .accessibilityLabel(Text(accessory.liveStatus.label))
-                }
+                SessionStatusIndicator(
+                    isInPane: isActive,
+                    liveStatus: accessory?.liveStatus
+                )
                 Text(relativeTime(entry.modified))
                     .cmuxFont(size: 12, monospacedDigit: true)
                     .foregroundColor(.secondary.opacity(0.65))
                     .fixedSize()
             }
-            if let accessory, accessory.hasSubtitle {
-                HStack(spacing: 6) {
-                    if let detail = accessory.detail {
-                        Text(detail)
-                            .cmuxFont(size: 11)
-                            .foregroundColor(.secondary.opacity(0.75))
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
-                    Spacer(minLength: 8)
-                    if let count = accessory.messageCount {
-                        Text(Self.messageCountText(count))
-                            .cmuxFont(size: 11, monospacedDigit: true)
-                            .foregroundColor(.secondary.opacity(0.6))
-                            .fixedSize()
-                    }
-                }
+            if let accessory, let detail = accessory.detail {
+                Text(detail)
+                    .cmuxFont(size: 11)
+                    .foregroundColor(.secondary.opacity(0.75))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
                 // Match the title's leading edge: 20-point icon frame plus
                 // the six-point primary-line spacing.
                 .padding(.leading, 26)
@@ -881,27 +878,6 @@ private struct SessionRow: View, Equatable {
                 isActive: isActive
             )
         }
-    }
-
-    private static let activeSessionLabel = String(
-        localized: "sessionIndex.status.activeInPane",
-        defaultValue: "Active in pane"
-    )
-
-    static func messageCountText(_ count: Int) -> String {
-        if count == 1 {
-            return String(
-                localized: "sessionIndex.row.messageCount.one",
-                defaultValue: "1 msg"
-            )
-        }
-        return String.localizedStringWithFormat(
-            String(
-                localized: "sessionIndex.row.messageCount.other",
-                defaultValue: "%lld msgs"
-            ),
-            Int64(count)
-        )
     }
 
     private var rowBackground: some View {
@@ -1385,7 +1361,7 @@ private extension SessionEntry {
         if agent == .grok {
             return true
         }
-        guard case .registered(let registration) = specifics else {
+        guard case .registered(let registration, _) = specifics else {
             return false
         }
         if case .grokSessionDirectory = registration.sessionIdSource {
@@ -2317,6 +2293,10 @@ struct SectionPopoverView: View {
     let onResume: ((SessionEntry) -> Void)?
     let onOpen: ((SessionEntry) -> Void)?
     let onFocus: ((SessionEntry) -> Void)?
+    /// Immutable status snapshot from the parent. The popover can page past
+    /// the section's initial entries, so it must derive status for each loaded
+    /// row instead of relying on the section's capped accessory map.
+    let statusSnapshot: SessionIndexStatusSnapshot
     let onDismiss: () -> Void
 
     @State private var query: String = ""
@@ -2421,8 +2401,10 @@ struct SectionPopoverView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                     } else {
                         ForEach(loadedRows) { row in
+                            let presentation = statusSnapshot.presentation(for: row.entry)
                             PopoverRow(
                                 entry: row.entry,
+                                accessory: presentation.accessory,
                                 beginSessionDrag: beginSessionDrag,
                                 onOpen: onOpen.map { open in
                                     { entry in
@@ -2431,7 +2413,7 @@ struct SectionPopoverView: View {
                                     }
                                 },
                                 onFocus: onFocus,
-                                isActive: section.activeEntryIDs.contains(row.entry.id)
+                                isActive: presentation.isActive
                             ) {
                                 onResume?(row.entry)
                                 onDismiss()
@@ -2651,6 +2633,7 @@ struct SectionPopoverView: View {
 
 private struct PopoverRow: View, Equatable {
     let entry: SessionEntry
+    var accessory: VaultSessionRowAccessory?
     let beginSessionDrag: SessionDragBeginAction
     let onOpen: ((SessionEntry) -> Void)?
     let onFocus: ((SessionEntry) -> Void)?
@@ -2660,7 +2643,9 @@ private struct PopoverRow: View, Equatable {
     @State private var isHovered: Bool = false
 
     static func == (lhs: PopoverRow, rhs: PopoverRow) -> Bool {
-        lhs.entry == rhs.entry && lhs.isActive == rhs.isActive
+        lhs.entry == rhs.entry
+            && lhs.accessory == rhs.accessory
+            && lhs.isActive == rhs.isActive
     }
 
     fileprivate static func flatten(_ s: String) -> String {
@@ -2690,26 +2675,35 @@ private struct PopoverRow: View, Equatable {
     }
 
     var body: some View {
-        HStack(spacing: 6) {
-            SessionIndexSectionIconImage(icon: .agent(entry.agent), size: 12)
-            // Flatten newlines so titles containing `<command-message>…\n…`
-            // envelopes stay single-line; SwiftUI's `lineLimit(1)` doesn't
-            // always constrain a Text that has hard line breaks in the
-            // source string.
-            Text(Self.flatten(entry.displayTitle))
-                .cmuxFont(size: 12)
-                .foregroundColor(.primary.opacity(0.92))
-                .lineLimit(1)
-                .truncationMode(.tail)
-            Spacer(minLength: 8)
-            if isActive {
-                RoundedRectangle(cornerRadius: 1.5, style: .continuous)
-                    .fill(Color.green)
-                    .frame(width: 6, height: 6)
-                    .help(String(localized: "sessionIndex.status.activeInPane", defaultValue: "Active in pane"))
-                    .accessibilityLabel(Text(String(localized: "sessionIndex.status.activeInPane", defaultValue: "Active in pane")))
+        VStack(alignment: .leading, spacing: 1) {
+            HStack(spacing: 6) {
+                SessionIndexSectionIconImage(icon: .agent(entry.agent), size: 12)
+                // Flatten newlines so titles containing `<command-message>…\n…`
+                // envelopes stay single-line; SwiftUI's `lineLimit(1)` doesn't
+                // always constrain a Text that has hard line breaks in the
+                // source string.
+                Text(Self.flatten(entry.displayTitle))
+                    .cmuxFont(size: 12)
+                    .foregroundColor(.primary.opacity(0.92))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 8)
+                SessionStatusIndicator(
+                    isInPane: isActive,
+                    liveStatus: accessory?.liveStatus
+                )
+                modifiedText
             }
-            modifiedText
+            if let detail = accessory?.detail {
+                Text(Self.flatten(detail))
+                    .cmuxFont(size: 11)
+                    .foregroundColor(.secondary.opacity(0.75))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    // The icon is 12 points wide and the title starts after
+                    // the six-point row spacing.
+                    .padding(.leading, 18)
+            }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 5)

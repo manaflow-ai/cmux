@@ -100,6 +100,57 @@ jobs:
             echo "cmux-cua build script absent in source ref; skipping Rust provisioning"
           fi
 
+      # The app's Cloud machine path requires the wireguard-hub cmux-tui
+      # capability. Do this before Xcode or cache work, and pass the exact
+      # source-built binary into reload.sh. A rolling download can lag the app
+      # source and otherwise fails only after the full macOS build completes.
+      - name: Install Zig for bundled cmux-tui (macOS)
+        if: ${{ inputs.platform == 'macos' && hashFiles('cmux-tui/Cargo.toml') != '' }}
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Build and validate exact cmux-tui client (macOS)
+        if: ${{ inputs.platform == 'macos' && hashFiles('cmux-tui/Cargo.toml') != '' }}
+        working-directory: cmux-tui
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/cmux-tui-target
+          CMUX_TUI_DISTRIBUTION_VERSION: 0.0.0-dev-${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.cargo/bin:$PATH"
+          source_sha="$(git -C .. rev-parse HEAD)"
+          ghostty_sha="$(git -C ../ghostty rev-parse HEAD)"
+          export CMUX_TUI_BUILD_COMMIT="$source_sha"
+          export CMUX_TUI_GHOSTTY_COMMIT="$ghostty_sha"
+          target="$(rustc -vV | awk '/^host: / { print $2 }')"
+          case "$target" in
+            aarch64-apple-darwin|x86_64-apple-darwin) ;;
+            *) echo "unsupported macOS Rust host target: $target" >&2; exit 1 ;;
+          esac
+          cargo build -p cmux-tui --bin cmux-tui --release --locked --target "$target"
+          client="$CARGO_TARGET_DIR/$target/release/cmux-tui"
+          test -x "$client"
+          probe="$($client remote-probe --json)"
+          version="$($client --version)"
+          PROBE="$probe" VERSION="$version" EXPECTED_COMMIT="$source_sha" EXPECTED_GHOSTTY="$ghostty_sha" python3 - <<'PY'
+          import json
+          import os
+
+          probe = json.loads(os.environ["PROBE"])
+          version = os.environ["VERSION"]
+          expected = os.environ["EXPECTED_COMMIT"]
+          expected_ghostty = os.environ["EXPECTED_GHOSTTY"]
+          if probe.get("build_identity") != expected:
+              raise SystemExit(
+                  f"cmux-tui build identity {probe.get('build_identity')!r} != {expected!r}"
+              )
+          if "wireguard-hub" not in probe.get("capabilities", []):
+              raise SystemExit("cmux-tui client lacks wireguard-hub capability")
+          if expected_ghostty not in version:
+              raise SystemExit("cmux-tui client does not carry the checked-out Ghostty identity")
+          PY
+          echo "CMUX_TUI_CLIENT_LOCAL=$client" >> "$GITHUB_ENV"
+          echo "cmux-tui ready: $client"
+
       - name: Prepare macOS cache metadata
         if: ${{ inputs.platform == 'macos' }}
         id: cache_meta

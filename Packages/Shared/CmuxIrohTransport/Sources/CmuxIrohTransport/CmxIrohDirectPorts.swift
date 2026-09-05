@@ -37,8 +37,10 @@ public struct CmxIrohDirectPorts: Codable, Equatable, Sendable {
     ///
     /// Iroh may bind IPv4 and IPv6 independently. If one family reports more
     /// than one port, that family is omitted rather than guessing which private
-    /// coordinate is authoritative.
-    init?(localDirectAddresses: [String]) {
+    /// coordinate is authoritative. This is public so the IRX runtime can
+    /// publish the same broker contract as the legacy runtime without exposing
+    /// private IPs.
+    public init?(localDirectAddresses: [String]) {
         var ipv4Ports: Set<UInt16> = []
         var ipv6Ports: Set<UInt16> = []
         var ipv4WildcardPorts: Set<UInt16> = []

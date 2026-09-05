@@ -42,9 +42,14 @@ mock.module("next-intl/server", () => ({
   setRequestLocale: () => undefined,
 }));
 
+// PricingPage uses the locale-aware Link for the billing-recovery route. Keep
+// this server-render test independent of next-intl's client navigation
+// context, just like the other page tests that render locale-aware links.
 mock.module("../i18n/navigation", () => ({
   Link: ({ href, children, ...props }: { href: string; children: React.ReactNode }) => (
-    <a href={href} {...props}>{children}</a>
+    <a href={href} {...props}>
+      {children}
+    </a>
   ),
 }));
 

@@ -3,9 +3,9 @@ import * as Effect from "effect/Effect";
 import type { ProviderId } from "./drivers";
 import { vmPrivateNetworkEnabled, type VmRuntimeEnv } from "./config";
 import {
+  VmAccessGrantRevokedError,
+  VmAccessGrantMutationBusyError,
   VmPrivateNetworkUnavailableError,
-  VmTunnelEnrollmentBusyError,
-  VmTunnelEnrollmentUnavailableError,
   VmTunnelNotFoundError,
   type VmDatabaseError,
 } from "./errors";
@@ -35,12 +35,14 @@ import {
 
 /** A tunnel's client-facing state: everything needed to bring a WireGuard interface up. */
 export type VmTunnelDescriptor = {
+  readonly accessGrantId: string;
   readonly tunnelId: string;
   readonly provider: ProviderId;
   readonly deviceFingerprint: string;
+  readonly tunnelPurpose: "terminal" | "browser";
   readonly deviceName: string | null;
   /**
-   * A complete `wg-quick` config with a blank `PrivateKey` line. The client
+   * WireGuard configuration text with a blank `PrivateKey` line. The client
    * fills that line in from its own keystore; the server has never seen the
    * key and cannot reconstruct it.
    */
@@ -65,11 +67,6 @@ export type VmTunnelDescriptor = {
   readonly rotated: boolean;
 };
 
-/** Provider calls are bounded below this lease, and expiry recovers crashed requests. */
-export const VM_TUNNEL_ENROLLMENT_LOCK_LEASE_MS = 10 * 60 * 1000;
-/** A second request should retry rather than hold a serverless function open. */
-export const VM_TUNNEL_ENROLLMENT_RETRY_AFTER_SECONDS = 2;
-
 /**
  * A WireGuard public key as the client sends it: 32 bytes, standard base64,
  * so exactly 44 characters ending in `=`.
@@ -80,8 +77,13 @@ export const VM_TUNNEL_ENROLLMENT_RETRY_AFTER_SECONDS = 2;
 export function isWireGuardPublicKey(value: unknown): value is string {
   if (typeof value !== "string") return false;
   const trimmed = value.trim();
-  if (!/^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw]=$/.test(trimmed)) return false;
-  return Buffer.from(trimmed, "base64").length === 32;
+  // The final Base64 sextet may be a digit. For a 32-byte value it is one of
+  // the 16 characters whose low four bits are zero, including 0, 4, and 8.
+  // Decode and re-encode as the canonical check instead of duplicating that
+  // alphabet subset in a fragile regular expression.
+  if (!/^[A-Za-z0-9+/]{43}=$/.test(trimmed)) return false;
+  const decoded = Buffer.from(trimmed, "base64");
+  return decoded.length === 32 && decoded.toString("base64") === trimmed;
 }
 
 /**
@@ -98,8 +100,12 @@ export function networkSlugForUser(userId: string): string {
 }
 
 /** The provider-side slug for one of an account's computers. Same reasoning as the network slug. */
-export function tunnelSlugForDevice(userId: string, deviceFingerprint: string): string {
-  return `cmux-wg-${accountHash("tunnel", `${userId}\0${deviceFingerprint}`)}`;
+export function tunnelSlugForDevice(
+  userId: string,
+  deviceFingerprint: string,
+  tunnelPurpose: "terminal" | "browser" = "browser",
+): string {
+  return `cmux-wg-${accountHash("tunnel", `${userId}\0${deviceFingerprint}\0${tunnelPurpose}`)}`;
 }
 
 function accountHash(domain: string, value: string): string {
@@ -127,18 +133,23 @@ export function privateNetworkUnavailableReason(
   return null;
 }
 
-type PrivateNetworkingGateway = {
+type PrivateNetworkGateway = {
   readonly ensureNetwork: NonNullable<VmProviderGatewayShape["ensureNetwork"]>;
-  readonly getNetwork?: NonNullable<VmProviderGatewayShape["getNetwork"]>;
+};
+
+type PrivateNetworkingGateway = PrivateNetworkGateway & {
   readonly createTunnel: NonNullable<VmProviderGatewayShape["createTunnel"]>;
   readonly getTunnel: NonNullable<VmProviderGatewayShape["getTunnel"]>;
   readonly rotateTunnelKey: NonNullable<VmProviderGatewayShape["rotateTunnelKey"]>;
   readonly deleteTunnel: NonNullable<VmProviderGatewayShape["deleteTunnel"]>;
 };
 
-type PrivateNetworkingRepo = {
+type PrivateNetworkRepo = {
   readonly findNetwork: NonNullable<VmRepositoryShape["findNetwork"]>;
   readonly upsertNetwork: NonNullable<VmRepositoryShape["upsertNetwork"]>;
+};
+
+type PrivateNetworkingRepo = PrivateNetworkRepo & {
   readonly findTunnel: NonNullable<VmRepositoryShape["findTunnel"]>;
   readonly listUserTunnels: NonNullable<VmRepositoryShape["listUserTunnels"]>;
   readonly insertTunnel: NonNullable<VmRepositoryShape["insertTunnel"]>;
@@ -146,20 +157,18 @@ type PrivateNetworkingRepo = {
   readonly revokeTunnel: NonNullable<VmRepositoryShape["revokeTunnel"]>;
 };
 
-type TunnelEnrollmentLockRepo = {
-  readonly acquireTunnelEnrollmentLock: NonNullable<VmRepositoryShape["acquireTunnelEnrollmentLock"]>;
-  readonly releaseTunnelEnrollmentLock: NonNullable<VmRepositoryShape["releaseTunnelEnrollmentLock"]>;
-  readonly renewTunnelEnrollmentLock: NonNullable<VmRepositoryShape["renewTunnelEnrollmentLock"]>;
-};
-
-type TunnelMutationLease = {
-  /** Renew before and after every provider-side mutation or read-with-heal. */
-  readonly renew: () => Effect.Effect<
-    void,
-    VmDatabaseError | VmTunnelEnrollmentBusyError | VmTunnelEnrollmentUnavailableError
-  >;
-  /** Best-effort, owner-token-fenced cleanup. */
-  readonly release: Effect.Effect<void>;
+type PrivateAccessRepo = PrivateNetworkingRepo & {
+  readonly findAccessGrant: NonNullable<VmRepositoryShape["findAccessGrant"]>;
+  readonly findBlockingRevokedAccessGrant: NonNullable<VmRepositoryShape["findBlockingRevokedAccessGrant"]>;
+  readonly listUserAccessGrants: NonNullable<VmRepositoryShape["listUserAccessGrants"]>;
+  readonly upsertAccessGrant: NonNullable<VmRepositoryShape["upsertAccessGrant"]>;
+  readonly upsertAccessGrantSession: NonNullable<VmRepositoryShape["upsertAccessGrantSession"]>;
+  readonly listAccessGrantSessionIds: NonNullable<VmRepositoryShape["listAccessGrantSessionIds"]>;
+  readonly renameAccessGrant: NonNullable<VmRepositoryShape["renameAccessGrant"]>;
+  readonly listAccessGrantTunnels: NonNullable<VmRepositoryShape["listAccessGrantTunnels"]>;
+  readonly claimAccessGrantMutation: NonNullable<VmRepositoryShape["claimAccessGrantMutation"]>;
+  readonly releaseAccessGrantMutation: NonNullable<VmRepositoryShape["releaseAccessGrantMutation"]>;
+  readonly revokeAccessGrant: NonNullable<VmRepositoryShape["revokeAccessGrant"]>;
 };
 
 /**
@@ -168,195 +177,114 @@ type TunnelMutationLease = {
  * older test doubles compile; the live layers always provide them, so a null
  * here means "this composition has no private networking", not an error.
  */
-function privateNetworkingGateway(gateway: VmProviderGatewayShape, provider: ProviderId): PrivateNetworkingGateway | null {
+function privateNetworkGateway(gateway: VmProviderGatewayShape, provider: ProviderId): PrivateNetworkGateway | null {
   if (!gateway.supportsPrivateNetworking?.(provider)) return null;
-  const { ensureNetwork, getNetwork, createTunnel, getTunnel, rotateTunnelKey, deleteTunnel } = gateway;
-  if (!ensureNetwork || !createTunnel || !getTunnel || !rotateTunnelKey || !deleteTunnel) return null;
-  return { ensureNetwork, getNetwork, createTunnel, getTunnel, rotateTunnelKey, deleteTunnel };
+  const { ensureNetwork } = gateway;
+  if (!ensureNetwork) return null;
+  return { ensureNetwork };
+}
+
+function privateNetworkingGateway(gateway: VmProviderGatewayShape, provider: ProviderId): PrivateNetworkingGateway | null {
+  const network = privateNetworkGateway(gateway, provider);
+  const { createTunnel, getTunnel, rotateTunnelKey, deleteTunnel } = gateway;
+  if (!network || !createTunnel || !getTunnel || !rotateTunnelKey || !deleteTunnel) return null;
+  const { ensureNetwork } = network;
+  return { ensureNetwork, createTunnel, getTunnel, rotateTunnelKey, deleteTunnel };
+}
+
+function privateNetworkRepo(repo: VmRepositoryShape): PrivateNetworkRepo | null {
+  const { findNetwork, upsertNetwork } = repo;
+  if (!findNetwork || !upsertNetwork) return null;
+  return { findNetwork, upsertNetwork };
 }
 
 function privateNetworkingRepo(repo: VmRepositoryShape): PrivateNetworkingRepo | null {
-  const { findNetwork, upsertNetwork, findTunnel, listUserTunnels, insertTunnel, updateTunnel, revokeTunnel } = repo;
-  if (!findNetwork || !upsertNetwork || !findTunnel || !listUserTunnels || !insertTunnel || !updateTunnel || !revokeTunnel) {
-    return null;
-  }
+  const network = privateNetworkRepo(repo);
+  const { findTunnel, listUserTunnels, insertTunnel, updateTunnel, revokeTunnel } = repo;
+  if (!network || !findTunnel || !listUserTunnels || !insertTunnel || !updateTunnel || !revokeTunnel) return null;
+  const { findNetwork, upsertNetwork } = network;
   return { findNetwork, upsertNetwork, findTunnel, listUserTunnels, insertTunnel, updateTunnel, revokeTunnel };
 }
 
-function tunnelEnrollmentLockRepo(repo: VmRepositoryShape): TunnelEnrollmentLockRepo | null {
-  const { acquireTunnelEnrollmentLock, releaseTunnelEnrollmentLock, renewTunnelEnrollmentLock } = repo;
-  if (!acquireTunnelEnrollmentLock || !releaseTunnelEnrollmentLock || !renewTunnelEnrollmentLock) return null;
-  return { acquireTunnelEnrollmentLock, releaseTunnelEnrollmentLock, renewTunnelEnrollmentLock };
+function privateAccessRepo(repo: VmRepositoryShape): PrivateAccessRepo | null {
+  const networking = privateNetworkingRepo(repo);
+  const {
+    findAccessGrant,
+    findBlockingRevokedAccessGrant,
+    listUserAccessGrants,
+    upsertAccessGrant,
+    upsertAccessGrantSession,
+    listAccessGrantSessionIds,
+    renameAccessGrant,
+    listAccessGrantTunnels,
+    claimAccessGrantMutation,
+    releaseAccessGrantMutation,
+    revokeAccessGrant,
+  } = repo;
+  if (
+    !networking || !findAccessGrant || !findBlockingRevokedAccessGrant
+    || !listUserAccessGrants || !upsertAccessGrant || !upsertAccessGrantSession
+    || !listAccessGrantSessionIds || !renameAccessGrant
+    || !listAccessGrantTunnels || !claimAccessGrantMutation
+    || !releaseAccessGrantMutation || !revokeAccessGrant
+  ) return null;
+  return {
+    ...networking,
+    findAccessGrant,
+    findBlockingRevokedAccessGrant,
+    listUserAccessGrants,
+    upsertAccessGrant,
+    upsertAccessGrantSession,
+    listAccessGrantSessionIds,
+    renameAccessGrant,
+    listAccessGrantTunnels,
+    claimAccessGrantMutation,
+    releaseAccessGrantMutation,
+    revokeAccessGrant,
+  };
 }
 
-function nestedDatabaseErrorCode(cause: unknown): string | null {
-  if (!cause || typeof cause !== "object") return null;
-  const code = (cause as { code?: unknown }).code;
-  if (typeof code === "string") return code;
-  return nestedDatabaseErrorCode((cause as { cause?: unknown }).cause);
-}
-
-function nestedDatabaseErrorMessage(cause: unknown): string {
-  if (cause instanceof Error) return cause.message;
-  if (!cause || typeof cause !== "object") return String(cause);
-  const message = (cause as { message?: unknown }).message;
-  if (typeof message === "string") return message;
-  return nestedDatabaseErrorMessage((cause as { cause?: unknown }).cause);
-}
+// One mutation can read and then rotate or replace a peer. Each Freestyle API
+// call has a 60-second deadline, so the fence must cover two serial calls plus
+// database work. A crashed request becomes retryable after this bound.
+const ACCESS_GRANT_MUTATION_LEASE_MS = 3 * 60_000;
 
 /**
- * A rolling deploy can reach a new route before its lock-table migration. Map
- * only that schema failure to the documented unavailable response. Other
- * database failures stay database failures, so an outage is not mislabeled as
- * a migration and retried forever.
+ * Serializes provider peer mutations for one physical Mac across serverless
+ * instances. A crashed request releases the fence by expiry; a successful
+ * request releases it immediately. We return busy instead of doing an
+ * unfenced provider call.
  */
-function mapTunnelLockDatabaseError(
-  error: VmDatabaseError,
-): VmDatabaseError | VmTunnelEnrollmentUnavailableError {
-  const message = nestedDatabaseErrorMessage(error.cause).toLowerCase();
-  const missingTable =
-    nestedDatabaseErrorCode(error.cause) === "42P01" ||
-    (message.includes("cloud_vm_tunnel_enrollment_locks") &&
-      (message.includes("does not exist") || message.includes("undefined table") || message.includes("relation")));
-  if (!missingTable) return error;
-  return new VmTunnelEnrollmentUnavailableError({
-    reason: "the VM database is missing the tunnel enrollment lock migration",
-  });
-}
-
-/**
- * Acquire the durable lease that serializes all provider-side tunnel work for
- * one account/device pair. The lease is deliberately explicit rather than a
- * process mutex: Vercel requests do not share a process, and a process mutex
- * cannot recover after a crash. Callers renew around each provider call and
- * release in a finalizer.
- */
-function acquireTunnelMutationLease(input: {
-  readonly userId: string;
-  readonly deviceFingerprint: string;
-}): Effect.Effect<
-  TunnelMutationLease,
-  VmDatabaseError | VmTunnelEnrollmentBusyError | VmTunnelEnrollmentUnavailableError,
-  VmRepository
-> {
+function withAccessGrantMutationLease<A, E, R>(
+  repo: PrivateAccessRepo,
+  accessGrantId: string,
+  operation: Effect.Effect<A, E, R>,
+) {
   return Effect.gen(function* () {
-    const lockRepo = tunnelEnrollmentLockRepo(yield* VmRepository);
-    if (!lockRepo) {
-      return yield* Effect.fail(
-        new VmTunnelEnrollmentUnavailableError({
-          reason: "the VM repository has no tunnel mutation lease support",
-        }),
-      );
+    const leaseId = randomUUID();
+    const now = new Date();
+    const claimed = yield* repo.claimAccessGrantMutation({
+      id: accessGrantId,
+      leaseId,
+      now,
+      leaseExpiresAt: new Date(now.getTime() + ACCESS_GRANT_MUTATION_LEASE_MS),
+    });
+    if (!claimed) {
+      return yield* Effect.fail(new VmAccessGrantMutationBusyError({ accessGrantId }));
     }
-
-    const ownerToken = randomUUID();
-    const acquired = yield* lockRepo.acquireTunnelEnrollmentLock({
-      userId: input.userId,
-      deviceFingerprint: input.deviceFingerprint,
-      ownerToken,
-      expiresAt: tunnelLeaseExpiry(),
-    }).pipe(Effect.mapError(mapTunnelLockDatabaseError));
-    if (!acquired) {
-      return yield* Effect.fail(
-        new VmTunnelEnrollmentBusyError({
-          retryAfterSeconds: VM_TUNNEL_ENROLLMENT_RETRY_AFTER_SECONDS,
-        }),
-      );
-    }
-
-    const renew = () =>
-      lockRepo.renewTunnelEnrollmentLock({
-        userId: input.userId,
-        deviceFingerprint: input.deviceFingerprint,
-        ownerToken,
-        expiresAt: tunnelLeaseExpiry(),
-      }).pipe(
-        Effect.mapError(mapTunnelLockDatabaseError),
-        Effect.flatMap((held) =>
-          held
-            ? Effect.succeed(undefined)
-            : Effect.fail(
-              new VmTunnelEnrollmentBusyError({
-                retryAfterSeconds: VM_TUNNEL_ENROLLMENT_RETRY_AFTER_SECONDS,
-              }),
-            ),
-        ),
-      );
-
-    const release = lockRepo.releaseTunnelEnrollmentLock({
-      userId: input.userId,
-      deviceFingerprint: input.deviceFingerprint,
-      ownerToken,
-    }).pipe(Effect.catchAll(() => Effect.void));
-
-    return { renew, release };
+    return yield* operation.pipe(Effect.ensuring(
+      repo.releaseAccessGrantMutation({ id: accessGrantId, leaseId }).pipe(Effect.ignore),
+    ));
   });
-}
-
-function tunnelLeaseExpiry(): Date {
-  return new Date(Date.now() + VM_TUNNEL_ENROLLMENT_LOCK_LEASE_MS);
 }
 
 /**
  * The account's network, provisioning it on first use.
  *
- * Returns null — rather than failing — when private networking is unavailable,
- * because the caller for that path is machine creation: a deployment with the
- * feature rolled back must still create machines, just publicly reachable ones.
- * Callers that genuinely need a network (tunnel enrollment) use
- * {@link requireOwnerNetwork} instead.
+ * Fails closed when private networking is unavailable. Cloud machines must not
+ * be created with public ingress as a degraded path.
  */
 export function resolveOwnerNetwork(input: {
-  readonly userId: string;
-  readonly provider: ProviderId;
-}): Effect.Effect<
-  CloudVmNetworkRow | null,
-  VmDatabaseError | import("./errors").VmProviderOperationError,
-  VmRepository | VmProviderGateway
-> {
-  return Effect.gen(function* () {
-    const gateway = yield* VmProviderGateway;
-    const providers = privateNetworkingGateway(gateway, input.provider);
-    const repo = privateNetworkingRepo(yield* VmRepository);
-    if (!providers || !repo) return null;
-    if (privateNetworkUnavailableReason(input.provider, true)) return null;
-    const slug = networkSlugForUser(input.userId);
-    // Postgres is the control-plane cache, not the provider authority. Re-read
-    // the deterministic slug on every use so an out-of-band VPC deletion or
-    // replacement cannot strand the next VM on a dead provider id. This also
-    // heals the VPC firewall rule through the provider's ensure operation.
-    const network = yield* providers.ensureNetwork(input.provider, {
-      slug,
-      displayName: "cmux machines",
-    });
-    const existing = yield* repo.findNetwork(input.userId, input.provider);
-    const providerSlug = network.slug ?? slug;
-    if (
-      existing &&
-      existing.providerNetworkId === network.id &&
-      (existing.slug ?? slug) === providerSlug &&
-      existing.cidr === network.cidr &&
-      existing.cidrV6 === network.cidrV6
-    ) {
-      return existing;
-    }
-    // The provider call is idempotent by slug and the upsert is idempotent by
-    // (user, provider), so two machines created at once converge on one row
-    // and one network rather than racing to provision a second. If the
-    // provider replaced a missing VPC, this overwrites the stale id atomically.
-    return yield* repo.upsertNetwork({
-      userId: input.userId,
-      provider: input.provider,
-      providerNetworkId: network.id,
-      slug: providerSlug,
-      cidr: network.cidr,
-      cidrV6: network.cidrV6,
-    });
-  });
-}
-
-/** {@link resolveOwnerNetwork}, failing rather than returning null when the feature is off. */
-export function requireOwnerNetwork(input: {
   readonly userId: string;
   readonly provider: ProviderId;
 }): Effect.Effect<
@@ -366,121 +294,50 @@ export function requireOwnerNetwork(input: {
 > {
   return Effect.gen(function* () {
     const gateway = yield* VmProviderGateway;
-    const providers = privateNetworkingGateway(gateway, input.provider);
+    const providers = privateNetworkGateway(gateway, input.provider);
+    const repo = privateNetworkRepo(yield* VmRepository);
     const reason = privateNetworkUnavailableReason(input.provider, !!providers);
-    if (reason) {
-      // A rollback must stop new VPC provisioning without cutting off a
-      // computer that already has a private VM. Reuse the recorded network
-      // identity, and verify it with a read-only provider call when available;
-      // do not call ensureNetwork here because that would silently provision a
-      // new network while the kill switch is active.
-      if (!vmPrivateNetworkEnabled() && providers) {
-        const repo = privateNetworkingRepo(yield* VmRepository);
-        if (repo) {
-          const existing = yield* repo.findNetwork(input.userId, input.provider);
-          if (existing) {
-            if (providers.getNetwork) {
-              const live = yield* providers.getNetwork(input.provider, existing.providerNetworkId);
-              if (!live) {
-                return yield* Effect.fail(
-                  new VmPrivateNetworkUnavailableError({
-                    provider: input.provider,
-                    reason: "the recorded Cloud VM network no longer exists at Freestyle",
-                  }),
-                );
-              }
-              const providerSlug = live.slug ?? existing.slug;
-              if (
-                existing.providerNetworkId !== live.id ||
-                existing.slug !== providerSlug ||
-                existing.cidr !== live.cidr ||
-                existing.cidrV6 !== live.cidrV6
-              ) {
-                return yield* repo.upsertNetwork({
-                  userId: input.userId,
-                  provider: input.provider,
-                  providerNetworkId: live.id,
-                  slug: providerSlug,
-                  cidr: live.cidr,
-                  cidrV6: live.cidrV6,
-                });
-              }
-            }
-            return existing;
-          }
-        }
-      }
-      return yield* Effect.fail(
-        new VmPrivateNetworkUnavailableError({ provider: input.provider, reason }),
-      );
-    }
-    const network = yield* resolveOwnerNetwork(input);
-    if (!network) {
+    if (!providers || !repo || reason) {
       return yield* Effect.fail(
         new VmPrivateNetworkUnavailableError({
           provider: input.provider,
-          reason: "Cloud VM private networking is disabled for this environment",
+          reason: reason ?? "the VM repository composition has no private-network state",
         }),
       );
     }
-    return network;
+    const existing = yield* repo.findNetwork(input.userId, input.provider);
+    if (existing) return existing;
+
+    const slug = networkSlugForUser(input.userId);
+    const network = yield* providers.ensureNetwork(input.provider, {
+      slug,
+      displayName: "cmux machines",
+    });
+    // The provider call is idempotent by slug and the upsert is idempotent by
+    // (user, provider), so two machines created at once converge on one row
+    // and one network rather than racing to provision a second.
+    return yield* repo.upsertNetwork({
+      userId: input.userId,
+      provider: input.provider,
+      providerNetworkId: network.id,
+      slug: network.slug ?? slug,
+      cidr: network.cidr,
+      cidrV6: network.cidrV6,
+    });
   });
 }
 
-/**
- * Read the account network for an already-enrolled tunnel without provisioning
- * anything. Provider state remains authoritative, but all calls are reads; a
- * GET for an unknown device must never create a VPC as a side effect.
- */
-function readOwnerNetwork(input: {
+/** Compatibility name for callers that need the owner's mandatory network. */
+export function requireOwnerNetwork(input: {
   readonly userId: string;
   readonly provider: ProviderId;
-  readonly repo: PrivateNetworkingRepo;
-  readonly providers: PrivateNetworkingGateway;
 }): Effect.Effect<
   CloudVmNetworkRow,
-  VmDatabaseError | VmPrivateNetworkUnavailableError | import("./errors").VmProviderOperationError
+  VmDatabaseError | VmPrivateNetworkUnavailableError | import("./errors").VmProviderOperationError,
+  VmRepository | VmProviderGateway
 > {
   return Effect.gen(function* () {
-    const existing = yield* input.repo.findNetwork(input.userId, input.provider);
-    if (!existing) {
-      return yield* Effect.fail(
-        new VmPrivateNetworkUnavailableError({
-          provider: input.provider,
-          reason: "the enrolled tunnel has no recorded Cloud VM network",
-        }),
-      );
-    }
-    if (!input.providers.getNetwork) return existing;
-
-    const live = yield* input.providers.getNetwork(input.provider, existing.providerNetworkId);
-    if (!live) {
-      return yield* Effect.fail(
-        new VmPrivateNetworkUnavailableError({
-          provider: input.provider,
-          reason: "the recorded Cloud VM network no longer exists at Freestyle",
-        }),
-      );
-    }
-    const providerSlug = live.slug ?? existing.slug;
-    if (
-      existing.providerNetworkId === live.id &&
-      existing.slug === providerSlug &&
-      existing.cidr === live.cidr &&
-      existing.cidrV6 === live.cidrV6
-    ) {
-      return existing;
-    }
-    // The provider read found a changed network record. Persist the corrected
-    // cache before reading the tunnel so the next request sees the same identity.
-    return yield* input.repo.upsertNetwork({
-      userId: input.userId,
-      provider: input.provider,
-      providerNetworkId: live.id,
-      slug: providerSlug,
-      cidr: live.cidr,
-      cidrV6: live.cidrV6,
-    });
+    return yield* resolveOwnerNetwork(input);
   });
 }
 
@@ -500,47 +357,94 @@ function readOwnerNetwork(input: {
 export function enrollVmTunnel(input: {
   readonly userId: string;
   readonly provider: ProviderId;
+  readonly deviceId: string;
   readonly deviceFingerprint: string;
+  readonly tunnelPurpose: "terminal" | "browser";
   readonly deviceName?: string | null;
+  readonly modelIdentifier?: string | null;
+  readonly osVersion?: string | null;
+  readonly architecture?: string | null;
+  readonly cmuxVersion?: string | null;
+  readonly cmuxBuild?: string | null;
+  readonly cmuxChannel?: string | null;
+  readonly stackSessionId?: string | null;
+  readonly sessionIssuedAt?: Date | null;
   readonly clientPublicKey: string;
 }) {
   return Effect.gen(function* () {
     const providers = yield* requirePrivateNetworkingGateway(input.provider);
-    const repo = yield* requirePrivateNetworkingRepo(input.provider);
-    const lease = yield* acquireTunnelMutationLease(input);
+    const repo = yield* requirePrivateAccessRepo(input.provider);
+    const network = yield* requireOwnerNetwork({ userId: input.userId, provider: input.provider });
+    const clientPublicKey = input.clientPublicKey.trim();
+    if (input.stackSessionId && input.sessionIssuedAt) {
+      const revokedSession = yield* repo.findBlockingRevokedAccessGrant({
+        userId: input.userId,
+        deviceId: input.deviceId,
+        stackSessionId: input.stackSessionId,
+        sessionIssuedAt: input.sessionIssuedAt,
+      });
+      if (revokedSession) {
+        return yield* Effect.fail(new VmAccessGrantRevokedError({
+          stackSessionId: input.stackSessionId,
+        }));
+      }
+    }
+    const accessGrant = yield* repo.upsertAccessGrant({
+      userId: input.userId,
+      deviceId: input.deviceId,
+      reportedName: input.deviceName,
+      modelIdentifier: input.modelIdentifier,
+      osVersion: input.osVersion,
+      architecture: input.architecture,
+      cmuxVersion: input.cmuxVersion,
+      cmuxBuild: input.cmuxBuild,
+      cmuxChannel: input.cmuxChannel,
+    });
+    return yield* withAccessGrantMutationLease(repo, accessGrant.id, Effect.gen(function* () {
+      // Recheck after the lease. A revoke can win between the first session
+      // check and the access-grant upsert; an old login must not continue.
+      if (input.stackSessionId && input.sessionIssuedAt) {
+        const revokedSession = yield* repo.findBlockingRevokedAccessGrant({
+          userId: input.userId,
+          deviceId: input.deviceId,
+          stackSessionId: input.stackSessionId,
+          sessionIssuedAt: input.sessionIssuedAt,
+        });
+        if (revokedSession) {
+          return yield* Effect.fail(new VmAccessGrantRevokedError({
+            stackSessionId: input.stackSessionId,
+          }));
+        }
+        yield* repo.upsertAccessGrantSession({
+          accessGrantId: accessGrant.id,
+          userId: input.userId,
+          stackSessionId: input.stackSessionId,
+          sessionIssuedAt: input.sessionIssuedAt,
+        });
+      }
 
-    const operation = Effect.gen(function* () {
-      yield* lease.renew();
-      const network = yield* requireOwnerNetwork({ userId: input.userId, provider: input.provider });
-      yield* lease.renew();
-      const clientPublicKey = input.clientPublicKey.trim();
       const existing = yield* repo.findTunnel({
         userId: input.userId,
         deviceFingerprint: input.deviceFingerprint,
+        tunnelPurpose: input.tunnelPurpose,
       });
 
       if (existing) {
-        yield* lease.renew();
         const live = yield* providers.getTunnel(
           input.provider,
           existing.providerTunnelId,
           network.providerNetworkId,
         );
-        yield* lease.renew();
         if (live) {
           const rotated = live.clientPublicKey.trim() !== clientPublicKey;
           const current = rotated
-            ? yield* lease.renew().pipe(
-              Effect.flatMap(() => providers.rotateTunnelKey(
-                input.provider,
-                existing.providerTunnelId,
-                clientPublicKey,
-                network.providerNetworkId,
-              )),
-              Effect.tap(() => lease.renew()),
+            ? yield* providers.rotateTunnelKey(
+              input.provider,
+              existing.providerTunnelId,
+              clientPublicKey,
+              network.providerNetworkId,
             )
             : live;
-          yield* lease.renew();
           const row = yield* repo.updateTunnel({
             id: existing.id,
             clientPublicKey: current.clientPublicKey,
@@ -551,48 +455,31 @@ export function enrollVmTunnel(input: {
           });
           return describeTunnel(current, row, network, { created: false, rotated });
         }
-        // The control plane has a row for a tunnel the provider no longer has —
-        // deleted out of band. Revoke the stale row and fall through to enroll a
-        // fresh one, so the device recovers on this call rather than failing
-        // every call until someone intervenes.
-        yield* lease.renew();
+        // The control plane has a row for a tunnel the provider no longer has.
         yield* repo.revokeTunnel(existing.id);
-        yield* lease.renew();
       }
 
-      const enrollment = yield* lease.renew().pipe(
-        Effect.flatMap(() => providers.createTunnel(input.provider, {
-          slug: tunnelSlugForDevice(input.userId, input.deviceFingerprint),
-          displayName: input.deviceName?.trim() || "cmux computer",
-          clientPublicKey,
-          networkId: network.providerNetworkId,
-        })),
-        Effect.tap(() => lease.renew()),
-      );
-      const tunnel = enrollment.tunnel;
-      yield* lease.renew();
+      const created = yield* providers.createTunnel(input.provider, {
+        slug: tunnelSlugForDevice(input.userId, input.deviceFingerprint, input.tunnelPurpose),
+        displayName: input.deviceName?.trim() || "cmux computer",
+        clientPublicKey,
+        networkId: network.providerNetworkId,
+      });
       const row = yield* repo.insertTunnel({
         userId: input.userId,
         networkId: network.id,
         provider: input.provider,
-        providerTunnelId: tunnel.id,
+        providerTunnelId: created.tunnel.id,
+        accessGrantId: accessGrant.id,
         deviceFingerprint: input.deviceFingerprint,
+        tunnelPurpose: input.tunnelPurpose,
         deviceName: input.deviceName ?? null,
-        clientPublicKey: tunnel.clientPublicKey,
-        addressV4: tunnel.addressV4,
-        addressV6: tunnel.addressV6,
+        clientPublicKey: created.tunnel.clientPublicKey,
+        addressV4: created.tunnel.addressV4,
+        addressV6: created.tunnel.addressV6,
       });
-      return describeTunnel(tunnel, row, network, {
-        created: enrollment.created,
-        rotated: enrollment.rotated,
-      });
-    });
-
-    // Release is owner-token fenced. A request that outlives its lease can
-    // never delete the successor's lease, and a crash is recovered by expiry.
-    return yield* operation.pipe(
-      Effect.ensuring(lease.release),
-    );
+      return describeTunnel(created.tunnel, row, network, { created: true, rotated: created.rotated });
+    }));
   });
 }
 
@@ -601,46 +488,34 @@ export function readVmTunnel(input: {
   readonly userId: string;
   readonly provider: ProviderId;
   readonly deviceFingerprint: string;
+  readonly tunnelPurpose: "terminal" | "browser";
 }) {
   return Effect.gen(function* () {
     const providers = yield* requirePrivateNetworkingGateway(input.provider);
     const repo = yield* requirePrivateNetworkingRepo(input.provider);
-    const lease = yield* acquireTunnelMutationLease(input);
-    const operation = Effect.gen(function* () {
-      yield* lease.renew();
-      const existing = yield* repo.findTunnel({
-        userId: input.userId,
-        deviceFingerprint: input.deviceFingerprint,
-      });
-      if (!existing) {
-        return yield* Effect.fail(
-          new VmTunnelNotFoundError({ deviceFingerprint: input.deviceFingerprint }),
-        );
-      }
-      yield* lease.renew();
-      const network = yield* readOwnerNetwork({
-        userId: input.userId,
-        provider: input.provider,
-        repo,
-        providers,
-      });
-      yield* lease.renew();
-      const live = yield* providers.getTunnel(
-        input.provider,
-        existing.providerTunnelId,
-        network.providerNetworkId,
-      );
-      yield* lease.renew();
-      if (!live) {
-        yield* repo.revokeTunnel(existing.id);
-        yield* lease.renew();
-        return yield* Effect.fail(
-          new VmTunnelNotFoundError({ deviceFingerprint: input.deviceFingerprint }),
-        );
-      }
-      return describeTunnel(live, existing, network, { created: false, rotated: false });
+    const network = yield* requireOwnerNetwork({ userId: input.userId, provider: input.provider });
+    const existing = yield* repo.findTunnel({
+      userId: input.userId,
+      deviceFingerprint: input.deviceFingerprint,
+      tunnelPurpose: input.tunnelPurpose,
     });
-    return yield* operation.pipe(Effect.ensuring(lease.release));
+    if (!existing) {
+      return yield* Effect.fail(
+        new VmTunnelNotFoundError({ deviceFingerprint: input.deviceFingerprint }),
+      );
+    }
+    const live = yield* providers.getTunnel(
+      input.provider,
+      existing.providerTunnelId,
+      network.providerNetworkId,
+    );
+    if (!live) {
+      yield* repo.revokeTunnel(existing.id);
+      return yield* Effect.fail(
+        new VmTunnelNotFoundError({ deviceFingerprint: input.deviceFingerprint }),
+      );
+    }
+    return describeTunnel(live, existing, network, { created: false, rotated: false });
   });
 }
 
@@ -653,28 +528,100 @@ export function revokeVmTunnel(input: {
   readonly userId: string;
   readonly provider: ProviderId;
   readonly deviceFingerprint: string;
+  readonly tunnelPurpose: "terminal" | "browser";
 }) {
   return Effect.gen(function* () {
     const providers = yield* requirePrivateNetworkingGateway(input.provider);
     const repo = yield* requirePrivateNetworkingRepo(input.provider);
-    const lease = yield* acquireTunnelMutationLease(input);
-    const operation = Effect.gen(function* () {
-      yield* lease.renew();
-      const existing = yield* repo.findTunnel({
-        userId: input.userId,
-        deviceFingerprint: input.deviceFingerprint,
-      });
-      if (!existing) return { revoked: false } as const;
-      // Provider first: a row revoked before the provider call would leave a live
-      // tunnel nothing points at, and the config the client holds would keep
-      // working with no record that it exists.
-      yield* lease.renew();
-      yield* providers.deleteTunnel(input.provider, existing.providerTunnelId);
-      yield* lease.renew();
-      const revoked = yield* repo.revokeTunnel(existing.id);
-      return { revoked } as const;
+    const existing = yield* repo.findTunnel({
+      userId: input.userId,
+      deviceFingerprint: input.deviceFingerprint,
+      tunnelPurpose: input.tunnelPurpose,
     });
-    return yield* operation.pipe(Effect.ensuring(lease.release));
+    if (!existing) return { revoked: false } as const;
+    // Provider first: a row revoked before the provider call would leave a live
+    // tunnel nothing points at, and the config the client holds would keep
+    // working with no record that it exists.
+    yield* providers.deleteTunnel(input.provider, existing.providerTunnelId);
+    const revoked = yield* repo.revokeTunnel(existing.id);
+    return { revoked } as const;
+  });
+}
+
+/** Revoke one Mac and every Freestyle peer owned by its Cloud access grant. */
+export function revokeVmAccessGrant(input: {
+  readonly userId: string;
+  readonly accessGrantId?: string;
+  readonly deviceId?: string;
+}) {
+  return Effect.gen(function* () {
+    const repo = yield* requirePrivateAccessRepo("freestyle");
+    const grant = yield* repo.findAccessGrant({
+      userId: input.userId,
+      accessGrantId: input.accessGrantId,
+      deviceId: input.deviceId,
+    });
+    if (!grant) return { revoked: false, stackSessionIds: [] as string[] } as const;
+    return yield* withAccessGrantMutationLease(repo, grant.id, Effect.gen(function* () {
+      const gateway = yield* VmProviderGateway;
+      const stackSessionIds = yield* repo.listAccessGrantSessionIds(grant.id);
+      const tunnels = yield* repo.listAccessGrantTunnels(grant.id);
+      for (const tunnel of tunnels) {
+        if (gateway.deleteTunnel) {
+          yield* gateway.deleteTunnel(tunnel.provider, tunnel.providerTunnelId);
+        }
+        yield* repo.revokeTunnel(tunnel.id);
+      }
+      const revoked = yield* repo.revokeAccessGrant(grant.id);
+      return { revoked, stackSessionIds } as const;
+    }));
+  });
+}
+
+/** Cloud-only Mac records for cmux.com. No iOS or Iroh rows are read. */
+export function listVmAccessGrants(input: { readonly userId: string }) {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const grants = repo.listUserAccessGrants
+      ? yield* repo.listUserAccessGrants(input.userId)
+      : [];
+    const tunnels = repo.listUserTunnels
+      ? yield* repo.listUserTunnels(input.userId)
+      : [];
+    return grants.map((grant) => ({
+      id: grant.id,
+      deviceId: grant.deviceId,
+      name: grant.displayName ?? grant.reportedName ?? "Mac",
+      reportedName: grant.reportedName,
+      displayName: grant.displayName,
+      modelIdentifier: grant.modelIdentifier,
+      osVersion: grant.osVersion,
+      architecture: grant.architecture,
+      cmuxVersion: grant.cmuxVersion,
+      cmuxBuild: grant.cmuxBuild,
+      cmuxChannel: grant.cmuxChannel,
+      createdAt: grant.createdAt.getTime(),
+      lastControlPlaneAt: grant.lastControlPlaneAt.getTime(),
+      tunnelPurposes: tunnels
+        .filter((tunnel) => tunnel.accessGrantId === grant.id)
+        .map((tunnel) => tunnel.tunnelPurpose)
+        .sort(),
+    }));
+  });
+}
+
+export function renameVmAccessGrant(input: {
+  readonly userId: string;
+  readonly accessGrantId: string;
+  readonly displayName: string | null;
+}) {
+  return Effect.gen(function* () {
+    const repo = yield* requirePrivateAccessRepo("freestyle");
+    return yield* repo.renameAccessGrant({
+      id: input.accessGrantId,
+      userId: input.userId,
+      displayName: input.displayName,
+    });
   });
 }
 
@@ -685,8 +632,10 @@ export function listVmTunnels(input: { readonly userId: string }) {
     const rows = repo.listUserTunnels ? yield* repo.listUserTunnels(input.userId) : [];
     return rows.map((row) => ({
       tunnelId: row.providerTunnelId,
+      accessGrantId: row.accessGrantId,
       provider: row.provider,
       deviceFingerprint: row.deviceFingerprint,
+      tunnelPurpose: row.tunnelPurpose,
       deviceName: row.deviceName,
       addressV4: row.addressV4,
       addressV6: row.addressV6,
@@ -713,18 +662,10 @@ export function deletePrivateNetworkingForAccountDeletion(userId: string) {
     let tunnels = 0;
     const rows = yield* repo.listUserTunnels(userId);
     for (const row of rows) {
-      const lease = yield* acquireTunnelMutationLease({
-        userId,
-        deviceFingerprint: row.deviceFingerprint,
-      });
-      yield* Effect.gen(function* () {
-        yield* lease.renew();
-        if (gateway.deleteTunnel) {
-          yield* gateway.deleteTunnel(row.provider, row.providerTunnelId);
-          yield* lease.renew();
-        }
-        yield* repo.revokeTunnel(row.id);
-      }).pipe(Effect.ensuring(lease.release));
+      if (gateway.deleteTunnel) {
+        yield* gateway.deleteTunnel(row.provider, row.providerTunnelId);
+      }
+      yield* repo.revokeTunnel(row.id);
       tunnels += 1;
     }
 
@@ -778,6 +719,21 @@ function requirePrivateNetworkingRepo(provider: ProviderId) {
   });
 }
 
+function requirePrivateAccessRepo(provider: ProviderId) {
+  return Effect.gen(function* () {
+    const repo = privateAccessRepo(yield* VmRepository);
+    if (!repo) {
+      return yield* Effect.fail(
+        new VmPrivateNetworkUnavailableError({
+          provider,
+          reason: "the VM repository composition has no Cloud access grant state",
+        }),
+      );
+    }
+    return repo;
+  });
+}
+
 function describeTunnel(
   tunnel: import("./drivers").ProviderTunnel,
   row: CloudVmTunnelRow,
@@ -785,9 +741,11 @@ function describeTunnel(
   flags: { readonly created: boolean; readonly rotated: boolean },
 ): VmTunnelDescriptor {
   return {
+    accessGrantId: row.accessGrantId,
     tunnelId: tunnel.id,
     provider: row.provider,
     deviceFingerprint: row.deviceFingerprint,
+    tunnelPurpose: row.tunnelPurpose,
     deviceName: row.deviceName,
     clientConfig: tunnel.clientConfig,
     clientPublicKey: tunnel.clientPublicKey,

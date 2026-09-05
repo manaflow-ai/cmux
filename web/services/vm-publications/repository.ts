@@ -21,6 +21,7 @@ import * as Layer from "effect/Layer";
 import { cloudDb } from "../../db/client";
 import {
   cloudVmDomains,
+  cloudVmPublicationEmailGrants,
   cloudVmPublicationAuthCodes,
   cloudVmPublicationAuthTransactions,
   cloudVmPublicationProviderConfigs,
@@ -35,6 +36,7 @@ import {
   assertAccountDeletionUserMutationAllowed,
 } from "../account/deletionLock";
 import type { ProviderId } from "../vms/drivers";
+import { reserveManagedPublication, type ManagedPublicationInput } from "./managedRepository";
 
 export type CloudVmDomainRow = typeof cloudVmDomains.$inferSelect;
 export type CloudVmPublicationRow = typeof cloudVmPublications.$inferSelect;
@@ -51,20 +53,21 @@ export type CloudVmPublicationState = CloudVmPublicationRow["state"];
 
 export type CloudVmPublicationTarget = {
   readonly publication: CloudVmPublicationRow;
-  readonly domain: CloudVmDomainRow;
+  readonly domain: CloudVmDomainRow | null;
   readonly vm: typeof cloudVms.$inferSelect;
 };
 
 export type CloudVmPublicationAuthTransaction = {
   readonly transaction: CloudVmPublicationAuthTransactionRow;
   readonly publication: CloudVmPublicationRow;
-  readonly domain: CloudVmDomainRow;
+  readonly domain: CloudVmDomainRow | null;
+  readonly vm: typeof cloudVms.$inferSelect;
 };
 
 export type CloudVmPublicationSessionPrincipal = {
   readonly session: CloudVmPublicationSessionRow;
   readonly publication: CloudVmPublicationRow;
-  readonly domain: CloudVmDomainRow;
+  readonly domain: CloudVmDomainRow | null;
 };
 
 export type CloudVmPublicationAccountDeletionTarget = {
@@ -115,6 +118,9 @@ export class PublicationNotFoundError extends Data.TaggedError(
 }> {}
 
 export type PublicationConflictReason =
+  | "organization_slug_reserved"
+  | "organization_slug_taken"
+  | "invalid_organization_slug"
   | "hostname_taken"
   | "domain_in_use"
   | "provider_verification_in_use"
@@ -179,6 +185,10 @@ type RepositoryError =
   | PublicationAccountDeletionBlockedError;
 
 export type CloudVmPublicationRepositoryShape = {
+  readonly reserveManagedPublication: (input: ManagedPublicationInput) => Effect.Effect<CloudVmPublicationTarget, RepositoryError>;
+  readonly listEmailGrants: (publicationId: string) => Effect.Effect<readonly (typeof cloudVmPublicationEmailGrants.$inferSelect)[], PublicationDatabaseError>;
+  readonly hasEmailGrant: (input: { readonly publicationId: string; readonly email: string; readonly now: Date }) => Effect.Effect<boolean, PublicationDatabaseError>;
+  readonly setEmailGrant: (input: { readonly publicationId: string; readonly ownerUserId: string; readonly email: string; readonly expiresAt: Date | null; readonly revoke: boolean; readonly now: Date }) => Effect.Effect<void, RepositoryError>;
   readonly claimProviderForwardAuth: (input: {
     readonly provider: ProviderId;
     readonly leaseId: string;
@@ -256,7 +266,7 @@ export type CloudVmPublicationRepositoryShape = {
     readonly accessMode: CloudVmPublicationAccessMode;
     readonly teamId?: string | null;
     readonly now: Date;
-  }) => Effect.Effect<CloudVmPublicationTarget, RepositoryError>;
+  }) => Effect.Effect<CloudVmPublicationTarget & { readonly domain: CloudVmDomainRow }, RepositoryError>;
   readonly reservePublicationWithNewDomain: (input: {
     readonly ownerUserId: string;
     readonly billingTeamId?: string | null;
@@ -270,7 +280,7 @@ export type CloudVmPublicationRepositoryShape = {
     readonly accessMode: CloudVmPublicationAccessMode;
     readonly teamId?: string | null;
     readonly now: Date;
-  }) => Effect.Effect<CloudVmPublicationTarget, RepositoryError>;
+  }) => Effect.Effect<CloudVmPublicationTarget & { readonly domain: CloudVmDomainRow }, RepositoryError>;
   readonly claimVmPublicationOperation: (input: {
     readonly publicationId: string;
     readonly ownerUserId: string;
@@ -1042,6 +1052,34 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
             .orderBy(desc(cloudVmDomains.createdAt)),
       ),
 
+    reserveManagedPublication: (input) => repositoryEffect("reserveManagedPublication", () => reserveManagedPublication(input).catch((cause) => { throw accountDeletionError(cause); })),
+    listEmailGrants: (publicationId) => databaseEffect("listEmailGrants", async () =>
+      cloudDb().select().from(cloudVmPublicationEmailGrants).where(eq(cloudVmPublicationEmailGrants.publicationId, publicationId))),
+    hasEmailGrant: (input) => databaseEffect("hasEmailGrant", async () => {
+      const [grant] = await cloudDb().select({ id: cloudVmPublicationEmailGrants.id }).from(cloudVmPublicationEmailGrants).where(and(
+        eq(cloudVmPublicationEmailGrants.publicationId, input.publicationId), eq(cloudVmPublicationEmailGrants.email, input.email),
+        or(isNull(cloudVmPublicationEmailGrants.expiresAt), gt(cloudVmPublicationEmailGrants.expiresAt, input.now)),
+      )).limit(1);
+      return !!grant;
+    }),
+    setEmailGrant: (input) => repositoryEffect("setEmailGrant", async () => {
+      await cloudDb().transaction(async (tx) => {
+        try { await assertAccountDeletionUserMutationAllowed(tx, input.ownerUserId); }
+        catch (cause) { throw accountDeletionError(cause); }
+        const [publication] = await tx.select().from(cloudVmPublications).where(and(
+          eq(cloudVmPublications.id, input.publicationId), eq(cloudVmPublications.ownerUserId, input.ownerUserId),
+          eq(cloudVmPublications.state, "active"),
+        )).for("update").limit(1);
+        if (!publication) throw new PublicationNotFoundError({ resource: "publication" });
+        if (publication.accessMode === "public" && !input.revoke) throw new PublicationConflictError({ reason: "invalid_access_policy" });
+        if (input.revoke) {
+          await tx.delete(cloudVmPublicationEmailGrants).where(and(eq(cloudVmPublicationEmailGrants.publicationId, publication.id), eq(cloudVmPublicationEmailGrants.email, input.email)));
+        } else {
+          await tx.insert(cloudVmPublicationEmailGrants).values({ publicationId: publication.id, email: input.email, expiresAt: input.expiresAt, createdAt: input.now })
+            .onConflictDoUpdate({ target: [cloudVmPublicationEmailGrants.publicationId, cloudVmPublicationEmailGrants.email], set: { expiresAt: input.expiresAt } });
+        }
+      });
+    }),
     reservePublication: (input) =>
       repositoryEffect("reservePublication", async () => {
         const teamId = normalizedTeamId(input.accessMode, input.teamId);
@@ -1469,16 +1507,17 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
           const publications = await tx
             .select({
               publicationId: cloudVmPublications.id,
-              provider: cloudVmDomains.provider,
+              provider: cloudVms.provider,
               hostname: cloudVmPublications.hostname,
               providerTlsRuleId: cloudVmPublications.providerTlsRuleId,
               state: cloudVmPublications.state,
             })
             .from(cloudVmPublications)
-            .innerJoin(
+            .leftJoin(
               cloudVmDomains,
               eq(cloudVmPublications.domainId, cloudVmDomains.id),
             )
+            .innerJoin(cloudVms, eq(cloudVmPublications.vmId, cloudVms.id))
             .where(
               and(
                 eq(cloudVmPublications.vmId, vm.id),
@@ -1750,7 +1789,7 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
             vm: cloudVms,
           })
           .from(cloudVmPublications)
-          .innerJoin(
+          .leftJoin(
             cloudVmDomains,
             eq(cloudVmPublications.domainId, cloudVmDomains.id),
           )
@@ -1774,7 +1813,7 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
             vm: cloudVms,
           })
           .from(cloudVmPublications)
-          .innerJoin(
+          .leftJoin(
             cloudVmDomains,
             eq(cloudVmPublications.domainId, cloudVmDomains.id),
           )
@@ -1800,7 +1839,7 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
               vm: cloudVms,
             })
             .from(cloudVmPublications)
-            .innerJoin(
+            .leftJoin(
               cloudVmDomains,
               eq(cloudVmPublications.domainId, cloudVmDomains.id),
             )
@@ -1820,7 +1859,7 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
               vm: cloudVms,
             })
             .from(cloudVmPublications)
-            .innerJoin(
+            .leftJoin(
               cloudVmDomains,
               eq(cloudVmPublications.domainId, cloudVmDomains.id),
             )
@@ -1840,15 +1879,16 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
           await cloudDb()
             .select({
               publicationId: cloudVmPublications.id,
-              provider: cloudVmDomains.provider,
+              provider: cloudVms.provider,
               hostname: cloudVmPublications.hostname,
               providerTlsRuleId: cloudVmPublications.providerTlsRuleId,
             })
             .from(cloudVmPublications)
-            .innerJoin(
+            .leftJoin(
               cloudVmDomains,
               eq(cloudVmPublications.domainId, cloudVmDomains.id),
             )
+            .innerJoin(cloudVms, eq(cloudVmPublications.vmId, cloudVms.id))
             // A disabled publication's hostname may already be claimed by
             // another account, so its rules are never swept again.
             .where(
@@ -1872,7 +1912,7 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
             vm: cloudVms,
           })
           .from(cloudVmPublications)
-          .innerJoin(
+          .leftJoin(
             cloudVmDomains,
             eq(cloudVmPublications.domainId, cloudVmDomains.id),
           )
@@ -1901,7 +1941,7 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
               domain: cloudVmDomains,
             })
             .from(cloudVmPublications)
-            .innerJoin(
+            .leftJoin(
               cloudVmDomains,
               eq(cloudVmPublications.domainId, cloudVmDomains.id),
             )
@@ -1950,6 +1990,7 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
             transaction: cloudVmPublicationAuthTransactions,
             publication: cloudVmPublications,
             domain: cloudVmDomains,
+            vm: cloudVms,
           })
           .from(cloudVmPublicationAuthTransactions)
           .innerJoin(
@@ -1959,7 +2000,8 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
               cloudVmPublications.id,
             ),
           )
-          .innerJoin(
+          .innerJoin(cloudVms, eq(cloudVmPublications.vmId, cloudVms.id))
+          .leftJoin(
             cloudVmDomains,
             eq(cloudVmPublications.domainId, cloudVmDomains.id),
           )
@@ -2172,12 +2214,12 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
               domain: cloudVmDomains,
             })
             .from(cloudVmPublications)
-            .innerJoin(
+            .leftJoin(
               cloudVmDomains,
               eq(cloudVmPublications.domainId, cloudVmDomains.id),
             )
             .where(eq(cloudVmPublications.id, code.publicationId))
-            .for("update")
+            .for("update", { of: cloudVmPublications })
             .limit(1);
           if (
             !target ||
@@ -2242,7 +2284,7 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
               cloudVmPublications.id,
             ),
           )
-          .innerJoin(
+          .leftJoin(
             cloudVmDomains,
             eq(cloudVmPublications.domainId, cloudVmDomains.id),
           )

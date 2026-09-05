@@ -32,6 +32,7 @@ struct SessionEntryResumeCoordinator {
         for workspace in tabManager.tabs where entry.agent != .codex {
             if let panel = workspace.restoredAgentSnapshotsByPanelId.first(where: { panelID, snapshot in
                 workspace.panels[panelID] != nil
+                    && workspace.panelShellActivityStates[panelID] == .commandRunning
                     && snapshot.kind.rawValue == entry.agent.rawValue
                     && ManagedAgentSessionIdentity.sessionIDsMatch(
                         kind: entry.agent.rawValue,
@@ -70,7 +71,8 @@ struct SessionEntryResumeCoordinator {
         var keys: Set<String> = []
         for workspace in tabManager.tabs {
             for (panelID, snapshot) in workspace.restoredAgentSnapshotsByPanelId
-                where workspace.panels[panelID] != nil && snapshot.kind.rawValue != "codex" {
+                where workspace.panels[panelID] != nil && snapshot.kind.rawValue != "codex"
+                    && workspace.panelShellActivityStates[panelID] == .commandRunning {
                 keys.insert(
                     VaultLiveSessionKeys.key(
                         kind: snapshot.kind.rawValue,
@@ -85,7 +87,10 @@ struct SessionEntryResumeCoordinator {
             for (key, observation) in index.forkValidationEntries()
             where observation.snapshot.kind.rawValue == "codex" && observation.processLiveness == .running {
                 guard !observation.processIDs.isEmpty,
-                      tabManager.tabs.contains(where: { $0.id == key.workspaceId && $0.panels[key.panelId] != nil })
+                      tabManager.tabs.contains(where: {
+                          $0.id == key.workspaceId && $0.panels[key.panelId] != nil
+                              && $0.panelShellActivityStates[key.panelId] == .commandRunning
+                      })
                 else { continue }
                 keys.insert(VaultLiveSessionKeys.key(kind: "codex", sessionID: observation.snapshot.sessionId))
             }

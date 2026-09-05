@@ -46,12 +46,12 @@ final class CloudTreeNode: NSObject {
         case portsGroup(machine: SurfaceMachineID)
         /// The resource plus the URL a click actually opens —
         /// `http://<private-ip>:<port>`, reachable over the WireGuard tunnel —
-        /// or nil when the machine has no private address yet (public-only
-        /// machines, or one this Mac hasn't attached to yet). Deliberately the
-        /// raw address, never the `.internal` name: that name only resolves
-        /// once `cmux vpn hosts` has synced `/etc/hosts`, so a link built from
-        /// it would work only sometimes.
-        /// `openIn` is the local workspace that already shows this resource.
+        /// or nil when the machine has no private address yet. Deliberately the
+        /// raw address: Cloud browser URLs need no DNS or `/etc/hosts` changes.
+        /// `openIn` is the local workspace already showing the owning remote
+        /// workspace, when this is a workspace pointer rather than the machine
+        /// pool row. Keeping it on the node prevents a click from consulting
+        /// the globally selected workspace after a refresh.
         case port(SurfaceResource, url: String?, openIn: UUID?)
         /// A single explanatory line (asleep, connecting, link error, empty).
         case placeholder(machine: SurfaceMachineID, CloudTreePlaceholder)

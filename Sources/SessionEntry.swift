@@ -55,7 +55,7 @@ struct SessionEntry: Identifiable, Hashable, Sendable {
 
     var resumeWorkingDirectory: String? {
         guard let cwd, !cwd.isEmpty else { return nil }
-        if case .registered(let registration) = specifics,
+        if case .registered(let registration, _) = specifics,
            registration.cwd == .ignore {
             return nil
         }
@@ -183,11 +183,11 @@ struct SessionEntry: Identifiable, Hashable, Sendable {
                 model: model,
                 hermesHome: hermesHome
             )
-        case .registered(let registration):
+        case .registered(let registration, let launchCommand):
             if let command = AgentResumeCommandBuilder.resumeShellCommand(
                 kind: .custom(registration.id),
                 sessionId: sessionId,
-                launchCommand: AgentLaunchCommandSnapshot(
+                launchCommand: launchCommand ?? AgentLaunchCommandSnapshot(
                     launcher: registration.id,
                     executablePath: nil,
                     arguments: [registration.defaultExecutable],
