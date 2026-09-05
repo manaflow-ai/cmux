@@ -34,7 +34,7 @@ public final class MobileNetworkOutcomeReporter: Sendable {
 
     private struct State: Sendable {
         var starts: [Key: Start] = [:]
-        var connectStarts: [Start] = []
+        var connectStarts: [UInt32?: [Start]] = [:]
         var hostAuthStarts: [UInt32?: Start] = [:]
     }
 
@@ -95,9 +95,12 @@ public final class MobileNetworkOutcomeReporter: Sendable {
             return event.tNanos >= start.tNanos
                 && event.tNanos - start.tNanos <= Self.pendingStartLifetimeNanos
         }
-        state.connectStarts.removeAll { start in
-            event.tNanos < start.tNanos
-                || event.tNanos - start.tNanos > Self.pendingStartLifetimeNanos
+        state.connectStarts = state.connectStarts.reduce(into: [:]) { result, entry in
+            let retained = entry.value.filter { start in
+                event.tNanos >= start.tNanos
+                    && event.tNanos - start.tNanos <= Self.pendingStartLifetimeNanos
+            }
+            if !retained.isEmpty { result[entry.key] = retained }
         }
         state.hostAuthStarts = state.hostAuthStarts.filter { _, start in
             event.tNanos >= start.tNanos
@@ -106,11 +109,15 @@ public final class MobileNetworkOutcomeReporter: Sendable {
         let transport = Self.transport(for: event)
         switch event.code {
         case .connect:
-            Self.appendBounded(Start(tNanos: event.tNanos, transport: transport), to: &state.connectStarts)
+            Self.storeConnectStart(
+                Start(tNanos: event.tNanos, transport: transport),
+                surface: event.surface,
+                state: &state
+            )
             return nil
 
         case .pairOk, .pairFail, .pairUnreachable:
-            let start = state.connectStarts.isEmpty ? nil : state.connectStarts.removeFirst()
+            let start = Self.takeUniqueConnectStart(surface: event.surface, state: &state)
             return Self.terminal(
                 phase: .pairing,
                 event: event,
@@ -160,7 +167,7 @@ public final class MobileNetworkOutcomeReporter: Sendable {
             )
 
         case .rpcReady:
-            let start = state.connectStarts.isEmpty ? nil : state.connectStarts.removeFirst()
+            let start = Self.takeUniqueConnectStart(surface: event.surface, state: &state)
             return Self.terminal(
                 phase: .rpcReady,
                 event: event,
@@ -281,6 +288,26 @@ public final class MobileNetworkOutcomeReporter: Sendable {
             starts.removeFirst()
         }
         starts.append(start)
+    }
+
+    private static func storeConnectStart(
+        _ start: Start,
+        surface: UInt32?,
+        state: inout State
+    ) {
+        var starts = state.connectStarts[surface, default: []]
+        appendBounded(start, to: &starts)
+        state.connectStarts[surface] = starts
+    }
+
+    private static func takeUniqueConnectStart(
+        surface: UInt32?,
+        state: inout State
+    ) -> Start? {
+        guard let starts = state.connectStarts.removeValue(forKey: surface), starts.count == 1 else {
+            return nil
+        }
+        return starts[0]
     }
 
     private static func storeHostAuthStart(
