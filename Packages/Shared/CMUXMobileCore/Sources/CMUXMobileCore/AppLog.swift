@@ -767,6 +767,7 @@ public actor AppLog {
             do {
                 try await Task.sleep(nanoseconds: Self.exportTimeoutNanoseconds)
                 completion.resolve(nil)
+                exportTask.cancel()
             } catch {
                 // The export completed before its deadline.
             }
@@ -775,6 +776,7 @@ public actor AppLog {
             await completion.wait()
         }, onCancel: {
             completion.resolve(nil)
+            exportTask.cancel()
         })
         timeoutTask.cancel()
         _ = exportTask
