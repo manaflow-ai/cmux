@@ -46611,6 +46611,28 @@ mod tests {
     }
 
     #[test]
+    fn frontend_actions_cancel_old_pointer_capture() {
+        let mux = Mux::new("frontend-action-pointer-boundary-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.sidebar_visible = true;
+        app.sync_layout((100, 20));
+        app.drag = Some(Drag::RailResize(RailKind::Workspace));
+        app.active_pointer_buttons.insert(MouseButton::Left);
+        let prefix = app.config.keys.prefix;
+
+        app.handle(AppEvent::NormalizedInput(TerminalInput::FrontendAction {
+            action: Action::FocusSidebar,
+            prefix: KeyEvent::new(prefix.code, prefix.mods),
+        }))
+        .unwrap();
+
+        assert!(app.drag.is_none(), "frontend actions must release sidebar pointer capture");
+        assert!(app.active_pointer_buttons.is_empty());
+        app.handle_left_drag(99, 10).unwrap();
+        assert!(app.drag.is_none(), "a post-action drag must start only after a new press");
+    }
+
+    #[test]
     fn secondary_pointer_button_cannot_orphan_native_sidebar_capture() {
         let temp = test_temp_dir("secondary-sidebar-pointer-button");
         for index in 0..6 {
