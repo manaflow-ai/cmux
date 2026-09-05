@@ -21,6 +21,15 @@ export function shellQuote(value: string): string {
 export const CMUX_TUI_PORT = 1337;
 export const CMUX_TUI_SESSION = "cloud";
 export const CMUX_TUI_BINARY_PATH = "/root/.cmux/bin/cmux-tui";
+/**
+ * Where the pinned build's real file lives. /root is mode 700, so a binary kept
+ * only there is "command not found" for the uid-1000 work user (`ubuntu`, the
+ * SSH and desktop default) even with a /usr/local/bin symlink pointing at it.
+ * The file lives on this world-readable path instead; CMUX_TUI_BINARY_PATH (the
+ * daemon's canonical path, the pin check, cmux-devbox-boot) and
+ * /usr/local/bin/cmux-tui are symlinks to it.
+ */
+export const CMUX_TUI_SHARED_BINARY_PATH = "/usr/local/lib/cmux/cmux-tui";
 export const CMUX_TUI_INVITATION_TTL_SECONDS = 5 * 60;
 export const CMUX_TUI_INSTALL_TIMEOUT_MS = 5 * 60 * 1000;
 // A provider can attach the volume after the process starts, but a permanently
@@ -247,8 +256,9 @@ export function cmuxTuiInstallCommand(
     ].join(" && ");
   }
   const binaryPath = CMUX_TUI_BINARY_PATH;
+  const shared = shellQuote(CMUX_TUI_SHARED_BINARY_PATH);
   const bin = shellQuote(binaryPath);
-  const tmp = shellQuote(`${binaryPath}.tmp`);
+  const tmp = shellQuote(`${CMUX_TUI_SHARED_BINARY_PATH}.tmp`);
   const pinned = (path: string) => `printf '%s  %s\n' ${shellQuote(source.sha256)} ${path} | sha256sum -c >/dev/null 2>&1`;
   // A stock minimal base image may have no curl until background provisioning adds
   // it, so the fetch installs curl itself (apk, Alpine) and falls back to busybox wget.
@@ -256,11 +266,16 @@ export function cmuxTuiInstallCommand(
     `(command -v curl >/dev/null 2>&1 || apk add --no-cache curl >/dev/null 2>&1 || true); ` +
     `if command -v curl >/dev/null 2>&1; then curl -fsSL --retry 3 --retry-delay 2 -o ${tmp} ${shellQuote(source.url)}; ` +
     `else wget -q -O ${tmp} ${shellQuote(source.url)}; fi`;
+  // The real file goes on the world-readable path; the canonical root path and
+  // /usr/local/bin become symlinks to it (replacing an older image's root-only
+  // copy in place), so every existing root-side path keeps working and the work
+  // user can run the same pinned build.
   return [
-    `mkdir -p ${shellQuote(dirname(binaryPath))}`,
-    `if [ -x ${bin} ] && ${pinned(bin)}; then :; else ` +
-      `${fetch} && ${pinned(tmp)} && chmod 755 ${tmp} && mv -f ${tmp} ${bin}; fi`,
-    `ln -sfn ${bin} /usr/local/bin/cmux-tui`,
+    `mkdir -p ${shellQuote(dirname(CMUX_TUI_SHARED_BINARY_PATH))} ${shellQuote(dirname(binaryPath))}`,
+    `if [ -x ${shared} ] && ${pinned(shared)}; then :; else ` +
+      `${fetch} && ${pinned(tmp)} && chmod 755 ${tmp} && mv -f ${tmp} ${shared}; fi`,
+    `ln -sfn ${shared} ${bin}`,
+    `ln -sfn ${shared} /usr/local/bin/cmux-tui`,
     `${bin} --version`,
   ].join(" && ");
 }

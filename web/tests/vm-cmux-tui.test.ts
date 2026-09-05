@@ -65,18 +65,18 @@ describe("cmux-tui daemon source", () => {
 });
 
 describe("cmux-tui install and daemon commands", () => {
-  test("installs onto the persistent volume, verifies the pin before and after download, and probes the binary", () => {
+  test("installs the pinned build, verifies the pin before and after download, and probes the binary", () => {
     const command = cmuxTuiInstallCommand({ url: URL, sha256: SHA, commit: COMMIT, builtAt: null });
-    expect(command).toContain("mkdir -p '/root/.cmux/bin'");
+    expect(command).toContain("mkdir -p '/usr/local/lib/cmux' '/root/.cmux/bin'");
     // Skip the download when the installed copy already matches the pin.
-    expect(command).toContain(`'${SHA}' '/root/.cmux/bin/cmux-tui' | sha256sum -c >/dev/null 2>&1; then :; else`);
+    expect(command).toContain(`'${SHA}' '/usr/local/lib/cmux/cmux-tui' | sha256sum -c >/dev/null 2>&1; then :; else`);
     // The download is verified against the same pin before it replaces anything.
     // A stock base image has no curl yet: install it, else fall back to busybox wget.
     expect(command).toContain("command -v curl >/dev/null 2>&1 || apk add --no-cache curl");
-    expect(command).toContain(`curl -fsSL --retry 3 --retry-delay 2 -o '/root/.cmux/bin/cmux-tui.tmp' '${URL}'`);
-    expect(command).toContain(`else wget -q -O '/root/.cmux/bin/cmux-tui.tmp' '${URL}'; fi`);
-    expect(command).toContain(`'${SHA}' '/root/.cmux/bin/cmux-tui.tmp' | sha256sum -c >/dev/null 2>&1 && chmod 755`);
-    expect(command).toContain("ln -sfn '/root/.cmux/bin/cmux-tui' /usr/local/bin/cmux-tui");
+    expect(command).toContain(`curl -fsSL --retry 3 --retry-delay 2 -o '/usr/local/lib/cmux/cmux-tui.tmp' '${URL}'`);
+    expect(command).toContain(`else wget -q -O '/usr/local/lib/cmux/cmux-tui.tmp' '${URL}'; fi`);
+    expect(command).toContain(`'${SHA}' '/usr/local/lib/cmux/cmux-tui.tmp' | sha256sum -c >/dev/null 2>&1 && chmod 755`);
+    expect(command).toContain("ln -sfn '/usr/local/lib/cmux/cmux-tui' /usr/local/bin/cmux-tui");
     expect(command.endsWith("'/root/.cmux/bin/cmux-tui' --version")).toBe(true);
   });
 
