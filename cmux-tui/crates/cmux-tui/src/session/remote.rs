@@ -7662,10 +7662,12 @@ mod tests {
         let (client, _server) = UnixStream::pair().unwrap();
         let session = socket_test_session(client);
         session.tree.lock().unwrap().replace(tree(), 0);
-        assert!(session.cached_tree().workspaces()[0].screens[0].panes[0]
-            .tabs
-            .iter()
-            .any(|tab| tab.surface == 7));
+        assert!(
+            session.cached_tree().workspaces()[0].screens[0].panes[0]
+                .tabs
+                .iter()
+                .any(|tab| tab.surface == 7)
+        );
 
         session.handle_line(json!({"event": "surface-exited", "surface": 7}));
 
@@ -7673,10 +7675,9 @@ mod tests {
         // complete. The cached snapshot must already have the retired tab
         // removed, or the next layout pass can briefly resurrect it.
         let cached = session.cached_tree();
-        assert!(!cached.workspaces()[0].screens[0].panes[0]
-            .tabs
-            .iter()
-            .any(|tab| tab.surface == 7));
+        assert!(
+            !cached.workspaces()[0].screens[0].panes[0].tabs.iter().any(|tab| tab.surface == 7)
+        );
     }
 
     #[cfg(unix)]
