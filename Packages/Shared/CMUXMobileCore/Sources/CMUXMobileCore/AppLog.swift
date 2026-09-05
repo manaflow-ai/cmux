@@ -592,7 +592,14 @@ public actor AppLog {
                 }
             }
             guard didRemoveEverything else {
-                openExistingForAppending()
+                if FileManager.default.fileExists(atPath: url.path) {
+                    openExistingForAppending()
+                } else {
+                    // The active generation may have been removed before a
+                    // later archive failed. Recreate it without disturbing the
+                    // archive that could not be deleted.
+                    _ = openFreshGeneration()
+                }
                 return false
             }
             return openFreshGeneration()
@@ -623,6 +630,7 @@ public actor AppLog {
     private let flushSupplementalAppLog: @Sendable () async -> Bool
 
     private static let drainWaitTimeoutNanoseconds: UInt64 = 5_000_000_000
+    private static let exportTimeoutNanoseconds: UInt64 = 10_000_000_000
 
     /// Create a log writing to the given locations. Passing `nil` for a URL
     /// disables that file (used by tests exercising one file at a time).
@@ -742,17 +750,19 @@ public actor AppLog {
             return nil
         }
 
-        guard let appData = mergedData(
-            for: appFile?.url,
-            additionalURLs: supplementalAppLogURLs()
-        ),
-              let networkData = mergedData(for: networkFile?.url) else {
-            return nil
+        let inputs = ExportInputs(
+            appURL: appFile?.url,
+            networkURL: networkFile?.url,
+            supplementalAppURLs: supplementalAppLogURLs()
+        )
+        let exportTask = Task.detached(priority: .utility) {
+            Self.writeExportArchive(inputs: inputs)
         }
-        return Self.writeZipArchive(entries: [
-            ("\(Self.exportDirectoryName)/\(Self.exportAppFileName)", appData),
-            ("\(Self.exportDirectoryName)/\(Self.exportNetworkFileName)", networkData),
-        ])
+        return await withTaskCancellationHandler(operation: {
+            await exportTask.value
+        }, onCancel: {
+            exportTask.cancel()
+        })
     }
 
     /// Clears the structured log files, including all retained generations.
@@ -765,12 +775,54 @@ public actor AppLog {
         return await acknowledgement.wait(timeoutNanoseconds: Self.drainWaitTimeoutNanoseconds)
     }
 
-    private func mergedData(for fileURL: URL?, additionalURLs: [URL] = []) -> Data? {
+    private struct ExportInputs: Sendable {
+        let appURL: URL?
+        let networkURL: URL?
+        let supplementalAppURLs: [URL]
+    }
+
+    /// Performs bounded export work away from the AppLog actor. Every stage
+    /// checks cancellation and a monotonic deadline so a slow filesystem cannot
+    /// keep the settings task occupied indefinitely.
+    private static func writeExportArchive(inputs: ExportInputs) -> URL? {
+        let deadline = DispatchTime.now().uptimeNanoseconds &+ exportTimeoutNanoseconds
+        guard !Task.isCancelled else { return nil }
+        guard let appData = mergedData(
+            for: inputs.appURL,
+            additionalURLs: inputs.supplementalAppURLs,
+            deadlineNanoseconds: deadline
+        ), !hasExpired(deadline) else {
+            return nil
+        }
+        guard let networkData = mergedData(
+            for: inputs.networkURL,
+            deadlineNanoseconds: deadline
+        ), !hasExpired(deadline), !Task.isCancelled else {
+            return nil
+        }
+        return writeZipArchive(entries: [
+            ("\(Self.exportDirectoryName)/\(Self.exportAppFileName)", appData),
+            ("\(Self.exportDirectoryName)/\(Self.exportNetworkFileName)", networkData),
+        ], deadlineNanoseconds: deadline)
+    }
+
+    private static func hasExpired(_ deadlineNanoseconds: UInt64) -> Bool {
+        Task.isCancelled || DispatchTime.now().uptimeNanoseconds >= deadlineNanoseconds
+    }
+
+    private static func mergedData(
+        for fileURL: URL?,
+        additionalURLs: [URL] = [],
+        deadlineNanoseconds: UInt64
+    ) -> Data? {
         guard let fileURL else { return nil }
         let generations = Array(Self.logFileURLs(for: fileURL).reversed())
         var merged = Data()
         for generation in generations {
-            guard let data = try? Data(contentsOf: generation) else { return nil }
+            guard !hasExpired(deadlineNanoseconds),
+                  let data = try? Data(contentsOf: generation) else {
+                return nil
+            }
             if !merged.isEmpty, merged.last != 0x0A {
                 merged.append(0x0A)
             }
@@ -786,8 +838,12 @@ public actor AppLog {
             return String(remainder)
         })
         for generation in additionalURLs.reversed() {
-            guard let data = try? Data(contentsOf: generation) else { return nil }
+            guard !hasExpired(deadlineNanoseconds),
+                  let data = try? Data(contentsOf: generation) else {
+                return nil
+            }
             for line in data.split(separator: 0x0A, omittingEmptySubsequences: true) {
+                guard !hasExpired(deadlineNanoseconds) else { return nil }
                 let lineData = Data(line)
                 let lineString = String(decoding: lineData, as: UTF8.self)
                 guard !existingLines.contains(lineString),
@@ -817,7 +873,8 @@ public actor AppLog {
     /// bounded by AppLog's retention policy, and avoiding a second compression
     /// pass keeps export responsive on older iPhones.
     private static func writeZipArchive(
-        entries: [(name: String, data: Data)]
+        entries: [(name: String, data: Data)],
+        deadlineNanoseconds: UInt64
     ) -> URL? {
         let directory = FileManager.default.temporaryDirectory
         let archiveURL = directory.appendingPathComponent(
@@ -828,7 +885,8 @@ public actor AppLog {
         centralEntries.reserveCapacity(entries.count)
 
         for entry in entries {
-            guard let nameData = entry.name.data(using: .utf8),
+            guard !hasExpired(deadlineNanoseconds),
+                  let nameData = entry.name.data(using: .utf8),
                   entry.data.count <= Int(UInt32.max),
                   archive.count <= Int(UInt32.max) else {
                 return nil
@@ -859,7 +917,10 @@ public actor AppLog {
         guard archive.count <= Int(UInt32.max) else { return nil }
         let centralDirectoryOffset = UInt32(archive.count)
         for entry in centralEntries {
-            guard let nameData = entry.name.data(using: .utf8) else { return nil }
+            guard !hasExpired(deadlineNanoseconds),
+                  let nameData = entry.name.data(using: .utf8) else {
+                return nil
+            }
             appendUInt32(0x0201_4b50, to: &archive)
             appendUInt16(20, to: &archive) // version made by
             appendUInt16(20, to: &archive) // version needed to extract
@@ -890,6 +951,7 @@ public actor AppLog {
         appendUInt32(centralDirectoryOffset, to: &archive)
         appendUInt16(0, to: &archive) // archive comment length
 
+        guard !hasExpired(deadlineNanoseconds) else { return nil }
         do {
             try archive.write(to: archiveURL, options: .atomic)
             return archiveURL

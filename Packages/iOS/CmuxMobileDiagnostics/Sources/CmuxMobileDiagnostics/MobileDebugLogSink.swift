@@ -196,8 +196,30 @@ public actor MobileDebugLogSink {
             }
         }
         guard didRemoveEverything else {
-            fileLoggingEnabled = false
-            fileBytesWritten = 0
+            // The active generation may have been removed before a later
+            // archive failed. Reopen or recreate it without rotating away the
+            // archive that could not be deleted.
+            if let restoredLogFile = Self.openExistingLogFile(at: fileURL, header: fileHeader) {
+                fileBytesWritten = restoredLogFile.byteCount
+                if shouldReopen {
+                    fileHandle = restoredLogFile.fileHandle
+                    fileLoggingEnabled = true
+                    #if DEBUG
+                    if crashCaptureInstalled {
+                        MobileDebugLogCrashCapture.updateLogFileDescriptor(
+                            restoredLogFile.fileHandle.fileDescriptor
+                        )
+                    }
+                    #endif
+                } else {
+                    try? restoredLogFile.fileHandle.close()
+                    fileHandle = nil
+                    fileLoggingEnabled = false
+                }
+            } else {
+                fileLoggingEnabled = false
+                fileBytesWritten = 0
+            }
             return false
         }
 
@@ -256,6 +278,34 @@ public actor MobileDebugLogSink {
             let fileHandle = try FileHandle(forWritingTo: fileURL)
             var byteCount = 0
             if let header {
+                let headerData = Data("\(header)\n".utf8)
+                try fileHandle.write(contentsOf: headerData)
+                byteCount = headerData.count
+            }
+            return (fileHandle: fileHandle, byteCount: byteCount)
+        } catch {
+            return nil
+        }
+    }
+
+    /// Opens the active generation without rotating or removing any existing
+    /// generation. Clear failure recovery uses this path so an archive that
+    /// could not be deleted remains available for export.
+    private static func openExistingLogFile(
+        at fileURL: URL,
+        header: String?
+    ) -> (fileHandle: FileHandle, byteCount: Int)? {
+        let fileManager = FileManager.default
+        do {
+            if !fileManager.fileExists(atPath: fileURL.path) {
+                guard fileManager.createFile(atPath: fileURL.path, contents: nil) else {
+                    return nil
+                }
+            }
+            let fileHandle = try FileHandle(forWritingTo: fileURL)
+            let size = try fileHandle.seekToEnd()
+            var byteCount = Int(clamping: size)
+            if byteCount == 0, let header {
                 let headerData = Data("\(header)\n".utf8)
                 try fileHandle.write(contentsOf: headerData)
                 byteCount = headerData.count
