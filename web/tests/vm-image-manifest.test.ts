@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  devboxImageLadderProblems,
   imageManifestProblems,
   promoteImageManifestEntry,
   readImageManifest,
@@ -41,6 +42,36 @@ describe("checked-in image manifest", () => {
           .toEqual({ version: entry.version, validationStatus: "passed" });
       }
     }
+  });
+
+  test("has a complete, shape-correct base and desktop ladder", () => {
+    expect(devboxImageLadderProblems(readImageManifest())).toEqual([]);
+  });
+});
+
+describe("devboxImageLadderProblems", () => {
+  test("rejects a missing size and a wrong shape", () => {
+    const manifest = readImageManifest();
+    const base = manifest.images.filter((entry) => {
+      const isBaseDefault =
+        entry.provider === "freestyle" &&
+        (entry.kind ?? "base") === "base" &&
+        entry.defaultForKind;
+      return !isBaseDefault || !["sm", "md"].includes(entry.size?.name ?? "");
+    });
+    const sm = manifest.images.find(
+      (entry) => entry.provider === "freestyle" && (entry.kind ?? "base") === "base" && entry.size?.name === "sm" && entry.defaultForKind,
+    )!;
+    const bad = {
+      ...manifest,
+      images: [
+        ...base,
+        { ...sm, size: { ...sm.size!, memoryMb: sm.size!.memoryMb + 1 }, version: `${sm.version}-bad`, imageId: `${sm.imageId}-bad`, defaultForKind: true },
+      ],
+    };
+    const problems = devboxImageLadderProblems(bad);
+    expect(problems.some((problem) => problem.includes("missing default size md"))).toBe(true);
+    expect(problems.some((problem) => problem.includes("shape is"))).toBe(true);
   });
 });
 
