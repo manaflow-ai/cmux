@@ -10,6 +10,7 @@
 mod agent_browser_provider;
 mod agent_hook_install;
 mod app;
+mod auth;
 mod browser_input;
 mod cli;
 mod client_log;
