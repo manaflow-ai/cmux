@@ -186,6 +186,16 @@ describe("pricing copy matches the plan policy", () => {
     });
   });
 
+  test("the operator CPU switch removes only the shared CPU brake", () => {
+    expect(sharedResourceCapacityForMaxActiveVms(PAID_MAX_ACTIVE_VMS_DEFAULT, {
+      CMUX_VM_SHARED_CPU_LIMIT_ENABLED: "0",
+    })).toEqual({
+      vcpus: Number.MAX_SAFE_INTEGER,
+      memoryMb: PLAN_SHARED_MEMORY_MB,
+      diskMb: PLAN_SHARED_DISK_MB,
+    });
+  });
+
   test("a size-less plan reservation follows requested memory", () => {
     expect(vmResourceReservationForCreate({
       memoryMb: PLAN_SHARED_MEMORY_MB,
