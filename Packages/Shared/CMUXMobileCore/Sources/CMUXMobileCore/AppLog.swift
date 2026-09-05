@@ -300,6 +300,12 @@ public actor AppLog {
                         state.bufferedDroppableCount -= 1
                     }
                     state.bufferedDroppableCount += 1
+                } else if state.entries.count >= maxBufferedEntries {
+                    guard let oldestDroppable = state.entries.firstIndex(where: Self.isDroppable) else {
+                        return false
+                    }
+                    state.entries.remove(at: oldestDroppable)
+                    state.bufferedDroppableCount -= 1
                 }
                 state.entries.append(entry)
                 return true
