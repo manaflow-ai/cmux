@@ -2208,6 +2208,91 @@ await Promise.all([first, second]);
     return 0
 
 
+def check_output_stream_error_fails_closed(bun: str, root: Path, extension_path: Path) -> int:
+    inspectable_extension = root / "output-stream-error-cmux-session.ts"
+    source = extension_path.read_text(encoding="utf-8")
+    spawn_import = 'import { spawn } from "node:child_process";'
+    if spawn_import not in source:
+        print("FAIL: Pi extension no longer imports spawn from node:child_process")
+        return 1
+    patched = source.replace(
+        spawn_import,
+        """import { spawn as __cmuxRealSpawn } from "node:child_process";
+import { EventEmitter } from "node:events";
+function spawn(...args: any[]) {
+  if (process.env.CMUX_TEST_FORCE_STDOUT_ERROR !== "1") {
+    return __cmuxRealSpawn(...(args as Parameters<typeof __cmuxRealSpawn>));
+  }
+  const child = new EventEmitter() as any;
+  const stdout = new EventEmitter() as any;
+  const stderr = new EventEmitter() as any;
+  const stdin = new EventEmitter() as any;
+  stdout.setEncoding = () => {};
+  stderr.setEncoding = () => {};
+  stdout.destroy = () => {};
+  stderr.destroy = () => {};
+  stdin.destroy = () => {};
+  stdin.end = () => {
+    queueMicrotask(() => {
+      stdout.emit("error", new Error("forced stdout pipe failure"));
+      child.emit("close", 0);
+    });
+  };
+  child.stdout = stdout;
+  child.stderr = stderr;
+  child.stdin = stdin;
+  child.kill = () => {};
+  child.unref = () => {};
+  return child;
+}
+""",
+        1,
+    )
+    inspectable_extension.write_text(
+        patched + "\nexport { PiCmuxCommandDispatcher };\n",
+        encoding="utf-8",
+    )
+    output_error_source = """
+const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
+const mod = await import(extensionPath);
+const dispatcher = new mod.PiCmuxCommandDispatcher();
+const result = await dispatcher.run(
+  ["hooks", "pi", "prompt-submit", "--surface", "00000000-0000-0000-0000-000000008672"],
+  "/tmp/pi-output-stream-error",
+  "{}",
+  {
+    sessionId: "pi-output-stream-error-session",
+    cwd: "/tmp/pi-output-stream-error",
+  },
+);
+if (result.ok) {
+  throw new Error("stdout pipe error with exit status 0 was treated as success");
+}
+if (result.status !== 0) {
+  throw new Error(`expected close status 0 with unsuccessful result, got ${result.status}`);
+}
+const message = result.error instanceof Error ? result.error.message : String(result.error);
+if (!message.includes("forced stdout pipe failure")) {
+  throw new Error(`stdout pipe error was not returned: ${message}`);
+}
+"""
+    result = run_extension(
+        bun=bun,
+        root=root,
+        extension_path=inspectable_extension,
+        fake_cmux=Path("/usr/bin/true"),
+        source=output_error_source,
+        extra_env={"CMUX_TEST_FORCE_STDOUT_ERROR": "1"},
+    )
+    if result.returncode != 0:
+        print(
+            "FAIL: stdout pipe error with exit status 0 was accepted as success: "
+            f"{result.stderr!r}"
+        )
+        return 1
+    return 0
+
+
 def check_error_classification(bun: str, root: Path, extension_path: Path) -> int:
     ambiguous_log = root / "ambiguous-cmux.log"
     ambiguous_marker = root / "ambiguous-cmux-first-call"
@@ -3382,6 +3467,7 @@ def run_checks(bun: str, root: Path, extension_path: Path) -> int:
         check_nonterminal_timeout_marks_dropped_completion,
         check_completion_drain_deadline,
         check_timeout_serialization,
+        check_output_stream_error_fails_closed,
         check_error_classification,
         check_unserializable_feed,
         check_explicit_surface_routing,

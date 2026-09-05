@@ -399,6 +399,7 @@ class PiCmuxCommandDispatcher {
       let stdout = "";
       let stderr = "";
       let inputError: unknown;
+      let outputError: unknown;
       let timeout: ReturnType<typeof setTimeout> | null = null;
       let terminateGrace: ReturnType<typeof setTimeout> | null = null;
       let forceSettleTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -409,6 +410,9 @@ class PiCmuxCommandDispatcher {
         const limit = 1024 * 1024;
         if (current.length >= limit) return current;
         return current + String(chunk).slice(0, limit - current.length);
+      };
+      const rememberOutputError = (error: unknown) => {
+        if (outputError === undefined) outputError = error;
       };
       const settle = (result: CommandResult) => {
         if (settled) return;
@@ -440,9 +444,11 @@ class PiCmuxCommandDispatcher {
         });
         child.stdout.setEncoding("utf8");
         child.stderr.setEncoding("utf8");
+        child.stdout.on("error", rememberOutputError);
         child.stdout.on("data", (chunk) => {
           stdout = appendOutput(stdout, chunk);
         });
+        child.stderr.on("error", rememberOutputError);
         child.stderr.on("data", (chunk) => {
           stderr = appendOutput(stderr, chunk);
         });
@@ -487,8 +493,12 @@ class PiCmuxCommandDispatcher {
             return;
           }
           const status = typeof code === "number" ? code : null;
-          const error = inputError;
-          const reason = commandFailureReason(status, error);
+          const error = outputError ?? inputError;
+          // stdin EPIPE after a clean exit is benign. stdout/stderr errors are
+          // not: close can still report 0 with incomplete output.
+          const reason = outputError !== undefined && (status === 0 || status === null)
+            ? "spawn-error"
+            : commandFailureReason(status, error);
           settle({
             ok: reason === undefined,
             status,
