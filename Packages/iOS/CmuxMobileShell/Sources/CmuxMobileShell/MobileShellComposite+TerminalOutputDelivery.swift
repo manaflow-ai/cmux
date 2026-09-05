@@ -17,6 +17,8 @@ extension MobileShellComposite {
         return true
     }
 
+    /// Updates per-surface screen and mirror metadata after an authoritative
+    /// render-grid frame has been accepted for delivery.
     func recordTerminalRenderGridDelivery(_ renderGrid: MobileTerminalRenderGridFrame) {
         // The toolbar observes this dictionary via `isAlternateScreen`; same-value
         // writes would re-fire observers for every delivered render-grid frame.
@@ -33,6 +35,7 @@ extension MobileShellComposite {
         } else if renderGrid.activeScreen == .primary {
             terminalAlternateRenderGridBaselineSurfaceIDs.remove(renderGrid.surfaceID)
         }
+        recordTerminalMirrorFrame(renderGrid)
     }
 
     /// Record the screen-anchor history that the next live delta must link to.
@@ -346,9 +349,6 @@ extension MobileShellComposite {
             fullReplacement: renderGrid.full
         )
         recordTerminalRenderGridHistoryContinuity(renderGrid)
-        if renderGrid.full, renderGrid.scrollbackRows > 0 {
-            terminalMirrorHydrationNeededSurfaceIDs.remove(renderGrid.surfaceID)
-        }
         #if DEBUG
         MobileLatencyTrace.stamp(
             "gate",
@@ -647,7 +647,7 @@ extension MobileShellComposite {
         // Rebuilt surface: nothing pre-barrier is visible anymore.
         rebaseTerminalReplayStaleFloor(surfaceID: surfaceID)
         terminalAlternateRenderGridBaselineSurfaceIDs.remove(surfaceID)
-        terminalMirrorHydrationNeededSurfaceIDs.insert(surfaceID)
+        markTerminalMirrorHydrationNeeded(surfaceID: surfaceID)
         MobileDebugLog.anchormux("terminal.output.reset surface=\(surfaceID)")
         requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
     }
@@ -666,7 +666,7 @@ extension MobileShellComposite {
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         terminalRenderGridHistoryContinuityBySurfaceID.removeValue(forKey: surfaceID)
         terminalRenderGridRevisionContinuityBySurfaceID.removeValue(forKey: surfaceID)
-        terminalMirrorHydrationNeededSurfaceIDs.insert(surfaceID)
+        markTerminalMirrorHydrationNeeded(surfaceID: surfaceID)
         terminalAlternateRenderGridBaselineSurfaceIDs.remove(surfaceID)
         terminalFullReplacementSeqBySurfaceID.removeValue(forKey: surfaceID)
         terminalFullReplacementGenerationBySurfaceID.removeValue(forKey: surfaceID)
@@ -715,7 +715,7 @@ extension MobileShellComposite {
         let replayBarrierToken = beginTerminalReplayBarrier(surfaceID: surfaceID)
         rebaseTerminalReplayStaleFloor(surfaceID: surfaceID)
         terminalAlternateRenderGridBaselineSurfaceIDs.remove(surfaceID)
-        terminalMirrorHydrationNeededSurfaceIDs.insert(surfaceID)
+        markTerminalMirrorHydrationNeeded(surfaceID: surfaceID)
         MobileDebugLog.anchormux("terminal.output.replay_requested surface=\(surfaceID)")
         requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
     }
