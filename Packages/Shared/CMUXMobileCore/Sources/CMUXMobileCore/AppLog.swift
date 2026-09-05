@@ -625,6 +625,7 @@ public actor AppLog {
     private var pendingFrameRun: FrameRun?
     private var exportSnapshotInProgress = false
     private var deferredExportEntries: [Entry] = []
+    private var deferredExportDroppableCount = 0
     private var processed = 0
     private let presentation = DiagnosticEventPresentation()
     private let timestampFormatter: ISO8601DateFormatter
@@ -635,6 +636,7 @@ public actor AppLog {
 
     private static let drainWaitTimeoutNanoseconds: UInt64 = 5_000_000_000
     private static let exportTimeoutNanoseconds: UInt64 = 10_000_000_000
+    private static let ingressCapacity = 2_048
 
     /// Create a log writing to the given locations. Passing `nil` for a URL
     /// disables that file (used by tests exercising one file at a time).
@@ -678,7 +680,7 @@ public actor AppLog {
                 now: now
             )
         }
-        let ingress = EntryIngress()
+        let ingress = EntryIngress(maxBufferedEntries: Self.ingressCapacity)
         self.ingress = ingress
         // The drain holds self only across one write; when the log deallocs,
         // `deinit` finishes ingress and the loop ends on its own.
@@ -723,8 +725,34 @@ public actor AppLog {
         flushPendingFrameRun()
     }
 
+    private static func isDroppable(_ entry: Entry) -> Bool {
+        switch entry {
+        case .event, .appLine:
+            return true
+        case .barrier, .clear:
+            return false
+        }
+    }
+
+    private static func signalControl(_ entry: Entry, result: Bool) {
+        switch entry {
+        case .barrier(let acknowledgement), .clear(let acknowledgement):
+            acknowledgement.signal(result)
+        case .event, .appLine:
+            break
+        }
+    }
+
     private func write(_ entry: Entry) {
         guard !exportSnapshotInProgress else {
+            if Self.isDroppable(entry) {
+                guard deferredExportEntries.count < Self.ingressCapacity,
+                      deferredExportDroppableCount < Self.ingressCapacity else { return }
+                deferredExportDroppableCount += 1
+            } else if deferredExportEntries.count >= Self.ingressCapacity {
+                Self.signalControl(entry, result: false)
+                return
+            }
             deferredExportEntries.append(entry)
             return
         }
@@ -789,15 +817,14 @@ public actor AppLog {
         return result
     }
 
-    /// Captures all live generations through AppLog actor ownership. Running
-    /// this in the worker task keeps the settings task cancellable while the
-    /// actor still prevents structured writes and rotation during each read.
+    /// Captures a stable generation list through AppLog actor ownership, then
+    /// copies those files in a cancellable worker while the actor defers new
+    /// writes. This keeps the settings task responsive without racing rotate.
     private func captureExportInputs() async -> ExportInputs? {
-        guard let appURL = appFile?.url,
-              let networkURL = networkFile?.url else { return nil }
+        guard appFile != nil || networkFile != nil else { return nil }
         exportSnapshotInProgress = true
-        let appSourceURLs = Self.logFileURLs(for: appURL)
-        let networkSourceURLs = Self.logFileURLs(for: networkURL)
+        let appSourceURLs = appFile.map { Self.logFileURLs(for: $0.url) } ?? []
+        let networkSourceURLs = networkFile.map { Self.logFileURLs(for: $0.url) } ?? []
         let supplementalSnapshot = await supplementalAppLogSnapshot()
         let supplementalSourceURLs = supplementalSnapshot == nil
             ? supplementalAppLogURLs()
@@ -818,6 +845,7 @@ public actor AppLog {
         exportSnapshotInProgress = false
         let deferredEntries = deferredExportEntries
         deferredExportEntries.removeAll(keepingCapacity: true)
+        deferredExportDroppableCount = 0
         for entry in deferredEntries {
             write(entry)
         }

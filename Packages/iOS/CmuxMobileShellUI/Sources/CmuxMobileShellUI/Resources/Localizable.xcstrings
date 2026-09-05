@@ -12551,6 +12551,39 @@
           }
         }
       }
+    },
+    "mobile.settings.diagnostics.export": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Export Logs"
+          }
+        }
+      }
+    },
+    "mobile.settings.diagnostics.export.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t export logs. Check available storage and try again."
+          }
+        }
+      }
+    },
+    "mobile.settings.diagnostics.clear.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t clear logs. Check available storage and try again."
+          }
+        }
+      }
     }
   },
   "version": "1.0"
