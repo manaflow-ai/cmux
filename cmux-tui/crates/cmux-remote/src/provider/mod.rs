@@ -7,6 +7,7 @@
 mod dial;
 #[cfg(feature = "iroh-transport")]
 mod iroh;
+mod iroh_config;
 mod relay;
 pub(crate) mod socks;
 mod ssh;
@@ -32,8 +33,10 @@ pub use dial::WireGuardDialer;
 pub use dial::{DialedIo, DialedStream, Dialer, OsTcpDialer, SocksDialer, resolve_dial_target};
 #[cfg(feature = "iroh-transport")]
 pub use iroh::{
-    CMUX_IROH_ALPN, IrohListener, IrohPathMode, IrohProvider, IrohProviderConfig, IrohRoute,
-    ROUTING_DIRECT_ADDRS, ROUTING_NODE_ID, ROUTING_RELAY_URL, load_or_create_iroh_secret,
+    IrohListener, IrohProvider, IrohProviderConfig, IrohRoute, load_or_create_iroh_secret,
+};
+pub use iroh_config::{
+    CMUX_IROH_ALPN, IrohPathMode, ROUTING_DIRECT_ADDRS, ROUTING_NODE_ID, ROUTING_RELAY_URL,
 };
 pub use relay::{
     RelayClientConfig, RelayCredentialSource, RelayDaemonConfig, RelayDaemonRegistration,

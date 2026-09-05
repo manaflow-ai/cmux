@@ -11,7 +11,7 @@ description = "Authenticated remote daemon, transports, and workspace services f
 workspace = true
 
 [features]
-default = ["iroh-transport", "wireguard-transport"]
+default = ["wireguard-transport"]
 iroh-transport = ["dep:iroh", "dep:socket2"]
 # Dial `ws://` routes through an in-process WireGuard tunnel (cmux-wg) when
 # the target sits inside the tunnel's routes.

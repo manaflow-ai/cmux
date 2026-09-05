@@ -33,11 +33,14 @@ use cmux_remote::identity::{
 };
 use cmux_remote::observability::ClientConnectionSnapshot;
 use cmux_remote::provider::{
-    ConnectRequest, Dialer, DirectWebSocketProvider, IrohListener, IrohPathMode, IrohProvider,
-    IrohProviderConfig, LinkGroup, ProviderError, RelayClientConfig, RelayCredentialSource,
-    RelayDaemonConfig, RelayDaemonRegistration, RelayProvider, SshProvider, SshProviderConfig,
-    SupportedClientAuthModes, TransportProvider, UnixProvider, load_or_create_iroh_secret,
-    register_relay_daemon_with_credentials, sanitized_route, sanitized_route_text,
+    ConnectRequest, Dialer, DirectWebSocketProvider, IrohPathMode, LinkGroup, ProviderError,
+    RelayClientConfig, RelayCredentialSource, RelayDaemonConfig, RelayDaemonRegistration,
+    RelayProvider, SshProvider, SshProviderConfig, SupportedClientAuthModes, TransportProvider,
+    UnixProvider, register_relay_daemon_with_credentials, sanitized_route, sanitized_route_text,
+};
+#[cfg(feature = "iroh-transport")]
+use cmux_remote::provider::{
+    IrohListener, IrohProvider, IrohProviderConfig, load_or_create_iroh_secret,
 };
 use cmux_remote::secure_directory::{DirectoryAccess, ensure_secure_directory};
 use cmux_remote::service::{EndpointRole, ServiceMultiplexer};
@@ -453,9 +456,12 @@ pub fn client_provider_registry(
     providers.register(Arc::new(UnixProvider::new(MAX_CARRIER_FRAME_BYTES)))?;
     providers.register(Arc::new(SshProvider::new(ssh)?))?;
     providers.register(Arc::new(RoutedRelayProvider { routes: relay_routes }))?;
+    #[cfg(feature = "iroh-transport")]
     providers.register(Arc::new(IrohProvider::new(
         IrohProviderConfig::default().with_path_mode(iroh_path),
     )?))?;
+    #[cfg(not(feature = "iroh-transport"))]
+    let _ = iroh_path;
     Ok(providers)
 }
 
@@ -1944,6 +1950,11 @@ async fn run_daemon(
                 relays.push(result.context("relay registration task failed")??);
             }
 
+            #[cfg(not(feature = "iroh-transport"))]
+            if options.iroh {
+                return Err(anyhow!("Iroh transport is not included in this cmux-tui build"));
+            }
+            #[cfg(feature = "iroh-transport")]
             let iroh = match options.iroh {
                 true => {
                     let config = IrohProviderConfig {
@@ -1959,6 +1970,8 @@ async fn run_daemon(
                 }
                 false => None,
             };
+            #[cfg(not(feature = "iroh-transport"))]
+            let iroh = None::<()>;
 
             let mut routes = Vec::new();
             for route in &options.advertised_routes {
@@ -1984,6 +1997,7 @@ async fn run_daemon(
             } else {
                 None
             };
+            #[cfg(feature = "iroh-transport")]
             let iroh_node_id = if let Some(listener) = &iroh {
                 let route = listener.route().await?;
                 let hints = route.routing_hints();
@@ -2003,6 +2017,8 @@ async fn run_daemon(
             } else {
                 None
             };
+            #[cfg(not(feature = "iroh-transport"))]
+            let iroh_node_id = None;
             if let Some(route) = websocket_route {
                 push_unique_route(&mut routes, route);
             }
@@ -2035,7 +2051,7 @@ async fn run_daemon(
             Ok((unix, websocket, workspace_http, relays, iroh, admin, info))
         }
         .await;
-        let (unix, websocket, workspace_http, relays, iroh, admin, info) = match transport_setup {
+        let (unix, websocket, workspace_http, relays, _iroh, admin, info) = match transport_setup {
             Ok(transports) => transports,
             Err(error) => {
                 return finalize_daemon_authorization(auth, state_dir, lifecycle_id, vec![error])
@@ -2062,7 +2078,8 @@ async fn run_daemon(
             shutdown_failures
                 .push(anyhow::Error::new(error).context("workspace HTTP shutdown failed"));
         }
-        if let Some(listener) = iroh
+        #[cfg(feature = "iroh-transport")]
+        if let Some(listener) = _iroh
             && let Err(error) = listener.shutdown().await
         {
             shutdown_failures
