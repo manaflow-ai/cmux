@@ -395,9 +395,9 @@ import Testing
         let iroh = try irohRoute()
         let tailscaleRoutes = try (0..<257).map { index in
             try CmxAttachRoute(
-                id: "tailscale-(index)",
+                id: "tailscale-\(index)",
                 kind: .tailscale,
-                endpoint: .hostPort(host: "100.65.0.((index / 250) + 1)", port: 58_465 - index)
+                endpoint: .hostPort(host: "100.65.0.\((index / 250) + 1)", port: 58_465 - index)
             )
         }
         try await store.upsert(
