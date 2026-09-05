@@ -288128,23 +288128,6 @@
         }
       }
     },
-    "machines.new.size.pickerLabel": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "RAM size"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "RAM サイズ"
-          }
-        }
-      }
-    },
     "machines.new.size.accessibilityLabel": {
       "extractionState": "manual",
       "localizations": {
@@ -288174,7 +288157,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "RAM %d GB · vCPU %d · ディスク %d GB"
+            "value": "RAM %d GB · ディスク %d GB"
           }
         }
       }

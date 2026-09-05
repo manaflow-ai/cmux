@@ -77,10 +77,7 @@ struct NewMachineSheet: View {
             }
 
             if let selectedSize = model.selectedSize {
-                Picker(
-                    String(localized: "machines.new.size.pickerLabel", defaultValue: "RAM size"),
-                    selection: $model.memoryMb
-                ) {
+                Picker(selection: $model.memoryMb) {
                     ForEach(model.memoryOptions, id: \.self) { memoryMb in
                         if let size = MachineSizeOption(memoryMb: memoryMb) {
                             Text(size.menuTitle).tag(memoryMb)

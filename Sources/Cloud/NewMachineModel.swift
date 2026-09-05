@@ -22,6 +22,7 @@ struct MachineSizeOption: Equatable, Sendable {
         self.diskMb = diskMb
     }
 
+    /// The localized RAM value shown as the selected picker title.
     var title: String {
         String(
             format: String(localized: "machines.new.size.option", defaultValue: "%d GB RAM"),
@@ -29,6 +30,7 @@ struct MachineSizeOption: Equatable, Sendable {
         )
     }
 
+    /// The localized disk value shown below the selected picker title.
     var detail: String {
         String(
             format: String(localized: "machines.new.size.detail", defaultValue: "%d GB disk included"),
@@ -36,6 +38,7 @@ struct MachineSizeOption: Equatable, Sendable {
         )
     }
 
+    /// The localized disk value shown in the resource summary.
     var diskTitle: String {
         String(
             format: String(localized: "machines.new.size.gb", defaultValue: "%d GB"),
@@ -43,6 +46,7 @@ struct MachineSizeOption: Equatable, Sendable {
         )
     }
 
+    /// The localized, compact row title shown in the size menu.
     var menuTitle: String {
         String(
             format: String(localized: "machines.new.size.menu", defaultValue: "%d GB RAM · %d GB disk"),
