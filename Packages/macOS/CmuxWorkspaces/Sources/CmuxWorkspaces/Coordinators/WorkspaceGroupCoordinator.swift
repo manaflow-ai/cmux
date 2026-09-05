@@ -243,9 +243,14 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
             }
         }
         guard currentIndex != targetIndex else { return }
-        let workspace = model.tabs.remove(at: currentIndex)
         let insertAt = currentIndex < targetIndex ? targetIndex - 1 : targetIndex
-        model.tabs.insert(workspace, at: max(0, min(insertAt, model.tabs.count)))
+        model.replaceTabs { currentTabs in
+            var reordered = currentTabs
+            let workspace = reordered.remove(at: currentIndex)
+            let destination = max(0, min(insertAt, reordered.count))
+            reordered.insert(workspace, at: destination)
+            return reordered
+        }
     }
 
     // MARK: - Membership
