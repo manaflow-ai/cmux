@@ -25,10 +25,23 @@ export class VmNotFoundError extends Data.TaggedError("VmNotFoundError")<{
   readonly vmId: string;
 }> {}
 
+export class VmResizeInvalidError extends Data.TaggedError("VmResizeInvalidError")<{
+  readonly vmId: string;
+  readonly requestedMb: number;
+  readonly currentMb: number;
+  readonly maxMb: number;
+  readonly reason: "below_current" | "above_max";
+}> {}
+
+/** A grow-only disk resize is already running for this machine. */
+export class VmResizeInProgressError extends Data.TaggedError("VmResizeInProgressError")<{
+  readonly vmId: string;
+}> {}
+
 /**
  * A private-network or tunnel operation on a deployment that does not serve
- * one — the provider has no `privateNetworking`, or
- * `CMUX_VM_PRIVATE_NETWORK_ENABLED=0` has rolled the feature back.
+ * one. The provider has no `privateNetworking`, or the fail-closed private
+ * network switch has disabled the operation.
  *
  * Distinct from {@link VmOperationUnsupportedError} because the caller's next
  * move is different: this is a deployment that will not give *any* caller a
@@ -42,6 +55,26 @@ export class VmPrivateNetworkUnavailableError extends Data.TaggedError("VmPrivat
 /** The caller asked about a tunnel this account has never enrolled, or revoked. */
 export class VmTunnelNotFoundError extends Data.TaggedError("VmTunnelNotFoundError")<{
   readonly deviceFingerprint: string;
+}> {}
+
+/** Another request currently owns this device's provider enrollment lease. */
+export class VmTunnelEnrollmentBusyError extends Data.TaggedError("VmTunnelEnrollmentBusyError")<{
+  readonly retryAfterSeconds: number;
+}> {}
+
+/** The deployed control plane is missing the enrollment lease table/API. */
+export class VmTunnelEnrollmentUnavailableError extends Data.TaggedError("VmTunnelEnrollmentUnavailableError")<{
+  readonly reason: string;
+}> {}
+
+/** A remote revoke blocked this Stack login, or any older login on the same Mac. */
+export class VmAccessGrantRevokedError extends Data.TaggedError("VmAccessGrantRevokedError")<{
+  readonly stackSessionId: string;
+}> {}
+
+/** Another enrollment or revoke owns this physical Mac's provider mutation. */
+export class VmAccessGrantMutationBusyError extends Data.TaggedError("VmAccessGrantMutationBusyError")<{
+  readonly accessGrantId: string;
 }> {}
 
 export class VmSnapshotNotFoundError extends Data.TaggedError("VmSnapshotNotFoundError")<{
@@ -96,6 +129,17 @@ export class VmImageConfigError extends Data.TaggedError("VmImageConfigError")<{
 export class VmLimitExceededError extends Data.TaggedError("VmLimitExceededError")<{
   readonly kind: "active_vms";
   readonly billingTeamId: string;
+  readonly limit: number;
+}> {}
+
+/** A create or resize would exceed the plan's aggregate Cloud VM pool. */
+export class VmSharedResourceLimitExceededError extends Data.TaggedError("VmSharedResourceLimitExceededError")<{
+  readonly kind: "shared_resources";
+  readonly billingTeamId: string;
+  readonly phase?: "create" | "resize";
+  readonly resource: "vcpus" | "memoryMb" | "diskMb";
+  readonly used: number;
+  readonly requested: number;
   readonly limit: number;
 }> {}
 
@@ -160,6 +204,8 @@ export type VmWorkflowError =
   | VmProviderOperationError
   | VmOperationUnsupportedError
   | VmNotFoundError
+  | VmResizeInvalidError
+  | VmResizeInProgressError
   | VmSnapshotNotFoundError
   | VmFreeAccessExpiredError
   | VmCreateInProgressError
@@ -168,11 +214,16 @@ export type VmWorkflowError =
   | VmAccountDeletionInProgressError
   | VmImageConfigError
   | VmLimitExceededError
+  | VmSharedResourceLimitExceededError
   | VmCreateCreditsInsufficientError
   | VmBillingError
   | VmAttachTransportUnsupportedError
   | VmPrivateNetworkUnavailableError
   | VmTunnelNotFoundError
+  | VmTunnelEnrollmentBusyError
+  | VmTunnelEnrollmentUnavailableError
+  | VmAccessGrantRevokedError
+  | VmAccessGrantMutationBusyError
   | VmAccountDeletionIdentityRevocationError
   | VmModelPlaneError;
 
@@ -186,8 +237,34 @@ export function isVmTunnelNotFoundError(err: unknown): err is VmTunnelNotFoundEr
   return (err as { _tag?: string } | null)?._tag === "VmTunnelNotFoundError";
 }
 
+export function isVmTunnelEnrollmentBusyError(err: unknown): err is VmTunnelEnrollmentBusyError {
+  return (err as { _tag?: string } | null)?._tag === "VmTunnelEnrollmentBusyError";
+}
+
+export function isVmTunnelEnrollmentUnavailableError(
+  err: unknown,
+): err is VmTunnelEnrollmentUnavailableError {
+  return (err as { _tag?: string } | null)?._tag === "VmTunnelEnrollmentUnavailableError";
+}
+
+export function isVmAccessGrantRevokedError(err: unknown): err is VmAccessGrantRevokedError {
+  return (err as { _tag?: string } | null)?._tag === "VmAccessGrantRevokedError";
+}
+
+export function isVmAccessGrantMutationBusyError(err: unknown): err is VmAccessGrantMutationBusyError {
+  return (err as { _tag?: string } | null)?._tag === "VmAccessGrantMutationBusyError";
+}
+
 export function isVmNotFoundError(err: unknown): err is VmNotFoundError {
   return (err as { _tag?: string } | null)?._tag === "VmNotFoundError";
+}
+
+export function isVmResizeInvalidError(err: unknown): err is VmResizeInvalidError {
+  return (err as { _tag?: string } | null)?._tag === "VmResizeInvalidError";
+}
+
+export function isVmResizeInProgressError(err: unknown): err is VmResizeInProgressError {
+  return (err as { _tag?: string } | null)?._tag === "VmResizeInProgressError";
 }
 
 export function isVmSnapshotNotFoundError(err: unknown): err is VmSnapshotNotFoundError {
@@ -222,6 +299,12 @@ export function isVmImageConfigError(err: unknown): err is VmImageConfigError {
 
 export function isVmLimitExceededError(err: unknown): err is VmLimitExceededError {
   return (err as { _tag?: string } | null)?._tag === "VmLimitExceededError";
+}
+
+export function isVmSharedResourceLimitExceededError(
+  err: unknown,
+): err is VmSharedResourceLimitExceededError {
+  return (err as { _tag?: string } | null)?._tag === "VmSharedResourceLimitExceededError";
 }
 
 export function isVmCreateCreditsInsufficientError(err: unknown): err is VmCreateCreditsInsufficientError {
@@ -268,6 +351,8 @@ const vmWorkflowErrorTagRecord = {
   VmProviderOperationError: true,
   VmOperationUnsupportedError: true,
   VmNotFoundError: true,
+  VmResizeInvalidError: true,
+  VmResizeInProgressError: true,
   VmSnapshotNotFoundError: true,
   VmFreeAccessExpiredError: true,
   VmCreateInProgressError: true,
@@ -276,11 +361,16 @@ const vmWorkflowErrorTagRecord = {
   VmAccountDeletionInProgressError: true,
   VmImageConfigError: true,
   VmLimitExceededError: true,
+  VmSharedResourceLimitExceededError: true,
   VmCreateCreditsInsufficientError: true,
   VmBillingError: true,
   VmAttachTransportUnsupportedError: true,
   VmPrivateNetworkUnavailableError: true,
   VmTunnelNotFoundError: true,
+  VmTunnelEnrollmentBusyError: true,
+  VmTunnelEnrollmentUnavailableError: true,
+  VmAccessGrantRevokedError: true,
+  VmAccessGrantMutationBusyError: true,
   VmAccountDeletionIdentityRevocationError: true,
   VmModelPlaneError: true,
 } as const satisfies Record<VmWorkflowError["_tag"], true>;

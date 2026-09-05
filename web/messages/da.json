@@ -7,12 +7,14 @@
         "snapshot": "Denne Cloud VM understøtter ikke gemt VM-tilstand.",
         "restore": "Denne Cloud VM-type understøtter ikke gendannelse af gemt VM-tilstand.",
         "fork": "Denne Cloud VM understøtter ikke kopiering til en ny VM.",
+        "openPort": "Denne Cloud VM's udbyder kan ikke eksponere maskinens porte som forhåndsvisnings-URL'er.",
         "default": "Denne Cloud VM understøtter ikke den ønskede handling."
       },
       "action": {
         "snapshot": "Prøv ikke igen. Arbejde på denne maskintype gemmes på dens vedvarende hjem-diskenhed.",
         "restore": "Prøv ikke igen. Arbejde på denne maskintype gemmes på dens vedvarende hjem-diskenhed.",
         "fork": "Prøv ikke igen. Opret en ny VM med `cmux vm new`.",
+        "openPort": "Prøv ikke igen. Få adgang til tjenesten fra maskinen med `cmux vm exec`, eller brug en maskintype, der kan åbne porte.",
         "default": "Prøv ikke igen. Kør `cmux vm ls`, eller kontakt support, hvis du mener, at dette er forkert."
       }
     },
@@ -20,6 +22,11 @@
       "title": "cmux Pro påkrævet",
       "message": "Cloud VM'er kræver en cmux Pro-plan.",
       "action": "Opgrader til cmux Pro på {upgradeUrl} for at oprette Cloud VM'er."
+    },
+    "sharedResource": {
+      "message": "Den delte {resource}-ressourcepulje til Cloud VM er fuld.",
+      "action": "Slet en ubrugt Cloud VM, og prøv igen.",
+      "oversizedAction": "Anmod om en mindre {resource}-størrelse til Cloud VM, som passer i den delte pulje."
     }
   },
   "billingRecovery": {
@@ -1181,6 +1188,14 @@
         "shortcuts": {
           "when": "Valgfri kontekstprædikater pr. handling (VS Code-lignende `when`-klausuler), nøgleindekseret efter cmux-handlings-id. Hver værdi er et boolesk udtryk over kontekstnøgler, kombineret med !, &&, || og parenteser. Boolske nøgler: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Typede nøgler understøtter sammenligninger: strengen sidebarMode (files, find, sessions, feed eller dock) og heltallene paneCount og workspaceCount. Sammenligningsoperatorerne er ==, !=, =~ (regulært udtryk), <, <=, >, >= og `in [a, b]`; en ukendt eller manglende nøgle læses som false. De boolske litteraler true og false accepteres også; `key == false` svarer til `!key`. Handlingens genvej udløses kun (og konflikter kun med andre genveje), når klausulen er sand. Eksempler: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } vælger workspaces med Ctrl+1–9 overalt undtagen når højre sidebjælke har fokus; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } begrænser en binding til Find-sidebjælken, når workspacet har flere paneler.",
           "showModifierHoldHints": "Vis genvejstipchips, mens Cmd eller Control holdes nede."
+        },
+        "fileEditor": {
+          "wordWrap": "Ombryd lange linjer ved editorens højre kant i stedet for vandret rulning.",
+          "syntaxHighlighting": "Farvelæg kildekodens tokens i den indbyggede fileditor.",
+          "lineNumbers": "Vis en linjenummerkolonne i den indbyggede fileditor.",
+          "indentGuides": "Tegn lodrette indrykningsguider i den indbyggede fileditor.",
+          "currentLineHighlight": "Fremhæv indsætningspunktets linje, når intet er markeret.",
+          "tabWidth": "Bredden på et tabulatorstop i kolonner til indrykning og indrykningsguider."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

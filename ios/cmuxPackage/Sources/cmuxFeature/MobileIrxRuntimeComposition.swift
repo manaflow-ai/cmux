@@ -136,9 +136,9 @@ public actor MobileIrxRuntimeComposition {
     private var expectedDeviceIDByPeer: [String: String] = [:]
     /// The control lane is single-consumer: one live transport owner per
     /// admitted session. A second RPC client must not force a QUIC replacement
-    /// just to obtain the same lane; that creates a host-shutdown/redial storm
-    /// when foreground recovery and secondary aggregation overlap.
-    private var claimedControlSessions: [String: UUID] = [:]
+    /// just to obtain the same lane, because foreground recovery and secondary
+    /// aggregation can overlap briefly.
+    private var controlLaneClaims = MobileIrxControlLaneClaims()
     /// The events uni-lane accept is single-consumer per session too.
     private var claimedEventSessions: Set<String> = []
     /// Change-only stream consumed by the MainActor settings adapter.
@@ -539,7 +539,7 @@ public actor MobileIrxRuntimeComposition {
         dialIntentByPeer.removeAll()
         activeDialIntentByPeer.removeAll()
         expectedDeviceIDByPeer.removeAll()
-        claimedControlSessions.removeAll()
+        controlLaneClaims.removeAll()
         claimedEventSessions.removeAll()
 
         deviceListBox.clear()
@@ -1411,8 +1411,8 @@ public actor MobileIrxRuntimeComposition {
     }
 
     /// The deferred transport the RPC layer connects through. Each RPC client
-    /// generation claims one admitted session's control lane; a replacement
-    /// client forces a fresh dial (superseding the old session Mac-side).
+    /// generation claims one admitted session's control lane and releases that
+    /// claim when the transport closes.
     public func transport(
         for request: CmxByteTransportRequest
     ) async throws -> any CmxByteTransport {
@@ -1440,26 +1440,25 @@ public actor MobileIrxRuntimeComposition {
         ownerID: UUID
     ) async throws -> (IrxConnection, IrxLaneStream) {
         let session = try await ensureSession(forPeer: peerHex, trigger: "control-transport")
-        if let existingOwner = claimedControlSessions[session.admit.session],
-           existingOwner != ownerID {
+        guard controlLaneClaims.claim(
+            sessionID: session.admit.session,
+            ownerID: ownerID
+        ) else {
             // One admitted session exposes one control lane. Returning a
-            // transient closed error lets the caller's normal bounded retry
-            // policy wait for the current owner to drain, while preserving the
-            // healthy QUIC session for the owner that already has the lane.
+            // transient closed error lets the caller's bounded retry policy
+            // wait for the current owner to drain, while preserving the
+            // healthy QUIC session for the current owner.
             Self.journal.record(
                 "client-runtime", "control-lane-busy",
                 ["peer": peerHex.prefix(12).lowercased()]
             )
             throw IrxConnectionError.closed(nil)
         }
-        claimedControlSessions[session.admit.session] = ownerID
         return (session.connection, session.control)
     }
 
     private func releaseControlLane(ownerID: UUID) {
-        claimedControlSessions = claimedControlSessions.filter {
-            $0.value != ownerID
-        }
+        controlLaneClaims.release(ownerID: ownerID)
     }
 }
 

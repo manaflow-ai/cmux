@@ -37,6 +37,16 @@ struct CMUXMobileRootView: View {
     /// Optional so previews and package hosts remain migration-free by default.
     @Environment(MobileAutoConnectMigrationStore.self) private var autoConnectMigrationStore:
         MobileAutoConnectMigrationStore?
+    // This environment value is inside the iOS-only block because the center
+    // is not defined for macOS builds of the shared root view.
+    /// Minimum-Mac-version list shared with onboarding copy. Optional so
+    /// previews and package hosts keep the store's compiled-in fallback.
+    @Environment(MobileMacCompatCenter.self) private var macCompatCenter:
+        MobileMacCompatCenter?
+    /// Set when the one-shot remote policy refresh has been started. The
+    /// cached/baked policy is installed synchronously; the network refresh
+    /// continues independently of auth restore and stored-Mac reconnect.
+    @State private var didStartMacCompatPolicyRefresh = false
     /// Persists the last durable milestone in first-run onboarding.
     @Bindable private var onboardingStore: MobileOnboardingStore
     @State private var isAwaitingOnboardingReconnectStart = false
@@ -1084,6 +1094,11 @@ struct CMUXMobileRootView: View {
     }
 
     private func finishAuthenticationBootstrapAndConnect() async {
+        #if os(iOS)
+        // Seed from cache/baked policy now, then refresh in the background. A
+        // policy fetch must never become a connection-startup barrier.
+        startMacCompatibilityRefreshIfNeeded()
+        #endif
         await authManager.awaitBootstrapped()
         guard !Task.isCancelled else { return }
         if authManager.isAuthenticated {
@@ -1094,6 +1109,26 @@ struct CMUXMobileRootView: View {
             reconnectStoredMacIfNeeded()
         }
     }
+
+    #if os(iOS)
+    /// Installs the cached/baked policy immediately, then refreshes it once in
+    /// a fire-and-forget task. A missing center is the preview/package-host
+    /// path and keeps the store's compiled-in fallback.
+    private func startMacCompatibilityRefreshIfNeeded() {
+        guard !didStartMacCompatPolicyRefresh else { return }
+        didStartMacCompatPolicyRefresh = true
+        guard let macCompatCenter else {
+            return
+        }
+        store.applyMacCompatibilityPolicy(macCompatCenter.policy)
+        Task { @MainActor in
+            await macCompatCenter.refresh()
+            guard !Task.isCancelled else { return }
+            store.applyMacCompatibilityPolicy(macCompatCenter.policy)
+            store.revalidateActiveMacCompatibilityPolicy()
+        }
+    }
+    #endif
 
     private func accountScopeDidChangeAfterBootstrap() {
         guard didFinishAuthBootstrap,

@@ -4,9 +4,12 @@
 //! encryption, authorization, replay, and application services remain above
 //! this boundary, so a relay or a TLS terminator is never an authority.
 
+mod dial;
 #[cfg(feature = "iroh-transport")]
 mod iroh;
+mod iroh_config;
 mod relay;
+pub(crate) mod socks;
 mod ssh;
 mod stream;
 #[cfg(unix)]
@@ -25,10 +28,15 @@ use crate::crypto::AuthKind;
 use crate::link::{FrameLink, LinkError};
 use crate::observability::TransportSnapshot;
 
+#[cfg(feature = "wireguard-transport")]
+pub use dial::WireGuardDialer;
+pub use dial::{DialedIo, DialedStream, Dialer, OsTcpDialer, SocksDialer, resolve_dial_target};
 #[cfg(feature = "iroh-transport")]
 pub use iroh::{
-    CMUX_IROH_ALPN, IrohListener, IrohPathMode, IrohProvider, IrohProviderConfig, IrohRoute,
-    ROUTING_DIRECT_ADDRS, ROUTING_NODE_ID, ROUTING_RELAY_URL, load_or_create_iroh_secret,
+    IrohListener, IrohProvider, IrohProviderConfig, IrohRoute, load_or_create_iroh_secret,
+};
+pub use iroh_config::{
+    CMUX_IROH_ALPN, IrohPathMode, ROUTING_DIRECT_ADDRS, ROUTING_NODE_ID, ROUTING_RELAY_URL,
 };
 pub use relay::{
     RelayClientConfig, RelayCredentialSource, RelayDaemonConfig, RelayDaemonRegistration,
@@ -40,6 +48,7 @@ pub use stream::LengthDelimitedLink;
 pub use unix::UnixProvider;
 pub use websocket::{
     AxumWebSocketLink, DirectWebSocketProvider, TungsteniteWebSocketLink, connect_websocket,
+    connect_websocket_via,
 };
 
 /// Non-authoritative facts learned from the carrier.

@@ -1,18 +1,20 @@
 import { randomUUID } from "node:crypto";
 import { after } from "next/server";
 
+import { POSTHOG_HOST, POSTHOG_PROJECT_KEY } from "../analytics/iosEventPolicy";
 import {
   addCoderouterBreadcrumb,
   reportCoderouterFailure,
 } from "./observability";
-import {
-  coderouterTeamAnalyticsId,
-  coderouterUserAnalyticsId,
-} from "./analyticsIdentity";
-import {
-  CODEROUTER_API_RATE_CARD_VERSION,
-  estimateApiEquivalent,
-} from "./apiEquivalentPricing";
+
+// Coderouter analytics live in the main cmux PostHog project, keyed by the
+// Stack user id the cmux apps identify with, so one person's app activity and
+// their coderouter requests are the same person in PostHog. Team and VM ids
+// are opaque server-minted identifiers and travel as properties. What never
+// travels: prompts, outputs, headers, credentials, emails, account labels;
+// every event is rebuilt from a closed schema. (Until 2026-09-03 these events
+// went to a separate project under HMAC pseudonyms, which made that join
+// impossible. Token and request usage belongs exclusively in ClickHouse.)
 
 export type CoderouterAnalyticsEvent =
   | "coderouter_account_added"
@@ -24,19 +26,21 @@ export type CoderouterAnalyticsEvent =
   | "coderouter_organization_catalog_viewed"
   | "coderouter_metrics_loaded"
   | "coderouter_vm_usage_viewed"
-  | "coderouter_route_health"
   | "coderouter_cli_command_started"
   | "coderouter_cli_command_completed"
   | "coderouter_claude_upstream_set"
   | "coderouter_claude_upstream_removed"
+  /** @deprecated usage is ClickHouse-only; this event is rejected. */
   | "coderouter_model_request_completed";
 
 type AnalyticsScalar = string | number | boolean;
+export type CoderouterRawProperty = AnalyticsScalar | readonly Record<string, unknown>[];
 
 type CaptureInput = {
   readonly event: CoderouterAnalyticsEvent;
-  /** Raw server-authoritative identifiers are accepted only as HMAC inputs. */
+  /** Stack user id: the PostHog person. Absent for unauthenticated events. */
   readonly userId?: string;
+  /** Opaque team id, sent as `team_id`. */
   readonly teamId?: string;
   readonly properties?: Readonly<
     Record<string, AnalyticsScalar | null | undefined>
@@ -47,14 +51,16 @@ type AnalyticsDependencies = {
   readonly fetch: typeof fetch;
   readonly defer: (task: Promise<unknown>) => void;
   readonly enabled: () => boolean;
-  readonly isolatedConfig: () => CoderouterAnalyticsConfig | null;
+  readonly config: () => CoderouterAnalyticsConfig | null;
 };
 
-type CoderouterAnalyticsConfig = {
+export type CoderouterAnalyticsConfig = {
   readonly ingestHost: string;
   readonly projectKey: string;
-  readonly scopeSecret: string;
 };
+
+/** Identity for events with no authenticated user (auth rejects, alerts). */
+const SERVER_DISTINCT_ID = "coderouter-server";
 
 const RETRYABLE_STATUS = new Set([408, 425, 429, 500, 502, 503, 504]);
 const CAPTURE_TIMEOUT_MS = 2_000;
@@ -77,60 +83,140 @@ export function deferCoderouterTask(task: Promise<unknown>): void {
   }
 }
 
+/**
+ * A PostHog event whose properties are built by a trusted caller
+ * (`observability.ts`, `exceptionEvent.ts`): operational Error Tracking
+ * exceptions. Identity handling matches
+ * `captureCoderouterEvent`.
+ */
+export type CoderouterRawEvent = {
+  readonly event: "$ai_trace" | "$ai_span" | "$exception" | "coderouter_alert";
+  readonly userId?: string;
+  readonly teamId?: string;
+  /** Event timestamp; defaults to now. */
+  readonly timestamp?: string;
+  readonly properties: Readonly<Record<string, CoderouterRawProperty>>;
+};
+
+/** Property keys a raw event may carry; anything else is dropped. */
+const RAW_EVENT_KEY = /^(\$ai_[a-z_]+|\$exception_[a-z_]+|coderouter_[a-z_]+|trace_id|vercel_request_id|team_id|upstream_kind|upstream_account_id|provider|agent|attempt|attempts|status|outcome|failure_stage|failure_code|healthy|total|sticky|cooldown_ms|forced|surface|reason|alert_key|severity|title|count|threshold|window_minutes)$/;
+
+/**
+ * Sends one batch of operational exception/alert events. Same gate, config, identity and
+ * deferred delivery as `captureCoderouterEvent`; the closed schema here is
+ * the key allow-list.
+ */
+export function captureCoderouterRawBatch(
+  events: readonly CoderouterRawEvent[],
+  dependencies: AnalyticsDependencies = defaultDependencies,
+): void {
+  // PostHog is not a CodeRouter request or token ledger. Keep the legacy
+  // trace shape available to callers and tests, but refuse to transmit it.
+  const operationalEvents = events.filter(
+    (entry) => entry.event !== "$ai_trace" && entry.event !== "$ai_span",
+  );
+  if (operationalEvents.length === 0 || !dependencies.enabled()) return;
+  const config = dependencies.config();
+  if (!config) return;
+  const now = new Date().toISOString();
+  const batch = operationalEvents.map((entry) => {
+    const properties: Record<string, CoderouterRawProperty> = {};
+    for (const [key, value] of Object.entries(entry.properties)) {
+      if (RAW_EVENT_KEY.test(key)) properties[key] = value;
+    }
+    return {
+      event: entry.event,
+      ...identity(entry.userId, entry.teamId),
+      properties: {
+        ...properties,
+        $geoip_disable: true,
+        ...personProperties(entry.userId, entry.teamId),
+        $insert_id: randomUUID(),
+        product: "coderouter",
+        schema_version: ANALYTICS_SCHEMA_VERSION,
+        service_version: ANALYTICS_SERVICE_VERSION,
+      },
+      timestamp: entry.timestamp ?? now,
+    };
+  });
+  const body = JSON.stringify({ api_key: config.projectKey, batch });
+  const task = deliver(body, dependencies.fetch, config.ingestHost).catch(
+    (error) => {
+      // Reporting this failure through the same PostHog sink would recurse
+      // forever while the sink is unavailable. Sentry still receives the
+      // structured delivery failure through reportCoderouterFailure.
+      reportCoderouterFailure("analytics_delivery", error);
+    },
+  );
+  dependencies.defer(task);
+}
+
 const defaultDependencies: AnalyticsDependencies = {
   fetch,
   defer: deferCoderouterTask,
   enabled: () =>
     process.env.VERCEL_ENV === "production" ||
     process.env.CODEROUTER_ANALYTICS_FORCE === "1",
-  isolatedConfig: coderouterAnalyticsConfig,
+  config: coderouterAnalyticsConfig,
 };
+
+/**
+ * The PostHog identity of one event: the Stack user when known (a person
+ * profile the cmux apps also write to), else the server identity with person
+ * processing off so anonymous events never create phantom persons.
+ */
+function identity(userId: string | undefined, teamId: string | undefined): { distinct_id: string } {
+  const user = analyticsId(userId);
+  if (user) return { distinct_id: user };
+  return { distinct_id: teamId ? `coderouter-team:${analyticsId(teamId) ?? "unknown"}` : SERVER_DISTINCT_ID };
+}
+
+function personProperties(
+  userId: string | undefined,
+  teamId: string | undefined,
+): Record<string, AnalyticsScalar> {
+  const user = analyticsId(userId);
+  const team = analyticsId(teamId);
+  return {
+    ...(user ? { user_id: user } : { $process_person_profile: false }),
+    ...(team ? { team_id: team } : {}),
+  };
+}
+
+/** Opaque identifiers only: a Stack user id or team id is `[A-Za-z0-9_-]`. */
+function analyticsId(value: string | undefined): string | null {
+  return typeof value === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(value) ? value : null;
+}
 
 /**
  * Best-effort, server-only CodeRouter analytics. The payload is rebuilt from a
  * closed event/property schema; caller-provided keys and free-form strings are
- * never forwarded. Every identifier is either omitted or HMAC-pseudonymized.
+ * never forwarded.
  */
 export function captureCoderouterEvent(
   input: CaptureInput,
   dependencies: AnalyticsDependencies = defaultDependencies,
 ): void {
   if (!dependencies.enabled()) return;
-  // Every CodeRouter event fails closed when the isolated project or HMAC
-  // secret is unavailable. There is intentionally no general-project fallback.
-  const config = dependencies.isolatedConfig();
+  const config = dependencies.config();
   if (!config) return;
 
-  const aggregateUsage =
-    input.event === "coderouter_model_request_completed";
-  if (aggregateUsage && !input.teamId) return;
-
-  const teamScope = input.teamId
-    ? coderouterTeamAnalyticsId(input.teamId, config.scopeSecret)
-    : null;
-  const properties = aggregateUsage
-    ? aiUsageProperties(input.properties ?? {}, teamScope!)
-    : eventProperties(input.event, input.properties ?? {});
+  const properties = eventProperties(input.event, input.properties ?? {});
   if (!properties) return;
 
-  const attributable = eventNeedsUserScope(input.event);
-  if (attributable && !input.userId) return;
-  const userScope = attributable
-    ? coderouterUserAnalyticsId(input.userId!, config.scopeSecret)
-    : null;
-  const distinctId = teamScope ?? userScope ?? "coderouter-anonymous";
+  // Account lifecycle events describe one person's action and are dropped
+  // rather than attributed to nobody.
+  if (eventNeedsUser(input.event) && !input.userId) return;
   const body = JSON.stringify({
     api_key: config.projectKey,
     batch: [
       {
-        event: aggregateUsage ? "$ai_generation" : input.event,
-        distinct_id: distinctId,
+        event: input.event,
+        ...identity(input.userId, input.teamId),
         properties: {
           ...properties,
-          $process_person_profile: false,
           $geoip_disable: true,
-          ...(teamScope ? { coderouter_team_scope: teamScope } : {}),
-          ...(userScope ? { coderouter_user_scope: userScope } : {}),
+          ...personProperties(input.userId, input.teamId),
           $insert_id: randomUUID(),
           product: "coderouter",
           schema_version: ANALYTICS_SCHEMA_VERSION,
@@ -178,7 +264,7 @@ async function deliver(
   }
 }
 
-function eventNeedsUserScope(event: CoderouterAnalyticsEvent): boolean {
+function eventNeedsUser(event: CoderouterAnalyticsEvent): boolean {
   return event === "coderouter_account_added" ||
     event === "coderouter_account_removed" ||
     event === "coderouter_route_session_issued" ||
@@ -188,10 +274,14 @@ function eventNeedsUserScope(event: CoderouterAnalyticsEvent): boolean {
 }
 
 function eventProperties(
-  event: Exclude<CoderouterAnalyticsEvent, "coderouter_model_request_completed">,
+  event: CoderouterAnalyticsEvent,
   input: Readonly<Record<string, AnalyticsScalar | null | undefined>>,
 ): Record<string, AnalyticsScalar> | null {
   switch (event) {
+    case "coderouter_model_request_completed":
+      // Deprecated compatibility input. Usage is recorded only by
+      // `usageLedger.ts` in ClickHouse.
+      return null;
     case "coderouter_account_added": {
       const provider = accountProvider(input.provider);
       const source = lifecycleSource(input.source);
@@ -257,51 +347,6 @@ function eventProperties(
       const outcome = enumValue(input.outcome, ["ready", "unavailable"]);
       return surface && outcome ? { surface, outcome } : null;
     }
-    case "coderouter_route_health": {
-      const provider = routeProvider(input.provider);
-      const agent = enumValue(input.agent, [
-        "codex",
-        "opencode",
-        "pi",
-        "claude",
-        "other",
-        "unknown",
-      ]);
-      const outcome = enumValue(input.outcome, [
-        "success",
-        "upstream_error",
-        "no_usable_account",
-        "provider_unavailable",
-        "invalid_provider",
-        "unknown_provider",
-        "unauthorized",
-      ]);
-      const failureStage = enumValue(input.failure_stage, [
-        "none",
-        "auth",
-        "account_selection",
-        "credential_refresh",
-        "provider_config",
-        "upstream_transport",
-        "upstream_response",
-      ]);
-      if (!provider || !agent || !outcome || !failureStage) return null;
-      const vmId = analyticsVmId(input.vm_id);
-      const upstreamAccount = analyticsVmId(input.upstream_account_id);
-      return {
-        provider,
-        agent,
-        outcome,
-        failure_stage: failureStage,
-        status_class: statusClass(input.status),
-        latency_bucket: latencyBucket(input.duration_ms),
-        attempt_bucket: attemptBucket(input.attempt_count),
-        refresh_bucket: attemptBucket(input.refresh_retry_count),
-        response_streamed: input.response_streamed === true,
-        ...(vmId ? { vm_id: vmId } : {}),
-        ...(upstreamAccount ? { upstream_account_id: upstreamAccount } : {}),
-      };
-    }
     case "coderouter_cli_command_started":
     case "coderouter_cli_command_completed":
       return cliCommandProperties(input);
@@ -366,100 +411,6 @@ function cliCommandProperties(
     : null;
 }
 
-function aiUsageProperties(
-  input: Readonly<Record<string, AnalyticsScalar | null | undefined>>,
-  teamScope: string,
-): Record<string, AnalyticsScalar> | null {
-  const model = analyticsModel(input.model);
-  const provider = aiProvider(input.provider);
-  const inputTokens = safeCount(input.input_tokens);
-  const cachedInputTokens = Math.min(
-    inputTokens,
-    safeCount(input.cached_input_tokens),
-  );
-  const outputTokens = safeCount(input.output_tokens);
-  const totalTokens = Math.max(
-    inputTokens + outputTokens,
-    safeCount(input.total_tokens),
-  );
-  if (totalTokens === 0) return null;
-  const estimate = estimateApiEquivalent({
-    model,
-    inputTokens,
-    cachedInputTokens,
-    outputTokens,
-    totalTokens,
-  });
-  const vmId = analyticsVmId(input.vm_id);
-  const upstreamKind = claudeUpstreamKind(input.upstream_kind);
-  const upstreamAccount = analyticsVmId(input.upstream_account_id);
-  return {
-    $ai_model: model,
-    $ai_provider: provider,
-    $ai_input_tokens: inputTokens,
-    $ai_cache_read_input_tokens: cachedInputTokens,
-    $ai_cache_reporting_exclusive: false,
-    $ai_output_tokens: outputTokens,
-    ...(estimate.pricedTokens > 0
-      ? { $ai_total_cost_usd: estimate.usd }
-      : {}),
-    coderouter_total_tokens: totalTokens,
-    coderouter_priced_tokens: estimate.pricedTokens,
-    coderouter_unpriced_tokens: estimate.unpricedTokens,
-    coderouter_pricing_version: CODEROUTER_API_RATE_CARD_VERSION,
-    coderouter_team_scope: teamScope,
-    ...(vmId ? { coderouter_vm_id: vmId } : {}),
-    ...(upstreamKind ? { upstream_kind: upstreamKind } : {}),
-    ...(upstreamAccount ? { upstream_account_id: upstreamAccount } : {}),
-  };
-}
-
-/**
- * Cloud VM id a bound route token attributes usage to. The id is an opaque
- * server-minted UUID (no personal data), so it is forwarded as-is after a
- * shape check that keeps free-form strings out of the closed schema.
- */
-function analyticsVmId(value: AnalyticsScalar | null | undefined): string | null {
-  return typeof value === "string" &&
-      /^[A-Za-z0-9_-]{1,128}$/.test(value)
-    ? value
-    : null;
-}
-
-function safeCount(value: AnalyticsScalar | null | undefined): number {
-  return typeof value === "number" &&
-      Number.isSafeInteger(value) &&
-      value >= 0 &&
-      value <= MAX_COUNT
-    ? value
-    : 0;
-}
-
-function analyticsModel(value: AnalyticsScalar | null | undefined): string {
-  if (typeof value !== "string") return "unknown";
-  const model = value.trim().toLowerCase();
-  const families: ReadonlyArray<readonly [RegExp, string]> = [
-    [/^gpt-5\.6-sol(?:-|$)|^gpt-5\.6$/, "gpt-5.6-sol"],
-    [/^gpt-5\.6-terra(?:-|$)/, "gpt-5.6-terra"],
-    [/^gpt-5\.6-luna(?:-|$)/, "gpt-5.6-luna"],
-    [/^gpt-5\.3-codex(?:-|$)/, "gpt-5.3-codex"],
-    [/^gpt-5\.2-codex(?:-|$)/, "gpt-5.2-codex"],
-    [/^gpt-5\.2(?:-|$)/, "gpt-5.2"],
-    [/^gpt-5\.1-codex(?:-|$)/, "gpt-5.1-codex"],
-    [/^gpt-5-codex(?:-|$)/, "gpt-5-codex"],
-    [/^claude-sonnet-5(?:-|$)/, "claude-sonnet-5"],
-    [/^claude-opus-4[.-]8(?:-|$)/, "claude-opus-4.8"],
-    [/^claude-opus-4[.-]7(?:-|$)/, "claude-opus-4.7"],
-    [/^claude-opus-4[.-]6(?:-|$)/, "claude-opus-4.6"],
-    [/^claude-opus-4[.-]5(?:-|$)/, "claude-opus-4.5"],
-    [/^claude-sonnet-4[.-]6(?:-|$)/, "claude-sonnet-4.6"],
-    [/^claude-sonnet-4[.-]5(?:-|$)/, "claude-sonnet-4.5"],
-    [/^claude-sonnet-4(?:-|$)/, "claude-sonnet-4"],
-    [/^claude-haiku-4[.-]5(?:-|$)/, "claude-haiku-4.5"],
-  ];
-  return families.find(([pattern]) => pattern.test(model))?.[1] ?? "unknown";
-}
-
 function accountProvider(value: unknown): string | null {
   return enumValue(value, [
     "codex",
@@ -474,29 +425,9 @@ function lifecycleSource(value: unknown): string | null {
   return enumValue(value ?? "native_api", ["native_api", "legacy_dashboard"]);
 }
 
-function routeProvider(value: unknown): string | null {
-  return enumValue(value, ["codex", "opencode-go", "claude", "unknown"]);
-}
 
 function claudeUpstreamKind(value: unknown): string | null {
   return enumValue(value, ["anthropic_api_key", "anthropic_oauth", "bedrock"]);
-}
-
-function aiProvider(value: AnalyticsScalar | null | undefined): string {
-  switch (value) {
-    case "codex":
-    case "openai":
-    case "openai-apikey":
-      return "openai";
-    case "claude":
-    case "anthropic":
-    case "anthropic-apikey":
-      return "anthropic";
-    case "opencode-go":
-      return "opencode";
-    default:
-      return "unknown";
-  }
 }
 
 function authSurface(value: unknown): string | null {
@@ -550,20 +481,7 @@ function latencyBucket(value: unknown): string {
   return "60s_plus";
 }
 
-function attemptBucket(value: unknown): string {
-  const count = boundedNumber(value, 100);
-  if (count === null || count === 0) return "0";
-  if (count === 1) return "1";
-  if (count <= 3) return "2-3";
-  if (count <= 7) return "4-7";
-  return "8+";
-}
 
-function statusClass(value: unknown): string {
-  const status = boundedNumber(value, 599);
-  if (status === null || status < 100) return "unknown";
-  return `${Math.floor(status / 100)}xx`;
-}
 
 function boundedNumber(value: unknown, maximum: number): number | null {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 &&
@@ -572,24 +490,14 @@ function boundedNumber(value: unknown, maximum: number): number | null {
     : null;
 }
 
-function coderouterAnalyticsConfig(): CoderouterAnalyticsConfig | null {
-  const projectKey = process.env.POSTHOG_CODEROUTER_PROJECT_KEY?.trim();
-  const scopeSecret =
-    process.env.CODEROUTER_ANALYTICS_SCOPE_SECRET?.trim();
-  if (!projectKey || !scopeSecret || scopeSecret.length < 32) return null;
-  return {
-    projectKey,
-    scopeSecret,
-    ingestHost: (
-      process.env.POSTHOG_CODEROUTER_INGEST_HOST ??
-      "https://us.i.posthog.com"
-    ).replace(/\/$/, ""),
-  };
+/** The main cmux project, same key and capture host as every other server sink. */
+export function coderouterAnalyticsConfig(): CoderouterAnalyticsConfig | null {
+  const projectKey = POSTHOG_PROJECT_KEY?.trim();
+  if (!projectKey) return null;
+  return { projectKey, ingestHost: POSTHOG_HOST };
 }
 
 export const __test = {
   eventProperties,
-  aiUsageProperties,
   deliver,
-  analyticsModel,
 };

@@ -42,6 +42,7 @@ strip_if_macho() {
 
 strip_if_macho "$APP_PATH/Contents/MacOS/cmux"
 strip_if_macho "$APP_PATH/Contents/Resources/bin/cmux"
+strip_if_macho "$APP_PATH/Contents/Resources/bin/cmux-tui"
 strip_if_macho "$APP_PATH/Contents/Resources/bin/cmux-diff-sidecar"
 
 if [ -d "$APP_PATH/Contents/PlugIns" ]; then
@@ -54,4 +55,10 @@ if [ -d "$APP_PATH/Contents/Frameworks" ]; then
   while IFS= read -r -d '' binary; do
     strip_if_macho "$binary"
   done < <(find "$APP_PATH/Contents/Frameworks" -maxdepth 1 -name 'libcmux_*.dylib' -type f -print0)
+fi
+
+if [ -d "$APP_PATH/Contents/Library/SystemExtensions" ]; then
+  while IFS= read -r -d '' binary; do
+    strip_if_macho "$binary"
+  done < <(find "$APP_PATH/Contents/Library/SystemExtensions" -path '*/Contents/MacOS/*' -type f -print0)
 fi

@@ -10,7 +10,7 @@ use std::os::fd::AsRawFd;
 #[cfg(unix)]
 use std::os::unix::ffi::OsStringExt;
 #[cfg(unix)]
-use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt, symlink};
+use std::os::unix::fs::{FileTypeExt, MetadataExt, OpenOptionsExt, PermissionsExt, symlink};
 #[cfg(unix)]
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
@@ -533,7 +533,7 @@ fn server_lifecycle_help_and_typos_do_not_fall_back_to_startup_help() {
         lifecycle_cli(&["--socket", "--json", "server", "stpo"]);
     assert_eq!(output_flag_used_as_a_socket_value.status.code(), Some(2));
     let error = String::from_utf8(output_flag_used_as_a_socket_value.stderr).unwrap();
-    assert!(error.contains("Did you mean `stop`?"), "{error}");
+    assert!(error.contains("--socket needs a value"), "{error}");
     assert!(!error.trim_start().starts_with('{'), "{error}");
 
     let misplaced_start_option = lifecycle_cli(&["--term", "xterm-256color", "server", "start"]);
@@ -2943,24 +2943,37 @@ fn plain_launch_attaches_to_existing_local_session() {
 
 #[cfg(unix)]
 #[test]
-fn session_shutdown_exits_an_interactive_local_owner() {
+fn session_shutdown_exits_an_interactive_detached_owner_client() {
     let dir = TestTempDir::create("interactive-session-shutdown");
     let socket = dir.path().join("mux.sock");
     let socket_arg = socket.to_str().unwrap();
-    let mut owner =
-        PtyChild::start(&["--session", "interactive-session-shutdown", "--socket", socket_arg]);
+    let state = dir.path().join("state");
+    let state_arg = state.to_str().unwrap();
+    let config = dir.path().join("config.json");
+    fs::write(&config, r#"{"server":{"detached_owner":true}}"#).unwrap();
+    let mut client = PtyChild::start_with_env(
+        &[
+            "--session",
+            "interactive-session-shutdown",
+            "--socket",
+            socket_arg,
+            "--state",
+            state_arg,
+        ],
+        &[("CMUX_TUI_CONFIG", config.as_os_str())],
+    );
     wait_for_socket_path(&socket);
-    wait_for_owner_server_ready(&socket, &mut owner);
+    wait_for_owner_server_ready(&socket, &mut client);
 
     let shutdown =
         lifecycle_cli(&["--json", "--socket", socket_arg, "session", "current", "shutdown"]);
     assert_success(&shutdown);
     assert_eq!(json_output(&shutdown)["value"]["accepted"], true);
 
-    let status = owner
+    let status = client
         .wait_for_exit(Duration::from_secs(5))
-        .expect("interactive owner remained alive after session shutdown");
-    assert!(status.success(), "interactive owner exited unsuccessfully: {status}");
+        .expect("interactive client remained alive after detached owner shutdown");
+    assert!(status.success(), "interactive client exited unsuccessfully: {status}");
 }
 
 #[cfg(unix)]
@@ -3079,7 +3092,7 @@ fn scoped_terminal_attach_streams_pty_and_detaches_without_killing_terminal() {
     let first_marker = "scoped_attach_lifecycle_marker";
     let write = json_cli(
         &server,
-        &["terminal", &terminal, "write", "--text", &format!("printf '{first_marker}\\n'\\n")],
+        &["terminal", &terminal, "write", "--text", &format!("printf '{first_marker}\\n'\n")],
     );
     assert_success(&write);
     assert!(
@@ -3136,7 +3149,7 @@ fn scoped_terminal_attach_streams_pty_and_detaches_without_killing_terminal() {
     let second_marker = "scoped_attach_after_detach_marker";
     let write = json_cli(
         &server,
-        &["terminal", &terminal, "write", "--text", &format!("printf '{second_marker}\\n'\\n")],
+        &["terminal", &terminal, "write", "--text", &format!("printf '{second_marker}\\n'\n")],
     );
     assert_success(&write);
     assert!(
@@ -4262,4 +4275,112 @@ fn unique_temp_dir(name: &str) -> PathBuf {
 
 fn bin() -> &'static str {
     env!("CARGO_BIN_EXE_cmux-tui")
+}
+
+#[cfg(unix)]
+const WG_HUB_TEST_PRIVATE_KEY: &str = "GDYq0RJ4LWL6jJhLMAlM1oHcCTdSiXPMZ4X5D8WzGdw=";
+#[cfg(unix)]
+const WG_HUB_TEST_PEER_KEY: &str = "Bo2I0OcpKnXtElGwH6EXV3MwDQctaIrFJ4tDX44DoWs=";
+
+#[cfg(unix)]
+fn write_wg_hub_config(dir: &std::path::Path, mode: u32) -> PathBuf {
+    let config = dir.join("wg.conf");
+    fs::write(
+        &config,
+        format!(
+            "[Interface]\nPrivateKey = {WG_HUB_TEST_PRIVATE_KEY}\nAddress = 100.64.0.1/32\nMTU = 1200\n\n[Peer]\nPublicKey = {WG_HUB_TEST_PEER_KEY}\nAllowedIPs = 10.0.0.0/8, fd00::/8\nEndpoint = 127.0.0.1:9\n"
+        ),
+    )
+    .unwrap();
+    fs::set_permissions(&config, fs::Permissions::from_mode(mode)).unwrap();
+    config
+}
+
+#[cfg(unix)]
+#[test]
+fn wg_hub_reports_readiness_and_removes_its_socket_on_sigterm() {
+    let dir = TestTempDir::create("wg-hub");
+    let config = write_wg_hub_config(dir.path(), 0o600);
+    let socket = dir.path().join("hub").join("wg.sock");
+    let mut child = Command::new(bin())
+        .args(["wg", "hub", "--config"])
+        .arg(&config)
+        .arg("--socket")
+        .arg(&socket)
+        .env("LC_ALL", "C")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    let mut stdout = BufReader::new(child.stdout.take().unwrap());
+    let mut line = String::new();
+    stdout.read_line(&mut line).unwrap();
+    assert!(
+        !line.is_empty(),
+        "hub exited before printing readiness: {:?}",
+        child.wait_with_output()
+    );
+    let ready: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
+    assert_eq!(ready["event"], "hub-ready", "{line}");
+    assert_eq!(ready["socket"], socket.to_str().unwrap(), "{line}");
+    assert_eq!(ready["routes"], serde_json::json!(["10.0.0.0/8", "fd00::/8"]), "{line}");
+
+    let socket_meta = fs::metadata(&socket).unwrap();
+    assert!(socket_meta.file_type().is_socket());
+    assert_eq!(socket_meta.permissions().mode() & 0o777, 0o600);
+    assert_eq!(fs::metadata(socket.parent().unwrap()).unwrap().permissions().mode() & 0o777, 0o700);
+
+    // A live socket must be refused by a second hub.
+    let second = Command::new(bin())
+        .args(["wg", "hub", "--config"])
+        .arg(&config)
+        .arg("--socket")
+        .arg(&socket)
+        .env("LC_ALL", "C")
+        .output()
+        .unwrap();
+    assert!(!second.status.success(), "second hub on a live socket must fail");
+    assert!(socket.exists(), "the losing hub must not remove the live socket");
+
+    let pid = i32::try_from(child.id()).unwrap();
+    assert_eq!(unsafe { libc::kill(pid, libc::SIGTERM) }, 0);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let status = loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            break status;
+        }
+        assert!(Instant::now() < deadline, "hub did not exit after SIGTERM");
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    assert!(status.success(), "hub exited unsuccessfully after SIGTERM: {status}");
+    assert!(!socket.exists(), "hub must remove its socket on exit");
+}
+
+#[cfg(unix)]
+#[test]
+fn wg_hub_refuses_a_readable_config_and_missing_options() {
+    let dir = TestTempDir::create("wg-hub-perms");
+    let config = write_wg_hub_config(dir.path(), 0o644);
+    let socket = dir.path().join("wg.sock");
+    let output = Command::new(bin())
+        .args(["wg", "hub", "--config"])
+        .arg(&config)
+        .arg("--socket")
+        .arg(&socket)
+        .env("LC_ALL", "C")
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("cannot read WireGuard config"), "{stderr}");
+    assert!(!socket.exists());
+
+    let missing = lifecycle_cli(&["wg", "hub", "--config", config.to_str().unwrap()]);
+    assert!(!missing.status.success());
+    assert!(String::from_utf8(missing.stderr).unwrap().contains("--socket"));
+
+    let help = lifecycle_cli(&["wg", "hub", "--help"]);
+    assert!(help.status.success());
+    assert!(String::from_utf8(help.stdout).unwrap().starts_with("USAGE: cmux wg hub"));
 }

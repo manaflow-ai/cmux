@@ -7,12 +7,14 @@
         "snapshot": "Ovaj Cloud VM ne podržava sačuvano stanje VM-a.",
         "restore": "Ova vrsta Cloud VM-a ne podržava vraćanje sačuvanog stanja VM-a.",
         "fork": "Ovaj Cloud VM ne podržava kopiranje u novi VM.",
+        "openPort": "Provajder ovog Cloud VM-a ne može izložiti portove mašine kao URL-ove za pregled.",
         "default": "Ovaj Cloud VM ne podržava traženu operaciju."
       },
       "action": {
         "snapshot": "Ne pokušavajte ponovo. Rad na ovoj vrsti mašine čuva se na njenom trajnom kućnom volumenu.",
         "restore": "Ne pokušavajte ponovo. Rad na ovoj vrsti mašine čuva se na njenom trajnom kućnom volumenu.",
         "fork": "Ne pokušavajte ponovo. Kreirajte novi VM pomoću `cmux vm new`.",
+        "openPort": "Ne pokušavajte ponovo. Pristupite usluzi iz mašine pomoću `cmux vm exec` ili koristite tip mašine koji može otvoriti portove.",
         "default": "Ne pokušavajte ponovo. Pokrenite `cmux vm ls` ili kontaktirajte podršku ako mislite da je ovo greška."
       }
     },
@@ -20,6 +22,11 @@
       "title": "Potreban je cmux Pro",
       "message": "Cloud VM-ovi zahtijevaju cmux Pro plan.",
       "action": "Nadogradite na cmux Pro na {upgradeUrl} da biste kreirali Cloud VM-ove."
+    },
+    "sharedResource": {
+      "message": "Zajednički skup {resource} resursa za Cloud VM je pun.",
+      "action": "Obrišite nekorišteni Cloud VM, pa pokušajte ponovo.",
+      "oversizedAction": "Zatražite manju {resource} veličinu Cloud VM-a koja stane u zajednički skup."
     }
   },
   "billingRecovery": {
@@ -1181,6 +1188,14 @@
         "shortcuts": {
           "when": "Opcionalni kontekstni predikati po radnji (VS Code stil `when` klauzula), indeksirani cmux ID-jem radnje. Svaka vrijednost je Booleov izraz nad ključevima konteksta, kombinovan sa !, &&, || i zagradama. Booleovi ključevi: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Tipizirani ključevi podržavaju poređenja: string sidebarMode (files, find, sessions, feed ili dock) i cijeli brojevi paneCount i workspaceCount. Operatori poređenja su ==, !=, =~ (regularni izraz), <, <=, >, >= i `in [a, b]`; nepoznat ili odsutan ključ čita se kao false. Prihvataju se i Booleovi literali true i false; `key == false` je isto što i `!key`. Prečica radnje se pokreće (i sukobljava s drugim prečicama) samo kada je klauzula tačna. Primjeri: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } bira radne prostore pomoću Ctrl+1–9 svuda osim kada je fokusiran desni bočni panel; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } ograničava vezivanje na bočni panel za pretragu kada radni prostor ima više okana.",
           "showModifierHoldHints": "Prikaži oznake s prečicama dok držite Cmd ili Control."
+        },
+        "fileEditor": {
+          "wordWrap": "Prelamaj duge redove na desnoj ivici uređivača umjesto vodoravnog pomicanja.",
+          "syntaxHighlighting": "Oboji tokene izvornog koda u ugrađenom uređivaču datoteka.",
+          "lineNumbers": "Prikaži žlijeb s brojevima redova u ugrađenom uređivaču datoteka.",
+          "indentGuides": "Crtaj okomite vodiče uvlačenja u ugrađenom uređivaču datoteka.",
+          "currentLineHighlight": "Istakni red s karetom kada ništa nije odabrano.",
+          "tabWidth": "Širina tabulatora u stupcima za uvlačenje i vodiče uvlačenja."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

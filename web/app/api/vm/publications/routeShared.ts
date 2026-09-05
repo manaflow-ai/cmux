@@ -1,3 +1,4 @@
+import { publicationApiCopy } from "../../../../services/vm-publications/copy";
 import type * as Effect from "effect/Effect";
 
 import { authProviderErrorResponse } from "../../../../services/vms/authErrors";
@@ -48,10 +49,8 @@ export type AuthedPublicationRouteContext = {
 };
 
 /**
- * Team publication policy may name a team other than the selected billing
- * team, so the requested team is resolved explicitly, the same way VM create
- * resolves a requested billing team. VM access itself follows the caller's
- * account scope (selected team or `X-Cmux-Team-Id`), like every VM route.
+ * Publication management requires fresh membership in the VM's owning team.
+ * Do not reuse the native VM authentication cache or a stale team selection.
  */
 export async function withAuthedPublicationApiRoute(
   request: Request,
@@ -63,6 +62,8 @@ export async function withAuthedPublicationApiRoute(
   try {
     user = await verify(request, {
       listAllTeams: true,
+      forceCompleteTeamList: true,
+      requireFreshTeamMembership: true,
       requestedTeamId: await requestedPublicationTeamId(request),
     });
   } catch (error) {
@@ -80,12 +81,13 @@ export async function withAuthedPublicationApiRoute(
         userId: user.id,
         teamIds: user.teamIds,
         billingTeamId: scope.entitlements.billingTeamId,
+        organizationName: user.teams.find((team) => team.id === scope.entitlements.billingTeamId)?.displayName ?? user.displayName ?? undefined,
       },
       run,
     });
   } catch (error) {
     console.error("Cloud VM publication request failed", error);
-    return publicationErrorResponse(error);
+    return publicationErrorResponse(error, request.headers.get("accept-language"));
   }
 }
 
@@ -151,9 +153,9 @@ export function publicationReference(
   return `${value}.${publicationGeneratedDomain(environment)}`;
 }
 
-export function publicationErrorResponse(error: unknown): Response {
+export function publicationErrorResponse(error: unknown, language?: string | null): Response {
   if (error instanceof PublicationInputError) {
-    const copy = inputErrorCopy(error);
+    const copy = inputErrorCopy(error, language);
     return jsonResponse({
       error: "vm_publication_invalid_request",
       message: copy.message,
@@ -175,7 +177,7 @@ export function publicationErrorResponse(error: unknown): Response {
     }, 404);
   }
   if (error instanceof PublicationConflictError) {
-    const copy = conflictCopy(error.reason);
+    const copy = conflictCopy(error.reason, language);
     return jsonResponse({
       error: "vm_publication_conflict",
       message: copy.message,
@@ -240,11 +242,17 @@ export function publicationErrorResponse(error: unknown): Response {
   }, 500);
 }
 
-function inputErrorCopy(error: PublicationInputError): {
+function inputErrorCopy(error: PublicationInputError, language?: string | null): {
   readonly message: string;
   readonly action: string;
 } {
   switch (error.reason) {
+    case "invalid_email":
+      return publicationApiCopy("invalid_email", language);
+    case "invalid_expiry":
+      return publicationApiCopy("invalid_expiry", language);
+    case "public_confirmation_required":
+      return publicationApiCopy("public_confirmation_required", language);
     case "invalid_hostname":
       return {
         message: "hostname must be one exact DNS hostname.",
@@ -291,7 +299,7 @@ function configurationCopy(reason: PublicationConfigurationError["reason"]): {
     case "invalid_auth_origin":
       return {
         message: "This CMUX deployment has no valid sign-in origin for protected Cloud VM domains.",
-        action: "Use public access, or ask the deployment operator to configure protected domains.",
+        action: "Ask the deployment operator to configure protected domains.",
       };
     case "invalid_generated_domain":
       return {
@@ -301,17 +309,21 @@ function configurationCopy(reason: PublicationConfigurationError["reason"]): {
     case "forward_auth_not_configured":
       return {
         message: "Protected Cloud VM domains are not configured on this CMUX deployment.",
-        action: "Use public access, or ask the deployment operator to enable protected domains.",
+        action: "Ask the deployment operator to enable protected domains.",
       };
   }
 }
 
-function conflictCopy(reason: PublicationConflictError["reason"]): {
+function conflictCopy(reason: PublicationConflictError["reason"], language?: string | null): {
   readonly message: string;
   readonly action: string;
   readonly status: number;
 } {
   switch (reason) {
+    case "organization_slug_reserved":
+    case "organization_slug_taken":
+    case "invalid_organization_slug":
+      return { ...publicationApiCopy("organization_slug", language), status: 409 };
     case "hostname_taken":
       return {
         message: "That hostname is already reserved by a CMUX account.",

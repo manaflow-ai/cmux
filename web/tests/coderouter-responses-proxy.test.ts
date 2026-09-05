@@ -7,6 +7,7 @@ type SelectInput = {
   provider: string;
   sessionKey: string | null;
   excludedAccountIds?: readonly string[];
+  signal?: AbortSignal;
 };
 
 let selectInputs: SelectInput[] = [];
@@ -32,7 +33,7 @@ afterAll(() => {
   globalThis.fetch = originalFetch;
 });
 
-const { createCodexResponsesProxy } = await import("../services/coderouter/codexProxy");
+const { createCodexModelsProxy, createCodexResponsesProxy } = await import("../services/coderouter/codexProxy");
 
 const proxy = createCodexResponsesProxy({
   authenticate: async (token) => {
@@ -142,6 +143,154 @@ describe("codex responses proxy session routing", () => {
     expect(selectInputs[1]?.sessionKey).toBe("session-move");
   });
 
+  test("bounds all upstream header waits to one request budget", async () => {
+    const selected: string[] = [];
+    let logicalNow = 0;
+    const rateLimitedFetch = (async () => {
+      // Advance a deterministic clock as each simulated header wait elapses.
+      logicalNow += 120;
+      return new Response("rate limited", {
+        status: 429,
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+    const boundedProxy = createCodexResponsesProxy({
+      authenticate: async () => ({
+        teamId: "team-1",
+        stackUserId: "stack-user-1",
+        vmId: null,
+      }),
+      select: async () => {
+        const id = `acct-${selected.length + 1}`;
+        selected.push(id);
+        return { id, vaultRevision: 1, credentialExpiresAt: null, sticky: false };
+      },
+      credential: async ({ accountId }) => ({
+        provider: "codex" as const,
+        accessToken: `access-${accountId}`,
+        refreshToken: "refresh",
+        idToken: "id",
+        accountId: "chatgpt-account",
+        email: "person@example.com",
+        expiresAt: Date.now() + 60_000,
+      }),
+      cooldown: async () => {},
+    }, {
+      fetch: rateLimitedFetch,
+      now: () => logicalNow,
+      upstreamHeadersBudgetMs: 200,
+      upstreamHeadersTimeoutMs: 120,
+    });
+
+    const response = await boundedProxy(responsesRequest());
+
+    expect(response.status).toBe(429);
+    expect(selected).toEqual(["acct-1", "acct-2"]);
+  });
+
+  test("bounds account selection to the request failover deadline and aborts it", async () => {
+    let selectionSignal: AbortSignal | undefined;
+    const boundedProxy = createCodexResponsesProxy({
+      authenticate: async () => ({
+        teamId: "team-1",
+        stackUserId: "stack-user-1",
+        vmId: null,
+      }),
+      select: async (input) => {
+        selectionSignal = (input as SelectInput).signal;
+        return await new Promise<null>(() => undefined);
+      },
+      credential: async () => {
+        throw new Error("credential should not run");
+      },
+      cooldown: async () => {},
+    }, {
+      now: () => 0,
+      upstreamHeadersBudgetMs: 30,
+      upstreamHeadersTimeoutMs: 10,
+    });
+
+    const started = performance.now();
+    const response = await boundedProxy(responsesRequest());
+
+    expect(response.status).toBe(503);
+    expect(selectionSignal).toBeDefined();
+    expect(selectionSignal?.aborted).toBe(true);
+    expect(performance.now() - started).toBeLessThan(1_000);
+  });
+
+  test("bounds credential loading to the request failover deadline and aborts it", async () => {
+    let credentialSignal: AbortSignal | undefined;
+    const boundedProxy = createCodexResponsesProxy({
+      authenticate: async () => ({
+        teamId: "team-1",
+        stackUserId: "stack-user-1",
+        vmId: null,
+      }),
+      select: async () => ({ id: "acct-1", vaultRevision: 1, credentialExpiresAt: null, sticky: false }),
+      credential: async (input) => {
+        credentialSignal = (input as typeof input & { signal?: AbortSignal }).signal;
+        return await new Promise<never>(() => undefined);
+      },
+      cooldown: async () => {},
+    }, {
+      now: () => 0,
+      upstreamHeadersBudgetMs: 30,
+      upstreamHeadersTimeoutMs: 10,
+    });
+
+    const started = performance.now();
+    const response = await boundedProxy(responsesRequest());
+
+    expect(response.status).toBe(503);
+    expect(credentialSignal).toBeDefined();
+    expect(credentialSignal?.aborted).toBe(true);
+    expect(performance.now() - started).toBeLessThan(1_000);
+  });
+
+  test("does not fail over after the caller cancels the request", async () => {
+    const controller = new AbortController();
+    const selected: string[] = [];
+    const abortingFetch = (async () => {
+      controller.abort();
+      throw new DOMException("aborted", "AbortError");
+    }) as typeof fetch;
+    const abortingProxy = createCodexResponsesProxy({
+      authenticate: async () => ({
+        teamId: "team-1",
+        stackUserId: "stack-user-1",
+        vmId: null,
+      }),
+      select: async () => {
+        const id = `acct-${selected.length + 1}`;
+        selected.push(id);
+        return { id, vaultRevision: 1, credentialExpiresAt: null, sticky: false };
+      },
+      credential: async ({ accountId }) => ({
+        provider: "codex" as const,
+        accessToken: `access-${accountId}`,
+        refreshToken: "refresh",
+        idToken: "id",
+        accountId: "chatgpt-account",
+        email: "person@example.com",
+        expiresAt: Date.now() + 60_000,
+      }),
+      cooldown: async () => {},
+    }, { fetch: abortingFetch });
+    const request = new Request("https://coderouter.dev/v1/responses", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer crt_token",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ model: "gpt-test", input: [] }),
+      signal: controller.signal,
+    });
+
+    await expect(abortingProxy(request)).rejects.toMatchObject({ name: "AbortError" });
+    expect(selected).toEqual(["acct-1"]);
+  });
+
   test("a sticky session waits out an in-flight refresh instead of moving", async () => {
     accountsToServe = [{ id: "acct-1", sticky: true }];
     credentialBusyBudgets.set("acct-1", 2);
@@ -169,6 +318,39 @@ describe("codex responses proxy session routing", () => {
     expect(response.status).toBe(503);
     const body = await response.json() as { error: string };
     expect(body.error).toBe("no_usable_account");
+  });
+});
+
+describe("codex models proxy outcomes", () => {
+  test("reports provider unavailable when upstream headers time out", async () => {
+    let selected = false;
+    const modelsProxy = createCodexModelsProxy({
+      authenticate: async () => ({ teamId: "team-1", stackUserId: "stack-user-1", vmId: null }),
+      select: async () => {
+        if (selected) return null;
+        selected = true;
+        return { id: "acct-1", vaultRevision: 1, credentialExpiresAt: null };
+      },
+      credential: async () => ({
+        provider: "codex" as const,
+        accessToken: "access",
+        refreshToken: "refresh",
+        idToken: "id",
+        accountId: "chatgpt-account",
+        email: "person@example.com",
+        expiresAt: Date.now() + 60_000,
+      }),
+      cooldown: async () => {},
+      providerRead: async () => {
+        throw new Error("upstream headers timed out");
+      },
+    });
+    const response = await modelsProxy(new Request("https://coderouter.dev/v1/models", {
+      headers: { authorization: "Bearer crt_token", "anthropic-version": "2023-06-01" },
+    }));
+    expect(response.status).toBe(503);
+    const body = await response.json() as { error: string };
+    expect(body.error).toBe("provider_unavailable");
   });
 });
 

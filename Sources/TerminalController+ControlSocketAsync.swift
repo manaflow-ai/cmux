@@ -57,16 +57,43 @@ extension TerminalController {
                 return errorResponse
             }
             let authorizedRequest = relayAuthorization.request
-            let policy = Self.executionPolicy(forV2Method: authorizedRequest.method)
-            return await withSocketCommandPolicyAsync(
-                commandKey: authorizedRequest.method,
-                isV2: true,
-                params: authorizedRequest.params
+            let automationOrigin = CmuxAutomationInvocationContext.eventOrigin
+            if let focusError = Self.focusSuppressionResponse(
+                method: authorizedRequest.method,
+                id: authorizedRequest.id.map(\.foundationObject),
+                params: authorizedRequest.params.mapValues(\.foundationObject)
             ) {
-                if policy.runsOnSocketWorker {
-                    return await self.socketWorkerV2ResponseAsync(authorizedRequest)
+                return focusError
+            }
+            let policy = Self.executionPolicy(forV2Method: authorizedRequest.method)
+            return await CmuxAutomationInvocationContext.$eventOrigin.withValue(automationOrigin) {
+                await withSocketCommandPolicyAsync(
+                    commandKey: authorizedRequest.method,
+                    isV2: true,
+                    params: authorizedRequest.params
+                ) {
+                    if policy.runsOnSocketWorker {
+                        // Terminal rename performs an awaited cloud-link mutation. Keep the
+                        // actual socket connection task asynchronous instead of parking a
+                        // worker thread behind the legacy semaphore bridge.
+                        if authorizedRequest.method == "vm.terminal_rename" {
+                            return await self.socketCloudRenameResponseWithDeadline(
+                                id: authorizedRequest.id
+                            ) {
+                                await self.socketWorkerVMTerminalRenameResponseAsync(authorizedRequest)
+                            }
+                        }
+                        if authorizedRequest.method == "vm.tab_rename" {
+                            return await self.socketCloudRenameResponseWithDeadline(
+                                id: authorizedRequest.id
+                            ) {
+                                await self.socketWorkerVMTabRenameResponseAsync(authorizedRequest)
+                            }
+                        }
+                        return await self.socketWorkerV2ResponseAsync(authorizedRequest)
+                    }
+                    return await self.processParsedV2CommandAsync(authorizedRequest)
                 }
-                return await self.processParsedV2CommandAsync(authorizedRequest)
             }
         }
 
@@ -264,6 +291,68 @@ extension TerminalController {
         )
     }
 
+    /// Applies one deadline to the complete cloud rename transaction. The
+    /// provider can perform several refreshes, compare-and-set writes, retries,
+    /// and compensation writes, so a per-command timeout alone does not bound
+    /// the socket request. The operation task is cancelled when the deadline
+    /// wins; the provider's next cancellation check or command boundary then
+    /// stops further writes, while the canonical graph remains the authority
+    /// for any command that was already in flight.
+    private nonisolated func socketCloudRenameResponseWithDeadline(
+        id: JSONValue?,
+        operation: @escaping @Sendable () async -> String
+    ) async -> String {
+        let (responses, continuation) = AsyncStream<String>.makeStream(
+            bufferingPolicy: .bufferingOldest(1)
+        )
+        let operationTask = Task {
+            let response = await operation()
+            continuation.yield(response)
+            continuation.finish()
+        }
+        let timeoutTask = Task {
+            do {
+                try await ContinuousClock().sleep(for: .seconds(120))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            continuation.yield(Self.v2Encoder.error(
+                id: id,
+                code: "timeout",
+                message: String(
+                    localized: "socket.vm.renameTimedOut",
+                    defaultValue: "The remote rename timed out after 120 seconds. Refresh and try again."
+                )
+            ))
+            continuation.finish()
+        }
+        continuation.onTermination = { @Sendable _ in
+            operationTask.cancel()
+            timeoutTask.cancel()
+        }
+
+        let response = await withTaskCancellationHandler(
+            operation: {
+                var iterator = responses.makeAsyncIterator()
+                return await iterator.next()
+            },
+            onCancel: {
+                operationTask.cancel()
+                timeoutTask.cancel()
+                continuation.finish()
+            }
+        )
+        operationTask.cancel()
+        timeoutTask.cancel()
+        continuation.finish()
+        return response ?? Self.v2Encoder.error(
+            id: id,
+            code: "request_error",
+            message: "Request failed before returning a result"
+        )
+    }
+
     private nonisolated func v2SystemTopAsync(_ request: ControlRequest) async -> String {
         let base = await v2MainAsync {
             let foundationParams = request.params.mapValues(\.foundationObject)
@@ -333,6 +422,13 @@ extension TerminalController {
     private nonisolated func processParsedV2CommandAsync(
         _ request: ControlRequest
     ) async -> String {
+        if let focusError = Self.focusSuppressionResponse(
+            method: request.method,
+            id: request.id.map(\.foundationObject),
+            params: request.params.mapValues(\.foundationObject)
+        ) {
+            return focusError
+        }
         let bridgedParams = request.params.mapValues(\.foundationObject)
         let method = request.method
         let id = request.id?.foundationObject

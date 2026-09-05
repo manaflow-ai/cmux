@@ -1,5 +1,5 @@
 import {
-  createPublication,
+  PublicationInputError,  createPublication,
   listPublications,
 } from "../../../../services/vm-publications/workflows";
 import {
@@ -55,7 +55,7 @@ export async function handlePublicationCreate(
     }, 400);
   }
   const vmId = stringField(body, "vmId");
-  const accessMode = stringField(body, "accessMode") ?? "personal";
+  const accessMode = stringField(body, "accessMode");
   const hostname = stringField(body, "hostname");
   const teamId = stringField(body, "teamId");
   const port = body.port;
@@ -67,12 +67,16 @@ export async function handlePublicationCreate(
       details: { field: "vmId" },
     }, 400);
   }
+  if (accessMode === "public" && body?.confirmPublic !== true) {
+    throw new PublicationInputError({ reason: "public_confirmation_required", field: "accessMode" });
+  }
   const publication = await context.run(createPublication({
     principal: context.principal,
     providerVmId: vmId,
     port: typeof port === "number" ? port : Number.NaN,
     hostname,
-    accessMode: accessMode as "personal" | "team" | "public",
+    accessMode: accessMode as "personal" | "team" | "public" | undefined,
+    organizationSlug: stringField(body, "organizationSlug"),
     teamId,
     forwardAuth: publicationForwardAuthConfig(environment),
     generatedDomain: publicationGeneratedDomain(environment),

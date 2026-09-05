@@ -38,8 +38,15 @@ import {
   isVmOperationUnsupportedError,
   isVmPrivateNetworkUnavailableError,
   isVmProviderOperationError,
+  isVmResizeInvalidError,
+  isVmResizeInProgressError,
+  isVmSharedResourceLimitExceededError,
   isVmSnapshotNotFoundError,
   isVmTunnelNotFoundError,
+  isVmTunnelEnrollmentBusyError,
+  isVmTunnelEnrollmentUnavailableError,
+  isVmAccessGrantRevokedError,
+  isVmAccessGrantMutationBusyError,
   vmWorkflowErrorCause,
   type VmModelPlaneError,
   type VmOperationUnsupportedError,
@@ -48,15 +55,24 @@ import { recordSpanTiming } from "./timings";
 import { authProviderErrorResponse } from "./authErrors";
 import {
   captureVmRequestOutcome,
+  isPolledVmOperation,
   reportVmErrorResponse,
   VM_ERROR_CODE_HEADER,
 } from "./observability";
 import {
+  annotateVmRequestBilling,
   runWithVmRequestContext,
   vmClientIdentityFromRequest,
+  vmIdFromRequestPath,
   type VmRequestContext,
 } from "./requestContext";
-import { vmRequestLocale, vmRequiresProCopy, vmUnsupportedCopy } from "./vmErrorMessages";
+import {
+  vmRequestLocale,
+  vmRequiresProCopy,
+  vmSharedResourceCopy,
+  vmUnsupportedCopy,
+  vmUnsupportedOperationKey,
+} from "./vmErrorMessages";
 import type { Locale } from "../../i18n/routing";
 
 /** Bearer + refresh token pair the mac app stashes in keychain. */
@@ -91,6 +107,7 @@ export async function withAuthedVmApiRoute(
     startedAtMs: performance.now(),
     client: vmClientIdentityFromRequest(request),
     vercelRequestId: request.headers.get("x-vercel-id")?.slice(0, 120) ?? undefined,
+    vmId: vmIdFromRequestPath(request, route),
   };
   return runWithVmRequestContext(requestContext, () => withApiRouteSpan(
     request,
@@ -149,6 +166,14 @@ export async function withAuthedVmApiRoute(
         recordSpanTiming(span, "auth", authDurationMs);
         if (!user) return finalize(unauthorized());
         requestContext.userId = user.id;
+        // The caller's default billing scope. Routes that resolve entitlements
+        // refine it (a requested team, the normalized plan) through
+        // resolveVmAccountScope below.
+        annotateVmRequestBilling({
+          billingTeamId: user.billingTeamId,
+          billingCustomerType: user.billingCustomerType,
+          planId: user.billingPlanId ?? user.userBillingPlanId,
+        });
         const mutationForbidden = enforceBrowserMutationProtection(request, bearer);
         if (mutationForbidden) return finalize(mutationForbidden);
         return finalize(await handler({ user, span, authDurationMs, routeStartedAtMs, setResponseFinalizer }));
@@ -167,12 +192,6 @@ export async function withAuthedVmApiRoute(
       }
     },
   ));
-}
-
-const POLLED_OPERATIONS: ReadonlySet<string> = new Set(["list", "status", "stats", "list_sessions", "get_tunnel"]);
-
-function isPolledVmOperation(operation: string): boolean {
-  return POLLED_OPERATIONS.has(operation);
 }
 
 function scheduleTraceFlush(): void {
@@ -247,6 +266,7 @@ export type VmLifecyclePhase =
   | "fork"
   | "snapshot"
   | "resume"
+  | "resize"
   | "attach"
   | "ssh"
   | "network"
@@ -397,12 +417,14 @@ function resolveVmAccountScope(
 ): VmRouteAccountScope {
   const requestedBillingTeamId = options.requestedBillingTeamId ?? requestedVmTeamIdFromRequest(request);
   try {
+    const entitlements = resolveVmEntitlements(user, process.env, {
+      requestedBillingTeamId,
+    });
+    annotateVmRequestBilling(entitlements);
     return {
       ok: true,
       requestedBillingTeamId,
-      entitlements: resolveVmEntitlements(user, process.env, {
-        requestedBillingTeamId,
-      }),
+      entitlements,
     };
   } catch (err) {
     if (isVmBillingTeamResolutionError(err)) {
@@ -498,6 +520,50 @@ export function vmActiveLimitExceededResponse(input: {
   });
 }
 
+/** Translate a plan-wide resource pool rejection into a stable client error. */
+export async function vmSharedResourceLimitExceededResponse(
+  err: {
+    readonly resource: "vcpus" | "memoryMb" | "diskMb";
+    readonly used: number;
+    readonly requested: number;
+    readonly limit: number;
+    readonly phase?: VmLifecyclePhase;
+  },
+  phase: VmLifecyclePhase = err.phase ?? "create",
+  locale: Locale = "en",
+): Promise<Response> {
+  const resource = err.resource === "vcpus"
+    ? "vCPU"
+    : err.resource === "memoryMb"
+      ? "memory"
+      : "disk";
+  const unit = err.resource === "vcpus"
+    ? "vCPU"
+    : err.resource === "memoryMb"
+      ? "MB of memory"
+      : "MB of disk";
+  const copy = await vmSharedResourceCopy(locale, {
+    resource,
+    oversized: err.requested > err.limit,
+  });
+  return vmErrorResponse({
+    error: "vm_shared_resource_limit_exceeded",
+    status: 409,
+    message: copy.message,
+    action: copy.action,
+    phase,
+    retryable: false,
+    details: {
+      resource: err.resource,
+      used: err.used,
+      requested: err.requested,
+      limit: err.limit,
+      unit,
+      shared: true,
+    },
+  });
+}
+
 export type VmCreateLikeOperation = "fork" | "restore";
 
 /**
@@ -505,14 +571,15 @@ export type VmCreateLikeOperation = "fork" | "restore";
  * Operation-specific retry guidance stays at the route boundary, while the response
  * shape and billing errors remain centralized here.
  */
-export function vmCreateLikeErrorResponse(
+export async function vmCreateLikeErrorResponse(
   err: unknown,
   input: {
     readonly operation: VmCreateLikeOperation;
     readonly planId: string;
     readonly retryAction: string;
+    readonly locale?: Locale;
   },
-): Response | null {
+): Promise<Response | null> {
   if (isVmCreateInProgressError(err)) {
     return vmErrorResponse({
       error: "vm_create_in_progress",
@@ -537,6 +604,9 @@ export function vmCreateLikeErrorResponse(
       planId: input.planId,
       retryAction: input.retryAction,
     });
+  }
+  if (isVmSharedResourceLimitExceededError(err)) {
+    return vmSharedResourceLimitExceededResponse(err, input.operation, input.locale ?? "en");
   }
   if (input.operation === "restore" && isVmSnapshotNotFoundError(err)) {
     return vmErrorResponse({
@@ -587,7 +657,50 @@ export function vmModelPlaneErrorResponse(
   });
 }
 
+/** Translate private-network tunnel enrollment failures into the public VM error contract. */
+function vmTunnelErrorResponse(error: unknown): Response | null {
+  if (isVmTunnelNotFoundError(error)) {
+    return vmErrorResponse({
+      error: "vm_tunnel_not_found",
+      status: 404,
+      message: "This computer is not enrolled on your Cloud VM network.",
+      action: "Enroll it with POST /api/vm/tunnel, then bring the WireGuard tunnel up.",
+      phase: "network",
+      retryable: false,
+      details: { deviceFingerprint: error.deviceFingerprint },
+    });
+  }
+
+  if (isVmTunnelEnrollmentBusyError(error)) {
+    return vmErrorResponse({
+      error: "vm_tunnel_enrollment_busy",
+      status: 409,
+      message: "This computer is already being enrolled on the Cloud VM network.",
+      action: "Retry the same enrollment request after the current request finishes.",
+      phase: "network",
+      retryable: true,
+      retryAfterSeconds: error.retryAfterSeconds,
+    });
+  }
+
+  if (isVmTunnelEnrollmentUnavailableError(error)) {
+    return vmErrorResponse({
+      error: "vm_tunnel_enrollment_unavailable",
+      status: 503,
+      message: "Cloud VM network enrollment is temporarily unavailable.",
+      action: "Retry after the Cloud VM service has completed its database upgrade.",
+      reason: error.reason,
+      phase: "network",
+      retryable: true,
+      retryAfterSeconds: 30,
+    });
+  }
+
+  return null;
+}
+
 /** Translate a normalized workflow failure into the public VM error contract. */
+// oxlint-disable-next-line complexity -- Centralized dispatch preserves the public error precedence contract.
 export async function vmWorkflowErrorResponse(
   err: unknown,
   options: { readonly locale?: Locale } = {},
@@ -635,14 +748,45 @@ export async function vmWorkflowErrorResponse(
     return vmModelPlaneErrorResponse(workflowError);
   }
 
+  if (isVmSharedResourceLimitExceededError(workflowError)) {
+    return vmSharedResourceLimitExceededResponse(workflowError, workflowError.phase ?? "create", options.locale ?? "en");
+  }
+
+  if (isVmResizeInvalidError(workflowError)) {
+    const requested = Math.round(workflowError.requestedMb / 1024);
+    const current = Math.round(workflowError.currentMb / 1024);
+    const max = Math.round(workflowError.maxMb / 1024);
+    return vmErrorResponse({
+      error: "vm_resize_invalid",
+      status: 400,
+      message: workflowError.reason === "below_current"
+        ? `Cloud VM disk can only grow. It is already ${current} GiB.`
+        : `Cloud VM disk cannot exceed ${max} GiB.`,
+      action: `Request a disk size between ${current} GiB and ${max} GiB.`,
+      phase: "resize",
+      retryable: false,
+      details: { requestedGiB: requested, currentGiB: current, maxGiB: max },
+    });
+  }
+
+  if (isVmResizeInProgressError(workflowError)) {
+    return vmErrorResponse({
+      error: "vm_resize_in_progress",
+      status: 409,
+      message: "A disk resize is already running for this Cloud VM.",
+      action: "Wait for the current resize to finish, then retry.",
+      phase: "resize",
+      retryable: true,
+      retryAfterSeconds: 5,
+    });
+  }
+
   if (isVmPrivateNetworkUnavailableError(workflowError)) {
     return vmErrorResponse({
       error: "vm_private_network_unavailable",
       status: 409,
       message: "Cloud VM private networking is not available in this environment.",
-      action:
-        "Machines in this environment are reached at their public address, so no tunnel is needed. " +
-        "Stop offering to set one up; retrying will not change this.",
+      action: "Update cmux or contact support. Retrying will not change this deployment setting.",
       reason: workflowError.reason,
       phase: "network",
       // Not retryable on purpose: this is how the deployment is configured, so
@@ -661,6 +805,26 @@ export async function vmWorkflowErrorResponse(
       phase: "network",
       retryable: false,
       details: { deviceFingerprint: workflowError.deviceFingerprint },
+    });
+  }
+  if (isVmAccessGrantRevokedError(workflowError)) {
+    return vmErrorResponse({
+      error: "vm_access_revoked",
+      status: 403,
+      message: "Cloud access for this Mac login was revoked.",
+      action: "Sign out of cmux, then sign in again to enroll this Mac.",
+      phase: "network",
+    });
+  }
+  if (isVmAccessGrantMutationBusyError(workflowError)) {
+    return vmErrorResponse({
+      error: "vm_access_grant_busy",
+      status: 409,
+      message: "Another Cloud access change for this Mac is still in progress.",
+      action: "Wait one second, then try again.",
+      phase: "network",
+      retryable: true,
+      retryAfterSeconds: 1,
     });
   }
 
@@ -776,10 +940,7 @@ async function vmUnsupportedOperationResponse(
   locale: Locale,
 ): Promise<Response> {
   const phase = vmPhaseForOperation(error.operation);
-  const copy = await vmUnsupportedCopy(
-    phase === "snapshot" || phase === "restore" || phase === "fork" ? phase : "default",
-    locale,
-  );
+  const copy = await vmUnsupportedCopy(vmUnsupportedOperationKey(error.operation), locale);
   return vmErrorResponse({
     error: "vm_operation_unsupported",
     status: 501,
@@ -894,6 +1055,7 @@ function vmPhaseForOperation(operation: string): VmLifecyclePhase {
   if (operation.includes("fork")) return "fork";
   if (operation.includes("snapshot")) return "snapshot";
   if (operation.includes("resume")) return "resume";
+  if (operation.includes("resize")) return "resize";
   if (operation.includes("exec")) return "exec";
   if (operation.includes("destroy")) return "destroy";
   if (operation.includes("getStatus")) return "status";

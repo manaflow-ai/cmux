@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 0d60b5c04eb89444ff0b4a9354896f2ae81a2bf4c953aacadd12e2907c6d84a8. */
+/* cmux-tui mux protocol 12, IR 8ff10c20fef75f9aaa1498eaf5e1107f084bdcf3febdcf8806fb4e7fc1c90b86. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -313,6 +313,10 @@ export type LivePane = {
   "name": (string) | null;
   "short_id"?: string;
   "tabs": Array<Tab>;
+};
+
+export type MachineListeningTcpResult = {
+  "stdout": string;
 };
 
 export type MachineUsage = {

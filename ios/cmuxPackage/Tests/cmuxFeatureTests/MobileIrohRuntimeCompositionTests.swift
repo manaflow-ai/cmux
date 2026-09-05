@@ -1089,7 +1089,7 @@ struct MobileIrohRuntimeCompositionTests {
             bindings: [
                 mobileIrohBinding(
                     bindingID: nightlyBindingID,
-                    deviceID: fixture.deviceID,
+                    deviceID: MobileIrohSignOutFixture.deviceID,
                     appInstanceID: "123e4567-e89b-42d3-a456-426614174091",
                     endpointID: String(repeating: "a", count: 64),
                     platform: "mac",
@@ -1100,7 +1100,7 @@ struct MobileIrohRuntimeCompositionTests {
         ))
 
         try await fixture.composition.forgetComputer(
-            macDeviceID: fixture.deviceID,
+            macDeviceID: MobileIrohSignOutFixture.deviceID,
             instanceTag: "nightly",
             expectedAccountID: fixture.accountID
         )
@@ -1632,7 +1632,11 @@ private struct MobileIrohSignOutFixture {
                 return endpointFactory
             },
             brokerFactory: brokerFactory ?? { _, authorization, _ in
-                endpointFactoryModes.recordAuthorization(authorization)
+                // The composition invokes its broker factory on the main actor;
+                // the closure type itself is a nonisolated @Sendable function.
+                MainActor.assumeIsolated {
+                    endpointFactoryModes.recordAuthorization(authorization)
+                }
                 return broker
             },
             deviceID: { resolvableDeviceID ? stableDeviceID : nil },
@@ -1914,6 +1918,14 @@ private actor MobileIrohRevocationBroker: CmxIrohClientBrokerServing {
         bindingIDs.append(bindingID)
     }
 
+    func revokeStale(bindingID: String) {
+        bindingIDs.append(bindingID)
+    }
+
+    func forgetMac(bindingID: String) {
+        bindingIDs.append(bindingID)
+    }
+
     func setDiscoverySnapshot(_ snapshot: CmxIrohDiscoveryResponse) {
         discoverySnapshot = snapshot
     }
@@ -1977,6 +1989,16 @@ private actor MobileIrohCredentialFetchingBroker: CmxIrohClientBrokerServing {
     }
 
     func revoke(bindingID: String) async throws {
+        try await fetchCredentialPair()
+        revoked.append(bindingID)
+    }
+
+    func revokeStale(bindingID: String) async throws {
+        try await fetchCredentialPair()
+        revoked.append(bindingID)
+    }
+
+    func forgetMac(bindingID: String) async throws {
         try await fetchCredentialPair()
         revoked.append(bindingID)
     }
