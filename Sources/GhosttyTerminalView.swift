@@ -9643,6 +9643,7 @@ final class GhosttySurfaceScrollView: NSView {
     private let flashOverlayView: GhosttyFlashOverlayView
     private let flashLayer: CAShapeLayer
     private var cloudTerminalReconnectOverlayView: CloudTerminalReconnectOverlayView?
+    private lazy var latexPreview = TerminalLatexPreviewController(host: self)
     private var hasVisibilityRevealRefreshScheduled = false
     var isRightSidebarDockSurface: Bool {
         surfaceView.terminalSurface?.focusPlacement == .rightSidebarDock
@@ -10166,6 +10167,7 @@ final class GhosttySurfaceScrollView: NSView {
             queue: .main
         ) { [weak self] notification in
             self?.handleScrollbarUpdate(notification)
+            self?.latexPreview.invalidateGeometry()
         })
 
         observers.append(NotificationCenter.default.addObserver(
@@ -10245,6 +10247,7 @@ final class GhosttySurfaceScrollView: NSView {
             queue: .main
         ) { [weak self] _ in
             self?.synchronizeScrollView()
+            self?.latexPreview.invalidateGeometry()
         })
 
         observers.append(NotificationCenter.default.addObserver(
@@ -10386,6 +10389,7 @@ final class GhosttySurfaceScrollView: NSView {
         surfaceView.terminalSurface?.forceRefresh(reason: reason)
     }
 
+    /// Synchronizes terminal and overlay frames, returning whether terminal geometry changed.
     @discardableResult
     private func synchronizeGeometryAndContent(
         forceViewportSync: Bool? = nil,
@@ -10466,7 +10470,9 @@ final class GhosttySurfaceScrollView: NSView {
         )
         synchronizeSurfaceView()
         let didCoreSurfaceChange = synchronizeCoreSurface()
-        return !sizeApproximatelyEqual(previousSurfaceSize, targetSize) || didCoreSurfaceChange
+        let changed = !sizeApproximatelyEqual(previousSurfaceSize, targetSize) || didCoreSurfaceChange
+        if changed { latexPreview.invalidateGeometry() }
+        return changed
     }
 
     /// Updates terminal content geometry without shrinking pane-level overlays.
@@ -10683,10 +10689,12 @@ final class GhosttySurfaceScrollView: NSView {
     }
 #endif
 
+    /// Rebinds window-scoped observers and terminal overlays after portal moves.
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         windowObservers.forEach { NotificationCenter.default.removeObserver($0) }
         windowObservers.removeAll()
+        latexPreview.rebind()
         guard let window else { return }
         windowObservers.append(NotificationCenter.default.addObserver(
             forName: NSWindow.didBecomeKeyNotification,
@@ -10733,9 +10741,11 @@ final class GhosttySurfaceScrollView: NSView {
         }
     }
 
+    /// Attaches a terminal surface and rebinds surface-dependent overlays.
     func attachSurface(_ terminalSurface: TerminalSurface) {
         if surfaceView.terminalSurface !== terminalSurface { setLinkHoverURL(nil) }
         surfaceView.attachSurface(terminalSurface)
+        latexPreview.rebind()
         // Preserve the bootstrap 800x600 surface until portal reattach churn
         // has produced a real host size instead of a transient 1x1 placeholder.
         guard bounds.width > 1, bounds.height > 1 else { return }
@@ -11446,12 +11456,14 @@ final class GhosttySurfaceScrollView: NSView {
     func beginPortalGeometrySettlement() { surfaceView.beginPortalGeometrySettlement() }
     func finishPortalGeometrySettlement() { surfaceView.finishPortalGeometrySettlement() }
 
+    /// Applies portal visibility to the terminal renderer and its overlays.
     func setVisibleInUI(_ visible: Bool) {
         let wasVisible = surfaceView.isVisibleInUI
         // Make the AppKit portal presentable before asking Ghostty to realize its
         // drawable. Ghostty remains occluded until after the enqueue below, so it
         // cannot draw into a released swap chain during this short transition.
         surfaceView.setVisibleInUI(visible)
+        latexPreview.rebind()
         isHidden = !visible
         surfaceView.terminalSurface?.setRendererPortalVisible(visible)
         if wasVisible != visible, lastRequestedPortalOcclusionVisible != visible {
