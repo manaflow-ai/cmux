@@ -137,9 +137,10 @@ actor CmxIrohDeferredByteTransport:
         guard let observing = transport as? any CmxByteTransportLivenessObserving else {
             // The wrapper conforms to this protocol so the RPC layer can
             // inspect the activated transport. An underlying legacy transport
-            // that cannot prove liveness must be treated as closed; reporting
-            // false would make the watchdog preserve a dead session forever.
-            return true
+            // that cannot prove liveness is unknown, not proof of closure.
+            // Keep the lane-scoped repair path in charge rather than tearing
+            // down a healthy shared session on an unsupported observation.
+            return false
         }
         return await observing.isTransportClosed()
     }
