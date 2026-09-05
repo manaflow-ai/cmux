@@ -1,3 +1,4 @@
+import CryptoKit
 import CmuxIrohTransport
 import Foundation
 import Testing
@@ -106,5 +107,19 @@ struct IrxBrokerArmingTests {
             identity: IrxBrokerArmingSupport.identity(),
             cacheDirectory: IrxBrokerArmingSupport.temporaryDirectory())
         #expect(await service.hostBrokerClient.bindingAuthorizationID() == nil)
+    }
+
+    @Test("incomplete session metadata keeps the legacy client available")
+    func incompleteSessionMetadataFallsBack() async throws {
+        let identity = IrxIdentity(
+            privateKeyData: Curve25519.Signing.PrivateKey().rawRepresentation,
+            deviceID: "",
+            appInstanceID: "a-arming-test"
+        )
+        let service = try IrxBrokerArmingSupport.makeService(
+            identity: identity,
+            cacheDirectory: IrxBrokerArmingSupport.temporaryDirectory())
+        let ticket = try await service.ensureSessionTicket()
+        #expect(ticket == nil)
     }
 }

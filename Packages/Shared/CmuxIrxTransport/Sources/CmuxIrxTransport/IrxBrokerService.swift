@@ -174,6 +174,36 @@ public actor IrxBrokerService {
     private var lifecycleEpoch: UInt64 = 0
     private var deactivated = false
 
+    /// Session metadata is an optimization over the legacy Stack transport.
+    /// If an older install has not populated one of these fields yet, omit the
+    /// session configuration so the underlying client can keep its legacy path
+    /// instead of making broker construction fail.
+    private static func sessionConfiguration(
+        identity: IrxIdentity,
+        configuration: Configuration
+    ) -> CmxIrohSessionConfiguration? {
+        let values = [
+            identity.deviceID,
+            identity.appInstanceID,
+            configuration.clientNamespace,
+            configuration.tag,
+        ]
+        guard values.allSatisfy({
+            !$0.isEmpty && $0.utf8.count <= 255 && !$0.unicodeScalars.contains {
+                $0.value < 0x20 || $0.value == 0x7f
+            }
+        }) else {
+            return nil
+        }
+        return CmxIrohSessionConfiguration(
+            deviceID: identity.deviceID,
+            appInstanceID: identity.appInstanceID,
+            clientNamespace: configuration.clientNamespace,
+            tag: configuration.tag,
+            platform: configuration.platform
+        )
+    }
+
     public init(
         configuration: Configuration,
         identity: IrxIdentity,
@@ -223,12 +253,9 @@ public actor IrxBrokerService {
             tokenSource: tokenSource,
             clientNamespace: configuration.clientNamespace,
             bindingAuthorization: retainedAuthorization,
-            sessionConfiguration: CmxIrohSessionConfiguration(
-                deviceID: identity.deviceID,
-                appInstanceID: identity.appInstanceID,
-                clientNamespace: configuration.clientNamespace,
-                tag: configuration.tag,
-                platform: configuration.platform
+            sessionConfiguration: Self.sessionConfiguration(
+                identity: identity,
+                configuration: configuration
             )
         )
         trustCache = IrxBrokerCacheFactory.make(
@@ -262,8 +289,8 @@ public actor IrxBrokerService {
 
     /// Drop a ticket only after the transport observes an explicit auth
     /// rejection. Transient disconnects keep the cached capability intact.
-    public func invalidateSessionTicket() {
-        client.invalidateSessionTicket()
+    public func invalidateSessionTicket() async {
+        await client.invalidateSessionTicket()
     }
 
     /// Signs the exact body sent by the control-plane relay mint shortcut.
