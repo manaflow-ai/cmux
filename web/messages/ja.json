@@ -16,6 +16,27 @@
     "error": "リクエストを送信できませんでした。しばらくしてから再試行してください。",
     "backToHome": "cmux に戻る"
   },
+  "notFoundPage": {
+    "metaTitle": "ページが見つかりません | cmux",
+    "metaDescription": "お探しのcmuxページは見つかりませんでした。",
+    "eyebrow": "404 / ルートが見つかりません",
+    "title": "このページはワークスペースにありません。",
+    "description": "リンクが古いか、アドレスが間違っている可能性があります。",
+    "downloadAction": "Mac版cmuxをダウンロード",
+    "homeAction": "ホームページへ",
+    "docsAction": "ドキュメントを読む",
+    "supportAction": "サポートに連絡",
+    "terminalTitle": "cmux · zsh",
+    "terminalCommand": "cmux 404",
+    "terminalError": "エラー: ルートが見つかりません",
+    "terminalHint": "ヒント: ホームまたはドキュメントを開いてください",
+    "terminalWelcome": "  ::\n    ::::              cmux\n      ::::::\n        ::::::        オープンソースのターミナル\n      ::::::          コーディングエージェント向け\n    ::::\n  ::\n\n  ショートカット\n\n  ⌘N                  新しいワークスペース\n  ⌘T                  新しいタブ\n  ⌘P                  ワークスペースへ移動\n  ⌘B                  左サイドバーを切り替え\n  ⌘⌥B                 右サイドバーを切り替え\n  ⌘D                  右に分割\n  ⌘⇧D                 下に分割\n  ⌘⇧P                 コマンドパレット\n  ⌘⇧R                 ワークスペース名を変更\n  ⌘⇧L                 新しいブラウザ\n  ⌘⇧U                 最新の未読へ移動\n  ⌥⌘U                 未読を切り替え\n\n  Docs                https://cmux.com/docs\n  Discord             https://discord.gg/xsgFEVrWCZ\n  GitHub              https://github.com/manaflow-ai/cmux (スターをお願いします ⭐)\n  Email               founders@manaflow.com\n\n  cmux --help ですべてのコマンドを表示します。\n  cmux shortcuts でショートカットを編集します。\n  cmux feedback でバグを報告します。",
+    "terminalDocs": "Docs",
+    "terminalDiscord": "Discord",
+    "terminalGithub": "GitHub",
+    "terminalEmail": "Email",
+    "footer": "ルートが見つからなくても、作業は止まりません。"
+  },
   "vmDesktop": {
     "invalidTitle": "このデスクトップリンクは無効です",
     "invalidBody": "リンクにセッションがないか、cmux が表示できない場所を指しています。cmux のマシンパネルで {machine} を右クリックし、「デスクトップを開く」からもう一度開いてください。",

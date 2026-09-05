@@ -16,6 +16,27 @@
     "error": "We could not send the request. Try again later.",
     "backToHome": "Back to cmux"
   },
+  "notFoundPage": {
+    "metaTitle": "Page not found | cmux",
+    "metaDescription": "The requested cmux page could not be found.",
+    "eyebrow": "404 / route not found",
+    "title": "This page is not in this workspace.",
+    "description": "The link may be old, or the address may be wrong.",
+    "downloadAction": "Download cmux for Mac",
+    "homeAction": "Go to homepage",
+    "docsAction": "Read the docs",
+    "supportAction": "Contact support",
+    "terminalTitle": "cmux · zsh",
+    "terminalCommand": "cmux 404",
+    "terminalError": "error: route not found",
+    "terminalHint": "hint: return home or open the docs",
+    "terminalWelcome": "  ::\n    ::::              cmux\n      ::::::\n        ::::::        the open source terminal\n      ::::::          built for coding agents\n    ::::\n  ::\n\n  Shortcuts\n\n  ⌘N                  New workspace\n  ⌘T                  New tab\n  ⌘P                  Go to workspace\n  ⌘B                  Toggle Left Sidebar\n  ⌘⌥B                 Toggle Right Sidebar\n  ⌘D                  Split right\n  ⌘⇧D                 Split down\n  ⌘⇧P                 Command palette\n  ⌘⇧R                 Rename workspace\n  ⌘⇧L                 New browser\n  ⌘⇧U                 Jump to latest unread\n  ⌥⌘U                 Toggle unread\n\n  Docs                https://cmux.com/docs\n  Discord             https://discord.gg/xsgFEVrWCZ\n  GitHub              https://github.com/manaflow-ai/cmux (please leave a star ⭐)\n  Email               founders@manaflow.com\n\n  Run cmux --help for all commands.\n  Run cmux shortcuts to edit shortcuts.\n  Run cmux feedback to report a bug.",
+    "terminalDocs": "Docs",
+    "terminalDiscord": "Discord",
+    "terminalGithub": "GitHub",
+    "terminalEmail": "Email",
+    "footer": "Lost routes do not stop the work."
+  },
   "vmDesktop": {
     "invalidTitle": "This desktop link isn't valid",
     "invalidBody": "The link is missing its session or points somewhere cmux won't frame. Reopen the desktop from cmux: right-click {machine} in the Machines panel and choose Open Desktop.",
