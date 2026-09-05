@@ -2779,6 +2779,8 @@
 		B88351000000000000000003 /* TerminalImageTransferPreparationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88351000000000000000004 /* TerminalImageTransferPreparationService.swift */; };
 		B88351000000000000000005 /* TerminalImageTransferPreparedContent+Cleanup.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88351000000000000000006 /* TerminalImageTransferPreparedContent+Cleanup.swift */; };
 		B88357000000000000000007 /* TerminalImageTransferPreparedContent+DebugDescription.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88357000000000000000008 /* TerminalImageTransferPreparedContent+DebugDescription.swift */; };
+		550C685050954E2FBF54E230 /* TerminalLatexPreviewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CE3540A94EB4FA7BA3E4A84 /* TerminalLatexPreviewController.swift */; };
+		6EC7369BCE41485291B39057 /* TerminalLatexWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF44107BEE74483498F0019F /* TerminalLatexWebView.swift */; };
 		859110000000000000000005 /* TerminalLinkOpenContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 859110000000000000000006 /* TerminalLinkOpenContainer.swift */; };
 		859110000000000000000007 /* TerminalLinkOpenCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 859110000000000000000008 /* TerminalLinkOpenCoordinator.swift */; };
 		859100000000000000000001 /* TerminalLinkOpenCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 859100000000000000000002 /* TerminalLinkOpenCoordinatorTests.swift */; };
@@ -5989,6 +5991,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		B88351000000000000000004 /* TerminalImageTransferPreparationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalImageTransferPreparationService.swift; sourceTree = "<group>"; };
 		B88351000000000000000006 /* TerminalImageTransferPreparedContent+Cleanup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalImageTransferPreparedContent+Cleanup.swift"; sourceTree = "<group>"; };
 		B88357000000000000000008 /* TerminalImageTransferPreparedContent+DebugDescription.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalImageTransferPreparedContent+DebugDescription.swift"; sourceTree = "<group>"; };
+		1CE3540A94EB4FA7BA3E4A84 /* TerminalLatexPreviewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalLatexPreviewController.swift; sourceTree = "<group>"; };
+		FF44107BEE74483498F0019F /* TerminalLatexWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalLatexWebView.swift; sourceTree = "<group>"; };
 		859110000000000000000006 /* TerminalLinkOpenContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalLinkOpenContainer.swift; sourceTree = "<group>"; };
 		859110000000000000000008 /* TerminalLinkOpenCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalLinkOpenCoordinator.swift; sourceTree = "<group>"; };
 		859100000000000000000002 /* TerminalLinkOpenCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalLinkOpenCoordinatorTests.swift; sourceTree = "<group>"; };
@@ -7733,6 +7737,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C7261F030000000000000002 /* GhosttyNSView+PointerFocusActivation.swift */,
 				47895BD8BBB2418438E708F5 /* GhosttyNSView+RemoteReconnect.swift */,
 				C75100010000000000000002 /* GhosttyNSView+SelectionTranslation.swift */,
+				1CE3540A94EB4FA7BA3E4A84 /* TerminalLatexPreviewController.swift */,
+				FF44107BEE74483498F0019F /* TerminalLatexWebView.swift */,
 				D0B1000BA1B2C3D4E5F60001 /* GhosttyTerminalViewSupport.swift */,
 				D0B10013A1B2C3D4E5F60001 /* GhosttyApp+SurfaceConfigurationReload.swift */,
 				D3571001A1B2C3D4E5F60718 /* GhosttyNSView+IMEComposition.swift */,
@@ -12150,6 +12156,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				B88351000000000000000003 /* TerminalImageTransferPreparationService.swift in Sources */,
 				B88351000000000000000005 /* TerminalImageTransferPreparedContent+Cleanup.swift in Sources */,
 				B88357000000000000000007 /* TerminalImageTransferPreparedContent+DebugDescription.swift in Sources */,
+				550C685050954E2FBF54E230 /* TerminalLatexPreviewController.swift in Sources */,
+				6EC7369BCE41485291B39057 /* TerminalLatexWebView.swift in Sources */,
 				859110000000000000000005 /* TerminalLinkOpenContainer.swift in Sources */,
 				859110000000000000000007 /* TerminalLinkOpenCoordinator.swift in Sources */,
 				859110000000000000000009 /* TerminalLinkOpenRequest.swift in Sources */,
