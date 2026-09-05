@@ -2,16 +2,20 @@ import CMUXAgentLaunch
 import Foundation
 
 extension CMUXCLI {
-    /// Runs at the final exec boundary, after the binding-generation claim.
+    /// Runs before the binding claim, and repeats cheaply at the exec boundary.
     /// Uses the exact child environment and actual cwd, never verification-only
     /// metadata or the socket's relay status (a relay can still run local Codex).
     func guardCodexWriterBeforeRestore(
         sessionID: String?,
         arguments: [String],
-        environment: [String: String]
+        environment: [String: String],
+        includeOwnerDetails: Bool = true
     ) throws {
         guard let sessionID else { return }
-        let inspection = CodexWriterRestorePreflight().inspect(
+        let preflight = includeOwnerDetails ? CodexWriterRestorePreflight() : CodexWriterRestorePreflight { _ in
+            CodexWriterOwnerScan(owners: [], isComplete: false)
+        }
+        let inspection = preflight.inspect(
             sessionID: sessionID,
             arguments: arguments,
             environment: environment,
@@ -32,7 +36,8 @@ extension CMUXCLI {
     func guardLegacyCodexWriter(
         command: String,
         record: RestoreRecord,
-        environment: [String: String]
+        environment: [String: String],
+        includeOwnerDetails: Bool = true
     ) throws {
         guard record.mode == AgentRestoreRequestMode.resumeAgent.rawValue,
               record.kind.lowercased() == "codex" else { return }
@@ -50,7 +55,8 @@ extension CMUXCLI {
         try guardCodexWriterBeforeRestore(
             sessionID: sessionID,
             arguments: legacy.arguments,
-            environment: environment.merging(legacy.environment) { _, saved in saved }
+            environment: environment.merging(legacy.environment) { _, saved in saved },
+            includeOwnerDetails: includeOwnerDetails
         )
     }
 }

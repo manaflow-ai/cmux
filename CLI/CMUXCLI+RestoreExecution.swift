@@ -51,7 +51,8 @@ extension CMUXCLI {
         try guardCodexWriterBeforeRestore(
             sessionID: invocation.codexResumeSessionID,
             arguments: invocation.arguments,
-            environment: invocationEnvironment
+            environment: invocationEnvironment,
+            includeOwnerDetails: false
         )
         guard let first = invocation.arguments.first,
               let executable = resolveRestoreExecutable(
@@ -99,7 +100,7 @@ extension CMUXCLI {
         if let appliedWorkingDirectory {
             legacyEnvironment["PWD"] = appliedWorkingDirectory
         }
-        try guardLegacyCodexWriter(command: command, record: record, environment: legacyEnvironment)
+        try guardLegacyCodexWriter(command: command, record: record, environment: legacyEnvironment, includeOwnerDetails: false)
         client.close()
         try execLegacyRestoreCommand(command, environment: legacyEnvironment)
     }
