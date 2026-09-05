@@ -331,12 +331,19 @@ struct PreferredEditorSettingsStoreTests {
 
 @Suite("AppIconSettingsStore")
 struct AppIconSettingsStoreTests {
-    @Test func unsetAndInvalidReadAutomatic() {
+    @Test func unsetAndInvalidReadSystem() {
         let defaults = makeScratchDefaults()
         let store = AppIconSettingsStore(defaults: defaults)
-        #expect(store.resolvedMode == .automatic)
+        #expect(store.resolvedMode == .system)
 
         defaults.set("neon", forKey: "appIconMode")
+        #expect(store.resolvedMode == .system)
+    }
+
+    @Test func readsAutomaticWhenStored() {
+        let defaults = makeScratchDefaults()
+        defaults.set("automatic", forKey: "appIconMode")
+        let store = AppIconSettingsStore(defaults: defaults)
         #expect(store.resolvedMode == .automatic)
     }
 
