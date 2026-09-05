@@ -16330,6 +16330,10 @@ impl App {
         // whose target was this surface. Cancel it before clearing selection
         // metadata or the surface handle, so browser/PTY releases can still
         // be attempted and the physical button release remains fenced.
+        // Synthetic tests and a direct SurfaceExited event can reach this
+        // path before the normal Files mouse-down helper has materialized its
+        // owner token. Freeze that owner against the pre-exit frame first.
+        self.ensure_files_pointer_owner();
         let topology_capture = self.drag.as_ref().is_some_and(|drag| {
             matches!(
                 drag,
@@ -16422,6 +16426,15 @@ impl App {
                 | Drag::PtyMouse { surface: active, .. }
                 | Drag::Scrollbar { surface: active, .. },
             ) => *active == surface,
+            Some(Drag::FilesScrollbar { .. }) => {
+                // An unpinned Files rail follows the focused terminal. Its
+                // scrollbar capture therefore belongs to the owner token,
+                // not to the row's absent surface field. A pinned rail has a
+                // stable file-browser owner and must survive terminal exit.
+                !self.sidebar_files.is_pinned()
+                    && self.files_pointer_owner.as_ref().and_then(|owner| owner.active.as_ref())
+                        .is_some_and(|owner| owner.surface == surface)
+            }
             Some(Drag::Select { .. }) => {
                 self.selection_mode_surface == Some(surface)
                     || self
@@ -54734,6 +54747,79 @@ mod tests {
         assert!(app.canceled_pointer_buttons.contains(&MouseButton::Left));
 
         mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn surface_exit_fences_only_the_unpinned_files_owner() {
+        let mux = Mux::new("surface-exit-files-pointer-owner-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.sidebar_view = SidebarView::Files;
+        app.tree = notify_tree(11, false);
+        app.rebuild_tab_locations();
+        app.drag = Some(Drag::FilesScrollbar {
+            track: Rect { x: 20, y: 1, width: 1, height: 4 },
+            total_rows: 8,
+            visible_rows: 4,
+            anchor_y: 2,
+            anchor_offset: 1,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+
+        // The direct SurfaceExited path must use the focused surface owner,
+        // even when the Files mouse-down helper did not run in this frame.
+        app.handle(AppEvent::Mux(MuxEvent::SurfaceExited(11))).unwrap();
+
+        assert!(app.drag.is_none(), "an exited focused surface cannot own Files scrolling");
+        assert!(app.active_pointer_buttons.is_empty());
+        assert!(app.canceled_pointer_buttons.contains(&MouseButton::Left));
+
+        // An exit for another surface must not interrupt the active Files
+        // owner. This is the common remote-refresh case.
+        app.tree = notify_tree(11, false);
+        app.rebuild_tab_locations();
+        app.drag = Some(Drag::FilesScrollbar {
+            track: Rect { x: 20, y: 1, width: 1, height: 4 },
+            total_rows: 8,
+            visible_rows: 4,
+            anchor_y: 2,
+            anchor_offset: 1,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+        app.handle(AppEvent::Mux(MuxEvent::SurfaceExited(12))).unwrap();
+        assert!(matches!(app.drag, Some(Drag::FilesScrollbar { .. })));
+        assert!(app.active_pointer_buttons.contains(&MouseButton::Left));
+    }
+
+    #[test]
+    fn pinned_files_capture_survives_direct_surface_exit() {
+        let temp = test_temp_dir("pinned-files-surface-exit");
+        std::fs::create_dir(temp.join("pinned-child")).unwrap();
+        let mux = Mux::new("pinned-files-surface-exit-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.sidebar_files = FileBrowser::new(temp.clone());
+        let directory = (0..app.sidebar_files.visible_len())
+            .find(|index| app.sidebar_files.visible_entry(*index).is_some_and(|entry| entry.is_dir()))
+            .expect("test directory must be listed");
+        app.sidebar_files.select(directory);
+        app.sidebar_files.handle_key(&KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+        assert!(app.sidebar_files.is_pinned());
+        app.sidebar_view = SidebarView::Files;
+        app.tree = notify_tree(11, false);
+        app.rebuild_tab_locations();
+        app.drag = Some(Drag::FilesScrollbar {
+            track: Rect { x: 20, y: 1, width: 1, height: 4 },
+            total_rows: 8,
+            visible_rows: 4,
+            anchor_y: 2,
+            anchor_offset: 1,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+
+        app.handle(AppEvent::Mux(MuxEvent::SurfaceExited(11))).unwrap();
+
+        assert!(matches!(app.drag, Some(Drag::FilesScrollbar { .. })));
+        assert!(app.active_pointer_buttons.contains(&MouseButton::Left));
+        std::fs::remove_dir_all(temp).unwrap();
     }
 
     #[test]
