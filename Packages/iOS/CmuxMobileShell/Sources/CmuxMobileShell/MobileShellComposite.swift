@@ -1243,6 +1243,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var renderGridLivenessProbeTask: Task<Void, Never>?
     private var renderGridLivenessProbeID: UUID?
     private var renderGridLivenessConsecutiveProbeFailures = 0
+    private var renderGridLivenessLaneRepairAttempts = 0
     var lastTerminalEventAt: Date?
     @ObservationIgnored var terminalInputAckResubscribeRetryTask: Task<Void, Never>?
     @ObservationIgnored var terminalInputAckResubscribeRetryTaskID: UUID?
@@ -6221,6 +6222,44 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return requestedCandidates + replacements
     }
 
+    /// Foreground recovery owns its stored target before the reconnect task
+    /// starts. A failed attempt can leave a delayed automatic retry pending
+    /// after the visible reconnect gate has settled, so the pending retry must
+    /// reserve the same target against the secondary pool as well. Otherwise a
+    /// secondary dial can admit the Mac first and the later foreground retry
+    /// replaces that healthy session.
+    private func secondaryMacConflictsWithForegroundOwnership(
+        _ mac: MobilePairedMac
+    ) -> Bool {
+        guard foregroundConnectionAttemptReservation?.conflicts(
+            with: mac
+        ) != true else {
+            return true
+        }
+        guard isReconnectingStoredMac
+                || connectionRecoveryOwner.isActive
+                || automaticReconnectRetryTask != nil,
+              let recoveryTargetMacDeviceID,
+              cmxCanonicalDeviceID(recoveryTargetMacDeviceID)
+                  == cmxCanonicalDeviceID(mac.macDeviceID) else {
+            return false
+        }
+        guard let recoveryTargetInstanceTag else {
+            // An untagged recovery target may adopt any stored app instance
+            // for this physical Mac, matching the foreground reservation's
+            // `.adopt` semantics.
+            return true
+        }
+        // Legacy untagged rows still address the same physical foreground
+        // instance and must not race its retry. Tagged sibling builds remain
+        // eligible when their stored authority is distinct.
+        return mac.instanceTag == nil
+            || macInstanceTagAuthority.sameStoredAuthority(
+                mac.instanceTag,
+                recoveryTargetInstanceTag
+            )
+    }
+
     func secondaryAggregationCandidateMacs(from visibleLoadedMacs: [MobilePairedMac]) -> [MobilePairedMac] {
         // The demonstration row is never an aggregation dial target. Presence
         // filtering already excludes it today, but the exclusion must not
@@ -6306,7 +6345,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if let foregroundMacDeviceID {
             exclusionMacDeviceID = foregroundMacDeviceID
             exclusionTag = activeMacInstanceTag
-        } else if isReconnectingStoredMac || connectionRecoveryOwner.isActive {
+        } else if isReconnectingStoredMac
+                    || connectionRecoveryOwner.isActive
+                    || automaticReconnectRetryTask != nil {
             exclusionMacDeviceID = recoveryTargetMacDeviceID
             exclusionTag = recoveryTargetInstanceTag
         } else {
@@ -6364,9 +6405,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         let eligibleMacs = macs.filter { mac in
             guard !mac.macDeviceID.isEmpty else { return false }
-            guard foregroundConnectionAttemptReservation?.conflicts(
-                with: mac
-            ) != true else {
+            guard !secondaryMacConflictsWithForegroundOwnership(mac) else {
                 return false
             }
             if foregroundIDSet.contains(cmxCanonicalDeviceID(mac.macDeviceID)) {
@@ -6556,9 +6595,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard let pairedMacStore,
               foregroundRefreshIsActive,
               !Task.isCancelled,
-              foregroundConnectionAttemptReservation?.conflicts(
-                  with: mac
-              ) != true,
+              !secondaryMacConflictsWithForegroundOwnership(mac),
               secondaryMacSubscriptions[pairingKey] == nil,
               secondaryMacDrainReservation(onDeviceOf: pairingKey) == nil else {
             return .superseded
@@ -6598,9 +6635,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // its state; the loser disconnects its client.
         guard !Task.isCancelled,
               foregroundRefreshIsActive,
-              foregroundConnectionAttemptReservation?.conflicts(
-                  with: mac
-              ) != true,
+              !secondaryMacConflictsWithForegroundOwnership(mac),
               secondaryMacSubscriptions[pairingKey] == nil,
               secondaryMacDrainReservation(onDeviceOf: pairingKey) == nil,
               macConnectionRegistry.sessionCount
@@ -6662,6 +6697,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             instanceTag: handle.storedInstanceTag
         )
         guard !Task.isCancelled,
+              !secondaryMacConflictsWithForegroundOwnership(mac),
               secondaryMacSubscriptions[ownerKey] == nil,
               secondaryMacDrainReservation(onDeviceOf: ownerKey) == nil,
               await isSecondaryMacStillVisible(
@@ -6706,9 +6742,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             actionCapabilities: handle.actionCapabilities,
             displayName: mac.displayName
         )
-        guard foregroundConnectionAttemptReservation?.conflicts(
-                  with: currentMac
-              ) != true,
+        guard !secondaryMacConflictsWithForegroundOwnership(currentMac),
               secondaryMacDrainReservation(onDeviceOf: ownerKey) == nil,
               macConnectionRegistry.insertControlIfAbsent(
                   subscription,
@@ -13905,6 +13939,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         renderGridLivenessProbeTask = nil
         renderGridLivenessProbeID = nil
         renderGridLivenessConsecutiveProbeFailures = 0
+        renderGridLivenessLaneRepairAttempts = 0
     }
 
     /// Single ownership point for the liveness clock the watchdog reads.
@@ -13919,6 +13954,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func recordTerminalEventStreamLiveness() {
         lastTerminalEventAt = runtime?.now() ?? Date()
         renderGridLivenessConsecutiveProbeFailures = 0
+        renderGridLivenessLaneRepairAttempts = 0
     }
 
     #if DEBUG
@@ -14035,6 +14071,32 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 return
             }
             self.renderGridLivenessConsecutiveProbeFailures = 0
+            let transportClosed = await client.isTransportClosed()
+            guard self.renderGridLivenessListenerID == listenerID,
+                  self.terminalEventListenerID == listenerID,
+                  self.remoteClient === client,
+                  self.connectionState == .connected else { return }
+            if transportClosed == false {
+                // The subscription probe only proved that this application
+                // stream stalled. Keep the shared Iroh session, whose other
+                // lanes may still carry terminal input and keepalives, and
+                // restart only the event listener.
+                self.renderGridLivenessLaneRepairAttempts += 1
+                let laneRepairAttempts = self.renderGridLivenessLaneRepairAttempts
+                let escalate = laneRepairAttempts >= 2
+                if escalate {
+                    self.renderGridLivenessLaneRepairAttempts = 0
+                }
+                MobileDebugLog.anchormux(
+                    "sync.liveness event_lane_repair transport_alive attempts=\(laneRepairAttempts) escalate=\(escalate) silentMs=\(silentMs)"
+                )
+                self.resyncTerminalOutput(
+                    reason: escalate ? "liveness_event_lane_escalated" : "liveness_event_lane",
+                    restartEventStream: true,
+                    recoversConnectionOnSubscriptionFailure: escalate
+                )
+                return
+            }
             MobileDebugLog.anchormux("sync.liveness re-subscribe silentMs=\(silentMs)")
             self.recordAppEvent(
                 .terminalRenderLagDetected,
@@ -14158,10 +14220,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     func resyncTerminalOutput(
         reason: String,
         restartEventStream: Bool,
-        surfaceIDs requestedSurfaceIDs: [String]? = nil
+        surfaceIDs requestedSurfaceIDs: [String]? = nil,
+        recoversConnectionOnSubscriptionFailure: Bool = true
     ) {
         guard remoteClient != nil, connectionState == .connected else { return }
-        refreshTerminalOutputSubscription(reason: reason, restartEventStream: restartEventStream)
+        refreshTerminalOutputSubscription(
+            reason: reason,
+            restartEventStream: restartEventStream,
+            recoversConnectionOnSubscriptionFailure:
+                recoversConnectionOnSubscriptionFailure
+        )
 
         let surfaceIDs = requestedSurfaceIDs ?? Array(terminalByteContinuationsBySurfaceID.keys)
         MobileDebugLog.anchormux(
@@ -14172,10 +14240,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
-    private func refreshTerminalOutputSubscription(reason: String, restartEventStream: Bool) {
+    private func refreshTerminalOutputSubscription(
+        reason: String,
+        restartEventStream: Bool,
+        recoversConnectionOnSubscriptionFailure: Bool = true
+    ) {
         if restartEventStream {
             stopTerminalRefreshPolling()
-            startTerminalRefreshPolling()
+            startTerminalRefreshPolling(
+                recoversConnectionOnSubscriptionFailure:
+                    recoversConnectionOnSubscriptionFailure
+            )
         } else if terminalEventListenerTask == nil {
             startTerminalRefreshPolling()
         } else {
