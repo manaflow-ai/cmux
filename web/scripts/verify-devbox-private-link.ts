@@ -10,39 +10,16 @@
  * Uses the supplied client on macOS or Linux, without installing a system VPN.
  */
 import { Effect, Schedule } from "effect";
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn } from "node:child_process";
 import { generateKeyPairSync, randomUUID } from "node:crypto";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { startPrivateLinkClient } from "./devbox-private-link-process";
 import { FreestyleProvider } from "../services/vms/drivers/freestyle";
 
 const attempt = <A>(label: string, run: (signal: AbortSignal) => Promise<A>) =>
   Effect.tryPromise({ try: run, catch: () => new Error(label) });
-
-function stop(child: ChildProcess): Promise<void> {
-  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => child.kill("SIGKILL"), 2_000);
-    child.once("close", () => { clearTimeout(timer); resolve(); });
-    child.kill("SIGTERM");
-  });
-}
-
-function start(client: string, args: string[]) {
-  return Effect.acquireRelease(
-    attempt("Could not start the verification client", () => new Promise<ChildProcess>((resolve, reject) => {
-      const child = spawn(client, args, { stdio: ["ignore", "pipe", "pipe"] });
-      // Keep draining headless state events and stderr without logging identity
-      // or invitation material. A failed step is named by its caller.
-      child.stdout!.resume();
-      child.stderr!.resume();
-      child.once("error", reject);
-      child.once("spawn", () => resolve(child));
-    })),
-    (child) => Effect.promise(() => stop(child)),
-  );
-}
 
 function command(client: string, args: string[], label: string) {
   return attempt(label, (signal) => new Promise<string>((resolve, reject) => {
@@ -61,17 +38,6 @@ function command(client: string, args: string[], label: string) {
 const cleanupRetry = Schedule.intersect(Schedule.spaced("500 millis"), Schedule.recurs(20));
 const cleanup = (label: string, run: () => Promise<void>) =>
   attempt(`Cleanup failed: ${label}`, run).pipe(Effect.retry(cleanupRetry), Effect.orDie);
-
-function waitForSocket(socket: string, child: ChildProcess) {
-  return Effect.gen(function* () {
-    while (!existsSync(socket)) {
-      if (child.exitCode !== null || child.signalCode !== null) {
-        return yield* Effect.fail(new Error("Private connection process exited before becoming ready"));
-      }
-      yield* Effect.sleep("100 millis");
-    }
-  }).pipe(Effect.timeoutFail({ duration: "30 seconds", onTimeout: () => new Error("Private connection did not become ready") }));
-}
 
 function readSnapshot(client: string, socket: string) {
   return Effect.gen(function* () {
@@ -119,8 +85,8 @@ function verify(image: string, client: string) {
     const config = tunnel.clientConfig.replace(/^PrivateKey\s*=.*$/m, `PrivateKey = ${privateBytes}`);
     const configPath = path.join(root, "wg.conf"), hubSocket = path.join(root, "wg.sock");
     yield* Effect.try(() => writeFileSync(configPath, config, { mode: 0o600 }));
-    const hub = yield* start(client, ["wg", "hub", "--config", configPath, "--socket", hubSocket]);
-    yield* waitForSocket(hubSocket, hub);
+    const hub = yield* startPrivateLinkClient(client, ["wg", "hub", "--config", configPath, "--socket", hubSocket], { event: "hub-ready", socket: hubSocket });
+    yield* hub.ready;
     const endpoint = yield* attempt("Read image attach bundle failed", () => provider.openCmuxRemote(vm.providerVmId, { clientCapabilities: probe.capabilities }));
     if (!endpoint.invitation) return yield* Effect.fail(new Error("Fresh VM returned no enrollment invitation"));
     const invitation = endpoint.invitation;
@@ -133,14 +99,14 @@ function verify(image: string, client: string) {
     // control-plane attach/approval call. This also tests older baked daemons.
     yield* Effect.scoped(Effect.gen(function* () {
       const socket = path.join(root, "first.sock");
-      const connection = yield* start(client, [...args, "--local-socket", socket, "--invite-file", invitePath]);
+      const connection = yield* startPrivateLinkClient(client, [...args, "--local-socket", socket, "--invite-file", invitePath], { event: "connection-snapshot", socket });
       yield* attempt("Approve image enrollment failed", () => provider.approveCmuxRemoteEnrollment(vm.providerVmId, invitation.invitationId));
-      yield* waitForSocket(socket, connection);
+      yield* connection.ready;
       yield* readSnapshot(client, socket);
     }));
     const socket = path.join(root, "reconnect.sock");
-    const connection = yield* start(client, [...args, "--local-socket", socket]);
-    yield* waitForSocket(socket, connection);
+    const connection = yield* startPrivateLinkClient(client, [...args, "--local-socket", socket], { event: "connection-snapshot", socket });
+    yield* connection.ready;
     yield* readSnapshot(client, socket);
     console.log(JSON.stringify({ image, clientCommit: probe.build_identity,
       daemonCommit: endpoint.daemonBuild?.commit, enrollment: "passed", reconnect: "passed", snapshot: "passed" }));
