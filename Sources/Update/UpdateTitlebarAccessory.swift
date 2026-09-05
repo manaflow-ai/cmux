@@ -1012,6 +1012,7 @@ struct TitlebarControlsView: View {
     let onNewTab: () -> Void
     let onFocusHistoryBack: () -> Void
     let onFocusHistoryForward: () -> Void
+    let onCaptureScreenshot: () -> Void
     let visibilityMode: TitlebarControlsVisibilityMode
     @ObservedObject private var popoverVisibilityState = NotificationsPopoverVisibilityState.shared
     @State private var appearanceRefreshTick = 0
@@ -1214,6 +1215,26 @@ struct TitlebarControlsView: View {
                 iconLabel(systemName: "arrow.right", config: config, iconGeometryKeyPrefix: "titlebarControl_focusHistoryForwardIcon")
             }
             .safeHelp(KeyboardShortcutSettings.Action.focusHistoryForward.tooltip(String(localized: "menu.history.focusForward", defaultValue: "Focus Forward")))
+
+            #if DEBUG
+            TitlebarControlButton(
+                config: config,
+                foregroundColor: foregroundColor,
+                accessibilityIdentifier: "titlebarControl.captureScreenshot",
+                accessibilityLabel: String(localized: "titlebar.captureScreenshot.accessibilityLabel", defaultValue: "Capture Full Screenshot"),
+                action: {
+                    cmuxDebugLog("titlebar.captureScreenshot")
+                    onCaptureScreenshot()
+                }
+            ) {
+                iconLabel(
+                    systemName: "camera",
+                    config: config,
+                    iconGeometryKeyPrefix: "titlebarControl_captureScreenshotIcon"
+                )
+            }
+            .safeHelp(String(localized: "titlebar.captureScreenshot.tooltip", defaultValue: "Capture the full desktop"))
+            #endif
 
         }
 
@@ -1507,6 +1528,9 @@ struct HiddenTitlebarSidebarControlsView: View {
     let onNewTab: () -> Void
     let onFocusHistoryBack: () -> Void
     let onFocusHistoryForward: () -> Void
+    #if DEBUG
+    let onCaptureScreenshot: () -> Void
+    #endif
     @StateObject private var viewModel = TitlebarControlsViewModel()
     @ObservedObject private var popoverVisibilityState = NotificationsPopoverVisibilityState.shared
     @State private var isHoveringHost = false
@@ -1560,6 +1584,7 @@ struct HiddenTitlebarSidebarControlsView: View {
                 onNewTab: onNewTab,
                 onFocusHistoryBack: onFocusHistoryBack,
                 onFocusHistoryForward: onFocusHistoryForward,
+                onCaptureScreenshot: onCaptureScreenshot,
                 visibilityMode: .alwaysVisible
             )
             .frame(
@@ -1606,6 +1631,10 @@ struct HiddenTitlebarSidebarControlsView: View {
                     )
                     guard availability.canNavigateForward else { return }
                     onFocusHistoryForward()
+                #if DEBUG
+                case .captureScreenshot:
+                    onCaptureScreenshot()
+                #endif
                 }
             }
             .frame(
@@ -1967,6 +1996,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
             onNewTab: newTab,
             onFocusHistoryBack: focusHistoryBack,
             onFocusHistoryForward: focusHistoryForward,
+            onCaptureScreenshot: triggerTitlebarFullDesktopScreenshot,
             visibilityMode: .alwaysVisible
         )
         hostingView = NonDraggableHostingView(
