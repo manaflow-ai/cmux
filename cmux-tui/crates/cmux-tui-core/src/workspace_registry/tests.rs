@@ -3868,6 +3868,11 @@ fn startup_repairs_legacy_terminal_close_dangling_resource_rows() {
 
     let reopened = WorkspaceRegistry::open(&root, "session").unwrap();
     let topology = reopened.resource_topology_snapshot().unwrap();
+    assert_eq!(topology.revision, 2);
+    let events = reopened.resource_events_after(1).unwrap();
+    assert_eq!(events.batches.len(), 1);
+    assert_eq!(events.batches[0].revision, 2);
+    assert_eq!(events.batches[0].changes[0]["resource"], "terminal");
     let live_terminals: i64 = reopened
         .connection
         .query_row(

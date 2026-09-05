@@ -2672,6 +2672,7 @@ impl WorkspaceRegistry {
         }
         {
             let tx = connection.unchecked_transaction()?;
+            create_session_journal_schema(&tx)?;
             create_resource_effect_schema(&tx)?;
             create_journal_extensions_schema(&tx)?;
             recover_resource_effects(&tx)?;
