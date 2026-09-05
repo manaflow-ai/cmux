@@ -29,6 +29,8 @@ import {
   IROH_SESSION_TICKET_TTL_SECONDS,
   mintIrohSessionTicket,
   parseIrohSessionClientContext,
+  sessionClientContextFromClaims,
+  sessionClientNamespaceMatches,
   sessionTicketFromRequest,
   verifyIrohSessionTicket,
   type IrohSessionClaims,
@@ -327,7 +329,7 @@ export class AccountControlPlane extends DurableObject<ControlPlaneEnv> {
     const context = parseIrohSessionClientContext(body);
     if (context === null) return json({ error: "invalid_request" }, 400);
     const headerNamespace = request.headers.get("x-cmux-app-namespace")?.trim();
-    if (context && headerNamespace && context.clientNamespace !== headerNamespace) {
+    if (!sessionClientNamespaceMatches(context, headerNamespace)) {
       return json({ error: "client_namespace_mismatch" }, 403);
     }
     const currentAccount = await this.ctx.storage.get<string>(SESSION_ACCOUNT_KEY);
@@ -408,7 +410,8 @@ export class AccountControlPlane extends DurableObject<ControlPlaneEnv> {
     if (!accountId) return json({ error: "account_required" }, 403);
     const verified = await this.authenticateIrohTicket(request, accountId);
     if (!verified.ok) return verified.response;
-    const context = parseIrohSessionClientContext(verified.claims);
+    const context = sessionClientContextFromClaims(verified.claims);
+    if (context === null) return json({ error: "session_invalid" }, 401);
     return this.openIrohSession(new Request(request.url, {
       method: "POST",
       headers: new Headers([
@@ -461,8 +464,8 @@ export class AccountControlPlane extends DurableObject<ControlPlaneEnv> {
       return { ok: false, response: json({ error: "account_mismatch" }, 403) };
     }
     const namespace = request.headers.get("x-cmux-app-namespace")?.trim() || "legacy";
-    if (verification.claims.clientNamespace
-      && verification.claims.clientNamespace !== namespace) {
+    const context = sessionClientContextFromClaims(verification.claims);
+    if (!sessionClientNamespaceMatches(context, namespace)) {
       return { ok: false, response: json({ error: "client_namespace_mismatch" }, 403) };
     }
     const currentAccount = await this.ctx.storage.get<string>(SESSION_ACCOUNT_KEY);

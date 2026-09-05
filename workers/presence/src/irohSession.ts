@@ -182,6 +182,39 @@ export function parseIrohSessionClientContext(
   return contextFromRecord(value as Record<string, unknown>);
 }
 
+/**
+ * Project the optional client binding out of the signed ticket envelope.
+ * Ticket claims contain envelope fields (sid, exp, epoch, and so on), while
+ * the strict context parser intentionally accepts only the five binding
+ * fields. Keeping this projection in one place prevents renewal from
+ * accidentally converting a metadata-bound ticket into an account-only one.
+ */
+export function sessionClientContextFromClaims(
+  claims: Pick<
+    IrohSessionClaims,
+    "deviceId" | "appInstanceId" | "clientNamespace" | "tag" | "platform"
+  >,
+): IrohSessionClientContext | undefined | null {
+  return parseIrohSessionClientContext({
+    ...(claims.deviceId === undefined ? {} : { deviceId: claims.deviceId }),
+    ...(claims.appInstanceId === undefined ? {} : { appInstanceId: claims.appInstanceId }),
+    ...(claims.clientNamespace === undefined ? {} : { clientNamespace: claims.clientNamespace }),
+    ...(claims.tag === undefined ? {} : { tag: claims.tag }),
+    ...(claims.platform === undefined ? {} : { platform: claims.platform }),
+  });
+}
+
+/** Return whether a request's optional namespace agrees with its ticket. */
+export function sessionClientNamespaceMatches(
+  context: IrohSessionClientContext | undefined | null,
+  requestedNamespace: string | undefined | null,
+): boolean {
+  if (context === null) return false;
+  if (context === undefined) return true;
+  const namespace = requestedNamespace?.trim();
+  return !namespace || context.clientNamespace === namespace;
+}
+
 export async function mintIrohSessionTicket(
   secret: string | undefined,
   input: MintIrohSessionInput,
@@ -283,11 +316,7 @@ export async function verifyIrohSessionTicket(
   // The envelope claims have their own required fields. Pass only the
   // optional metadata to the strict context parser so those envelope fields
   // are not mistaken for unknown client-context keys.
-  const context = contextFromRecord(Object.fromEntries(
-    SESSION_CONTEXT_KEYS
-      .filter((key) => key in value)
-      .map((key) => [key, value[key]]),
-  ));
+  const context = sessionClientContextFromClaims(value as unknown as IrohSessionClaims);
   if (context === null) return { ok: false, error: "invalid_claims" };
   if (context === undefined && SESSION_CONTEXT_KEYS.some((key) => key in value)) {
     return { ok: false, error: "invalid_claims" };

@@ -3,6 +3,8 @@ import {
   IROH_SESSION_SCOPE,
   mintIrohSessionTicket,
   parseIrohSessionClientContext,
+  sessionClientContextFromClaims,
+  sessionClientNamespaceMatches,
   verifyIrohSessionTicket,
 } from "../src/irohSession";
 
@@ -63,5 +65,32 @@ describe("Iroh session tickets", () => {
       platform: "ios",
       extra: "must-not-be-ignored",
     })).toBeNull();
+  });
+
+  it("preserves client binding metadata when a verified ticket is renewed", async () => {
+    const minted = await mintIrohSessionTicket(secret, {
+      accountId: "user-123",
+      nowMs: 1_700_000_000_000,
+      deviceId: "device-123",
+      appInstanceId: "instance-123",
+      clientNamespace: "ios",
+      tag: "cfio9",
+      platform: "ios",
+    });
+
+    expect(sessionClientContextFromClaims(minted.claims)).toEqual({
+      deviceId: "device-123",
+      appInstanceId: "instance-123",
+      clientNamespace: "ios",
+      tag: "cfio9",
+      platform: "ios",
+    });
+    expect(sessionClientContextFromClaims({})).toBeUndefined();
+
+    // The renewal request carries the projected namespace header. A changed
+    // namespace is still rejected by the same equality fence in the DO.
+    const context = sessionClientContextFromClaims(minted.claims);
+    expect(sessionClientNamespaceMatches(context, "ios")).toBe(true);
+    expect(sessionClientNamespaceMatches(context, "other-ios")).toBe(false);
   });
 });

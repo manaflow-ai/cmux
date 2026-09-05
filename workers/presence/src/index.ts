@@ -55,6 +55,8 @@ import { captureSentryException } from "./sentry";
 import {
   IROH_SESSION_TICKET_HEADER,
   parseIrohSessionClientContext,
+  sessionClientContextFromClaims,
+  sessionClientNamespaceMatches,
   sessionTicketFromRequest,
   verifyIrohSessionTicket,
   type IrohSessionVerification,
@@ -366,8 +368,8 @@ const worker = {
         );
         if (!verified.ok) return sessionVerificationError(verified.error);
         accountId = verified.claims.accountId;
-        if (verified.claims.clientNamespace
-          && verified.claims.clientNamespace !== (namespace ?? "legacy")) {
+        const context = sessionClientContextFromClaims(verified.claims);
+        if (!sessionClientNamespaceMatches(context, namespace)) {
           return json({ error: "client_namespace_mismatch" }, 403);
         }
         headers.delete("authorization");
