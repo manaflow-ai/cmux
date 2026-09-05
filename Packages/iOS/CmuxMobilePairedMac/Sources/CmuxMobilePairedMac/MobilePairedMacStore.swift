@@ -18,7 +18,7 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
 
     /// Keep route-removal suppression bounded. Once a scope churns beyond this
     /// limit, it parks a conservative kind-wide marker until explicit pairing.
-    static let routeRemovalTombstoneLimit = 256
+    static let routeRemovalTombstoneLimit: Int32 = 256
     static let routeRemovalWildcardEndpoint = "*"
 
     private let dbPath: String
