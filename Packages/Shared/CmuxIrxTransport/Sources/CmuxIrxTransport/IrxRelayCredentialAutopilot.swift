@@ -52,6 +52,7 @@ public actor IrxRelayCredentialAutopilot {
         loopGeneration &+= 1
         let generation = loopGeneration
         let rotationGeneration = await rotationGate.begin()
+        guard generation == loopGeneration else { return }
         loop = Task {
             await self.run(
                 generation: generation,
@@ -77,6 +78,7 @@ public actor IrxRelayCredentialAutopilot {
         let generation = loopGeneration
         await rotationGate.invalidate()
         let rotationGeneration = await rotationGate.begin()
+        guard generation == loopGeneration else { return }
         loop?.cancel()
         loop = Task {
             await self.run(
