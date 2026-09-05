@@ -55590,18 +55590,15 @@ mod tests {
 
     #[test]
     fn active_surface_content_replacement_clears_released_selection_with_same_ids() {
-        let mux = Mux::new(
-            "active-surface-content-selection-boundary-test",
-            SurfaceOptions::default(),
-        );
+        let mux =
+            Mux::new("active-surface-content-selection-boundary-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
         let mut previous = notify_tree(11, false);
         let tab = &mut previous.workspaces_mut()[0].screens[0].panes[0].tabs[0];
         tab.public_id =
             Some(TabPublicId::parse("tab_00000000000000000000000000000051".to_string()).unwrap());
         tab.content_id = Some(ContentPublicId::Terminal(
-            TerminalPublicId::parse("term_00000000000000000000000000000051".to_string())
-                .unwrap(),
+            TerminalPublicId::parse("term_00000000000000000000000000000051".to_string()).unwrap(),
         ));
         tab.terminal_id = Some(
             TerminalPublicId::parse("term_00000000000000000000000000000051".to_string()).unwrap(),
