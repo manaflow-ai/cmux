@@ -4076,6 +4076,53 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testNotificationHistoryUsesSeparateNestedRows() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_NOTIFICATION_FEED_PREVIEW": "1",
+            "CMUX_UITEST_NOTIFICATION_FEED_GROUP_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        let parentID = "MobileNotificationFeedRow-studio-legacy-codex-approval"
+        let childID = "MobileNotificationFeedRow-studio-legacy-group-title-only"
+        let parent = app.buttons[parentID]
+        let child = app.buttons[childID]
+        let toggle = app.buttons["MobileNotificationFeedGroupToggle-codex-approval"]
+        XCTAssertTrue(parent.waitForExistence(timeout: 10))
+        XCTAssertTrue(toggle.waitForExistence(timeout: 5))
+        XCTAssertFalse(child.exists)
+        let collapsed = XCTAttachment(screenshot: app.screenshot())
+        collapsed.name = "Notification history, collapsed"
+        collapsed.lifetime = .keepAlways
+        add(collapsed)
+
+        toggle.tap()
+        XCTAssertTrue(child.waitForExistence(timeout: 5))
+        let parentCell = app.cells.containing(.button, identifier: parentID).firstMatch
+        let childCell = app.cells.containing(.button, identifier: childID).firstMatch
+        XCTAssertTrue(parentCell.exists)
+        XCTAssertTrue(childCell.exists)
+        XCTAssertGreaterThanOrEqual(childCell.frame.minY, parentCell.frame.maxY - 1,
+                                    "History must be separate list rows, not content inside the parent cell")
+        XCTAssertGreaterThan(child.frame.minX, parent.frame.minX)
+        let expanded = XCTAttachment(screenshot: app.screenshot())
+        expanded.name = "Notification history, expanded"
+        expanded.lifetime = .keepAlways
+        add(expanded)
+
+        child.swipeRight()
+        let markRead = app.buttons["MobileNotificationFeedMarkReadSwipe-studio-legacy-group-title-only"]
+        XCTAssertTrue(markRead.waitForExistence(timeout: 3))
+        markRead.tap()
+        XCTAssertTrue((child.value as? String)?.hasPrefix("Read") == true)
+        XCTAssertTrue((parent.value as? String)?.hasPrefix("Unread") == true)
+
+        toggle.tap()
+        XCTAssertTrue(child.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(parent.exists)
+    }
+
+    @MainActor
     func testNotificationFeedPreviewSupportsTriageInteractions() throws {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_NOTIFICATION_FEED_PREVIEW": "1",
