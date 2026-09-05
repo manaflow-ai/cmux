@@ -460,10 +460,10 @@ function cmuxTuiBackingDaemonInvocation(
 /**
  * The daemon command every provider's supervisor runs. Launch cwd = the persistent
  * home so new terminals open there. `remoteWsBind` defaults to the IPv4 wildcard
- * the container providers' proxies dial; Freestyle machines are reached at a
- * private VPC address by default, or their public IPv6 on the legacy path, and
- * pass a dual-stack `[::]` bind instead (a container with IPv6 disabled cannot
- * bind `[::]` at all, so dual-stack is per-provider, not the default).
+ * the container providers' proxies dial; Freestyle machines are reached at
+ * their private VPC address and pass a dual-stack `[::]` bind instead (a container with
+ * IPv6 disabled cannot bind `[::]` at all, so dual-stack is per-provider, not the
+ * default).
  *
  * Without a layout the daemon (and so every terminal pane it spawns) runs as root
  * with HOME=/root — the model the Freestyle driver uses. With a layout the
@@ -705,7 +705,10 @@ export function cmuxTuiAttachBundleCommand(options: {
     ? `case "$D" in *${shellQuote(needle)}*) ;; *) ${mint};; esac`
     : mint;
   return [
-    ...(options.readyGate ? [`{ ${options.readyGate}; } || exit ${CMUX_TUI_ATTACH_BUNDLE_NOT_READY_EXIT}`] : []),
+    // Run the readiness probe in a subshell. The Freestyle gate uses `exit` for
+    // its success and failure branches; without a subshell those exits terminate
+    // the entire attach bundle before the probe, device, and invitation sections.
+    ...(options.readyGate ? [`( ${options.readyGate}; ) || exit ${CMUX_TUI_ATTACH_BUNDLE_NOT_READY_EXIT}`] : []),
     `echo ${BUNDLE_MARKERS.probe}`,
     `${run} remote-probe --json; echo`,
     `echo ${BUNDLE_MARKERS.devices}`,
@@ -771,7 +774,7 @@ export function parseCmuxTuiAttachBundle(
 }
 
 export async function approveCmuxTuiEnrollment(
-  invoke: CmuxTuiInvoke,
+  invoke: (command: string, timeoutMs: number) => Promise<ExecResult>,
   provider: ProviderId,
   vmId: string,
   invitationId: string,
@@ -779,25 +782,55 @@ export async function approveCmuxTuiEnrollment(
   if (!ENROLLMENT_ID_PATTERN.test(invitationId)) {
     throw new ProviderError(provider, "invitation id has an unexpected shape");
   }
-  const pending = await invoke(`remote enroll pending --session ${CMUX_TUI_SESSION} --json`);
-  if (pending.exitCode !== 0) {
-    throw new ProviderError(provider, `cmux-tui pending enrollments in ${vmId} failed: ${pending.stderr || pending.stdout}`);
-  }
-  const entries = parseJsonArray(pending.stdout);
-  const match = entries.find((entry) => entry.invitation_id === invitationId);
-  if (!match) {
-    // The client has not claimed the invitation yet (or it expired); the caller polls.
-    return { approved: false, state: "pending" };
-  }
-  const approved = await invoke(
-    `remote enroll approve ${shellQuote(invitationId)} --session ${CMUX_TUI_SESSION} --json`,
-  );
+  const approved = await invoke(cmuxTuiApproveWaitCommand(invitationId), 40_000);
   if (approved.exitCode !== 0) {
     throw new ProviderError(provider, `cmux-tui enrollment approval in ${vmId} failed: ${approved.stderr || approved.stdout}`);
   }
   const device = parseJsonObject(approved.stdout);
-  const fingerprint = typeof device.fingerprint === "string"
-    ? device.fingerprint
-    : typeof match.device_fingerprint === "string" ? match.device_fingerprint : undefined;
+  const fingerprint = typeof device.fingerprint === "string" ? device.fingerprint : undefined;
   return { approved: true, state: "approved", ...(fingerprint ? { deviceFingerprint: fingerprint } : {}) };
+}
+
+/**
+ * One guest command waits for the invitation claim on the daemon's local socket,
+ * then approves it. The Mac makes one Vercel request and Vercel makes one provider
+ * exec request. The bounded local checks do not cross either control plane.
+ */
+export function cmuxTuiApproveWaitCommand(
+  invitationId: string,
+  options: {
+    readonly binaryPath?: string;
+    readonly attempts?: number;
+    readonly delaySeconds?: number;
+  } = {},
+): string {
+  if (!ENROLLMENT_ID_PATTERN.test(invitationId)) {
+    throw new Error("invitation id has an unexpected shape");
+  }
+  const attempts = options.attempts ?? 120;
+  const delaySeconds = options.delaySeconds ?? 0.25;
+  if (!Number.isInteger(attempts) || attempts < 1 || attempts > 120) {
+    throw new Error("approval attempts must be an integer from 1 through 120");
+  }
+  if (!Number.isFinite(delaySeconds) || delaySeconds < 0.01 || delaySeconds > 1) {
+    throw new Error("approval delay must be from 0.01 through 1 second");
+  }
+  const binary = shellQuote(options.binaryPath ?? CMUX_TUI_BINARY_PATH);
+  const approve =
+    `env HOME=/root ${binary} remote enroll approve ${shellQuote(invitationId)} ` +
+    `--session ${CMUX_TUI_SESSION} --json`;
+  return `
+cmux_approve_attempt=0
+cmux_approve_output=''
+while [ "$cmux_approve_attempt" -lt ${attempts} ]; do
+  if cmux_approve_output="$(${approve} 2>&1)"; then
+    printf '%s\\n' "$cmux_approve_output"
+    exit 0
+  fi
+  cmux_approve_attempt=$((cmux_approve_attempt + 1))
+  sleep ${delaySeconds}
+done
+printf '%s\\n' "$cmux_approve_output" >&2
+exit 75
+`.trim();
 }

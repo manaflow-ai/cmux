@@ -1,15 +1,14 @@
 import SwiftUI
 
-/// Chrome row shown for every Vault grouping: session search field
-/// plus sort and filter menus. Mounted directly by `SessionIndexView` above
-/// the table boundary, mirroring the existing control bar (safe to observe
-/// the store here — never inside table rows).
+/// Chrome row shown for every Vault grouping: session search and view density.
+/// Mounted directly by
+/// `SessionIndexView` above the table boundary, mirroring the existing control
+/// bar (safe to observe the store here — never inside table rows).
 struct VaultAllSessionsBar: View {
-    @ObservedObject var store: SessionIndexStore
-    /// Sort and filters act on the recency ("All") sections; other groupings
-    /// keep only the search field.
-    let showsSortAndFilter: Bool
     @Binding var searchText: String
+    /// Shared row-density preference. Default view shows repository/branch
+    /// details; compact view hides that second line in every Vault grouping.
+    @Binding var isCompactView: Bool
     /// Enter — peek the top search result.
     let onPeekTopResult: () -> Void
     /// Cmd+Enter — resume the top search result.
@@ -31,19 +30,16 @@ struct VaultAllSessionsBar: View {
     }
 
     var body: some View {
-        HStack(spacing: RightSidebarChromeMetrics.headerControlSpacing) {
+        HStack(spacing: 0) {
             searchField
-            if showsSortAndFilter {
-                sortMenu
-                filterMenu
-            }
+            overflowMenu
         }
         // Keep the same 28-point rhythm and 4/6-point outer insets as the
         // mode bar, but let this toolbar flow into the session list without a
         // second separator line. The field itself is two points taller than
         // the compact icon controls, so use three-point vertical insets here.
         .padding(.leading, 4)
-        .padding(.trailing, 6)
+        .padding(.trailing, 0)
         .padding(.vertical, 3)
         .frame(height: searchBarHeight)
     }
@@ -105,140 +101,48 @@ struct VaultAllSessionsBar: View {
         .titlebarInteractiveControl()
     }
 
-    private var sortMenu: some View {
+    private var overflowMenu: some View {
         Menu {
             Picker(
-                String(localized: "sessionIndex.allSessions.sortBy", defaultValue: "Sort by"),
-                selection: $store.recencySort
+                String(localized: "sessionIndex.view.title", defaultValue: "Session view"),
+                selection: $isCompactView
             ) {
-                ForEach(VaultSessionSort.allCases) { sort in
-                    Text(sort.label).tag(sort)
-                }
+                Text(String(localized: "sessionIndex.view.default", defaultValue: "Default view"))
+                    .tag(false)
+                Text(String(localized: "sessionIndex.view.compact", defaultValue: "Compact view"))
+                    .tag(true)
             }
             .pickerStyle(.inline)
         } label: {
-            VaultToolbarIcon(systemName: "arrow.up.arrow.down")
-        }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .contentShape(Rectangle())
-        .help(String(localized: "sessionIndex.allSessions.sortTooltip", defaultValue: "Sort sessions"))
-        .accessibilityIdentifier("VaultAllSessionsSortMenu")
-        .titlebarInteractiveControl()
-    }
-
-    private var filterMenu: some View {
-        Menu {
-            Picker(
-                String(localized: "sessionIndex.filter.agent", defaultValue: "Agent"),
-                selection: $store.recencyFilter.agentID
-            ) {
-                Text(String(localized: "sessionIndex.filter.agent.all", defaultValue: "All agents"))
-                    .tag(String?.none)
-                ForEach(store.agentFilterOptions) { option in
-                    Text(option.label).tag(String?.some(option.id))
-                }
-            }
-            .pickerStyle(.inline)
-            Picker(
-                String(localized: "sessionIndex.filter.status", defaultValue: "Status"),
-                selection: $store.recencyFilter.liveness
-            ) {
-                ForEach(VaultSessionFilter.Liveness.allCases) { liveness in
-                    Text(liveness.label).tag(liveness)
-                }
-            }
-            .pickerStyle(.inline)
-            Picker(
-                String(localized: "sessionIndex.filter.folder", defaultValue: "Folder"),
-                selection: $store.recencyFilter.folder
-            ) {
-                Text(String(localized: "sessionIndex.filter.folder.all", defaultValue: "All folders"))
-                    .tag(String?.none)
-                ForEach(store.folderFilterOptions) { option in
-                    Text(option.label).tag(String?.some(option.id))
-                }
-            }
-            .pickerStyle(.inline)
-            Picker(
-                String(localized: "sessionIndex.filter.date", defaultValue: "Date"),
-                selection: $store.recencyFilter.datePreset
-            ) {
-                ForEach(VaultSessionFilter.DatePreset.allCases) { preset in
-                    Text(preset.label).tag(preset)
-                }
-            }
-            .pickerStyle(.inline)
-            if store.recencyFilter.isActive {
-                Divider()
-                Button {
-                    store.recencyFilter = VaultSessionFilter()
-                } label: {
-                    Text(String(localized: "sessionIndex.filter.reset", defaultValue: "Reset Filters"))
-                }
-            }
-        } label: {
-            VaultToolbarIcon(
-                systemName: store.recencyFilter.isActive
-                    ? "line.3.horizontal.decrease.circle.fill"
-                    : "line.3.horizontal.decrease.circle",
-                isActive: store.recencyFilter.isActive
-            )
-        }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .contentShape(Rectangle())
-        .help(String(localized: "sessionIndex.allSessions.filterTooltip", defaultValue: "Filter sessions"))
-        .accessibilityIdentifier("VaultAllSessionsFilterMenu")
-        .titlebarInteractiveControl()
-    }
-
-}
-
-/// Consistent 20-point utility target for search-row menus. The quiet resting
-/// state keeps the field primary; hover and active states make the affordance
-/// legible without adding another pill to the toolbar.
-private struct VaultToolbarIcon: View {
-    let systemName: String
-    var isActive = false
-    @State private var isHovered = false
-
-    var body: some View {
-        HeaderChromeIconStyle.symbol(systemName)
-            .foregroundStyle(
-                isActive
-                    ? Color.accentColor
-                    : HeaderChromeIconStyle.foregroundColor.opacity(
-                        isHovered
-                            ? HeaderChromeIconStyle.hoveredOpacity
-                            : HeaderChromeIconStyle.opacity
-                    )
-            )
-            .frame(
-                width: RightSidebarChromeMetrics.headerControlSize,
-                height: RightSidebarChromeMetrics.headerControlSize
-            )
-            .background {
-                if isActive || isHovered {
-                    RoundedRectangle(
-                        cornerRadius: RightSidebarChromeMetrics.headerControlCornerRadius,
-                        style: .continuous
-                    )
-                    .fill(
-                        isActive
-                            ? Color.accentColor.opacity(0.12)
-                            : Color.primary.opacity(0.07)
-                    )
-                }
-            }
-            .contentShape(
-                RoundedRectangle(
-                    cornerRadius: RightSidebarChromeMetrics.headerControlCornerRadius,
-                    style: .continuous
+            Text("⋮")
+                .font(.system(size: 18, weight: .bold, design: .rounded))
+                .foregroundStyle(Color.secondary.opacity(0.72))
+                .frame(width: 24, height: 28)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(Color.primary.opacity(0.10))
                 )
-            )
-            .onHover { isHovered = $0 }
+                .contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .contentShape(Rectangle())
+        .help(String(localized: "sessionIndex.view.tooltip", defaultValue: "Choose session view"))
+        .accessibilityLabel(Text(String(localized: "sessionIndex.view.title", defaultValue: "Session view")))
+        .accessibilityHint(Text(String(localized: "sessionIndex.view.tooltip", defaultValue: "Choose session view")))
+        .accessibilityValue(viewSelectionLabel)
+        .accessibilityIdentifier("VaultSessionOptionsMenu")
+        .frame(width: 24, height: 28)
+        .layoutPriority(2)
+        .titlebarInteractiveControl()
     }
+
+    private var viewSelectionLabel: String {
+        if isCompactView {
+            return String(localized: "sessionIndex.view.compact", defaultValue: "Compact view")
+        }
+        return String(localized: "sessionIndex.view.default", defaultValue: "Default view")
+    }
+
 }
