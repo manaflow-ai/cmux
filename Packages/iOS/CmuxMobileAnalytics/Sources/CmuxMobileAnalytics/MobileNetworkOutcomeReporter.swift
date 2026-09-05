@@ -40,13 +40,16 @@ public final class MobileNetworkOutcomeReporter: Sendable {
 
     private final class StateStore: @unchecked Sendable {
         private let queue = DispatchQueue(label: "com.cmux.mobile-network-outcomes")
+        private let permits = DispatchSemaphore(value: 128)
         private var state = State()
 
         func enqueue(
             _ event: DiagnosticEvent,
             emit: @escaping @Sendable (Observation) -> Void
         ) {
+            guard permits.wait(timeout: .now()) == .success else { return }
             queue.async { [self] in
+                defer { permits.signal() }
                 guard let observation = MobileNetworkOutcomeReporter.observe(event, state: &state) else {
                     return
                 }
@@ -85,6 +88,7 @@ public final class MobileNetworkOutcomeReporter: Sendable {
 
     /// Queues one diagnostic event without blocking the diagnostic event tap.
     public func ingest(_ event: DiagnosticEvent) {
+        guard Self.mayObserve(event.code) else { return }
         let emitter = self.emitter
         state.enqueue(event) { observation in
             emitter.capture(Self.eventName, Self.properties(for: observation))
@@ -433,6 +437,20 @@ public final class MobileNetworkOutcomeReporter: Sendable {
              .relayPolicyRefreshFailed, .sessionClosed, .routeUnavailable,
              .discoveryFailed, .admissionFailed, .hostAuthenticationFailed,
              .rpcFailed:
+            true
+        default:
+            false
+        }
+    }
+
+    private static func mayObserve(_ code: DiagnosticEventCode) -> Bool {
+        switch code {
+        case .connect, .pairOk, .pairFail, .pairUnreachable,
+             .transportDialStarted, .transportDialConnected, .transportDialFailed,
+             .transportDialCancelled, .hostAuthenticated, .hostAuthenticationFailed,
+             .rpcReady, .recoveryStarted, .recoverySucceeded, .recoveryFailed,
+             .endpointStarting, .endpointActive, .endpointFailed,
+             .discoverySucceeded, .discoveryFailed:
             true
         default:
             false
