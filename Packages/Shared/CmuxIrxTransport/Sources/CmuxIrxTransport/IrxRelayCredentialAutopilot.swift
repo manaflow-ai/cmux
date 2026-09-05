@@ -5,7 +5,9 @@ public import Foundation
 /// alone (make-before-break), and on mint failure retries at half the
 /// remaining validity so retries speed up toward expiry instead of backing
 /// off past it. The relay closes connections at the signed expiry, so this
-/// loop is what makes 15 minutes without a disconnect possible at all.
+/// loop is what makes 15 minutes without a disconnect possible at all. With
+/// nothing cached there is no expiry to race, so failures back off
+/// exponentially and honor the broker's `Retry-After`.
 public actor IrxRelayCredentialAutopilot {
     private let broker: IrxBrokerService
     private let endpoint: IrxEndpointSupervisor
@@ -62,7 +64,6 @@ public actor IrxRelayCredentialAutopilot {
         journal.record("credential-autopilot", "started")
     }
 
-    /// Stops the refresh loop and invalidates any in-flight rotation it owns.
     public func stop() async {
         loopGeneration &+= 1
         await rotationGate.invalidate()
@@ -90,6 +91,7 @@ public actor IrxRelayCredentialAutopilot {
     }
 
     private func run(generation: UInt64, rotationGeneration: UInt64) async {
+        var consecutiveFailures = 0
         while !Task.isCancelled && generation == loopGeneration {
             let now = Date()
             let credentials = await broker.cachedRelayCredentials()
@@ -109,10 +111,10 @@ public actor IrxRelayCredentialAutopilot {
             do {
                 let minted = try await broker.mintRelayCredentials()
                 guard generation == loopGeneration, !Task.isCancelled else { return }
-                // This check must live inside the endpoint-side mutation too:
-                // the actor can re-enter while the broker request above is
-                // suspended, after which an old loop must be unable to rotate
-                // the endpoint owned by a newer loop.
+                // Keep this check inside the endpoint-side mutation too: the
+                // actor can re-enter while the broker request above is
+                // suspended, after which an old loop must not rotate the
+                // endpoint owned by a newer lifecycle.
                 await endpoint.rotateCredentialsIfCurrent(
                     minted,
                     rotationGeneration: rotationGeneration,
@@ -120,14 +122,27 @@ public actor IrxRelayCredentialAutopilot {
                 )
                 guard generation == loopGeneration, !Task.isCancelled else { return }
                 await onRotation?()
+                consecutiveFailures = 0
             } catch {
                 if Task.isCancelled || generation != loopGeneration { return }
-                let expiry = credentials.map(\.expiresAt).max() ?? Date()
-                let delay = IrxRelayCredentialPolicy.retryDelay(expiresAt: expiry, now: Date())
+                consecutiveFailures += 1
+                // `nil`, not `Date()`: with nothing cached there is no expiry
+                // to race, and passing the current time collapsed the delay to
+                // a one-second loop that never backed off.
+                let expiry = credentials.map(\.expiresAt).max()
+                let retryAfter = IrxRelayCredentialPolicy.retryAfterSeconds(for: error)
+                let delay = IrxRelayCredentialPolicy.retryDelay(
+                    expiresAt: expiry,
+                    now: Date(),
+                    consecutiveFailures: consecutiveFailures,
+                    retryAfterSeconds: retryAfter
+                )
                 journal.record(
                     "credential-autopilot", "mint-failed",
                     [
                         "error": String(describing: error),
+                        "failures": String(consecutiveFailures),
+                        "retry_after_s": retryAfter.map(String.init) ?? "none",
                         "retry": String(describing: delay),
                     ]
                 )

@@ -243,6 +243,36 @@ describe("Iroh route boundary", () => {
     expect(called).toBe(false);
   });
 
+  test("rate limits broker work before parsing or touching the database", async () => {
+    let brokerCalled = false;
+    let seenRateLimitKey: string | undefined;
+    const response = await handleIrohRoute(
+      authedPost("/api/devices/iroh/register", { malformed: true }),
+      "register",
+      {
+        verify: async () => USER,
+        isVercel: true,
+        rateLimitRuleId: () => "iroh-test-rule",
+        checkRateLimit: async (_id, options) => {
+          seenRateLimitKey = options.rateLimitKey;
+          return { rateLimited: true };
+        },
+        broker: broker({
+          register: () => {
+            brokerCalled = true;
+            return Effect.succeed({});
+          },
+        }),
+      },
+    );
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get("retry-after")).toBe("60");
+    expect(await response.json()).toEqual({ error: "rate_limited" });
+    expect(seenRateLimitKey).toBe("iroh:personal-user-id:legacy:register");
+    expect(brokerCalled).toBe(false);
+  });
+
   test("maps other Stack Auth provider failures to 503 instead of 401", async () => {
     const response = await handleIrohRoute(
       authedPost("/api/devices/iroh/challenge", {}),

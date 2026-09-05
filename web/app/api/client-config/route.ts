@@ -15,6 +15,7 @@ import {
   postHogFlagsUrl,
 } from "../../../services/client-config/posthogFlags";
 
+const CLIENT_CONFIG_RETRY_AFTER_SECONDS = 60;
 
 export async function POST(request: Request): Promise<Response> {
   // An unset rule id means no rate limiting; a deleted rule (not-found) fails
@@ -27,7 +28,11 @@ export async function POST(request: Request): Promise<Response> {
     try {
       const { error, rateLimited } = await checkRateLimit(rateLimitId, { request });
       if (rateLimited || error === "blocked") {
-        return json({ error: "rate_limited" }, 429);
+        return json(
+          { error: "rate_limited" },
+          429,
+          { "retry-after": String(CLIENT_CONFIG_RETRY_AFTER_SECONDS) },
+        );
       }
       if (error === "not-found") {
         void reportMissingRateLimitRule({ route: "/api/client-config", reason: "not-found" });
@@ -74,11 +79,16 @@ export async function POST(request: Request): Promise<Response> {
   }
 }
 
-function json(body: Record<string, unknown>, status = 200): Response {
+function json(
+  body: Record<string, unknown>,
+  status = 200,
+  extraHeaders?: HeadersInit,
+): Response {
   return NextResponse.json(body, {
     status,
     headers: {
       "Cache-Control": "no-store",
+      ...extraHeaders,
     },
   });
 }
