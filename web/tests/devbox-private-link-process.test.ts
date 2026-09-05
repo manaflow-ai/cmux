@@ -84,3 +84,29 @@ test("shutdown escalates only after its deadline and waits for process close", a
     expect(closed).toBe(true);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+// Trigger cancellation synchronously inside spawn's return path, before Node
+// can emit its spawn event. acquireRelease must finish acquisition and reap it.
+test("interruption before the spawn event still closes the acquired child", async () => {
+  const childProcess = await import("node:child_process");
+  const { spyOn } = await import("bun:test");
+  const originalSpawn = childProcess.spawn;
+  const controller = new AbortController();
+  let closed = false;
+  let spawned = false;
+  const spy = spyOn(childProcess, "spawn").mockImplementation((...args: Parameters<typeof originalSpawn>) => {
+    const child = originalSpawn(...args);
+    child.once("spawn", () => { spawned = true; });
+    child.once("close", () => { closed = true; });
+    controller.abort();
+    return child;
+  });
+  try {
+    const result = await Effect.runPromiseExit(Effect.scoped(startPrivateLinkClient(
+      process.execPath, ["-e", "process.stdin.resume()"], { event: "hub-ready", socket: "/unused" },
+    )), { signal: controller.signal });
+    expect(result._tag).toBe("Failure");
+    expect(spawned).toBe(true);
+    expect(closed).toBe(true);
+  } finally { spy.mockRestore(); }
+});

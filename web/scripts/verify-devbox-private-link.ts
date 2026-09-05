@@ -9,12 +9,13 @@
  * deletes all three, including on failure. Never modifies existing machines.
  * Uses the supplied client on macOS or Linux, without installing a system VPN.
  */
-import { Effect, Schedule } from "effect";
+import { Effect } from "effect";
 import { spawn } from "node:child_process";
 import { generateKeyPairSync, randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { cleanupPrivateLinkResource as cleanup } from "./devbox-private-link-cleanup";
 import { startPrivateLinkClient } from "./devbox-private-link-process";
 import { FreestyleProvider } from "../services/vms/drivers/freestyle";
 
@@ -34,10 +35,6 @@ function command(client: string, args: string[], label: string) {
     child.once("close", (code) => code === 0 ? resolve(output) : reject(new Error(label)));
   })).pipe(Effect.timeoutFail({ duration: "30 seconds", onTimeout: () => new Error(`${label}: timed out`) }));
 }
-
-const cleanupRetry = Schedule.intersect(Schedule.spaced("500 millis"), Schedule.recurs(20));
-const cleanup = (label: string, run: () => Promise<void>) =>
-  attempt(`Cleanup failed: ${label}`, run).pipe(Effect.retry(cleanupRetry), Effect.orDie);
 
 function readSnapshot(client: string, socket: string) {
   return Effect.gen(function* () {
