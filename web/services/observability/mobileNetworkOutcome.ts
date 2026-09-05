@@ -53,24 +53,52 @@ export type MobileNetworkOutcome = {
 
 export function parseMobileNetworkOutcome(candidate: unknown): MobileNetworkOutcome | null {
   if (!isRecord(candidate) || candidate.event !== EVENT_NAME || !isRecord(candidate.properties)) return null;
-  const properties = candidate.properties;
-  if (Object.keys(properties).some((key) => !allowedPropertyKeys.has(key))) return null;
-  if (
-    typeof candidate.timestamp !== "string" ||
-    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/.test(candidate.timestamp) ||
-    !Number.isFinite(Date.parse(candidate.timestamp))
-  ) return null;
+  if (!validTimestamp(candidate.timestamp) || !validProperties(candidate.properties)) return null;
+  const core = parseCore(candidate.properties);
+  const metadata = parseMetadata(candidate.properties);
+  if (!core || !metadata) return null;
+
+  return {
+    timestamp: candidate.timestamp,
+    ...core,
+    runtimeRole: RUNTIME_ROLE,
+    ...metadata,
+  };
+}
+
+type CoreObservation = Pick<MobileNetworkOutcome, "phase" | "outcome" | "durationMs" | "userUsable" | "failure" | "transport">;
+type Metadata = Pick<MobileNetworkOutcome, "platform" | "appVersion" | "buildNumber" | "bundleIdentifier" | "osVersion" | "deviceModel">;
+
+function validTimestamp(value: unknown): value is string {
+  return typeof value === "string"
+    && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/.test(value)
+    && Number.isFinite(Date.parse(value));
+}
+
+function validProperties(properties: Record<string, unknown>): boolean {
+  return !Object.keys(properties).some((key) => !allowedPropertyKeys.has(key));
+}
+
+function parseCore(properties: Record<string, unknown>): CoreObservation | null {
   if (typeof properties.phase !== "string" || !phases.has(properties.phase)) return null;
   if (typeof properties.outcome !== "string" || !outcomes.has(properties.outcome)) return null;
   if (properties.runtime_role !== undefined && properties.runtime_role !== RUNTIME_ROLE) return null;
   if (typeof properties.user_usable !== "boolean") return null;
-
   const durationMs = unsignedInteger(properties.duration_ms);
-  if (durationMs === null) return null;
   const failure = optionalSetValue(properties.failure, failures);
   const transport = optionalSetValue(properties.transport, transports);
-  if (failure === false || transport === false) return null;
+  if (durationMs === null || failure === false || transport === false) return null;
+  return {
+    phase: properties.phase,
+    outcome: properties.outcome as CoreObservation["outcome"],
+    durationMs,
+    userUsable: properties.user_usable,
+    ...(typeof failure === "string" ? { failure } : {}),
+    ...(typeof transport === "string" ? { transport } : {}),
+  };
+}
 
+function parseMetadata(properties: Record<string, unknown>): Metadata | null {
   const platform = optionalExact(properties.platform, "ios");
   const appVersion = optionalMachineString(properties.app_version);
   const buildNumber = optionalMachineString(properties.build_number);
@@ -78,16 +106,7 @@ export function parseMobileNetworkOutcome(candidate: unknown): MobileNetworkOutc
   const osVersion = optionalMachineString(properties.os_version);
   const deviceModel = optionalMachineString(properties.device_model, true);
   if ([platform, appVersion, buildNumber, bundleIdentifier, osVersion, deviceModel].includes(false)) return null;
-
   return {
-    timestamp: candidate.timestamp,
-    phase: properties.phase,
-    outcome: properties.outcome as MobileNetworkOutcome["outcome"],
-    durationMs,
-    runtimeRole: RUNTIME_ROLE,
-    userUsable: properties.user_usable,
-    ...(typeof failure === "string" ? { failure } : {}),
-    ...(typeof transport === "string" ? { transport } : {}),
     ...(platform === "ios" ? { platform } : {}),
     ...(typeof appVersion === "string" ? { appVersion } : {}),
     ...(typeof buildNumber === "string" ? { buildNumber } : {}),

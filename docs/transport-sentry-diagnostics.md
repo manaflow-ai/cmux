@@ -57,16 +57,13 @@ always-sampled `cmux.mobile.network.outcome` OpenTelemetry span per accepted
 event. The existing server exporter writes those spans to Axiom. No Axiom
 credential ships in the app.
 
-Use `cmux.mobile.event_name`, `cmux.mobile.operation`, `cmux.mobile.outcome`,
-`cmux.mobile.failure`, `cmux.mobile.transport`, `cmux.mobile.path`, and
+Use `cmux.mobile.phase`, `cmux.mobile.outcome`, `cmux.mobile.failure`,
+`cmux.mobile.transport`, `cmux.mobile.user_usable`, and
 `cmux.mobile.duration_ms` for breakdowns. `cmux.user_id` identifies accounts
-with repeated failure outcomes. A practical Axiom monitor groups failure spans
-by `cmux.user_id` over ten minutes, excludes expected `offline`, `cancelled`,
-and `superseded` outcomes, and alerts when one account reaches five failures.
-Latency monitors should group p95 `cmux.mobile.duration_ms` by event, transport,
-path, app version, and OS version. Sentry remains the immediate client-side
-outage alert when the cmux backend itself is unreachable and therefore cannot
-accept an Axiom upload.
+with repeated failure outcomes. Latency monitors should group p95 duration by
+phase, transport, app version, and OS version. Sentry remains the immediate
+client-side outage alert when the cmux backend itself is unreachable and
+therefore cannot accept an Axiom upload.
 
 ## Wiring
 

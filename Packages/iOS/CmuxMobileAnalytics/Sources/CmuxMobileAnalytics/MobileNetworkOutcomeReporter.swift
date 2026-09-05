@@ -37,6 +37,8 @@ public final class MobileNetworkOutcomeReporter: Sendable {
         var connectStart: Start?
     }
 
+    private static let pendingStartLifetimeNanos: UInt64 = 5 * 60 * 1_000_000_000
+
     private struct Observation: Sendable {
         let phase: Phase
         let outcome: String
@@ -86,6 +88,16 @@ public final class MobileNetworkOutcomeReporter: Sendable {
         _ event: DiagnosticEvent,
         state: inout State
     ) -> Observation? {
+        state.starts = state.starts.filter { entry in
+            let start = entry.value
+            return event.tNanos >= start.tNanos
+                && event.tNanos - start.tNanos <= Self.pendingStartLifetimeNanos
+        }
+        if let connectStart = state.connectStart,
+           event.tNanos < connectStart.tNanos
+               || event.tNanos - connectStart.tNanos > Self.pendingStartLifetimeNanos {
+            state.connectStart = nil
+        }
         let transport = Self.transport(for: event)
         switch event.code {
         case .connect:
