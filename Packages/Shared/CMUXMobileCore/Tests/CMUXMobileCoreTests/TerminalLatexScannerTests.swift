@@ -44,6 +44,7 @@ struct TerminalLatexScannerTests {
     @Test func literalCodeCurrencyAndUnclosedMath() throws {
         #expect(try scan(#"Pay $5 and $10; escaped \$x^2\$; `\(x\)`; $x"#).isEmpty)
         #expect(try scan("```latex\n$$x^2$$\n```\n$x$").map(\.source) == ["x"])
+        #expect(try scan("```latex\n$$x^2$$\n````\n$y$").map(\.source) == ["y"])
         #expect(try scan("~~~\n$x$\n~~~").isEmpty)
         #expect(try scan("Price $12.50; result $x^2$.").map(\.source) == ["x^2"])
     }
@@ -76,6 +77,8 @@ struct TerminalLatexScannerTests {
             #expect(equation.layout.column == 2)
             #expect(equation.layout.height == 3)
         }
+        let prose = try #require(scan("Text $$\n  x\n$$").first)
+        #expect(prose.layout.height == 1)
     }
 
     @Test func scrollAndStyleChangesUseCurrentCells() throws {
