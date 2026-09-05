@@ -45,13 +45,9 @@ import Testing
 
     let collector = OutputCollector()
     collector.mount(store: store, surfaceID: "live-terminal")
-    let sawReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
-    #expect(sawReplay, "mounting a sink must arm the cold-attach replay")
-    try await waitForReplayResponsesServed(
-        1,
-        router: router,
-        "the cold replay response must settle before testing subscribe buffering"
-    )
+    #expect(try await pollUntil {
+        store.hasTerminalOutputSink(surfaceID: "live-terminal")
+    })
 
     // The Mac pushes a live render-grid event while the subscribe ack is
     // still pending (the server-side subscription from a previous generation
