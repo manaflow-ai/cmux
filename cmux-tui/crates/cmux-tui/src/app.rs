@@ -21,7 +21,10 @@ use std::time::{Duration, Instant};
 
 use base64::Engine;
 use cmux_tui_cdp::CDP_CONNECTION_UNAVAILABLE_MESSAGE;
-use cmux_tui_core::resource::FrontendProjectionPublicId;
+use cmux_tui_core::resource::{
+    ContentPublicId, FrontendProjectionPublicId, PanePublicId, ScreenPublicId, TabPublicId,
+    TerminalPublicId, WorkspacePublicId,
+};
 use cmux_tui_core::{
     BrowserFrame, BrowserSource, BrowserStatus, ClearHistoryDelivery, ClearHistoryFailure,
     DEFAULT_VIEWPORT_PANE_WIDTH, Direction, FrontendFocusTarget, FrontendJournalEvent,
@@ -81,7 +84,7 @@ use crate::pty_input::{
     PtyInputEvent, PtyInputKind, PtyInputSender, PtyOperationDelivery, PtyOperationFailure,
     TERMINAL_EXITED_LABEL, mark_operation_known_not_delivered,
 };
-use crate::session::tree::{PaneView, ScreenView};
+use crate::session::tree::{PaneView, ScreenView, TabView, WorkspaceView};
 use crate::session::{
     AgentInfo, AmbiguousCreation, CLEAR_HISTORY_UNSUPPORTED_ERROR, ClientInfo, CreationReceipt,
     Session, SidebarPluginSurface, SurfaceAttach, SurfaceHandle, TreeView,
@@ -376,42 +379,489 @@ struct ProjectionRowsCache {
     rows: Arc<[ProjectionRow]>,
 }
 
-/// Identity and revision values that can change the native sidebar hit map.
-/// Display text and status fields are deliberately excluded. They repaint in
-/// place, while row order, row membership, and tab targets require an old
-/// pointer capture to be dropped.
+/// A lossless identity for the tree frame that was used to admit a pointer
+/// event. Display text and status fields are deliberately excluded. They
+/// repaint in place, while row order, active targets, pane geometry, and
+/// viewport state require an old pointer capture to be dropped.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct SidebarTreePointerTopology {
     workspace_revision: u64,
     pane_revision: Option<u64>,
     active_workspace: usize,
+    active_workspace_id: Option<WorkspaceId>,
+    active_workspace_resource_id: Option<WorkspacePublicId>,
+    active_surface: Option<SurfaceId>,
+    active_surface_resource_id: Option<TabPublicId>,
+    active_surface_kind: Option<SurfaceKind>,
+    active_surface_content_id: Option<ContentPublicId>,
     workspace_ids: Vec<WorkspaceId>,
+    workspace_resource_ids: Vec<Option<WorkspacePublicId>>,
+    active_screen_ids: Vec<Option<ScreenId>>,
     screen_ids: Vec<ScreenId>,
+    screen_resource_ids: Vec<Option<ScreenPublicId>>,
     pane_ids: Vec<PaneId>,
+    pane_resource_ids: Vec<Option<PanePublicId>>,
     surface_ids: Vec<SurfaceId>,
+    surface_resource_ids: Vec<Option<TabPublicId>>,
+    surface_kinds: Vec<SurfaceKind>,
+    surface_content_ids: Vec<Option<ContentPublicId>>,
+    screens: Vec<ScreenPointerTopology>,
+}
+
+/// Geometry and active-tab state for one screen. A revision counter is not
+/// sufficient here: focus, zoom, viewport widths, and split ratios can change
+/// without changing pane membership.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ScreenPointerTopology {
+    workspace_id: WorkspaceId,
+    workspace_resource_id: Option<WorkspacePublicId>,
+    id: ScreenId,
+    resource_id: Option<ScreenPublicId>,
+    active_pane: PaneId,
+    zoomed_pane: Option<PaneId>,
+    viewport_base_width: Option<u32>,
+    viewport_splits: Vec<(SplitId, u32)>,
+    viewport_pane_widths: Vec<(PaneId, u32)>,
+    layout: PointerLayoutNode,
+    /// Tab membership is nested by pane. Flat surface vectors cannot detect
+    /// an inactive tab moving between panes when the global order is stable,
+    /// but that move changes tab-bar hit rectangles and tab locations.
+    panes: Vec<PanePointerTopology>,
+    active_surfaces: Vec<Option<SurfaceId>>,
+    active_surface_resource_ids: Vec<Option<TabPublicId>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct PanePointerTopology {
+    id: PaneId,
+    resource_id: Option<PanePublicId>,
+    active_tab: usize,
+    tabs: Vec<TabPointerTopology>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct TabPointerTopology {
+    surface: SurfaceId,
+    public_id: Option<TabPublicId>,
+    content_id: Option<ContentPublicId>,
+    terminal_id: Option<TerminalPublicId>,
+    kind: SurfaceKind,
+}
+
+impl TabPointerTopology {
+    fn identity_eq(&self, other: &Self) -> bool {
+        self.surface == other.surface
+            && strict_identity_matches(self.public_id.as_ref(), other.public_id.as_ref())
+            && strict_identity_matches(self.content_id.as_ref(), other.content_id.as_ref())
+            && strict_identity_matches(self.terminal_id.as_ref(), other.terminal_id.as_ref())
+            && self.kind == other.kind
+    }
+}
+
+impl PanePointerTopology {
+    fn identity_eq(&self, other: &Self) -> bool {
+        self.id == other.id
+            && strict_identity_matches(self.resource_id.as_ref(), other.resource_id.as_ref())
+            && self.active_tab == other.active_tab
+            && self.tabs.len() == other.tabs.len()
+            && self
+                .tabs
+                .iter()
+                .zip(&other.tabs)
+                .all(|(previous, next)| previous.identity_eq(next))
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct ScreenGeometryChange {
+    screen: ScreenId,
+    split_ratios: Vec<(SplitId, u32, u32)>,
+    viewport_base_changed: bool,
+    viewport_base_width: Option<u32>,
+    viewport_split_values_changed: bool,
+    viewport_widths: Vec<(PaneId, u32, u32)>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum PointerLayoutNode {
+    Leaf(PaneId),
+    Split {
+        id: SplitId,
+        dir: SplitDir,
+        ratio: u32,
+        a: Box<Self>,
+        b: Box<Self>,
+    },
+    Stack { panes: Vec<PaneId>, expanded: PaneId },
+}
+
+fn pointer_layout_node(node: &Node) -> PointerLayoutNode {
+    match node {
+        Node::Leaf(pane) => PointerLayoutNode::Leaf(*pane),
+        Node::Split { id, dir, ratio, a, b } => PointerLayoutNode::Split {
+            id: *id,
+            dir: *dir,
+            ratio: ratio.to_bits(),
+            a: Box::new(pointer_layout_node(a)),
+            b: Box::new(pointer_layout_node(b)),
+        },
+        Node::Stack { panes, expanded } => PointerLayoutNode::Stack {
+            panes: panes.iter().copied().collect(),
+            expanded: *expanded,
+        },
+    }
+}
+
+fn pointer_layout_split_ratios(node: &PointerLayoutNode, output: &mut Vec<(SplitId, u32)>) {
+    match node {
+        PointerLayoutNode::Split { id, ratio, a, b, .. } => {
+            output.push((*id, *ratio));
+            pointer_layout_split_ratios(a, output);
+            pointer_layout_split_ratios(b, output);
+        }
+        PointerLayoutNode::Leaf(_) | PointerLayoutNode::Stack { .. } => {}
+    }
+}
+
+fn node_split_ratio(node: &Node, split: SplitId) -> Option<f32> {
+    match node {
+        Node::Split { id, ratio, a, b, .. } => {
+            (*id == split).then_some(*ratio).or_else(|| {
+                node_split_ratio(a, split).or_else(|| node_split_ratio(b, split))
+            })
+        }
+        Node::Leaf(_) | Node::Stack { .. } => None,
+    }
+}
+
+impl PointerLayoutNode {
+    /// Compare the pane ownership and divider identity while ignoring the
+    /// current ratios. A ratio is geometry; a leaf or split replacement is a
+    /// new pointer target.
+    fn structure_eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Leaf(left), Self::Leaf(right)) => left == right,
+            (
+                Self::Split { id: left_id, dir: left_dir, a: left_a, b: left_b, .. },
+                Self::Split { id: right_id, dir: right_dir, a: right_a, b: right_b, .. },
+            ) => {
+                left_id == right_id
+                    && left_dir == right_dir
+                    && left_a.structure_eq(right_a)
+                    && left_b.structure_eq(right_b)
+            }
+            (
+                Self::Stack { panes: left_panes, expanded: left_expanded },
+                Self::Stack { panes: right_panes, expanded: right_expanded },
+            ) => left_panes == right_panes && left_expanded == right_expanded,
+            _ => false,
+        }
+    }
+
+}
+
+/// Pointer topology uses a fail-closed identity policy. A missing public id is
+/// not evidence that two rows are the same row, because a reconnect can omit
+/// the id for one frame while reusing a runtime id for a different resource.
+fn strict_identity_matches<T: PartialEq>(previous: Option<&T>, next: Option<&T>) -> bool {
+    match (previous, next) {
+        (Some(previous), Some(next)) => previous == next,
+        (None, None) => true,
+        _ => false,
+    }
+}
+
+impl ScreenPointerTopology {
+    fn identity_eq(&self, other: &Self) -> bool {
+        self.id == other.id
+            && self.workspace_id == other.workspace_id
+            && strict_identity_matches(
+                self.workspace_resource_id.as_ref(),
+                other.workspace_resource_id.as_ref(),
+            )
+            && strict_identity_matches(self.resource_id.as_ref(), other.resource_id.as_ref())
+            && self.active_pane == other.active_pane
+            && self.zoomed_pane == other.zoomed_pane
+            && self.layout.structure_eq(&other.layout)
+            && self.panes.len() == other.panes.len()
+            && self
+                .panes
+                .iter()
+                .zip(&other.panes)
+                .all(|(previous, next)| previous.identity_eq(next))
+            && self.active_surfaces == other.active_surfaces
+            && self
+                .active_surface_resource_ids
+                .iter()
+                .zip(&other.active_surface_resource_ids)
+                .all(|(previous, next)| strict_identity_matches(previous.as_ref(), next.as_ref()))
+            && self.viewport_splits.iter().map(|(split, _)| split).eq(
+                other.viewport_splits.iter().map(|(split, _)| split),
+            )
+            && self.viewport_pane_widths.iter().map(|(pane, _)| pane).eq(
+                other.viewport_pane_widths.iter().map(|(pane, _)| pane),
+            )
+    }
+
+    fn geometry_eq(&self, other: &Self) -> bool {
+        self.viewport_base_width == other.viewport_base_width
+            && self.viewport_splits == other.viewport_splits
+            && self.viewport_pane_widths == other.viewport_pane_widths
+            && self.layout == other.layout
+    }
 }
 
 fn sidebar_tree_pointer_topology(tree: &TreeView) -> SidebarTreePointerTopology {
+    let active_tab = tree.active_screen().and_then(|screen| {
+        screen
+            .panes
+            .iter()
+            .find(|pane| pane.id == screen.active_pane)
+            .and_then(|pane| pane.tabs.get(pane.active_tab))
+    });
+    let active_surface = active_tab.map(|tab| tab.surface);
+    let active_surface_resource_id = active_tab.and_then(|tab| tab.public_id.clone());
+    let active_surface_kind = active_tab.map(|tab| tab.kind);
+    let active_surface_content_id = active_tab.and_then(|tab| tab.content_id.clone());
     let mut topology = SidebarTreePointerTopology {
         workspace_revision: tree.workspace_revision,
         pane_revision: tree.pane_revision,
         active_workspace: tree.active_workspace,
+        active_workspace_id: tree.active_workspace().map(|workspace| workspace.id),
+        active_workspace_resource_id: tree
+            .active_workspace()
+            .and_then(|workspace| workspace.resource_id.clone()),
+        active_surface,
+        active_surface_resource_id,
+        active_surface_kind,
+        active_surface_content_id,
         workspace_ids: Vec::new(),
+        workspace_resource_ids: Vec::new(),
+        active_screen_ids: Vec::new(),
         screen_ids: Vec::new(),
+        screen_resource_ids: Vec::new(),
         pane_ids: Vec::new(),
+        pane_resource_ids: Vec::new(),
         surface_ids: Vec::new(),
+        surface_resource_ids: Vec::new(),
+        surface_kinds: Vec::new(),
+        surface_content_ids: Vec::new(),
+        screens: Vec::new(),
     };
     for workspace in tree.workspaces() {
+        topology.active_screen_ids.push(
+            workspace.screens.get(workspace.active_screen).map(|screen| screen.id),
+        );
         topology.workspace_ids.push(workspace.id);
+        topology.workspace_resource_ids.push(workspace.resource_id.clone());
         for screen in &workspace.screens {
             topology.screen_ids.push(screen.id);
+            topology.screen_resource_ids.push(screen.resource_id.clone());
+            topology.screens.push(ScreenPointerTopology {
+                workspace_id: workspace.id,
+                workspace_resource_id: workspace.resource_id.clone(),
+                id: screen.id,
+                resource_id: screen.resource_id.clone(),
+                active_pane: screen.active_pane,
+                zoomed_pane: screen.zoomed_pane,
+                viewport_base_width: screen.viewport_base_width.map(f32::to_bits),
+                viewport_splits: screen
+                    .viewport_splits
+                    .iter()
+                    .map(|(split, ratio)| (*split, ratio.to_bits()))
+                    .collect(),
+                viewport_pane_widths: screen
+                    .panes
+                    .iter()
+                    .filter_map(|pane| {
+                        let owner = screen
+                            .layout
+                            .viewport_column_owner(pane.id, &screen.viewport_splits)?;
+                        let width = match owner {
+                            ViewportColumn::Base => screen.viewport_base_width?,
+                            ViewportColumn::Split(split) => *screen.viewport_splits.get(&split)?,
+                        };
+                        Some((pane.id, width.to_bits()))
+                    })
+                    .collect(),
+                layout: pointer_layout_node(&screen.layout),
+                panes: screen
+                    .panes
+                    .iter()
+                    .map(|pane| PanePointerTopology {
+                        id: pane.id,
+                        resource_id: pane.resource_id.clone(),
+                        active_tab: pane.active_tab,
+                        tabs: pane
+                            .tabs
+                            .iter()
+                            .map(|tab| TabPointerTopology {
+                                surface: tab.surface,
+                                public_id: tab.public_id.clone(),
+                                content_id: tab.content_id.clone(),
+                                terminal_id: tab.terminal_id.clone(),
+                                kind: tab.kind,
+                            })
+                            .collect(),
+                    })
+                    .collect(),
+                active_surfaces: screen
+                    .panes
+                    .iter()
+                    .map(|pane| pane.tabs.get(pane.active_tab).map(|tab| tab.surface))
+                    .collect(),
+                active_surface_resource_ids: screen
+                    .panes
+                    .iter()
+                    .map(|pane| {
+                        pane.tabs
+                            .get(pane.active_tab)
+                            .and_then(|tab| tab.public_id.clone())
+                    })
+                    .collect(),
+            });
             for pane in &screen.panes {
                 topology.pane_ids.push(pane.id);
+                topology.pane_resource_ids.push(pane.resource_id.clone());
+                topology
+                    .surface_resource_ids
+                    .extend(pane.tabs.iter().map(|tab| tab.public_id.clone()));
+                topology.surface_kinds.extend(pane.tabs.iter().map(|tab| tab.kind));
+                topology
+                    .surface_content_ids
+                    .extend(pane.tabs.iter().map(|tab| tab.content_id.clone()));
                 topology.surface_ids.extend(pane.tabs.iter().map(|tab| tab.surface));
             }
         }
     }
     topology
+}
+
+impl SidebarTreePointerTopology {
+    fn identity_eq(&self, other: &Self) -> bool {
+        self.workspace_revision == other.workspace_revision
+            && self.pane_revision == other.pane_revision
+            && self.active_workspace == other.active_workspace
+            && self.active_workspace_id == other.active_workspace_id
+            && strict_identity_matches(
+                self.active_workspace_resource_id.as_ref(),
+                other.active_workspace_resource_id.as_ref(),
+            )
+            && self.active_surface == other.active_surface
+            && strict_identity_matches(
+                self.active_surface_resource_id.as_ref(),
+                other.active_surface_resource_id.as_ref(),
+            )
+            && self.workspace_ids == other.workspace_ids
+            && self
+                .workspace_resource_ids
+                .iter()
+                .zip(&other.workspace_resource_ids)
+                .all(|(previous, next)| strict_identity_matches(previous.as_ref(), next.as_ref()))
+            && self.active_screen_ids == other.active_screen_ids
+            && self.screen_ids == other.screen_ids
+            && self
+                .screen_resource_ids
+                .iter()
+                .zip(&other.screen_resource_ids)
+                .all(|(previous, next)| strict_identity_matches(previous.as_ref(), next.as_ref()))
+            && self.pane_ids == other.pane_ids
+            && self
+                .pane_resource_ids
+                .iter()
+                .zip(&other.pane_resource_ids)
+                .all(|(previous, next)| strict_identity_matches(previous.as_ref(), next.as_ref()))
+            && self.surface_ids == other.surface_ids
+            && self
+                .surface_resource_ids
+                .iter()
+                .zip(&other.surface_resource_ids)
+                .all(|(previous, next)| strict_identity_matches(previous.as_ref(), next.as_ref()))
+            && self.surface_kinds == other.surface_kinds
+            && self
+                .surface_content_ids
+                .iter()
+                .zip(&other.surface_content_ids)
+                .all(|(previous, next)| strict_identity_matches(previous.as_ref(), next.as_ref()))
+            && self.screens.len() == other.screens.len()
+            && self
+                .screens
+                .iter()
+                .zip(&other.screens)
+                .all(|(previous, next)| previous.identity_eq(next))
+    }
+
+    fn active_surface_identity_eq(&self, other: &Self) -> bool {
+        self.active_surface == other.active_surface
+            && strict_identity_matches(
+                self.active_surface_resource_id.as_ref(),
+                other.active_surface_resource_id.as_ref(),
+            )
+            && self.active_surface_kind == other.active_surface_kind
+            && strict_identity_matches(
+                self.active_surface_content_id.as_ref(),
+                other.active_surface_content_id.as_ref(),
+            )
+    }
+
+    fn geometry_changes(&self, other: &Self) -> Vec<ScreenGeometryChange> {
+        let mut changed = Vec::new();
+        for (previous, next) in self.screens.iter().zip(&other.screens) {
+            if previous.id == next.id
+                && strict_identity_matches(previous.resource_id.as_ref(), next.resource_id.as_ref())
+                && previous.identity_eq(next)
+                && !previous.geometry_eq(next)
+            {
+                let mut change = ScreenGeometryChange { screen: next.id, ..Default::default() };
+                let mut previous_layout_ratios = Vec::new();
+                let mut next_layout_ratios = Vec::new();
+                pointer_layout_split_ratios(&previous.layout, &mut previous_layout_ratios);
+                pointer_layout_split_ratios(&next.layout, &mut next_layout_ratios);
+                for (split, previous_ratio) in &previous_layout_ratios {
+                    // Viewport columns maintain a compatibility split in the
+                    // ordinary tree. Its derived ratio changes whenever a
+                    // column width changes, so it belongs to the Viewport
+                    // expectation below, not to an ordinary split capture.
+                    if previous.viewport_splits.iter().any(|(candidate, _)| candidate == split)
+                        || next.viewport_splits.iter().any(|(candidate, _)| candidate == split)
+                    {
+                        continue;
+                    }
+                    if let Some(next_ratio) = next_layout_ratios
+                        .iter()
+                        .find_map(|(candidate, ratio)| (*candidate == *split).then_some(*ratio))
+                        .filter(|next_ratio| *next_ratio != *previous_ratio)
+                    {
+                        change.split_ratios.push((*split, *previous_ratio, next_ratio));
+                    }
+                }
+                if previous.viewport_base_width != next.viewport_base_width {
+                    change.viewport_base_changed = true;
+                    change.viewport_base_width = next.viewport_base_width;
+                }
+                if previous.viewport_splits != next.viewport_splits {
+                    change.viewport_split_values_changed = true;
+                }
+                let mut panes = previous.viewport_pane_widths.iter().copied().collect::<HashMap<_, _>>();
+                for (pane, next_width) in &next.viewport_pane_widths {
+                    let previous_width = panes.remove(pane);
+                    if previous_width != Some(*next_width) {
+                        change.viewport_widths.push((
+                            *pane,
+                            previous_width.unwrap_or_default(),
+                            *next_width,
+                        ));
+                    }
+                }
+                for (pane, previous_width) in panes {
+                    change.viewport_widths.push((pane, previous_width, 0));
+                }
+                changed.push(change);
+            }
+        }
+        changed
+    }
+
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -443,6 +893,24 @@ enum SidebarPointerDomain {
     Files,
     Tabs,
     Projection,
+}
+
+/// Semantic owner of a focused surface. Runtime ids are included so a stale
+/// pointer capture fails closed after a reconnect, while public ids, when
+/// present, detect a resource replacement that reuses the runtime id.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ActiveSurfaceOwner {
+    surface: SurfaceId,
+    public_id: Option<TabPublicId>,
+    kind: SurfaceKind,
+    content_id: Option<ContentPublicId>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct FilesPointerOwner {
+    active: Option<ActiveSurfaceOwner>,
+    pinned: bool,
+    topology_revision: u64,
 }
 
 fn machine_sidebar_pointer_topology(ui: Option<&MachineUiState>) -> MachineSidebarPointerTopology {
@@ -2568,6 +3036,10 @@ pub struct OrderedSession {
     retired_surfaces: Arc<Mutex<HashSet<SurfaceId>>>,
     layout_resize_owner: u64,
     layout_resize_transaction: Arc<AtomicU64>,
+    /// Generation of the currently admissible pane-layout pointer capture.
+    /// Deferred resize operations carry the generation they were admitted
+    /// under and become no-ops after a topology boundary.
+    layout_resize_generation: Arc<AtomicU64>,
     ambiguous_creations: Arc<Mutex<VecDeque<PendingAmbiguousCreation>>>,
     #[cfg(test)]
     surface_attach_after_obsolete_check: SurfaceAttachAfterObsoleteCheckHook,
@@ -2626,6 +3098,7 @@ impl OrderedSession {
             retired_surfaces: Arc::new(Mutex::new(HashSet::new())),
             layout_resize_owner,
             layout_resize_transaction: Arc::new(AtomicU64::new(1)),
+            layout_resize_generation: Arc::new(AtomicU64::new(1)),
             ambiguous_creations: Arc::new(Mutex::new(VecDeque::new())),
             #[cfg(test)]
             surface_attach_after_obsolete_check: Arc::new(Mutex::new(None)),
@@ -4170,6 +4643,8 @@ impl OrderedSession {
     }
 
     fn set_split_ratio_deferred(&self, split: SplitId, ratio: f32) {
+        let resize_generation = self.layout_resize_generation.load(Ordering::Acquire);
+        let resize_generation_state = self.layout_resize_generation.clone();
         self.enqueue_coalescing_pointer_mutation(
             localization::catalog().layout.resize_exact_split_operation,
             (localization::catalog().layout.split_id_subject, split),
@@ -4177,6 +4652,13 @@ impl OrderedSession {
                 let owner = self.layout_resize_owner;
                 let transaction = self.layout_resize_transaction.load(Ordering::Acquire);
                 move |session| {
+                    // The operation may sit behind another ordered mutation.
+                    // A topology boundary invalidates its capture while it is
+                    // queued, so do not apply the old ratio to a replacement
+                    // tree that happens to reuse the split id.
+                    if resize_generation_state.load(Ordering::Acquire) != resize_generation {
+                        return Ok(());
+                    }
                     session.set_split_ratio_in_transaction(split, ratio, owner, transaction)
                 }
             },
@@ -4186,10 +4668,15 @@ impl OrderedSession {
     fn set_viewport_pane_width_deferred(&self, pane: PaneId, width: f32) {
         let owner = self.layout_resize_owner;
         let transaction = self.layout_resize_transaction.load(Ordering::Acquire);
+        let resize_generation = self.layout_resize_generation.load(Ordering::Acquire);
+        let resize_generation_state = self.layout_resize_generation.clone();
         self.enqueue_coalescing_pointer_mutation(
             localization::catalog().layout.resize_viewport_pane_operation,
             (localization::catalog().layout.viewport_pane_subject, pane),
             move |session| {
+                if resize_generation_state.load(Ordering::Acquire) != resize_generation {
+                    return Ok(());
+                }
                 session.set_viewport_pane_width_in_transaction(pane, width, owner, transaction)
             },
         );
@@ -4202,6 +4689,18 @@ impl OrderedSession {
             |transaction| Some(transaction.wrapping_add(1).max(1)),
         );
         self.enqueue_pointer_mutation("settle split resize", |_| Ok(()));
+    }
+
+    /// Retire deferred pane-layout mutations that were admitted under an old
+    /// pointer topology. The queue still drains them in order, but their
+    /// generation check turns them into no-ops instead of applying stale
+    /// geometry after a tree, screen, sidebar, or configuration boundary.
+    fn invalidate_layout_resize_captures(&self) {
+        let _ = self.layout_resize_generation.fetch_update(
+            Ordering::AcqRel,
+            Ordering::Acquire,
+            |generation| Some(generation.wrapping_add(1).max(1)),
+        );
     }
 
     pub fn close_surface(&self, surface: SurfaceId) {
@@ -4766,11 +5265,11 @@ pub enum FocusTarget {
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct FrontendFocusSnapshot {
     target: FrontendFocusTarget,
-    workspace_id: Option<cmux_tui_core::resource::WorkspacePublicId>,
-    screen_id: Option<cmux_tui_core::resource::ScreenPublicId>,
-    pane_id: Option<cmux_tui_core::resource::PanePublicId>,
-    tab_id: Option<cmux_tui_core::resource::TabPublicId>,
-    content_id: Option<cmux_tui_core::resource::ContentPublicId>,
+    workspace_id: Option<WorkspacePublicId>,
+    screen_id: Option<ScreenPublicId>,
+    pane_id: Option<PanePublicId>,
+    tab_id: Option<TabPublicId>,
+    content_id: Option<ContentPublicId>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -4783,7 +5282,7 @@ struct FrontendResizeSnapshot {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct FrontendViewportSnapshot {
-    screen_id: Option<cmux_tui_core::resource::ScreenPublicId>,
+    screen_id: Option<ScreenPublicId>,
     offset: u64,
     target: u64,
     settled: bool,
@@ -6407,6 +6906,15 @@ enum PaneResizeDragTarget {
     },
 }
 
+/// The local client may emit a `LayoutChanged` event for each sample of an
+/// active divider drag. Keep the expected mutation separate from the tree
+/// snapshot so that this self-generated event does not cancel its own drag.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LayoutResizeExpectation {
+    Split { screen: ScreenId, split: SplitId, ratio: u32 },
+    Viewport { screen: ScreenId, pane: PaneId, width: u32 },
+}
+
 /// Mouse drag in progress.
 enum Drag {
     /// Left press on a tab chip; becomes `Tab` after moving cells.
@@ -6444,8 +6952,10 @@ enum Drag {
         position_y: u16,
         scrollbar: Scrollbar,
     },
-    /// Horizontal pane-column scrollbar drag.
-    HorizontalScrollbar { track: Rect, anchor_x: u16, anchor_offset: u64 },
+    /// Horizontal pane-column scrollbar drag. The screen id makes the
+    /// capture fail closed when a remote layout update changes the active
+    /// screen before the physical release arrives.
+    HorizontalScrollbar { screen: ScreenId, track: Rect, anchor_x: u16, anchor_offset: u64 },
     /// Workspace viewport scrollbar thumb drag.
     WorkspaceScrollbar {
         track: Rect,
@@ -6467,8 +6977,13 @@ enum Drag {
     /// Sidebar split-group divider drag: re-shares the group's children.
     /// Stable group and child ids survive layout pruning and reordering.
     SidebarSplit { group: String, first_child: String, second_child: String },
-    /// Pane split resize drag.
-    ResizeSplit { horizontal: Option<PaneResizeDragTarget>, vertical: Option<PaneResizeDragTarget> },
+    /// Pane split resize drag. Targets are frozen against one screen's
+    /// geometry and must not cross a remote layout boundary.
+    ResizeSplit {
+        screen: ScreenId,
+        horizontal: Option<PaneResizeDragTarget>,
+        vertical: Option<PaneResizeDragTarget>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -8003,7 +8518,9 @@ pub struct App {
     pub(crate) machine_rail_follow_selection: bool,
     pub(crate) workspace_rail_follow_selection: bool,
     pub(crate) tabs_rail_follow_selection: bool,
-    sidebar_followed_surface: Option<SurfaceId>,
+    /// Semantic owner of the unpinned Files view. Runtime surface ids can be
+    /// recycled after a reconnect, so retain the public tab identity too.
+    sidebar_followed_surface: Option<ActiveSurfaceOwner>,
     /// Width of the sidebar in the current frame (0 when hidden).
     pub sidebar_width: u16,
     pub machine_sidebar_width: u16,
@@ -8086,7 +8603,16 @@ pub struct App {
     pty_failures: Arc<PtyFailureIngress>,
     mux_recovery_generation: Arc<AtomicU64>,
     drag: Option<Drag>,
+    /// Owner token captured when the Files scrollbar press was admitted.
+    /// This is separate from `Drag` so legacy synthetic tests can construct
+    /// drag variants directly while real input still receives an owner fence.
+    files_pointer_owner: Option<FilesPointerOwner>,
+    layout_resize_expectations: [Option<LayoutResizeExpectation>; 2],
     active_pointer_buttons: HashSet<MouseButton>,
+    /// Surface targeted by each admitted physical button press, when the
+    /// press landed in a pane. This lets topology removal fence a plain
+    /// click that never became a native drag.
+    pointer_button_surfaces: HashMap<MouseButton, SurfaceId>,
     /// Pointer buttons pressed while another button already owned the
     /// interaction. Their drag and release samples are ignored until the
     /// physical button is released, so one gesture cannot be split between
@@ -8156,106 +8682,151 @@ fn client_focus_identity() -> Option<String> {
     Some(id)
 }
 
+/// Restore client-local selection across a daemon snapshot. Public resource
+/// ids are semantic identity and therefore win over reallocated runtime ids.
+/// Runtime ids are used only for legacy snapshots that have no public ids on
+/// either side. A partial public-id pair fails closed.
+fn preserve_identity_matches<R: PartialEq, P: PartialEq>(
+    previous_runtime: &R,
+    next_runtime: &R,
+    previous_public: Option<&P>,
+    next_public: Option<&P>,
+) -> bool {
+    match (previous_public, next_public) {
+        (Some(previous), Some(next)) => previous == next,
+        (None, None) => previous_runtime == next_runtime,
+        _ => false,
+    }
+}
+
+fn preserve_workspace_matches(previous: &WorkspaceView, next: &WorkspaceView) -> bool {
+    match (previous.resource_id.as_ref(), next.resource_id.as_ref()) {
+        (Some(previous), Some(next)) => previous == next,
+        (None, None) if !previous.key.is_empty() && !next.key.is_empty() => {
+            previous.key == next.key
+        }
+        (None, None) => previous.id == next.id,
+        _ => false,
+    }
+}
+
+fn matching_workspace_index(next: &TreeView, previous: &WorkspaceView) -> Option<usize> {
+    next.workspaces().iter().enumerate().find_map(|(index, candidate)| {
+        preserve_workspace_matches(previous, candidate).then_some(index)
+    })
+}
+
+fn matching_screen_index(
+    next: &WorkspaceView,
+    previous: &ScreenView,
+) -> Option<usize> {
+    next.screens.iter().enumerate().find_map(|(index, candidate)| {
+        preserve_identity_matches(
+            &previous.id,
+            &candidate.id,
+            previous.resource_id.as_ref(),
+            candidate.resource_id.as_ref(),
+        )
+            .then_some(index)
+    })
+}
+
+fn matching_pane_index(next: &ScreenView, previous: &PaneView) -> Option<usize> {
+    next.panes.iter().enumerate().find_map(|(index, candidate)| {
+        preserve_identity_matches(
+            &previous.id,
+            &candidate.id,
+            previous.resource_id.as_ref(),
+            candidate.resource_id.as_ref(),
+        )
+            .then_some(index)
+    })
+}
+
+fn matching_tab_index(next: &PaneView, previous: &TabView) -> Option<usize> {
+    next.tabs.iter().enumerate().find_map(|(index, candidate)| {
+        preserve_identity_matches(
+            &previous.surface,
+            &candidate.surface,
+            previous.public_id.as_ref(),
+            candidate.public_id.as_ref(),
+        )
+            .then_some(index)
+    })
+}
+
 fn preserve_client_view(previous: &TreeView, next: &mut TreeView) {
-    let workspace_indices = next
-        .workspaces()
-        .iter()
-        .enumerate()
-        .map(|(index, workspace)| (workspace.id, index))
-        .collect::<HashMap<_, _>>();
-    if let Some(active) = previous.active_workspace().map(|workspace| workspace.id)
-        && let Some(index) = workspace_indices.get(&active).copied()
+    if let Some(previous_active) = previous.active_workspace()
+        && let Some(index) = matching_workspace_index(next, previous_active)
     {
         next.active_workspace = index;
     }
 
     let mut screen_updates = Vec::new();
     let mut pane_updates = Vec::new();
+    let mut zoom_updates = Vec::new();
     let mut tab_updates = Vec::new();
     for previous_workspace in previous.workspaces() {
-        let Some(next_workspace_index) = workspace_indices.get(&previous_workspace.id).copied()
-        else {
+        let Some(next_workspace_index) = matching_workspace_index(next, previous_workspace) else {
             continue;
         };
-        let Some(screen_indices) = next.workspaces().get(next_workspace_index).map(|workspace| {
-            workspace
-                .screens
-                .iter()
-                .enumerate()
-                .map(|(index, screen)| (screen.id, index))
-                .collect::<HashMap<_, _>>()
-        }) else {
+        let Some(next_workspace) = next.workspaces().get(next_workspace_index) else {
             continue;
         };
-        if let Some(active) =
-            previous_workspace.screens.get(previous_workspace.active_screen).map(|screen| screen.id)
-            && let Some(index) = screen_indices.get(&active).copied()
+        if let Some(previous_active_screen) =
+            previous_workspace.screens.get(previous_workspace.active_screen)
+            && let Some(index) = matching_screen_index(next_workspace, previous_active_screen)
         {
             screen_updates.push((next_workspace_index, index));
         }
 
         for previous_screen in &previous_workspace.screens {
-            let Some(next_screen_index) = screen_indices.get(&previous_screen.id).copied() else {
-                continue;
-            };
-            let Some((zoomed_pane, pane_indices)) = next
-                .workspaces()
-                .get(next_workspace_index)
-                .and_then(|workspace| workspace.screens.get(next_screen_index))
-                .map(|screen| {
-                    (
-                        screen.zoomed_pane,
-                        screen
-                            .panes
-                            .iter()
-                            .enumerate()
-                            .map(|(index, pane)| (pane.id, index))
-                            .collect::<HashMap<_, _>>(),
-                    )
-                })
+            let Some(next_screen_index) = matching_screen_index(next_workspace, previous_screen)
             else {
                 continue;
             };
-            if let Some(zoomed_pane) =
-                zoomed_pane.filter(|zoomed| pane_indices.contains_key(zoomed))
+            let Some(next_screen) = next_workspace.screens.get(next_screen_index) else {
+                continue;
+            };
+            // Zoom is a screen-wide layout state, so keep it paired with the
+            // active pane. An incoming valid zoom wins because it is
+            // authoritative layout state. When the incoming frame is
+            // unzoomed, restore this client's previous active pane instead.
+            // This prevents the impossible state of an active pane outside a
+            // zoomed screen while still preserving local focus on ordinary
+            // remote refreshes.
+            let incoming_zoomed = next_screen.zoomed_pane.filter(|pane_id| {
+                next_screen.panes.iter().any(|pane| pane.id == *pane_id)
+            });
+            zoom_updates.push((next_workspace_index, next_screen_index, incoming_zoomed));
+            if let Some(pane_id) = incoming_zoomed {
+                pane_updates.push((next_workspace_index, next_screen_index, pane_id));
+            } else if let Some(previous_pane) =
+                previous_screen.panes.iter().find(|pane| pane.id == previous_screen.active_pane)
+                && let Some(index) = matching_pane_index(next_screen, previous_pane)
+                && let Some(next_pane) = next_screen.panes.get(index)
             {
-                pane_updates.push((next_workspace_index, next_screen_index, zoomed_pane));
-            } else if zoomed_pane.is_none()
-                && pane_indices.contains_key(&previous_screen.active_pane)
-            {
-                pane_updates.push((
-                    next_workspace_index,
-                    next_screen_index,
-                    previous_screen.active_pane,
-                ));
+                pane_updates.push((next_workspace_index, next_screen_index, next_pane.id));
             }
 
             for previous_pane in &previous_screen.panes {
-                let Some(next_pane_index) = pane_indices.get(&previous_pane.id).copied() else {
+                let Some(next_pane_index) = matching_pane_index(next_screen, previous_pane) else {
                     continue;
                 };
-                let Some((pane_id, tab_indices)) = next
-                    .workspaces()
-                    .get(next_workspace_index)
-                    .and_then(|workspace| workspace.screens.get(next_screen_index))
-                    .and_then(|screen| screen.panes.get(next_pane_index))
-                    .map(|pane| {
-                        (
-                            pane.id,
-                            pane.tabs
-                                .iter()
-                                .enumerate()
-                                .map(|(index, tab)| (tab.surface, index))
-                                .collect::<HashMap<_, _>>(),
-                        )
-                    })
-                else {
+                let Some(next_pane) = next_screen.panes.get(next_pane_index) else {
                     continue;
                 };
-                if let Some(active) = previous_pane.active_surface()
-                    && let Some(index) = tab_indices.get(&active).copied()
+                if let Some(active_surface) = previous_pane.active_surface()
+                    && let Some(previous_tab) =
+                        previous_pane.tabs.iter().find(|tab| tab.surface == active_surface)
+                    && let Some(index) = matching_tab_index(next_pane, previous_tab)
                 {
-                    tab_updates.push((next_workspace_index, next_screen_index, pane_id, index));
+                    tab_updates.push((
+                        next_workspace_index,
+                        next_screen_index,
+                        next_pane.id,
+                        index,
+                    ));
                 }
             }
         }
@@ -8265,6 +8836,15 @@ fn preserve_client_view(previous: &TreeView, next: &mut TreeView) {
     }
     for (workspace_index, screen_index, pane_id) in pane_updates {
         next.set_active_pane(workspace_index, screen_index, pane_id);
+    }
+    for (workspace_index, screen_index, zoomed_pane) in zoom_updates {
+        if let Some(screen) = next
+            .workspaces_mut()
+            .get_mut(workspace_index)
+            .and_then(|workspace| workspace.screens.get_mut(screen_index))
+        {
+            screen.zoomed_pane = zoomed_pane;
+        }
     }
     for (workspace_index, screen_index, pane_id, tab_index) in tab_updates {
         next.set_active_tab(workspace_index, screen_index, pane_id, tab_index);
@@ -10856,7 +11436,10 @@ fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Result<RunOutc
         pty_failures,
         mux_recovery_generation,
         drag: None,
+        files_pointer_owner: None,
+        layout_resize_expectations: [None, None],
         active_pointer_buttons: HashSet::new(),
+        pointer_button_surfaces: HashMap::new(),
         ignored_pointer_buttons: HashSet::new(),
         canceled_pointer_buttons: HashSet::new(),
         #[cfg(test)]
@@ -12060,16 +12643,26 @@ impl App {
     }
 
     fn cancel_sidebar_layout_drag(&mut self) {
-        if matches!(
-            self.drag,
-            Some(
-                Drag::RailResize(_)
-                    | Drag::SidebarSplit { .. }
+        let should_cancel = self.drag.as_ref().is_some_and(|drag| {
+            matches!(
+                drag,
+                Drag::TabArm { .. }
+                    | Drag::Tab { .. }
+                    | Drag::WorkspaceArm { .. }
+                    | Drag::Workspace { .. }
                     | Drag::WorkspaceScrollbar { .. }
                     | Drag::FilesScrollbar { .. }
+                    | Drag::HorizontalScrollbar { .. }
+                    | Drag::RailResize(_)
+                    | Drag::SidebarSplit { .. }
+                    | Drag::ResizeSplit { .. }
             )
-        ) {
-            self.drag = None;
+        });
+        if should_cancel {
+            // A sidebar profile or visibility change replaces the coordinate
+            // frame. Fence the physical release and discard frozen geometry,
+            // including pane captures that were shifted by the new width.
+            self.cancel_pointer_interaction_with_split_settle(false);
         }
     }
 
@@ -13442,6 +14035,7 @@ impl App {
             .as_ref()
             .is_some_and(|prompt| matches!(prompt.target, PromptTarget::ConnectMachine(_)))
         {
+            self.cancel_pointer_before_modal();
             self.prompt = None;
         }
     }
@@ -14013,6 +14607,7 @@ impl App {
                 != update.managed_machines();
         if provider_changed {
             if self.menu.as_ref().is_some_and(ContextMenu::targets_provider_state) {
+                self.cancel_pointer_before_modal();
                 self.menu = None;
             }
             if self.prompt.as_ref().is_some_and(|prompt| {
@@ -14027,6 +14622,7 @@ impl App {
                         | PromptTarget::ConfirmPurgeManagedMachine(_)
                 )
             }) {
+                self.cancel_pointer_before_modal();
                 self.prompt = None;
                 self.pending_provider_action = None;
             }
@@ -14054,10 +14650,25 @@ impl App {
         let notice = update.notice.clone();
         self.machine_ui = Some(update);
         let next_machine_topology = machine_sidebar_pointer_topology(self.machine_ui.as_ref());
+        let machine_topology_changed = previous_machine_topology != next_machine_topology;
         let recoverable_workspaces_changed = previous_machine_topology.recoverable_workspace_ids
             != next_machine_topology.recoverable_workspace_ids;
         let workspace_creation_policy_changed = previous_machine_topology.workspace_creation_policy
             != next_machine_topology.workspace_creation_policy;
+        if machine_topology_changed {
+            // Machine presence, ordering, and action rows participate in the
+            // shared sidebar solver. A snapshot can arrive while any rail or
+            // pane divider is held, so retire frozen layout captures before
+            // the next frame repacks the columns.
+            self.invalidate_sidebar_layout_captures();
+            if previous_machine_topology.present != next_machine_topology.present {
+                // Adding or removing the machine column can also change the
+                // host column's width in an explicit stacked layout. Files'
+                // scrollbar rows are otherwise independent of a catalog
+                // refresh, so fence them only for this real mount change.
+                self.invalidate_sidebar_pointer_domains(&[SidebarPointerDomain::Files]);
+            }
+        }
         if workspace_creation_policy_changed {
             // Files and Workspaces share one host. Provider creation modes
             // change the action footer and therefore the Files body and
@@ -14261,6 +14872,10 @@ impl App {
     }
 
     fn reset_session_presentation(&mut self, tree: TreeView) {
+        // A replacement session invalidates every rendered coordinate and
+        // surface handle. Fence pointer ownership before clearing the old
+        // presentation, including a plain press with no drag variant.
+        self.invalidate_pointer_topology_without_split_settle();
         for surface in self.tab_locations.keys().copied().collect::<Vec<_>>() {
             self.browser_input.forget_surface(surface);
         }
@@ -14347,7 +14962,9 @@ impl App {
         self.applied_destination_generation = 0;
         self.pending_session_completions.clear();
         self.drag = None;
+        self.files_pointer_owner = None;
         self.active_pointer_buttons.clear();
+        self.pointer_button_surfaces.clear();
         self.ignored_pointer_buttons.clear();
         self.encode_buf.clear();
     }
@@ -15561,13 +16178,15 @@ impl App {
     }
 
     fn replace_tree(&mut self, mut tree: TreeView) {
-        let previous_sidebar_topology = sidebar_tree_pointer_topology(&self.tree);
+        let previous_pointer_topology = self
+            .pointer_topology_capture_active()
+            .then(|| sidebar_tree_pointer_topology(&self.tree));
         let previous_active = self.active_pane();
         let selected_workspace = self
             .tree
             .workspaces()
             .get(self.sidebar_workspace_selection)
-            .map(|workspace| workspace.id);
+            .cloned();
         preserve_client_view(&self.tree, &mut tree);
         let first_adoption = self.reported_focus.is_none();
         if first_adoption {
@@ -15583,12 +16202,14 @@ impl App {
             tree = TreeView::default();
             self.quit = true;
         }
-        if previous_sidebar_topology != sidebar_tree_pointer_topology(&tree) {
-            self.invalidate_sidebar_pointer_domains(&[
-                SidebarPointerDomain::Workspace,
-                SidebarPointerDomain::Tabs,
-                SidebarPointerDomain::Projection,
-            ]);
+        // `TreeChanged` and direct authoritative refreshes can reuse every
+        // stable id while changing split ratios, active targets, or viewport
+        // widths. Compare the complete input-bearing frame only while a
+        // pointer owner exists. Ordinary title/status refreshes therefore do
+        // not allocate a second full-tree fingerprint on every draw.
+        if let Some(previous) = previous_pointer_topology {
+            let next = sidebar_tree_pointer_topology(&tree);
+            self.handle_tree_pointer_topology_change(&previous, &next);
         }
         let live_browsers = tree
             .workspaces()
@@ -15625,7 +16246,10 @@ impl App {
         self.invalidate_projection_rows_cache();
         self.sidebar_workspace_selection = selected_workspace
             .and_then(|selected| {
-                self.tree.workspaces().iter().position(|workspace| workspace.id == selected)
+                self.tree
+                    .workspaces()
+                    .iter()
+                    .position(|workspace| preserve_workspace_matches(&selected, workspace))
             })
             .unwrap_or_else(|| {
                 self.sidebar_workspace_selection.min(self.tree.workspaces().len().saturating_sub(1))
@@ -15677,8 +16301,37 @@ impl App {
         // whose target was this surface. Cancel it before clearing selection
         // metadata or the surface handle, so browser/PTY releases can still
         // be attempted and the physical button release remains fenced.
-        if self.surface_owns_pointer_interaction(surface) {
+        let topology_capture = self.drag.as_ref().is_some_and(|drag| {
+            matches!(
+                drag,
+                Drag::TabArm { .. }
+                    | Drag::Tab { .. }
+                    | Drag::WorkspaceArm { .. }
+                    | Drag::Workspace { .. }
+                    | Drag::WorkspaceScrollbar { .. }
+                    | Drag::HorizontalScrollbar { .. }
+                    | Drag::RailResize(_)
+                    | Drag::SidebarSplit { .. }
+                    | Drag::ResizeSplit { .. }
+            )
+        });
+        if topology_capture {
+            // A surface exit can collapse a pane, change the active screen,
+            // or repack the sidebar. These captures store frozen geometry,
+            // so cancel them even when the removed surface was not their
+            // explicit leaf target. Never settle a split against the retired
+            // tree.
+            self.invalidate_pointer_topology_without_split_settle();
+        } else if self.surface_owns_pointer_interaction(surface) {
             self.cancel_pointer_interaction();
+        }
+        if self.prompt.as_ref().is_some_and(|prompt| {
+            matches!(prompt.target, PromptTarget::Surface(target) if target == surface)
+        }) {
+            // A rename dialog targeting an exited surface cannot be committed
+            // safely. Close it while the target is still identifiable, rather
+            // than leaving a dialog whose RPC silently targets nothing.
+            self.close_prompt();
         }
         if self
             .selection_click_sequence
@@ -15718,6 +16371,7 @@ impl App {
             self.replace_selection(None);
         }
         if self.omnibar.as_ref().is_some_and(|state| state.surface == surface) {
+            self.cancel_pointer_before_modal();
             self.omnibar = None;
         }
         if self.last_browser_hover.is_some_and(|(hovered, _, _, _)| hovered == surface) {
@@ -15750,6 +16404,7 @@ impl App {
             _ => false,
         };
         drag_owns_surface
+            || self.pointer_button_surfaces.values().any(|candidate| *candidate == surface)
             || self
                 .selection_click_sequence
                 .as_ref()
@@ -16096,6 +16751,11 @@ impl App {
     }
 
     fn clear_empty_frame_geometry(&mut self) {
+        // A zero-sized frame removes every hit rectangle. Any capture still
+        // points at the previous frame, so fence it before dropping the
+        // geometry. Do not settle a split against a frame that no longer
+        // exists.
+        self.invalidate_pointer_topology_without_split_settle();
         self.sidebar_layout = SidebarLayout::default();
         self.sidebar_layout_reuse_spec = None;
         self.sidebar_width = 0;
@@ -16622,6 +17282,11 @@ impl App {
         {
             self.config_reload_applications += 1;
         }
+        // Configuration can change every input-bearing layout field, not
+        // only the sidebar profile identity. Treat the reload as one
+        // topology boundary so row height, gaps, pane padding, plugin state,
+        // and future layout options cannot reuse a frozen capture.
+        self.invalidate_pointer_topology_without_split_settle();
         // `sidebar.view` is the startup/configured mode. Runtime toggles are
         // frontend state, so a reload caused by an unrelated config change
         // must not silently move an open Files mount back to Workspaces. An
@@ -16998,6 +17663,44 @@ impl App {
         self.session.surface_cwd(surface).map(PathBuf::from)
     }
 
+    fn focused_surface_owner(&self) -> Option<ActiveSurfaceOwner> {
+        let screen = self.tree.active_screen()?;
+        let pane = screen.panes.iter().find(|pane| pane.id == screen.active_pane)?;
+        let tab = pane.tabs.get(pane.active_tab)?;
+        Some(ActiveSurfaceOwner {
+            surface: tab.surface,
+            public_id: tab.public_id.clone(),
+            kind: tab.kind,
+            content_id: tab.content_id.clone(),
+        })
+    }
+
+    fn current_files_pointer_owner(&self) -> FilesPointerOwner {
+        let pinned = self.sidebar_files.is_pinned();
+        FilesPointerOwner {
+            // A pinned Files view is deliberately independent of focus. Its
+            // owner is the mounted file browser, not the active terminal.
+            active: if pinned { None } else { self.focused_surface_owner() },
+            pinned,
+            topology_revision: self.sidebar_files_pointer_topology(),
+        }
+    }
+
+    /// Synthetic tests and older callers can construct a Files drag directly.
+    /// Admit such a drag against the current frame before the first motion or
+    /// release. Normal mouse-down paths always set this token eagerly.
+    fn ensure_files_pointer_owner(&mut self) {
+        if matches!(self.drag, Some(Drag::FilesScrollbar { .. }))
+            && self.files_pointer_owner.is_none()
+        {
+            self.files_pointer_owner = Some(self.current_files_pointer_owner());
+        }
+    }
+
+    fn files_pointer_capture_is_current(&self) -> bool {
+        self.files_pointer_owner.as_ref() == Some(&self.current_files_pointer_owner())
+    }
+
     fn sync_sidebar_files_to_focus(&mut self, force: bool) -> bool {
         if self.config.sidebar.plugin.is_some()
             || self.sidebar_view != SidebarView::Files
@@ -17005,18 +17708,27 @@ impl App {
         {
             return false;
         }
-        let focused = self.tree.active_surface();
+        let focused = self.focused_surface_owner();
         if !force && focused == self.sidebar_followed_surface {
             return false;
         }
-        if focused != self.sidebar_followed_surface {
+        let owner_changed = focused != self.sidebar_followed_surface;
+        if owner_changed {
             // Provider actions are contextual to the focused surface. A
             // surface switch must not leave Enter armed for an old action or
             // reopen its old action viewport after the cwd follows.
+            self.invalidate_sidebar_pointer_domains(&[SidebarPointerDomain::Files]);
             self.reset_files_action_position();
         }
+        let Some(cwd) = self.focused_surface_cwd() else {
+            // Keep the old owner from suppressing a retry. Remote surfaces
+            // can become focusable before their cwd metadata arrives.
+            if owner_changed {
+                self.sidebar_followed_surface = None;
+            }
+            return false;
+        };
         self.sidebar_followed_surface = focused;
-        let Some(cwd) = self.focused_surface_cwd() else { return false };
         let before = self.sidebar_files_pointer_topology();
         let changed = self.sidebar_files.follow_focused_cwd(&cwd);
         if changed && before != self.sidebar_files_pointer_topology() {
@@ -17027,6 +17739,19 @@ impl App {
 
     fn sidebar_files_pointer_topology(&self) -> u64 {
         self.sidebar_files.pointer_topology_revision()
+    }
+
+    /// Apply text to the Files filter and retire the old row capture when the
+    /// filter changes the visible topology. Paste and keyboard input must use
+    /// the same boundary, otherwise a paste can leave a scrollbar attached to
+    /// rows that no longer exist.
+    fn insert_sidebar_files_filter_text(&mut self, text: &str) -> bool {
+        let before = self.sidebar_files_pointer_topology();
+        let changed = self.sidebar_files.insert_filter_text(text);
+        if before != self.sidebar_files_pointer_topology() {
+            self.invalidate_sidebar_pointer_domains(&[SidebarPointerDomain::Files]);
+        }
+        changed
     }
 
     fn refresh_sidebar_files(&mut self) {
@@ -17611,6 +18336,9 @@ impl App {
 
     fn sync_sidebar_plugin(&mut self, relaunch: bool) -> bool {
         if self.config.sidebar.plugin.is_none() {
+            if self.sidebar_plugin_surface.is_some() {
+                self.invalidate_pointer_topology_without_split_settle();
+            }
             self.session.invalidate_sidebar_plugin_sync();
             self.sidebar_plugin_surface = None;
             self.sidebar_plugin_error = None;
@@ -17620,6 +18348,9 @@ impl App {
             return false;
         }
         if self.sidebar_width < 3 || !self.sidebar_visible {
+            if self.sidebar_plugin_surface.is_some() {
+                self.invalidate_pointer_topology_without_split_settle();
+            }
             self.session.invalidate_sidebar_plugin_sync();
             self.sidebar_plugin_surface = None;
             self.sidebar_plugin_error = None;
@@ -17662,6 +18393,9 @@ impl App {
 
     fn apply_sidebar_plugin_status(&mut self, status: SidebarPluginSurface, relaunch: bool) {
         if self.config.sidebar.plugin.is_none() {
+            if self.sidebar_plugin_surface.is_some() {
+                self.invalidate_pointer_topology_without_split_settle();
+            }
             self.session.invalidate_sidebar_plugin_sync();
             self.sidebar_plugin_surface = None;
             self.sidebar_plugin_error = None;
@@ -17671,6 +18405,9 @@ impl App {
             return;
         }
         if !self.sidebar_visible {
+            if self.sidebar_plugin_surface.is_some() {
+                self.invalidate_pointer_topology_without_split_settle();
+            }
             self.session.invalidate_sidebar_plugin_sync();
             self.sidebar_plugin_surface = None;
             self.sidebar_plugin_error = None;
@@ -17680,19 +18417,26 @@ impl App {
             self.sidebar_focus_pending = false;
             return;
         }
-        let had_surface = self.sidebar_plugin_surface.is_some();
+        let previous_surface = self.sidebar_plugin_surface;
+        if previous_surface != status.surface_id {
+            // The plugin surface is a terminal-backed hit-test owner. A
+            // replacement or first successful surface changes that route,
+            // so a release from the old frame must be consumed.
+            self.invalidate_pointer_topology_without_split_settle();
+        }
         self.sidebar_plugin_surface = status.surface_id;
         self.sidebar_plugin_error = status.error;
         self.sidebar_plugin_retry_after_ms = status.retry_after_ms;
         self.sidebar_plugin_retry_at =
             status.retry_after_ms.map(|delay_ms| Instant::now() + Duration::from_millis(delay_ms));
-        if had_surface && self.sidebar_plugin_surface.is_none() {
+        if previous_surface.is_some() && self.sidebar_plugin_surface.is_none() {
             self.session.invalidate_sidebar_plugin_sync();
         }
         if self.sidebar_focus_pending && (self.sidebar_plugin_surface.is_some() || relaunch) {
             self.sidebar_focus_pending = false;
             if self.sidebar_plugin_surface.is_some() {
                 self.focus = FocusTarget::WorkspaceRail;
+                self.cancel_pointer_before_modal();
                 self.menu = None;
                 self.prompt = None;
                 self.omnibar = None;
@@ -17803,13 +18547,28 @@ impl App {
             }
         }
         match &event {
-            AppEvent::Mux(MuxEvent::LayoutChanged(_)) => {
+            AppEvent::Mux(MuxEvent::LayoutChanged(screen)) => {
+                if !self.layout_resize_event_is_expected(*screen) {
+                    self.invalidate_pane_layout_capture(*screen);
+                }
                 self.session.refresh_remote_tree_if_stale();
             }
             AppEvent::NormalizedInput(input) if input.is_routable() => {
                 self.session.refresh_remote_tree_if_stale();
             }
             AppEvent::Mux(MuxEvent::TreeChanged) => {
+                // Older transports can report a layout change without a
+                // screen id as TreeChanged. The tree may retain the same
+                // resource ids while its split geometry changes, so the
+                // identity comparison in replace_tree is not sufficient.
+                // Fence only geometry captures here; Files row ownership is
+                // independent and remains usable through a catalog refresh.
+                let expected_resize = self
+                    .active_screen_id()
+                    .is_some_and(|screen| self.layout_resize_event_is_expected(screen));
+                if !expected_resize {
+                    self.invalidate_sidebar_layout_captures();
+                }
                 if self.session.remote_tree_is_stale() {
                     self.session.refresh_remote_tree_if_stale();
                 } else {
@@ -18868,7 +19627,7 @@ impl App {
             }
             TerminalInput::FocusLost => {
                 self.prefix_armed = false;
-                let action = if self.cancel_pointer_interaction() {
+                let action = if self.cancel_pointer_interaction_with_split_settle(false) {
                     RenderAction::Draw
                 } else {
                     RenderAction::None
@@ -18880,7 +19639,7 @@ impl App {
                 // A resize replaces every sidebar rectangle. Release any
                 // pointer capture before the next frame, so a drag sampled
                 // against the old topology cannot mutate the new one.
-                self.invalidate_pointer_topology();
+                self.invalidate_pointer_topology_without_split_settle();
                 self.reassert_scoped_host_terminal_state();
                 if self.graphics_supported {
                     self.graphics_host_scene_reset_pending = true;
@@ -18937,7 +19696,7 @@ impl App {
                 })
             } else {
                 if self.sidebar_view == SidebarView::Files {
-                    self.sidebar_files.insert_filter_text(&text);
+                    self.insert_sidebar_files_filter_text(&text);
                 }
                 Ok(RenderAction::Draw)
             }
@@ -19127,21 +19886,281 @@ impl App {
     }
 
     fn advance_pointer_focus_generation(&mut self) {
+        // Every pointer-epoch boundary also retires deferred pane-layout
+        // mutations. This covers focus, modal, configuration, and topology
+        // paths that do not currently have a live Drag value.
+        self.session.invalidate_layout_resize_captures();
+        self.layout_resize_expectations = [None, None];
         self.discard_pointer_interaction();
         self.pointer_focus_generation = self.pointer_focus_generation.wrapping_add(1);
         self.deferred_input.retain(|input| !matches!(&input.event, TerminalInput::Mouse(_)));
         self.pending_pointer_motion = None;
         self.active_pointer_buttons.clear();
+        self.pointer_button_surfaces.clear();
         self.ignored_pointer_buttons.clear();
         self.reset_selection_click_sequence();
+    }
+
+    fn clear_layout_resize_expectations(&mut self) {
+        self.layout_resize_expectations = [None, None];
+    }
+
+    fn note_layout_resize_expectation(&mut self, expectation: LayoutResizeExpectation) {
+        let slot = match expectation {
+            LayoutResizeExpectation::Split { .. } => 0,
+            LayoutResizeExpectation::Viewport { .. } => 1,
+        };
+        self.layout_resize_expectations[slot] = Some(expectation);
+    }
+
+    fn layout_resize_event_is_expected(&self, screen: ScreenId) -> bool {
+        // The local mux emits LayoutChanged after applying the mutation, but
+        // before the event loop adopts the next TreeView snapshot. Read the
+        // session's live tree here so our own resize event is not mistaken for
+        // an external geometry replacement.
+        let live_tree = self.session.tree();
+        let Some(current) = live_tree
+            .workspaces()
+            .iter()
+            .flat_map(|workspace| workspace.screens.iter())
+            .find(|candidate| candidate.id == screen)
+        else {
+            return false;
+        };
+        self.layout_resize_expectations.iter().flatten().any(|expectation| match *expectation {
+            LayoutResizeExpectation::Split { screen: expected_screen, split, ratio }
+                if expected_screen == screen => {
+                    node_split_ratio(&current.layout, split).is_some_and(|current| current.to_bits() == ratio)
+                }
+            LayoutResizeExpectation::Viewport { screen: expected_screen, pane, width }
+                if expected_screen == screen => current
+                .layout
+                .viewport_column_owner(pane, &current.viewport_splits)
+                .and_then(|owner| match owner {
+                    ViewportColumn::Base => current.viewport_base_width,
+                    ViewportColumn::Split(split) => current.viewport_splits.get(&split).copied(),
+                })
+                .is_some_and(|current| current.to_bits() == width),
+            _ => false,
+        })
+    }
+
+    fn pointer_topology_capture_active(&self) -> bool {
+        self.drag.is_some()
+            || !self.active_pointer_buttons.is_empty()
+            || !self.pointer_button_surfaces.is_empty()
+            || self.selection.is_some()
+            || self.selection_mode_surface.is_some()
+            || self.selection_click_sequence.is_some()
+            || self.layout_resize_expectations.iter().any(Option::is_some)
+            || self.files_pointer_owner.is_some()
+            || self.deferred_pointer_capture_active()
+    }
+
+    fn deferred_pointer_capture_active(&self) -> bool {
+        self.pending_pointer_motion.is_some()
+            || self
+                .deferred_input
+                .iter()
+                .any(|input| matches!(input.event, TerminalInput::Mouse(_)))
     }
 
     /// End pointer capture at a boundary that replaces the visible geometry.
     /// Cancellation sends best-effort releases to browser and PTY surfaces;
     /// the generation advance drops retained mouse input from the old frame.
-    fn invalidate_pointer_topology(&mut self) {
-        self.cancel_pointer_interaction();
+    /// Invalidate a geometry-dependent pointer capture without committing a
+    /// pending split ratio. Remote topology changes and surface retirement
+    /// supersede the old ratio, so settling it would write stale geometry.
+    fn invalidate_pointer_topology_without_split_settle(&mut self) {
+        self.invalidate_pointer_topology_with_split_settle(false);
+    }
+
+    fn invalidate_pointer_topology_with_split_settle(&mut self, settle_split: bool) {
+        self.cancel_pointer_interaction_with_split_settle(settle_split);
         self.advance_pointer_focus_generation();
+    }
+
+    fn drag_surface(drag: &Drag) -> Option<SurfaceId> {
+        match drag {
+            Drag::TabArm { surface, .. }
+            | Drag::Tab { surface, .. }
+            | Drag::Browser { surface, .. }
+            | Drag::PtyMouse { surface, .. }
+            | Drag::Scrollbar { surface, .. } => Some(*surface),
+            _ => None,
+        }
+    }
+
+    fn surface_screen_id(&self, surface: SurfaceId) -> Option<ScreenId> {
+        let [workspace, screen, _, _] = self.tab_locations.get(&surface).copied()?;
+        self.tree.workspaces().get(workspace)?.screens.get(screen).map(|screen| screen.id)
+    }
+
+    fn drag_belongs_to_screen(&self, drag: &Drag, screen: ScreenId) -> bool {
+        match drag {
+            Drag::HorizontalScrollbar { screen: captured, .. }
+            | Drag::ResizeSplit { screen: captured, .. } => *captured == screen,
+            Drag::Select { .. } => self
+                .selection_mode_surface
+                .or_else(|| self.selection_click_sequence.as_ref().map(|sequence| sequence.surface))
+                .or_else(|| self.selection.as_ref().map(|selection| selection.surface))
+                .and_then(|surface| self.surface_screen_id(surface))
+                == Some(screen),
+            _ => Self::drag_surface(drag).and_then(|surface| self.surface_screen_id(surface))
+                == Some(screen),
+        }
+    }
+
+    /// Cancel captures whose frozen pane geometry belongs to one screen when
+    /// that screen reports a remote layout change. Sidebar row captures stay
+    /// alive because their data owner is independent of the pane layout.
+    fn invalidate_pane_layout_capture(&mut self, screen: ScreenId) {
+        let should_cancel = self
+            .drag
+            .as_ref()
+            .is_some_and(|drag| self.drag_belongs_to_screen(drag, screen));
+        let plain_pane_press = self
+            .pointer_button_surfaces
+            .values()
+            .copied()
+            .any(|surface| self.surface_screen_id(surface) == Some(screen));
+        if should_cancel || plain_pane_press || self.deferred_pointer_capture_active() {
+            self.cancel_pointer_interaction_with_split_settle(false);
+            self.advance_pointer_focus_generation();
+        }
+    }
+
+    /// Cancel content captures after an identity replacement. A tab or pane
+    /// can retain its runtime number while changing its semantic resource or
+    /// terminal/browser route, so frozen content coordinates are no longer
+    /// trustworthy even when split geometry did not move.
+    fn invalidate_content_pointer_capture(&mut self) {
+        let content_capture = self.drag.as_ref().is_some_and(|drag| {
+            matches!(
+                drag,
+                Drag::TabArm { .. }
+                    | Drag::Tab { .. }
+                    | Drag::Select { .. }
+                    | Drag::Browser { .. }
+                    | Drag::PtyMouse { .. }
+                    | Drag::Scrollbar { .. }
+            )
+        });
+        if content_capture || !self.pointer_button_surfaces.is_empty() {
+            self.cancel_pointer_interaction_with_split_settle(false);
+            self.advance_pointer_focus_generation();
+        }
+    }
+
+    /// A mouse event waiting behind a session mutation still owns the old
+    /// rendered hit frame, even though it has not reached
+    /// `admit_pointer_event` and therefore has no Drag or button entry yet.
+    fn invalidate_deferred_pointer_capture(&mut self) {
+        if self.deferred_pointer_capture_active() {
+            self.invalidate_pointer_topology_without_split_settle();
+        }
+    }
+
+    /// Apply the smallest pointer boundary for a tree replacement. Rail rows,
+    /// pane content, and the unpinned Files owner have different lifetimes;
+    /// one global fence would make an unrelated workspace update interrupt a
+    /// Files inspection or a valid local resize.
+    fn handle_tree_pointer_topology_change(
+        &mut self,
+        previous: &SidebarTreePointerTopology,
+        next: &SidebarTreePointerTopology,
+    ) {
+        if previous == next {
+            return;
+        }
+        let identity_changed = !previous.identity_eq(next);
+        if identity_changed {
+            self.invalidate_sidebar_pointer_domains(&[
+                SidebarPointerDomain::Workspace,
+                SidebarPointerDomain::Tabs,
+                SidebarPointerDomain::Projection,
+            ]);
+            self.invalidate_content_pointer_capture();
+            self.invalidate_deferred_pointer_capture();
+        }
+        if !previous.active_surface_identity_eq(next) && !self.sidebar_files.is_pinned() {
+            // Force the next Files tick to follow the replacement cwd. The
+            // old owner token must not suppress that retry when runtime ids
+            // were reused for a new tab.
+            self.sidebar_followed_surface = None;
+            self.invalidate_sidebar_pointer_domains(&[SidebarPointerDomain::Files]);
+            self.invalidate_deferred_pointer_capture();
+        }
+        for change in previous.geometry_changes(next) {
+            let split_changes_expected = change.split_ratios.iter().all(|(split, _, actual)| {
+                self.layout_resize_expectations.iter().flatten().any(|expectation| {
+                    matches!(
+                        expectation,
+                        LayoutResizeExpectation::Split { screen, split: expected_split, ratio }
+                            if *screen == change.screen
+                                && *expected_split == *split
+                                && *ratio == *actual
+                    )
+                })
+            });
+            let viewport_geometry_changed = change.viewport_base_changed
+                || change.viewport_split_values_changed
+                || !change.viewport_widths.is_empty();
+            let viewport_changes_expected = if !viewport_geometry_changed {
+                true
+            } else {
+                // Resizing one viewport column changes every pane in that
+                // column. One expectation is valid only when it covers the
+                // target pane, every changed pane receives that same new
+                // width, and the base column or split map reaches the same
+                // expected width. A second unrelated width change therefore
+                // cancels.
+                self.layout_resize_expectations.iter().flatten().any(|expectation| {
+                    let LayoutResizeExpectation::Viewport { screen, pane, width } = *expectation
+                    else {
+                        return false;
+                    };
+                    let width_changes_expected = !change.viewport_widths.is_empty()
+                        && change.viewport_widths.iter().any(|(changed_pane, _, _)| *changed_pane == pane)
+                        && change.viewport_widths.iter().all(|(_, _, actual)| *actual == width);
+                    screen == change.screen
+                        && width_changes_expected
+                        && (!change.viewport_base_changed
+                            || change.viewport_base_width == Some(width))
+                        && (!change.viewport_split_values_changed || width_changes_expected)
+                })
+            };
+            if !split_changes_expected || !viewport_changes_expected {
+                self.invalidate_pane_layout_capture(change.screen);
+            }
+        }
+    }
+
+    /// A sidebar layout snapshot can move every mounted native rail. Cancel
+    /// captures whose rows or geometry come from that solver, while keeping a
+    /// Files scrollbar alive through a machine catalog update that does not
+    /// change the host column.
+    fn invalidate_sidebar_layout_captures(&mut self) {
+        let should_cancel = self.drag.as_ref().is_some_and(|drag| {
+            matches!(
+                drag,
+                Drag::TabArm { .. }
+                    | Drag::Tab { .. }
+                    | Drag::WorkspaceArm { .. }
+                    | Drag::Workspace { .. }
+                    | Drag::WorkspaceScrollbar { .. }
+                    | Drag::HorizontalScrollbar { .. }
+                    | Drag::RailResize(_)
+                    | Drag::SidebarSplit { .. }
+                    | Drag::ResizeSplit { .. }
+            )
+        });
+        if should_cancel || self.deferred_pointer_capture_active() {
+            self.cancel_pointer_interaction_with_split_settle(false);
+            self.advance_pointer_focus_generation();
+        } else {
+            self.session.invalidate_layout_resize_captures();
+        }
     }
 
     /// Cancel a row capture only when its data owner changed. A machine
@@ -19157,6 +20176,18 @@ impl App {
                 )
                 | (SidebarPointerDomain::Files, Drag::FilesScrollbar { .. })
                 | (SidebarPointerDomain::Tabs, Drag::TabArm { .. } | Drag::Tab { .. }) => true,
+                // Workspace, tab, and projection topology changes can move
+                // the pane area and every sidebar divider. Frozen geometry
+                // must not be applied after that boundary.
+                (
+                    SidebarPointerDomain::Workspace
+                    | SidebarPointerDomain::Tabs
+                    | SidebarPointerDomain::Projection,
+                    Drag::HorizontalScrollbar { .. }
+                    | Drag::RailResize(_)
+                    | Drag::SidebarSplit { .. }
+                    | Drag::ResizeSplit { .. },
+                ) => true,
                 // The current projection rows have no native drag gesture.
                 // Keep this arm explicit so a future projection drag cannot
                 // accidentally inherit another rail's invalidation policy.
@@ -19164,8 +20195,9 @@ impl App {
                 _ => false,
             })
         });
-        if should_cancel {
-            self.invalidate_pointer_topology();
+        if should_cancel || self.deferred_pointer_capture_active() {
+            self.cancel_pointer_interaction_with_split_settle(false);
+            self.advance_pointer_focus_generation();
         }
     }
 
@@ -19925,7 +20957,13 @@ impl App {
             self.set_viewport_target(target, true);
             target
         };
-        self.drag = Some(Drag::HorizontalScrollbar { track, anchor_x: x, anchor_offset });
+        let Some(screen) = self.active_screen_id() else { return };
+        self.drag = Some(Drag::HorizontalScrollbar {
+            screen,
+            track,
+            anchor_x: x,
+            anchor_offset,
+        });
     }
 
     pub fn dragging_workspace_scrollbar(&self) -> bool {
@@ -20436,7 +21474,11 @@ impl App {
         if self.status_selection.as_ref().is_some_and(|selection| selection.text != text) {
             self.status_selection = None;
             if matches!(self.drag, Some(Drag::StatusMessage { .. })) {
-                self.drag = None;
+                // The selected status row changed identity while the button
+                // was down. Consume the old gesture before drawing the new
+                // row so its release cannot copy or activate replacement
+                // content.
+                self.invalidate_pointer_topology_without_split_settle();
             }
         }
         // Every visible status message passes through here; persist each new
@@ -20462,7 +21504,7 @@ impl App {
         self.status_notice_text = None;
         self.status_selection = None;
         if matches!(self.drag, Some(Drag::StatusMessage { .. })) {
-            self.drag = None;
+            self.invalidate_pointer_topology_without_split_settle();
         }
     }
 
@@ -21420,7 +22462,7 @@ impl App {
             } else {
                 if self.sidebar_view == SidebarView::Files
                     && let Some(text) = input.text_for_direct_input()
-                    && self.sidebar_files.insert_filter_text(text)
+                    && self.insert_sidebar_files_filter_text(text)
                 {
                     return Ok(RenderAction::Draw);
                 }
@@ -22308,7 +23350,7 @@ impl App {
                     .focused_surface_cwd()
                     .unwrap_or_else(|| self.sidebar_files.fallback_cwd().to_path_buf());
                 self.reroot_sidebar_files(cwd);
-                self.sidebar_followed_surface = self.tree.active_surface();
+                self.sidebar_followed_surface = self.focused_surface_owner();
                 return;
             }
             FileCommand::Cd(path) => {
@@ -22370,6 +23412,7 @@ impl App {
 
     /// Commit the open rename dialog (Enter or the OK button).
     fn commit_prompt(&mut self) {
+        self.cancel_pointer_before_modal();
         if let Some((route, input)) = self.prompt.as_ref().and_then(|prompt| {
             matches!(prompt.target, PromptTarget::ConnectMachine(_)).then(|| {
                 let PromptTarget::ConnectMachine(route) = prompt.target else { unreachable!() };
@@ -22535,6 +23578,7 @@ impl App {
     }
 
     fn close_prompt(&mut self) {
+        self.cancel_pointer_before_modal();
         self.shake_frames = 0;
         self.prompt = None;
         if let Some(transaction) = self.connection_transaction.take() {
@@ -22583,8 +23627,11 @@ impl App {
                 }
             }
         }
-        let Some(prompt) = self.prompt.as_mut() else { return Ok(RenderAction::None) };
-        match prompt.input.handle_key(&key) {
+        let input_event = {
+            let Some(prompt) = self.prompt.as_mut() else { return Ok(RenderAction::None) };
+            prompt.input.handle_key(&key)
+        };
+        match input_event {
             InputEvent::Commit => self.commit_prompt(),
             InputEvent::Cancel => self.close_prompt(),
             InputEvent::Changed | InputEvent::None => {}
@@ -22632,32 +23679,36 @@ impl App {
     }
 
     fn handle_shortcut_help_key(&mut self, key: KeyEvent) -> RenderAction {
-        let Some(help) = self.shortcut_help.as_mut() else { return RenderAction::None };
-        let total_rows = help.rows.len();
-        let page = help.visible_rows.max(1) as isize;
-        let previous_offset = help.scroll_offset;
-        let mut close = false;
-        match key.code {
-            KeyCode::Esc => close = true,
-            KeyCode::Char('?')
-                if !key.modifiers.intersects(
-                    KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER,
-                ) =>
-            {
-                close = true;
+        let (close, changed) = {
+            let Some(help) = self.shortcut_help.as_mut() else { return RenderAction::None };
+            let total_rows = help.rows.len();
+            let page = help.visible_rows.max(1) as isize;
+            let previous_offset = help.scroll_offset;
+            let mut close = false;
+            match key.code {
+                KeyCode::Esc => close = true,
+                KeyCode::Char('?')
+                    if !key.modifiers.intersects(
+                        KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER,
+                    ) =>
+                {
+                    close = true;
+                }
+                KeyCode::Up | KeyCode::Char('k') => help.scroll_by(-1, total_rows),
+                KeyCode::Down | KeyCode::Char('j') => help.scroll_by(1, total_rows),
+                KeyCode::PageUp => help.scroll_by(-page, total_rows),
+                KeyCode::PageDown => help.scroll_by(page, total_rows),
+                KeyCode::Home => help.scroll_offset = 0,
+                KeyCode::End => help.scroll_offset = help.max_scroll(total_rows),
+                _ => {}
             }
-            KeyCode::Up | KeyCode::Char('k') => help.scroll_by(-1, total_rows),
-            KeyCode::Down | KeyCode::Char('j') => help.scroll_by(1, total_rows),
-            KeyCode::PageUp => help.scroll_by(-page, total_rows),
-            KeyCode::PageDown => help.scroll_by(page, total_rows),
-            KeyCode::Home => help.scroll_offset = 0,
-            KeyCode::End => help.scroll_offset = help.max_scroll(total_rows),
-            _ => {}
-        }
+            (close, help.scroll_offset != previous_offset)
+        };
         if close {
+            self.cancel_pointer_before_modal();
             self.shortcut_help = None;
             RenderAction::Paint
-        } else if help.scroll_offset != previous_offset {
+        } else if changed {
             RenderAction::Paint
         } else {
             RenderAction::None
@@ -22716,7 +23767,7 @@ impl App {
             // Closing the modal also retires its private scrollbar owner. A
             // different button may have caused the close, so cancel every
             // owner before fencing that button's eventual release.
-            self.cancel_pointer_interaction();
+            self.cancel_pointer_before_modal();
             if let MouseEventKind::Down(button) = mouse.kind {
                 self.suppress_pointer_button_until_release(button);
             }
@@ -22781,38 +23832,42 @@ impl App {
     }
 
     fn handle_omnibar_key(&mut self, key: KeyEvent) -> anyhow::Result<RenderAction> {
-        let Some(state) = self.omnibar.as_mut() else { return Ok(RenderAction::None) };
-        let replace_selection = state.select_all
-            && matches!(
+        let input_event = {
+            let Some(state) = self.omnibar.as_mut() else { return Ok(RenderAction::None) };
+            let replace_selection = state.select_all
+                && matches!(
+                    key.code,
+                    KeyCode::Backspace
+                        | KeyCode::Delete
+                        | KeyCode::Char(_)
+                            if !key.modifiers.intersects(keys::SHORTCUT_MODIFIERS)
+                );
+            if replace_selection {
+                state.input.clear();
+                state.select_all = false;
+            } else if matches!(
                 key.code,
-                KeyCode::Backspace
+                KeyCode::Left
+                    | KeyCode::Right
+                    | KeyCode::Home
+                    | KeyCode::End
+                    | KeyCode::Backspace
                     | KeyCode::Delete
-                    | KeyCode::Char(_)
-                        if !key.modifiers.intersects(keys::SHORTCUT_MODIFIERS)
-            );
-        if replace_selection {
-            state.input.clear();
-            state.select_all = false;
-        } else if matches!(
-            key.code,
-            KeyCode::Left
-                | KeyCode::Right
-                | KeyCode::Home
-                | KeyCode::End
-                | KeyCode::Backspace
-                | KeyCode::Delete
-        ) {
-            state.select_all = false;
-        }
-        if matches!(key.code, KeyCode::Char('a') | KeyCode::Char('A'))
-            && key.modifiers.contains(KeyModifiers::CONTROL)
-        {
-            state.select_all = true;
-            state.input.cursor = state.input.buffer.len();
-            return Ok(RenderAction::Draw);
-        }
-        match state.input.handle_key(&key) {
+            ) {
+                state.select_all = false;
+            }
+            if matches!(key.code, KeyCode::Char('a') | KeyCode::Char('A'))
+                && key.modifiers.contains(KeyModifiers::CONTROL)
+            {
+                state.select_all = true;
+                state.input.cursor = state.input.buffer.len();
+                return Ok(RenderAction::Draw);
+            }
+            state.input.handle_key(&key)
+        };
+        match input_event {
             InputEvent::Cancel => {
+                self.cancel_pointer_before_modal();
                 self.omnibar = None;
             }
             InputEvent::Commit => {
@@ -23063,7 +24118,7 @@ impl App {
             Action::ToggleSidebar => {
                 // Visibility changes repack the sidebar. End any gesture
                 // whose rectangles belong to the pre-toggle topology.
-                self.invalidate_pointer_topology();
+                self.invalidate_pointer_topology_without_split_settle();
                 self.sidebar_visible = !self.sidebar_visible;
                 if !self.sidebar_visible {
                     self.session.invalidate_sidebar_plugin_sync();
@@ -23079,7 +24134,7 @@ impl App {
             Action::ToggleSidebarCompact => {
                 // Compact mode changes rail widths and can move split
                 // dividers. Pointer capture must not cross that boundary.
-                self.invalidate_pointer_topology();
+                self.invalidate_pointer_topology_without_split_settle();
                 self.sidebar_compact = !self.sidebar_compact;
                 self.sidebar_visible = true;
                 self.rebuild_projection_surface_indexes();
@@ -23143,14 +24198,14 @@ impl App {
                 return Ok(RenderAction::Draw);
             }
             Action::ShowShortcuts => {
+                self.cancel_pointer_before_modal();
                 self.shortcut_help = if self.shortcut_help.is_some() {
                     None
                 } else {
-                    self.cancel_pointer_before_modal();
                     Some(ShortcutHelp::from_config(&self.config, self.surface_only.is_some()))
                 };
                 self.menu = None;
-                self.prompt = None;
+                self.close_prompt();
                 self.omnibar = None;
                 self.replace_selection(None);
                 return Ok(RenderAction::Draw);
@@ -23820,8 +24875,9 @@ impl App {
                     self.refresh_sidebar_files();
                 }
             }
+            self.cancel_pointer_before_modal();
             self.menu = None;
-            self.prompt = None;
+            self.close_prompt();
             self.omnibar = None;
             self.replace_selection(None);
         } else if requested {
@@ -23834,7 +24890,7 @@ impl App {
         // every row and scrollbar rectangle in that host. Release a capture
         // before changing the mode; an old Files drag must never mutate the
         // hidden browser after the host becomes Workspaces, or vice versa.
-        self.invalidate_pointer_topology();
+        self.invalidate_pointer_topology_without_split_settle();
         let sidebar_was_focused = self.sidebar_rail_focused();
         let next = self.sidebar_view.toggled();
         self.sidebar_view = next;
@@ -24443,13 +25499,14 @@ impl App {
                 // this button. A canceled release from the previous epoch
                 // must not suppress the new gesture.
                 self.canceled_pointer_buttons.remove(&button);
+                self.pointer_button_surfaces.remove(&button);
             }
-            MouseEventKind::Drag(button) => {
-                if self.canceled_pointer_buttons.contains(&button) {
-                    return Ok(RenderAction::None);
-                }
+            MouseEventKind::Drag(button) if self.canceled_pointer_buttons.contains(&button) => {
+                return Ok(RenderAction::None);
             }
+            MouseEventKind::Drag(_) => {}
             MouseEventKind::Up(button) => {
+                self.pointer_button_surfaces.remove(&button);
                 if self.canceled_pointer_buttons.remove(&button) {
                     return Ok(RenderAction::None);
                 }
@@ -24458,6 +25515,14 @@ impl App {
         }
         if !self.admit_pointer_event(mouse.kind) {
             return Ok(RenderAction::None);
+        }
+        if let MouseEventKind::Down(button) = mouse.kind {
+            self.remember_pointer_button_surface(
+                button,
+                mouse.column,
+                mouse.row,
+                terminal_admission.as_ref(),
+            );
         }
         if self.pairing_dialog.is_none() && self.shortcut_help.is_some() {
             return Ok(self.handle_shortcut_help_mouse(mouse));
@@ -24692,6 +25757,7 @@ impl App {
         );
         if matches!(release_capture, PtyMouseReleaseCapture::Failed) {
             self.active_pointer_buttons.remove(&button);
+            self.pointer_button_surfaces.remove(&button);
             return PtyMousePressResult::Consumed;
         }
         if !forwarded.owned {
@@ -24978,6 +26044,7 @@ impl App {
             self.cancel_pointer_interaction();
         }
         self.active_pointer_buttons.remove(&button);
+        self.pointer_button_surfaces.remove(&button);
         self.ignored_pointer_buttons.remove(&button);
         self.canceled_pointer_buttons.insert(button);
     }
@@ -25026,6 +26093,7 @@ impl App {
             }
             MouseEventKind::Up(button) => {
                 self.active_pointer_buttons.remove(&button);
+                self.pointer_button_surfaces.remove(&button);
             }
             _ => {}
         }
@@ -25075,6 +26143,8 @@ impl App {
     }
 
     fn cancel_pointer_interaction_with_split_settle(&mut self, settle_split: bool) -> bool {
+        self.clear_layout_resize_expectations();
+        self.files_pointer_owner = None;
         self.reset_selection_click_sequence();
         let drag_button = self.drag.as_ref().map(|drag| match drag {
             Drag::PtyMouse { button, .. } => *button,
@@ -25118,8 +26188,39 @@ impl App {
             }
         }
         self.active_pointer_buttons.clear();
+        self.pointer_button_surfaces.clear();
         self.ignored_pointer_buttons.clear();
         menu_scrollbar_dragged || shortcut_help_scrollbar_dragged || pointer_dragged
+    }
+
+    /// Remember the pane surface under a newly admitted press. A click on
+    /// pane chrome can have no `Drag` state, but its release still belongs to
+    /// the surface that was visible when the press started.
+    fn remember_pointer_button_surface(
+        &mut self,
+        button: MouseButton,
+        x: u16,
+        y: u16,
+        terminal_admission: Option<&TerminalPointerAdmission>,
+    ) {
+        if self.pairing_dialog.is_some()
+            || self.shortcut_help.is_some()
+            || self.prompt.is_some()
+            || self.menu.is_some()
+            || self.omnibar.is_some()
+        {
+            self.pointer_button_surfaces.remove(&button);
+            return;
+        }
+        let surface = self
+            .pane_area_at(x, y)
+            .map(|area| area.surface)
+            .or_else(|| terminal_admission.map(|admission| admission.surface));
+        if let Some(surface) = surface {
+            self.pointer_button_surfaces.insert(button, surface);
+        } else {
+            self.pointer_button_surfaces.remove(&button);
+        }
     }
 
     fn cancel_pty_mouse_drag(&mut self) {
@@ -25167,6 +26268,8 @@ impl App {
     }
 
     fn finish_active_drag(&mut self) {
+        self.clear_layout_resize_expectations();
+        self.files_pointer_owner = None;
         let had_drag = self.drag.is_some();
         if let Some(menu) = self.menu.as_mut() {
             menu.finish_scrollbar_drag();
@@ -25957,23 +27060,26 @@ impl App {
 
         if let Some((pane, hit)) = self.omnibar_hit_at(x, y) {
             self.focus_pane_after_input(pane);
-            if let Some(state) = self.omnibar.as_mut() {
-                if state.pane == pane {
-                    if hit == OmnibarHit::Edit
-                        && let Some(area) = self
-                            .pane_areas
-                            .iter()
-                            .find(|area| area.pane == pane && area.surface == state.surface)
-                        && let Some(rect) = area.omnibar
-                    {
-                        state.select_all = false;
-                        state.input.set_cursor_from_visible_column(
-                            x.saturating_sub(rect.x) as usize,
-                            rect.width as usize,
-                        );
-                    }
-                    return Ok(RenderAction::Draw);
+            let editing_same_pane = self.omnibar.as_ref().is_some_and(|state| state.pane == pane);
+            if editing_same_pane {
+                if let Some(state) = self.omnibar.as_mut()
+                    && hit == OmnibarHit::Edit
+                    && let Some(area) = self
+                        .pane_areas
+                        .iter()
+                        .find(|area| area.pane == pane && area.surface == state.surface)
+                    && let Some(rect) = area.omnibar
+                {
+                    state.select_all = false;
+                    state.input.set_cursor_from_visible_column(
+                        x.saturating_sub(rect.x) as usize,
+                        rect.width as usize,
+                    );
                 }
+                return Ok(RenderAction::Draw);
+            }
+            if self.omnibar.is_some() {
+                self.cancel_pointer_before_modal();
                 self.omnibar = None;
             }
             match hit {
@@ -25998,6 +27104,7 @@ impl App {
                 .find(|area| area.pane == state.pane && area.surface == state.surface)
                 .and_then(|area| area.omnibar);
             if !editing_rect.is_some_and(|rect| rect.contains(x, y)) {
+                self.cancel_pointer_before_modal();
                 self.omnibar = None;
             }
         }
@@ -26395,8 +27502,10 @@ impl App {
                         .and_then(|(pane, edge)| self.resolve_pane_resize_drag(pane, edge));
                     let vertical =
                         vertical.and_then(|(pane, edge)| self.resolve_pane_resize_drag(pane, edge));
-                    if horizontal.is_some() || vertical.is_some() {
-                        self.drag = Some(Drag::ResizeSplit { horizontal, vertical });
+                    if (horizontal.is_some() || vertical.is_some())
+                        && let Some(screen) = self.active_screen_id()
+                    {
+                        self.drag = Some(Drag::ResizeSplit { screen, horizontal, vertical });
                     }
                 }
                 Hit::TabScroll { pane, delta } => self.scroll_tabs(pane, delta),
@@ -26492,6 +27601,7 @@ impl App {
     }
 
     fn handle_left_drag(&mut self, x: u16, y: u16) -> anyhow::Result<RenderAction> {
+        self.ensure_files_pointer_owner();
         if let Some(menu) = self.menu.as_mut()
             && menu.scrollbar_drag.is_some()
         {
@@ -26589,7 +27699,7 @@ impl App {
             Some(Drag::StatusMessage { rect }) => {
                 let rect = *rect;
                 if rect.width == 0 {
-                    self.drag = None;
+                    self.invalidate_pointer_topology_without_split_settle();
                     self.status_selection = None;
                     return Ok(RenderAction::Draw);
                 }
@@ -26634,7 +27744,10 @@ impl App {
                 };
                 let Some((rendered_track, rendered_scrollbar)) = self.rendered_scrollbar(surface)
                 else {
-                    self.drag = None;
+                    // The surface was resized or retired between frames.
+                    // Fence the release instead of leaving a live button
+                    // attached to a missing scrollbar.
+                    self.invalidate_pointer_topology_without_split_settle();
                     return Ok(RenderAction::Draw);
                 };
                 if let Some(updated) =
@@ -26651,7 +27764,14 @@ impl App {
                 }
                 Ok(RenderAction::Draw)
             }
-            Some(Drag::HorizontalScrollbar { track, anchor_x, anchor_offset }) => {
+            Some(Drag::HorizontalScrollbar { screen, track, anchor_x, anchor_offset }) => {
+                if self.active_screen_id() != Some(*screen) {
+                    // The scrollbar's track and offset belong to the screen
+                    // visible at mouse-down. A screen switch must consume the
+                    // old gesture instead of moving the new screen.
+                    self.invalidate_pointer_topology_without_split_settle();
+                    return Ok(RenderAction::Draw);
+                }
                 let (track, anchor_x, anchor_offset) = (*track, *anchor_x, *anchor_offset);
                 if let Some((content_width, viewport_width, _)) = self.horizontal_scrollbar_state()
                 {
@@ -26692,6 +27812,10 @@ impl App {
                 anchor_y,
                 anchor_offset,
             }) => {
+                if !self.files_pointer_capture_is_current() {
+                    self.invalidate_sidebar_pointer_domains(&[SidebarPointerDomain::Files]);
+                    return Ok(RenderAction::Draw);
+                }
                 let (track, total_rows, visible_rows, anchor_y, anchor_offset) =
                     (*track, *total_rows, *visible_rows, *anchor_y, *anchor_offset);
                 let offset = viewport_drag_offset(
@@ -26702,6 +27826,10 @@ impl App {
                     y as i128 - anchor_y as i128,
                 );
                 self.sidebar_files.set_scroll_offset(offset);
+                let topology_revision = self.sidebar_files_pointer_topology();
+                if let Some(owner) = self.files_pointer_owner.as_mut() {
+                    owner.topology_revision = topology_revision;
+                }
                 Ok(RenderAction::Draw)
             }
             Some(Drag::RailResize(kind)) => {
@@ -26748,11 +27876,17 @@ impl App {
                 if !self.drag_sidebar_split_divider(&group, &first_child, &second_child, x, y) {
                     // The split topology changed while the pointer was down.
                     // Do not apply the old divider to a new child pair.
-                    self.drag = None;
+                    self.invalidate_pointer_topology_without_split_settle();
                 }
                 Ok(RenderAction::Draw)
             }
-            Some(Drag::ResizeSplit { horizontal, vertical }) => {
+            Some(Drag::ResizeSplit { screen, horizontal, vertical }) => {
+                if self.active_screen_id() != Some(*screen) {
+                    // Both targets carry frozen geometry. Do not apply it to
+                    // another screen after a focus or layout boundary.
+                    self.invalidate_pointer_topology_without_split_settle();
+                    return Ok(RenderAction::Draw);
+                }
                 let (horizontal, vertical) = (*horizontal, *vertical);
                 if let Some(target) = horizontal {
                     self.resize_drag_target(target, x, y);
@@ -26857,6 +27991,8 @@ impl App {
     }
 
     fn handle_left_up(&mut self, x: u16, y: u16) -> anyhow::Result<RenderAction> {
+        self.ensure_files_pointer_owner();
+        self.clear_layout_resize_expectations();
         if let Some(menu) = self.menu.as_mut()
             && menu.finish_scrollbar_drag()
         {
@@ -26913,6 +28049,15 @@ impl App {
         if matches!(self.drag, Some(Drag::ResizeSplit { .. })) {
             self.drag = None;
             self.session.settle_split_ratio();
+            return Ok(RenderAction::Draw);
+        }
+        if matches!(self.drag, Some(Drag::FilesScrollbar { .. })) {
+            if !self.files_pointer_capture_is_current() {
+                self.invalidate_sidebar_pointer_domains(&[SidebarPointerDomain::Files]);
+                return Ok(RenderAction::Draw);
+            }
+            self.files_pointer_owner = None;
+            self.drag = None;
             return Ok(RenderAction::Draw);
         }
         if matches!(self.drag, Some(Drag::StatusMessage { .. })) {
@@ -27131,6 +28276,12 @@ impl App {
             current
         };
         self.sidebar_files.set_scroll_offset(offset);
+        let mut owner = self.current_files_pointer_owner();
+        // `set_scroll_offset` may advance the Files row revision. Capture the
+        // post-jump revision so the drag does not cancel itself on its first
+        // motion sample.
+        owner.topology_revision = self.sidebar_files_pointer_topology();
+        self.files_pointer_owner = Some(owner);
         self.drag = Some(Drag::FilesScrollbar {
             track,
             total_rows,
@@ -27398,6 +28549,13 @@ impl App {
                 let width = (((cells as f64) / f64::from(viewport_width)) as f32)
                     .clamp(MIN_VIEWPORT_PANE_WIDTH, MAX_VIEWPORT_PANE_WIDTH);
                 if self.prepare_pty_input_before_mutation() {
+                    if let Some(screen) = self.active_screen_id() {
+                        self.note_layout_resize_expectation(LayoutResizeExpectation::Viewport {
+                            screen,
+                            pane,
+                            width: width.to_bits(),
+                        });
+                    }
                     self.session.set_viewport_pane_width_deferred(pane, width);
                 }
             }
@@ -27427,6 +28585,13 @@ impl App {
                 let requested = (coord.saturating_sub(start) as f64 / extent as f64) as f32;
                 let ratio = requested.clamp(minimum_ratio, maximum_ratio);
                 if self.prepare_pty_input_before_mutation() {
+                    if let Some(screen) = self.active_screen_id() {
+                        self.note_layout_resize_expectation(LayoutResizeExpectation::Split {
+                            screen,
+                            split,
+                            ratio: ratio.to_bits(),
+                        });
+                    }
                     self.session.set_split_ratio_deferred(split, ratio);
                 }
             }
@@ -29234,7 +30399,8 @@ mod tests {
         DeferredInputQueue, DeferredReplayDisposition, Drag, EventCancellation, FocusTarget,
         ForwardMuxOutcome, FrontendJournalQueue, FrontendJournalWorker, GraphicIdentity,
         GraphicPlacement, GraphicSourceRect, GraphicsSceneCache, GuardedMouseEncode,
-        HostInputIngress, HostInputMessage, HostInputRuntime, MachineActionWorker,
+        HostInputIngress, HostInputMessage, HostInputRuntime, LayoutResizeExpectation,
+        MachineActionWorker,
         MachineConnectRoute, MenuAction, MenuItem, MutationImpact, MuxTitleIngress, OmnibarHit,
         OmnibarState, OrderedSession, OuterCursorSpec, PairingDialog, PaneArea, PaneAreaProjection,
         PaneContentGeneration, PaneEdge, PaneFocusHistory, PaneResizeDragTarget, PaneViewportClip,
@@ -29277,7 +30443,10 @@ mod tests {
     use std::sync::{Arc, Barrier, Mutex};
     use std::time::{Duration, Instant};
 
-    use cmux_tui_core::resource::FrontendProjectionPublicId;
+    use cmux_tui_core::resource::{
+        ContentPublicId, FrontendProjectionPublicId, PanePublicId, ScreenPublicId, TabPublicId,
+        WorkspacePublicId,
+    };
     use cmux_tui_core::{
         AgentSource, AgentState, BrowserFrame, BrowserStatus, Direction, LayoutUndoError, Mux,
         MuxEvent, Node, PointerSnapshotProbe, Rect, SplitDir, SurfaceId, SurfaceKind,
@@ -31687,6 +32856,7 @@ mod tests {
         let mux = Mux::new("shortcut-help-split-release-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
         app.drag = Some(Drag::ResizeSplit {
+            screen: app.active_screen_id().unwrap_or(0),
             horizontal: Some(PaneResizeDragTarget::ViewportColumn {
                 pane: 1,
                 edge: PaneEdge::Right,
@@ -35773,7 +36943,7 @@ mod tests {
                 screen: &screen,
                 layout: &layout,
                 stacked_headers: &HashSet::new(),
-                area: Rect { x: 0, y: 0, width: 80, height: 24 },
+                area: Rect { x: 0, y: 0, width: 80, height: 24 }.into(),
                 scrollbar_position: ScrollbarPosition::Column,
                 pane_padding: 0,
                 surface_only: None,
@@ -35832,7 +37002,7 @@ mod tests {
                 screen: &screen,
                 layout: &layout,
                 stacked_headers: &HashSet::new(),
-                area: Rect { x: 0, y: 0, width: 80, height: 24 },
+                area: Rect { x: 0, y: 0, width: 80, height: 24 }.into(),
                 scrollbar_position: ScrollbarPosition::Column,
                 pane_padding: 0,
                 surface_only: None,
@@ -38210,6 +39380,7 @@ mod tests {
         let mut app = test_app(Session::Local(mux));
         let transaction = app.session.layout_resize_transaction.load(Ordering::Acquire);
         app.drag = Some(Drag::ResizeSplit {
+            screen: app.active_screen_id().unwrap_or(0),
             horizontal: Some(PaneResizeDragTarget::ViewportColumn {
                 pane: 1,
                 edge: PaneEdge::Right,
@@ -38233,6 +39404,7 @@ mod tests {
         let mut app = test_app(Session::Local(mux));
         let transaction = app.session.layout_resize_transaction.load(Ordering::Acquire);
         app.drag = Some(Drag::ResizeSplit {
+            screen: app.active_screen_id().unwrap_or(0),
             horizontal: Some(PaneResizeDragTarget::ViewportColumn {
                 pane: 1,
                 edge: PaneEdge::Right,
@@ -44519,6 +45691,7 @@ mod tests {
         });
         started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
         app.drag = Some(Drag::ResizeSplit {
+            screen: app.active_screen_id().unwrap_or(0),
             horizontal: Some(PaneResizeDragTarget::ViewportColumn {
                 pane: 1,
                 edge: PaneEdge::Right,
@@ -46187,6 +47360,7 @@ mod tests {
         });
         started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
         app.drag = Some(Drag::ResizeSplit {
+            screen: app.active_screen_id().unwrap_or(0),
             horizontal: Some(PaneResizeDragTarget::ViewportColumn {
                 pane: 1,
                 edge: PaneEdge::Right,
@@ -53145,6 +54319,7 @@ mod tests {
         );
         started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
         app.drag = Some(Drag::ResizeSplit {
+            screen: app.active_screen_id().unwrap_or(0),
             horizontal: Some(PaneResizeDragTarget::ViewportColumn {
                 pane: 1,
                 edge: PaneEdge::Right,
@@ -53517,6 +54692,711 @@ mod tests {
         ));
 
         mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn retiring_surface_fences_a_plain_pane_press_without_a_drag() {
+        let mux = Mux::new("retired-plain-pane-press-test", SurfaceOptions::default());
+        let surface = mux.new_browser_tab("about:blank".to_string(), None, Some((20, 8))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.pane_areas = vec![browser_completion_area(surface.id)];
+
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: 4,
+            row: 0,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+
+        assert!(app.drag.is_none(), "the toolbar press must remain a plain click");
+        assert_eq!(app.pointer_button_surfaces.get(&MouseButton::Left), Some(&surface.id));
+        assert!(app.active_pointer_buttons.contains(&MouseButton::Left));
+
+        app.retire_surface_state(surface.id);
+
+        assert!(app.active_pointer_buttons.is_empty());
+        assert!(app.pointer_button_surfaces.is_empty());
+        assert!(app.canceled_pointer_buttons.contains(&MouseButton::Left));
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: 4,
+            row: 0,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        assert!(!app.canceled_pointer_buttons.contains(&MouseButton::Left));
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn retiring_surface_closes_its_rename_prompt() {
+        let mux = Mux::new("retired-surface-prompt-test", SurfaceOptions::default());
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.prompt = Some(Prompt::new(
+            "Rename",
+            "old name".to_string(),
+            PromptTarget::Surface(surface.id),
+        ));
+
+        app.retire_surface_state(surface.id);
+
+        assert!(app.prompt.is_none(), "a dead surface must not keep a live rename target");
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn retiring_surface_fences_every_geometry_capture_without_settling_a_split() {
+        for (label, capture) in [
+            (
+                "horizontal-scrollbar",
+                GeometryCapture::HorizontalScrollbar,
+            ),
+            ("pane-resize", GeometryCapture::PaneResize),
+            ("rail-resize", GeometryCapture::RailResize),
+            ("sidebar-split", GeometryCapture::SidebarSplit),
+        ] {
+            let mux = Mux::new(format!("retired-geometry-{label}"), SurfaceOptions::default());
+            let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+            let mut app = test_app(Session::Local(mux.clone()));
+            let screen = app.active_screen_id().unwrap_or(0);
+            let transaction = app.session.layout_resize_transaction.load(Ordering::Acquire);
+            app.drag = Some(match capture {
+                GeometryCapture::HorizontalScrollbar => Drag::HorizontalScrollbar {
+                    screen,
+                    track: Rect { x: 0, y: 0, width: 10, height: 1 },
+                    anchor_x: 2,
+                    anchor_offset: 1,
+                },
+                GeometryCapture::PaneResize => Drag::ResizeSplit {
+                    screen,
+                    horizontal: Some(PaneResizeDragTarget::ViewportColumn {
+                        pane: 1,
+                        edge: PaneEdge::Right,
+                        column_x: 0,
+                        viewport_x: 0,
+                        viewport_width: 80,
+                        viewport_offset: 0,
+                    }),
+                    vertical: None,
+                },
+                GeometryCapture::RailResize => Drag::RailResize(RailKind::Workspace),
+                GeometryCapture::SidebarSplit => Drag::SidebarSplit {
+                    group: "left".into(),
+                    first_child: "workspaces".into(),
+                    second_child: "agents".into(),
+                },
+            });
+            app.active_pointer_buttons.insert(MouseButton::Left);
+
+            app.retire_surface_state(surface.id);
+
+            assert!(app.drag.is_none(), "{label} capture must die with topology");
+            assert!(app.active_pointer_buttons.is_empty());
+            assert!(app.canceled_pointer_buttons.contains(&MouseButton::Left));
+            assert_eq!(
+                app.session.layout_resize_transaction.load(Ordering::Acquire),
+                transaction,
+                "{label} retirement must not settle stale split geometry"
+            );
+            app.handle_mouse(MouseEvent {
+                kind: MouseEventKind::Up(MouseButton::Left),
+                column: 0,
+                row: 0,
+                modifiers: KeyModifiers::NONE,
+            })
+            .unwrap();
+            assert!(!app.canceled_pointer_buttons.contains(&MouseButton::Left));
+            mux.close_surface(surface.id).unwrap();
+        }
+    }
+
+    #[derive(Clone, Copy)]
+    enum GeometryCapture {
+        HorizontalScrollbar,
+        PaneResize,
+        RailResize,
+        SidebarSplit,
+    }
+
+    #[test]
+    fn machine_layout_updates_fence_geometry_captures_but_keep_files_rows_owned() {
+        let mux = Mux::new("machine-layout-capture-boundary-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.drag = Some(Drag::RailResize(RailKind::Workspace));
+        app.active_pointer_buttons.insert(MouseButton::Left);
+        app.apply_machine_ui_update(provider_machine_ui());
+        assert!(app.drag.is_none(), "machine column insertion must cancel rail geometry capture");
+        assert!(app.active_pointer_buttons.is_empty());
+        assert!(app.canceled_pointer_buttons.contains(&MouseButton::Left));
+
+        let mux = Mux::new("machine-files-capture-boundary-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.apply_machine_ui_update(provider_machine_ui());
+        app.drag = Some(Drag::FilesScrollbar {
+            track: Rect { x: 20, y: 1, width: 1, height: 4 },
+            total_rows: 8,
+            visible_rows: 4,
+            anchor_y: 2,
+            anchor_offset: 2,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+        // A provider catalog notice changes presentation text only. The
+        // mounted machine column and host geometry remain identical, so the
+        // independent Files capture must survive it.
+        let mut update = app.machine_ui.clone().expect("initial machine UI");
+        update.notice = Some("catalog refreshed".into());
+        app.apply_machine_ui_update(update);
+        assert!(matches!(app.drag, Some(Drag::FilesScrollbar { .. })));
+        assert!(app.active_pointer_buttons.contains(&MouseButton::Left));
+    }
+
+    #[test]
+    fn remote_layout_change_fences_matching_pane_captures_without_canceling_files() {
+        let mux = Mux::new("remote-layout-pane-capture-boundary-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let screen = app.active_screen_id().unwrap_or(0);
+        app.drag = Some(Drag::HorizontalScrollbar {
+            screen,
+            track: Rect { x: 0, y: 0, width: 10, height: 1 },
+            anchor_x: 2,
+            anchor_offset: 1,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+        app.handle(AppEvent::Mux(MuxEvent::LayoutChanged(screen))).unwrap();
+        assert!(app.drag.is_none());
+        assert!(app.active_pointer_buttons.is_empty());
+        assert!(app.canceled_pointer_buttons.contains(&MouseButton::Left));
+
+        let mux = Mux::new("remote-layout-files-capture-boundary-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let files_screen = app.active_screen_id().unwrap_or(0);
+        app.drag = Some(Drag::FilesScrollbar {
+            track: Rect { x: 20, y: 1, width: 1, height: 4 },
+            total_rows: 8,
+            visible_rows: 4,
+            anchor_y: 2,
+            anchor_offset: 2,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+        app.handle(AppEvent::Mux(MuxEvent::LayoutChanged(files_screen))).unwrap();
+        assert!(matches!(app.drag, Some(Drag::FilesScrollbar { .. })));
+        assert!(app.active_pointer_buttons.contains(&MouseButton::Left));
+    }
+
+    #[test]
+    fn same_id_tree_layout_change_fences_pane_capture_without_settling() {
+        let mux = Mux::new("same-id-tree-layout-capture-boundary-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let previous = notify_tree(11, false);
+        app.tree = previous;
+        app.rebuild_tab_locations();
+        let screen = app.active_screen_id().unwrap_or(0);
+        let transaction = app.session.layout_resize_transaction.load(Ordering::Acquire);
+        app.drag = Some(Drag::ResizeSplit {
+            screen,
+            horizontal: Some(PaneResizeDragTarget::ViewportColumn {
+                pane: 2,
+                edge: PaneEdge::Right,
+                column_x: 0,
+                viewport_x: 0,
+                viewport_width: 80,
+                viewport_offset: 0,
+            }),
+            vertical: None,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+
+        let mut next = app.tree.clone();
+        let next_screen = &mut next.workspaces_mut()[0].screens[0];
+        let mut second = next_screen.panes[0].clone();
+        second.id = 5;
+        second.tabs[0].surface = 12;
+        next_screen.panes.push(second);
+        next_screen.layout = Node::Split {
+            id: 9,
+            dir: SplitDir::Right,
+            ratio: 0.7,
+            a: Box::new(Node::Leaf(2)),
+            b: Box::new(Node::Leaf(5)),
+        };
+
+        app.replace_tree(next);
+
+        assert!(app.drag.is_none(), "a same-id layout replacement must retire pane capture");
+        assert!(app.active_pointer_buttons.is_empty());
+        assert!(app.canceled_pointer_buttons.contains(&MouseButton::Left));
+        assert_eq!(
+            app.session.layout_resize_transaction.load(Ordering::Acquire),
+            transaction,
+            "a remote layout replacement must not settle stale split geometry"
+        );
+    }
+
+    #[test]
+    fn same_id_split_ratio_change_fences_pane_capture_without_settling() {
+        let mux = Mux::new("same-id-split-ratio-capture-boundary-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut previous = notify_tree(11, false);
+        let screen = &mut previous.workspaces_mut()[0].screens[0];
+        let mut second = screen.panes[0].clone();
+        second.id = 5;
+        second.tabs[0].surface = 12;
+        screen.panes.push(second);
+        screen.active_pane = 2;
+        screen.layout = Node::Split {
+            id: 9,
+            dir: SplitDir::Right,
+            ratio: 0.4,
+            a: Box::new(Node::Leaf(2)),
+            b: Box::new(Node::Leaf(5)),
+        };
+        app.tree = previous.clone();
+        app.rebuild_tab_locations();
+        let transaction = app.session.layout_resize_transaction.load(Ordering::Acquire);
+        app.drag = Some(Drag::ResizeSplit {
+            screen: 3,
+            horizontal: Some(PaneResizeDragTarget::Split {
+                split: 9,
+                edge: PaneEdge::Right,
+                area: Rect { x: 0, y: 0, width: 80, height: 24 }.into(),
+                minimum_ratio: 0.1,
+                maximum_ratio: 0.9,
+                viewport_x: 0,
+                viewport_offset: 0,
+            }),
+            vertical: None,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+
+        let mut next = previous;
+        if let Node::Split { ratio, .. } = &mut next.workspaces_mut()[0].screens[0].layout {
+            *ratio = 0.7;
+        }
+        app.replace_tree(next);
+
+        assert!(app.drag.is_none(), "a ratio-only replacement must retire pane capture");
+        assert!(app.active_pointer_buttons.is_empty());
+        assert!(app.canceled_pointer_buttons.contains(&MouseButton::Left));
+        assert_eq!(
+            app.session.layout_resize_transaction.load(Ordering::Acquire),
+            transaction,
+            "a remote ratio replacement must not settle stale split geometry"
+        );
+    }
+
+    #[test]
+    fn expected_split_ratio_change_keeps_its_capture() {
+        let mux = Mux::new("expected-split-ratio-capture-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut previous = notify_tree(11, false);
+        let screen = &mut previous.workspaces_mut()[0].screens[0];
+        let mut second = screen.panes[0].clone();
+        second.id = 5;
+        second.tabs[0].surface = 12;
+        screen.panes.push(second);
+        screen.active_pane = 2;
+        screen.layout = Node::Split {
+            id: 9,
+            dir: SplitDir::Right,
+            ratio: 0.4,
+            a: Box::new(Node::Leaf(2)),
+            b: Box::new(Node::Leaf(5)),
+        };
+        app.tree = previous.clone();
+        app.rebuild_tab_locations();
+        app.drag = Some(Drag::ResizeSplit {
+            screen: 3,
+            horizontal: Some(PaneResizeDragTarget::Split {
+                split: 9,
+                edge: PaneEdge::Right,
+                area: Rect { x: 0, y: 0, width: 80, height: 24 }.into(),
+                minimum_ratio: 0.1,
+                maximum_ratio: 0.9,
+                viewport_x: 0,
+                viewport_offset: 0,
+            }),
+            vertical: None,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+        app.layout_resize_expectations[0] = Some(LayoutResizeExpectation::Split {
+            screen: 3,
+            split: 9,
+            ratio: 0.7_f32.to_bits(),
+        });
+
+        let mut next = previous;
+        if let Node::Split { ratio, .. } = &mut next.workspaces_mut()[0].screens[0].layout {
+            *ratio = 0.7;
+        }
+        app.replace_tree(next);
+
+        assert!(matches!(app.drag, Some(Drag::ResizeSplit { .. })));
+        assert!(app.active_pointer_buttons.contains(&MouseButton::Left));
+    }
+
+    #[test]
+    fn viewport_column_width_expectation_accepts_derived_layout_ratio_changes() {
+        let mux = Mux::new("viewport-derived-ratio-capture-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut previous = notify_tree(11, false);
+        let screen = &mut previous.workspaces_mut()[0].screens[0];
+        let mut second = screen.panes[0].clone();
+        second.id = 5;
+        second.tabs[0].surface = 12;
+        screen.panes.push(second);
+        screen.active_pane = 5;
+        screen.layout = Node::Split {
+            id: 9,
+            dir: SplitDir::Right,
+            ratio: 0.5,
+            a: Box::new(Node::Leaf(2)),
+            b: Box::new(Node::Leaf(5)),
+        };
+        screen.viewport_base_width = Some(0.5);
+        screen.viewport_splits.insert(9, 0.5);
+        app.tree = previous.clone();
+        app.rebuild_tab_locations();
+        app.drag = Some(Drag::ResizeSplit {
+            screen: 3,
+            horizontal: Some(PaneResizeDragTarget::ViewportColumn {
+                pane: 5,
+                edge: PaneEdge::Left,
+                column_x: 40,
+                viewport_x: 0,
+                viewport_width: 80,
+                viewport_offset: 0,
+            }),
+            vertical: None,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+        app.layout_resize_expectations[1] = Some(LayoutResizeExpectation::Viewport {
+            screen: 3,
+            pane: 5,
+            width: 0.6_f32.to_bits(),
+        });
+
+        let mut next = previous;
+        let next_screen = &mut next.workspaces_mut()[0].screens[0];
+        next_screen.viewport_splits.insert(9, 0.6);
+        if let Node::Split { ratio, .. } = &mut next_screen.layout {
+            *ratio = 0.5 / 1.1;
+        }
+        app.replace_tree(next);
+
+        assert!(matches!(app.drag, Some(Drag::ResizeSplit { .. })));
+        assert!(app.active_pointer_buttons.contains(&MouseButton::Left));
+    }
+
+    #[test]
+    fn active_surface_kind_replacement_fences_content_capture_with_same_ids() {
+        let mux = Mux::new("active-surface-kind-capture-boundary-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut previous = notify_tree(11, false);
+        let tab = &mut previous.workspaces_mut()[0].screens[0].panes[0].tabs[0];
+        tab.public_id = Some(
+            TabPublicId::parse("tab_00000000000000000000000000000011".to_string()).unwrap(),
+        );
+        tab.content_id = Some(ContentPublicId::Terminal(
+            cmux_tui_core::resource::TerminalPublicId::parse(
+                "term_00000000000000000000000000000011".to_string(),
+            )
+            .unwrap(),
+        ));
+        app.tree = previous.clone();
+        app.rebuild_tab_locations();
+        app.drag = Some(Drag::Scrollbar {
+            surface: 11,
+            track: Rect { x: 20, y: 1, width: 1, height: 4 },
+            anchor_y: 2,
+            anchor_offset: 0,
+            position_y: 2,
+            scrollbar: Scrollbar { total: 8, offset: 0, len: 4 },
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+
+        let mut next = previous;
+        let tab = &mut next.workspaces_mut()[0].screens[0].panes[0].tabs[0];
+        tab.kind = SurfaceKind::Browser;
+        tab.content_id = Some(ContentPublicId::Browser(
+            cmux_tui_core::resource::BrowserPublicId::parse(
+                "browser_00000000000000000000000000000011".to_string(),
+            )
+            .unwrap(),
+        ));
+        app.replace_tree(next);
+
+        assert!(app.drag.is_none(), "a tab route replacement must retire content capture");
+        assert!(app.active_pointer_buttons.is_empty());
+        assert!(app.canceled_pointer_buttons.contains(&MouseButton::Left));
+    }
+
+    #[test]
+    fn deferred_mouse_capture_is_fenced_when_active_surface_is_replaced() {
+        let mux = Mux::new("deferred-active-surface-capture-boundary-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut previous = notify_tree(11, false);
+        let tab = &mut previous.workspaces_mut()[0].screens[0].panes[0].tabs[0];
+        tab.public_id = Some(
+            TabPublicId::parse("tab_00000000000000000000000000000021".to_string()).unwrap(),
+        );
+        tab.content_id = Some(ContentPublicId::Terminal(
+            cmux_tui_core::resource::TerminalPublicId::parse(
+                "term_00000000000000000000000000000021".to_string(),
+            )
+            .unwrap(),
+        ));
+        app.tree = previous.clone();
+        app.rebuild_tab_locations();
+        let mouse = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: 20,
+            row: 4,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.defer_input(TerminalInput::Mouse(mouse));
+        let generation = app.pointer_focus_generation;
+        assert!(app
+            .deferred_input
+            .iter()
+            .any(|input| matches!(input.event, TerminalInput::Mouse(event) if event == mouse)));
+
+        let mut next = previous;
+        let tab = &mut next.workspaces_mut()[0].screens[0].panes[0].tabs[0];
+        tab.kind = SurfaceKind::Browser;
+        tab.content_id = Some(ContentPublicId::Browser(
+            cmux_tui_core::resource::BrowserPublicId::parse(
+                "browser_00000000000000000000000000000021".to_string(),
+            )
+            .unwrap(),
+        ));
+        app.replace_tree(next);
+
+        assert!(
+            app.deferred_input
+                .iter()
+                .all(|input| !matches!(input.event, TerminalInput::Mouse(_))),
+            "a deferred mouse route must not replay into a replacement surface"
+        );
+        assert!(
+            app.pointer_focus_generation > generation,
+            "replacing the active route must advance the pointer generation"
+        );
+    }
+
+    #[test]
+    fn deferred_mouse_capture_is_fenced_by_same_id_split_geometry_change() {
+        let mux = Mux::new("deferred-split-capture-boundary-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut previous = notify_tree(11, false);
+        let screen = &mut previous.workspaces_mut()[0].screens[0];
+        let mut second = screen.panes[0].clone();
+        second.id = 5;
+        second.tabs[0].surface = 12;
+        screen.panes.push(second);
+        screen.active_pane = 2;
+        screen.layout = Node::Split {
+            id: 9,
+            dir: SplitDir::Right,
+            ratio: 0.4,
+            a: Box::new(Node::Leaf(2)),
+            b: Box::new(Node::Leaf(5)),
+        };
+        app.tree = previous.clone();
+        app.rebuild_tab_locations();
+        app.defer_input(TerminalInput::Mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: 20,
+            row: 4,
+            modifiers: KeyModifiers::NONE,
+        }));
+        assert!(app.deferred_pointer_capture_active());
+
+        let mut next = previous;
+        if let Node::Split { ratio, .. } = &mut next.workspaces_mut()[0].screens[0].layout {
+            *ratio = 0.7;
+        }
+        app.replace_tree(next);
+
+        assert!(
+            app.deferred_input
+                .iter()
+                .all(|input| !matches!(input.event, TerminalInput::Mouse(_))),
+            "a deferred route must not cross a same-id split geometry change"
+        );
+    }
+
+    #[test]
+    fn tab_membership_move_between_panes_fences_tab_capture() {
+        let mux = Mux::new("tab-membership-capture-boundary-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut previous = notify_tree(11, false);
+        let screen = &mut previous.workspaces_mut()[0].screens[0];
+        let pane_id = screen.panes[0].id;
+        let (moved, mut second) = {
+            let pane = &mut screen.panes[0];
+            let mut moved = pane.tabs[0].clone();
+            moved.surface = 12;
+            pane.tabs.push(moved.clone());
+            pane.active_tab = 0;
+            (moved, pane.clone())
+        };
+        second.id = 5;
+        second.tabs = vec![TabView {
+            surface: 13,
+            ..moved
+        }];
+        second.active_tab = 0;
+        screen.panes.push(second);
+        screen.active_pane = pane_id;
+        screen.layout = Node::Split {
+            id: 9,
+            dir: SplitDir::Right,
+            ratio: 0.5,
+            a: Box::new(Node::Leaf(pane_id)),
+            b: Box::new(Node::Leaf(5)),
+        };
+        app.tree = previous.clone();
+        app.rebuild_tab_locations();
+        app.drag = Some(Drag::TabArm { surface: 12, at: (20, 4) });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+
+        let mut next = previous;
+        let next_screen = &mut next.workspaces_mut()[0].screens[0];
+        let first = &mut next_screen.panes[0];
+        let moved = first.tabs.pop().expect("the second tab must exist");
+        let second = next_screen
+            .panes
+            .iter_mut()
+            .find(|pane| pane.id == 5)
+            .expect("the second pane must exist");
+        second.tabs.insert(0, moved);
+        second.active_tab = 1;
+        app.replace_tree(next);
+
+        assert!(app.drag.is_none(), "moving a tab between panes changes its hit bar");
+        assert!(app.active_pointer_buttons.is_empty());
+        assert!(app.canceled_pointer_buttons.contains(&MouseButton::Left));
+    }
+
+    #[test]
+    fn pinned_files_capture_survives_active_surface_replacement() {
+        let temp = test_temp_dir("pinned-files-active-surface-boundary");
+        std::fs::create_dir(temp.join("pinned-child")).unwrap();
+        let mux = Mux::new("pinned-files-active-surface-boundary-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.sidebar_files = FileBrowser::new(temp.clone());
+        app.sidebar_files.set_viewport_height(4);
+        let directory = (0..app.sidebar_files.visible_len())
+            .find(|index| app.sidebar_files.visible_entry(*index).is_some_and(|entry| entry.is_dir()))
+            .expect("test directory must be listed");
+        app.sidebar_files.select(directory);
+        app.sidebar_files.handle_key(&KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+        assert!(app.sidebar_files.is_pinned());
+        app.drag = Some(Drag::FilesScrollbar {
+            track: Rect { x: 20, y: 1, width: 1, height: 4 },
+            total_rows: 8,
+            visible_rows: 4,
+            anchor_y: 2,
+            anchor_offset: 0,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+
+        let mut previous = notify_tree(11, false);
+        let tab = &mut previous.workspaces_mut()[0].screens[0].panes[0].tabs[0];
+        tab.public_id = Some(
+            TabPublicId::parse("tab_00000000000000000000000000000012".to_string()).unwrap(),
+        );
+        app.tree = previous.clone();
+        app.rebuild_tab_locations();
+        let mut next = previous;
+        next.workspaces_mut()[0].screens[0].panes[0].tabs[0].kind = SurfaceKind::Browser;
+        app.replace_tree(next);
+
+        assert!(matches!(app.drag, Some(Drag::FilesScrollbar { .. })));
+        assert!(app.active_pointer_buttons.contains(&MouseButton::Left));
+        assert!(app.sidebar_files.is_pinned());
+        std::fs::remove_dir_all(temp).unwrap();
+    }
+
+    #[test]
+    fn active_surface_replacement_fences_files_capture() {
+        let mux = Mux::new("active-surface-files-capture-boundary-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let previous = notify_tree(11, false);
+        app.tree = previous;
+        app.rebuild_tab_locations();
+        app.drag = Some(Drag::FilesScrollbar {
+            track: Rect { x: 20, y: 1, width: 1, height: 4 },
+            total_rows: 8,
+            visible_rows: 4,
+            anchor_y: 2,
+            anchor_offset: 2,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+
+        // The old active surface is gone, so preserve_client_view cannot
+        // retain the previous tab target. This is the case that a stable-id
+        // membership check alone must still fence.
+        app.replace_tree(notify_tree(12, false));
+
+        assert!(app.drag.is_none(), "Files rows must not keep a capture for a dead active surface");
+        assert!(app.active_pointer_buttons.is_empty());
+        assert!(app.canceled_pointer_buttons.contains(&MouseButton::Left));
+    }
+
+    #[test]
+    fn active_tab_switch_fences_unpinned_files_capture() {
+        let mux = Mux::new("active-tab-files-capture-boundary-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut previous = notify_tree(11, false);
+        let pane = &mut previous.workspaces_mut()[0].screens[0].panes[0];
+        let mut second = pane.tabs[0].clone();
+        second.surface = 12;
+        pane.tabs.push(second);
+        pane.active_tab = 0;
+        app.tree = previous.clone();
+        app.rebuild_tab_locations();
+        app.drag = Some(Drag::FilesScrollbar {
+            track: Rect { x: 20, y: 1, width: 1, height: 4 },
+            total_rows: 8,
+            visible_rows: 4,
+            anchor_y: 2,
+            anchor_offset: 2,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+        app.surface_only = Some(12);
+
+        app.replace_tree(previous);
+
+        assert!(app.drag.is_none(), "Files rows must follow the newly active tab");
+        assert!(app.active_pointer_buttons.is_empty());
+        assert!(app.canceled_pointer_buttons.contains(&MouseButton::Left));
+        assert_eq!(app.active_surface(), Some(12));
+    }
+
+    #[test]
+    fn files_filter_edit_fences_its_scrollbar_capture() {
+        let mux = Mux::new("files-filter-capture-boundary-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.drag = Some(Drag::FilesScrollbar {
+            track: Rect { x: 20, y: 1, width: 1, height: 4 },
+            total_rows: 8,
+            visible_rows: 4,
+            anchor_y: 2,
+            anchor_offset: 2,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+
+        app.sidebar_files
+            .handle_key(&KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
+        assert!(app.insert_sidebar_files_filter_text("src"));
+
+        assert!(app.drag.is_none(), "filtering changes the Files row topology");
+        assert!(app.active_pointer_buttons.is_empty());
+        assert!(app.canceled_pointer_buttons.contains(&MouseButton::Left));
     }
 
     #[test]
@@ -54602,7 +56482,10 @@ mod tests {
             pty_failures,
             mux_recovery_generation: Arc::new(AtomicU64::new(0)),
             drag: None,
+            files_pointer_owner: None,
+            layout_resize_expectations: [None, None],
             active_pointer_buttons: HashSet::new(),
+            pointer_button_surfaces: HashMap::new(),
             ignored_pointer_buttons: HashSet::new(),
             canceled_pointer_buttons: HashSet::new(),
             timeout_drain_hook: None,
@@ -54736,6 +56619,87 @@ mod tests {
     }
 
     #[test]
+    fn remote_tree_refresh_restores_focus_by_public_ids_after_runtime_remap() {
+        let mut previous = notify_tree(11, false);
+        let mut second = notify_tree(12, false).workspaces_mut().remove(0);
+        second.id = 5;
+        second.key = "workspace-second".into();
+        second.screens[0].id = 6;
+        second.screens[0].panes[0].id = 7;
+        second.screens[0].active_pane = 7;
+        second.screens[0].layout = Node::Leaf(7);
+        previous.workspaces_mut().push(second);
+        previous.active_workspace = 1;
+
+        for (workspace_index, workspace) in previous.workspaces_mut().iter_mut().enumerate() {
+            workspace.resource_id = Some(
+                WorkspacePublicId::parse(format!(
+                    "ws_{:032x}",
+                    workspace_index + 1
+                ))
+                .unwrap(),
+            );
+            let screen = &mut workspace.screens[0];
+            screen.resource_id = Some(
+                ScreenPublicId::parse(format!(
+                    "screen_{:032x}",
+                    workspace_index + 1
+                ))
+                .unwrap(),
+            );
+            let pane = &mut screen.panes[0];
+            pane.resource_id = Some(
+                PanePublicId::parse(format!(
+                    "pane_{:032x}",
+                    workspace_index + 1
+                ))
+                .unwrap(),
+            );
+            pane.tabs[0].public_id = Some(
+                TabPublicId::parse(format!(
+                    "tab_{:032x}",
+                    workspace_index + 1
+                ))
+                .unwrap(),
+            );
+        }
+        let expected_workspace = previous.workspaces()[1].resource_id.clone().unwrap();
+
+        let mut refreshed = previous.clone();
+        refreshed.active_workspace = 0;
+        for (workspace_index, workspace) in refreshed.workspaces_mut().iter_mut().enumerate() {
+            workspace.id += 100;
+            let screen = &mut workspace.screens[0];
+            screen.id += 100;
+            let pane = &mut screen.panes[0];
+            pane.id += 100;
+            screen.active_pane = pane.id;
+            screen.layout = Node::Leaf(pane.id);
+            pane.tabs[0].surface += 100;
+            // Give the incoming frame a different focus. The client-local
+            // public-id match must restore the previous target.
+            workspace.active_screen = 0;
+            pane.active_tab = workspace_index;
+            if pane.active_tab >= pane.tabs.len() {
+                pane.active_tab = 0;
+            }
+        }
+
+        preserve_client_view(&previous, &mut refreshed);
+
+        let active_workspace = refreshed.active_workspace().unwrap();
+        assert_eq!(active_workspace.resource_id.as_ref(), Some(&expected_workspace));
+        let active_screen = &active_workspace.screens[active_workspace.active_screen];
+        let active_pane = active_screen
+            .panes
+            .iter()
+            .find(|pane| pane.id == active_screen.active_pane)
+            .unwrap();
+        assert_eq!(active_pane.resource_id.as_ref().unwrap().as_str(), "pane_00000000000000000000000000000002");
+        assert_eq!(active_pane.active_surface(), Some(112));
+    }
+
+    #[test]
     fn missing_pane_resource_identity_is_deferred_to_the_session_worker() {
         let mux = Mux::new("missing-pane-resource-identity", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
@@ -54775,6 +56739,43 @@ mod tests {
         let restored_screen = &restored.workspaces()[0].screens[0];
         assert_eq!(restored_screen.zoomed_pane, Some(2));
         assert_eq!(restored_screen.active_pane, 2);
+    }
+
+    #[test]
+    fn remote_tree_refresh_pairs_incoming_zoom_with_its_active_pane() {
+        let mut previous = notify_tree(11, false);
+        let screen = &mut previous.workspaces_mut()[0].screens[0];
+        let mut second = screen.panes[0].clone();
+        second.id = 5;
+        second.tabs[0].surface = 12;
+        screen.panes.push(second);
+        screen.layout = Node::Split {
+            id: 9,
+            dir: SplitDir::Right,
+            ratio: 0.5,
+            a: Box::new(Node::Leaf(2)),
+            b: Box::new(Node::Leaf(5)),
+        };
+        screen.active_pane = 2;
+        screen.zoomed_pane = Some(2);
+
+        let mut incoming_zoom = previous.clone();
+        let incoming_screen = &mut incoming_zoom.workspaces_mut()[0].screens[0];
+        incoming_screen.active_pane = 2;
+        incoming_screen.zoomed_pane = Some(5);
+        preserve_client_view(&previous, &mut incoming_zoom);
+        let incoming_screen = &incoming_zoom.workspaces()[0].screens[0];
+        assert_eq!(incoming_screen.zoomed_pane, Some(5));
+        assert_eq!(incoming_screen.active_pane, 5);
+
+        let mut incoming_unzoomed = previous.clone();
+        let incoming_screen = &mut incoming_unzoomed.workspaces_mut()[0].screens[0];
+        incoming_screen.active_pane = 2;
+        incoming_screen.zoomed_pane = None;
+        preserve_client_view(&previous, &mut incoming_unzoomed);
+        let incoming_screen = &incoming_unzoomed.workspaces()[0].screens[0];
+        assert_eq!(incoming_screen.zoomed_pane, None);
+        assert_eq!(incoming_screen.active_pane, 2);
     }
 
     fn row_contains(buffer: &ratatui::buffer::Buffer, y: u16, needle: &str) -> bool {
