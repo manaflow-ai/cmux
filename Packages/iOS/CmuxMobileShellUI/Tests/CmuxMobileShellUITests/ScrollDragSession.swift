@@ -10,6 +10,9 @@ final class ScrollDragSession: NSObject, UIDragSession {
     }
 
     var localContext: Any?
+    var localDragSession: UIDragSession? { self }
+    var progressIndicatorStyle: UIDropSessionProgressIndicatorStyle = .default
+    nonisolated var progress: Progress { Progress() }
     var items: [UIDragItem] { dragItems }
     var allowsMoveOperation: Bool { true }
     var isRestrictedToDraggingApplication: Bool { false }
@@ -17,5 +20,9 @@ final class ScrollDragSession: NSObject, UIDragSession {
     func location(in view: UIView) -> CGPoint { .zero }
     func hasItemsConforming(toTypeIdentifiers typeIdentifiers: [String]) -> Bool { false }
     func canLoadObjects(ofClass aClass: NSItemProviderReading.Type) -> Bool { false }
+    func loadObjects(
+        ofClass aClass: NSItemProviderReading.Type,
+        completion: @escaping ([NSItemProviderReading]) -> Void
+    ) -> Progress { Progress() }
 }
 #endif
