@@ -324,7 +324,9 @@ jobs:
           ./scripts/install-prebuilt-ghostty-cli-helper.sh \
             ghostty-cli-helper/ghostty \
             build-universal/Build/Products/Release/cmux.app
-          cmux_tui_commit="$(git log -1 --format=%H -- cmux-tui ghostty .github/workflows/cmux-tui-artifacts.yml .github/workflows/cmux-tui-build-package.yml)"
+          # actions/checkout is depth 1 here, so a bare `git log -1 -- cmux-tui` would answer
+          # HEAD. A release bundles the exact client of the newest cmux-tui commit or fails.
+          cmux_tui_commit="$(./scripts/ci/resolve-cmux-tui-client-commit.sh)"
           test -n "$cmux_tui_commit"
           ./scripts/install-cmux-tui-client.sh \
             build-universal/Build/Products/Release/cmux.app \

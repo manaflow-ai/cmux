@@ -319,8 +319,12 @@ if ! awk '
 fi
 
 for workflow in "$WORKFLOW_FILE" "$RELEASE_WORKFLOW_FILE"; do
-  if ! grep -Fq 'git log -1 --format=%H -- cmux-tui ghostty .github/workflows/cmux-tui-artifacts.yml .github/workflows/cmux-tui-build-package.yml' "$workflow"; then
-    echo "FAIL: $(basename "$workflow") must resolve the exact cmux-tui source revision"
+  if ! grep -Fq 'cmux_tui_commit="$(./scripts/ci/resolve-cmux-tui-client-commit.sh' "$workflow"; then
+    echo "FAIL: $(basename "$workflow") must resolve the cmux-tui client commit through scripts/ci/resolve-cmux-tui-client-commit.sh"
+    exit 1
+  fi
+  if grep -Fq 'git log -1 --format=%H -- cmux-tui' "$workflow"; then
+    echo "FAIL: $(basename "$workflow") must not pick the cmux-tui commit with a bare git log: actions/checkout is depth 1 there, so it always answers HEAD"
     exit 1
   fi
   if ! grep -Fq 'https://files.cmux.com/cmux-tui/${cmux_tui_commit}/manifest.json' "$workflow"; then
