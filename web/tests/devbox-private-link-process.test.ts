@@ -23,7 +23,7 @@ test("a socket path cannot substitute for the process readiness event", async ()
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
       const fixture = `
         const fs = require('node:fs');
-        process.stdin.resume();
+        require('node:net').createServer().listen(${JSON.stringify(path.join(root, 'keepalive.sock'))});
         process.on('SIGUSR1', () => process.stdout.write(JSON.stringify({event:'hub-ready',socket:${JSON.stringify(socket)}})+'\\n'));
         fs.writeFileSync(${JSON.stringify(booted)}, 'ready for signal');
       `;
@@ -50,5 +50,37 @@ test("child exit before readiness fails even if its old socket path exists", asy
       return yield* Effect.either(managed.ready);
     })));
     expect(result._tag).toBe("Left");
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("shutdown escalates only after its deadline and waits for process close", async () => {
+  const { Fiber, TestClock, TestContext } = await import("effect");
+  const root = mkdtempSync(path.join(tmpdir(), "cmux-close-test-"));
+  const stopped = path.join(root, "sigterm");
+  const socket = path.join(root, "hub.sock");
+  const receivedTerminate = new Promise<void>((resolve) => {
+    const watcher = watch(root, () => {
+      if (existsSync(stopped)) { watcher.close(); resolve(); }
+    });
+  });
+  let closed = false;
+  try {
+    await Effect.runPromise(Effect.gen(function* () {
+      const fiber = yield* Effect.fork(Effect.scoped(Effect.gen(function* () {
+        const fixture = `
+          require('node:net').createServer().listen(${JSON.stringify(socket)});
+          process.on('SIGTERM', () => require('node:fs').writeFileSync(${JSON.stringify(stopped)}, 'ignored'));
+          process.stdout.write(JSON.stringify({event:'hub-ready',socket:${JSON.stringify(socket)}})+'\\n');
+        `;
+        const managed = yield* startPrivateLinkClient(process.execPath, ["-e", fixture], { event: "hub-ready", socket });
+        managed.child.once("close", () => { closed = true; });
+        yield* managed.ready;
+      })));
+      yield* Effect.promise(() => receivedTerminate);
+      expect(closed).toBe(false);
+      yield* TestClock.adjust("2 seconds");
+      yield* Fiber.join(fiber);
+    }).pipe(Effect.provide(TestContext.TestContext)));
+    expect(closed).toBe(true);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
