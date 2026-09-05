@@ -6,10 +6,67 @@ import SwiftUI
 struct NotificationFeedRow: View, Equatable {
     let model: NotificationFeedRowModel
     let actions: NotificationFeedActions
-    var isNested = false
+    var context: NotificationFeedRowContext = .standalone
+    var disclosure: NotificationFeedDisclosure? = nil
+    var toggleGroup: @MainActor () -> Void = {}
 
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.model == rhs.model && lhs.isNested == rhs.isNested
+        lhs.model == rhs.model && lhs.context == rhs.context && lhs.disclosure == rhs.disclosure
+    }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            NotificationFeedOpenRow(model: model, actions: actions, context: context)
+                .equatable()
+
+            if let disclosure {
+                NotificationFeedDisclosureButton(
+                    disclosure: disclosure,
+                    notificationID: model.notificationID,
+                    toggle: toggleGroup
+                )
+            }
+        }
+    }
+}
+
+private struct NotificationFeedDisclosureButton: View {
+    let disclosure: NotificationFeedDisclosure
+    let notificationID: String
+    let toggle: @MainActor () -> Void
+
+    var body: some View {
+        Button(action: toggle) {
+            HStack(spacing: 4) {
+                Text(disclosure.count, format: .number)
+                Image(systemName: "chevron.right")
+                    .rotationEffect(.degrees(disclosure.isExpanded ? 90 : 0))
+            }
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .frame(minWidth: 44, minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(disclosure.isExpanded
+            ? L10n.string("mobile.notificationFeed.history.hide", defaultValue: "Hide earlier notifications")
+            : L10n.string("mobile.notificationFeed.history.show", defaultValue: "Show earlier notifications"))
+        .accessibilityValue(L10n.string(
+            "mobile.notificationFeed.history.count",
+            defaultValue: "\(disclosure.count) updates"
+        ))
+        .accessibilityIdentifier("MobileNotificationFeedGroupToggle-\(notificationID)")
+    }
+}
+
+/// The original row remains the shared open/read/context-menu entry point.
+private struct NotificationFeedOpenRow: View, Equatable {
+    let model: NotificationFeedRowModel
+    let actions: NotificationFeedActions
+    let context: NotificationFeedRowContext
+
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.model == rhs.model && lhs.context == rhs.context
     }
 
     private var item: MobileNotificationFeedItem { model.item }
@@ -22,7 +79,7 @@ struct NotificationFeedRow: View, Equatable {
                 createdAt: item.createdAt,
                 isRead: item.isRead,
                 presentation: model.presentation,
-                isNested: isNested
+                context: context
             )
         }
         .buttonStyle(.plain)
@@ -130,32 +187,42 @@ private struct NotificationFeedRowLabel: View {
     let createdAt: Date
     let isRead: Bool
     let presentation: NotificationFeedRowPresentation
-    let isNested: Bool
+    let context: NotificationFeedRowContext
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
             NotificationFeedUnreadIndicator(isRead: isRead)
 
             VStack(alignment: .leading, spacing: 4) {
-                if isNested {
-                    Text(createdAt, style: .relative)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                if context.hidesHeadline {
+                    NotificationFeedHistoryHeader(
+                        sourceName: context.hidesSource ? nil : presentation.sourceName,
+                        contentPreview: presentation.contentPreview,
+                        createdAt: createdAt
+                    )
+                    if !context.hidesComputer {
+                        NotificationFeedProvenance(
+                            sourceName: nil,
+                            computerName: presentation.computerName,
+                            computerIsReachable: presentation.connectionStatus == .connected
+                        )
+                    }
                 } else {
                     NotificationFeedHeadline(
-                    title: presentation.headline,
-                    createdAt: createdAt,
-                    isRead: isRead
-                )
+                        title: presentation.headline,
+                        createdAt: createdAt,
+                        isRead: isRead
+                    )
 
-                NotificationFeedProvenance(
-                    sourceName: presentation.sourceName,
-                    computerName: presentation.computerName,
-                    computerIsReachable: presentation.connectionStatus == .connected
-                )
+                    NotificationFeedProvenance(
+                        sourceName: context.hidesSource ? nil : presentation.sourceName,
+                        computerName: context.hidesComputer ? nil : presentation.computerName,
+                        computerIsReachable: presentation.connectionStatus == .connected
+                    )
                 }
 
-                if let contentPreview = presentation.contentPreview {
+                if let contentPreview = presentation.contentPreview,
+                   !context.hidesHeadline || (!context.hidesSource && presentation.sourceName != nil) {
                     NotificationFeedContentPreview(text: contentPreview)
                 }
             }
@@ -163,6 +230,28 @@ private struct NotificationFeedRowLabel: View {
         .padding(.vertical, 5)
         .contentShape(Rectangle())
         .frame(minHeight: 44)
+    }
+}
+
+/// Inherited labels disappear, but content and dates use the ordinary row's
+/// typography and date formatter. A distinct notification title stays visible.
+private struct NotificationFeedHistoryHeader: View {
+    let sourceName: String?
+    let contentPreview: String?
+    let createdAt: Date
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            if let sourceName {
+                NotificationFeedSource(name: sourceName, allowsWrapping: true)
+                    .layoutPriority(1)
+            } else if let contentPreview {
+                NotificationFeedContentPreview(text: contentPreview)
+                    .layoutPriority(1)
+            }
+            Spacer(minLength: 6)
+            NotificationFeedTimestamp(createdAt: createdAt)
+        }
     }
 }
 
@@ -202,22 +291,30 @@ private struct NotificationFeedHeadline: View {
 
             Spacer(minLength: 6)
 
-            Text(createdAt, format: .relative(presentation: .named, unitsStyle: .abbreviated))
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-                .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
+            NotificationFeedTimestamp(createdAt: createdAt)
         }
+    }
+}
+
+private struct NotificationFeedTimestamp: View {
+    let createdAt: Date
+
+    var body: some View {
+        Text(createdAt, format: .relative(presentation: .named, unitsStyle: .abbreviated))
+            .font(.caption2)
+            .foregroundStyle(.tertiary)
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
     }
 }
 
 private struct NotificationFeedProvenance: View {
     let sourceName: String?
-    let computerName: String
+    let computerName: String?
     let computerIsReachable: Bool
 
     var body: some View {
-        if let sourceName {
+        if let sourceName, let computerName {
             ViewThatFits(in: .horizontal) {
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
                     NotificationFeedSource(name: sourceName, allowsWrapping: false)
@@ -240,7 +337,9 @@ private struct NotificationFeedProvenance: View {
                     )
                 }
             }
-        } else {
+        } else if let sourceName {
+            NotificationFeedSource(name: sourceName, allowsWrapping: true)
+        } else if let computerName {
             NotificationFeedComputer(
                 name: computerName,
                 isReachable: computerIsReachable,

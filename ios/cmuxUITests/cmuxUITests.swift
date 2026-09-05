@@ -4114,7 +4114,10 @@ final class cmuxUITests: XCTestCase {
         let markRead = app.buttons["MobileNotificationFeedMarkReadSwipe-studio-legacy-group-title-only"]
         XCTAssertTrue(markRead.waitForExistence(timeout: 3))
         markRead.tap()
-        XCTAssertTrue((child.value as? String)?.hasPrefix("Read") == true)
+        let readState = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "value BEGINSWITH %@", "Read"), object: child
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [readState], timeout: 5), .completed)
         XCTAssertTrue((parent.value as? String)?.hasPrefix("Unread") == true)
 
         toggle.tap()

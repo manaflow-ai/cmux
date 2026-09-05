@@ -39,6 +39,7 @@ struct NotificationFeedView: View {
                 hasSearchQuery: !projection.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                 status: status,
                 actions: actions,
+                toggleGroup: { projection.toggleGroup($0) },
                 loadMoreRows: {
                     actions.loadMore()
                     projection.extendRowWindow()
@@ -137,7 +138,9 @@ private struct NotificationFeedList: View {
     let hasSearchQuery: Bool
     let status: MobileNotificationFeedStatus
     let actions: NotificationFeedActions
+    let toggleGroup: @MainActor (MobileNotificationFeedItemID) -> Void
     let loadMoreRows: @MainActor () -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         List {
@@ -153,13 +156,22 @@ private struct NotificationFeedList: View {
             } else {
                 ForEach(sections) { section in
                     Section {
-                        ForEach(notificationGroups(section.items)) { group in
-                            if group.items.count == 1, let model = group.items.first {
-                                NotificationFeedRow(model: model, actions: actions)
-                                    .equatable()
-                            } else {
-                                NotificationFeedActivityRow(group: group, actions: actions)
-                            }
+                        ForEach(section.rows) { row in
+                            NotificationFeedRow(
+                                model: row.model,
+                                actions: actions,
+                                context: row.context,
+                                disclosure: row.disclosure,
+                                toggleGroup: {
+                                    guard let disclosure = row.disclosure else { return }
+                                    withAnimation(reduceMotion ? nil : .smooth(duration: 0.3)) {
+                                        toggleGroup(disclosure.groupID)
+                                    }
+                                }
+                            )
+                            .equatable()
+                            .padding(.leading, row.context.isNested ? 20 : 0)
+                            .listRowBackground(Color.clear)
                         }
                         .disabled(hasStaleSourceSections)
                         .allowsHitTesting(!hasStaleSourceSections)
@@ -189,77 +201,6 @@ private struct NotificationFeedList: View {
         )
     }
 
-    private func notificationGroups(_ items: [NotificationFeedRowModel]) -> [NotificationFeedGroup] {
-        var groups: [NotificationFeedGroup] = []
-        for item in items {
-            if let last = groups.last,
-               last.items[0].item.macDeviceID == item.item.macDeviceID,
-               last.items[0].item.macInstanceTag == item.item.macInstanceTag,
-               last.items[0].item.remoteWorkspaceID == item.item.remoteWorkspaceID,
-               last.items[0].item.remoteSurfaceID == item.item.remoteSurfaceID,
-               last.items[0].item.createdAt.timeIntervalSince(item.item.createdAt) <= 2 * 60 * 60 {
-                groups[groups.count - 1].items.append(item)
-            } else {
-                groups.append(NotificationFeedGroup(items: [item]))
-            }
-        }
-        return groups
-    }
-}
-
-private struct NotificationFeedGroup: Identifiable {
-    var items: [NotificationFeedRowModel]
-    var id: MobileNotificationFeedItemID { items[0].id }
-}
-
-private struct NotificationFeedActivityRow: View {
-    let group: NotificationFeedGroup
-    let actions: NotificationFeedActions
-    @State private var isExpanded = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            NotificationFeedRow(model: group.items[0], actions: actions)
-                .equatable()
-
-            Button {
-                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.25)) {
-                    isExpanded.toggle()
-                }
-            } label: {
-                HStack(spacing: 6) {
-                    Text("\(group.items.count) updates")
-                    Image(systemName: "chevron.down")
-                        .rotationEffect(.degrees(isExpanded ? 180 : 0))
-                }
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .frame(minHeight: 44, alignment: .leading)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("MobileNotificationFeedGroupToggle-\(group.items[0].notificationID)")
-
-            if isExpanded {
-                VStack(alignment: .leading, spacing: 12) {
-                    ForEach(Array(group.items.dropFirst())) { model in
-                        Divider()
-                        NotificationFeedRow(model: model, actions: actions, isNested: true)
-                            .equatable()
-                    }
-                }
-                .padding(.leading, 20)
-                .overlay(alignment: .leading) {
-                    Rectangle()
-                        .fill(.separator)
-                        .frame(width: 1)
-                }
-                .transition(.opacity)
-            }
-        }
-        .listRowBackground(Color.clear)
-    }
 }
 
 private struct NotificationFeedDayHeader: View {

@@ -14473,6 +14473,42 @@
         }
       }
     },
+    "mobile.notificationFeed.history.count": {
+      "comment": "VoiceOver value for a notification group's disclosure control. The number includes the latest notification.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld updates"
+          }
+        }
+      }
+    },
+    "mobile.notificationFeed.history.hide": {
+      "comment": "Collapses the older notification rows beneath the latest notification.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide earlier notifications"
+          }
+        }
+      }
+    },
+    "mobile.notificationFeed.history.show": {
+      "comment": "Expands the older notification rows beneath the latest notification.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show earlier notifications"
+          }
+        }
+      }
+    },
     "mobile.notificationFeed.filter": {
       "extractionState": "manual",
       "localizations": {
