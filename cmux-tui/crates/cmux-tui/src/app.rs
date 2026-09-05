@@ -55589,6 +55589,45 @@ mod tests {
     }
 
     #[test]
+    fn active_surface_content_replacement_clears_released_selection_with_same_ids() {
+        let mux = Mux::new(
+            "active-surface-content-selection-boundary-test",
+            SurfaceOptions::default(),
+        );
+        let mut app = test_app(Session::Local(mux));
+        let mut previous = notify_tree(11, false);
+        let tab = &mut previous.workspaces_mut()[0].screens[0].panes[0].tabs[0];
+        tab.public_id =
+            Some(TabPublicId::parse("tab_00000000000000000000000000000051".to_string()).unwrap());
+        tab.content_id = Some(ContentPublicId::Terminal(
+            TerminalPublicId::parse("term_00000000000000000000000000000051".to_string())
+                .unwrap(),
+        ));
+        tab.terminal_id = Some(
+            TerminalPublicId::parse("term_00000000000000000000000000000051".to_string()).unwrap(),
+        );
+        app.tree = previous.clone();
+        app.rebuild_tab_locations();
+        app.selection = Some(Selection { surface: 11, anchor: (2, 3), head: (8, 3) });
+        app.selection_mode = SelectionMode::Word;
+        app.selection_mode_surface = Some(11);
+
+        let mut next = previous;
+        next.workspaces_mut()[0].screens[0].panes[0].tabs[0].content_id =
+            Some(ContentPublicId::Terminal(
+                TerminalPublicId::parse("term_00000000000000000000000000000052".to_string())
+                    .unwrap(),
+            ));
+        app.replace_tree(next);
+
+        assert!(app.selection.is_none(), "a replacement terminal must clear released selection");
+        assert!(
+            app.selection_mode_surface.is_none(),
+            "selection mode must not target replacement terminal content"
+        );
+    }
+
+    #[test]
     fn active_surface_terminal_replacement_fences_unpinned_files_capture_with_same_route_ids() {
         let mux = Mux::new(
             "active-surface-terminal-files-capture-boundary-test",
