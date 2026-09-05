@@ -69251,6 +69251,125 @@
         }
       }
     },
+    "codex.restore.activeWriter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex session %@ already has an active writer (%@). Continue in its original terminal, or exit that Codex session normally and retry. Lock: %@. cmux did not remove the lock or start another writer."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex セッション %@ にはアクティブなライター（%@）があります。元のターミナルで続行するか、その Codex セッションを通常の方法で終了してから再試行してください。ロック: %@。cmux はロックを削除せず、別のライターも起動していません。"
+          }
+        }
+      }
+    },
+    "codex.restore.legacyScopeUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux cannot safely check ownership for this older shell-only Codex restore. No writer was started. Continue in the original terminal, or exit that session normally and resume it with Codex using the original CODEX_HOME and session ID."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この古いシェルコマンド形式の Codex 復元では、cmux は所有者を安全に確認できません。ライターは起動していません。元のターミナルで続行するか、そのセッションを通常の方法で終了し、元の CODEX_HOME とセッション ID を指定して Codex で再開してください。"
+          }
+        }
+      }
+    },
+    "codex.restore.writerCheckUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not inspect the Codex writer lock for %@. No new writer was started. Check access to %@, then retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux は %@ の Codex ライターロックを確認できませんでした。新しいライターは起動していません。%@ へのアクセス権を確認してから再試行してください。"
+          }
+        }
+      }
+    },
+    "codex.restore.writerOwner": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PID %d, working directory %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PID %d、作業ディレクトリ %@"
+          }
+        }
+      }
+    },
+    "codex.restore.writerUnknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the owner could not be verified; use lsof to inspect the lock path below"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所有者を確認できませんでした。lsof で以下のロックパスを確認してください"
+          }
+        }
+      }
+    },
+    "sessionIndex.codex.activeWriter.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex session is already open"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex セッションはすでに開いています"
+          }
+        }
+      }
+    },
+    "sessionIndex.codex.writerCheckUnavailable.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex session could not be checked"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex セッションを確認できませんでした"
+          }
+        }
+      }
+    },
     "command.addWorkspaceChecklistItem.title": {
       "extractionState": "manual",
       "localizations": {

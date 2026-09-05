@@ -2406,11 +2406,11 @@ struct ContentView: View {
     }
 
     private func resumeSession(entry: SessionEntry) {
-        SessionEntryResumeCoordinator.resume(entry, tabManager: tabManager)
+        Task { await SessionEntryResumeCoordinator(tabManager: tabManager).resume(entry) }
     }
 
     private func openSession(entry: SessionEntry) {
-        SessionEntryResumeCoordinator.open(entry, tabManager: tabManager)
+        Task { await SessionEntryResumeCoordinator(tabManager: tabManager).open(entry) }
     }
 
     func openRightSidebarToolPane(_ mode: RightSidebarMode) {

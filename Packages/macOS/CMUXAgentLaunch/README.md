@@ -55,3 +55,30 @@ let results = CodexSessionResumeVerifier().verifyBatch(
     fileManager: fixtureFileManager
 )
 ```
+
+## Testing Codex writer ownership
+
+`CodexWriterRestorePreflight` consumes final argv, environment, and actual cwd.
+Tests create temporary homes and hold their own nonblocking `flock`; they never
+use a real conversation or remove a provider-owned lock. Inject `ownerLookup`
+to model a release during discovery, and use `mappedSurface(in:)` to check
+ambiguous runtime candidates without AppKit. Production continuation requires
+an active lock, a complete single-holder scan, current process ancestry and
+kernel TTY, then a second process/runtime-generation check before focus.
+
+```swift
+let result = CodexWriterRestorePreflight().inspect(
+    sessionID: fixtureThreadID,
+    arguments: ["codex", "resume", fixtureThreadID],
+    environment: ["CODEX_HOME": fixtureHome.path],
+    workingDirectory: fixtureProject.path,
+    fallbackHome: fixtureUserHome.path
+)
+```
+
+The probe releases its own descriptor before launch. Codex remains the final
+atomic lock authority for later races. A local actor cannot replace this
+cross-process kernel check. CLI execution stays synchronous for `execve`;
+Vault awaits bounded inspection off the main actor. Unknown owners, remote
+providers, and uninspectable legacy shell commands never trigger guessed focus,
+lock deletion, process termination, or an implicit fork.

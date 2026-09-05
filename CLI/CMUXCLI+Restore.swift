@@ -10,33 +10,6 @@ extension CMUXCLI {
         )
     }
 
-    func controlAgentLaunchCommandPayload(
-        _ command: AgentLaunchCommand
-    ) -> [String: Any] {
-        var payload: [String: Any] = ["arguments": command.arguments]
-        if let launcher = command.launcher {
-            payload["launcher"] = launcher
-        }
-        if let executablePath = command.executablePath {
-            payload["executable_path"] = executablePath
-        }
-        if let workingDirectory = command.workingDirectory {
-            payload["working_directory"] = workingDirectory
-        }
-        if let environment = command.environment {
-            payload["environment"] = environment
-        }
-        if let verificationHome = command.verificationHome {
-            payload["verification_home"] = verificationHome
-        }
-        if let capturedAt = command.capturedAt {
-            payload["captured_at"] = capturedAt
-        }
-        if let source = command.source {
-            payload["source"] = source
-        }
-        return payload
-    }
 
     func runRestoreCommand(
         commandArgs: [String],
@@ -124,6 +97,10 @@ extension CMUXCLI {
             }
         }
 
+        let environment = processEnvironment.merging(record.environment) { _, restored in restored }
+        if record.launchCommand == nil, record.preparedArguments == nil, let command = record.legacyCommand {
+            try guardLegacyCodexWriter(command: command, record: record, environment: environment)
+        }
         // Legacy command-only records predate structured launch captures, but
         // an agent-hook Codex record still names a mutable surface owner. Claim
         // that generation before handing the shell command to exec so an
@@ -151,9 +128,6 @@ extension CMUXCLI {
             return
         }
 
-        let environment = processEnvironment.merging(record.environment) { _, restored in
-            restored
-        }
         if record.launchCommand == nil,
            record.preparedArguments == nil,
            let legacyCommand = record.legacyCommand {
@@ -206,6 +180,7 @@ extension CMUXCLI {
             ambientEnvironment: processEnvironment
         ) else {
             if let legacyCommand = record.legacyCommand {
+                try guardLegacyCodexWriter(command: legacyCommand, record: record, environment: environment)
                 if codexRestoreBindingRequiresClaim(record),
                    !claimCodexRestoreBinding(
                        record: record,
@@ -242,6 +217,9 @@ extension CMUXCLI {
             )
         }
 
+        try guardCodexWriterBeforeRestore(
+            sessionID: invocation.codexResumeSessionID, arguments: invocation.arguments, environment: invocation.environment
+        )
         for preflight in invocation.preflightInvocations {
             try runRestorePreflight(
                 preflight,
