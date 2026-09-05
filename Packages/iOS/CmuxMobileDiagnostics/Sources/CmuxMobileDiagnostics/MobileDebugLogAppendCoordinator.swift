@@ -79,11 +79,13 @@ final class MobileDebugLogAppendCoordinator: @unchecked Sendable {
         private let lock = NSLock()
         private var state = State()
         private let maxBufferedEntries: Int
+        private let maxBufferedControlEntries: Int
         private let wakeContinuation: AsyncStream<Void>.Continuation
         private var wakeIterator: AsyncStream<Void>.Iterator
 
         init(maxBufferedEntries: Int) {
             self.maxBufferedEntries = max(1, maxBufferedEntries)
+            self.maxBufferedControlEntries = 16
             let (stream, continuation) = AsyncStream<Void>.makeStream(
                 bufferingPolicy: .bufferingNewest(1)
             )
@@ -134,11 +136,10 @@ final class MobileDebugLogAppendCoordinator: @unchecked Sendable {
         func admit(_ acknowledgement: Acknowledgement) -> Bool {
             let admitted = withStateLock { state in
                 guard !state.finished else { return false }
-                if state.entries.count >= maxBufferedEntries {
+                if state.entries.count >= maxBufferedEntries + maxBufferedControlEntries {
                     // A barrier must not displace a line that was already
-                    // accepted. Failing closed preserves the ordering
-                    // guarantee and lets the caller retry after the drain
-                    // makes progress.
+                    // accepted. The reserved control lane is bounded;
+                    // exhaustion fails closed rather than losing traffic.
                     return false
                 }
                 state.entries.append(.barrier(acknowledgement))

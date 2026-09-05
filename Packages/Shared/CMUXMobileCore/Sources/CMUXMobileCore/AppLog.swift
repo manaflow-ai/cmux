@@ -266,8 +266,8 @@ public actor AppLog {
 
     /// Synchronously admits entries from arbitrary producer threads while
     /// keeping normal event and mirrored-line traffic bounded. Control entries
-    /// never evict an entry that was already accepted. If the queue is full,
-    /// control admission fails and the caller receives a failed acknowledgement.
+    /// never evict an entry that was already accepted. A small reserved control
+    /// lane admits barriers and clears while the traffic queue drains.
     // lint:allow lock - synchronous admission is required for nonisolated
     // producers; the lock is held only while updating a bounded in-memory queue.
     private final class EntryIngress: @unchecked Sendable {
@@ -282,11 +282,13 @@ public actor AppLog {
         private let lock = NSLock()
         private var state = State()
         private let maxBufferedEntries: Int
+        private let maxBufferedControlEntries: Int
         private let wakeContinuation: AsyncStream<Void>.Continuation
         private var wakeIterator: AsyncStream<Void>.Iterator
 
         init(maxBufferedEntries: Int = 2_048) {
             self.maxBufferedEntries = max(1, maxBufferedEntries)
+            self.maxBufferedControlEntries = 16
             let (stream, continuation) = AsyncStream<Void>.makeStream(
                 bufferingPolicy: .bufferingNewest(1)
             )
@@ -306,10 +308,10 @@ public actor AppLog {
                         return false
                     }
                     state.bufferedDroppableCount += 1
-                } else if state.entries.count >= maxBufferedEntries {
+                } else if state.entries.count >= maxBufferedEntries + maxBufferedControlEntries {
                     // A barrier or clear must not displace an already
-                    // accepted event. Failing closed preserves ordering and
-                    // lets the caller retry after the drain makes progress.
+                    // accepted event. The reserved control lane is bounded;
+                    // exhaustion fails closed rather than losing traffic.
                     return false
                 }
                 state.entries.append(entry)
@@ -637,6 +639,7 @@ public actor AppLog {
     private static let drainWaitTimeoutNanoseconds: UInt64 = 5_000_000_000
     private static let exportTimeoutNanoseconds: UInt64 = 10_000_000_000
     private static let ingressCapacity = 2_048
+    private static let controlReserve = 16
 
     /// Create a log writing to the given locations. Passing `nil` for a URL
     /// disables that file (used by tests exercising one file at a time).
@@ -746,10 +749,10 @@ public actor AppLog {
     private func write(_ entry: Entry) {
         guard !exportSnapshotInProgress else {
             if Self.isDroppable(entry) {
-                guard deferredExportEntries.count < Self.ingressCapacity,
+                guard deferredExportEntries.count < Self.ingressCapacity + Self.controlReserve,
                       deferredExportDroppableCount < Self.ingressCapacity else { return }
                 deferredExportDroppableCount += 1
-            } else if deferredExportEntries.count >= Self.ingressCapacity {
+            } else if deferredExportEntries.count >= Self.ingressCapacity + Self.controlReserve {
                 Self.signalControl(entry, result: false)
                 return
             }
