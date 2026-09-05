@@ -23937,6 +23937,50 @@ mod tests {
     }
 
     #[test]
+    fn agent_adapter_identity_survives_durable_history_and_reopen() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-agent-adapter-history-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        let mux = Mux::open_persistent("agent-adapter-history", SurfaceOptions::default(), &root)
+            .unwrap();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+        let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+            "codex",
+            "SessionStart",
+            Some(&terminal_id.to_string()),
+            serde_json::json!({"session_id":"codex-history"}),
+        )
+        .unwrap();
+
+        mux.apply_agent_hook_record(&ingress, 1).unwrap();
+        assert_eq!(mux.list_agents(Some(surface.id), None)[0].agent.as_deref(), Some("codex"));
+        assert_eq!(
+            mux.list_agent_history(Some(surface.id), None)[0].agent.as_deref(),
+            Some("codex")
+        );
+
+        mux.shutdown();
+        drop(mux);
+        let reopened =
+            Mux::open_persistent("agent-adapter-history", SurfaceOptions::default(), &root)
+                .unwrap();
+        let reopened_surface = reopened.resource_surface_for_terminal(&terminal_id).unwrap();
+        assert_eq!(
+            reopened.list_agent_history(Some(reopened_surface), None)[0].agent.as_deref(),
+            Some("codex")
+        );
+        assert_eq!(
+            reopened.list_agents(Some(reopened_surface), None)[0].agent.as_deref(),
+            Some("codex")
+        );
+        reopened.shutdown();
+        drop(reopened);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn direct_hook_report_with_new_session_can_follow_hook_end() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, None).unwrap();
