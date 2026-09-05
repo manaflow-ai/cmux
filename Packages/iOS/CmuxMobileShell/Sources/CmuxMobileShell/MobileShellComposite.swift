@@ -3651,8 +3651,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // requesting user still being current (mirroring the `.ok` path):
             // a stale 401 from a signed-out session that lands after a
             // different user signed in must not blank the new user's tree.
-            if loadGeneration == registryDevicesLoadGeneration,
-               await isScopeCurrent(scope) {
+            if await isScopeCurrent(scope),
+               loadGeneration == registryDevicesLoadGeneration {
                 registryDevices = []
             }
             recordAppEvent(
@@ -3675,12 +3675,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // are still in the same signed-in account/team scope, so a slow load can
         // never repopulate another scope's devices after sign-out, account switch,
         // or same-account team switch.
-        guard loadGeneration == registryDevicesLoadGeneration,
-              await isScopeCurrent(scope) else { return }
+        guard await isScopeCurrent(scope),
+              loadGeneration == registryDevicesLoadGeneration else { return }
         let connectedID = connectedMacDeviceID
         let hiddenIDs = await hiddenMacDeviceIDs(scope: scope)
-        guard loadGeneration == registryDevicesLoadGeneration,
-              await isScopeCurrent(scope) else { return }
+        guard await isScopeCurrent(scope),
+              loadGeneration == registryDevicesLoadGeneration else { return }
         let compatible = compatibleRegistryDevices(loaded)
         registryDevices = compatible
             .compactMap { device in
@@ -3991,8 +3991,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             loaded = try await pairedMacStore.loadAll(stackUserID: scope.userID, teamID: scope.teamID)
         } catch {
             mobileShellLog.error("paired mac store loadAll failed: \(String(describing: error), privacy: .public)")
-            if loadGeneration == pairedMacLoadGeneration,
-               await isScopeCurrent(scope) {
+            if await isScopeCurrent(scope),
+               loadGeneration == pairedMacLoadGeneration {
                 pairedMacLoadState = .failed
                 hiddenComputers = []
                 hasHiddenComputers = false
@@ -4012,8 +4012,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // The await above suspended the main actor; a sign-out, user switch, or
         // same-account team switch may have run meanwhile. Discard unless the
         // captured account/team scope is still current.
-        guard loadGeneration == pairedMacLoadGeneration,
-              await isScopeCurrent(scope) else {
+        guard await isScopeCurrent(scope),
+              loadGeneration == pairedMacLoadGeneration else {
             return
         }
         migrateLegacyWorkspaceComputerPriority(loadedMacs: loaded)
@@ -4027,8 +4027,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             from: loaded,
             hiddenIDs: hiddenIDs
         )
-        guard loadGeneration == pairedMacLoadGeneration,
-              await isScopeCurrent(scope) else {
+        guard await isScopeCurrent(scope),
+              loadGeneration == pairedMacLoadGeneration else {
             return
         }
         installStoredPairedMacCache(loaded, scope: scope)
