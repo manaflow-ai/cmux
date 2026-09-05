@@ -52,8 +52,18 @@ describe("parsePhoneReply", () => {
     expect(parsed.ok).toBe(true);
     if (parsed.ok) {
       expect(parsed.reply.replyId).toBe("reply-1");
+      expect(parsed.reply.retargetsToLiveSurfaceOwner).toBe(true);
       expect(parsed.reply.text).toBe("looks good, merge it");
     }
+  });
+
+  it("preserves confined retarget policy and rejects non-boolean values", () => {
+    const confined = parsePhoneReply(replyBody({ retargetsToLiveSurfaceOwner: false }));
+    expect(confined.ok).toBe(true);
+    if (confined.ok) expect(confined.reply.retargetsToLiveSurfaceOwner).toBe(false);
+    expect(
+      parsePhoneReply(replyBody({ retargetsToLiveSurfaceOwner: "false" })).ok,
+    ).toBe(false);
   });
 
   it("tolerates missing optional claims but requires target + text", () => {

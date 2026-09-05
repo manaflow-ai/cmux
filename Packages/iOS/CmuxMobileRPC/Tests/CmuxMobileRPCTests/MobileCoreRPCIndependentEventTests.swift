@@ -227,6 +227,29 @@ struct MobileCoreRPCIndependentEventTests {
     }
 
     @Test
+    func underlyingTransportClosureFinishesEventListeners() async throws {
+        let route = try irohRoute(hexBytePair: "bc")
+        let transport = SubscribeRoundTripTransport()
+        let runtime = TestMobileSyncRuntime(
+            transportFactory: FixedTransportFactory(transport: transport)
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: try ticket(route: route, deviceSuffix: "007")
+        )
+        _ = try await client.sendRequest(
+            MobileCoreRPCClient.requestData(method: "mobile.host.status")
+        )
+        _ = await client.subscribe(to: ["workspace.updated"])
+
+        await transport.closeExternally()
+
+        #expect(await pollUntil { await client.session.listeners.isEmpty })
+        await client.disconnect()
+    }
+
+    @Test
     func repeatedSubscriptionDoesNotReopenEndedIndependentEventLane() async throws {
         let route = try irohRoute(hexBytePair: "de")
         let source = OneShotIndependentEventSource()
@@ -430,9 +453,10 @@ private actor CloseTrackingNeverConnectedTransport: CmxByteTransport {
     func wasClosed() -> Bool { closed }
 }
 
-private actor SubscribeRoundTripTransport: CmxByteTransport {
+private actor SubscribeRoundTripTransport: CmxByteTransport, CmxByteTransportClosureObserving {
     private var replies: [Data] = []
     private var waiter: CheckedContinuation<Data?, Never>?
+    private var closeWaiters: [CheckedContinuation<Void, Never>] = []
     private var eventTransports: [String?] = []
     private var closed = false
 
@@ -473,9 +497,30 @@ private actor SubscribeRoundTripTransport: CmxByteTransport {
     }
 
     func close() async {
+        closeExternally()
+    }
+
+    func closeExternally() {
+        guard !closed else { return }
         closed = true
         waiter?.resume(returning: nil)
         waiter = nil
+        let waiters = closeWaiters
+        closeWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
+    }
+
+    func transportClosureObservation() async -> CmxTransportClosureObservation? {
+        CmxTransportClosureObservation(waitUntilClosed: { [weak self] in
+            await self?.waitUntilClosed()
+        }, cancel: { [weak self] in
+            Task { await self?.closeExternally() }
+        })
+    }
+
+    private func waitUntilClosed() async {
+        guard !closed else { return }
+        await withCheckedContinuation { closeWaiters.append($0) }
     }
 
     func recordedEventTransport() -> String? {

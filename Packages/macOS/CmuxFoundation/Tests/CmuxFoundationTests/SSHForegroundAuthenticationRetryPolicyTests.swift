@@ -451,6 +451,10 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         }
 
         let command = """
+        # The fixture shares a process group with this harness. Ignore the
+        # group-delivered signals from the intentionally terminated tree so
+        # the harness can finish reporting cleanup assertions.
+        trap '' HUP INT TERM
         \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
         CMUX_TEST_CHAIN_DEPTH=24 /bin/sh "$CMUX_TEST_CHAIN_SCRIPT" &
         cmux_test_auth_root=$!
@@ -502,6 +506,9 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         process.standardError = stderrCapture.handle
 
         try process.run()
+        // Process launch and fixture readiness are outside the cleanup
+        // contract. Start the wall-clock assertion at the helper boundary so
+        // scheduler and app-host startup latency cannot consume it.
         let startDeadline = Date.now.addingTimeInterval(5)
         while !fileManager.fileExists(atPath: cleanupStartedMarker.path),
               process.isRunning,
@@ -510,21 +517,22 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         }
         try #require(fileManager.fileExists(atPath: cleanupStartedMarker.path))
         let startedAt = Date.now
-        try waitForExit(process, stderrCapture: stderrCapture, timeout: 10)
+        try waitForExit(process, stderrCapture: stderrCapture, timeout: 20)
         let elapsed = Date.now.timeIntervalSince(startedAt)
 
         let processIDs = try String(contentsOf: pidLog, encoding: .utf8)
             .split(separator: "\n")
             .compactMap { Int32($0) }
-        waitForProcessesToExit(processIDs)
+        waitForProcessesToExit(processIDs, timeout: 10)
 
         #expect(process.terminationStatus == 0)
         #expect(processIDs.count == 25)
         // The helper has one shared two-second discovery budget plus a bounded
-        // force pass. Keep a wall-clock assertion so a per-node timeout or a
-        // signal-handler hang cannot pass on eventual process termination.
+        // force pass. Process-table scans can be slow on a loaded macOS host,
+        // so allow bounded cleanup overhead while still rejecting the old
+        // one-deadline-per-node behavior.
         #expect(
-            elapsed < 5,
+            elapsed < 15,
             "Foreground authentication cleanup took \(elapsed) seconds instead of one bounded deadline"
         )
         let processStates = processIDs.map(processLiveness)

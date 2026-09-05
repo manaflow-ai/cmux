@@ -30,6 +30,7 @@ extension WorkspaceDetailView {
         isComposerActive: store.isComposerPresented,
         terminalTheme: store.activeTerminalTheme,
         topContentInset: terminalSurfaceTopContentInset,
+        bottomSafeAreaInset: terminalSurfaceBottomSafeAreaInset,
         terminalConfigTheme: store.activeTerminalConfigTheme,
         // Drives the live recolor: when the synced theme changes the
         // shell bumps this, and the representable rebuilds the runtime

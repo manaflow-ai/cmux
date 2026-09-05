@@ -5177,6 +5177,65 @@
         }
       }
     },
+    "mobile.connections.tailscale.replace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Replace Tailscale Connection"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale接続を置換"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale-Verbindung ersetzen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remplacer la connexion Tailscale"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استبدال اتصال Tailscale"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reemplazar conexión de Tailscale"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取代 Tailscale 連線"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "替换 Tailscale 连接"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale 연결 교체"
+          }
+        }
+      }
+    },
     "mobile.connections.route.deleteComputer.title": {
       "extractionState": "manual",
       "localizations": {
@@ -12489,6 +12548,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "두 장치 모두에서 cmux를 업데이트합니다. 필요한 경우 Mac을 제거하고 다시 페어링하십시오."
+          }
+        }
+      }
+    },
+    "mobile.settings.taskComposerFullLiquidGlass": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Task Composer Liquid Glass"
+          }
+        }
+      }
+    },
+    "mobile.settings.taskComposerFullLiquidGlassCaption": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Liquid Glass controls and a transparent bar in New Task."
           }
         }
       }

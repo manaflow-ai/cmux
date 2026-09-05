@@ -48,18 +48,14 @@ extension TerminalSurface {
             agentCommandShimInstallTask = installTask
             agentCommandShimCompletionTask = Task { @MainActor [weak self, weak view] in
                 let shims = await installTask.value
-                guard !Task.isCancelled else { return }
                 guard let self else { return }
                 self.agentCommandShims = shims
+                self.agentCommandShimInstallCompleted = true
                 self.agentCommandShimInstallTask = nil
                 self.agentCommandShimCompletionTask = nil
                 self.agentCommandShimDeadlineTask?.cancel()
                 self.agentCommandShimDeadlineTask = nil
-                // The deadline may have already released spawn without the
-                // shims; the late result still serves future runtime creations.
-                guard !self.agentCommandShimInstallCompleted else { return }
-                self.agentCommandShimInstallCompleted = true
-                let source = self.agentCommandShimPendingCreationSource ?? source
+                guard let source = self.agentCommandShimPendingCreationSource else { return }
                 self.agentCommandShimPendingCreationSource = nil
                 self.resumeSurfaceCreationAfterAgentCommandShimsReady(view: view, source: source)
             }
@@ -74,7 +70,7 @@ extension TerminalSurface {
                 guard let self, !self.agentCommandShimInstallCompleted else { return }
                 self.agentCommandShimInstallCompleted = true
                 self.agentCommandShimDeadlineTask = nil
-                let source = self.agentCommandShimPendingCreationSource ?? source
+                guard let source = self.agentCommandShimPendingCreationSource else { return }
                 self.agentCommandShimPendingCreationSource = nil
                 self.resumeSurfaceCreationAfterAgentCommandShimsReady(view: view, source: source)
             }
@@ -85,17 +81,15 @@ extension TerminalSurface {
 
     @MainActor
     func cancelAgentCommandShimInstallLifecycle() {
-        agentCommandShimCompletionTask?.cancel()
-        agentCommandShimCompletionTask = nil
-        agentCommandShimInstallTask?.cancel()
-        agentCommandShimInstallTask = nil
-        agentCommandShimDeadlineTask?.cancel()
-        agentCommandShimDeadlineTask = nil
+        // Cancellation withdraws only the pending surface-creation intent. The
+        // detached filesystem install remains the one registered installer
+        // until its completion task publishes the result and clears both task
+        // slots; a later creation request can then reuse that in-flight work.
         agentCommandShimPendingCreationSource = nil
-        // A deadline-released spawn marks the install completed without
-        // shims. Reopen the gate after cancelling that install so a later
-        // runtime generation can try again.
-        if agentCommandShims == nil {
+        // A deadline may have released surface creation while the installer is
+        // still running. Reopen the readiness gate so a later creation can
+        // retry after cancellation without starting a duplicate installer.
+        if agentCommandShimInstallTask != nil {
             agentCommandShimInstallCompleted = false
         }
     }

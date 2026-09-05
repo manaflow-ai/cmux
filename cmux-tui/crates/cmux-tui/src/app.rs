@@ -568,19 +568,39 @@ struct PendingFrontendJournalEvent {
     event: Box<FrontendJournalEvent>,
 }
 
-impl PendingFrontendJournalEvent {
-    fn slot(&self) -> usize {
-        match self.event.as_ref() {
-            FrontendJournalEvent::Focus { .. } => 0,
-            FrontendJournalEvent::Resize { .. } => 1,
-            FrontendJournalEvent::Viewport { .. } => 2,
+#[repr(usize)]
+#[derive(Clone, Copy)]
+enum FrontendJournalSlot {
+    Focus = 0,
+    Resize = 1,
+    Viewport = 2,
+}
+
+impl FrontendJournalSlot {
+    const COUNT: usize = 3;
+
+    fn for_event(event: &FrontendJournalEvent) -> Self {
+        match event {
+            FrontendJournalEvent::Focus { .. } => Self::Focus,
+            FrontendJournalEvent::Resize { .. } => Self::Resize,
+            FrontendJournalEvent::Viewport { .. } => Self::Viewport,
         }
+    }
+
+    const fn index(self) -> usize {
+        self as usize
+    }
+}
+
+impl PendingFrontendJournalEvent {
+    fn slot(&self) -> FrontendJournalSlot {
+        FrontendJournalSlot::for_event(self.event.as_ref())
     }
 }
 
 #[derive(Default)]
 struct FrontendJournalQueueState {
-    pending: [Option<PendingFrontendJournalEvent>; 3],
+    pending: [Option<PendingFrontendJournalEvent>; FrontendJournalSlot::COUNT],
     next_sequence: u64,
     stopping: bool,
 }
@@ -593,11 +613,7 @@ struct FrontendJournalQueue {
 
 impl FrontendJournalQueue {
     fn push(&self, session: Session, event: FrontendJournalEvent) {
-        let slot = match &event {
-            FrontendJournalEvent::Focus { .. } => 0,
-            FrontendJournalEvent::Resize { .. } => 1,
-            FrontendJournalEvent::Viewport { .. } => 2,
-        };
+        let slot = FrontendJournalSlot::for_event(&event).index();
         let mut state = self.state.lock().unwrap();
         if state.stopping {
             return;
@@ -650,11 +666,11 @@ impl FrontendJournalQueue {
     fn retry(&self, mut pending: PendingFrontendJournalEvent) {
         let slot = pending.slot();
         let mut state = self.state.lock().unwrap();
-        if state.stopping || state.pending[slot].is_some() {
+        if state.stopping || state.pending[slot.index()].is_some() {
             return;
         }
         pending.retry_at = Instant::now() + Duration::from_millis(100);
-        state.pending[slot] = Some(pending);
+        state.pending[slot.index()] = Some(pending);
         drop(state);
         self.changed.notify_one();
     }

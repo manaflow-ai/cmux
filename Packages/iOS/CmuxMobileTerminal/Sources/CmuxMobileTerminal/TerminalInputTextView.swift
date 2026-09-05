@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxMobileSupport
 import CmuxMobileTerminalKit
 import Foundation
 import UIKit
@@ -263,7 +264,9 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     }
     private var themeBarColor: UIColor { terminalTheme.terminalBackgroundUIColor }
     private var themeChromeColor: UIColor { themeBarColor.terminalReadableForeground }
-    private static let accessoryHorizontalInset: CGFloat = 16
+    /// Match the leading margin used by the terminal composer attachment
+    /// controls so the keyboard toggle sits on the same vertical guide.
+    private static let accessoryHorizontalInset = MobileComposerLayout().horizontalInset
     private static let accessoryButtonFont = UIFont.systemFont(ofSize: 14, weight: .medium)
     /// One shared SF Symbol config for every icon on the bar (paste, zoom,
     /// arrows, settings, keyboard toggle) so all glyphs render at one size.
@@ -595,6 +598,11 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         let insets = accessoryLayoutInsetsProvider?() ?? .zero
         let leftInset = max(0, insets.left)
         let rightInset = max(0, insets.right)
+        let scrollView = accessoryStackView?.superview as? UIScrollView
+        let previousOffset = scrollView?.contentOffset.x ?? 0
+        let wasAtLeadingEdge = scrollView.map { scroll in
+            previousOffset <= -scroll.adjustedContentInset.left + 1
+        } ?? true
 
         accessoryBackgroundLeadingConstraint?.constant = leftInset
         accessoryBackgroundTrailingConstraint?.constant = -rightInset
@@ -607,6 +615,27 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         if accessoryStackView != nil {
             terminalAccessoryToolbar.setNeedsLayout()
             terminalAccessoryToolbar.layoutIfNeeded()
+
+            // An inset relayout (sidebar toggle, split-column animation,
+            // rotation) must not move the strip: a pinned leading edge stays
+            // pinned to the new minimum, and a mid-scroll position is
+            // preserved, clamped to the new valid range.
+            guard let scrollView else { return }
+            let minimumOffset = -scrollView.adjustedContentInset.left
+            let maximumOffset = max(
+                minimumOffset,
+                scrollView.contentSize.width
+                    - scrollView.bounds.width
+                    + scrollView.adjustedContentInset.right
+            )
+            let targetOffset = wasAtLeadingEdge
+                ? minimumOffset
+                : min(max(previousOffset, minimumOffset), maximumOffset)
+            guard abs(scrollView.contentOffset.x - targetOffset) > 0.5 else { return }
+            scrollView.setContentOffset(
+                CGPoint(x: targetOffset, y: scrollView.contentOffset.y),
+                animated: false
+            )
         }
     }
 

@@ -16,7 +16,7 @@ workspace = true
 [dependencies]
 base64.workspace = true
 bytes.workspace = true
-cmux-remote.workspace = true
+cmux-remote = { workspace = true, default-features = false, features = ["iroh-transport"] }
 cmux-remote-protocol.workspace = true
 cmux-tui-core.workspace = true
 getrandom.workspace = true

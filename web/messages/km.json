@@ -22,6 +22,11 @@
       "title": "ត្រូវការ cmux Pro",
       "message": "Cloud VM តម្រូវឱ្យមានគម្រោង cmux Pro។",
       "action": "ដំឡើងកំណែទៅ cmux Pro នៅ {upgradeUrl} ដើម្បីបង្កើត Cloud VM។"
+    },
+    "sharedResource": {
+      "message": "ក្រុមធនធាន {resource} រួមរបស់ Cloud VM ពេញហើយ។",
+      "action": "លុប Cloud VM ដែលមិនប្រើ រួចព្យាយាមម្ដងទៀត។",
+      "oversizedAction": "ស្នើទំហំ {resource} តូចជាងនេះសម្រាប់ Cloud VM ដើម្បីឲ្យសមក្នុងក្រុមរួម។"
     }
   },
   "billingRecovery": {
@@ -1183,6 +1188,14 @@
         "shortcuts": {
           "when": "លក្ខខណ្ឌបរិបទជាជម្រើសសម្រាប់សកម្មភាពនីមួយៗ (ឃ្លា `when` រចនាប័ទ្ម VS Code) ដែលដាក់សន្ទស្សន៍តាមលេខសម្គាល់សកម្មភាព cmux។ តម្លៃនីមួយៗគឺជាកន្សោម boolean លើគន្លឹះបរិបទ ដែលផ្សំជាមួយ !, &&, || និងវង់ក្រចក។ គន្លឹះ boolean: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout។ គន្លឹះមានប្រភេទគាំទ្រការប្រៀបធៀប: ខ្សែអក្សរ sidebarMode (files, find, sessions, feed ឬ dock) និងចំនួនគត់ paneCount និង workspaceCount។ សញ្ញាប្រៀបធៀបគឺ ==, !=, =~ (regex), <, <=, >, >= និង `in [a, b]`; គន្លឹះមិនស្គាល់ ឬមិនមាននឹងត្រូវអានជា false។ អក្សរ boolean true និង false ក៏អាចប្រើបានដែរ; `key == false` ដូចគ្នានឹង `!key`។ ផ្លូវកាត់របស់សកម្មភាពនឹងដំណើរការ (និងទាស់ជាមួយផ្លូវកាត់ផ្សេងទៀត) តែពេលឃ្លានេះពិតប៉ុណ្ណោះ។ ឧទាហរណ៍: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } ជ្រើសរើស workspace ដោយ Ctrl+1–9 នៅគ្រប់ទីកន្លែង លើកលែងពេលរបារចំហៀងស្តាំមាន focus; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } កំណត់ការចងទៅរបារចំហៀង Find ពេល workspace មានផ្ទាំងច្រើន។",
           "showModifierHoldHints": "បង្ហាញបន្ទះណែនាំផ្លូវកាត់ ខណៈពេលចុច Cmd ឬ Control ជាប់។"
+        },
+        "fileEditor": {
+          "wordWrap": "បំបែកជួរវែងនៅគែមស្តាំរបស់កម្មវិធីកែសម្រួល ជំនួសការរមូរផ្ដេក។",
+          "syntaxHighlighting": "ដាក់ពណ៌ថូខិនកូដក្នុងកម្មវិធីកែឯកសារដែលភ្ជាប់មកជាមួយ។",
+          "lineNumbers": "បង្ហាញជួរលេខជួរក្នុងកម្មវិធីកែឯកសារដែលភ្ជាប់មកជាមួយ។",
+          "indentGuides": "គូរខ្សែណែនាំការចូលបន្ទាត់បញ្ឈរក្នុងកម្មវិធីកែឯកសារដែលភ្ជាប់មកជាមួយ។",
+          "currentLineHighlight": "បន្លិចជួរដែលមានសញ្ញាការពេលគ្មានការជ្រើស។",
+          "tabWidth": "ទទឹងចំណុចថេបជាចំនួនជួរ សម្រាប់ការចូលបន្ទាត់ និងខ្សែណែនាំការចូលបន្ទាត់។"
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

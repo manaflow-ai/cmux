@@ -22,6 +22,11 @@
       "title": "Потрібен cmux Pro",
       "message": "Для Cloud VM потрібен план cmux Pro.",
       "action": "Перейдіть на cmux Pro на {upgradeUrl}, щоб створювати Cloud VM."
+    },
+    "sharedResource": {
+      "message": "Спільний пул ресурсу {resource} для Cloud VM заповнений.",
+      "action": "Видаліть невикористану Cloud VM і повторіть спробу.",
+      "oversizedAction": "Запитайте менший розмір {resource} Cloud VM, який поміщається у спільний пул."
     }
   },
   "billingRecovery": {
@@ -1167,6 +1172,14 @@
         "shortcuts": {
           "when": "Необов'язкові контекстні предикати для кожної дії (клаузи `when` у стилі VS Code), індексовані за ідентифікатором дії cmux. Кожне значення — булевий вираз над ключами контексту, поєднаними за допомогою !, &&, || та дужок. Булеві ключі: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Типізовані ключі підтримують порівняння: рядок sidebarMode (files, find, sessions, feed або dock) і цілі числа paneCount та workspaceCount. Оператори порівняння: ==, !=, =~ (регулярний вираз), <, <=, >, >= та `in [a, b]`; невідомий або відсутній ключ вважається false. Також приймаються булеві літерали true і false; `key == false` еквівалентно `!key`. Скорочення дії спрацьовує (і конфліктує з іншими скороченнями) лише тоді, коли клауза істинна. Приклади: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } вибирає робочі простори за допомогою Ctrl+1–9 всюди, крім випадків, коли у фокусі права бічна панель; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } обмежує прив'язку бічною панеллю пошуку, коли в робочому просторі кілька панелей.",
           "showModifierHoldHints": "Показувати підказки комбінацій клавіш, доки утримується Cmd або Control."
+        },
+        "fileEditor": {
+          "wordWrap": "Переносить довгі рядки біля правого краю редактора замість горизонтального прокручування.",
+          "syntaxHighlighting": "Розфарбовує токени коду у вбудованому редакторі файлів.",
+          "lineNumbers": "Показує жолоб із номерами рядків у вбудованому редакторі файлів.",
+          "indentGuides": "Малює вертикальні напрямні відступу у вбудованому редакторі файлів.",
+          "currentLineHighlight": "Підсвічує рядок із кареткою, коли нічого не вибрано.",
+          "tabWidth": "Ширина табуляції в стовпцях для відступів і напрямних відступу."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

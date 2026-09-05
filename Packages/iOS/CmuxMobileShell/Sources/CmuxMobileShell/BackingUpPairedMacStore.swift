@@ -41,7 +41,7 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
     /// where each record's backup actually lives, learned from the upload echo,
     /// so its delete tombstone can be routed there instead of re-resolving a
     /// nil team at delete time.
-    private let backupTeamStore: any PairedMacBackupTeamStoring
+    let backupTeamStore: any PairedMacBackupTeamStoring
     private var pendingDeleteIDsByScope: [String: Set<String>] = [:]
     /// Bumped by every `removeAll()` (sign-out wipe). A restore captures it before
     /// awaiting its task and re-checks after: a restore that completed/resumed
@@ -85,7 +85,7 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
     /// same (account, device, tag) pairing to exist under several team scopes,
     /// so a key without the team would let team B's upload overwrite team A's
     /// destination and later route A's tombstone into B's backup.
-    private func backupTeamKey(account: String, rowTeamID: String?, pairingID: String) -> String {
+    func backupTeamKey(account: String, rowTeamID: String?, pairingID: String) -> String {
         "\(account)\u{0}\(rowTeamID ?? "")\u{0}\(pairingID)"
     }
 
@@ -1118,7 +1118,7 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         )?.stackUserID
     }
 
-    private func macFor(
+    func macFor(
         _ macDeviceID: String,
         instanceTag: String?,
         stackUserID: String?,
@@ -1171,7 +1171,8 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         teamID: String? = nil,
         includesCustomizations: Bool = false,
         allowTombstoneRevive: Bool = false,
-        instanceAuthority: PairedMacBackupInstanceAuthorityWriteMode = .authoritative
+        instanceAuthority: PairedMacBackupInstanceAuthorityWriteMode = .authoritative,
+        resolvesNilTeam: Bool = true
     ) async -> Bool {
         let macDeviceID = cmxCanonicalDeviceID(macDeviceID)
         let pairingID = MobilePairedMac.pairingID(
@@ -1182,7 +1183,7 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
             .pairedMacBackupWriteStarted,
             correlationID: pairingID
         )
-        let team = await resolvedTeam(teamID)
+        let team = resolvesNilTeam ? await resolvedTeam(teamID) : teamID
         let localMacs: [MobilePairedMac]
         do {
             localMacs = try await inner.loadAll(stackUserID: account, teamID: team)
