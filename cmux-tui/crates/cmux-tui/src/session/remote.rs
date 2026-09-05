@@ -4190,11 +4190,14 @@ fn prune_dump_files_with_limits(
             delete_dump_file(directory, &dump.name)?;
         }
     }
-    let mut total_bytes = dumps.iter().map(|dump| dump.bytes).sum::<u64>();
+    // A directory can contain files close to the maximum `u64` file size.
+    // Sum in a wider type so the byte cap cannot wrap before it is enforced.
+    let maximum_bytes = u128::from(maximum_bytes);
+    let mut total_bytes = dumps.iter().map(|dump| u128::from(dump.bytes)).sum::<u128>();
     while total_bytes > maximum_bytes {
         let dump = dumps.remove(0);
         delete_dump_file(directory, &dump.name)?;
-        total_bytes = total_bytes.saturating_sub(dump.bytes);
+        total_bytes = total_bytes.saturating_sub(u128::from(dump.bytes));
     }
     Ok(())
 }
