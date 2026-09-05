@@ -9,6 +9,8 @@ export type VmPublicationPolicy = {
 export type VmPublicationViewer = {
   readonly userId: string;
   readonly teamIds: readonly string[];
+  /** Only emails verified by the identity provider, never caller input. */
+  readonly verifiedEmails?: readonly string[];
 };
 
 /** Validate the only legal personal/team/public policy shapes. */

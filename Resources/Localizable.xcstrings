@@ -41711,13 +41711,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage:\n  cmux cloud domains [list]\n  cmux cloud domains zones\n  cmux cloud domains verify <domain>\n  cmux cloud domains publish <vm> <port> [--domain <hostname>] [--access personal|team|public] [--team <id>]\n  cmux cloud domains access <hostname> <personal|team|public> [--team <id>]\n  cmux cloud domains rm <hostname>\n\nVerify a domain you own first: `verify` prints the DNS records to add, then run it\nagain to complete. `publish --domain` then accepts that domain or any one-label child.\nGenerated names need no verification. Add `--json` to any command for stable JSON output."
+            "value": "Usage:\n  cmux cloud domains [list]\n  cmux cloud domains zones\n  cmux cloud domains verify <domain>\n  cmux cloud domains publish <vm> <port> [--domain <hostname>] [--access personal|team|public] [--team <id>] [--org-slug <slug>] [--yes]\n  cmux cloud domains access <hostname> <personal|team|public> [--team <id>]\n  cmux cloud domains grant <hostname> <email> [--expires <ISO-date>]\n  cmux cloud domains ungrant <hostname> <email>\n  cmux cloud domains grants <hostname>\n  cmux cloud domains rm <hostname>\n\nVerify a domain you own first: `verify` prints the DNS records to add, then run it\nagain to complete. `publish --domain` then accepts that domain or any one-label child.\nGenerated names use <vm>--<organization>--<port>.cmux.sh and need no verification.\nAccess defaults to the owning team or personal owner. Email grants apply to one port only.\nPublic access requires confirmation; --yes confirms it for scripts. Add --json for JSON output."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用方法:\n  cmux cloud domains [list]\n  cmux cloud domains zones\n  cmux cloud domains verify <domain>\n  cmux cloud domains publish <vm> <port> [--domain <hostname>] [--access personal|team|public] [--team <id>]\n  cmux cloud domains access <hostname> <personal|team|public> [--team <id>]\n  cmux cloud domains rm <hostname>\n\nまず所有するドメインを検証します。`verify` は追加する DNS レコードを表示し、再実行すると検証が完了します。\nその後 `publish --domain` でそのドメインまたは 1 ラベル下のサブドメインを使用できます。\n生成ドメインには検証は不要です。安定した JSON 出力を得るには、各コマンドに `--json` を追加します。"
+            "value": "使用方法:\n  cmux cloud domains [list]\n  cmux cloud domains zones\n  cmux cloud domains verify <domain>\n  cmux cloud domains publish <vm> <port> [--domain <hostname>] [--access personal|team|public] [--team <id>] [--org-slug <slug>] [--yes]\n  cmux cloud domains access <hostname> <personal|team|public> [--team <id>]\n  cmux cloud domains grant <hostname> <email> [--expires <ISO-date>]\n  cmux cloud domains ungrant <hostname> <email>\n  cmux cloud domains grants <hostname>\n  cmux cloud domains rm <hostname>\n\nカスタムドメインは最初にverifyで所有権を確認してください。\n生成される名前は<vm>--<organization>--<port>.cmux.shで、DNS確認は不要です。\n既定のアクセス権は所有チームまたは個人所有者です。メールのアクセス許可は1つのポートにのみ適用されます。\n公開アクセスには確認が必要です。スクリプトでは--yesで確認できます。JSON出力には--jsonを追加してください。"
           }
         }
       }
@@ -291125,6 +291125,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "定位點寬度 縮排 欄"
+          }
+        }
+      }
+    },
+    "cli.cloud.domains.confirmPublic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Public access lets anyone open %@ (VM %@, port %@). Continue? [y/N]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "公開すると誰でも%@（VM %@、ポート%@）にアクセスできます。続けますか？[y/N]"
+          }
+        }
+      }
+    },
+    "cli.cloud.domains.publicCancelled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Public access was not enabled."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "公開アクセスは有効になっていません。"
           }
         }
       }

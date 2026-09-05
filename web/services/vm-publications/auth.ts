@@ -24,6 +24,7 @@ import {
   publicationTransactionCookieValue,
   randomPublicationToken,
 } from "./security";
+import { normalizePublicationEmail } from "./managedHostnames";
 
 export const PUBLICATION_TRANSACTION_TTL_MS = 10 * 60 * 1_000;
 export const PUBLICATION_AUTH_CODE_TTL_MS = 60 * 1_000;
@@ -62,7 +63,11 @@ export const PublicationViewerResolverLive = Layer.succeed(
             teamIds.push(...teams.map((team) => team.id));
             const nextCursor = teams.nextCursor?.trim();
             if (!nextCursor) {
-              return { userId: user.id, teamIds };
+              return {
+                userId: user.id, teamIds,
+                verifiedEmails: user.primaryEmailVerified && user.primaryEmail
+                  ? [user.primaryEmail.toLowerCase()] : [],
+              };
             }
             if (seenCursors.has(nextCursor)) {
               throw new Error("Stack team pagination repeated a cursor");
@@ -167,14 +172,13 @@ export function evaluatePublicationRequest(input: {
         now: input.now ?? new Date(),
       });
       if (principal) {
-        // Personal policy is decided by the session's user alone. Team policy
-        // must see current Stack membership so a removed member loses access
-        // on the next request without waiting for the session to expire.
+        // The owner can use a personal session directly. All other viewers
+        // require current team membership or a current verified email grant.
         const viewer: VmPublicationViewer | null =
-          principal.publication.accessMode === "team"
+          principal.publication.accessMode === "team" || principal.session.userId !== principal.publication.ownerUserId
             ? yield* viewerResolver.resolve(principal.session.userId)
             : { userId: principal.session.userId, teamIds: [] };
-        if (vmPublicationAllowsViewer(principal.publication, viewer)) {
+        if (yield* publicationAllowsViewer(principal.publication, viewer, input.now ?? new Date())) {
           return { kind: "allow" } as const satisfies PublicationRequestEvaluation;
         }
       }
@@ -294,7 +298,7 @@ export function resolvePublicationAccess(input: {
       pending.publication,
       input.user,
     );
-    if (vmPublicationAllowsViewer(pending.publication, currentViewer)) {
+    if (yield* publicationAllowsViewer(pending.publication, currentViewer, now)) {
       const code = randomPublicationToken();
       yield* repository.issueAuthCode({
         transactionHash: pending.transaction.transactionHash,
@@ -326,7 +330,7 @@ function currentPublicationViewer(
   user: PublicationAccessUser,
 ) {
   return Effect.gen(function* () {
-    if (publication.accessMode !== "team") {
+    if (publication.accessMode === "public" || (publication.accessMode === "personal" && user.userId === publication.ownerUserId)) {
       return user;
     }
     // Team access is dynamic. Never trust the membership snapshot carried by
@@ -335,8 +339,22 @@ function currentPublicationViewer(
     const resolver = yield* PublicationViewerResolver;
     const fresh = yield* resolver.resolve(user.userId);
     return fresh
-      ? { ...user, teamIds: fresh.teamIds }
-      : { ...user, teamIds: [] };
+      ? { ...user, teamIds: fresh.teamIds, verifiedEmails: fresh.verifiedEmails ?? [] }
+      : { ...user, teamIds: [], verifiedEmails: [] };
+  });
+}
+
+/** Grants are read on each request, so deletion and expiry apply to existing sessions. */
+function publicationAllowsViewer(publication: VmPublicationPolicy & { readonly id: string }, viewer: VmPublicationViewer | null, now: Date) {
+  return Effect.gen(function* () {
+    if (vmPublicationAllowsViewer(publication, viewer)) return true;
+    if (!viewer) return false;
+    const repository = yield* CloudVmPublicationRepository;
+    for (const value of viewer.verifiedEmails ?? []) {
+      const email = normalizePublicationEmail(value);
+      if (email && (yield* repository.hasEmailGrant({ publicationId: publication.id, email, now }))) return true;
+    }
+    return false;
   });
 }
 

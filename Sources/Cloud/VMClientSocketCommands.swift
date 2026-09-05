@@ -75,8 +75,11 @@ extension TerminalController {
                     )
                 )
             }
+            let hasAccess = params["accessMode"] != nil || params["access_mode"] != nil
+            var validationParams = params
+            if !hasAccess { validationParams["accessMode"] = "personal" }
             let accessResult = Self.socketWorkerPublicationAccess(
-                params: params,
+                params: validationParams,
                 method: "vm.publication_create"
             )
             guard case .success(let access) = accessResult else {
@@ -84,13 +87,17 @@ extension TerminalController {
                 return v2Error(id: id, code: "invalid_params", message: error.message)
             }
             let hostname = Self.socketWorkerString(params["hostname"] ?? params["domain"])
+            let organizationSlug = Self.socketWorkerString(params["organizationSlug"])
+            let confirmPublic = Self.socketWorkerBool(params["confirmPublic"]) ?? false
             return v2VmCall(id: id) {
                 let publication = try await VMClient.shared.createPublication(
                     vmID: vmID,
                     port: port,
                     hostname: hostname,
-                    accessMode: access.mode,
-                    teamID: access.teamID
+                    accessMode: hasAccess ? access.mode : nil,
+                    teamID: access.teamID,
+                    organizationSlug: organizationSlug,
+                    confirmPublic: confirmPublic
                 )
                 return ["publication": publication.foundationObject]
             }
@@ -130,13 +137,26 @@ extension TerminalController {
                 guard case .failure(let error) = accessResult else { preconditionFailure() }
                 return v2Error(id: id, code: "invalid_params", message: error.message)
             }
+            let confirmPublic = Self.socketWorkerBool(params["confirmPublic"]) ?? false
             return v2VmCall(id: id) {
                 let publication = try await VMClient.shared.updatePublicationAccess(
                     id: publicationID,
                     accessMode: access.mode,
-                    teamID: access.teamID
+                    teamID: access.teamID,
+                    confirmPublic: confirmPublic
                 )
                 return ["publication": publication.foundationObject]
+            }
+        case "vm.publication_grants", "vm.publication_grant", "vm.publication_ungrant":
+            guard let publicationID = Self.socketWorkerString(params["id"]), !publicationID.isEmpty else {
+                return v2Error(id: id, code: "invalid_params", message: String(localized: "socket.cloudVM.publication.idRequired", defaultValue: "A publication id is required."))
+            }
+            let verb = method == "vm.publication_grants" ? "GET" : (method == "vm.publication_grant" ? "POST" : "DELETE")
+            let email = Self.socketWorkerString(params["email"])
+            let expiresAt = Self.socketWorkerString(params["expiresAt"])
+            return v2VmCall(id: id) {
+                let data = try await VMClient.shared.publicationGrants(id: publicationID, method: verb, email: email, expiresAt: expiresAt)
+                return (try JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
             }
         case "vm.publication_delete":
             guard let publicationID = Self.socketWorkerString(params["id"]),

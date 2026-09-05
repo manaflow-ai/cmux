@@ -457,6 +457,17 @@ export const cloudVmPublicationProviderConfigs = pgTable(
   ],
 );
 
+/** Globally reserved organization identity under the managed zone; not a DNS zone. */
+export const cloudOrganizations = pgTable("cloud_organizations", {
+  scopeId: text("scope_id").primaryKey(),
+  ownerUserId: text("owner_user_id").notNull(),
+  slug: text("slug").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("cloud_organizations_slug_unique").on(table.slug),
+  check("cloud_organizations_slug_check", sql`char_length(${table.slug}) between 1 and 19 and ${table.slug} ~ '^[a-z0-9]+(-[a-z0-9]+)*$'`),
+]);
+
 /** One canonical hostname mapping to one Cloud VM HTTP port. */
 export const cloudVmPublications = pgTable(
   "cloud_vm_publications",
@@ -467,7 +478,6 @@ export const cloudVmPublications = pgTable(
       .notNull()
       .references(() => cloudVms.id, { onDelete: "restrict" }),
     domainId: uuid("domain_id")
-      .notNull()
       .references(() => cloudVmDomains.id, { onDelete: "restrict" }),
     /** Exact public hostname. The related domain row is its reusable verified zone. */
     hostname: text("hostname").notNull(),
@@ -553,6 +563,18 @@ export const cloudVmPublications = pgTable(
     ),
   ],
 );
+
+/** A verified email grants access to this publication only. Never a VM membership. */
+export const cloudVmPublicationEmailGrants = pgTable("cloud_vm_publication_email_grants", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  publicationId: uuid("publication_id").notNull().references(() => cloudVmPublications.id, { onDelete: "cascade" }),
+  email: text("email").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("cloud_vm_publication_email_grants_unique").on(table.publicationId, table.email),
+  check("cloud_vm_publication_email_grants_email_check", sql`${table.email} = lower(${table.email}) and char_length(${table.email}) between 3 and 254`),
+]);
 
 /**
  * Cross-origin browser transaction created on the publication hostname before

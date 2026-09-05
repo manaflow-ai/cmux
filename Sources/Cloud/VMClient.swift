@@ -482,6 +482,9 @@ struct VMPublication: Equatable, Sendable {
             "domainKind": domainKind,
             "vmId": vmID,
             "port": port,
+            "targetPort": port,
+            "publicPort": 443,
+            "protocol": "https",
             "accessMode": accessMode.rawValue,
             "teamId": teamID.map { $0 as Any } ?? NSNull(),
             "state": state,
@@ -816,14 +819,18 @@ actor VMClient {
         vmID: String,
         port: Int,
         hostname: String?,
-        accessMode: VMPublicationAccessMode,
-        teamID: String?
+        accessMode: VMPublicationAccessMode?,
+        teamID: String?,
+        organizationSlug: String? = nil,
+        confirmPublic: Bool = false
     ) async throws -> VMPublication {
         var body: [String: Any] = [
             "vmId": vmID,
             "port": port,
-            "accessMode": accessMode.rawValue,
+            "confirmPublic": confirmPublic,
         ]
+        if let accessMode { body["accessMode"] = accessMode.rawValue }
+        if let organizationSlug { body["organizationSlug"] = organizationSlug }
         if let hostname, !hostname.isEmpty { body["hostname"] = hostname }
         if let teamID, !teamID.isEmpty { body["teamId"] = teamID }
         let (data, http) = try await request(
@@ -848,11 +855,13 @@ actor VMClient {
     func updatePublicationAccess(
         id: String,
         accessMode: VMPublicationAccessMode,
-        teamID: String?
+        teamID: String?,
+        confirmPublic: Bool = false
     ) async throws -> VMPublication {
         let encodedID = try pathSegment(id, fieldName: "publication id")
         let body: [String: Any] = [
             "accessMode": accessMode.rawValue,
+            "confirmPublic": confirmPublic,
             // An explicit null clears a team left over from a previous team publication.
             "teamId": teamID.map { $0 as Any } ?? NSNull(),
         ]
@@ -863,6 +872,16 @@ actor VMClient {
         )
         try ensureOK(http, data: data)
         return try Self.decodePublicationMutation(try decodeJSONObject(data))
+    }
+
+    func publicationGrants(id: String, method: String, email: String?, expiresAt: String?) async throws -> Data {
+        let encodedID = try pathSegment(id, fieldName: "publication id")
+        var body: [String: Any] = [:]
+        if let email { body["email"] = email }
+        if let expiresAt { body["expiresAt"] = expiresAt }
+        let (data, http) = try await request(method, path: "/api/vm/publications/\(encodedID)/grants", jsonBody: method == "GET" ? nil : body)
+        try ensureOK(http, data: data)
+        return data
     }
 
     func deletePublication(id: String) async throws {
