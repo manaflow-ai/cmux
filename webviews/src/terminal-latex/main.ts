@@ -19,8 +19,7 @@ type Preview = {
   background: string;
 };
 
-// MathML uses WebKit's native math layout and installed math font, so the
-// terminal does not need a second font bundle or remote rendering service.
+/** Renders trusted-size TeX into native MathML without external resources. */
 export function renderEquation(source: string, display: boolean): string | null {
   if (source.length > 4096) return null;
   try {
@@ -39,6 +38,7 @@ export function renderEquation(source: string, display: boolean): string | null 
   }
 }
 
+/** Replaces the current terminal overlay with previews from one render frame. */
 export function updatePreview(preview: Preview): void {
   const root = document.getElementById("equations");
   if (!root) return;

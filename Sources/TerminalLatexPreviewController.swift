@@ -9,7 +9,6 @@ import WebKit
 final class TerminalLatexPreviewController: NSObject, WKNavigationDelegate {
     private weak var host: GhosttySurfaceScrollView?
     private weak var workspace: Workspace?
-    private let clock: any Clock<Duration>
     private var workspaceTask: Task<Void, Never>?
     private var frameTask: Task<Void, Never>?
     private var themeTask: Task<Void, Never>?
@@ -23,21 +22,13 @@ final class TerminalLatexPreviewController: NSObject, WKNavigationDelegate {
     private var refreshRequested = false
     private var lastCursor = ""
 
-    init(host: GhosttySurfaceScrollView, clock: any Clock<Duration> = ContinuousClock()) {
+    /// Creates a dormant preview controller for a terminal host.
+    init(host: GhosttySurfaceScrollView) {
         self.host = host
-        self.clock = clock
         super.init()
-        let themes = NotificationCenter.default.notifications(named: .ghosttySurfaceThemeDidChange)
-        themeTask = Task { [weak self] in
-            for await surfaceID in themes.compactMap({ $0.object as? UUID }) {
-                guard !Task.isCancelled else { return }
-                if self?.host?.surfaceView.terminalSurface?.id == surfaceID {
-                    self?.invalidateGeometry()
-                }
-            }
-        }
     }
 
+    /// Rebinds observers after the host changes workspace, surface, or visibility.
     func rebind() {
         guard let host else { return }
         let nextWorkspace = host.surfaceView.terminalSurface?.owningWorkspace()
@@ -58,11 +49,13 @@ final class TerminalLatexPreviewController: NSObject, WKNavigationDelegate {
         refreshEligibility()
     }
 
+    /// Hides stale previews and requests fresh terminal geometry.
     func invalidateGeometry() {
         clear()
         requestRefresh()
     }
 
+    /// Runs preview observers only while a supported agent terminal is visible.
     private func refreshEligibility() {
         guard let host else { return }
         let keys = host.surfaceView.terminalSurface.flatMap { workspace?.agentPIDKeysByPanelId[$0.id] } ?? []
@@ -70,6 +63,15 @@ final class TerminalLatexPreviewController: NSObject, WKNavigationDelegate {
         let active = isAgent && host.isVisibleInUI && host.window != nil
         if active, releaseFrameDemand == nil {
             releaseFrameDemand = host.surfaceView.retainLocalRenderedFrameNotifications()
+            let themes = NotificationCenter.default.notifications(named: .ghosttySurfaceThemeDidChange)
+            themeTask = Task { [weak self] in
+                for await surfaceID in themes.compactMap({ $0.object as? UUID }) {
+                    guard !Task.isCancelled else { return }
+                    if self?.host?.surfaceView.terminalSurface?.id == surfaceID {
+                        self?.invalidateGeometry()
+                    }
+                }
+            }
             let frames = NotificationCenter.default.notifications(named: .ghosttyDidRenderFrame, object: host.surfaceView)
             frameTask = Task { [weak self] in
                 for await _ in frames.map({ _ in () }) {
@@ -81,14 +83,17 @@ final class TerminalLatexPreviewController: NSObject, WKNavigationDelegate {
         } else if !active {
             frameTask?.cancel()
             frameTask = nil
+            themeTask?.cancel()
+            themeTask = nil
             refreshTask?.cancel()
-            refreshTask = nil
+            refreshRequested = false
             releaseFrameDemand?()
             releaseFrameDemand = nil
             clear()
         }
     }
 
+    /// Invalidates pending work and hides the current overlay.
     private func clear() {
         revision &+= 1
         lastText = nil
@@ -96,22 +101,24 @@ final class TerminalLatexPreviewController: NSObject, WKNavigationDelegate {
         webView?.isHidden = true
     }
 
+    /// Coalesces render notifications behind any refresh already in progress.
     private func requestRefresh() {
         guard releaseFrameDemand != nil else { return }
         refreshRequested = true
         guard refreshTask == nil else { return }
-        refreshTask = Task { [weak self, clock] in
-            // Batch streamed output for at most 50 ms; this is a cancellable
-            // rendering cadence, not a poll or a wait for terminal state.
-            try? await clock.sleep(for: .milliseconds(50))
-            guard !Task.isCancelled, let self else { return }
-            self.refreshRequested = false
-            await self.refresh()
+        refreshTask = Task { [weak self] in
+            guard let self else { return }
+            while !Task.isCancelled {
+                self.refreshRequested = false
+                await self.refresh()
+                if !self.refreshRequested { break }
+            }
             self.refreshTask = nil
             if self.refreshRequested { self.requestRefresh() }
         }
     }
 
+    /// Reads the visible frame and updates its equation overlay.
     private func refresh() async {
         guard let host, host.isVisibleInUI,
               let terminal = host.surfaceView.terminalSurface,
@@ -169,6 +176,7 @@ final class TerminalLatexPreviewController: NSObject, WKNavigationDelegate {
         }
     }
 
+    /// Creates the isolated renderer the first time a preview is needed.
     private func ensureWebView() -> TerminalLatexWebView? {
         if let webView { return webView }
         guard let host,
@@ -190,11 +198,13 @@ final class TerminalLatexPreviewController: NSObject, WKNavigationDelegate {
         return view
     }
 
+    /// Refreshes once the bundled renderer is ready to receive equations.
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         loaded = true
         requestRefresh()
     }
 
+    /// Reloads the bundled renderer after a WebKit process termination.
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         loaded = false
         clear()

@@ -35,6 +35,7 @@ strip_trailing_line_whitespace() {
   /usr/bin/perl -0pi -e 's/[ \t]+(?=\r?\n)//g; s/[ \t]+\z//' "$@"
 }
 
+# Normalizes output and embeds assets needed by file-loaded web views.
 normalize_webviews_output() {
   out_dir="$1"
   strip_trailing_line_whitespace "$out_dir/main.mjs" "$out_dir/agent-session.html"

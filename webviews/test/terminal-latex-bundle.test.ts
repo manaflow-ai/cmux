@@ -13,8 +13,8 @@ test("packaged math shell executes without external script assets", async () => 
   const digest = createHash("sha256").update(script).digest("base64");
   const policy = dom.window.document.querySelector('meta[http-equiv="Content-Security-Policy"]')?.getAttribute("content");
   expect(policy).toContain(`script-src 'sha256-${digest}'`);
-  const previousWindow = globalThis.window;
-  const previousDocument = globalThis.document;
+  const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+  const previousDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
   const directory = await mkdtemp(join(tmpdir(), "cmux-latex-bundle-"));
   Object.assign(globalThis, { window: dom.window, document: dom.window.document });
   try {
@@ -31,7 +31,10 @@ test("packaged math shell executes without external script assets", async () => 
     });
     expect(dom.window.document.querySelector("math msup")).not.toBeNull();
   } finally {
-    Object.assign(globalThis, { window: previousWindow, document: previousDocument });
+    if (previousWindow) Object.defineProperty(globalThis, "window", previousWindow);
+    else Reflect.deleteProperty(globalThis, "window");
+    if (previousDocument) Object.defineProperty(globalThis, "document", previousDocument);
+    else Reflect.deleteProperty(globalThis, "document");
     dom.window.close();
     await rm(directory, { recursive: true });
   }

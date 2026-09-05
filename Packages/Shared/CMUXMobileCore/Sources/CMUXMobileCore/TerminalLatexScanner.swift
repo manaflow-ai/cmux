@@ -11,9 +11,24 @@ public struct TerminalLatexScanner: Sendable {
     /// - Returns: Bounded equation previews with cell coordinates and terminal colors.
     public func equations(in frame: MobileTerminalRenderGridFrame) -> [TerminalLatexEquation] {
         guard frame.full, frame.anchor == .viewport,
+              frame.columns > 0, frame.rows > 0,
               frame.columns <= 1000, frame.rows <= 500 else { return [] }
         let cells = cells(in: frame)
-        // ponytail: scan at most 64 equations per viewport; index rows if dense math needs more.
+        var rowContentPrefixes = Array(
+            repeating: Array(repeating: 0, count: frame.columns + 1),
+            count: frame.rows
+        )
+        for cell in cells where cell.width > 0 && !cell.character.isWhitespace {
+            guard rowContentPrefixes.indices.contains(cell.row),
+                  (0..<frame.columns).contains(cell.column) else { continue }
+            rowContentPrefixes[cell.row][cell.column + 1] += 1
+        }
+        for row in rowContentPrefixes.indices {
+            for column in 1...frame.columns {
+                rowContentPrefixes[row][column] += rowContentPrefixes[row][column - 1]
+            }
+        }
+        // ponytail: cap preview DOM work at 64 equations; raise only after profiling dense math output.
         var results: [TerminalLatexEquation] = []
         var index = 0
         var codeMarker: String?
@@ -23,8 +38,13 @@ public struct TerminalLatexScanner: Sendable {
                 var end = index + 1
                 while end < cells.count, cells[end].character == character { end += 1 }
                 let marker = String(repeating: String(character), count: end - index)
-                if codeMarker == marker { codeMarker = nil }
-                else if codeMarker == nil, character == "`" || marker.count >= 3 { codeMarker = marker }
+                if let openingMarker = codeMarker,
+                   openingMarker == marker ||
+                   (openingMarker.count >= 3
+                       && openingMarker.first == marker.first
+                       && marker.count >= openingMarker.count) {
+                    codeMarker = nil
+                } else if codeMarker == nil, character == "`" || marker.count >= 3 { codeMarker = marker }
                 index = end
                 continue
             }
@@ -79,7 +99,10 @@ public struct TerminalLatexScanner: Sendable {
             }
             let finish = end + close.count
             if !source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-               let equation = equation(source: source, display: display, cells: cells, range: start..<finish, frame: frame) {
+               let equation = equation(
+                   source: source, display: display, cells: cells, range: start..<finish,
+                   rowContentPrefixes: rowContentPrefixes, frame: frame
+               ) {
                 results.append(equation)
             }
             index = finish
@@ -95,6 +118,7 @@ public struct TerminalLatexScanner: Sendable {
         var style: MobileTerminalRenderGridFrame.Style
     }
 
+    /// Expands sparse row spans into ordered cells with stable grid coordinates.
     private func cells(in frame: MobileTerminalRenderGridFrame) -> [Cell] {
         let styles = Dictionary(frame.styles.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let rows = Dictionary(grouping: frame.rowSpans, by: \.row)
@@ -126,8 +150,10 @@ public struct TerminalLatexScanner: Sendable {
         return result
     }
 
+    /// Builds one preview while preserving prose that shares its source rows.
     private func equation(
-        source: String, display: Bool, cells: [Cell], range: Range<Int>, frame: MobileTerminalRenderGridFrame
+        source: String, display: Bool, cells: [Cell], range: Range<Int>,
+        rowContentPrefixes: [[Int]], frame: MobileTerminalRenderGridFrame
     ) -> TerminalLatexEquation? {
         let selected = cells[range].filter { $0.width > 0 }
         guard let first = selected.first, let last = selected.last else { return nil }
@@ -145,11 +171,12 @@ public struct TerminalLatexScanner: Sendable {
         guard var layout = regions.max(by: { $0.width < $1.width }) else { return nil }
         let left = regions.map(\.column).min() ?? first.column
         let right = regions.map { $0.column + $0.width }.max() ?? last.column + last.width
-        let overlapsProse = cells[..<range.lowerBound].contains {
-            $0.row == first.row && $0.column >= left && !$0.character.isWhitespace
-        } || cells[range.upperBound...].contains {
-            $0.row == last.row && $0.column < right && !$0.character.isWhitespace
-        }
+        let leadingStart = max(0, min(left, frame.columns))
+        let leadingEnd = max(leadingStart, min(first.column, frame.columns))
+        let trailingStart = max(0, min(last.column + last.width, frame.columns))
+        let trailingEnd = max(trailingStart, min(right, frame.columns))
+        let overlapsProse = rowContentPrefixes[first.row][leadingEnd] > rowContentPrefixes[first.row][leadingStart]
+            || rowContentPrefixes[last.row][trailingEnd] > rowContentPrefixes[last.row][trailingStart]
         if display, !overlapsProse {
             layout = .init(column: left, row: first.row, width: right - left, height: last.row - first.row + 1)
         }

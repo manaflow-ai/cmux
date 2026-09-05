@@ -10389,6 +10389,7 @@ final class GhosttySurfaceScrollView: NSView {
         surfaceView.terminalSurface?.forceRefresh(reason: reason)
     }
 
+    /// Synchronizes terminal and overlay frames, returning whether terminal geometry changed.
     @discardableResult
     private func synchronizeGeometryAndContent(
         forceViewportSync: Bool? = nil,
@@ -10688,6 +10689,7 @@ final class GhosttySurfaceScrollView: NSView {
     }
 #endif
 
+    /// Rebinds window-scoped observers and terminal overlays after portal moves.
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         windowObservers.forEach { NotificationCenter.default.removeObserver($0) }
@@ -10739,6 +10741,7 @@ final class GhosttySurfaceScrollView: NSView {
         }
     }
 
+    /// Attaches a terminal surface and rebinds surface-dependent overlays.
     func attachSurface(_ terminalSurface: TerminalSurface) {
         if surfaceView.terminalSurface !== terminalSurface { setLinkHoverURL(nil) }
         surfaceView.attachSurface(terminalSurface)
@@ -11453,6 +11456,7 @@ final class GhosttySurfaceScrollView: NSView {
     func beginPortalGeometrySettlement() { surfaceView.beginPortalGeometrySettlement() }
     func finishPortalGeometrySettlement() { surfaceView.finishPortalGeometrySettlement() }
 
+    /// Applies portal visibility to the terminal renderer and its overlays.
     func setVisibleInUI(_ visible: Bool) {
         let wasVisible = surfaceView.isVisibleInUI
         // Make the AppKit portal presentable before asking Ghostty to realize its
