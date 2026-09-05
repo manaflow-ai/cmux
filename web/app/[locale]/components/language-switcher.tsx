@@ -20,7 +20,7 @@ export function LanguageSwitcher() {
         : currentPathname;
     const prefix = newLocale === "en" ? "" : `/${newLocale}`;
     const localizedPathname = pathname === "/" ? prefix || "/" : `${prefix}${pathname}`;
-    window.location.assign(localizedPathname + window.location.search + window.location.hash);
+    window.location.href = localizedPathname + window.location.search + window.location.hash;
   }
 
   return (
