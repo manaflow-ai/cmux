@@ -39,19 +39,24 @@ public struct TransportIncidentPolicy: Sendable {
         /// After an outage fires, another cannot fire until this much time
         /// passes or a success resets the streak.
         public var outageRearmInterval: TimeInterval
+        /// When false, retain breadcrumbs but suppress individual failure
+        /// captures. Outage escalation remains enabled.
+        public var captureIndividualFailures: Bool
 
         public init(
             signatureCooldown: TimeInterval = 600,
             hourlyCaptureLimit: Int = 30,
             outageFailureThreshold: Int = 5,
             outageMinimumDuration: TimeInterval = 60,
-            outageRearmInterval: TimeInterval = 3600
+            outageRearmInterval: TimeInterval = 3600,
+            captureIndividualFailures: Bool = true
         ) {
             self.signatureCooldown = signatureCooldown
             self.hourlyCaptureLimit = hourlyCaptureLimit
             self.outageFailureThreshold = outageFailureThreshold
             self.outageMinimumDuration = outageMinimumDuration
             self.outageRearmInterval = outageRearmInterval
+            self.captureIndividualFailures = captureIndividualFailures
         }
     }
 
@@ -197,6 +202,8 @@ public struct TransportIncidentPolicy: Sendable {
         if let outage = decideOutage(event: event, signature: signature, failure: failure, transport: transport) {
             return outage
         }
+
+        guard configuration.captureIndividualFailures else { return nil }
 
         return decideFailureCapture(
             event: event,

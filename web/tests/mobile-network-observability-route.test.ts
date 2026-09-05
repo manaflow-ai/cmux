@@ -55,9 +55,8 @@ describe("iOS mobile network observability route", () => {
   test("attributes an accepted failure batch to the authenticated user", async () => {
     const response = await POST(outcomeRequest([
       outcome({
-        event_code: 27,
-        event_name: "transportDialFailed",
-        outcome: "failure",
+        phase: "transport_dial",
+        outcome: "timeout",
         duration_ms: 1_250,
         failure: "timedOut",
         transport: "iroh",
@@ -69,8 +68,8 @@ describe("iOS mobile network observability route", () => {
     expect(emitted).toHaveLength(1);
     expect(emitted[0]?.userId).toBe("user-7");
     expect(emitted[0]?.batch[0]).toMatchObject({
-      eventName: "transportDialFailed",
-      outcome: "failure",
+      phase: "transport_dial",
+      outcome: "timeout",
       durationMs: 1_250,
       failure: "timedOut",
       transport: "iroh",
@@ -78,28 +77,24 @@ describe("iOS mobile network observability route", () => {
     expect(flushTimeouts).toEqual([1_000]);
   });
 
-  test("accepts a fixed app operation and does not flush successful batches", async () => {
+  test("accepts a successful readiness observation and does not flush", async () => {
     const response = await POST(outcomeRequest([
       outcome({
-        event_code: 65,
-        event_name: "appFeatureAction",
+        phase: "rpc_ready",
         outcome: "success",
-        operation_code: 613,
-        operation: "irohRelayPreferenceChangeSucceeded",
+        duration_ms: 890,
+        user_usable: true,
       }),
     ]));
 
     expect(response.status).toBe(200);
-    expect(emitted[0]?.batch[0]).toMatchObject({
-      operationCode: 613,
-      operation: "irohRelayPreferenceChangeSucceeded",
-    });
+    expect(emitted[0]?.batch[0]).toMatchObject({ phase: "rpc_ready", durationMs: 890 });
     expect(flushTimeouts).toEqual([]);
   });
 
   test("rejects a mismatched stable event code and name", async () => {
     const response = await POST(outcomeRequest([
-      outcome({ event_code: 27, event_name: "rpcReady", outcome: "failure" }),
+      outcome({ phase: "transport_dial", outcome: "bogus", duration_ms: 10 }),
     ]));
 
     expect(response.status).toBe(400);
@@ -109,7 +104,7 @@ describe("iOS mobile network observability route", () => {
 
   test("rejects unknown properties instead of accepting user content", async () => {
     const response = await POST(outcomeRequest([
-      outcome({ event_code: 29, event_name: "rpcReady", outcome: "success", message: "secret" }),
+      outcome({ phase: "rpc_ready", outcome: "success", duration_ms: 10, message: "secret" }),
     ]));
 
     expect(response.status).toBe(400);
@@ -120,7 +115,7 @@ describe("iOS mobile network observability route", () => {
     authenticatedUser = null;
 
     const response = await POST(outcomeRequest([
-      outcome({ event_code: 29, event_name: "rpcReady", outcome: "success" }),
+      outcome({ phase: "rpc_ready", outcome: "success", duration_ms: 10 }),
     ]));
 
     expect(response.status).toBe(401);
@@ -131,7 +126,7 @@ describe("iOS mobile network observability route", () => {
     authError = new Error("Stack Auth unavailable");
 
     const response = await POST(outcomeRequest([
-      outcome({ event_code: 29, event_name: "rpcReady", outcome: "success" }),
+      outcome({ phase: "rpc_ready", outcome: "success", duration_ms: 10 }),
     ]));
 
     expect(response.status).toBe(503);
@@ -156,7 +151,7 @@ describe("iOS mobile network observability route", () => {
     emitError = new Error("exporter unavailable");
 
     const response = await POST(outcomeRequest([
-      outcome({ event_code: 29, event_name: "rpcReady", outcome: "success" }),
+      outcome({ phase: "rpc_ready", outcome: "success", duration_ms: 10 }),
     ]));
 
     expect(response.status).toBe(503);
@@ -168,10 +163,13 @@ function outcome(
   properties: Record<string, unknown>,
 ): Record<string, unknown> {
   return {
-    event: "ios_network_outcome",
+    event: "ios_connectivity_latency",
     timestamp: "2026-09-04T12:00:00.000Z",
     properties: {
       runtime_role: "mobileClient",
+      phase: "rpc_ready",
+      outcome: "success",
+      duration_ms: 10,
       user_usable: false,
       platform: "ios",
       app_version: "1.2.3",

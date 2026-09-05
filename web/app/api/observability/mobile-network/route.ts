@@ -84,7 +84,9 @@ export function makeMobileNetworkOutcomeHandler(
           return jsonResponse({ ok: true, accepted: 0 }, 200, { "cache-control": "no-store" });
         }
 
-        const failureCount = accepted.filter((outcome) => outcome.outcome === "failure").length;
+        const failureCount = accepted.filter(
+          (outcome) => outcome.outcome === "failure" || outcome.outcome === "timeout",
+        ).length;
         setSpanAttributes(span, {
           "cmux.user_id": user.id,
           "cmux.mobile.outcome_count": accepted.length,

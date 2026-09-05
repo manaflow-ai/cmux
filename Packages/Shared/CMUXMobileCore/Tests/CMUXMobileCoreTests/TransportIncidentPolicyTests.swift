@@ -302,4 +302,19 @@ import Testing
         #expect(incident?.reachable == true)
         #expect(incident?.appPhase == .active)
     }
+
+    @Test func individualCapturesCanBeDisabledWhileOutageEscalationRemains() {
+        var policy = TransportIncidentPolicy(
+            configuration: .init(
+                outageFailureThreshold: 2,
+                outageMinimumDuration: 1,
+                captureIndividualFailures: false
+            ),
+            locale: englishLocale
+        )
+
+        #expect(policy.decide(dialFailed(at: 10)) == nil)
+        let outage = policy.decide(dialFailed(at: 11))
+        #expect(outage?.kind == .outage)
+    }
 }

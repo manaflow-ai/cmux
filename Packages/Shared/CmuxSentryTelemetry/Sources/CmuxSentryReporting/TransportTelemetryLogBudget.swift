@@ -13,7 +13,7 @@ struct TransportTelemetryLogBudget: Sendable {
     private var droppedSinceLastAdmit = 0
 
     init(capacityPerHour: Int) {
-        self.capacityPerHour = max(1, capacityPerHour)
+        self.capacityPerHour = max(0, capacityPerHour)
     }
 
     /// Admits or drops one log line at the given monotonic timestamp.
@@ -23,6 +23,10 @@ struct TransportTelemetryLogBudget: Sendable {
     mutating func admit(tNanos: UInt64) -> Int? {
         let windowNanos: UInt64 = 3_600_000_000_000
         window.removeAll { tNanos >= $0 && tNanos - $0 > windowNanos }
+        guard capacityPerHour > 0 else {
+            droppedSinceLastAdmit += 1
+            return nil
+        }
         guard window.count < capacityPerHour else {
             droppedSinceLastAdmit += 1
             return nil

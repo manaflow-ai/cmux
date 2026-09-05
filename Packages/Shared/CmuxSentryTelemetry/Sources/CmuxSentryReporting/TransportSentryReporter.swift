@@ -15,11 +15,13 @@ internal import os
 /// 1. A Sentry **breadcrumb** (category `transport`, `simulator`, or `app`), so
 ///    every subsequent event, including crashes, hangs, and watchdog kills,
 ///    carries the recent connection and feature timeline.
-/// 2. A budget-limited Sentry **structured log** line (when the SDK started
-///    with `enableLogs`), searchable without waiting for an error.
-/// 3. When it crosses ``CMUXMobileCore/TransportIncidentPolicy``'s capture
+/// 2. When it crosses ``CMUXMobileCore/TransportIncidentPolicy``'s capture
 ///    gates, a Sentry **event** fingerprinted by the failure signature and
 ///    carrying the plain-language diagnostic timeline as an attachment.
+///
+/// Production composition disables structured log delivery and individual
+/// failure captures. The remaining Sentry events are sustained outage
+/// escalations, while breadcrumbs preserve the diagnostic timeline.
 ///
 /// Privacy: everything sent derives from the fixed integer diagnostic
 /// taxonomy, so no free text, peer identity, address, account, or terminal
@@ -116,8 +118,8 @@ public final class TransportSentryReporter: Sendable {
     public init(
         role: DiagnosticRuntimeRole,
         exportRing: @escaping @Sendable () async -> Data,
-        incidentConfiguration: TransportIncidentPolicy.Configuration = .init(),
-        logsPerHour: Int = 300,
+        incidentConfiguration: TransportIncidentPolicy.Configuration = .init(captureIndividualFailures: false),
+        logsPerHour: Int = 0,
         delivery: Delivery = .sentry()
     ) {
         self.roleCode = DiagnosticEventPresentation().name(role)

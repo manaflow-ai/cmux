@@ -131,7 +131,9 @@ final class AppCompositionRoot {
         // revocation (which closes the SDK) without extra plumbing.
         let transportSentryReporter = TransportSentryReporter(
             role: .mobileClient,
-            exportRing: { [diagnosticLog] in await diagnosticLog.export() }
+            exportRing: { [diagnosticLog] in await diagnosticLog.export() },
+            incidentConfiguration: .init(captureIndividualFailures: false),
+            logsPerHour: 0
         )
         self.transportSentryReporter = transportSentryReporter
         let appLog = AppLog(

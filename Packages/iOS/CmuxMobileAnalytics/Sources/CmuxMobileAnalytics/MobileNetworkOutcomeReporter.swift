@@ -1,252 +1,338 @@
 public import CMUXMobileCore
 internal import Foundation
+internal import os
 
-/// Routes privacy-safe network outcomes from ``DiagnosticLog`` to the mobile
-/// observability upload pipeline.
+/// Emits one bounded latency observation when a connectivity phase completes.
 ///
-/// The reporter accepts only fixed diagnostic enums and bounded integers. It
-/// deliberately excludes UI-only and high-frequency render events, while
-/// retaining connection lifecycle, backend-dependent operations, failures,
-/// and user-visible terminal latency signals. Its injected emitter keeps the
-/// synchronous ingest path free of network and disk I/O.
+/// Starts stay local. Only terminal outcomes reach Axiom, which keeps the
+/// operational stream useful for latency histograms without turning every
+/// retry or state transition into an event. The diagnostic ring remains the
+/// source for Sentry's incident policy and the on-device logs.
 public final class MobileNetworkOutcomeReporter: Sendable {
-    /// The server-side event name used for every network observation.
-    public static let eventName = "ios_network_outcome"
+    public static let eventName = "ios_connectivity_latency"
+
+    private enum Phase: String, Hashable, Sendable {
+        case endpointStart = "endpoint_start"
+        case pairing
+        case transportDial = "transport_dial"
+        case hostAuth = "host_auth"
+        case rpcReady = "rpc_ready"
+        case recovery
+        case relayPolicy = "relay_policy"
+        case discovery
+    }
+
+    private struct Key: Hashable, Sendable {
+        let phase: Phase
+        let correlation: UInt32?
+    }
+
+    private struct Start: Sendable {
+        let tNanos: UInt64
+        let transport: DiagnosticTransportKind?
+    }
+
+    private struct State: Sendable {
+        var starts: [Key: Start] = [:]
+        var connectStart: Start?
+    }
+
+    private struct Observation: Sendable {
+        let phase: Phase
+        let outcome: String
+        let durationMs: UInt32
+        let transport: DiagnosticTransportKind?
+        let failure: DiagnosticFailureKind?
+        let userUsable: Bool
+    }
 
     private let emitter: any AnalyticsEmitting
+    private let state = OSAllocatedUnfairLock(initialState: State())
 
-    /// Creates a reporter backed by a dedicated operational-telemetry emitter.
-    ///
-    /// - Parameter emitter: A non-blocking emitter whose uploader targets the
-    ///   cmux mobile observability endpoint, not the product analytics proxy.
     public init(emitter: any AnalyticsEmitting) {
         self.emitter = emitter
     }
 
-    /// Enqueues one important network or backend-dependent outcome.
-    ///
-    /// Events outside the fixed policy are ignored. Returns immediately and is
-    /// safe to install in ``DiagnosticLog/setEventTap(_:)``.
-    ///
-    /// - Parameter event: The privacy-safe diagnostic event to consider.
+    /// Considers one diagnostic event without doing I/O or spawning a task.
     public func ingest(_ event: DiagnosticEvent) {
-        guard let properties = Self.properties(for: event) else { return }
-        emitter.capture(Self.eventName, properties)
+        guard let observation = state.withLock({ state in
+            Self.observe(event, state: &state)
+        }) else { return }
+        emitter.capture(Self.eventName, Self.properties(for: observation))
     }
 
-    /// Flushes outcomes already accepted by ``ingest(_:)``.
     public func flush() async {
         await emitter.flush()
     }
 
+    /// Builds a terminal latency payload for an event that already carries a
+    /// measured duration. This keeps direct event-level tests simple.
     static func properties(for event: DiagnosticEvent) -> [String: AnalyticsValue]? {
-        let appKind = event.code == .appFeatureAction
-            ? event.a.flatMap(DiagnosticAppEventKind.init(rawValue:))
-            : nil
-        let failure = DiagnosticEventPresentation().failureKind(of: event)
-        guard Self.isImportant(event: event, appKind: appKind, failure: failure) else {
+        guard let phase = Self.phase(for: event.code),
+              let duration = event.ms,
+              let observation = Self.observation(
+                  phase: phase,
+                  event: event,
+                  durationMs: duration,
+                  transport: Self.transport(for: event),
+                  userUsable: event.code == .rpcReady
+                      || event.code == .recoverySucceeded
+              )
+        else { return nil }
+        return Self.properties(for: observation)
+    }
+
+    private static func observe(
+        _ event: DiagnosticEvent,
+        state: inout State
+    ) -> Observation? {
+        let transport = Self.transport(for: event)
+        switch event.code {
+        case .connect:
+            state.connectStart = Start(tNanos: event.tNanos, transport: transport)
+            return nil
+
+        case .pairOk, .pairFail, .pairUnreachable:
+            let start = state.connectStart
+            state.connectStart = nil
+            return Self.terminal(
+                phase: .pairing,
+                event: event,
+                start: start,
+                transport: transport,
+                userUsable: false
+            )
+
+        case .transportDialStarted:
+            state.starts[Key(
+                phase: .transportDial,
+                correlation: Self.correlation(event.c)
+            )] = Start(tNanos: event.tNanos, transport: transport)
+            return nil
+
+        case .transportDialConnected, .transportDialFailed, .transportDialCancelled:
+            let key = Key(
+                phase: .transportDial,
+                correlation: Self.correlation(event.c)
+            )
+            let start = state.starts.removeValue(forKey: key)
+            if event.code == .transportDialConnected {
+                state.starts[Key(phase: .hostAuth, correlation: nil)] = Start(
+                    tNanos: event.tNanos,
+                    transport: transport ?? start?.transport
+                )
+            }
+            return Self.terminal(
+                phase: .transportDial,
+                event: event,
+                start: start,
+                transport: transport ?? start?.transport,
+                userUsable: false
+            )
+
+        case .hostAuthenticated, .hostAuthenticationFailed:
+            let start = state.starts.removeValue(
+                forKey: Key(phase: .hostAuth, correlation: nil)
+            )
+            return Self.terminal(
+                phase: .hostAuth,
+                event: event,
+                start: start,
+                transport: transport ?? start?.transport,
+                userUsable: false
+            )
+
+        case .rpcReady:
+            let start = state.connectStart
+            state.connectStart = nil
+            return Self.terminal(
+                phase: .rpcReady,
+                event: event,
+                start: start,
+                transport: transport ?? start?.transport,
+                userUsable: true
+            )
+
+        case .recoveryStarted:
+            state.starts[Key(
+                phase: .recovery,
+                correlation: Self.correlation(event.surface)
+            )] = Start(tNanos: event.tNanos, transport: transport)
+            return nil
+
+        case .recoverySucceeded, .recoveryFailed:
+            let key = Key(
+                phase: .recovery,
+                correlation: Self.correlation(event.surface)
+            )
+            let start = state.starts.removeValue(forKey: key)
+            return Self.terminal(
+                phase: .recovery,
+                event: event,
+                start: start,
+                transport: transport ?? start?.transport,
+                userUsable: event.code == .recoverySucceeded
+            )
+
+        case .endpointStarting:
+            state.starts[Key(phase: .endpointStart, correlation: nil)] = Start(
+                tNanos: event.tNanos,
+                transport: transport
+            )
+            return nil
+
+        case .endpointActive, .endpointFailed:
+            let start = state.starts.removeValue(
+                forKey: Key(phase: .endpointStart, correlation: nil)
+            )
+            return Self.terminal(
+                phase: .endpointStart,
+                event: event,
+                start: start,
+                transport: transport ?? start?.transport,
+                userUsable: false
+            )
+
+        case .relayPolicyRefreshStarted:
+            state.starts[Key(phase: .relayPolicy, correlation: nil)] = Start(
+                tNanos: event.tNanos,
+                transport: transport
+            )
+            return nil
+
+        case .relayPolicyRefreshSucceeded, .relayPolicyRefreshFailed:
+            let start = state.starts.removeValue(
+                forKey: Key(phase: .relayPolicy, correlation: nil)
+            )
+            return Self.terminal(
+                phase: .relayPolicy,
+                event: event,
+                start: start,
+                transport: transport ?? start?.transport,
+                userUsable: false
+            )
+
+        case .discoverySucceeded, .discoveryFailed:
+            guard let duration = event.ms else { return nil }
+            return Self.terminal(
+                phase: .discovery,
+                event: event,
+                start: nil,
+                durationMs: duration,
+                transport: transport,
+                userUsable: false
+            )
+
+        default:
             return nil
         }
+    }
 
-        let presentation = DiagnosticEventPresentation(locale: Locale(identifier: "en_US_POSIX"))
+    private static func terminal(
+        phase: Phase,
+        event: DiagnosticEvent,
+        start: Start?,
+        durationMs: UInt32? = nil,
+        transport: DiagnosticTransportKind?,
+        userUsable: Bool
+    ) -> Observation? {
+        let duration = durationMs ?? event.ms ?? start.flatMap {
+            elapsedMilliseconds(from: $0.tNanos, to: event.tNanos)
+        }
+        guard let duration else { return nil }
+        return observation(
+            phase: phase,
+            event: event,
+            durationMs: duration,
+            transport: transport,
+            userUsable: userUsable
+        )
+    }
+
+    private static func observation(
+        phase: Phase,
+        event: DiagnosticEvent,
+        durationMs: UInt32,
+        transport: DiagnosticTransportKind?,
+        userUsable: Bool
+    ) -> Observation? {
+        let failure = DiagnosticEventPresentation().failureKind(of: event)
+        let failureKind = failure == DiagnosticFailureKind.none ? nil : failure
+        let outcome: String
+        if event.code == .transportDialCancelled
+            || failureKind == .cancelled
+            || failureKind == .superseded {
+            outcome = "cancelled"
+        } else if failureKind == .timedOut || failureKind == .transportIdleTimedOut {
+            outcome = "timeout"
+        } else if failureKind != nil {
+            outcome = "failure"
+        } else {
+            outcome = "success"
+        }
+        return Observation(
+            phase: phase,
+            outcome: outcome,
+            durationMs: durationMs,
+            transport: transport,
+            failure: failureKind,
+            userUsable: userUsable
+        )
+    }
+
+    private static func properties(for observation: Observation) -> [String: AnalyticsValue] {
         var properties: [String: AnalyticsValue] = [
-            "event_code": .int(Int(event.code.rawValue)),
-            "event_name": .string(presentation.name(event.code)),
-            "outcome": .string(Self.outcome(for: event, appKind: appKind, failure: failure)),
-            "runtime_role": .string(presentation.name(DiagnosticRuntimeRole.mobileClient)),
-            "user_usable": .bool(Self.userUsableCodes.contains(event.code)),
+            "phase": .string(observation.phase.rawValue),
+            "outcome": .string(observation.outcome),
+            "duration_ms": .int(Int(observation.durationMs)),
+            "user_usable": .bool(observation.userUsable),
         ]
-
-        if let duration = event.ms {
-            properties["duration_ms"] = .int(Int(duration))
-        }
-        if let correlation = event.surface {
-            properties["correlation_id"] = .int(Int(correlation))
-        }
-        if let detail = event.a {
-            properties["detail_a"] = .int(detail)
-        }
-        if let detail = event.b {
-            properties["detail_b"] = .int(detail)
-        }
-        if let detail = event.c {
-            properties["detail_c"] = .int(detail)
-        }
-        if let failure, failure != .none {
-            properties["failure"] = .string(presentation.name(failure))
-        }
-        if let transport = presentation.transportKind(of: event) {
+        let presentation = DiagnosticEventPresentation(locale: Locale(identifier: "en_US_POSIX"))
+        if let transport = observation.transport {
             properties["transport"] = .string(presentation.name(transport))
         }
-        if let path = Self.pathKind(for: event) {
-            properties["path"] = .string(presentation.name(path))
-        }
-        if let appKind {
-            properties["operation_code"] = .int(appKind.rawValue)
-            properties["operation"] = .string(presentation.name(appKind))
+        if let failure = observation.failure {
+            properties["failure"] = .string(presentation.name(failure))
         }
         return properties
     }
 
-    private static func isImportant(
-        event: DiagnosticEvent,
-        appKind: DiagnosticAppEventKind?,
-        failure: DiagnosticFailureKind?
-    ) -> Bool {
-        if importantNetworkCodes.contains(event.code) { return true }
-        guard let appKind else { return false }
-        if let failure, failure != .none { return true }
-        return importantAppKinds.contains(appKind)
-    }
-
-    private static func outcome(
-        for event: DiagnosticEvent,
-        appKind: DiagnosticAppEventKind?,
-        failure: DiagnosticFailureKind?
-    ) -> String {
-        if let failure, failure != .none { return "failure" }
-        if event.code == .sessionClosed { return "state" }
-        if TransportIncidentPolicy.failureCodes.contains(event.code) { return "failure" }
-        if successCodes.contains(event.code) { return "success" }
-        if startedCodes.contains(event.code) { return "started" }
-        if let appKind {
-            if appFailureKinds.contains(appKind) { return "failure" }
-            if appSuccessKinds.contains(appKind) { return "success" }
-            if appStartedKinds.contains(appKind) { return "started" }
-        }
-        return "state"
-    }
-
-    private static func pathKind(for event: DiagnosticEvent) -> DiagnosticPathKind? {
-        switch event.code {
-        case .selectedPathChanged:
-            event.a.flatMap(DiagnosticPathKind.init(rawValue:))
-        case .transportPathEvent:
-            event.b.flatMap(DiagnosticPathKind.init(rawValue:))
+    private static func phase(for code: DiagnosticEventCode) -> Phase? {
+        switch code {
+        case .transportDialConnected, .transportDialFailed, .transportDialCancelled:
+            .transportDial
+        case .hostAuthenticated, .hostAuthenticationFailed:
+            .hostAuth
+        case .rpcReady:
+            .rpcReady
+        case .recoverySucceeded, .recoveryFailed:
+            .recovery
+        case .endpointActive, .endpointFailed:
+            .endpointStart
+        case .relayPolicyRefreshSucceeded, .relayPolicyRefreshFailed:
+            .relayPolicy
+        case .discoverySucceeded, .discoveryFailed:
+            .discovery
         default:
             nil
         }
     }
 
-    static let importantNetworkCodes: Set<DiagnosticEventCode> = [
-        .connect, .pairOk, .pairFail, .renderGridLag, .livenessResubscribe,
-        .streamEnded, .inputSeqBehind, .byteGap, .error, .pairUnreachable,
-        .transportDialStarted, .transportDialConnected, .transportDialFailed,
-        .hostAuthenticated, .rpcReady, .recoveryStarted, .recoverySucceeded,
-        .recoveryFailed, .endpointStarting, .endpointActive, .endpointStopped,
-        .endpointFailed, .relayPolicyRefreshStarted, .relayPolicyRefreshSucceeded,
-        .relayPolicyRefreshFailed, .selectedPathChanged, .sessionClosed,
-        .routeUnavailable, .retryScheduled, .discoveryStarted, .discoverySucceeded,
-        .discoveryFailed, .admissionSucceeded, .admissionFailed,
-        .hostAuthenticationFailed, .rpcFailed, .transportSessionLifecycle,
-        .appLifecycleChanged, .reachabilityChanged, .transportCloseAttribution,
-        .transportPathEvent, .transportDialPlanBuilt, .transportPrivateAddressJoin,
-        .transportLANDiscovery, .transportDialLegSucceeded, .transportDialLegFailed,
-        .lanPublicationState, .transportDialSessionLinked, .transportDialCancelled,
-        .transportCloseReason,
-    ]
+    private static func transport(for event: DiagnosticEvent) -> DiagnosticTransportKind? {
+        DiagnosticEventPresentation().transportKind(of: event)
+    }
 
-    private static let successCodes: Set<DiagnosticEventCode> = [
-        .pairOk, .transportDialConnected, .hostAuthenticated, .rpcReady,
-        .recoverySucceeded, .endpointActive, .relayPolicyRefreshSucceeded,
-        .discoverySucceeded, .admissionSucceeded, .transportDialLegSucceeded,
-    ]
+    private static func correlation(_ raw: Int?) -> UInt32? {
+        guard let raw, raw > 0 else { return nil }
+        return UInt32(clamping: raw)
+    }
 
-    private static let userUsableCodes: Set<DiagnosticEventCode> = [
-        .pairOk, .rpcReady, .recoverySucceeded,
-    ]
+    private static func correlation(_ raw: UInt32?) -> UInt32? {
+        raw
+    }
 
-    private static let startedCodes: Set<DiagnosticEventCode> = [
-        .connect, .transportDialStarted, .recoveryStarted, .endpointStarting,
-        .relayPolicyRefreshStarted, .discoveryStarted,
-    ]
-
-    private static let importantAppKinds: Set<DiagnosticAppEventKind> = [
-        .authRestoreStarted, .authRestoreSucceeded, .authRestoreFailed,
-        .authSignInStarted, .authCodeRequested, .authCodeRequestFailed,
-        .authVerificationStarted, .authSignInSucceeded, .authSignInFailed,
-        .authSignInCancelled, .authRevalidationStarted, .authRevalidationSucceeded,
-        .authRevalidationFailed, .pushRemoteRegistrationRequested,
-        .pushDeviceTokenReceived, .pushDeviceTokenRegistrationFailed,
-        .pushBackendSyncStarted, .pushBackendSyncSucceeded, .pushBackendSyncFailed,
-        .pairingStarted, .pairingSucceeded, .pairingFailed, .pairingCancelled,
-        .computerListRefreshStarted, .computerListRefreshSucceeded,
-        .computerListRefreshFailed, .computerRoutesUpdated, .tailscaleStatusChanged,
-        .computerSwitchStarted, .computerSwitchSucceeded, .computerSwitchFailed,
-        .reconnectStarted, .reconnectSucceeded, .reconnectFailed,
-        .presenceStreamStarted, .presenceStreamUpdated, .presenceStreamFailed,
-        .deviceRegistryLoadStarted, .deviceRegistryLoadSucceeded,
-        .deviceRegistryLoadFailed, .connectionStateChanged,
-        .workspaceListRefreshStarted, .workspaceListRefreshSucceeded,
-        .workspaceListRefreshFailed, .workspaceStateSyncStarted,
-        .workspaceStateSyncSucceeded, .workspaceStateSyncFailed,
-        .workspaceStateSyncFellBack, .workspaceOpenStarted, .workspaceOpenSucceeded,
-        .workspaceOpenFailed, .terminalStreamSubscribed, .terminalStreamResubscribed,
-        .terminalStreamEnded, .terminalReplayStarted, .terminalReplaySucceeded,
-        .terminalReplayFailed, .terminalReplayRetried, .terminalInputSubmitted,
-        .terminalInputSent, .terminalInputAcknowledged, .terminalInputDropped,
-        .terminalOutputReceived, .terminalOutputGapDetected, .terminalRenderLagDetected,
-        .terminalViewportReportSucceeded, .terminalViewportReportFailed,
-        .terminalScrollFailed, .terminalCreateStarted, .terminalCreateSucceeded,
-        .terminalCreateFailed, .irohRelayPreferenceChangeStarted,
-        .irohRelayPreferenceChangeSucceeded, .irohRelayPreferenceChangeFailed,
-        .irohPathPreferenceChangeStarted, .irohPathPreferenceChangeSucceeded,
-        .irohPathPreferenceChangeFailed, .irohCustomRelayUpsertStarted,
-        .irohCustomRelayUpsertSucceeded, .irohCustomRelayUpsertFailed,
-        .irohCustomRelayRemoveStarted, .irohCustomRelayRemoveSucceeded,
-        .irohCustomRelayRemoveFailed, .irohCustomRelayTestStarted,
-        .irohCustomRelayTestSucceeded, .irohCustomRelayTestFailed,
-        .irohPrivatePathUpsertStarted, .irohPrivatePathUpsertSucceeded,
-        .irohPrivatePathUpsertFailed, .irohPrivatePathRemoveStarted,
-        .irohPrivatePathRemoveSucceeded, .irohPrivatePathRemoveFailed,
-        .connectionMethodConfigured, .connectionMethodPreferenceChanged,
-        .foregroundTransportSelected,
-    ]
-
-    private static let appStartedKinds: Set<DiagnosticAppEventKind> = [
-        .authRestoreStarted, .authSignInStarted, .authCodeRequested,
-        .authVerificationStarted, .authRevalidationStarted,
-        .pushRemoteRegistrationRequested, .pushBackendSyncStarted, .pairingStarted,
-        .computerListRefreshStarted, .computerSwitchStarted, .reconnectStarted,
-        .presenceStreamStarted, .deviceRegistryLoadStarted,
-        .workspaceListRefreshStarted, .workspaceStateSyncStarted,
-        .workspaceOpenStarted, .terminalReplayStarted, .terminalInputSubmitted,
-        .terminalCreateStarted, .irohRelayPreferenceChangeStarted,
-        .irohPathPreferenceChangeStarted, .irohCustomRelayTestStarted,
-        .irohCustomRelayUpsertStarted, .irohCustomRelayRemoveStarted,
-        .irohPrivatePathUpsertStarted, .irohPrivatePathRemoveStarted,
-    ]
-
-    private static let appSuccessKinds: Set<DiagnosticAppEventKind> = [
-        .authRestoreSucceeded, .authSignInSucceeded, .authRevalidationSucceeded,
-        .pushDeviceTokenReceived, .pushBackendSyncSucceeded, .pairingSucceeded,
-        .computerListRefreshSucceeded, .computerSwitchSucceeded, .reconnectSucceeded,
-        .presenceStreamUpdated, .deviceRegistryLoadSucceeded,
-        .workspaceListRefreshSucceeded, .workspaceStateSyncSucceeded,
-        .workspaceOpenSucceeded, .terminalStreamSubscribed,
-        .terminalStreamResubscribed, .terminalReplaySucceeded, .terminalInputSent,
-        .terminalInputAcknowledged, .terminalOutputReceived,
-        .terminalViewportReportSucceeded, .terminalCreateSucceeded,
-        .irohRelayPreferenceChangeSucceeded, .irohPathPreferenceChangeSucceeded,
-        .irohCustomRelayUpsertSucceeded, .irohCustomRelayRemoveSucceeded,
-        .irohCustomRelayTestSucceeded, .irohPrivatePathUpsertSucceeded,
-        .irohPrivatePathRemoveSucceeded,
-    ]
-
-    private static let appFailureKinds: Set<DiagnosticAppEventKind> = [
-        .authRestoreFailed, .authCodeRequestFailed, .authSignInFailed,
-        .authSignInCancelled, .authRevalidationFailed,
-        .pushDeviceTokenRegistrationFailed, .pushBackendSyncFailed,
-        .pairingFailed, .pairingCancelled, .computerListRefreshFailed,
-        .computerSwitchFailed, .reconnectFailed, .presenceStreamFailed,
-        .deviceRegistryLoadFailed, .workspaceListRefreshFailed,
-        .workspaceStateSyncFailed, .workspaceOpenFailed, .terminalStreamEnded,
-        .terminalReplayFailed, .terminalInputDropped, .terminalOutputGapDetected,
-        .terminalRenderLagDetected, .terminalViewportReportFailed,
-        .terminalScrollFailed, .terminalCreateFailed,
-        .irohRelayPreferenceChangeFailed, .irohPathPreferenceChangeFailed,
-        .irohCustomRelayUpsertFailed, .irohCustomRelayRemoveFailed,
-        .irohCustomRelayTestFailed, .irohPrivatePathUpsertFailed,
-        .irohPrivatePathRemoveFailed,
-    ]
+    private static func elapsedMilliseconds(from start: UInt64, to end: UInt64) -> UInt32? {
+        guard end >= start else { return nil }
+        return UInt32(clamping: Int((end - start) / 1_000_000))
+    }
 }
