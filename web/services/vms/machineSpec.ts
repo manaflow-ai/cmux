@@ -73,6 +73,9 @@ export const PLAN_SHARED_RESOURCE_CAPACITY: VmResourceReservation = {
   diskMb: PLAN_SHARED_DISK_MB,
 };
 
+/** Vercel environment key controlling the temporary shared CPU pool brake. */
+export const VM_SHARED_CPU_LIMIT_ENABLED_ENV = "CMUX_VM_SHARED_CPU_LIMIT_ENABLED";
+
 /** The reservation used for rows written before resource metadata existed. */
 export const DEFAULT_VM_RESOURCE_RESERVATION: VmResourceReservation = {
   vcpus: PLAN_SHARED_VCPU,
@@ -154,15 +157,26 @@ export function vmResourceReservationForCreate(input: {
  */
 export function sharedResourceCapacityForMaxActiveVms(
   maxActiveVms: number | null | undefined,
+  env: Record<string, string | undefined> = process.env,
 ): VmResourceReservation {
   const blocks = maxActiveVms !== null && maxActiveVms !== undefined && maxActiveVms > 0
     ? Math.max(1, Math.ceil(maxActiveVms / PAID_MAX_ACTIVE_VMS_DEFAULT))
     : 1;
   return {
-    vcpus: PLAN_SHARED_VCPU * blocks,
+    // Keep the per-plan VM count limit while temporarily removing only the
+    // shared CPU bottleneck when the operator sets the Vercel flag to 0.
+    vcpus: isFalseFlag(env[VM_SHARED_CPU_LIMIT_ENABLED_ENV])
+      ? Number.MAX_SAFE_INTEGER
+      : PLAN_SHARED_VCPU * blocks,
     memoryMb: PLAN_SHARED_MEMORY_MB * blocks,
     diskMb: PLAN_SHARED_DISK_MB * blocks,
   };
+}
+
+/** Return whether an operator environment flag uses a recognized false value. */
+function isFalseFlag(value: string | undefined): boolean {
+  if (value === undefined) return false;
+  return ["0", "false", "no", "off", "disabled"].includes(value.trim().toLowerCase());
 }
 
 /** Return the first resource for which a shared claim would exceed the pool. */

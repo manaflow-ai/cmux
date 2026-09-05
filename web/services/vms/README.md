@@ -287,6 +287,12 @@ Set these Vercel environment variables per production/staging environment:
 - `CMUX_VM_FREE_MAX_ACTIVE_VMS`, default `0` and ignored while the paid-plan gate is enforced.
 - `CMUX_VM_PLAN_<PLAN>_MAX_ACTIVE_VMS`, optional incident-only cap for one paid plan. Unset means
   paid plans have no active-machine limit.
+- To enforce exactly 50 active VMs for every paid plan, set `CMUX_VM_PAID_MAX_ACTIVE_VMS=50` in
+  the Vercel environment. This operator brake intentionally overrides Team seat multiplication.
+- `CMUX_VM_SHARED_CPU_LIMIT_ENABLED`, optional temporary shared CPU-pool brake. Unset/`1` keeps
+  the advertised pool of 5 vCPU per 50 active VMs; set to `0` in a Vercel environment to remove only that
+  CPU reservation while the per-user/per-seat 50-VM allowance remains enforced. Redeploy after
+  changing the variable.
 - Stack Auth environment variables.
 - Axiom/OpenTelemetry exporter variables.
 

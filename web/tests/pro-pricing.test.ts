@@ -122,12 +122,12 @@ describe("pricing copy matches the plan policy", () => {
   });
 
   test("the shared pool scales by paid seat and sums every resource claim", () => {
-    expect(sharedResourceCapacityForMaxActiveVms(PAID_MAX_ACTIVE_VMS_DEFAULT)).toEqual({
+    expect(sharedResourceCapacityForMaxActiveVms(PAID_MAX_ACTIVE_VMS_DEFAULT, {})).toEqual({
       vcpus: PLAN_SHARED_VCPU,
       memoryMb: PLAN_SHARED_MEMORY_MB,
       diskMb: PLAN_SHARED_DISK_MB,
     });
-    expect(sharedResourceCapacityForMaxActiveVms(PAID_MAX_ACTIVE_VMS_DEFAULT * 2)).toEqual({
+    expect(sharedResourceCapacityForMaxActiveVms(PAID_MAX_ACTIVE_VMS_DEFAULT * 2, {})).toEqual({
       vcpus: PLAN_SHARED_VCPU * 2,
       memoryMb: PLAN_SHARED_MEMORY_MB * 2,
       diskMb: PLAN_SHARED_DISK_MB * 2,
@@ -183,6 +183,16 @@ describe("pricing copy matches the plan policy", () => {
       used: PLAN_SHARED_VCPU - 1,
       requested: 2,
       limit: PLAN_SHARED_VCPU,
+    });
+  });
+
+  test("the operator CPU switch removes only the shared CPU brake", () => {
+    expect(sharedResourceCapacityForMaxActiveVms(PAID_MAX_ACTIVE_VMS_DEFAULT, {
+      CMUX_VM_SHARED_CPU_LIMIT_ENABLED: "0",
+    })).toEqual({
+      vcpus: Number.MAX_SAFE_INTEGER,
+      memoryMb: PLAN_SHARED_MEMORY_MB,
+      diskMb: PLAN_SHARED_DISK_MB,
     });
   });
 
