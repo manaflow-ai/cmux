@@ -264,6 +264,7 @@ describe("client config", () => {
     }));
 
     expect(response.status).toBe(429);
+    expect(response.headers.get("retry-after")).toBe("60");
     expect(await response.json()).toEqual({ error: "rate_limited" });
     expect(checkRateLimit).toHaveBeenCalledTimes(1);
     const calls = (checkRateLimit as unknown as {

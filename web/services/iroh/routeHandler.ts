@@ -6,6 +6,10 @@ import { env } from "../../app/env";
 import { unauthorized, verifyRequestIdentity } from "../vms/auth";
 import { authProviderErrorResponse } from "../vms/authErrors";
 import { enforceBrowserMutationProtection, jsonResponse } from "../vms/routeHelpers";
+import {
+  enforceNativeIngressRateLimit,
+  type NativeIngressRateLimitCheck,
+} from "../nativeIngressRateLimit";
 import { irohExpectedError } from "./errors";
 import {
   IrohTrustBroker,
@@ -41,6 +45,10 @@ type RouteDependencies = {
   readonly scheduleAfterResponse?: (
     operation: () => Promise<void>,
   ) => void;
+  /** Injectable for the route boundary test; production uses Vercel Firewall. */
+  readonly checkRateLimit?: NativeIngressRateLimitCheck;
+  readonly isVercel?: boolean;
+  readonly rateLimitRuleId?: () => string | undefined;
 };
 
 export async function handleIrohRoute(
@@ -72,6 +80,21 @@ export async function handleIrohRoute(
   if (!/^[A-Za-z0-9._:-]{1,255}$/.test(clientNamespace)) {
     return jsonResponse({ error: "invalid_client_namespace" }, 400);
   }
+
+  // The high-volume broker operations use locally verified access tokens, so
+  // this account-scoped gate runs before parsing or touching Postgres. It is
+  // also the backstop for old Macs and INTERNAL builds that cannot learn a new
+  // retry policy: one stuck client can exhaust its own operation budget, but it
+  // cannot turn a reconnect loop into unbounded Vercel traffic for the account.
+  const rateLimitResponse = await enforceNativeIngressRateLimit({
+    request,
+    route: `iroh.${operation}`,
+    ruleId: dependencies.rateLimitRuleId?.() ?? env.CMUX_IROH_RATE_LIMIT_ID,
+    rateLimitKey: `iroh:${user.id}:${clientNamespace}:${operation}`,
+    check: dependencies.checkRateLimit,
+    isVercel: dependencies.isVercel,
+  });
+  if (rateLimitResponse) return rateLimitResponse;
 
   if (operation !== "discover") {
     const mutationForbidden = enforceBrowserMutationProtection(request);
