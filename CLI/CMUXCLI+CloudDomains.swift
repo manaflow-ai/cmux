@@ -18,7 +18,7 @@ extension CMUXCLI {
               cmux cloud domains zones
               cmux cloud domains verify <domain>
               cmux cloud domains publish <vm> <port> [--domain <hostname>] [--access personal|team|public] [--team <id>] [--org-slug <slug>] [--yes]
-              cmux cloud domains access <hostname> <personal|team|public> [--team <id>]
+              cmux cloud domains access <hostname> <personal|team|public> [--team <id>] [--yes]
               cmux cloud domains grant <hostname> <email> [--expires <ISO-date>]
               cmux cloud domains ungrant <hostname> <email>
               cmux cloud domains grants <hostname>
@@ -109,8 +109,14 @@ extension CMUXCLI {
                 params: params,
                 responseTimeout: 120
             )
-            if access.mode == .public, let publication = response["publication"] as? [String: Any],
-               let publicationID = publication["id"] as? String {
+            if access.mode == .public {
+                guard let publication = response["publication"] as? [String: Any],
+                      let publicationID = Self.nonempty(publication["id"] as? String) else {
+                    throw CLIError(message: String(
+                        localized: "cli.cloud.domains.malformedResponse",
+                        defaultValue: "The cmux app returned a publication response this CLI could not read."
+                    ))
+                }
                 try Self.confirmPublicPublication(publication, confirmed: confirmed)
                 response = try client.sendV2(method: "vm.publication_update", params: ["id": publicationID, "accessMode": "public", "confirmPublic": true], responseTimeout: 120)
             }

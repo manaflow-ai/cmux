@@ -82,8 +82,8 @@ describe("managed port publications in Postgres", () => {
     const other = await activate({ ...input, port: 8080 });
     const guest = randomUUID();
     const sessionToken = randomPublicationToken();
-    await db`insert into cloud_vm_publication_sessions(token_hash, publication_id, user_id, routing_revision, expires_at)
-      values (${hashPublicationToken(sessionToken)}, ${first.publication.id}, ${guest}, 1, ${new Date(now.getTime() + 60000)})`;
+    await db`insert into cloud_vm_publication_sessions(token_hash, publication_id, user_id, routing_revision, created_at, expires_at)
+      values (${hashPublicationToken(sessionToken)}, ${first.publication.id}, ${guest}, 1, ${now}, ${new Date(now.getTime() + 60000)})`;
     const grant = { publicationId: first.publication.id, ownerUserId: input.ownerUserId, email: "guest@example.com", now, expiresAt: new Date(now.getTime() + 30000), revoke: false };
     await Effect.runPromise(repository.setEmailGrant(grant));
     let verifiedEmails = ["guest@example.com"];

@@ -187,23 +187,34 @@ extension CMUXCLIErrorOutputRegressionTests {
 
     @Test func cloudDomainsPublicAccessRequiresConfirmationAndUsesTheInspectedID() throws {
         let cliPath = try bundledCLIPath()
-        let socketPath = "/tmp/cmux-domains-public-\(UUID().uuidString.prefix(8)).sock"
         let publication = cloudDomainPublicationFixture()
-        let responder = try UnixSocketResponder(path: socketPath, responses: [
-            try cloudDomainsV2Response(result: ["publications": [publication]]),
-            try cloudDomainsV2Response(result: ["publication": publication]),
-        ])
-        defer { responder.stop() }
-        let result = runProcess(executablePath: cliPath,
-            arguments: ["cloud", "domains", "access", "preview.example.com", "public", "--yes"],
-            environment: cloudDomainsEnvironment(socketPath: socketPath), timeout: 5)
-        #expect(result.status == 0, Comment(rawValue: result.diagnostics))
-        #expect(result.stderr.contains("preview.example.com"))
-        #expect(responder.receivedRequests.count == 2)
-        let request = try cloudDomainsRequest(from: try #require(responder.receivedRequests.last))
-        let params = try #require(request["params"] as? [String: Any])
-        #expect((params["id"] as? String) == (publication["id"] as? String))
-        #expect(params["confirmPublic"] as? Bool == true)
+        for arguments in [
+            ["access", "preview.example.com", "public", "--yes"],
+            ["publish", "vm-alpha", "3000", "--access", "public", "--yes"],
+        ] {
+            let socketPath = "/tmp/cmux-domains-public-\(UUID().uuidString.prefix(8)).sock"
+            let initial: [String: Any] = arguments[0] == "publish"
+                ? ["publication": publication] : ["publications": [publication]]
+            let responder = try UnixSocketResponder(path: socketPath, responses: [
+                try cloudDomainsV2Response(result: initial),
+                try cloudDomainsV2Response(result: ["publication": publication]),
+            ])
+            defer { responder.stop() }
+            let result = runProcess(executablePath: cliPath,
+                arguments: ["cloud", "domains"] + arguments,
+                environment: cloudDomainsEnvironment(socketPath: socketPath), timeout: 5)
+            #expect(result.status == 0, Comment(rawValue: result.diagnostics))
+            #expect(result.stderr.contains("preview.example.com"))
+            #expect(responder.receivedRequests.count == 2)
+            let first = try cloudDomainsRequest(from: try #require(responder.receivedRequests.first))
+            let firstParams = try #require(first["params"] as? [String: Any])
+            #expect(firstParams["accessMode"] == nil)
+            let request = try cloudDomainsRequest(from: try #require(responder.receivedRequests.last))
+            let params = try #require(request["params"] as? [String: Any])
+            #expect(request["method"] as? String == "vm.publication_update")
+            #expect((params["id"] as? String) == (publication["id"] as? String))
+            #expect(params["confirmPublic"] as? Bool == true)
+        }
     }
 
     @Test func cloudDomainsPublishLeavesPrivateDefaultToServerAndScopesEmailGrants() throws {
