@@ -14823,7 +14823,7 @@ const fake_agent_snapshot_json =
     "{\"id\":\"agent_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"," ++
     "\"session_id\":\"session_22222222222222222222222222222222\"," ++
     "\"terminal_id\":\"term_0123456789abcdef0123456789abcdef\"," ++
-    "\"state\":\"working\",\"source\":\"hook\"," ++
+    "\"state\":\"working\",\"source\":\"hook\",\"agent\":\"codex\"," ++
     "\"updated_at_ms\":\"18446744073709551614\"," ++
     "\"source_session\":null,\"extra\":{\"agent_future\":true}}";
 

@@ -347,6 +347,7 @@ fn resource_snapshot() -> Value {
             "terminal_id": TERMINAL_ID,
             "state": "blocked",
             "source": "socket",
+            "agent": "codex",
             "updated_at_ms": "100",
             "source_session": "codex-test"
         }],
