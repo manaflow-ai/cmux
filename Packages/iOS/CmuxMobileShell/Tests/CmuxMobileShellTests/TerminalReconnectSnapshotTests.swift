@@ -4,6 +4,44 @@ import Testing
 
 @MainActor
 struct TerminalReconnectSnapshotTests {
+    @Test(arguments: [false, true])
+    func manualReconnectRefreshesAnOpenTerminalOnAHealthyConnection(
+        fromWorkspaceTitle: Bool
+    ) async throws {
+        let router = LivenessHostRouter()
+        let store = try await makeConnectedStore(router: router, box: TransportBox(), clock: TestClock())
+        let collector = OutputCollector()
+        defer {
+            collector.unmount()
+            store.disconnectLiveConnection()
+        }
+        #expect(try await pollUntil { store.terminalEventSubscriptionIsValidated })
+        await router.replaceReplayText("before-manual-reconnect")
+        collector.mount(store: store, surfaceID: "live-terminal")
+        #expect(try await pollUntil { collector.lines.contains("before-manual-reconnect") })
+        let selectedWorkspace = store.selectedWorkspaceID
+        let selectedTerminal = store.selectedTerminalID
+        let client = store.remoteClient
+        let subscriptionCount = await router.count(of: "mobile.events.subscribe")
+        await router.replaceReplayText("missed-live-output")
+
+        if fromWorkspaceTitle {
+            await store.reconnectToMac(
+                macDeviceID: store.foregroundMacDeviceID,
+                instanceTag: store.activeMacInstanceTag
+            )
+        } else {
+            await store.reconnectOrRefresh()
+        }
+
+        #expect(try await pollUntil { collector.lines.contains("missed-live-output") })
+        #expect(await router.count(of: "mobile.events.subscribe") > subscriptionCount)
+        #expect(store.remoteClient === client, "repair output without replacing a healthy connection")
+        #expect(store.connectionState == .connected)
+        #expect(store.selectedWorkspaceID == selectedWorkspace)
+        #expect(store.selectedTerminalID == selectedTerminal)
+    }
+
     @Test(arguments: [false, true], [false, true])
     func reconnectCatchesUpAfterSubscriptionWithoutReopeningTerminal(
         mountDuringReconnect: Bool,
