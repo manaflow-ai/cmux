@@ -78,7 +78,8 @@ extension MobileShellComposite {
 
     func resumeTerminalLaneIfSuspended(surfaceID: String) {
         guard let terminalLaneCoordinator,
-              connectionState == .connected else { return }
+              connectionState == .connected,
+              terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil else { return }
         Task { await terminalLaneCoordinator.resume(surfaceID: surfaceID) }
     }
 

@@ -257,7 +257,17 @@ actor MobileTerminalLaneCoordinator {
                     }
                     switch disposition {
                     case let .accepted(outputReady):
-                        await setOutputReady(outputReady, key: key, id: id)
+                        if outputReady {
+                            await setOutputReady(true, key: key, id: id)
+                        } else {
+                            // A consumer can reject a frame temporarily while
+                            // an authoritative replay barrier owns the output
+                            // sink. Stop reading immediately. Draining the
+                            // next chunk would discard the replay baseline and
+                            // turn backpressure into a false sequence gap.
+                            await suspend(key: key, id: id, lane: lane)
+                            return
+                        }
                     case .suspendUntilAuthoritativeOutput:
                         await suspend(key: key, id: id, lane: lane)
                         return

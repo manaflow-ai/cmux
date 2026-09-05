@@ -90,8 +90,7 @@ enum MobileHostIrxTerminalLaneServer {
             )
             _ = await receiveInput(
                 surfaceID: surfaceID,
-                stream: stream,
-                forceRefresh: false
+                stream: stream
             )
         } catch is CancellationError {
             await stream.sendStream.reset(errorCode: 0)
@@ -207,8 +206,7 @@ enum MobileHostIrxTerminalLaneServer {
     /// on a clean input-side finish (output-only lanes stay open).
     private static func receiveInput(
         surfaceID: UUID,
-        stream: CmxIrohBidirectionalStream,
-        forceRefresh: Bool = true
+        stream: CmxIrohBidirectionalStream
     ) async -> Bool {
         var buffer = Data()
         do {
@@ -228,8 +226,7 @@ enum MobileHostIrxTerminalLaneServer {
                 {
                     guard await deliverInput(
                         input,
-                        surfaceID: surfaceID,
-                        forceRefresh: forceRefresh
+                        surfaceID: surfaceID
                     ) else {
                         await reject(stream, errorCode: ErrorCode.invalidInput)
                         return true
@@ -251,8 +248,7 @@ enum MobileHostIrxTerminalLaneServer {
 
     private static func deliverInput(
         _ input: String,
-        surfaceID: UUID,
-        forceRefresh: Bool = true
+        surfaceID: UUID
     ) async -> Bool {
         await MainActor.run {
             guard
@@ -261,9 +257,10 @@ enum MobileHostIrxTerminalLaneServer {
             else { return false }
             switch surface.sendInputResult(input) {
             case .sent:
-                if forceRefresh {
-                    surface.forceRefresh(reason: "mobileHost.irxTerminalLaneInput")
-                }
+                // PTY output is observed by MobileTerminalByteTee, which
+                // schedules the normal render tick. A refresh here would
+                // emit a duplicate full frame before the echo and make every
+                // key compete with the output lane's replay fence.
                 return true
             case .queued:
                 return true

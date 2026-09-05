@@ -737,8 +737,7 @@ actor MobileHostIrohApplicationLaneRouter {
             )
             _ = await receiveTerminalInput(
                 surfaceID: surfaceID,
-                stream: stream,
-                forceRefresh: false
+                stream: stream
             )
         } catch is CancellationError {
             await stream.sendStream.reset(errorCode: 0)
@@ -753,8 +752,7 @@ actor MobileHostIrohApplicationLaneRouter {
     /// output-only terminal stream.
     private nonisolated static func receiveTerminalInput(
         surfaceID: UUID,
-        stream: CmxIrohBidirectionalStream,
-        forceRefresh: Bool = true
+        stream: CmxIrohBidirectionalStream
     ) async -> Bool {
         var buffer = Data()
         do {
@@ -771,8 +769,7 @@ actor MobileHostIrohApplicationLaneRouter {
                 for input in try decodeTerminalInputFrames(from: &buffer) {
                     guard await sendTerminalInput(
                         input,
-                        surfaceID: surfaceID,
-                        forceRefresh: forceRefresh
+                        surfaceID: surfaceID
                     ) else {
                         await reject(stream, errorCode: ErrorCode.invalidInput)
                         return true
@@ -888,8 +885,7 @@ actor MobileHostIrohApplicationLaneRouter {
 
     private nonisolated static func sendTerminalInput(
         _ input: String,
-        surfaceID: UUID,
-        forceRefresh: Bool = true
+        surfaceID: UUID
     ) async -> Bool {
         await MainActor.run {
             guard let surface = GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: surfaceID) else {
@@ -897,9 +893,10 @@ actor MobileHostIrohApplicationLaneRouter {
             }
             switch surface.sendInputResult(input) {
             case .sent:
-                if forceRefresh {
-                    surface.forceRefresh(reason: "mobileHost.irohTerminalLaneInput")
-                }
+                // PTY output is observed by MobileTerminalByteTee, which
+                // schedules the normal render tick. A refresh here would
+                // emit a duplicate full frame before the echo and make every
+                // key compete with the output lane's replay fence.
                 return true
             case .queued:
                 return true

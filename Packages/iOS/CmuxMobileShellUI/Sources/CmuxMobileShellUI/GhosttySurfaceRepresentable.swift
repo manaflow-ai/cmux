@@ -546,6 +546,20 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     // would strand the sink until a later UIKit callback.
                     guard self.surfaceView === surfaceView else { return }
                     self.armOutputConsumerStabilityReset(generation: taskGeneration)
+                    if let frame = chunk.sourceRenderGridFrame,
+                       store.usesHybridTerminalOutput,
+                       frame.activeScreen == .primary {
+                        // Hybrid uses render-grid primary frames as advisory
+                        // state only. The byte lane is the primary renderer;
+                        // applying this duplicate patch would compare the
+                        // Mac's shared grid with the phone's natural grid and
+                        // turn every key into a replay barrier.
+                        store.terminalOutputDidProcess(
+                            surfaceID: surfaceID,
+                            streamToken: chunk.streamToken
+                        )
+                        continue
+                    }
                     #if DEBUG
                     let latencySequence = chunk.sourceRenderGridFrame?.stateSeq
                         ?? chunk.endSequence
