@@ -28,22 +28,30 @@ export function vmCreateDisabledReason(
   if (isFalseFlag(env[providerEnabledEnvKey(provider)])) {
     return `${provider} VM creation is disabled`;
   }
+  if (!vmPrivateNetworkEnabled(env)) {
+    return "Cloud VM creation requires private networking";
+  }
   return null;
 }
 
 export function providerEnabledEnvKey(provider: ProviderId): string {
   switch (provider) {
-    case "e2b":
-      return "CMUX_VM_E2B_ENABLED";
     case "freestyle":
       return "CMUX_VM_FREESTYLE_ENABLED";
-    case "daytona":
-      return "CMUX_VM_DAYTONA_ENABLED";
-    case "blaxel":
-      return "CMUX_VM_BLAXEL_ENABLED";
     default:
       return assertNever(provider);
   }
+}
+
+/**
+ * Whether private-network operations are enabled.
+ *
+ * This is a fail-closed kill switch. Turning it off disables new Cloud VM
+ * creation and tunnel enrollment. It never changes a machine to public ingress
+ * and it never selects a public route for an existing machine.
+ */
+export function vmPrivateNetworkEnabled(env: VmRuntimeEnv = process.env): boolean {
+  return !isFalseFlag(env.CMUX_VM_PRIVATE_NETWORK_ENABLED);
 }
 
 export function isDeployedRuntime(env: VmRuntimeEnv = process.env): boolean {

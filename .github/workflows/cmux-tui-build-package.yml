@@ -74,7 +74,7 @@ jobs:
   plan-build:
     name: select binary targets
     runs-on: ${{ inputs.linux_runner != '' && inputs.linux_runner || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 5
+    timeout-minutes: 15
     outputs:
       matrix: ${{ steps.targets.outputs.matrix }}
       linux_package_matrix: ${{ steps.targets.outputs.linux_package_matrix }}
@@ -179,18 +179,11 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan-build.outputs.matrix) }}
     steps:
-      - name: Checkout caller ref
-        if: inputs.checkout_ref == ''
+      - name: Checkout caller or requested ref
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          persist-credentials: false
-
-      - name: Checkout requested ref
-        if: inputs.checkout_ref != ''
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
           ref: ${{ inputs.checkout_ref }}
+          persist-credentials: false
 
       - name: Init ghostty submodule
         run: git submodule update --init --depth 1 ghostty
@@ -379,18 +372,11 @@ jobs:
       run:
         working-directory: cmux-tui/relays/cloudflare-do
     steps:
-      - name: Checkout caller ref
-        if: inputs.checkout_ref == ''
+      - name: Checkout caller or requested ref
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          persist-credentials: false
-
-      - name: Checkout requested ref
-        if: inputs.checkout_ref != ''
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
           ref: ${{ inputs.checkout_ref }}
+          persist-credentials: false
 
       - name: Set up Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
@@ -435,18 +421,11 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Checkout caller ref
-        if: inputs.checkout_ref == ''
+      - name: Checkout caller or requested ref
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          persist-credentials: false
-
-      - name: Checkout requested ref
-        if: inputs.checkout_ref != ''
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
           ref: ${{ inputs.checkout_ref }}
+          persist-credentials: false
 
       - name: Init ghostty submodule
         run: git submodule update --init --depth 1 ghostty
@@ -498,6 +477,17 @@ jobs:
           cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --release --locked --target x86_64-pc-windows-gnu
           cargo build -p cmux-relay --bin cmux-relay --release --locked --target x86_64-pc-windows-gnu
           cargo build -p chatmux-relay --bin chatmux-relay --release --locked --target x86_64-pc-windows-gnu
+
+      - name: Test Windows long-path state handling
+        working-directory: cmux-tui
+        shell: bash
+        run: |
+          cargo test --release --locked --target x86_64-pc-windows-gnu \
+            -p cmux-tui-core --lib normalize_long_windows
+          cargo test --release --locked --target x86_64-pc-windows-gnu \
+            -p cmux-tui-core --lib registry_opens_and_persists_under_a_long_windows_state_root
+          cargo test --release --locked --target x86_64-pc-windows-gnu \
+            -p cmux-tui-core --lib socket_start_lock_acquires_a_new_lock_file
 
       - name: Verify long Windows state path
         shell: bash
@@ -576,18 +566,11 @@ jobs:
       NPM_VERSION: ${{ inputs.version }}
       PYPI_VERSION: ${{ inputs.pypi_version != '' && inputs.pypi_version || inputs.version }}
     steps:
-      - name: Checkout caller ref
-        if: inputs.checkout_ref == ''
+      - name: Checkout caller or requested ref
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          persist-credentials: false
-
-      - name: Checkout requested ref
-        if: inputs.checkout_ref != ''
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
           ref: ${{ inputs.checkout_ref }}
+          persist-credentials: false
 
       - name: Download darwin arm64 binary
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -800,18 +783,11 @@ jobs:
     env:
       PYPI_VERSION: ${{ inputs.pypi_version != '' && inputs.pypi_version || inputs.version }}
     steps:
-      - name: Checkout caller ref
-        if: inputs.checkout_ref == ''
+      - name: Checkout caller or requested ref
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          persist-credentials: false
-
-      - name: Checkout requested ref
-        if: inputs.checkout_ref != ''
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
           ref: ${{ inputs.checkout_ref }}
+          persist-credentials: false
 
       - name: Download npm package archive
         if: inputs.package_npm
@@ -876,18 +852,26 @@ jobs:
       id-token: write
       attestations: write
     steps:
-      - name: Checkout caller ref
-        if: inputs.checkout_ref == ''
+      - name: Checkout caller or requested ref
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
 
-      - name: Checkout requested ref
-        if: inputs.checkout_ref != ''
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-          ref: ${{ inputs.checkout_ref }}
+      - name: Verify attestation checkout matches caller
+        env:
+          CHECKOUT_REF: ${{ inputs.checkout_ref }}
+        run: |
+          set -euo pipefail
+          checked_out_sha="$(git rev-parse HEAD)"
+          if [[ "$checked_out_sha" != "$GITHUB_SHA" ]]; then
+            echo "attest_packages requires checkout_ref to resolve to $GITHUB_SHA; got $checked_out_sha." >&2
+            exit 1
+          fi
+          if [[ -n "$CHECKOUT_REF" && "$CHECKOUT_REF" != "$GITHUB_SHA" ]]; then
+            echo "attest_packages rejects checkout_ref=$CHECKOUT_REF; it must be empty or $GITHUB_SHA." >&2
+            exit 1
+          fi
 
       - name: Download npm package archive
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0

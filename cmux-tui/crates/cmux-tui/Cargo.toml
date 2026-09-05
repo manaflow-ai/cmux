@@ -10,6 +10,10 @@ description = "cmux-tui: tmux-like terminal multiplexer TUI backed by libghostty
 [lints]
 workspace = true
 
+[features]
+default = []
+iroh-transport = ["cmux-remote/iroh-transport"]
+
 [[bin]]
 name = "cmux-tui"
 path = "src/main.rs"
@@ -46,12 +50,16 @@ parking_lot.workspace = true
 sha2.workspace = true
 uuid.workspace = true
 wait-timeout.workspace = true
-fs4.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 cmux-remote.workspace = true
 cmux-remote-protocol.workspace = true
+cmux-wg.workspace = true
 tokio.workspace = true
+# Machine spend readout: one small JSON GET every few minutes from inside a
+# Cloud VM. chatmux-relay already uses reqwest for pairing bootstrap.
+reqwest.workspace = true
+rustls.workspace = true
 url.workspace = true
 async-trait.workspace = true
 

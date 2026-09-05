@@ -23,8 +23,8 @@ import (
 
 func TestGeneratedInventoryHasTypedMethodForEveryCommand(t *testing.T) {
 	commands := AllCommandMetadata()
-	if len(commands) != 103 {
-		t.Fatalf("generated commands = %d, want 103", len(commands))
+	if len(commands) != 106 {
+		t.Fatalf("generated commands = %d, want 106", len(commands))
 	}
 	clientType := reflect.TypeOf((*Client)(nil))
 	commandNames := make(map[string]struct{}, len(commands))
@@ -54,8 +54,8 @@ func TestGeneratedInventoryHasTypedMethodForEveryCommand(t *testing.T) {
 			t.Errorf("generated command inventory is missing %s", name)
 		}
 	}
-	if events := AllEventMetadata(); len(events) != 46 {
-		t.Fatalf("generated events = %d, want 46", len(events))
+	if events := AllEventMetadata(); len(events) != 48 {
+		t.Fatalf("generated events = %d, want 48", len(events))
 	}
 }
 
@@ -965,6 +965,31 @@ func TestGeneratedEventDecodingAndUnknownFallback(t *testing.T) {
 	}
 	if _, ok := any(future).(ByteAttachEvent); !ok {
 		t.Fatal("unknown events must survive typed stream fallbacks")
+	}
+}
+
+func TestGeneratedDaemonShutdownEventRequiresWireName(t *testing.T) {
+	for _, raw := range []string{
+		`{}`,
+		`{"extra":true}`,
+		`{"event":null}`,
+		`{"event":"other"}`,
+		`{"event":123}`,
+	} {
+		t.Run(raw, func(t *testing.T) {
+			var event DaemonShutdownEvent
+			if err := json.Unmarshal([]byte(raw), &event); err == nil {
+				t.Fatalf("invalid daemon-shutdown payload decoded successfully: %s", raw)
+			}
+		})
+	}
+
+	var event DaemonShutdownEvent
+	if err := json.Unmarshal(
+		[]byte(`{"event":"daemon-shutdown"}`),
+		&event,
+	); err != nil {
+		t.Fatalf("valid daemon-shutdown payload rejected: %v", err)
 	}
 }
 

@@ -209,6 +209,29 @@ struct ComputerUseUXTests {
             directCaptureReady: false))
     }
 
+    /// Configured users retain the fail-closed permission readiness predicate;
+    /// presentation itself is still owned by the deliberate Settings action.
+    @MainActor
+    @Test func configuredHelperReadinessRemainsFailClosedUntilReady() {
+        #expect(ComputerUseOnboardingWindowController.shouldPresentAutomatically(
+            seen: true, featureEnabled: true, permissionStatusIsKnown: true,
+            accessibilityGranted: false, screenRecordingGranted: true,
+            directCaptureReady: true))
+        #expect(ComputerUseOnboardingWindowController.shouldPresentAutomatically(
+            seen: true, featureEnabled: true, permissionStatusIsKnown: true,
+            accessibilityGranted: true, screenRecordingGranted: false,
+            directCaptureReady: true))
+        // Unknown TCC status is fail-safe: the protected call remains gated.
+        #expect(ComputerUseOnboardingWindowController.shouldPresentAutomatically(
+            seen: true, featureEnabled: true, permissionStatusIsKnown: false,
+            accessibilityGranted: true, screenRecordingGranted: true,
+            directCaptureReady: true))
+        #expect(!ComputerUseOnboardingWindowController.shouldPresentAutomatically(
+            seen: true, featureEnabled: true, permissionStatusIsKnown: true,
+            accessibilityGranted: true, screenRecordingGranted: true,
+            directCaptureReady: true))
+    }
+
     @Test func computerUseRuntimePermissionReadinessRequiresExplicitCompletion() {
         var phase = ComputerUseRuntimePermissionPhase.disabled(
             onboardingComplete: false
@@ -233,17 +256,19 @@ struct ComputerUseUXTests {
         #expect(phase == .onboardingRequired)
     }
 
-    @Test @MainActor func onlyRealComputerUseToolHooksTriggerOnboarding() {
+    @Test @MainActor func workstreamComputerUseHooksNeverPresentOnboarding() throws {
         let invocation = WorkstreamEvent(
             sessionId: "session-1",
             hookEventName: .preToolUse,
             source: "claude",
             toolName: "mcp__cmux-cua__start_session"
         )
+        // The hook is still recognized for live-session/cursor bookkeeping,
+        // but that recognition is deliberately not an onboarding request.
         #expect(ComputerUseUXCoordinator.isComputerUseToolInvocation(invocation))
 
-        // Sessions started by a pre-rename wrapper still carry the old server
-        // name and must keep triggering onboarding.
+        // The same namespaced event remains recognized for live-session
+        // bookkeeping, regardless of which supported wrapper emitted it.
         let legacyInvocation = WorkstreamEvent(
             sessionId: "session-1",
             hookEventName: .preToolUse,
@@ -267,22 +292,148 @@ struct ComputerUseUXTests {
             toolName: "Bash"
         )
         #expect(!ComputerUseUXCoordinator.isComputerUseToolInvocation(unrelatedTool))
-    }
 
-    @Test @MainActor
-    func toolInvocationCannotOverrideDisabledComputerUseSetting() {
-        #expect(ComputerUseUXCoordinator.shouldReconcileToolInvocation(
-            featureEnabled: true,
-            settingEnabled: true
-        ))
-        #expect(!ComputerUseUXCoordinator.shouldReconcileToolInvocation(
-            featureEnabled: true,
-            settingEnabled: false
-        ))
-        #expect(!ComputerUseUXCoordinator.shouldReconcileToolInvocation(
-            featureEnabled: false,
-            settingEnabled: true
-        ))
+        var presentations: [ComputerUseOnboardingWindowController.StartingPoint] = []
+        let presentationCoordinator = ComputerUseOnboardingCoordinator(
+            presenter: { startingPoint in
+                presentations.append(startingPoint)
+            }
+        )
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-cua-onboarding-ingress-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let paths = ComputerUseRuntimePaths(
+            homeDirectoryURL: root,
+            socketRootDirectoryURL: root,
+            userIdentifier: 501,
+            environment: ["CMUX_TAG": "onboarding-ingress-test"],
+            authenticationToken: String(repeating: "a", count: 64),
+            hostAuthenticationToken: String(repeating: "b", count: 64)
+        )
+        let runtimeService = ComputerUseRuntimeService(paths: paths)
+        let catalog = SettingCatalog()
+        let defaultsSuite = "cmux-cua-onboarding-ingress-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsSuite))
+        defer { defaults.removePersistentDomain(forName: defaultsSuite) }
+        let appCoordinator = ComputerUseUXCoordinator(
+            liveAgentIndex: SharedLiveAgentIndex(),
+            stateRepository: ComputerUseStateRepository(
+                authenticationKey: runtimeService.stateAuthenticationKey
+            ),
+            stateDirectoryURL: paths.stateDirectoryURL,
+            configStore: JSONConfigStore(
+                fileURL: root.appendingPathComponent("cmux.json")
+            ),
+            enabledKey: catalog.computerUse.enabled,
+            showInMenuBarKey: catalog.computerUse.showInMenuBar,
+            liveSettingRepository: ComputerUseLiveSettingRepository(
+                fileURL: root.appendingPathComponent("live/enabled")
+            ),
+            runtimeService: runtimeService,
+            userDefaults: defaults,
+            workspaceTitle: { _ in nil },
+            featureEnabled: { true },
+            onboardingCoordinator: presentationCoordinator
+        )
+        let reportPrompt = WorkstreamEvent(
+            sessionId: "session-1",
+            hookEventName: .userPromptSubmit,
+            source: "claude",
+            context: WorkstreamContext(
+                lastUserMessage: "The settings button says Enable cmux Computer Use"
+            )
+        )
+        let quotedPrompt = WorkstreamEvent(
+            sessionId: "session-1",
+            hookEventName: .userPromptSubmit,
+            source: "claude",
+            context: WorkstreamContext(
+                lastUserMessage: "Read the `$cmux-cua` help text, but do not run it."
+            )
+        )
+        let negatedPrompt = WorkstreamEvent(
+            sessionId: "session-1",
+            hookEventName: .userPromptSubmit,
+            source: "codex",
+            context: WorkstreamContext(
+                lastUserMessage: "Do not use Computer Use for this task."
+            )
+        )
+        let helpPrompt = WorkstreamEvent(
+            sessionId: "session-1",
+            hookEventName: .userPromptSubmit,
+            source: "codex",
+            context: WorkstreamContext(
+                lastUserMessage: "What does cmux computer use do?"
+            )
+        )
+        let explicitLookingPrompt = WorkstreamEvent(
+            sessionId: "session-1",
+            hookEventName: .userPromptSubmit,
+            source: "codex",
+            context: WorkstreamContext(
+                lastUserMessage: "Please use cmux computer use to click Save."
+            )
+        )
+        let skillDiscovery = WorkstreamEvent(
+            sessionId: "session-1",
+            hookEventName: .preToolUse,
+            source: "claude",
+            toolName: "Skill",
+            toolInputJSON: "{\"skill\":\"cmux-cua\",\"discovery\":true}"
+        )
+        let statusProbe = WorkstreamEvent(
+            sessionId: "session-1",
+            hookEventName: .preToolUse,
+            source: "claude",
+            toolName: "mcp__cmux-cua__check_permissions"
+        )
+        let failedUnrelatedTool = WorkstreamEvent(
+            sessionId: "session-1",
+            hookEventName: .postToolUseFailure,
+            source: "claude",
+            toolName: "Bash"
+        )
+        let events = [
+            invocation,
+            reportPrompt,
+            quotedPrompt,
+            negatedPrompt,
+            helpPrompt,
+            explicitLookingPrompt,
+            skillDiscovery,
+            statusProbe,
+            failedUnrelatedTool,
+        ]
+        for event in events {
+            appCoordinator.handleWorkstreamEvent(event)
+        }
+        #expect(
+            presentations.isEmpty,
+            "agent activity, prompt text, skill discovery, and status probes stay quiet"
+        )
+
+        #expect(appCoordinator.presentOnboardingFromSettings(startingAt: .screenRecording))
+        #expect(presentations == [.screenRecording])
+        #expect(appCoordinator.presentOnboardingFromSettings(startingAt: .accessibility))
+        #expect(
+            presentations == [.screenRecording, .accessibility],
+            "a deliberate Settings request honors a newly selected permission step"
+        )
+
+        for event in events {
+            appCoordinator.handleWorkstreamEvent(event)
+        }
+        #expect(
+            presentations == [.screenRecording, .accessibility],
+            "dismissal and tool retries must not resurface onboarding"
+        )
+        #expect(appCoordinator.presentOnboardingFromSettings(startingAt: .accessibility))
+        #expect(presentations == [.screenRecording, .accessibility, .accessibility])
+        appCoordinator.teardown()
     }
 
     @Test func parsesRealCuaStateFileShape() throws {
@@ -2456,7 +2607,12 @@ struct ComputerUseUXTests {
         #expect(skill.contains(
             "Actions return a compact dispatch acknowledgement"
         ))
-        #expect(skill.contains(
+        // Markdown wrapping is presentation-only; assert the instruction's
+        // words rather than depending on a particular source line break.
+        let normalizedSkill = skill
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+        #expect(normalizedSkill.contains(
             "call `get_app_state` before deciding what to do next"
         ))
         #expect(skill.contains(

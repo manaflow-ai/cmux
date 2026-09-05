@@ -5,16 +5,18 @@ import {
   type ExecResult,
   type ProviderId,
 } from "./types";
-import { shellQuote } from "./wsLease";
 
 // cmux-tui is the ONE session daemon on every cmux Cloud machine
 // (docs/cloud-cmux-tui-daemon.md). This module carries everything about it
 // that is not provider-specific: the pinned-manifest source resolution, the
 // sha256-verified install command, the daemon command, and the enrollment
-// flows, all parameterized over a provider exec so blaxel.ts (sandbox API),
-// e2b.ts (commands.run as root), and daytona.ts (toolbox exec) share one
-// implementation. Providers keep only their transport mechanics: how the
-// daemon process is supervised and how port 1337 is reached from outside.
+// flows, parameterized over a provider exec so freestyle.ts keeps only its
+// transport mechanics: how the daemon process is supervised and how port 1337
+// is reached from outside.
+
+export function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
 
 export const CMUX_TUI_PORT = 1337;
 export const CMUX_TUI_SESSION = "cloud";
@@ -27,8 +29,8 @@ export const CMUX_TUI_PERSISTENT_MOUNT_WAIT_TIMEOUT_MS = 30_000;
 
 // The non-root work user on cmux Cloud machines. Terminals must not run as root
 // (coding agents refuse root, e.g. `claude --dangerously-skip-permissions`); root
-// stays one passwordless `sudo` away. The Blaxel image bakes this user; the
-// driver's runtime user setup creates it on images that predate it.
+// stays one passwordless `sudo` away. An image that bakes this user is driven
+// through CMUX_CLOUD_LAYOUT; images without it keep the root daemon.
 export const CMUX_CLOUD_USER = "cmux";
 export const CMUX_CLOUD_HOME = "/home/cmux";
 
@@ -142,7 +144,7 @@ const CMUX_TUI_MANIFEST_CACHE_MS = 5 * 60 * 1000;
  * `latest`. Nothing else is configured by hand: the build and its sha256 come from
  * the manifest the artifacts workflow publishes.
  */
-export function cmuxTuiManifestUrl(provider: ProviderId = "blaxel"): string {
+export function cmuxTuiManifestUrl(provider: ProviderId = "freestyle"): string {
   const url = process.env.CMUX_VM_CMUX_TUI_MANIFEST_URL?.trim() || CMUX_TUI_DEFAULT_MANIFEST_URL;
   if (!/^https:\/\//.test(url)) {
     throw new ProviderError(provider, "CMUX_VM_CMUX_TUI_MANIFEST_URL must be an https:// URL");
@@ -154,7 +156,7 @@ export function cmuxTuiManifestUrl(provider: ProviderId = "blaxel"): string {
 export function parseCmuxTuiManifest(
   manifestUrl: string,
   manifest: unknown,
-  provider: ProviderId = "blaxel",
+  provider: ProviderId = "freestyle",
 ): CmuxTuiSource {
   const record = manifest && typeof manifest === "object" ? manifest as Record<string, unknown> : {};
   const commit = typeof record.commit === "string" ? record.commit : "";
@@ -178,7 +180,7 @@ export function parseCmuxTuiManifest(
 let cmuxTuiSourceCache: { url: string; fetchedAt: number; source: CmuxTuiSource } | null = null;
 
 /** The Linux daemon build to install, from the manifest (cached 5 min per manifest URL). */
-export async function resolveCmuxTuiSource(provider: ProviderId = "blaxel"): Promise<CmuxTuiSource> {
+export async function resolveCmuxTuiSource(provider: ProviderId = "freestyle"): Promise<CmuxTuiSource> {
   const manifestUrl = cmuxTuiManifestUrl(provider);
   if (cmuxTuiSourceCache && cmuxTuiSourceCache.url === manifestUrl && Date.now() - cmuxTuiSourceCache.fetchedAt < CMUX_TUI_MANIFEST_CACHE_MS) {
     return cmuxTuiSourceCache.source;
@@ -248,8 +250,8 @@ export function cmuxTuiInstallCommand(
   const bin = shellQuote(binaryPath);
   const tmp = shellQuote(`${binaryPath}.tmp`);
   const pinned = (path: string) => `printf '%s  %s\n' ${shellQuote(source.sha256)} ${path} | sha256sum -c >/dev/null 2>&1`;
-  // A stock blaxel/base-image has no curl until background provisioning adds it, so
-  // the fetch installs curl itself (apk, Alpine) and falls back to busybox wget.
+  // A stock minimal base image may have no curl until background provisioning adds
+  // it, so the fetch installs curl itself (apk, Alpine) and falls back to busybox wget.
   const fetch =
     `(command -v curl >/dev/null 2>&1 || apk add --no-cache curl >/dev/null 2>&1 || true); ` +
     `if command -v curl >/dev/null 2>&1; then curl -fsSL --retry 3 --retry-delay 2 -o ${tmp} ${shellQuote(source.url)}; ` +
@@ -281,8 +283,8 @@ export function cmuxTuiPinCheckCommand(
 
 /** The listener bind every container provider uses; cmux-devbox-boot's CMUX_TUI_REMOTE_WS_BIND default. */
 export const CMUX_TUI_DEFAULT_REMOTE_WS_BIND = `0.0.0.0:${CMUX_TUI_PORT}`;
-// Rootfs state lets the Blaxel provider distinguish an intentional root
-// fallback from a still-running non-root daemon and reconcile it on attach.
+// Rootfs state lets a driver distinguish an intentional root fallback from a
+// still-running non-root daemon and reconcile it on attach.
 export const CMUX_TUI_LAYOUT_MARKER_PATH = "/etc/cmux/daemon-layout";
 
 const CMUX_TUI_BACKING_EXPECTED_VAR = "cmux_tui_backing_expected";
@@ -294,6 +296,10 @@ const CMUX_TUI_MOUNT_WATCH_INTERVAL_SECONDS = 1;
 // Keep the restart path bounded, then force the child down so the provider can
 // start the durable fallback.
 const CMUX_TUI_CHILD_SHUTDOWN_GRACE_SECONDS = 2;
+const CMUX_TUI_CHILD_SHUTDOWN_POLL_SECONDS = 0.02;
+const CMUX_TUI_CHILD_SHUTDOWN_GRACE_POLLS = Math.round(
+  CMUX_TUI_CHILD_SHUTDOWN_GRACE_SECONDS / CMUX_TUI_CHILD_SHUTDOWN_POLL_SECONDS,
+);
 
 /**
  * Runs a layout daemon with an event-driven mount watcher. A persistent mount
@@ -362,10 +368,28 @@ function cmuxTuiSupervisedDaemonInvocation(
     `cmux_tui_terminate_pid="$1";`,
     `if [ -z "$cmux_tui_terminate_pid" ]; then return 0; fi;`,
     `kill -TERM "$cmux_tui_terminate_pid" 2>/dev/null || true;`,
-    `( sleep ${CMUX_TUI_CHILD_SHUTDOWN_GRACE_SECONDS}; kill -KILL "$cmux_tui_terminate_pid" 2>/dev/null || true ) &`,
+    // The grace-period helper polls the child instead of sleeping for the whole
+    // period and being signalled: once the supervisor's wait reaps the child,
+    // kill -0 fails and the helper exits on its own within one poll interval.
+    // Nothing is signalled, so there is no race with dash's trap reset (a TERM
+    // that lands while a forked subshell still carries the parent's trap is
+    // dropped) and no orphaned sleep. A child that ignores TERM is KILLed at
+    // the end of the grace period as before.
+    `( cmux_tui_killer_polls=0;`,
+    `while [ "$cmux_tui_killer_polls" -lt ${CMUX_TUI_CHILD_SHUTDOWN_GRACE_POLLS} ] && kill -0 "$cmux_tui_terminate_pid" 2>/dev/null; do`,
+    `sleep ${CMUX_TUI_CHILD_SHUTDOWN_POLL_SECONDS}; cmux_tui_killer_polls=$((cmux_tui_killer_polls + 1)); done;`,
+    // Only a child that outlived the whole grace period is KILLed, and its
+    // liveness is rechecked right before the signal so the window in which a
+    // reaped pid could be reused is the check-to-kill gap, not a poll interval.
+    `if [ "$cmux_tui_killer_polls" -ge ${CMUX_TUI_CHILD_SHUTDOWN_GRACE_POLLS} ] && kill -0 "$cmux_tui_terminate_pid" 2>/dev/null; then kill -KILL "$cmux_tui_terminate_pid" 2>/dev/null || true; fi ) &`,
     `cmux_tui_killer_pid=$!;`,
     `wait "$cmux_tui_terminate_pid" 2>/dev/null || true;`,
-    `kill -TERM "$cmux_tui_killer_pid" 2>/dev/null || true;`,
+    // Cancel the helper as soon as the child is reaped so it can never act on
+    // a reused pid. KILL rather than TERM: dash forks the helper with the
+    // parent's TERM trap still inherited and resets it afterwards, so a TERM
+    // that lands in that window is dropped. The helper holds at most one
+    // 20 ms sleep, so a KILL orphans nothing that matters.
+    `kill -KILL "$cmux_tui_killer_pid" 2>/dev/null || true;`,
     `wait "$cmux_tui_killer_pid" 2>/dev/null || true;`,
     `}`,
   ].join(" ");
@@ -376,7 +400,7 @@ function cmuxTuiSupervisedDaemonInvocation(
     `${watcherPid}=''`,
     terminateChild,
     // USR1 is private to this supervisor. TERM/INT/HUP still stop both children
-    // cleanly when Blaxel stops the named process during lease revocation.
+    // cleanly when a provider stops the named process during lease revocation.
     `trap '${viewLost}=1; cmux_tui_terminate_child "$${daemonPid}"' USR1`,
     `trap 'cmux_tui_terminate_child "$${daemonPid}"; cmux_tui_terminate_child "$${watcherPid}"; exit 143' TERM INT HUP`,
     `{ mkdir -p /etc/cmux 2>/dev/null; printf '${layoutMarker}\\n' > ${CMUX_TUI_LAYOUT_MARKER_PATH}; } 2>/dev/null`,
@@ -436,15 +460,15 @@ function cmuxTuiBackingDaemonInvocation(
 /**
  * The daemon command every provider's supervisor runs. Launch cwd = the persistent
  * home so new terminals open there. `remoteWsBind` defaults to the IPv4 wildcard
- * the container providers' proxies dial; Freestyle beta machines are reached at
- * their public IPv6 and pass a dual-stack `[::]` bind instead (a container with
+ * the container providers' proxies dial; Freestyle machines are reached at
+ * their private VPC address and pass a dual-stack `[::]` bind instead (a container with
  * IPv6 disabled cannot bind `[::]` at all, so dual-stack is per-provider, not the
  * default).
  *
  * Without a layout the daemon (and so every terminal pane it spawns) runs as root
- * with HOME=/root — the historical model, still used by E2B, Daytona, and
- * Freestyle. With a layout (Blaxel) the daemon drops to the layout user via
- * runuser, so panes are non-root shells with passwordless sudo. Two guards keep
+ * with HOME=/root — the model the Freestyle driver uses. With a layout the
+ * daemon drops to the layout user via runuser, so panes are non-root shells
+ * with passwordless sudo. Two guards keep
  * old machines working:
  *  - A sandbox from before the layout change mounts its persistent volume at
  *    /root (mountpoint -q /root); its data and daemon state live there, so it
@@ -474,7 +498,7 @@ export function cmuxTuiDaemonCommand(
   const backingBin = cmuxTuiBinaryPath(backing);
   const legacyBin = cmuxTuiBinaryPath("/root");
   const usableBase = cmuxTuiUserUsableCondition(layout);
-  // A no-volume Blaxel machine legitimately uses its disposable rootfs home.
+  // A no-volume machine legitimately uses its disposable rootfs home.
   // A volume-backed machine must never silently switch to that path while its
   // mount is late or lost, because all writes there disappear on resurrection.
   const usable = persistentVolumeExpected
@@ -539,7 +563,7 @@ export function cmuxTuiDaemonCommand(
 /** Enrollment invitations are `cmux://enroll/<base64url JSON>`; the id and expiry inside are what the approve flow needs. */
 export function parseEnrollmentInvitationUri(
   uri: string,
-  provider: ProviderId = "blaxel",
+  provider: ProviderId = "freestyle",
 ): { id: string; expiresAtUnix: number; daemonFingerprint: string | null } {
   const prefix = "cmux://enroll/";
   if (!uri.startsWith(prefix)) {
@@ -588,8 +612,8 @@ export function parseJsonArray(text: string): Array<Record<string, unknown>> {
 
 /**
  * Runs `cmux-tui <args>` inside the VM as the daemon's own user and HOME (the
- * daemon's state home). Each provider supplies its own transport: Blaxel's
- * sandbox API, E2B's commands.run, Daytona's toolbox exec.
+ * daemon's state home). Each provider supplies its own transport: Freestyle's
+ * VM exec API.
  */
 export type CmuxTuiInvoke = (args: string, timeoutMs?: number) => Promise<ExecResult>;
 
@@ -652,8 +676,105 @@ export async function isCmuxTuiDeviceEnrolled(
   );
 }
 
+/**
+ * Everything attach needs from the daemon in ONE guest exec instead of four:
+ * an optional readiness gate (exit 3 when it fails, so the caller can run the
+ * heal), the daemon build (`remote-probe`), the enrolled devices, and, unless
+ * the caller's fingerprint is already among them, a fresh invitation. Each
+ * section is fenced by a marker line so the outputs parse independently.
+ */
+export const CMUX_TUI_ATTACH_BUNDLE_NOT_READY_EXIT = 3;
+const BUNDLE_MARKERS = { probe: "__CMUX_PROBE__", devices: "__CMUX_DEVICES__", invite: "__CMUX_INVITE__", end: "__CMUX_END__" } as const;
+
+export function cmuxTuiAttachBundleCommand(options: {
+  readonly readyGate?: string;
+  readonly deviceFingerprint?: string;
+  readonly binary?: string;
+}): string {
+  const bin = options.binary ?? CMUX_TUI_BINARY_PATH;
+  const run = `env HOME=/root ${bin}`;
+  const fingerprint = options.deviceFingerprint?.trim();
+  if (fingerprint !== undefined && fingerprint !== "" && !/^[A-Za-z0-9._:=+/-]+$/.test(fingerprint)) {
+    throw new Error("device fingerprint has an unexpected shape");
+  }
+  // The shell decides only whether to mint; the server re-derives "enrolled"
+  // from the devices JSON and mints separately if the two disagree.
+  const needle = fingerprint ? `"fingerprint":"${fingerprint}"` : "";
+  const mint = `${run} remote enroll create --session ${CMUX_TUI_SESSION} --ttl ${CMUX_TUI_INVITATION_TTL_SECONDS} --json`;
+  const invite = needle
+    ? `case "$D" in *${shellQuote(needle)}*) ;; *) ${mint};; esac`
+    : mint;
+  return [
+    // Run the readiness probe in a subshell. The Freestyle gate uses `exit` for
+    // its success and failure branches; without a subshell those exits terminate
+    // the entire attach bundle before the probe, device, and invitation sections.
+    ...(options.readyGate ? [`( ${options.readyGate}; ) || exit ${CMUX_TUI_ATTACH_BUNDLE_NOT_READY_EXIT}`] : []),
+    `echo ${BUNDLE_MARKERS.probe}`,
+    `${run} remote-probe --json; echo`,
+    `echo ${BUNDLE_MARKERS.devices}`,
+    `D=$(${run} remote enroll devices --session ${CMUX_TUI_SESSION} --json); printf '%s\\n' "$D"`,
+    `echo ${BUNDLE_MARKERS.invite}`,
+    `${invite}; echo`,
+    `echo ${BUNDLE_MARKERS.end}`,
+  ].join("; ");
+}
+
+export type CmuxTuiAttachBundle = {
+  readonly daemonBuild: CmuxRemoteEndpoint["daemonBuild"] | null;
+  readonly enrolled: boolean;
+  readonly invitation: NonNullable<CmuxRemoteEndpoint["invitation"]> | null;
+};
+
+/** Parses the fenced stdout of {@link cmuxTuiAttachBundleCommand}. */
+export function parseCmuxTuiAttachBundle(
+  stdout: string,
+  provider: ProviderId,
+  vmId: string,
+  deviceFingerprint?: string,
+): CmuxTuiAttachBundle {
+  const section = (from: string, to: string): string => {
+    const start = stdout.indexOf(from);
+    const end = stdout.indexOf(to);
+    if (start === -1 || end === -1 || end < start) return "";
+    return stdout.slice(start + from.length, end).trim();
+  };
+  const probeText = section(BUNDLE_MARKERS.probe, BUNDLE_MARKERS.devices);
+  const devicesText = section(BUNDLE_MARKERS.devices, BUNDLE_MARKERS.invite);
+  const inviteText = section(BUNDLE_MARKERS.invite, BUNDLE_MARKERS.end);
+  let daemonBuild: CmuxTuiAttachBundle["daemonBuild"] = null;
+  try {
+    const record = parseJsonObject(probeText);
+    const commit = typeof record.build_identity === "string" ? record.build_identity : null;
+    const remoteProtocol = typeof record.remote_protocol === "number" ? record.remote_protocol : null;
+    const version = typeof record.version === "string" ? record.version : null;
+    if (commit || remoteProtocol !== null) daemonBuild = { commit, remoteProtocol, version };
+  } catch {
+    daemonBuild = null;
+  }
+  let enrolled = false;
+  if (deviceFingerprint) {
+    try {
+      enrolled = parseJsonArray(devicesText).some((device) =>
+        device.fingerprint === deviceFingerprint && (device.revoked_at_unix === null || device.revoked_at_unix === undefined)
+      );
+    } catch {
+      enrolled = false;
+    }
+  }
+  let invitation: CmuxTuiAttachBundle["invitation"] = null;
+  if (inviteText) {
+    const uri = parseJsonObject(inviteText).uri;
+    if (typeof uri !== "string" || !uri) {
+      throw new ProviderError(provider, `cmux-tui enrollment invitation in ${vmId} returned no uri`);
+    }
+    const parsed = parseEnrollmentInvitationUri(uri, provider);
+    invitation = { uri, invitationId: parsed.id, expiresAtUnix: parsed.expiresAtUnix };
+  }
+  return { daemonBuild, enrolled, invitation };
+}
+
 export async function approveCmuxTuiEnrollment(
-  invoke: CmuxTuiInvoke,
+  invoke: (command: string, timeoutMs: number) => Promise<ExecResult>,
   provider: ProviderId,
   vmId: string,
   invitationId: string,
@@ -661,25 +782,55 @@ export async function approveCmuxTuiEnrollment(
   if (!ENROLLMENT_ID_PATTERN.test(invitationId)) {
     throw new ProviderError(provider, "invitation id has an unexpected shape");
   }
-  const pending = await invoke(`remote enroll pending --session ${CMUX_TUI_SESSION} --json`);
-  if (pending.exitCode !== 0) {
-    throw new ProviderError(provider, `cmux-tui pending enrollments in ${vmId} failed: ${pending.stderr || pending.stdout}`);
-  }
-  const entries = parseJsonArray(pending.stdout);
-  const match = entries.find((entry) => entry.invitation_id === invitationId);
-  if (!match) {
-    // The client has not claimed the invitation yet (or it expired); the caller polls.
-    return { approved: false, state: "pending" };
-  }
-  const approved = await invoke(
-    `remote enroll approve ${shellQuote(invitationId)} --session ${CMUX_TUI_SESSION} --json`,
-  );
+  const approved = await invoke(cmuxTuiApproveWaitCommand(invitationId), 40_000);
   if (approved.exitCode !== 0) {
     throw new ProviderError(provider, `cmux-tui enrollment approval in ${vmId} failed: ${approved.stderr || approved.stdout}`);
   }
   const device = parseJsonObject(approved.stdout);
-  const fingerprint = typeof device.fingerprint === "string"
-    ? device.fingerprint
-    : typeof match.device_fingerprint === "string" ? match.device_fingerprint : undefined;
+  const fingerprint = typeof device.fingerprint === "string" ? device.fingerprint : undefined;
   return { approved: true, state: "approved", ...(fingerprint ? { deviceFingerprint: fingerprint } : {}) };
+}
+
+/**
+ * One guest command waits for the invitation claim on the daemon's local socket,
+ * then approves it. The Mac makes one Vercel request and Vercel makes one provider
+ * exec request. The bounded local checks do not cross either control plane.
+ */
+export function cmuxTuiApproveWaitCommand(
+  invitationId: string,
+  options: {
+    readonly binaryPath?: string;
+    readonly attempts?: number;
+    readonly delaySeconds?: number;
+  } = {},
+): string {
+  if (!ENROLLMENT_ID_PATTERN.test(invitationId)) {
+    throw new Error("invitation id has an unexpected shape");
+  }
+  const attempts = options.attempts ?? 120;
+  const delaySeconds = options.delaySeconds ?? 0.25;
+  if (!Number.isInteger(attempts) || attempts < 1 || attempts > 120) {
+    throw new Error("approval attempts must be an integer from 1 through 120");
+  }
+  if (!Number.isFinite(delaySeconds) || delaySeconds < 0.01 || delaySeconds > 1) {
+    throw new Error("approval delay must be from 0.01 through 1 second");
+  }
+  const binary = shellQuote(options.binaryPath ?? CMUX_TUI_BINARY_PATH);
+  const approve =
+    `env HOME=/root ${binary} remote enroll approve ${shellQuote(invitationId)} ` +
+    `--session ${CMUX_TUI_SESSION} --json`;
+  return `
+cmux_approve_attempt=0
+cmux_approve_output=''
+while [ "$cmux_approve_attempt" -lt ${attempts} ]; do
+  if cmux_approve_output="$(${approve} 2>&1)"; then
+    printf '%s\\n' "$cmux_approve_output"
+    exit 0
+  fi
+  cmux_approve_attempt=$((cmux_approve_attempt + 1))
+  sleep ${delaySeconds}
+done
+printf '%s\\n' "$cmux_approve_output" >&2
+exit 75
+`.trim();
 }

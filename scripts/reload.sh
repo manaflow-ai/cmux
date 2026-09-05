@@ -29,6 +29,7 @@ PROD_AUTH=0
 AUTH_CREDENTIALS_FILE=""
 AUTH_PROFILE=""
 AUTH_EXPECTED_ACCOUNT=""
+CMUX_TUI_CLIENT_MANIFEST_URL_VALUE=""
 CLI_PATH=""
 NO_GLOBAL_CLI_LINKS="${CMUX_RELOAD_NO_GLOBAL_CLI_LINKS:-0}"
 # Matches CmuxStateDirectory (non-TCC ~/.local/state/cmux) where the app/CLI now
@@ -888,6 +889,8 @@ Options:
   --expected-account <email>
                          Fail before building unless the selected profile/file
                          resolves to this normalized account.
+  --cmux-tui-manifest-url <url>
+                         Install the cmux-tui client from this immutable manifest.
   --name <app name>      Override app display/bundle name.
   --bundle-id <id>       Override bundle identifier.
   --derived-data <path>  Override derived data path.
@@ -1143,6 +1146,14 @@ while [[ $# -gt 0 ]]; do
       [[ -n "$AUTH_EXPECTED_ACCOUNT" ]] || { echo "error: --expected-account requires an email" >&2; exit 1; }
       shift 2
       ;;
+    --cmux-tui-manifest-url)
+      CMUX_TUI_CLIENT_MANIFEST_URL_VALUE="${2:-}"
+      [[ -n "$CMUX_TUI_CLIENT_MANIFEST_URL_VALUE" ]] \
+        || { echo "error: --cmux-tui-manifest-url requires a URL" >&2; exit 1; }
+      [[ "$CMUX_TUI_CLIENT_MANIFEST_URL_VALUE" == https://* ]] \
+        || { echo "error: --cmux-tui-manifest-url requires HTTPS" >&2; exit 1; }
+      shift 2
+      ;;
     --derived-data)
       DERIVED_DATA="${2:-}"
       if [[ -z "$DERIVED_DATA" ]]; then
@@ -1232,8 +1243,16 @@ CMUX_IROH_BROKER_BASE_URL_VALUE="${CMUX_IROH_BROKER_BASE_URL:-https://cmux-stagi
 CMUX_AUTH_WWW_ORIGIN_VALUE="$CMUX_DEV_ORIGIN"
 CMUX_WWW_ORIGIN_VALUE="$CMUX_DEV_ORIGIN"
 if [[ "$PROD_AUTH" -eq 1 ]]; then
-  CMUX_DEV_API_BASE_URL_VALUE="${CMUX_DEV_API_BASE_URL:-https://cmux.com}"
-  CMUX_IROH_BROKER_BASE_URL_VALUE="${CMUX_IROH_BROKER_BASE_URL:-https://cmux.com}"
+  if [[ -n "${CMUX_DEV_API_BASE_URL:-}" && "$CMUX_DEV_API_BASE_URL" != "https://cmux.com" ]]; then
+    echo "error: --prod-auth cannot use API origin '$CMUX_DEV_API_BASE_URL'; production builds must use https://cmux.com" >&2
+    exit 1
+  fi
+  if [[ -n "${CMUX_IROH_BROKER_BASE_URL:-}" && "$CMUX_IROH_BROKER_BASE_URL" != "https://cmux.com" ]]; then
+    echo "error: --prod-auth cannot use Iroh broker origin '$CMUX_IROH_BROKER_BASE_URL'; production builds must use https://cmux.com" >&2
+    exit 1
+  fi
+  CMUX_DEV_API_BASE_URL_VALUE="https://cmux.com"
+  CMUX_IROH_BROKER_BASE_URL_VALUE="https://cmux.com"
   CMUX_AUTH_WWW_ORIGIN_VALUE="https://cmux.com"
   CMUX_WWW_ORIGIN_VALUE="https://cmux.com"
 fi
@@ -1734,7 +1753,16 @@ fi
 if [[ "${CMUX_SKIP_CMUX_TUI_CLIENT:-}" == "1" && -x "$APP_PATH/Contents/Resources/bin/cmux-tui" ]]; then
   echo "Preserving bundled cmux-tui client (CMUX_SKIP_CMUX_TUI_CLIENT=1)"
 else
-  "$PWD/scripts/install-cmux-tui-client.sh" "$APP_PATH"
+  cmux_tui_install_args=(
+    "$APP_PATH"
+    --require-capability wireguard-hub
+  )
+  if [[ -n "$CMUX_TUI_CLIENT_MANIFEST_URL_VALUE" ]]; then
+    cmux_tui_install_args+=(
+      --manifest-url "$CMUX_TUI_CLIENT_MANIFEST_URL_VALUE"
+    )
+  fi
+  "$PWD/scripts/install-cmux-tui-client.sh" "${cmux_tui_install_args[@]}"
 fi
 if command -v xattr >/dev/null 2>&1; then
   xattr -cr "$APP_PATH" || true

@@ -89,6 +89,7 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
     let select: (WorkspaceMacSelection) -> Void
     let machines: [WorkspaceFilterMachine]
     let showAddDevice: (() -> Void)?
+    var gateWarningDeviceIDs: Set<String> = []
     var statusLine: WorkspaceConnectionStatusLine?
 
     private var titlePlacement: ToolbarItemPlacement {
@@ -141,7 +142,10 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
         }
         ToolbarItem(id: "workspace-list-devices", placement: .topBarLeading) {
             Button(action: openDevices) {
-                Image(systemName: "desktopcomputer")
+                MobileDevicesToolbarLabel(
+                    gateWarningDeviceIDs: gateWarningDeviceIDs,
+                    computerDeviceIDs: Set(machines.map(\.macDeviceID).filter { !$0.isEmpty })
+                )
             }
             .frame(
                 minWidth: horizontalSizeClass == .regular
@@ -165,6 +169,7 @@ private struct WorkspaceRootToolbarLiveContent: ToolbarContent {
     let pendingSelection: WorkspaceMacSelection?
     let select: (WorkspaceMacSelection) -> Void
     let showAddDevice: (() -> Void)?
+    var gateWarningDeviceIDs: Set<String> = []
 
     var body: some ToolbarContent {
         WorkspaceRootToolbarContent(
@@ -176,6 +181,7 @@ private struct WorkspaceRootToolbarLiveContent: ToolbarContent {
             select: select,
             machines: renderContext.machines,
             showAddDevice: showAddDevice,
+            gateWarningDeviceIDs: gateWarningDeviceIDs,
             statusLine: renderContext.statusLine
         )
     }
@@ -291,6 +297,13 @@ struct WorkspaceShellView: View {
             return .reconnecting
         }
         return store.workspaceListConnectionStatus
+    }
+
+    private var workspaceListIsAuthoritative: Bool {
+        guard !isInitialConnectionLoading, !initialConnectionTimedOut else {
+            return false
+        }
+        return store.workspaceListIsAuthoritative
     }
 
     private var canCreateWorkspaceOnForegroundConnection: Bool {
@@ -795,7 +808,8 @@ struct WorkspaceShellView: View {
             compactNavigationPath = compactNavigationPolicy.pathForSelectionChange(
                 currentPath: compactNavigationPath,
                 selectedWorkspaceID: selectedWorkspaceID,
-                visibleWorkspaceIDs: Set(store.workspaces.map(\.id))
+                visibleWorkspaceIDs: Set(store.workspaces.map(\.id)),
+                listIsAuthoritative: workspaceListIsAuthoritative
             )
             autoOpenSelectedWorkspaceForSoakIfNeeded()
         }
@@ -813,7 +827,8 @@ struct WorkspaceShellView: View {
             compactNavigationPath = compactNavigationPolicy.pathForVisibleWorkspaceIDsChange(
                 currentPath: compactNavigationPath,
                 visibleWorkspaceIDs: Set(workspaceIDs),
-                selectedWorkspaceID: store.selectedWorkspaceID
+                selectedWorkspaceID: store.selectedWorkspaceID,
+                listIsAuthoritative: workspaceListIsAuthoritative
             )
             autoOpenSelectedWorkspaceForSoakIfNeeded()
         }
@@ -1243,7 +1258,8 @@ struct WorkspaceShellView: View {
             openDevices: showComputers,
             pendingSelection: rootToolbarPendingSelection,
             select: handleRootToolbarSelection,
-            showAddDevice: showAddDevice
+            showAddDevice: showAddDevice,
+            gateWarningDeviceIDs: store.macVersionUpdateRequiredDeviceIDs
         )
     }
 

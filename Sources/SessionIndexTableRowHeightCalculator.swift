@@ -24,11 +24,31 @@ final class SessionIndexTableRowHeightCalculator {
 
             let entryHeight = lineHeight(
                 baseFontSize: 13,
-                minimumContentHeight: 12,
+                // SessionRow reserves a 20-point agent icon frame so the
+                // primary line stays aligned even when an icon asset is
+                // unavailable.
+                minimumContentHeight: 20,
                 verticalPadding: 8,
                 environment: environment
             )
-            let visibleEntryHeight = CGFloat(min(section.entries.count, rowLimit)) * entryHeight
+            // Default rows in every grouping can carry a second subtitle line
+            // (folder · branch); compact rows remove it before this snapshot
+            // reaches the calculator.
+            let subtitleHeight = lineHeight(
+                baseFontSize: 11,
+                minimumContentHeight: 0,
+                verticalPadding: 1,
+                environment: environment
+            )
+            var visibleEntryHeight: CGFloat = 0
+            for entry in section.entries.prefix(rowLimit) {
+                visibleEntryHeight += entryHeight
+                if section.accessories[entry.id]?.hasSubtitle == true {
+                    // SessionRow is a VStack with one point of spacing
+                    // between its primary and metadata lines.
+                    visibleEntryHeight += 1 + subtitleHeight
+                }
+            }
             let showMoreHeight: CGFloat
             if section.shouldOfferShowMore(rowLimit: rowLimit) {
                 showMoreHeight = lineHeight(

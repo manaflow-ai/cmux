@@ -10,15 +10,18 @@ mkdir -p \
   "$APP/Contents/MacOS" \
   "$APP/Contents/Resources/bin" \
   "$APP/Contents/PlugIns/CmuxDockTilePlugin.plugin/Contents/MacOS" \
+  "$APP/Contents/Library/SystemExtensions/cmuxTunnel.systemextension/Contents/MacOS" \
   "$APP/Contents/Frameworks" \
   "$TMP_DIR/tools"
 
 for path in \
   "$APP/Contents/MacOS/cmux" \
   "$APP/Contents/Resources/bin/cmux" \
+  "$APP/Contents/Resources/bin/cmux-tui" \
   "$APP/Contents/Resources/bin/cmux-diff-sidecar" \
   "$APP/Contents/Resources/bin/ghostty" \
   "$APP/Contents/PlugIns/CmuxDockTilePlugin.plugin/Contents/MacOS/CmuxDockTilePlugin" \
+  "$APP/Contents/Library/SystemExtensions/cmuxTunnel.systemextension/Contents/MacOS/cmuxTunnel" \
   "$APP/Contents/Frameworks/libcmux_command_palette_nucleo_ffi.dylib" \
   "$APP/Contents/Frameworks/Sparkle.framework"
 do
@@ -30,7 +33,7 @@ done
 cat > "$TMP_DIR/tools/file" <<'EOF'
 #!/usr/bin/env bash
 case "$1" in
-  *"/Contents/MacOS/cmux"|*"/Contents/Resources/bin/cmux"|*"/Contents/Resources/bin/cmux-diff-sidecar"|*"CmuxDockTilePlugin"|*"libcmux_"*)
+  *"/Contents/MacOS/cmux"|*"/Contents/Resources/bin/cmux"|*"/Contents/Resources/bin/cmux-tui"|*"/Contents/Resources/bin/cmux-diff-sidecar"|*"CmuxDockTilePlugin"|*"/Contents/MacOS/cmuxTunnel"|*"libcmux_"*)
     printf '%s: Mach-O universal binary\n' "$1"
     ;;
   *)
@@ -55,9 +58,11 @@ expected="$TMP_DIR/expected.log"
 printf '%s\n' \
   "-S -x $APP/Contents/MacOS/cmux" \
   "-S -x $APP/Contents/Resources/bin/cmux" \
+  "-S -x $APP/Contents/Resources/bin/cmux-tui" \
   "-S -x $APP/Contents/Resources/bin/cmux-diff-sidecar" \
   "-S -x $APP/Contents/PlugIns/CmuxDockTilePlugin.plugin/Contents/MacOS/CmuxDockTilePlugin" \
   "-S -x $APP/Contents/Frameworks/libcmux_command_palette_nucleo_ffi.dylib" \
+  "-S -x $APP/Contents/Library/SystemExtensions/cmuxTunnel.systemextension/Contents/MacOS/cmuxTunnel" \
   > "$expected"
 
 if ! diff -u "$expected" "$TMP_DIR/strip.log"; then

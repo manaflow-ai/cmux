@@ -19,13 +19,42 @@ final class SessionIndexTablePopoverPresenter: NSObject, NSPopoverDelegate {
     private var pendingPresentation: (
         presentation: SessionIndexTablePopoverPresentation,
         anchorView: NSView,
+        anchorOwnerView: NSView?,
         anchorRect: NSRect
     )?
     private weak var anchorView: NSView?
+    /// The recycled table row that owns the preview. The table is the
+    /// positioning view, but the owner lets the controller dismiss the popover
+    /// when AppKit recycles that row.
+    // Keep the owner alive while the popover is shown. NSTableView may detach
+    // the row before `didRemoveRowView` runs; retaining this lightweight row
+    // view lets that callback still identify and dismiss the stale preview.
+    private var anchorOwnerView: NSView?
+    /// The last positioning rectangle handed to AppKit. Keeping it separate
+    /// from the presentation identity lets a scrolling table move an
+    /// already-visible popover without tearing down its hosted transcript.
+    private var positioningRect: NSRect?
     private var presentationCount = 0
     private var isClosingProgrammatically = false
+    private var isDismissalRequested = false
 
-    var isPopoverShown: Bool { popover?.isShown == true }
+    private var isPopoverWindowShown: Bool { popover?.isShown == true }
+
+    /// Whether a preview is currently visible to the table controller. A
+    /// programmatic close is reported as hidden immediately, even while
+    /// AppKit finishes its close animation, so stale recycled-row callbacks
+    /// cannot reopen or repeatedly dismiss the same preview.
+    var isPopoverShown: Bool {
+        isPopoverWindowShown && !isClosingProgrammatically && !isDismissalRequested
+    }
+
+    /// Identity of the row that currently owns the presented preview. The
+    /// table delegate can receive a recycling callback after AppKit has
+    /// detached the row from the hierarchy, so the view relationship alone
+    /// is not a sufficient dismissal signal.
+    var presentedIdentity: SessionIndexTablePopoverIdentity? {
+        currentPresentation?.identity ?? pendingPresentation?.presentation.identity
+    }
 
     init(transcriptLayout: SessionTranscriptPopoverLayout = SessionTranscriptPopoverLayout()) {
         self.transcriptLayout = transcriptLayout
@@ -36,13 +65,42 @@ final class SessionIndexTablePopoverPresenter: NSObject, NSPopoverDelegate {
     func reconcile(
         _ presentation: SessionIndexTablePopoverPresentation,
         relativeTo anchorRect: NSRect,
-        of anchorView: NSView
+        of anchorView: NSView,
+        ownedBy anchorOwnerView: NSView? = nil
     ) {
         guard anchorView.window != nil else { return }
 
-        if isPopoverShown,
-           currentPresentation?.identity == presentation.identity,
-           self.anchorView === anchorView {
+        if isDismissalRequested {
+            // The table may still be projecting the old identity for one
+            // run-loop turn after `dismissAndNotify()`. Ignore that stale
+            // projection; a genuinely different identity is a new request
+            // and may replace the closing popover in place.
+            guard presentedIdentity != presentation.identity else { return }
+            isDismissalRequested = false
+        }
+
+        if isPopoverWindowShown,
+           !isClosingProgrammatically,
+           currentPresentation?.identity == presentation.identity {
+            let anchorChanged = self.anchorView !== anchorView
+            let rectChanged = positioningRect != anchorRect
+            self.anchorView = anchorView
+            self.anchorOwnerView = anchorOwnerView
+            if anchorChanged || rectChanged {
+                positioningRect = anchorRect
+                // AppKit documents `show(relativeTo:of:preferredEdge:)` as a
+                // live update when a popover is already shown. Re-issue that
+                // association in place so a recycled/native row anchor can
+                // replace a geometry fallback without closing and reopening
+                // the transcript (which was the source of the visible flash).
+                CmuxPopoverMutation.performWithoutImplicitAnimation {
+                    popover?.show(
+                        relativeTo: anchorRect,
+                        of: anchorView,
+                        preferredEdge: .maxX
+                    )
+                }
+            }
             let needsRefresh = currentPresentation?.hasEquivalentContent(to: presentation) != true
             currentPresentation = presentation
             if needsRefresh {
@@ -54,10 +112,11 @@ final class SessionIndexTablePopoverPresenter: NSObject, NSPopoverDelegate {
         pendingPresentation = (
             presentation: presentation,
             anchorView: anchorView,
+            anchorOwnerView: anchorOwnerView,
             anchorRect: anchorRect
         )
 
-        if isPopoverShown || isClosingProgrammatically {
+        if isPopoverWindowShown || isClosingProgrammatically {
             closeForReplacementIfNeeded()
         } else {
             presentPendingPresentation()
@@ -65,9 +124,10 @@ final class SessionIndexTablePopoverPresenter: NSObject, NSPopoverDelegate {
     }
 
     func dismiss() {
+        isDismissalRequested = true
         pendingPresentation = nil
         visibleUpdateScheduler.cancel()
-        guard let popover, popover.isShown else {
+        guard let popover, isPopoverWindowShown else {
             resetPresentedContent()
             return
         }
@@ -83,13 +143,19 @@ final class SessionIndexTablePopoverPresenter: NSObject, NSPopoverDelegate {
     }
 
     func isAnchored(in view: NSView) -> Bool {
+        if let anchorOwnerView {
+            if anchorOwnerView === view || anchorOwnerView.isDescendant(of: view) {
+                return true
+            }
+        }
         guard let anchorView else { return false }
         return anchorView === view || anchorView.isDescendant(of: view)
     }
 
     private func closeForReplacementIfNeeded() {
         guard !isClosingProgrammatically else { return }
-        guard let popover, popover.isShown else {
+        isDismissalRequested = false
+        guard let popover, isPopoverWindowShown else {
             resetPresentedContent()
             presentPendingPresentation()
             return
@@ -109,6 +175,10 @@ final class SessionIndexTablePopoverPresenter: NSObject, NSPopoverDelegate {
 
         currentPresentation = pendingPresentation.presentation
         anchorView = pendingPresentation.anchorView
+        anchorOwnerView = pendingPresentation.anchorOwnerView
+        positioningRect = pendingPresentation.anchorRect
+        isDismissalRequested = false
+        isClosingProgrammatically = false
         presentationCount += 1
         visibleUpdateScheduler.cancel()
 
@@ -132,24 +202,37 @@ final class SessionIndexTablePopoverPresenter: NSObject, NSPopoverDelegate {
         guard let currentPresentation else { return }
 
         switch currentPresentation.content {
-        case let .section(section, search, loadSnapshot, beginSessionDrag, onResume):
+        case let .section(
+            section,
+            search,
+            loadSnapshot,
+            beginSessionDrag,
+            onResume,
+            onOpen,
+            statusSnapshot
+        ):
             hostingController.rootView = AnyView(
                 SectionPopoverView(
                     section: section,
                     search: search,
                     loadSnapshot: loadSnapshot,
                     beginSessionDrag: beginSessionDrag,
-                    onResume: onResume
-                ) { [weak self] in
-                    self?.dismissAndNotify()
-                }
+                    onResume: onResume,
+                    onOpen: onOpen,
+                    onFocus: currentPresentation.onFocus,
+                    statusSnapshot: statusSnapshot,
+                    onDismiss: { [weak self] in
+                        self?.dismissAndNotify()
+                    }
+                )
                 .id(presentationCount)
             )
-        case .transcript(let entry):
+        case .transcript(let entry, let onResume):
             hostingController.rootView = AnyView(
                 SessionTranscriptPreviewView(
                     entry: entry,
                     sizeModel: transcriptSizeModel,
+                    onResume: onResume,
                     onResize: { [weak self] proposedSize in
                         self?.resizeTranscript(to: proposedSize)
                     }
@@ -205,13 +288,18 @@ final class SessionIndexTablePopoverPresenter: NSObject, NSPopoverDelegate {
         popover = nil
         currentPresentation = nil
         anchorView = nil
+        anchorOwnerView = nil
+        positioningRect = nil
+        isClosingProgrammatically = false
+        isDismissalRequested = false
         hostingController.rootView = AnyView(EmptyView())
     }
 
     func popoverDidClose(_ notification: Notification) {
-        let shouldNotify = !isClosingProgrammatically
+        let shouldNotify = !isClosingProgrammatically && !isDismissalRequested
         let onDismiss = currentPresentation?.onDismiss
         isClosingProgrammatically = false
+        isDismissalRequested = false
         resetPresentedContent()
 
         if pendingPresentation != nil {
@@ -247,7 +335,7 @@ extension SessionIndexTableRow {
             }
             return SessionIndexTablePopoverPresentation(
                 identity: .transcript(section: section.key, entry: entry.id),
-                content: .transcript(entry),
+                content: .transcript(entry, onResume: actions.onResume),
                 onDismiss: { actions.onDismissPreview(entry.id) }
             )
         case .section:
@@ -258,9 +346,12 @@ extension SessionIndexTableRow {
                     search: actions.search,
                     loadSnapshot: actions.loadSnapshot,
                     beginSessionDrag: actions.beginSessionDrag,
-                    onResume: actions.onResume
+                    onResume: actions.onResume,
+                    onOpen: actions.onOpen,
+                    statusSnapshot: actions.statusSnapshot
                 ),
-                onDismiss: { setPopoverOpen(false) }
+                onDismiss: { setPopoverOpen(false) },
+                onFocus: actions.onFocus
             )
         }
     }

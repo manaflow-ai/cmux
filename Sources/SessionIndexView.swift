@@ -9,43 +9,143 @@ import UniformTypeIdentifiers
 
 @MainActor
 enum SessionEntryResumeCoordinator {
-    static func resume(_ entry: SessionEntry, tabManager: TabManager) {
-        guard let launch = entry.resumeLaunch else { return }
-        let targetCwd = launch.workingDirectory
-
-        let selected = tabManager.selectedWorkspace
-        let selectedTab = tabManager.selectedTabId.flatMap { id in
-            tabManager.tabs.first(where: { $0.id == id })
-        }
-        let isRemoteSelection = selectedTab?.isRemoteWorkspace ?? false
-        let workspaceCwd = selected?.currentDirectory
-        let pwdMatches: Bool = {
-            guard !isRemoteSelection,
-                  let targetCwd, !targetCwd.isEmpty,
-                  let workspaceCwd, !workspaceCwd.isEmpty else { return false }
-            let lhs = (targetCwd as NSString).standardizingPath
-            let rhs = (workspaceCwd as NSString).standardizingPath
-            return lhs == rhs
-        }()
-
-        if pwdMatches,
-           let workspace = selected,
-           let paneId = workspace.bonsplitController.focusedPaneId {
-            workspace.newTerminalSurface(
-                inPane: paneId,
-                focus: true,
-                workingDirectory: targetCwd,
-                initialInput: launch.initialInput,
-                startupRestoreAgent: launch.startupRestoreAgent
-            )
-            return
-        }
-
+    @discardableResult
+    private static func launchInNewWorkspace(
+        _ launch: SessionEntryResumeLaunch,
+        tabManager: TabManager
+    ) -> Workspace? {
         tabManager.addWorkspaceIfActive(
-            workingDirectory: targetCwd,
+            workingDirectory: launch.workingDirectory,
             initialTerminalInput: launch.initialInput,
             initialTerminalStartupRestoreAgent: launch.startupRestoreAgent
         )
+    }
+
+    /// Returns the in-pane target for an indexed session, if one is currently
+    /// represented by a real surface in the tab manager.
+    ///
+    /// Keeping target discovery separate from the focus mutation lets the Vault
+    /// row expose an honest enabled/disabled state without focusing anything
+    /// while SwiftUI is rendering a context menu.
+    static func activeTarget(
+        for entry: SessionEntry,
+        tabManager: TabManager
+    ) -> (workspaceID: UUID, surfaceID: UUID)? {
+        // Prefer the tab manager's authoritative surface snapshots. This
+        // catches an open-but-idle session even while the process index is
+        // between refreshes.
+        for workspace in tabManager.tabs {
+            if let panel = workspace.restoredAgentSnapshotsByPanelId.first(where: { panelID, snapshot in
+                workspace.panels[panelID] != nil
+                    && workspace.panelShellActivityStates[panelID] == .commandRunning
+                    && snapshot.kind.rawValue == entry.agent.rawValue
+                    && ManagedAgentSessionIdentity.sessionIDsMatch(
+                        kind: entry.agent.rawValue,
+                        lhs: snapshot.sessionId,
+                        rhs: entry.sessionId
+                    )
+            }) {
+                return (workspace.id, panel.key)
+            }
+        }
+
+        // Process-detected sessions can still be present in the live index
+        // before their snapshot has been projected into the tab manager.
+        guard let index = SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh(),
+              let match = index.forkValidationEntries().first(where: { panelKey, observation in
+                  observation.processLiveness == .running
+                      && observation.snapshot.kind.rawValue == entry.agent.rawValue
+                      && ManagedAgentSessionIdentity.sessionIDsMatch(
+                          kind: entry.agent.rawValue,
+                          lhs: observation.snapshot.sessionId,
+                          rhs: entry.sessionId
+                      )
+                      && tabManager.tabs.contains(where: { $0.id == panelKey.workspaceId })
+                      && tabManager.tabs.first(where: { $0.id == panelKey.workspaceId })?.panels[panelKey.panelId] != nil
+              }) else {
+            return nil
+        }
+
+        return (match.0.workspaceId, match.0.panelId)
+    }
+
+    /// Returns managed-session identities whose agent command is currently
+    /// running in a real pane. A shell-idle pane is intentionally excluded so
+    /// a failed restore or a quit cannot keep the Vault row green merely from
+    /// retaining its historical snapshot.
+    static func inPaneSessionKeys(tabManager: TabManager) -> Set<String> {
+        var keys: Set<String> = []
+        for workspace in tabManager.tabs {
+            for (panelID, snapshot) in workspace.restoredAgentSnapshotsByPanelId
+                where workspace.panels[panelID] != nil
+                    && workspace.panelShellActivityStates[panelID] == .commandRunning {
+                keys.insert(
+                    VaultLiveSessionKeys.key(
+                        kind: snapshot.kind.rawValue,
+                        sessionID: snapshot.sessionId
+                    )
+                )
+            }
+        }
+        return keys
+    }
+
+    /// Opens an indexed session in a new split in the selected workspace.
+    ///
+    /// This is intentionally different from ``focusIfActive``: Open Session
+    /// is an explicit second launch, even when the same session is already
+    /// represented by a live pane. Focus Session is the action for reusing an
+    /// existing pane.
+    static func open(_ entry: SessionEntry, tabManager: TabManager) {
+        guard let launch = entry.resumeLaunch else { return }
+
+        guard let workspace = tabManager.selectedWorkspace,
+              !workspace.isRemoteWorkspace,
+              !workspace.isRemoteTmuxMirror,
+              let paneId = workspace.bonsplitController.focusedPaneId
+                  ?? workspace.bonsplitController.allPaneIds.first else {
+            // A remote workspace cannot safely execute a local Vault restore
+            // command. If there is no usable local pane, fall back to the
+            // same isolated-workspace launch used by Resume.
+            _ = launchInNewWorkspace(launch, tabManager: tabManager)
+            return
+        }
+
+        // A zoomed pane has no room to represent the new split until it is
+        // restored to the normal layout.
+        workspace.clearSplitZoom()
+        if workspace.splitPaneWithNewTerminal(
+            targetPane: paneId,
+            orientation: .horizontal,
+            insertFirst: false,
+            workingDirectory: launch.workingDirectory,
+            initialInput: launch.initialInput,
+            startupRestoreAgent: launch.startupRestoreAgent
+        ) == nil {
+            // Keep the action useful if the selected workspace retires between
+            // menu presentation and invocation.
+            _ = launchInNewWorkspace(launch, tabManager: tabManager)
+        }
+    }
+
+    /// Focuses the current surface for `entry` when the live agent index still
+    /// points at a real panel in this tab manager.
+    @discardableResult
+    static func focusIfActive(_ entry: SessionEntry, tabManager: TabManager) -> Bool {
+        guard let target = activeTarget(for: entry, tabManager: tabManager) else {
+            return false
+        }
+        tabManager.focusTab(target.workspaceID, surfaceId: target.surfaceID)
+        return true
+    }
+
+    static func resume(_ entry: SessionEntry, tabManager: TabManager) {
+        guard let launch = entry.resumeLaunch else { return }
+        // Resume is deliberately workspace-scoped. It must remain predictable
+        // even when the selected workspace happens to share the session's cwd;
+        // Open Session is the separate action for a split in the current
+        // workspace.
+        _ = launchInNewWorkspace(launch, tabManager: tabManager)
     }
 }
 
@@ -57,15 +157,47 @@ struct SessionIndexView: View {
     /// transitions don't invalidate data-subscribed views elsewhere in the
     /// sidebar.
     @State private var dragCoordinator = SessionDragCoordinator()
-    /// Sections the user has explicitly collapsed (default is expanded).
-    @State private var collapsedSections: Set<SectionKey> = []
     /// Single source of truth for both Vault popover variants.
     @State private var popoverIdentity: SessionIndexTablePopoverIdentity?
-    let chromeBackgroundColor: NSColor
+    /// Vault-wide search input and the matching entries projected through the
+    /// active grouping (Recent, Agent, or Folder).
+    @State private var searchText: String = ""
+    @State private var searchResults: [SessionEntry] = []
+    @State private var searchErrors: [String] = []
+    @State private var isSearchInFlight: Bool = false
+    /// Day sections whose "Show more" expanded them inline (day buckets have
+    /// no popover — their key space doesn't map to a popover search scope).
+    @State private var expandedDaySections: Set<SectionKey> = []
+    /// Persisted row-density preference shared by every Vault presentation.
+    /// Default view is deliberately the information-rich layout shown in the
+    /// Recent grouping; Compact view hides only the repository/branch line.
+    @AppStorage("sessionIndex.compactView") private var isCompactView = false
     let onResume: ((SessionEntry) -> Void)?
+    /// Launches the indexed session in a new split in the selected workspace.
+    let onOpen: ((SessionEntry) -> Void)?
+    /// Snapshot of managed sessions currently represented by real panes. Rows
+    /// use it only for status and menu presentation; the actual focus mutation
+    /// still goes through `onOpen`/`onFocus` and `SessionEntryResumeCoordinator`.
+    let activeSessionKeys: Set<String>
+    /// Focus-only action. Unlike `onOpen`, it never launches another session
+    /// if the pane disappears between menu presentation and click.
+    let onFocus: ((SessionEntry) -> Void)?
     /// Rows shown per section before "Show more" is tapped.
     private static let collapsedRowLimit = 5
 
+    init(
+        store: SessionIndexStore,
+        onResume: ((SessionEntry) -> Void)?,
+        onOpen: ((SessionEntry) -> Void)?,
+        activeSessionKeys: Set<String> = [],
+        onFocus: ((SessionEntry) -> Void)? = nil
+    ) {
+        self.store = store
+        self.onResume = onResume
+        self.onOpen = onOpen
+        self.activeSessionKeys = activeSessionKeys
+        self.onFocus = onFocus
+    }
     static let relativeFormatter: RelativeDateTimeFormatter = {
         let f = RelativeDateTimeFormatter()
         f.unitsStyle = .abbreviated
@@ -79,16 +211,91 @@ struct SessionIndexView: View {
         return f
     }()
 
+    private var trimmedSearchText: String {
+        searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var isShowingSearchResults: Bool {
+        !trimmedSearchText.isEmpty
+    }
+
+    private var showsDetails: Bool {
+        !isCompactView
+    }
+
+    /// Search results use the same section builder as the unfiltered list.
+    /// Keeping this projection in the parent view means table rows continue
+    /// to receive immutable snapshots and the AppKit controller can preserve
+    /// disclosure state by the normal section key.
+    private var projectedSearchSections: [IndexSection] {
+        guard isShowingSearchResults else { return [] }
+        return sectionsWithActiveEntries(store.sectionsForEntries(searchResults))
+    }
+
+    /// Adds the immutable in-pane status snapshot above the AppKit table
+    /// boundary. Including it in `IndexSection` equality lets recycled cells
+    /// repaint when a session enters or leaves a real pane.
+    private func sectionsWithActiveEntries(_ sections: [IndexSection]) -> [IndexSection] {
+        sections.map { section in
+            let activeEntryIDs = Set(
+                section.entries.compactMap { entry in
+                    activeSessionKeys.contains(VaultLiveSessionKeys.key(for: entry))
+                        ? entry.id
+                        : nil
+                }
+            )
+            return IndexSection(
+                key: section.key,
+                title: section.title,
+                icon: section.icon,
+                entries: section.entries,
+                accessories: section.accessories.mapValues {
+                    $0.withDetailVisibility(showsDetails)
+                },
+                activeEntryIDs: activeEntryIDs
+            )
+        }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             controlBar
+            VaultAllSessionsBar(
+                searchText: $searchText,
+                isCompactView: $isCompactView,
+                onPeekTopResult: { peekTopSearchResult() },
+                onResumeTopResult: { resumeTopSearchResult() }
+            )
+            if isShowingSearchResults && !searchErrors.isEmpty {
+                searchErrorBanner
+            }
             if store.isLoading && store.entries.isEmpty {
                 loadingView
             } else if store.entries.isEmpty {
                 emptyView
+            } else if isShowingSearchResults && isSearchInFlight {
+                searchStatusView
+            } else if isShowingSearchResults && projectedSearchSections.isEmpty {
+                searchEmptyView
             } else {
                 sessionsList
             }
+        }
+        // RightSidebarPanelView offers the active mode the full remaining
+        // height. Keep Vault's chrome and search states pinned to its top
+        // edge instead of allowing a short intrinsic state to be centered in
+        // the sidebar while a query is loading or has no matches.
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .task(id: searchTaskKey) {
+            await runGlobalSearch()
+        }
+        .onChange(of: trimmedSearchText) { _, newValue in
+            // Flip the presentation into its searching state in the same
+            // event that the query changes; waiting for the async task to
+            // start leaves one stale frame of the previous result list.
+            searchResults = []
+            searchErrors = []
+            isSearchInFlight = !newValue.isEmpty
         }
         .onAppear {
             // RightSidebarPanelView's mode toggle also kicks reload() when
@@ -101,7 +308,7 @@ struct SessionIndexView: View {
     }
 
     private var controlBar: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: RightSidebarChromeMetrics.headerControlSpacing) {
             ForEach(SessionGrouping.allCases) { mode in
                 GroupingButton(
                     mode: mode,
@@ -113,34 +320,20 @@ struct SessionIndexView: View {
                 }
             }
 
-            Spacer(minLength: 4)
-
-            Toggle(isOn: $store.scopeToCurrentDirectory) {
-                Text(String(localized: "sessionIndex.scope.thisFolder", defaultValue: "This folder only"))
-                    .cmuxFont(size: 11)
-                    .foregroundColor(.secondary)
-            }
-            .toggleStyle(.checkbox)
-            .controlSize(.small)
-            .frame(height: RightSidebarChromeMetrics.controlHeight)
-            .reportRightSidebarChromeNamedGeometryForBonsplitUITest(keyPrefix: "rightSidebarSecondaryControl_scope", isVisible: true)
-            .disabled(store.currentDirectory == nil)
-            .accessibilityIdentifier("SessionScopeToggle.thisFolder")
-            .titlebarInteractiveControl()
-
-            Button {
-                store.reload()
-            } label: {
-                CmuxSystemSymbolImage(magnified: "arrow.clockwise", pointSize: 10, weight: .medium)
-            }
-            .buttonStyle(.borderless)
-            .help(String(localized: "sessionIndex.reload.tooltip", defaultValue: "Reload Vault"))
-            .accessibilityLabel(String(localized: "sessionIndex.reload.tooltip", defaultValue: "Reload Vault"))
-            .disabled(store.isLoading)
-            .titlebarInteractiveControl()
+            // Keep the category selector intentionally quiet. Folder scope
+            // and reload remain model capabilities, but the secondary icon
+            // controls competed with the three primary grouping choices.
         }
-        .rightSidebarChromeBar()
-        .rightSidebarChromeBottomBorder(backgroundColor: chromeBackgroundColor)
+        // Match the right-sidebar mode bar above: the same 4/6-point outer
+        // insets and the same 28-point chrome rhythm.
+        .rightSidebarChromeBar(
+            leadingPadding: 4,
+            trailingPadding: 6,
+            height: RightSidebarChromeMetrics.secondaryBarHeight
+        )
+        // Expand the intrinsic-width selector to the column and keep its
+        // categories on the same leading edge as the sidebar's other chrome.
+        .frame(maxWidth: .infinity, alignment: .leading)
         .reportRightSidebarChromeGeometryForBonsplitUITest(role: .secondaryBar, isVisible: true, titlebarHeight: RightSidebarChromeMetrics.secondaryBarHeight)
     }
 
@@ -170,7 +363,9 @@ struct SessionIndexView: View {
     }
 
     private var sessionsList: some View {
-        let sections = store.sectionsForCurrentGrouping()
+        let sections = isShowingSearchResults
+            ? projectedSearchSections
+            : sectionsWithActiveEntries(store.sectionsForCurrentGrouping())
         // Read draggedKey once per body eval so every child gets a snapshot
         // of the same value. Children are Equatable value views, so a
         // draggedKey transition only re-renders the two sections whose
@@ -183,6 +378,14 @@ struct SessionIndexView: View {
         let store = self.store
         let dragCoordinator = self.dragCoordinator
         let onResumeClosure = onResume
+        let onOpenClosure = onOpen
+        let onFocusClosure = onFocus
+        let statusSnapshot = SessionIndexStatusSnapshot(
+            activeSessionKeys: activeSessionKeys,
+            liveSessionKeys: store.liveSessionKeys,
+            now: .now,
+            showsDetails: showsDetails
+        )
         let gapActions = SectionGapActions(
             currentDraggedKey: { dragCoordinator.draggedKey },
             moveSection: { key, before in store.moveSection(key, before: before) },
@@ -220,42 +423,58 @@ struct SessionIndexView: View {
                     }
                 },
                 onResume: onResumeClosure,
+                onOpen: onOpenClosure,
+                onFocus: onFocusClosure,
                 search: searchFn,
-                loadSnapshot: loadSnapshotFn
+                loadSnapshot: loadSnapshotFn,
+                statusSnapshot: statusSnapshot
+            )
+            // Day buckets are computed, not user-orderable: their gaps reject
+            // drops. Search projections retain the active category's normal
+            // section behavior and row limits.
+            let isComputedSection = Self.isComputedSectionKey(section.key)
+            let sectionRow = SessionIndexTableRow.section(
+                section: section,
+                rowLimit: rowLimit(for: section),
+                isDragged: draggedKey == section.key,
+                popoverIdentity: popoverIdentity?.sectionKey == section.key
+                    ? popoverIdentity
+                    : nil,
+                isCollapsed: false,
+                actions: sectionActions,
+                setCollapsed: { newValue in
+                    // Disclosure is committed by the AppKit table
+                    // controller. The parent only owns the independent
+                    // popover lifecycle, so collapsing an open section
+                    // still dismisses its presentation without becoming
+                    // a second source of row geometry.
+                    if newValue,
+                       popoverIdentity?.sectionKey == section.key {
+                        popoverIdentity = nil
+                    }
+                },
+                setPopoverOpen: { newValue in
+                    if isComputedSection {
+                        if newValue {
+                            expandedDaySections.insert(section.key)
+                        }
+                        return
+                    }
+                    if newValue {
+                        popoverIdentity = .section(section.key)
+                    } else if popoverIdentity == .section(section.key) {
+                        popoverIdentity = nil
+                    }
+                }
             )
             return [
                 SessionIndexTableRow.gap(
                     beforeKey: section.key,
-                    isValidDrop: draggedKey == nil || draggedKey != section.key,
+                    isValidDrop: !isComputedSection
+                        && (draggedKey == nil || draggedKey != section.key),
                     actions: gapActions
                 ),
-                SessionIndexTableRow.section(
-                    section: section,
-                    rowLimit: Self.collapsedRowLimit,
-                    isDragged: draggedKey == section.key,
-                    popoverIdentity: popoverIdentity?.sectionKey == section.key
-                        ? popoverIdentity
-                        : nil,
-                    isCollapsed: collapsedSections.contains(section.key),
-                    actions: sectionActions,
-                    setCollapsed: { newValue in
-                        if newValue {
-                            collapsedSections.insert(section.key)
-                            if popoverIdentity?.sectionKey == section.key {
-                                popoverIdentity = nil
-                            }
-                        } else {
-                            collapsedSections.remove(section.key)
-                        }
-                    },
-                    setPopoverOpen: { newValue in
-                        if newValue {
-                            popoverIdentity = .section(section.key)
-                        } else if popoverIdentity == .section(section.key) {
-                            popoverIdentity = nil
-                        }
-                    }
-                ),
+                sectionRow,
             ]
         } + [
             SessionIndexTableRow.gap(
@@ -270,6 +489,114 @@ struct SessionIndexView: View {
             .background(
                 DragCancelMonitor(dragCoordinator: dragCoordinator)
             )
+    }
+
+    // MARK: Grouping + global search helpers
+
+    static func isComputedSectionKey(_ key: SectionKey) -> Bool {
+        key.isDayBucket
+    }
+
+    private func rowLimit(for section: IndexSection) -> Int {
+        guard Self.isComputedSectionKey(section.key) else {
+            return Self.collapsedRowLimit
+        }
+        return expandedDaySections.contains(section.key)
+            ? VaultRecencySections.expandedRowLimit
+            : VaultRecencySections.collapsedRowLimit
+    }
+
+    private var searchStatusView: some View {
+        Text(String(localized: "sessionIndex.search.searching", defaultValue: "Searching…"))
+            .cmuxFont(size: 11, weight: .medium)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+    }
+
+    private var searchEmptyView: some View {
+        Text(String(localized: "sessionIndex.search.noResults", defaultValue: "No matching sessions"))
+            .cmuxFont(size: 11)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+    }
+
+    /// `.task(id:)` key: re-runs the search when the query or folder scope
+    /// changes, and after a reload finishes (fresh entries can change the
+    /// metadata phase). Grouping and Recent filters only re-project the
+    /// already-fetched matches, so they stay synchronous and stable.
+    private var searchTaskKey: String {
+        "\(store.isLoading)|\(store.scopeToCurrentDirectory)|\(store.currentDirectory ?? "")|\(trimmedSearchText)"
+    }
+
+    @MainActor
+    private func runGlobalSearch() async {
+        guard !trimmedSearchText.isEmpty else {
+            searchResults = []
+            searchErrors = []
+            isSearchInFlight = false
+            return
+        }
+        // Clear stale matches as soon as the query changes so the list never
+        // shows results for the previous query while the new one is running.
+        searchResults = []
+        searchErrors = []
+        isSearchInFlight = true
+        // Rapid keystrokes bump the task id, cancelling this genuine debounce
+        // deadline before any transcript work starts.
+        try? await ContinuousClock().sleep(for: .milliseconds(200))
+        guard !Task.isCancelled else { return }
+        let outcome = await store.searchAllSessions(rawQuery: trimmedSearchText)
+        guard !Task.isCancelled else { return }
+        searchResults = outcome.entries
+        searchErrors = outcome.errors
+        isSearchInFlight = false
+    }
+
+    private var searchErrorBanner: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(searchErrors, id: \.self) { msg in
+                HStack(alignment: .top, spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .cmuxFont(size: 10)
+                        .foregroundColor(.orange)
+                    Text(msg)
+                        .cmuxFont(size: 11)
+                        .foregroundColor(.primary.opacity(0.85))
+                }
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.orange.opacity(0.10))
+    }
+
+    /// Keep keyboard submission's result choice aligned with the search
+    /// ranking, while still returning the active grouping section needed by
+    /// the transcript popover anchor.
+    private func topProjectedSearchResult() -> (section: IndexSection, entry: SessionEntry)? {
+        for entry in searchResults {
+            if let section = projectedSearchSections.first(where: { section in
+                section.entries.contains { $0.id == entry.id }
+            }) {
+                return (section, entry)
+            }
+        }
+        return nil
+    }
+
+    private func peekTopSearchResult() {
+        guard let (section, top) = topProjectedSearchResult() else { return }
+        popoverIdentity = .transcript(section: section.key, entry: top.id)
+    }
+
+    private func resumeTopSearchResult() {
+        guard let top = topProjectedSearchResult()?.entry else { return }
+        onResume?(top)
     }
 }
 
@@ -292,6 +619,8 @@ private struct GroupingButton: View {
                         size: RightSidebarChromeControlStyle.labelSize,
                         weight: RightSidebarChromeControlStyle.labelWeight
                     )
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
             }
             .rightSidebarChromePill(isSelected: isSelected, isHovered: isHovered, geometryKeyPrefix: "rightSidebarSecondaryControl_\(mode.rawValue)")
         }
@@ -329,8 +658,35 @@ struct IndexSectionActions {
     let onPreviewEntry: (SessionEntry) -> Void
     let onDismissPreview: (SessionEntry.ID) -> Void
     let onResume: ((SessionEntry) -> Void)?
+    let onOpen: ((SessionEntry) -> Void)?
+    let onFocus: ((SessionEntry) -> Void)?
     let search: SessionSearchFn
     let loadSnapshot: DirectorySnapshotFn
+    let statusSnapshot: SessionIndexStatusSnapshot
+
+    init(
+        onBeginDrag: @escaping @MainActor () -> Void,
+        beginSessionDrag: @escaping SessionDragBeginAction,
+        onPreviewEntry: @escaping (SessionEntry) -> Void,
+        onDismissPreview: @escaping (SessionEntry.ID) -> Void,
+        onResume: ((SessionEntry) -> Void)?,
+        onOpen: ((SessionEntry) -> Void)?,
+        onFocus: ((SessionEntry) -> Void)? = nil,
+        search: @escaping SessionSearchFn,
+        loadSnapshot: @escaping DirectorySnapshotFn,
+        statusSnapshot: SessionIndexStatusSnapshot = .init()
+    ) {
+        self.onBeginDrag = onBeginDrag
+        self.beginSessionDrag = beginSessionDrag
+        self.onPreviewEntry = onPreviewEntry
+        self.onDismissPreview = onDismissPreview
+        self.onResume = onResume
+        self.onOpen = onOpen
+        self.onFocus = onFocus
+        self.search = search
+        self.loadSnapshot = loadSnapshot
+        self.statusSnapshot = statusSnapshot
+    }
 }
 
 /// Callback bundle for `SectionReorderGap` / `SectionGapDropDelegate`.
@@ -350,7 +706,8 @@ struct IndexSectionView: View, Equatable {
     /// opacity fade doesn't require observing the drag coordinator here.
     let isDragged: Bool
     let previewEntryId: SessionEntry.ID?
-    @Binding var isCollapsed: Bool
+    let isCollapsed: Bool
+    let onToggleCollapsed: () -> Void
     let onShowMore: () -> Void
     let onPopoverAnchorChange: (SessionIndexTablePopoverIdentity, CGRect?) -> Void
     /// Value-type action bundle. See `IndexSectionActions`; replaces the
@@ -381,10 +738,15 @@ struct IndexSectionView: View, Equatable {
                 ForEach(rows) { row in
                     SessionRow(
                         entry: row.entry,
+                        accessory: section.accessories[row.entry.id],
                         isPreviewPresented: previewEntryId == row.entry.id,
                         beginSessionDrag: actions.beginSessionDrag,
                         onPreview: { actions.onPreviewEntry(row.entry) },
-                        onResume: actions.onResume
+                        onResume: actions.onResume,
+                        onOpen: actions.onOpen,
+                        onFocus: actions.onFocus,
+                        isActive: section.activeEntryIDs.contains(row.entry.id),
+                        leadingPadding: 32
                     )
                         .equatable()
                         .id(row.id)
@@ -411,6 +773,12 @@ struct IndexSectionView: View, Equatable {
         }
         .opacity(isDragged ? 0.45 : 1.0)
         .coordinateSpace(name: Self.popoverAnchorCoordinateSpace)
+        // The AppKit table owns row geometry. Do not let an inherited SwiftUI
+        // transaction animate the disclosure subtree independently from the
+        // table's single height update; that produces a brief cell flash.
+        .transaction { transaction in
+            transaction.animation = nil
+        }
     }
 
     private var showMoreButton: some View {
@@ -437,17 +805,47 @@ struct IndexSectionView: View, Equatable {
         }
     }
 
+    @ViewBuilder
     private var sectionHeader: some View {
+        // Computed day sections are not reorderable and must not start a
+        // section drag. Agent and folder projections retain their normal
+        // reorder behavior while searching.
+        if SessionIndexView.isComputedSectionKey(section.key) {
+            sectionHeaderButton
+        } else {
+            sectionHeaderButton
+                .onDrag {
+                    let beginDrag = actions.onBeginDrag
+                    DispatchQueue.main.async { beginDrag() }
+                    return NSItemProvider(object: section.key.raw as NSString)
+                } preview: {
+                    HStack(spacing: 8) {
+                        sectionIconView
+                        Text(section.title)
+                            .cmuxFont(size: 13)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                }
+        }
+    }
+
+    private var sectionHeaderButton: some View {
         Button {
-            isCollapsed.toggle()
+            onToggleCollapsed()
         } label: {
             HStack(spacing: 8) {
                 sectionIconView
                 Text(section.title)
-                    .cmuxFont(size: 13, weight: .regular)
+                    .cmuxFont(size: 12, weight: .semibold)
                     .foregroundColor(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                Text(section.entries.count.description)
+                    .cmuxFont(size: 11, weight: .medium, monospacedDigit: true)
+                    .foregroundStyle(.tertiary)
+                    .fixedSize()
                 CmuxSystemSymbolImage(magnified: "chevron.down", pointSize: 9, weight: .semibold)
                     .foregroundColor(.secondary.opacity(0.6))
                     .rotationEffect(.degrees(isCollapsed ? -90 : 0))
@@ -459,20 +857,6 @@ struct IndexSectionView: View, Equatable {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .onDrag {
-            let beginDrag = actions.onBeginDrag
-            DispatchQueue.main.async { beginDrag() }
-            return NSItemProvider(object: section.key.raw as NSString)
-        } preview: {
-            HStack(spacing: 8) {
-                sectionIconView
-                Text(section.title)
-                    .cmuxFont(size: 13)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-        }
     }
 
     private var sectionIconView: some View {
@@ -555,34 +939,66 @@ private struct SectionGapDropDelegate: DropDelegate {
 
 private struct SessionRow: View, Equatable {
     let entry: SessionEntry
+    /// Shared display facts for the status circle and optional repository /
+    /// branch subtitle. Every Vault grouping receives the same projection;
+    /// compact mode removes only the subtitle before this row is built.
+    var accessory: VaultSessionRowAccessory?
     let isPreviewPresented: Bool
     let beginSessionDrag: SessionDragBeginAction
     let onPreview: () -> Void
     let onResume: ((SessionEntry) -> Void)?
+    let onOpen: ((SessionEntry) -> Void)?
+    let onFocus: ((SessionEntry) -> Void)?
+    let isActive: Bool
+    let leadingPadding: CGFloat
     @State private var isHovered: Bool = false
 
     static func == (lhs: SessionRow, rhs: SessionRow) -> Bool {
         // Skip body re-eval during scroll when the entry is unchanged.
         // The closure isn't compared (it comes from stable parent state).
         lhs.entry == rhs.entry
+            && lhs.accessory == rhs.accessory
             && lhs.isPreviewPresented == rhs.isPreviewPresented
+            && lhs.isActive == rhs.isActive
+            && lhs.leadingPadding == rhs.leadingPadding
     }
 
     var body: some View {
-        HStack(spacing: 6) {
-            SessionIndexSectionIconImage(icon: .agent(entry.agent), size: 12)
-            Text(entry.displayTitle)
-                .cmuxFont(size: 13)
-                .foregroundColor(.primary.opacity(0.92))
-                .lineLimit(1)
-                .truncationMode(.tail)
-            Spacer(minLength: 8)
-            Text(relativeTime(entry.modified))
-                .cmuxFont(size: 12, monospacedDigit: true)
-                .foregroundColor(.secondary.opacity(0.65))
-                .fixedSize()
+        VStack(alignment: .leading, spacing: 1) {
+            HStack(spacing: 6) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .fill(Color.primary.opacity(0.06))
+                    SessionIndexAgentIconImage(agent: entry.agent, size: 12)
+                }
+                .frame(width: 20, height: 20)
+                Text(entry.displayTitle)
+                    .cmuxFont(size: 13)
+                    .foregroundColor(.primary.opacity(0.92))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 8)
+                SessionStatusIndicator(
+                    isInPane: isActive,
+                    liveStatus: accessory?.liveStatus
+                )
+                Text(relativeTime(entry.modified))
+                    .cmuxFont(size: 12, monospacedDigit: true)
+                    .foregroundColor(.secondary.opacity(0.65))
+                    .fixedSize()
+            }
+            if let accessory, let detail = accessory.detail {
+                Text(detail)
+                    .cmuxFont(size: 11)
+                    .foregroundColor(.secondary.opacity(0.75))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                // Match the title's leading edge: 20-point icon frame plus
+                // the six-point primary-line spacing.
+                .padding(.leading, 26)
+            }
         }
-        .padding(.leading, 32)
+        .padding(.leading, leadingPadding)
         .padding(.trailing, 12)
         .padding(.vertical, 4)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -596,7 +1012,13 @@ private struct SessionRow: View, Equatable {
             onDoubleClick: onPreview
         ))
         .contextMenu {
-            sessionRowMenuItems(entry: entry, onResume: onResume)
+            sessionRowMenuItems(
+                entry: entry,
+                onResume: onResume,
+                onOpen: onOpen,
+                onFocus: onFocus,
+                isActive: isActive
+            )
         }
     }
 
@@ -611,7 +1033,7 @@ private struct SessionRow: View, Equatable {
             return Color.primary.opacity(0.05)
         }
         if isPreviewPresented {
-            return Color.primary.opacity(0.07)
+            return Color.accentColor.opacity(0.10)
         }
         return Color.clear
     }
@@ -640,12 +1062,36 @@ private struct SessionRow: View, Equatable {
 /// free `@ViewBuilder` so SessionRow and PopoverRow both attach the same set
 /// without duplicating the button list or the action helpers.
 @ViewBuilder
-private func sessionRowMenuItems(entry: SessionEntry, onResume: ((SessionEntry) -> Void)?) -> some View {
+private func sessionRowMenuItems(
+    entry: SessionEntry,
+    onResume: ((SessionEntry) -> Void)?,
+    onOpen: ((SessionEntry) -> Void)? = nil,
+    onFocus: ((SessionEntry) -> Void)? = nil,
+    isActive: Bool = false
+) -> some View {
+    if let onFocus {
+        Button {
+            onFocus(entry)
+        } label: {
+            Text(String(localized: "sessionIndex.row.focusSession", defaultValue: "Focus Session"))
+        }
+        .disabled(!isActive)
+    }
+    if let onOpen {
+        Button {
+            onOpen(entry)
+        } label: {
+            Text(String(localized: "sessionIndex.row.openSession", defaultValue: "Open Session"))
+        }
+    }
+    if onFocus != nil || onOpen != nil {
+        Divider()
+    }
     if let onResume {
         Button {
             onResume(entry)
         } label: {
-            Text(String(localized: "sessionIndex.row.resume", defaultValue: "Resume in New Tab"))
+            Text(String(localized: "sessionIndex.row.resume", defaultValue: "Resume in New Workspace"))
         }
         Divider()
     }
@@ -701,19 +1147,55 @@ private func sessionRowMenuItems(entry: SessionEntry, onResume: ((SessionEntry) 
 // MARK: - Session transcript preview
 
 struct SessionTranscriptPreviewView: View {
+    private enum PreviewTab: String, CaseIterable, Identifiable {
+        case transcript
+        case checkpoints
+
+        var id: String { rawValue }
+
+        var label: String {
+            switch self {
+            case .transcript:
+                return String(localized: "sessionIndex.checkpoints.tab.transcript", defaultValue: "Transcript")
+            case .checkpoints:
+                return String(localized: "sessionIndex.checkpoints.tab.checkpoints", defaultValue: "Checkpoints")
+            }
+        }
+    }
+
     let entry: SessionEntry
     let sizeModel: SessionTranscriptPopoverSizeModel
+    /// Resume-in-new-workspace capability; fork-from-checkpoint launches through it.
+    var onResume: ((SessionEntry) -> Void)?
     let onResize: (CGSize) -> Void
     let onDismiss: () -> Void
 
     @State private var loadState: SessionTranscriptPreviewState = .loading
     @State private var closeIsHovered = false
+    @State private var selectedTab: PreviewTab = .transcript
+
+    /// Every harness with a readable transcript gets a timeline; whether a
+    /// checkpoint can also FORK is the harness adapter's call.
+    private var supportsCheckpoints: Bool {
+        VaultCheckpointHarness.resolve(for: entry) != nil
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
+            if supportsCheckpoints {
+                tabBar
+            }
             Divider()
-            content
+            if supportsCheckpoints && selectedTab == .checkpoints {
+                VaultCheckpointTimelineView(
+                    entry: entry,
+                    onResume: onResume,
+                    onDismiss: onDismiss
+                )
+            } else {
+                content
+            }
         }
         .frame(width: sizeModel.size.width, height: sizeModel.size.height)
         .overlay(alignment: .bottomTrailing) {
@@ -767,6 +1249,20 @@ struct SessionTranscriptPreviewView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
+    }
+
+    private var tabBar: some View {
+        Picker("", selection: $selectedTab) {
+            ForEach(PreviewTab.allCases) { tab in
+                Text(tab.label).tag(tab)
+            }
+        }
+        .pickerStyle(.segmented)
+        .controlSize(.small)
+        .labelsHidden()
+        .padding(.horizontal, 12)
+        .padding(.bottom, 8)
+        .accessibilityIdentifier("SessionPreviewTabPicker")
     }
 
     @ViewBuilder
@@ -1007,7 +1503,7 @@ private extension SessionEntry {
         if agent == .grok {
             return true
         }
-        guard case .registered(let registration) = specifics else {
+        guard case .registered(let registration, _) = specifics else {
             return false
         }
         if case .grokSessionDirectory = registration.sessionIdSource {
@@ -1937,6 +2433,12 @@ struct SectionPopoverView: View {
     let loadSnapshot: DirectorySnapshotFn
     let beginSessionDrag: SessionDragBeginAction
     let onResume: ((SessionEntry) -> Void)?
+    let onOpen: ((SessionEntry) -> Void)?
+    let onFocus: ((SessionEntry) -> Void)?
+    /// Immutable status snapshot from the parent. The popover can page past
+    /// the section's initial entries, so it must derive status for each loaded
+    /// row instead of relying on the section's capped accessory map.
+    let statusSnapshot: SessionIndexStatusSnapshot
     let onDismiss: () -> Void
 
     @State private var query: String = ""
@@ -1958,6 +2460,9 @@ struct SectionPopoverView: View {
     /// instead of hitting the store.
     @State private var fullSnapshot: [SessionEntry]?
     private static let pageSize = 100
+    /// Short, cancellable pause that coalesces rapid text-field edits before
+    /// starting filesystem/SQLite work.
+    private static let searchDebounce: Duration = .milliseconds(200)
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -2038,9 +2543,19 @@ struct SectionPopoverView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                     } else {
                         ForEach(loadedRows) { row in
+                            let presentation = statusSnapshot.presentation(for: row.entry)
                             PopoverRow(
                                 entry: row.entry,
-                                beginSessionDrag: beginSessionDrag
+                                accessory: presentation.accessory,
+                                beginSessionDrag: beginSessionDrag,
+                                onOpen: onOpen.map { open in
+                                    { entry in
+                                        open(entry)
+                                        onDismiss()
+                                    }
+                                },
+                                onFocus: onFocus,
+                                isActive: presentation.isActive
                             ) {
                                 onResume?(row.entry)
                                 onDismiss()
@@ -2150,7 +2665,7 @@ struct SectionPopoverView: View {
             isLoading = true
 
             do {
-                try await Task.sleep(for: .milliseconds(200))
+                try await ContinuousClock().sleep(for: Self.searchDebounce)
             } catch {
                 return
             }
@@ -2260,13 +2775,19 @@ struct SectionPopoverView: View {
 
 private struct PopoverRow: View, Equatable {
     let entry: SessionEntry
+    var accessory: VaultSessionRowAccessory?
     let beginSessionDrag: SessionDragBeginAction
+    let onOpen: ((SessionEntry) -> Void)?
+    let onFocus: ((SessionEntry) -> Void)?
+    let isActive: Bool
     let onActivate: () -> Void
 
     @State private var isHovered: Bool = false
 
     static func == (lhs: PopoverRow, rhs: PopoverRow) -> Bool {
         lhs.entry == rhs.entry
+            && lhs.accessory == rhs.accessory
+            && lhs.isActive == rhs.isActive
     }
 
     fileprivate static func flatten(_ s: String) -> String {
@@ -2296,19 +2817,35 @@ private struct PopoverRow: View, Equatable {
     }
 
     var body: some View {
-        HStack(spacing: 6) {
-            SessionIndexSectionIconImage(icon: .agent(entry.agent), size: 12)
-            // Flatten newlines so titles containing `<command-message>…\n…`
-            // envelopes stay single-line; SwiftUI's `lineLimit(1)` doesn't
-            // always constrain a Text that has hard line breaks in the
-            // source string.
-            Text(Self.flatten(entry.displayTitle))
-                .cmuxFont(size: 12)
-                .foregroundColor(.primary.opacity(0.92))
-                .lineLimit(1)
-                .truncationMode(.tail)
-            Spacer(minLength: 8)
-            modifiedText
+        VStack(alignment: .leading, spacing: 1) {
+            HStack(spacing: 6) {
+                SessionIndexSectionIconImage(icon: .agent(entry.agent), size: 12)
+                // Flatten newlines so titles containing `<command-message>…\n…`
+                // envelopes stay single-line; SwiftUI's `lineLimit(1)` doesn't
+                // always constrain a Text that has hard line breaks in the
+                // source string.
+                Text(Self.flatten(entry.displayTitle))
+                    .cmuxFont(size: 12)
+                    .foregroundColor(.primary.opacity(0.92))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 8)
+                SessionStatusIndicator(
+                    isInPane: isActive,
+                    liveStatus: accessory?.liveStatus
+                )
+                modifiedText
+            }
+            if let detail = accessory?.detail {
+                Text(Self.flatten(detail))
+                    .cmuxFont(size: 11)
+                    .foregroundColor(.secondary.opacity(0.75))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    // The icon is 12 points wide and the title starts after
+                    // the six-point row spacing.
+                    .padding(.leading, 18)
+            }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 5)
@@ -2323,7 +2860,13 @@ private struct PopoverRow: View, Equatable {
         ))
         .help(entry.cwdLabel ?? entry.displayTitle)
         .contextMenu {
-            sessionRowMenuItems(entry: entry, onResume: { _ in onActivate() })
+            sessionRowMenuItems(
+                entry: entry,
+                onResume: { _ in onActivate() },
+                onOpen: onOpen,
+                onFocus: onFocus,
+                isActive: isActive
+            )
         }
     }
 }

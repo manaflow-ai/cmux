@@ -1,5 +1,5 @@
 import Foundation
-import XCTest
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -7,15 +7,9 @@ import XCTest
 @testable import cmux
 #endif
 
-/// The New Machine sheet's model: the CLI invocation it builds, the plan
-/// ceilings it mirrors, and how a failed create is surfaced for retry.
+@Suite("New machine model")
 @MainActor
-final class NewMachineModelTests: XCTestCase {
-    private struct LaunchRecorder {
-        var arguments: [[String]] = []
-        var pendingCompletion: (@MainActor (CloudVMActionLauncher.Completion) -> Void)?
-    }
-
+struct NewMachineModelTests {
     private final class Box<Value> {
         var value: Value
         init(_ value: Value) { self.value = value }
@@ -24,243 +18,95 @@ final class NewMachineModelTests: XCTestCase {
     private func makeModel(
         mode: NewMachineModel.Mode = .newMachine,
         plan: MachinePlanSnapshot? = nil,
-        imageKinds: [VMImageKindOption] = [],
+        memoryOptionsMb: [Int] = NewMachineModel.memoryOptionsMb,
         starts: Bool = true
-    ) -> (NewMachineModel, Box<LaunchRecorder>) {
-        let recorder = Box(LaunchRecorder())
-        let model = NewMachineModel(mode: mode, plan: plan, imageKinds: imageKinds) { arguments, completion in
-            recorder.value.arguments.append(arguments)
-            recorder.value.pendingCompletion = completion
+    ) -> (NewMachineModel, Box<[MachineCreateRequest]>) {
+        let recorder = Box<[MachineCreateRequest]>([])
+        let model = NewMachineModel(mode: mode, plan: plan, memoryOptionsMb: memoryOptionsMb) { request in
+            recorder.value.append(request)
             return starts
         }
         return (model, recorder)
     }
 
-    // MARK: Kind
-
-    func testKindInferredFromImageWhenBackendOmitsIt() {
-        XCTAssertEqual(VMMachineKind.inferred(fromImage: "sandbox/cmux-devbox:latest"), .desktop)
-        XCTAssertEqual(VMMachineKind.inferred(fromImage: "blaxel/xfce-vnc:latest"), .desktop)
-        XCTAssertEqual(VMMachineKind.inferred(fromImage: "blaxel/base-image:latest"), .base)
-        XCTAssertEqual(VMMachineKind.inferred(fromImage: ""), .base)
-    }
-
-    func testResolvedKindPrefersBackendField() {
-        XCTAssertEqual(VMMachineKind.resolved(kind: "base", image: "sandbox/cmux-devbox:latest"), .base)
-        XCTAssertEqual(VMMachineKind.resolved(kind: "DESKTOP", image: "blaxel/base-image:latest"), .desktop)
-        XCTAssertEqual(VMMachineKind.resolved(kind: "bogus", image: "blaxel/xfce-vnc:latest"), .desktop)
-        XCTAssertEqual(VMMachineKind.resolved(kind: nil, image: nil), .base)
-    }
-
-    func testSummaryResolvedKindPrefersServerKindOverImageName() {
-        var summary = VMSummary(
-            id: "noble-wren",
-            provider: "blaxel",
-            status: "running",
-            image: "sandbox/cmux-devbox:latest",
-            createdAt: 0,
-            base: nil
-        )
-        XCTAssertEqual(summary.resolvedKind, .desktop)
-        summary.kind = .base
-        XCTAssertEqual(summary.resolvedKind, .base)
-        XCTAssertFalse(MachineSnapshotBuilder.snapshot(from: summary).isDesktop)
-    }
-
-    // MARK: CLI arguments
-
-    func testDefaultInvocationRequestsDesktopByKindWithoutPinningAnImage() {
+    @Test func defaultSizeIsTheSmallestSupportedBaseImage() {
         let (model, _) = makeModel()
-        XCTAssertEqual(model.cliArguments, ["vm", "new", "--desktop", "--size", "24576"])
-        XCTAssertFalse(model.cliArguments.contains("--image"))
+        #expect(model.memoryOptions == [4096, 8192, 16384, 24576, 32768, 65536])
+        #expect(model.memoryMb == 8192)
+        #expect(model.selectedSize == MachineSizeOption(memoryMb: 8192))
     }
 
-    func testBaseKindSizeAndNameTravelAsFlags() {
-        let (model, _) = makeModel(plan: MachinePlanSnapshot(activeCount: 1, maxActiveVms: 5, planId: "pro"))
-        model.kind = .base
-        model.memoryMb = 8192
-        model.name = "  build box  "
-        XCTAssertEqual(model.cliArguments, ["vm", "new", "--base", "--size", "8192", "--name", "build box"])
+    @Test func sizeLabelsDescribeMemoryAndDisk() {
+        #expect(MachineSizeOption(memoryMb: 4096)?.title == "4 GB RAM")
+        #expect(MachineSizeOption(memoryMb: 4096)?.detail == "16 GB disk included")
+        #expect(MachineSizeOption(memoryMb: 4096)?.diskTitle == "16 GB")
+        #expect(MachineSizeOption(memoryMb: 8192)?.title == "8 GB RAM")
+        #expect(MachineSizeOption(memoryMb: 8192)?.detail == "32 GB disk included")
+        #expect(MachineSizeOption(memoryMb: 8192)?.menuTitle == "8 GB RAM · 32 GB disk")
+        #expect(MachineSizeOption(memoryMb: 16384)?.title == "16 GB RAM")
+        #expect(MachineSizeOption(memoryMb: 16384)?.detail == "64 GB disk included")
+        #expect(MachineSizeOption(memoryMb: 24576)?.title == "24 GB RAM")
+        #expect(MachineSizeOption(memoryMb: 24576)?.detail == "96 GB disk included")
+        #expect(MachineSizeOption(memoryMb: 32768)?.title == "32 GB RAM")
+        #expect(MachineSizeOption(memoryMb: 32768)?.detail == "128 GB disk included")
+        #expect(MachineSizeOption(memoryMb: 65536)?.title == "64 GB RAM")
+        #expect(MachineSizeOption(memoryMb: 65536)?.detail == "128 GB disk included")
     }
 
-    func testBlankNameIsNotSent() {
-        let (model, _) = makeModel()
-        model.name = "   "
-        XCTAssertNil(model.trimmedName)
-        XCTAssertFalse(model.cliArguments.contains("--name"))
+    @Test func serverOptionsAreSortedAndDeduplicated() {
+        let plan = MachinePlanSnapshot(activeCount: 0, maxActiveVms: 50, planId: "pro")
+        let (model, _) = makeModel(plan: plan, memoryOptionsMb: [16384, 8192, 8192])
+        #expect(model.memoryOptions == [8192, 16384])
+        #expect(model.memoryMb == 8192)
     }
 
-    func testBaseSetupOpensTheWorkspaceWithoutSizeOrName() {
+    @Test func emptyServerOptionsPreserveLegacyDefaultWithoutSizeFlag() {
+        let (model, _) = makeModel(memoryOptionsMb: [])
+        #expect(model.memoryOptions == [])
+        #expect(model.memoryMb == 20480)
+        #expect(!model.supportsSize)
+        #expect(model.cliArguments == ["vm", "new", "--base", "--focus", "false"])
+    }
+
+    @Test func selectedSizeTravelsAsBaseSizeFlagOnly() {
+        let (model, recorder) = makeModel()
+        model.memoryMb = 65536
+        model.create()
+        let request = recorder.value.first
+        #expect(request?.kind == .base)
+        #expect(request?.name == nil)
+        #expect(request?.arguments == ["vm", "new", "--base", "--size", "65536", "--focus", "false"])
+    }
+
+    @Test func baseSetupHasNoSizeFlag() {
         let workspaceID = UUID()
         let (model, _) = makeModel(mode: .base(workspaceID: workspaceID))
-        XCTAssertFalse(model.supportsSize)
-        XCTAssertFalse(model.supportsName)
-        model.name = "ignored"
-        model.kind = .base
-        XCTAssertEqual(
-            model.cliArguments,
-            ["vm", "base", "open", "--workspace", workspaceID.uuidString, "--base"]
-        )
+        #expect(!model.supportsSize)
+        #expect(model.cliArguments == ["vm", "base", "open", "--workspace", workspaceID.uuidString, "--base", "--focus", "false"])
     }
 
-    // MARK: Plan ceilings
-
-    func testFreePlanCapsSizeAtTwentyFourGigabytes() {
-        let (model, _) = makeModel(plan: MachinePlanSnapshot(activeCount: 0, maxActiveVms: 1, planId: "free"))
-        XCTAssertEqual(model.memoryOptions, [2048, 4096, 8192, 16384, 24576])
-        XCTAssertEqual(model.memoryMb, 24576)
-    }
-
-    func testPaidPlanUnlocksThirtyTwoGigabytesButDefaultsToTwentyFour() {
-        let (model, _) = makeModel(plan: MachinePlanSnapshot(activeCount: 2, maxActiveVms: 5, planId: "pro"))
-        XCTAssertEqual(model.memoryOptions.last, 32768)
-        XCTAssertEqual(model.memoryMb, 24576)
-    }
-
-    func testUnknownPlanUsesTheFreeCeiling() {
-        let (model, _) = makeModel(plan: nil)
-        XCTAssertEqual(model.memoryOptions.last, 24576)
-        XCTAssertNil(model.planMeterText)
-        XCTAssertNil(model.freeAccessNoteText)
-    }
-
-    func testPlanTextsMirrorTheMeterAndFreeWindow() {
+    @Test func planTextsMirrorTheMeterAndFreeWindow() {
         let free = MachinePlanSnapshot(activeCount: 0, maxActiveVms: 1, planId: "free", freeAccessWindowDays: 7)
         let (model, _) = makeModel(plan: free)
-        XCTAssertEqual(model.planMeterText, "0 of 1 machine in use")
-        XCTAssertEqual(model.freeAccessNoteText, "Free plan: this machine stays reachable for 7 days. Upgrade to keep it.")
-
-        let pro = MachinePlanSnapshot(activeCount: 2, maxActiveVms: 5, planId: "pro", freeAccessWindowDays: 7)
-        let (proModel, _) = makeModel(plan: pro)
-        XCTAssertEqual(proModel.planMeterText, "2 of 5 machines in use")
-        XCTAssertNil(proModel.freeAccessNoteText)
+        #expect(model.planMeterText == "0 of 1 machine in use")
+        #expect(model.freeAccessNoteText == "Free plan: this machine stays reachable for 7 days. Upgrade to keep it.")
     }
 
-    func testSelectedImageFollowsTheKind() {
-        let kinds = [
-            VMImageKindOption(kind: .desktop, image: "sandbox/cmux-devbox:latest"),
-            VMImageKindOption(kind: .base, image: "blaxel/base-image:latest"),
-        ]
-        let (model, _) = makeModel(imageKinds: kinds)
-        XCTAssertEqual(model.selectedImage, "sandbox/cmux-devbox:latest")
-        model.kind = .base
-        XCTAssertEqual(model.selectedImage, "blaxel/base-image:latest")
-    }
-
-    func testMemoryLabelsReadInGigabytes() {
-        XCTAssertEqual(NewMachineModel.memoryLabel(mb: 24576), "24 GB")
-        XCTAssertEqual(NewMachineModel.memoryLabel(mb: 3000), "3000 MB")
-    }
-
-    // MARK: Create lifecycle
-
-    func testCreateLaunchesOnceAndFinishesOnSuccess() {
+    @Test func createFinishesWithoutWaitingForTheMachine() {
         let (model, recorder) = makeModel()
         var outcomes: [NewMachineModel.Outcome] = []
         model.onFinished = { outcomes.append($0) }
-
         model.create()
-        XCTAssertTrue(model.isCreating)
-        model.create()
-        XCTAssertEqual(recorder.value.arguments.count, 1, "a second click while creating must not launch again")
-
-        recorder.value.pendingCompletion?(CloudVMActionLauncher.Completion(terminationStatus: 0, output: "", workspaceId: nil))
-        XCTAssertFalse(model.isCreating)
-        XCTAssertEqual(model.outcome, .created)
-        XCTAssertEqual(outcomes, [.created])
+        #expect(recorder.value.count == 1)
+        #expect(outcomes == [.submitted])
+        #expect(model.outcome == .submitted)
     }
 
-    func testFailureShowsTheCLIOutputAndAllowsRetry() {
-        let (model, recorder) = makeModel()
+    @Test func launchRefusalStaysInTheSheet() {
+        let (model, recorder) = makeModel(starts: false)
         model.create()
-        recorder.value.pendingCompletion?(CloudVMActionLauncher.Completion(
-            terminationStatus: 1,
-            output: "Cloud VM temporarily unavailable (HTTP 503: vm_image_config_error)\n\nWhat to do:\n  Retry without `image`.\n",
-            workspaceId: nil
-        ))
-        XCTAssertFalse(model.isCreating)
-        XCTAssertNil(model.outcome)
-        XCTAssertEqual(
-            model.errorText,
-            "Cloud VM temporarily unavailable (HTTP 503: vm_image_config_error)\n\nWhat to do:\n  Retry without `image`."
-        )
-
-        model.create()
-        XCTAssertNil(model.errorText, "a retry clears the previous error while it runs")
-        XCTAssertEqual(recorder.value.arguments.count, 2)
-    }
-
-    func testCreatedMachineIDIsParsedFromTheCLIsCreatedLine() {
-        XCTAssertEqual(
-            NewMachineModel.createdMachineID(fromOutput: "Created Cloud VM calm-petrel\nError: noProvider(calm-petrel)"),
-            "calm-petrel"
-        )
-        XCTAssertEqual(NewMachineModel.createdMachineID(fromOutput: "  Created Cloud VM noble_wren2  "), "noble_wren2")
-        XCTAssertNil(NewMachineModel.createdMachineID(fromOutput: "Error: Creating Cloud VM (HTTP 502)"))
-        XCTAssertNil(NewMachineModel.createdMachineID(fromOutput: "Created Cloud VM"))
-        XCTAssertNil(NewMachineModel.createdMachineID(fromOutput: ""))
-    }
-
-    func testCreatedButOpenFailedNeverRetriesTheCreate() {
-        let (model, recorder) = makeModel()
-        model.create()
-        XCTAssertEqual(recorder.value.arguments.count, 1)
-        recorder.value.pendingCompletion?(CloudVMActionLauncher.Completion(
-            terminationStatus: 1,
-            output: "Created Cloud VM calm-petrel\nError: No provider for machine calm-petrel.",
-            workspaceId: nil
-        ))
-        XCTAssertEqual(model.createdMachineID, "calm-petrel")
-        XCTAssertNil(model.outcome, "the sheet stays up so the person sees why the open failed")
-        XCTAssertFalse(model.isCreating)
-        XCTAssertTrue(model.errorText?.contains("calm-petrel") == true)
-        XCTAssertTrue(model.errorText?.contains("No provider") == true, "the CLI output is kept for diagnosis")
-
-        // The primary button is now "Done": it closes the sheet without launching again.
-        model.create()
-        XCTAssertEqual(recorder.value.arguments.count, 1, "a second create would mint a second machine")
-        XCTAssertEqual(model.outcome, .created)
-    }
-
-    func testBaseSetupFailureIsNotMistakenForACreatedMachine() {
-        let (model, recorder) = makeModel(mode: .base(workspaceID: UUID()))
-        model.create()
-        recorder.value.pendingCompletion?(CloudVMActionLauncher.Completion(
-            terminationStatus: 1,
-            output: "Created Cloud VM base-1\nError: attach failed",
-            workspaceId: nil
-        ))
-        XCTAssertNil(model.createdMachineID)
-        XCTAssertNil(model.outcome)
-        model.create()
-        XCTAssertEqual(recorder.value.arguments.count, 2, "Base setup retries through the idempotent base open")
-    }
-
-    func testEmptyFailureOutputGetsAGenericMessage() {
-        let (model, recorder) = makeModel()
-        model.create()
-        recorder.value.pendingCompletion?(CloudVMActionLauncher.Completion(terminationStatus: 2, output: "  \n", workspaceId: nil))
-        XCTAssertEqual(model.errorText, "The machine could not be created.")
-    }
-
-    func testLaunchRefusalIsReportedWithoutFinishing() {
-        let (model, _) = makeModel(starts: false)
-        var outcomes: [NewMachineModel.Outcome] = []
-        model.onFinished = { outcomes.append($0) }
-        model.create()
-        XCTAssertFalse(model.isCreating)
-        XCTAssertNotNil(model.errorText)
-        XCTAssertTrue(outcomes.isEmpty)
-    }
-
-    func testCancelFinishesOnceAndBlocksLaterCreate() {
-        let (model, recorder) = makeModel()
-        var outcomes: [NewMachineModel.Outcome] = []
-        model.onFinished = { outcomes.append($0) }
-        model.cancel()
-        model.cancel()
-        model.create()
-        XCTAssertEqual(outcomes, [.cancelled])
-        XCTAssertTrue(recorder.value.arguments.isEmpty)
+        #expect(recorder.value.count == 1)
+        #expect(model.outcome == nil)
+        #expect(model.errorText != nil)
     }
 }

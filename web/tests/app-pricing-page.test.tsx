@@ -99,7 +99,11 @@ describe("app pricing page", () => {
     expect(html).toContain("/mo");
     expect(html).toContain("/user/mo");
     expect(html).not.toContain("/mo.");
-    expect(html).toContain("$35/user/mo");
+    expect(html).toContain("$50");
+    expect(html).toContain("$60/user/mo");
+    expect(html).toContain(
+      "Up to 50 Cloud VMs, all sharing a total pool of 5 vCPU, 20 GB RAM, and 200 GB disk",
+    );
     expect(html).toContain('<p class="mt-5 text-sm font-medium">Includes:</p>');
     expect(html).not.toContain('style="min-height:4rem"');
     expect(html).toContain("text-3xl font-medium tabular-nums tracking-tight");
@@ -155,18 +159,18 @@ describe("app pricing page", () => {
     });
     const html = renderToStaticMarkup(element);
 
-    expect(html).toContain("$24");
-    expect(html).toContain("$28");
+    expect(html).toContain("$40");
+    expect(html).toContain("$48");
     expect(html).toContain("/mo");
     expect(html).toContain("/user/mo");
     expect(html).toContain("/mo, billed yearly");
     expect(html).toContain("/user/mo, billed yearly");
     expect(html).not.toContain("/mo.");
-    expect(html).not.toContain("Billed $288 annually · save 20%");
-    expect(html).not.toContain("Billed $336 annually · save 20%");
-    expect(html).toContain("$28/user/mo");
-    expect(html).not.toContain("$288/year");
-    expect(html).not.toContain("$336/user/year");
+    expect(html).not.toContain("$24");
+    expect(html).not.toContain("$28");
+    expect(html).toContain("$48/user/mo");
+    expect(html).not.toContain("$480/year");
+    expect(html).not.toContain("$576/user/year");
     expect(html).toContain(
       "http://localhost:9210/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;cmux_scheme=cmux-dev-test&amp;interval=year",
     );

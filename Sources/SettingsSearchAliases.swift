@@ -16,7 +16,7 @@ enum SettingsSearchAliasIndex {
         case .mobile:
             return localized("settings.search.alias.section.mobile", defaultValue: "ios iphone ipad mobile pairing local network permission sync")
         case .cloudMachines:
-            return localized("settings.search.alias.section.cloudMachines", defaultValue: "cloud machines vm virtual machine persistent computer sandbox plan upgrade fleet blaxel")
+            return localized("settings.search.alias.section.cloudMachines", defaultValue: "cloud machines vm virtual machine persistent computer sandbox plan upgrade fleet freestyle")
         case .networking:
             return localized("settings.search.alias.section.networking", defaultValue: "iroh relay relays server fleet provider region custom self hosted private network tailscale vpn direct peer")
         case .sidebarAppearance:
@@ -75,6 +75,11 @@ enum SettingsSearchAliasIndex {
         "app:markdown-font-family": localized("settings.search.alias.setting.app.markdown-font-family", defaultValue: "markdown.fontFamily md markdown viewer font font-family family typeface system stack custom"),
         "app:markdown-max-width": localized("settings.search.alias.setting.app.markdown-max-width", defaultValue: "markdown.maxWidth md markdown viewer max width column reading line length pixels px narrow wide"),
         "app:file-editor-word-wrap": localized("settings.search.alias.setting.app.file-editor-word-wrap", defaultValue: "fileEditor.wordWrap file editor word wrap soft wrap reflow lines text horizontal scroll preview"),
+        "app:file-editor-syntax-highlighting": localized("settings.search.alias.setting.app.file-editor-syntax-highlighting", defaultValue: "fileEditor.syntaxHighlighting syntax highlight colors tokens code"),
+        "app:file-editor-line-numbers": localized("settings.search.alias.setting.app.file-editor-line-numbers", defaultValue: "fileEditor.lineNumbers gutter line numbers"),
+        "app:file-editor-indent-guides": localized("settings.search.alias.setting.app.file-editor-indent-guides", defaultValue: "fileEditor.indentGuides indent guides columns"),
+        "app:file-editor-current-line-highlight": localized("settings.search.alias.setting.app.file-editor-current-line-highlight", defaultValue: "fileEditor.currentLineHighlight current line caret"),
+        "app:file-editor-tab-width": localized("settings.search.alias.setting.app.file-editor-tab-width", defaultValue: "fileEditor.tabWidth tab width indent columns"),
         "app:imessage-mode": localized("settings.search.alias.setting.app.imessage-mode", defaultValue: "app.iMessageMode imessage message messages chat prompt prompts submitted message texting reorder move workspace top agent send"),
         "app:reorder-notification": localized("settings.search.alias.setting.app.reorder-notification", defaultValue: "app.reorderOnNotification notification reorder move workspace top unread sort"),
         "app:dock-badge": localized("settings.search.alias.setting.app.dock-badge", defaultValue: "notifications.dockBadge badge dock unread count icon notifications red bubble"),

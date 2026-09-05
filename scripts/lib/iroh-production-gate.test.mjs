@@ -221,6 +221,36 @@ test("release gate iOS build is isolated from the configured default iPhone", ()
   ].join("\n"));
 });
 
+test("iOS release artifact gate rejects staged runtime origins", (t) => {
+  const directory = fixtureDirectory();
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const app = path.join(directory, "cmux.app");
+  const args = ["scripts/lib/verify-ios-release-origins.sh", "--app", app];
+
+  writeGateAppPlist(app, {
+    CFBundleIdentifier: "dev.cmux.app.internal",
+    CMUXAuthEnvironment: "production",
+    CMUXApiBaseURL: "https://cmux.com",
+    CMUXIrohBrokerBaseURL: "https://cmux.com",
+    CMUXPresenceBaseURL: "https://presence.cmux.dev",
+    CMUXDevTag: "",
+  });
+  const valid = run("bash", args);
+  assert.equal(valid.status, 0, valid.stderr);
+
+  writeGateAppPlist(app, {
+    CFBundleIdentifier: "dev.cmux.app.internal",
+    CMUXAuthEnvironment: "production",
+    CMUXApiBaseURL: "https://cmux.com",
+    CMUXIrohBrokerBaseURL: "https://cmux-staging.vercel.app",
+    CMUXPresenceBaseURL: "https://presence.cmux.dev",
+    CMUXDevTag: "internal",
+  });
+  const invalid = run("bash", args);
+  assert.notEqual(invalid.status, 0);
+  assert.match(invalid.stderr, /CMUXIrohBrokerBaseURL/u);
+});
+
 test("production release gate gives its account helper a normalized protected state directory", (t) => {
   const directory = fixtureDirectory();
   t.after(() => rmSync(directory, { recursive: true, force: true }));
@@ -328,4 +358,19 @@ test("Mac reload documents production auth without accepting secret values", () 
   assert.match(result.stdout, /--prod-auth/u);
   assert.match(result.stdout, /--credentials-file <path>/u);
   assert.match(result.stdout, /credential values never enter argv/u);
+});
+
+test("Mac reload accepts an immutable cmux-tui manifest pin", () => {
+  const result = run("bash", ["scripts/reload.sh", "--help"]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /--cmux-tui-manifest-url <url>/u);
+
+  const source = readFileSync(
+    path.join(repositoryRoot, "scripts/reload.sh"),
+    "utf8",
+  );
+  assert.match(
+    source,
+    /--manifest-url "\$CMUX_TUI_CLIENT_MANIFEST_URL_VALUE"/u,
+  );
 });

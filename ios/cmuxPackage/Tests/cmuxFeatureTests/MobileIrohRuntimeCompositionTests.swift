@@ -90,10 +90,95 @@ struct MobileIrohRuntimeCompositionTests {
     }
 
     @Test
+    func productionAuthIgnoresAStagingBrokerBake() {
+        #expect(MobileIrohRuntimeComposition.resolvedBrokerBaseURL(
+            apiBaseURL: "https://cmux.com",
+            infoDictionary: [
+                "CMUXAuthEnvironment": "production",
+                "CMUXIrohBrokerBaseURL": "https://cmux-staging.vercel.app",
+                "CMUXDevTag": "internal",
+            ]
+        )?.absoluteString == "https://cmux.com")
+    }
+
+    @Test
+    func officialReleaseBundleIgnoresAStagingBrokerBakeWithoutAuthMarker() {
+        #expect(MobileIrohRuntimeComposition.resolvedBrokerBaseURL(
+            apiBaseURL: "https://cmux.com",
+            infoDictionary: [
+                "CMUXIrohBrokerBaseURL": "https://cmux-staging.vercel.app",
+            ],
+            bundleIdentifier: "dev.cmux.app.internal"
+        )?.absoluteString == "https://cmux.com")
+    }
+
+    @Test
     func initialAuthenticationAndFirstConnectionDoNotReplayTheSameAuthState() async throws {
         let fixture = try await MobileIrohSignOutFixture.make()
 
         #expect(await fixture.endpointFactory.bindCount() == 1)
+    }
+
+    @Test
+    func coldSignedOutLaunchDeletesStaleEndpointIdentity() async throws {
+        let fixture = try await MobileIrohSignOutFixture.make(
+            initiallySignedOut: true
+        )
+
+        var current = try await fixture.identities.identity(
+            accountID: fixture.accountID,
+            appInstanceID: fixture.appInstanceID
+        )
+        for _ in 0 ..< 20 where current == fixture.identity {
+            try await Task.sleep(for: .milliseconds(10))
+            current = try await fixture.identities.identity(
+                accountID: fixture.accountID,
+                appInstanceID: fixture.appInstanceID
+            )
+        }
+
+        #expect(current != fixture.identity)
+        #expect(current.generation == 1)
+        #expect(await fixture.endpointFactory.bindCount() == 0)
+        #expect(
+            try await fixture.brokerCredentials.loadBinding(
+                accountID: fixture.accountID,
+                appInstanceID: fixture.appInstanceID
+            ) == nil
+        )
+        #expect(
+            try await fixture.appInstances.appInstanceID(
+                accountID: fixture.accountID,
+                tag: fixture.tag
+            ) != fixture.appInstanceID
+        )
+    }
+
+    @Test
+    func explicitSignOutDeletesEndpointIdentityBeforeNextUse() async throws {
+        let fixture = try await MobileIrohSignOutFixture.make()
+        let irx = MobileIrxRuntimeComposition(
+            apiBaseURL: "https://cmux.com",
+            infoDictionary: [
+                "CMUXAuthEnvironment": "production",
+                "CMUXDevTag": fixture.tag,
+            ],
+            bundleIdentifier: "dev.cmux.ios",
+            defaults: fixture.debugDefaults
+        )
+        await irx.configure(auth: fixture.auth, legacy: fixture.composition)
+
+        await irx.handleSignOut()
+
+        // Ask the identity repository for the old scope after sign-out. A
+        // deleted key must not be returned, even if a caller still has the
+        // pre-sign-out app-instance identifier in memory.
+        let replacement = try await fixture.identities.identity(
+            accountID: fixture.accountID,
+            appInstanceID: fixture.appInstanceID
+        )
+        #expect(replacement != fixture.identity)
+        #expect(replacement.generation == 1)
     }
 
     @Test
@@ -1004,7 +1089,7 @@ struct MobileIrohRuntimeCompositionTests {
             bindings: [
                 mobileIrohBinding(
                     bindingID: nightlyBindingID,
-                    deviceID: fixture.deviceID,
+                    deviceID: MobileIrohSignOutFixture.deviceID,
                     appInstanceID: "123e4567-e89b-42d3-a456-426614174091",
                     endpointID: String(repeating: "a", count: 64),
                     platform: "mac",
@@ -1015,7 +1100,7 @@ struct MobileIrohRuntimeCompositionTests {
         ))
 
         try await fixture.composition.forgetComputer(
-            macDeviceID: fixture.deviceID,
+            macDeviceID: MobileIrohSignOutFixture.deviceID,
             instanceTag: "nightly",
             expectedAccountID: fixture.accountID
         )
@@ -1417,6 +1502,7 @@ private struct MobileIrohSignOutFixture {
     ///     can observe the token source handed to each direct broker.
     static func make(
         resolvableDeviceID: Bool = true,
+        initiallySignedOut: Bool = false,
         tag: String = "test",
         discoveryCompatibilityPolicy: MobileMacBuildCompatibilityPolicy? = nil,
         brokerFactory: MobileIrohRuntimeComposition.BrokerFactory? = nil
@@ -1520,10 +1606,12 @@ private struct MobileIrohSignOutFixture {
                 includesDevAuth: false
             )
         )
-        try await auth.signInWithPassword(
-            email: "a@example.com",
-            password: "pw"
-        )
+        if !initiallySignedOut {
+            try await auth.signInWithPassword(
+                email: "a@example.com",
+                password: "pw"
+            )
+        }
 
         let outbox = CmxIrohPendingRevocationOutbox(secureStore: outboxStore)
         let endpointFactory = MobileIrohCountingEndpointFactory()
@@ -1544,7 +1632,11 @@ private struct MobileIrohSignOutFixture {
                 return endpointFactory
             },
             brokerFactory: brokerFactory ?? { _, authorization, _ in
-                endpointFactoryModes.recordAuthorization(authorization)
+                // The composition invokes its broker factory on the main actor;
+                // the closure type itself is a nonisolated @Sendable function.
+                MainActor.assumeIsolated {
+                    endpointFactoryModes.recordAuthorization(authorization)
+                }
                 return broker
             },
             deviceID: { resolvableDeviceID ? stableDeviceID : nil },
@@ -1567,13 +1659,17 @@ private struct MobileIrohSignOutFixture {
             expectedPeerDeviceID: "123e4567-e89b-42d3-a456-426614174074",
             authorizationMode: .transportAdmission
         )
-        await #expect(throws: CmxIrohClientRuntimeError.self) {
-            _ = try await composition.transport(for: request)
+        if !initiallySignedOut {
+            await #expect(throws: CmxIrohClientRuntimeError.self) {
+                _ = try await composition.transport(for: request)
+            }
         }
         let initialBindCount = await endpointFactory.bindCount()
         // A resolvable durable id activates and binds an endpoint; an
         // unavailable one defers activation before any endpoint is created.
-        if resolvableDeviceID {
+        if initiallySignedOut {
+            #expect(initialBindCount == 0)
+        } else if resolvableDeviceID {
             #expect(initialBindCount > 0)
         } else {
             #expect(initialBindCount == 0)
@@ -1822,6 +1918,14 @@ private actor MobileIrohRevocationBroker: CmxIrohClientBrokerServing {
         bindingIDs.append(bindingID)
     }
 
+    func revokeStale(bindingID: String) {
+        bindingIDs.append(bindingID)
+    }
+
+    func forgetMac(bindingID: String) {
+        bindingIDs.append(bindingID)
+    }
+
     func setDiscoverySnapshot(_ snapshot: CmxIrohDiscoveryResponse) {
         discoverySnapshot = snapshot
     }
@@ -1885,6 +1989,16 @@ private actor MobileIrohCredentialFetchingBroker: CmxIrohClientBrokerServing {
     }
 
     func revoke(bindingID: String) async throws {
+        try await fetchCredentialPair()
+        revoked.append(bindingID)
+    }
+
+    func revokeStale(bindingID: String) async throws {
+        try await fetchCredentialPair()
+        revoked.append(bindingID)
+    }
+
+    func forgetMac(bindingID: String) async throws {
         try await fetchCredentialPair()
         revoked.append(bindingID)
     }

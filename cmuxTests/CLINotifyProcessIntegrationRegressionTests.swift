@@ -6079,6 +6079,50 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testNotifyClearSurfaceRequiresExplicitWorkspaceOrWindowContext() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("notify-clear-surface-context")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let ambientWorkspace = "11111111-1111-1111-1111-111111111111"
+        let surfaceID = "22222222-2222-2222-2222-222222222222"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        startDetachedMockServer(listenerFD: listenerFD, state: state) { line in
+            self.v2Response(
+                id: self.jsonObject(line)?["id"] as? String ?? "",
+                ok: false,
+                error: ["code": "unexpected", "message": "notify --clear should resolve context before sending"]
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_WORKSPACE_ID"] = ambientWorkspace
+        environment["CMUX_SURFACE_ID"] = surfaceID
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["notify", "--clear", "--surface", surfaceID],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 1, result.stderr)
+        XCTAssertTrue(
+            result.stderr.contains("notify --clear --surface requires workspace or window context"),
+            result.stderr
+        )
+        XCTAssertTrue(state.commands.isEmpty, "Target resolution must fail before any socket request")
+    }
+
     func testNotificationCLIActionsUseSocketAPIAndParseExtendedFields() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("notif-actions")
@@ -7487,6 +7531,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let targetWorkspaceId = "33333333-3333-3333-3333-333333333333"
         let selectedSurfaceId = "44444444-4444-4444-4444-444444444444"
         let targetSurfaceId = "55555555-5555-5555-5555-555555555555"
+        let notificationId = "66666666-6666-6666-6666-666666666666"
 
         defer {
             Darwin.close(listenerFD)
@@ -7573,6 +7618,19 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                     XCTFail("Unexpected surface.list params: \(params)")
                     return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected workspace"])
                 }
+            case "notification.create_for_target":
+                XCTAssertEqual(params["workspace_id"] as? String, targetWorkspaceId)
+                XCTAssertEqual(params["surface_id"] as? String, targetSurfaceId)
+                XCTAssertEqual(params["title"] as? String, "Window Surface Notify")
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "workspace_id": targetWorkspaceId,
+                        "surface_id": targetSurfaceId,
+                        "id": notificationId,
+                    ]
+                )
             default:
                 return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected method: \(method)"])
             }
@@ -7593,9 +7651,9 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         wait(for: [serverHandled], timeout: 5)
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertEqual(result.stdout, "OK\n")
+        XCTAssertEqual(result.stdout, "OK notification:\(notificationId)\n")
         let methods = state.commands.compactMap { self.jsonObject($0)?["method"] as? String }
-        XCTAssertEqual(methods, ["window.list", "workspace.list", "surface.list", "surface.list"])
+        XCTAssertEqual(methods, ["window.list", "workspace.list", "surface.list", "surface.list", "notification.create_for_target"])
     }
 
     func testNotifyWindowSurfaceIndexUsesCurrentWorkspaceInTargetWindow() throws {
@@ -7606,6 +7664,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let windowId = "11111111-1111-1111-1111-111111111111"
         let selectedWorkspaceId = "22222222-2222-2222-2222-222222222222"
         let selectedSurfaceId = "33333333-3333-3333-3333-333333333333"
+        let notificationId = "44444444-4444-4444-4444-444444444444"
 
         defer {
             Darwin.close(listenerFD)
@@ -7656,6 +7715,19 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                         ],
                     ]
                 )
+            case "notification.create_for_target":
+                XCTAssertEqual(params["workspace_id"] as? String, selectedWorkspaceId)
+                XCTAssertEqual(params["surface_id"] as? String, selectedSurfaceId)
+                XCTAssertEqual(params["title"] as? String, "Window Indexed Notify")
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "workspace_id": selectedWorkspaceId,
+                        "surface_id": selectedSurfaceId,
+                        "id": notificationId,
+                    ]
+                )
             default:
                 return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected method: \(method)"])
             }
@@ -7676,9 +7748,9 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         wait(for: [serverHandled], timeout: 5)
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertEqual(result.stdout, "OK\n")
+        XCTAssertEqual(result.stdout, "OK notification:\(notificationId)\n")
         let methods = state.commands.compactMap { self.jsonObject($0)?["method"] as? String }
-        XCTAssertEqual(methods, ["window.list", "workspace.current", "surface.list"])
+        XCTAssertEqual(methods, ["window.list", "workspace.current", "surface.list", "notification.create_for_target"])
     }
 
     func testWorkspaceActionWindowFlagResolvesCurrentWorkspaceInWindow() throws {
@@ -9137,7 +9209,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(request["surface_id"] as? String, surfaceId)
     }
 
-    private struct ClaudeHookContext {
+    struct ClaudeHookContext {
         let cliPath: String
         let socketPath: String
         let listenerFD: Int32
@@ -9205,7 +9277,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
-    private func runAgentHook(
+    func runAgentHook(
         context: ClaudeHookContext,
         agent: String,
         subcommand: String,
@@ -9236,7 +9308,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
     /// Serves this context's agent-hook mock socket for the rest of the test. One
     /// accept loop answers every connection, including the CLI's extra `system.top`
     /// lookup connection, and the registry reaps the loop at teardown.
-    private func startAgentHookMockServerAccepting(context: ClaudeHookContext) {
+    func startAgentHookMockServerAccepting(context: ClaudeHookContext) {
         let state = context.state
         let mockResponse: @Sendable (String) -> String = { line in
             self.agentHookMockResponse(line: line, context: context)
@@ -9271,7 +9343,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         }
     }
 
-    private func makeClaudeHookContext(name: String) throws -> ClaudeHookContext {
+    func makeClaudeHookContext(name: String) throws -> ClaudeHookContext {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-\(name)-\(UUID().uuidString)", isDirectory: true)
         let socketPath = makeSocketPath(String(name.prefix(6)))
@@ -9337,7 +9409,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         return result
     }
 
-    private func readClaudeHookSession(_ sessionId: String, context: ClaudeHookContext) throws -> [String: Any] {
+    func readClaudeHookSession(_ sessionId: String, context: ClaudeHookContext) throws -> [String: Any] {
         let stateURL = context.root.appendingPathComponent("claude-hook-sessions.json")
         let state = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
         let sessions = try XCTUnwrap(state["sessions"] as? [String: Any])

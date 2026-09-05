@@ -92,6 +92,20 @@ struct WorkspaceDetailView: View {
     /// UIKit `safeAreaInsets.top` reads 0, so the surface's scroll-edge band
     /// height must come from SwiftUI geometry captured before the ignore.
     @State var terminalCapturedTopInset: CGFloat = 0
+    /// The terminal subtree intentionally ignores its bottom container region.
+    /// Capture the physical inset from both sides of the keyboard-safe-area
+    /// expansion, then use the smallest positive value. When the keyboard is
+    /// up the outer side includes the keyboard, while the inner side retains
+    /// the home-indicator inset; when it is down the outer side reports the
+    /// home-indicator inset and the inner side is zero.
+    @State private var terminalDetailInsideBottomInset: CGFloat = 0
+    @State private var terminalDetailOutsideBottomInset: CGFloat = 0
+
+    var terminalSurfaceBottomSafeAreaInset: CGFloat {
+        [terminalDetailInsideBottomInset, terminalDetailOutsideBottomInset]
+            .filter { $0 > 0 }
+            .min() ?? 0
+    }
     // Rendered content width per trailing toolbar item, keyed by item. The
     // title's width cap subtracts the structurally visible items' widths so
     // they always fit and iOS never folds them into the overflow More menu
@@ -669,11 +683,25 @@ struct WorkspaceDetailView: View {
         // The whole bottom dock is owned by `GhosttySurfaceView` in one
         // coordinate system, so composer growth pushes only the terminal up.
         .terminalKeyboardGeometryProbe("detail-inside")
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.safeAreaInsets.bottom
+        } action: { inset in
+            if terminalDetailInsideBottomInset != inset {
+                terminalDetailInsideBottomInset = inset
+            }
+        }
         .mobileTerminalSafeAreaExpansion(
             context: safeAreaContext,
             includesBottom: true
         )
         .terminalKeyboardGeometryProbe("detail-outside")
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.safeAreaInsets.bottom
+        } action: { inset in
+            if terminalDetailOutsideBottomInset != inset {
+                terminalDetailOutsideBottomInset = inset
+            }
+        }
         .background {
             // Fill under translucent chrome with the terminal's own color.
             store.activeTerminalTheme.terminalBackgroundColor

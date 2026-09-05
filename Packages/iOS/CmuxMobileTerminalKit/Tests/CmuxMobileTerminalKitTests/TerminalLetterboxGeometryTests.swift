@@ -247,6 +247,40 @@ struct TerminalLetterboxGeometryTests {
         #expect(TerminalLetterboxGeometry.resolvedBottomSafeAreaInset(viewInset: 0, windowInset: 0) == 0)
     }
 
+    @Test("resolved safe-area inset recovers the smallest positive ancestor")
+    func resolvedSafeAreaUsesAncestorWhenWindowIsZero() {
+        // A SwiftUI ignored-safe-area subtree can zero the leaf and window
+        // fallback while an outer hosting container still reports the device
+        // inset. Larger ancestors may include their own tab/navigation chrome,
+        // so the smallest positive value is the physical safe area we want.
+        #expect(
+            TerminalLetterboxGeometry.resolvedBottomSafeAreaInset(
+                viewInset: 0,
+                windowInset: 0,
+                ancestorInsets: [83, 34]
+            ) == 34
+        )
+        #expect(
+            TerminalLetterboxGeometry.resolvedBottomSafeAreaInset(
+                viewInset: 0,
+                windowInset: 0,
+                ancestorInsets: [0, -4]
+            ) == 0
+        )
+    }
+
+    @Test("resolved safe-area inset prefers a captured outer SwiftUI inset")
+    func resolvedSafeAreaUsesCapturedInset() {
+        #expect(
+            TerminalLetterboxGeometry.resolvedBottomSafeAreaInset(
+                viewInset: 0,
+                windowInset: 0,
+                capturedInset: 34,
+                ancestorInsets: [83]
+            ) == 34
+        )
+    }
+
     @Test("keyboard absorption slack: blank rows absorb before content moves")
     func keyboardAbsorptionSlackContract() {
         // Post-`clear` shell: nearly the whole render is blank, so the whole

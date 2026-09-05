@@ -5,20 +5,40 @@ struct SessionIndexTablePopoverPresentation {
             search: SessionSearchFn,
             loadSnapshot: DirectorySnapshotFn,
             beginSessionDrag: SessionDragBeginAction,
-            onResume: ((SessionEntry) -> Void)?
+            onResume: ((SessionEntry) -> Void)?,
+            onOpen: ((SessionEntry) -> Void)?,
+            statusSnapshot: SessionIndexStatusSnapshot
         )
-        case transcript(SessionEntry)
+        case transcript(SessionEntry, onResume: ((SessionEntry) -> Void)?)
     }
 
     let identity: SessionIndexTablePopoverIdentity
     let content: Content
     let onDismiss: @MainActor () -> Void
+    /// Focus-only action forwarded to the shared session-row menu.
+    let onFocus: ((SessionEntry) -> Void)?
+
+    init(
+        identity: SessionIndexTablePopoverIdentity,
+        content: Content,
+        onDismiss: @escaping @MainActor () -> Void,
+        onFocus: ((SessionEntry) -> Void)? = nil
+    ) {
+        self.identity = identity
+        self.content = content
+        self.onDismiss = onDismiss
+        self.onFocus = onFocus
+    }
 
     func hasEquivalentContent(to other: Self) -> Bool {
         switch (content, other.content) {
-        case let (.section(lhs, _, _, _, _), .section(rhs, _, _, _, _)):
+        case let (
+            .section(lhs, _, _, _, _, _, lhsStatusSnapshot),
+            .section(rhs, _, _, _, _, _, rhsStatusSnapshot)
+        ):
             return lhs == rhs
-        case let (.transcript(lhs), .transcript(rhs)):
+                && lhsStatusSnapshot == rhsStatusSnapshot
+        case let (.transcript(lhs, _), .transcript(rhs, _)):
             return lhs == rhs
         default:
             return false

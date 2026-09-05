@@ -9,24 +9,48 @@ struct CloudTuiCommandLine: Sendable {
     /// `remote connect <route> --device-name … --state-dir … --headless --json [--invite-file …]`:
     /// a headless link whose stdout carries `connection-snapshot` JSON lines with the
     /// local mux socket path (`remote_cli.rs` `connect_with_flags`).
-    static func linkArguments(route: String, deviceName: String, stateDir: String, inviteFilePath: String?) -> [String] {
-        var arguments = ["remote", "connect", route, "--device-name", deviceName, "--state-dir", stateDir, "--headless", "--json"]
+    /// `--wireguard-hub <socket>` makes the client dial the route through the app's
+    /// in-process WireGuard hub (``CloudWireGuardHub``) instead of the OS network stack;
+    /// it is added only for routes inside the private Cloud VM network.
+    static func linkArguments(route: String, deviceName: String, stateDir: String, inviteFilePath: String?, wireguardHubSocket: String? = nil) -> [String] {
+        var arguments = [
+            "remote", "connect", route,
+            "--device-name", deviceName,
+            "--state-dir", stateDir,
+            "--headless", "--json", "--exit-with-parent",
+        ]
         if let inviteFilePath, !inviteFilePath.isEmpty {
             arguments += ["--invite-file", inviteFilePath]
         }
+        if let wireguardHubSocket, !wireguardHubSocket.isEmpty {
+            arguments += ["--wireguard-hub", wireguardHubSocket]
+        }
         return arguments
     }
+
+    /// `wg hub --config <wg-quick file> --socket <unix path>`: the one process that owns the
+    /// app's WireGuard tunnel and serves SOCKS5 to every link on this Mac.
+    static func wireGuardHubArguments(configPath: String, socketPath: String) -> [String] {
+        ["wg", "hub", "--config", configPath, "--socket", socketPath, "--exit-with-parent"]
+    }
+
+    /// The probe capability a client advertises when it understands `--wireguard-hub`.
+    static let wireGuardHubCapability = "wireguard-hub"
 
     /// Whole-session public snapshot (`session current snapshot`, `--json`).
     static func snapshotArguments(socketPath: String) -> [String] {
         ["--socket", socketPath, "--json", "session", "current", "snapshot"]
     }
 
-    /// Live delta stream (`session current events`, `--jsonl`): one JSON line per
-    /// session transaction. The app only uses it as a change signal and re-reads the
-    /// snapshot, so the delta body is never interpreted.
-    static func eventsArguments(socketPath: String) -> [String] {
-        ["--socket", socketPath, "--jsonl", "session", "current", "events"]
+    /// Live delta stream (`session current events`, `--jsonl`). A cursor lets a
+    /// restarted reader resume from the last accepted revision instead of
+    /// creating a blind polling gap.
+    static func eventsArguments(socketPath: String, cursor: CloudVMCursor? = nil) -> [String] {
+        var arguments = ["--socket", socketPath, "--jsonl", "session", "current", "events"]
+        if let cursor {
+            arguments += ["--generation", cursor.generation, "--revision", String(cursor.revision)]
+        }
+        return arguments
     }
 
     /// `workspace <ws_id> run -- <argv…>`: a new terminal in that cmux-tui workspace
@@ -59,10 +83,46 @@ struct CloudTuiCommandLine: Sendable {
         ["--socket", socketPath, "--json", "workspace", workspaceID, "close"]
     }
 
+    /// `terminal <term_id> project --workspace <ws> --screen <screen> --pane <pane> --index <n>`:
+    /// creates a daemon tab view for a live terminal that currently has no placement. The
+    /// operation is deliberately separate from the native pane destination: the remote view
+    /// only makes the daemon's process-local surface attachable; local rendering remains in
+    /// Ghostty.
+    static func projectTerminalArguments(
+        socketPath: String,
+        terminalID: String,
+        target: CloudTuiTerminalProjectionTarget,
+        expectedRevision: String? = nil,
+        idempotencyKey: String? = nil
+    ) -> [String] {
+        var arguments = [
+            "--socket", socketPath, "--json", "terminal", terminalID, "project",
+            "--workspace", target.workspaceID,
+            "--screen", target.screenID,
+            "--pane", target.paneID,
+            "--index", String(target.index),
+        ]
+        if let expectedRevision, !expectedRevision.isEmpty {
+            arguments += ["--expected-revision", expectedRevision]
+        }
+        if let idempotencyKey, !idempotencyKey.isEmpty {
+            arguments += ["--idempotency-key", idempotencyKey]
+        }
+        return arguments
+    }
+
     /// `workspace <ws_id> rename --name <name>` (verified live: the positional
     /// form is `usage.invalid`; the name rides the `--name` flag).
-    static func renameWorkspaceArguments(socketPath: String, workspaceID: String, name: String) -> [String] {
-        ["--socket", socketPath, "--json", "workspace", workspaceID, "rename", "--name", name]
+    static func renameWorkspaceArguments(
+        socketPath: String,
+        workspaceID: String,
+        name: String,
+        expectedRevision: UInt64? = nil
+    ) -> [String] {
+        var arguments = ["--socket", socketPath, "--json"]
+        if let expectedRevision { arguments += ["--expected-revision", String(expectedRevision)] }
+        arguments += ["workspace", workspaceID, "rename", "--name", name]
+        return arguments
     }
 
     /// `terminal <term_id> write --text <text>` (spec `terminal.input.write`): the bytes
@@ -94,9 +154,104 @@ struct CloudTuiCommandLine: Sendable {
         return arguments
     }
 
+    /// `tab <tab_id> rename --name <name>`: set or clear the user label on one
+    /// view of a terminal (spec `tab.rename`). The daemon persists it in its
+    /// registry and broadcasts `tab-renamed`, so every attached client sees it.
+    /// The empty string is the protocol's explicit clear value.
+    static func renameTabArguments(
+        socketPath: String,
+        tabID: String,
+        name: String,
+        expectedRevision: UInt64? = nil
+    ) -> [String] {
+        var arguments = ["--socket", socketPath, "--json"]
+        if let expectedRevision { arguments += ["--expected-revision", String(expectedRevision)] }
+        arguments += ["tab", tabID, "rename", "--name", name]
+        return arguments
+    }
+
     /// `attach --terminal <term_id>`: render exactly one remote terminal into this tty.
     static func attachArguments(socketPath: String, terminalID: String) -> [String] {
         ["--socket", socketPath, "attach", "--terminal", terminalID]
+    }
+
+    /// The compatibility tree used to translate a public `term_…` id to the
+    /// numeric surface id required by `attach-surface` byte streams. Each tab
+    /// in it carries `terminal_resource_id` (the public id the app holds) next
+    /// to `surface`, which is the join the resolver needs.
+    ///
+    /// This rides the raw command bridge rather than a top-level
+    /// `list-workspaces` subcommand: the resource CLI reads that leading word
+    /// as a resource scope and rejects it with `unknown resource scope
+    /// "list-workspaces"`, so the tree was unreachable from the CLI even though
+    /// the daemon still serves the command over the wire.
+    static func legacyListWorkspacesArguments(socketPath: String) -> [String] {
+        // A fixed literal, so this cannot fail to encode and the request stays
+        // byte-stable across runs.
+        [
+            "--socket", socketPath,
+            "--json", "raw", "command",
+            "--request-json", #"{"id":1,"cmd":"list-workspaces"}"#,
+        ]
+    }
+
+    /// Resolves a stable terminal resource ID to the current generation's
+    /// numeric surface handle. This is preferred over walking the legacy tree
+    /// because it also works while a terminal has no visible tab placement.
+    /// The private command accepts the 32-character payload without the
+    /// public `term_` prefix.
+    static func resolveTerminalArguments(socketPath: String, terminalID: String) -> [String]? {
+        let payload = terminalID.hasPrefix("term_")
+            ? String(terminalID.dropFirst("term_".count))
+            : terminalID
+        guard payload.count == 32,
+              payload.unicodeScalars.allSatisfy({
+                  (48...57).contains($0.value) || (97...102).contains($0.value)
+              }) else {
+            return nil
+        }
+        let request: [String: Any] = [
+            "id": 1,
+            "cmd": "resolve-terminal",
+            "terminal_id": payload,
+        ]
+        return rawCommandArguments(socketPath: socketPath, request: request)
+    }
+
+    /// Returns the raw `identify` command used to negotiate the daemon protocol
+    /// before selecting a compatibility-only resolver path.
+    static func identifyArguments(socketPath: String) -> [String]? {
+        rawCommandArguments(
+            socketPath: socketPath,
+            request: ["id": 1, "cmd": "identify"]
+        )
+    }
+
+    /// Lists the VM host's listening TCP sockets through the authenticated
+    /// cmux-tui link. This is part of the private data path, not VM provider
+    /// exec or the web control plane.
+    static func listeningPortsArguments(socketPath: String) -> [String]? {
+        [
+            "--socket", socketPath,
+            "--json", "raw", "command",
+            "--request-json", #"{"cmd":"machine-listening-tcp","id":1}"#,
+        ]
+    }
+
+    /// Encodes one private JSON command through the CLI's raw command bridge.
+    private static func rawCommandArguments(
+        socketPath: String,
+        request: [String: Any]
+    ) -> [String]? {
+        guard let data = try? JSONSerialization.data(withJSONObject: request),
+              let encoded = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        return [
+            "--socket", socketPath,
+            "--json", "raw", "command",
+            "--request-json", encoded,
+        ]
     }
 
     /// `session current terminal defaults set [--foreground #rrggbb] [--background #rrggbb]`

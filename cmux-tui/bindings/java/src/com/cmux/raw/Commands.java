@@ -53,6 +53,8 @@ public final class Commands {
     public static final CommandMetadata LIST_CLIENTS = new CommandMetadata("list-clients", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata LIST_TERMINALS = new CommandMetadata("list-terminals", Authority.CONTROL, 9, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata LIST_WORKSPACES = new CommandMetadata("list-workspaces", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata MACHINE_LISTENING_TCP = new CommandMetadata("machine-listening-tcp", Authority.CONTROL, 12, "machine-listening-tcp-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata MACHINE_USAGE = new CommandMetadata("machine-usage", Authority.CONTROL, 12, "machine-usage-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata MARK_WORKSPACES_PROVIDER_MANAGED = new CommandMetadata("mark-workspaces-provider-managed", Authority.PROVIDER_AUTHORITY, 9, "provider-managed-workspace-authority-v2", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata MINT_TERMINAL_RENDERER = new CommandMetadata("mint-terminal-renderer", Authority.FRONTEND, 9, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata MINT_TERMINAL_RENDERER_BY_TERMINAL = new CommandMetadata("mint-terminal-renderer-by-terminal", Authority.FRONTEND, 11, null, StreamKind.NONE, Map.of(), Map.of());
@@ -94,6 +96,7 @@ public final class Commands {
     public static final CommandMetadata SELECT_WORKSPACE = new CommandMetadata("select-workspace", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SEND = new CommandMetadata("send", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("paste", 7L)), Map.of());
     public static final CommandMetadata SEND_KEY = new CommandMetadata("send-key", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata SERVER_STATS = new CommandMetadata("server-stats", Authority.LOCAL_ADMIN, 12, "server-stats-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SET_CELL_PIXELS = new CommandMetadata("set-cell-pixels", Authority.FRONTEND, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SET_CLIENT_INFO = new CommandMetadata("set-client-info", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SET_CLIENT_SIZING = new CommandMetadata("set-client-sizing", Authority.CONTROL, 10, null, StreamKind.NONE, Map.of(), Map.of());
@@ -160,6 +163,8 @@ public final class Commands {
         values.put("list-clients", LIST_CLIENTS);
         values.put("list-terminals", LIST_TERMINALS);
         values.put("list-workspaces", LIST_WORKSPACES);
+        values.put("machine-listening-tcp", MACHINE_LISTENING_TCP);
+        values.put("machine-usage", MACHINE_USAGE);
         values.put("mark-workspaces-provider-managed", MARK_WORKSPACES_PROVIDER_MANAGED);
         values.put("mint-terminal-renderer", MINT_TERMINAL_RENDERER);
         values.put("mint-terminal-renderer-by-terminal", MINT_TERMINAL_RENDERER_BY_TERMINAL);
@@ -201,6 +206,7 @@ public final class Commands {
         values.put("select-workspace", SELECT_WORKSPACE);
         values.put("send", SEND);
         values.put("send-key", SEND_KEY);
+        values.put("server-stats", SERVER_STATS);
         values.put("set-cell-pixels", SET_CELL_PIXELS);
         values.put("set-client-info", SET_CLIENT_INFO);
         values.put("set-client-sizing", SET_CLIENT_SIZING);
