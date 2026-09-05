@@ -45,8 +45,13 @@ extension TerminalController {
             scrollbackLines: scrollbackLines,
             anchor: anchor
         )?.frame else { return nil }
-        MobileTerminalRenderObserver.shared.adoptReplayBaseline(frame, surfaceID: surfaceID)
-        return MobileTerminalRenderObserver.shared.decorateReplayFrame(frame)
+        // The phone applies the decorated frame, so rebase the producer cache
+        // with that same theme/config state. Rebasing the raw snapshot first
+        // makes the next event look like a theme change and promotes every
+        // keystroke to another verified full replay.
+        let decorated = MobileTerminalRenderObserver.shared.decorateReplayFrame(frame)
+        MobileTerminalRenderObserver.shared.adoptReplayBaseline(decorated, surfaceID: surfaceID)
+        return decorated
     }
 
     /// Captures a render grid from the canonical socket-bound runtime surface.
