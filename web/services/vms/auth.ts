@@ -490,6 +490,7 @@ function waitForStackAuthorization<T>(
  *
  * Returns the resolved user or null if unauthenticated.
  */
+// oxlint-disable-next-line complexity -- Native and browser authentication must preserve their ordered fallback and cache semantics.
 export async function verifyRequest(
   request: Request,
   options: VerifyRequestOptions = {},
@@ -736,6 +737,7 @@ type ResolvedStackUser = {
   readonly completeTeamList: boolean;
 };
 
+// oxlint-disable-next-line complexity -- Team, deletion, and identity resolution gates intentionally remain ordered.
 async function authedUserFromStackUser(
   user: StackUserLike,
   options: VerifyRequestOptions,
