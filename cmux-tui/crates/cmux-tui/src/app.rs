@@ -12408,10 +12408,11 @@ impl App {
         let Some(spec) = self.config.sidebar.views.get(index).cloned() else {
             return Arc::<[ProjectionRow]>::from(Vec::new());
         };
-        let live_agents = spec
-            .includes(SidebarResourceKind::Agents)
-            .then(|| self.session.agents())
-            .unwrap_or_default();
+        let live_agents = if spec.includes(SidebarResourceKind::Agents) {
+            self.session.agents()
+        } else {
+            Vec::new()
+        };
         // Refresh the client-local seen stamp before consulting the LRU. A
         // projection can be requested before the profile strip is drawn, and
         // a cache hit must not reuse the pre-seen ordering from that frame.
@@ -45881,7 +45882,7 @@ mod tests {
         let active_screen = initial_tree.active_screen().expect("split drag test screen");
         let screen_id = active_screen.id;
         let active_pane = active_screen.active_pane;
-        let (mut app, _events) = test_app_with_events(Session::Local(mux));
+        let (mut app, _events) = test_app_with_events(Session::Local(mux.clone()));
         app.replace_tree(initial_tree);
         let (started_tx, started_rx) = std::sync::mpsc::channel();
         let (_release_tx, release_rx) = std::sync::mpsc::channel::<()>();
