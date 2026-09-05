@@ -79,7 +79,7 @@ describe("iOS mobile network observability route", () => {
     expect(flushTimeouts).toEqual([1_000]);
   });
 
-  test("accepts a successful readiness observation and does not flush", async () => {
+  test("accepts a successful readiness observation and flushes it", async () => {
     const response = await POST(outcomeRequest([
       outcome({
         phase: "rpc_ready",
@@ -91,7 +91,7 @@ describe("iOS mobile network observability route", () => {
 
     expect(response.status).toBe(200);
     expect(emitted[0]?.batch[0]).toMatchObject({ phase: "rpc_ready", durationMs: 890 });
-    expect(flushTimeouts).toEqual([]);
+    expect(flushTimeouts).toEqual([1_000]);
   });
 
   test("rejects a mismatched stable event code and name", async () => {
