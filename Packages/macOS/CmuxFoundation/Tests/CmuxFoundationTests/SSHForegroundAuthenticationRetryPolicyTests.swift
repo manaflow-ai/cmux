@@ -451,6 +451,10 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         }
 
         let command = """
+        # The fixture shares a process group with this harness. Ignore the
+        # group-delivered signals from the intentionally terminated tree so
+        # the harness can finish reporting cleanup assertions.
+        trap '' HUP INT TERM
         \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
         CMUX_TEST_CHAIN_DEPTH=24 /bin/sh "$CMUX_TEST_CHAIN_SCRIPT" &
         cmux_test_auth_root=$!

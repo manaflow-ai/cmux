@@ -622,6 +622,12 @@ class LivePane:
 
 
 @dataclass(frozen=True)
+class MachineListeningTcpResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/MachineListeningTcpResult'
+    stdout: str
+
+
+@dataclass(frozen=True)
 class MachineUsage:
     __cmux_schema_path__: ClassVar[str] = 'types/MachineUsage'
     api_equivalent_usd: float
@@ -1575,6 +1581,12 @@ class ListTerminalsRequest:
 @dataclass(frozen=True)
 class ListWorkspacesRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/list-workspaces/request'
+    pass
+
+
+@dataclass(frozen=True)
+class MachineListeningTcpRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/machine-listening-tcp/request'
     pass
 
 
@@ -2696,6 +2708,7 @@ __all__ = [
     'ListAgentsResult',
     'ListTerminalsResult',
     'LivePane',
+    'MachineListeningTcpResult',
     'MachineUsage',
     'MachineUsageResult',
     'MintTerminalRendererResult',
@@ -2797,6 +2810,7 @@ __all__ = [
     'ListClientsRequest',
     'ListTerminalsRequest',
     'ListWorkspacesRequest',
+    'MachineListeningTcpRequest',
     'MachineUsageRequest',
     'MarkWorkspacesProviderManagedRequest',
     'MintTerminalRendererRequest',

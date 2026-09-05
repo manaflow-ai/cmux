@@ -31,6 +31,7 @@ members = [
     "crates/cmux-tui-machine-agent-protocol",
     "crates/cmux-tui-machine-protocol",
     "crates/cmux-tui",
+    "crates/cmux-wg",
 ]
 default-members = [
     "bindings/rust",
@@ -47,6 +48,7 @@ default-members = [
     "crates/cmux-tui-machine-agent-protocol",
     "crates/cmux-tui-machine-protocol",
     "crates/cmux-tui",
+    "crates/cmux-wg",
 ]
 exclude = ["vendor/crossterm"]
 
@@ -73,7 +75,8 @@ cmux-tui-core = { path = "crates/cmux-tui-core" }
 cmux-tui-cdp = { path = "crates/cmux-tui-cdp" }
 cmux-pty = { path = "crates/cmux-pty" }
 cmux-remote-protocol = { path = "crates/cmux-remote-protocol" }
-cmux-remote = { path = "crates/cmux-remote", default-features = false }
+cmux-remote = { path = "crates/cmux-remote", default-features = false, features = ["wireguard-transport"] }
+cmux-wg = { path = "crates/cmux-wg" }
 cmux-tui-machine-agent-protocol = { path = "crates/cmux-tui-machine-agent-protocol" }
 cmux-tui-machine-protocol = { path = "crates/cmux-tui-machine-protocol" }
 anyhow = "1"
@@ -92,14 +95,22 @@ ratatui = "0.30"
 unicode-width = "0.2"
 unicode-segmentation = "1"
 base64 = "0.22"
+# In-process WireGuard for Cloud VM attach (crates/cmux-wg). boringtun's
+# `noise` module is the sans-IO WireGuard session; no tun device, no ffi.
+boringtun = { version = "0.7", default-features = false }
+# ip_network is what boringtun already uses for AllowedIPs, so it adds no code.
+ip_network = "0.4"
+# smoltcp is the userspace TCP/IP stack those tunnels terminate in.
+smoltcp = { version = "0.14", default-features = false, features = ["std", "medium-ip", "proto-ipv4", "proto-ipv6", "socket-tcp", "async"] }
 png = "0.17"
 libc = "0.2"
 tungstenite = { version = "0.29", default-features = false, features = ["handshake"] }
 uds_windows = "1.2"
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Diagnostics_ToolHelp", "Win32_System_JobObjects", "Win32_System_Threading"] }
 regex = "1"
-# chatmux-relay uses reqwest for the single pairing bootstrap POST and time
-# for enrollment expiry parsing. cmux-tui also uses reqwest for Cloud spend.
+# reqwest and time are already in the dependency graph via iroh; declaring
+# them here adds no new transitive code. chatmux-relay uses reqwest for the
+# single pairing bootstrap POST and time for enrollment expiry parsing.
 # rustls-no-provider: ride the ring provider the tree already enables via
 # tungstenite instead of pulling in aws-lc-rs (cmake/nasm native builds).
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "json"] }

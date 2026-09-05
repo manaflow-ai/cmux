@@ -34,4 +34,6 @@ pub mod session;
 pub mod ssh_bootstrap;
 #[cfg(unix)]
 mod unix_socket;
+#[cfg(feature = "wireguard-transport")]
+pub mod wireguard_hub;
 pub mod workspace;
