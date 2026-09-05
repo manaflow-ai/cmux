@@ -1791,7 +1791,7 @@ public final class MobileIrohRuntimeComposition:
                       trustRoot: relayPolicyTrustRoot,
                       now: now()
                   ) else {
-                return []
+                return Set<String>()
             }
             return Set(cachedPolicy.relays.map(\.url))
         }
@@ -1818,7 +1818,7 @@ public final class MobileIrohRuntimeComposition:
                 && $0.endpointID == endpointID
                 && $0.identityGeneration == identity.generation
         } ?? false
-        let cachedManagedRelayURLs = await cachedManagedRelayURLsTask
+        let cachedManagedRelayURLs = await cachedManagedRelayURLsTask.value
         let cachedRelay: CmxIrohRelayTokenResponse?
         if let cachedBinding, bindingMatches {
             lastKnownBindingID = cachedBinding.bindingID
