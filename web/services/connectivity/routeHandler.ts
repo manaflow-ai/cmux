@@ -54,6 +54,9 @@ async function handleConnectivitySyncMethod(
   if (!/^[A-Za-z0-9._:-]{1,255}$/.test(clientNamespace)) {
     return jsonResponse({ error: "invalid_client_namespace" }, 400);
   }
+  if (user.clientNamespace && user.clientNamespace !== clientNamespace) {
+    return jsonResponse({ error: "client_namespace_mismatch" }, 403);
+  }
 
   try {
     const response = dependencies.authority
@@ -99,9 +102,16 @@ async function authenticateConnectivity(
   method: "sync" | "syncScoped",
   verify: typeof verifyRequest,
   verifySession: typeof verifyIrohSessionRequest,
-): Promise<{ readonly id: string } | null | Response> {
+): Promise<{ readonly id: string; readonly clientNamespace?: string } | null | Response> {
   const session = verifySession(request);
-  if (session.ok) return { id: session.identity.accountId };
+  if (session.ok) {
+    return {
+      id: session.identity.accountId,
+      ...(session.identity.clientNamespace
+        ? { clientNamespace: session.identity.clientNamespace }
+        : {}),
+    };
+  }
   if (session.error !== "missing") {
     return jsonResponse(
       { error: session.error === "not_configured" ? "iroh_session_not_configured" : "iroh_session_invalid" },

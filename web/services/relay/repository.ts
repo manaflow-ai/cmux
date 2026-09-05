@@ -318,7 +318,7 @@ export function makeRelayRepository(
 
 export const RelayRepositoryLive = Layer.succeed(
   RelayRepository,
-  makeRelayRepository(cloudDb),
+  makeRelayRepository(cloudDb, { lockMode: "hybrid" }),
 );
 
 export async function runRelayRepositoryEffect<A, E>(

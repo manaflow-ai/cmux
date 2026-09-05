@@ -72,12 +72,12 @@ through the Hyperdrive configuration. Do not copy an expiring Vercel OIDC token
 into Hyperdrive.
 
 Hyperdrive does not provide PostgreSQL advisory locks. An advisory lock is a
-named turnstile held by a database session until its transaction ends. Direct
-Worker repositories therefore use the new `account_mutation_fences` table: an
-operation inserts its deterministic lock key if needed, selects that row with
-`FOR UPDATE`, and performs the existing transaction. Vercel keeps its advisory
-lock mode. This preserves cross-writer serialization without changing the
-application tables or introducing Redis.
+named turnstile held by a database session until its transaction ends. Both
+Worker and Vercel repositories therefore take a pre-seeded
+`account_mutation_fences` bucket row with `FOR UPDATE`; Vercel's hybrid path
+also keeps its advisory fast path. The row query fails closed if the seed
+migration is missing. This preserves cross-writer serialization without
+changing the application tables or introducing Redis.
 
 The SQL migration is
 `web/db/migrations/20260904120000_account_mutation_fences/migration.sql` and

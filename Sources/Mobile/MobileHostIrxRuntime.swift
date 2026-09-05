@@ -317,6 +317,9 @@ final class MobileHostIrxRuntime {
                         guard let broker else { return nil }
                         return try await broker.ensureSessionTicket()
                     },
+                    sessionTicketInvalidator: { [weak broker] in
+                        await broker?.invalidateSessionTicket()
+                    },
                     mintProofProvider: { [weak broker] endpointID in
                         guard let broker else { return nil }
                         return try await broker.makeControlPlaneMintProof(endpointID: endpointID)

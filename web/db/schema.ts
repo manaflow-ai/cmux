@@ -127,9 +127,9 @@ export const accountDeletionTombstones = pgTable(
 );
 
 /**
- * Transaction fences used by runtimes that cannot call PostgreSQL advisory
- * locks, such as Cloudflare Hyperdrive. Keys are deterministic application
- * lock names, never user-visible data.
+ * Pre-seeded transaction-fence buckets used by runtimes that cannot call
+ * PostgreSQL advisory locks, such as Cloudflare Hyperdrive. Keys are bounded
+ * hashes of application lock names, never user-visible data.
  */
 export const accountMutationFences = pgTable("account_mutation_fences", {
   lockKey: text("lock_key").primaryKey(),

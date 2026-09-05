@@ -69,6 +69,13 @@ async function authenticatedAccount(
   let user: AuthedUser | null;
   const session = verifyIrohSessionRequest(request);
   if (session.ok) {
+    // The ticket is already account-authenticated, but its namespace is still
+    // an authorization claim and must not be replaced by a caller header.
+    const requestedNamespace = request.headers.get("x-cmux-app-namespace") ?? "legacy";
+    if (session.identity.clientNamespace
+      && session.identity.clientNamespace !== requestedNamespace) {
+      return jsonResponse({ error: "client_namespace_mismatch" }, 403);
+    }
     user = {
       id: session.identity.accountId,
       displayName: null,

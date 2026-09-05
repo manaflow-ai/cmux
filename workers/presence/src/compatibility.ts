@@ -26,3 +26,22 @@ export function compatibilityProtectionHeaders(
   if (!hostname.endsWith(".vercel.app")) return {};
   return { "x-vercel-protection-bypass": secret };
 }
+
+/**
+ * Validate the compatibility upstream before a session ticket is placed on
+ * the request. Only HTTPS origins are allowed, and URL credentials/query
+ * state is rejected so an operator typo cannot redirect a bearer-equivalent
+ * ticket to an unexpected endpoint.
+ */
+export function validatedCompatibilityBaseURL(baseURL: string): string | null {
+  try {
+    const url = new URL(baseURL);
+    if (url.protocol !== "https:" || !url.hostname
+      || url.username || url.password || url.search || url.hash) {
+      return null;
+    }
+    return url.toString().replace(/\/+$/, "");
+  } catch {
+    return null;
+  }
+}

@@ -12,7 +12,7 @@ import {
   accountMutationLeases,
 } from "../../db/schema";
 
-type CloudDbTransaction = Parameters<Parameters<ReturnType<typeof cloudDb>["transaction"]>[0]>[0];
+export type CloudDbTransaction = Parameters<Parameters<ReturnType<typeof cloudDb>["transaction"]>[0]>[0];
 type AccountDeletionQueryExecutor = Pick<CloudDbTransaction, "select">;
 
 export type AccountDeletionIdentityOperationResult<T> =
@@ -50,6 +50,21 @@ export function accountDeletionUserHash(userId: string): string {
 
 export function accountDeletionAdvisoryLockKey(userId: string): string {
   return `account-deletion:${accountDeletionUserHash(userId)}`;
+}
+
+/** Acquire the account-deletion fence shared by Vercel and Worker runtimes.
+ * Use `hybrid` during the cutover when both the portable row fence and the
+ * existing Vercel advisory fast path must be held. */
+export async function acquireAccountDeletionLock(
+  tx: CloudDbTransaction,
+  userId: string,
+  mode: MutationLockMode = "advisory",
+): Promise<void> {
+  await acquireMutationLock(
+    tx as unknown as MutationLockExecutor,
+    accountDeletionAdvisoryLockKey(userId),
+    mode,
+  );
 }
 
 export const ACCOUNT_DELETION_TOMBSTONE_LEASE_MS = 15 * 60 * 1000;
@@ -125,9 +140,7 @@ export async function withAccountDeletionAnalyticsForwardLease<T>(
     // than one client identity. The durable lease survives process boundaries,
     // while the transaction ends before PostHog I/O starts.
     for (const [, userId] of identities) {
-      await tx.execute(
-        sql`select pg_advisory_xact_lock(hashtextextended(${accountDeletionAdvisoryLockKey(userId)}, 0))`,
-      );
+      await acquireAccountDeletionLock(tx, userId);
     }
     if (await hasBlockingAccountDeletionIdentityHashes(tx, identities.map(([hash]) => hash))) {
       return { kind: "blocked" } as const;
@@ -172,9 +185,7 @@ async function releaseAccountAnalyticsForwardLease(
 ): Promise<void> {
   await db.transaction(async (tx) => {
     for (const [, userId] of identities) {
-      await tx.execute(
-        sql`select pg_advisory_xact_lock(hashtextextended(${accountDeletionAdvisoryLockKey(userId)}, 0))`,
-      );
+      await acquireAccountDeletionLock(tx, userId);
     }
     await tx
       .delete(accountAnalyticsForwardLeases)
@@ -189,9 +200,7 @@ export async function assertNoAccountAnalyticsForwardInProgress(
 ): Promise<void> {
   const userIdHash = accountDeletionUserHash(userId);
   await db.transaction(async (tx) => {
-    await tx.execute(
-      sql`select pg_advisory_xact_lock(hashtextextended(${accountDeletionAdvisoryLockKey(userId)}, 0))`,
-    );
+    await acquireAccountDeletionLock(tx, userId);
     await tx.delete(accountAnalyticsForwardLeases).where(
       and(
         eq(accountAnalyticsForwardLeases.userIdHash, userIdHash),
@@ -354,9 +363,7 @@ async function refreshAccountDeletionUserMutationLease(
 ): Promise<void> {
   const userIdHash = accountDeletionUserHash(userId);
   await db.transaction(async (tx) => {
-    await tx.execute(
-      sql`select pg_advisory_xact_lock(hashtextextended(${accountDeletionAdvisoryLockKey(userId)}, 0))`,
-    );
+    await acquireAccountDeletionLock(tx, userId);
     const [lease] = await tx
       .select({ operationId: accountMutationLeases.operationId })
       .from(accountMutationLeases)
@@ -386,9 +393,7 @@ async function releaseAccountDeletionUserMutationLease(
   operationId: string,
 ): Promise<void> {
   await db.transaction(async (tx) => {
-    await tx.execute(
-      sql`select pg_advisory_xact_lock(hashtextextended(${accountDeletionAdvisoryLockKey(userId)}, 0))`,
-    );
+    await acquireAccountDeletionLock(tx, userId);
     await tx
       .delete(accountMutationLeases)
       .where(and(

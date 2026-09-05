@@ -19,7 +19,6 @@ import {
 } from "../../../web/services/iroh/repository";
 import {
   makeIrohRelayMinter,
-  type IrohRelayMinterShape,
 } from "../../../web/services/iroh/relayMinter";
 import {
   makeIrohTrustBroker,
@@ -31,7 +30,6 @@ import {
   type RelayRepositoryShape,
 } from "../../../web/services/relay/repository";
 import {
-  configLayer,
   type IrohTrustBrokerConfigShape,
 } from "../../../web/services/iroh/configCore";
 import {

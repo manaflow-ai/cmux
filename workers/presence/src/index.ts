@@ -18,11 +18,11 @@
 //   GET  /v1/replies?macDeviceId=…        pending replies for one Mac
 //   POST /v1/replies/ack                  remove processed replies
 //
-// Auth on every /v1 route: `Authorization: Bearer <Stack access token>` plus
-// optional `X-Cmux-Team-Id` / `?teamId=` team scoping, verified in auth.ts the
-// same way web/app/api verifies native callers. The worker resolves the team,
-// derives the per-team Durable Object from the VERIFIED team id, and forwards;
-// the DO never sees unauthenticated input.
+// Legacy presence and backup routes use `Authorization: Bearer <Stack access
+// token>` plus optional team scoping. Current Iroh control routes bootstrap
+// once with that bearer, then use a signed session ticket at the edge and the
+// account Durable Object for every ordinary request. The DO never sees
+// unauthenticated input.
 
 import {
   bearerToken,
@@ -54,8 +54,10 @@ import {
 import { captureSentryException } from "./sentry";
 import {
   IROH_SESSION_TICKET_HEADER,
+  parseIrohSessionClientContext,
   sessionTicketFromRequest,
   verifyIrohSessionTicket,
+  type IrohSessionVerification,
 } from "./irohSession";
 export { TeamPresence, AccountControlPlane };
 
@@ -75,6 +77,17 @@ function json(body: unknown, status = 200): Response {
 
 function unauthorized(): Response {
   return json({ error: "unauthorized" }, 401);
+}
+
+function sessionVerificationError(
+  error: Extract<IrohSessionVerification, { readonly ok: false }>["error"],
+): Response {
+  // Configuration state is an operator concern, not an authentication detail
+  // for callers. Keep the retryable 503 distinct while using the normal
+  // session error vocabulary for malformed or expired tickets.
+  return error === "not_configured"
+    ? json({ error: "session_unavailable" }, 503)
+    : json({ error: `session_${error}` }, 401);
 }
 
 const IROH_CONTROL_PATHS = new Map<string, ReadonlySet<string>>([
@@ -139,17 +152,10 @@ function requestID(request: Request): string {
 
 function validSessionOpenBody(value: unknown): value is Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
-  const body = value as Record<string, unknown>;
-  const keys = Object.keys(body);
-  if (keys.some((key) => ![
-    "deviceId", "appInstanceId", "clientNamespace", "tag", "platform",
-  ].includes(key))) return false;
-  for (const key of ["deviceId", "appInstanceId", "clientNamespace", "tag", "platform"]) {
-    if (key in body && (typeof body[key] !== "string" || (body[key] as string).length > 255)) {
-      return false;
-    }
-  }
-  return true;
+  // Keep the public bootstrap parser identical to the DO's internal renewal
+  // parser. A partial client context is ambiguous and must not mint a ticket
+  // whose namespace/account binding is weaker than the advertised contract.
+  return parseIrohSessionClientContext(value) !== null;
 }
 
 async function readSessionOpenBody(request: Request): Promise<Record<string, unknown> | null> {
@@ -239,7 +245,7 @@ const worker = {
         ticket,
         Date.now(),
       );
-      if (!ticketVerification.ok) return json({ error: `session_${ticketVerification.error}` }, 401);
+      if (!ticketVerification.ok) return sessionVerificationError(ticketVerification.error);
       const headers = new Headers();
       headers.set("x-control-account-id", ticketVerification.claims.accountId);
       headers.set(IROH_SESSION_TICKET_HEADER, ticket);
@@ -281,7 +287,7 @@ const worker = {
           Date.now(),
         );
         if (!verification.ok) {
-          return json({ error: `session_${verification.error}` }, 401);
+          return sessionVerificationError(verification.error);
         }
         accountId = verification.claims.accountId;
       } else {
@@ -358,7 +364,7 @@ const worker = {
           ticket,
           Date.now(),
         );
-        if (!verified.ok) return json({ error: `session_${verified.error}` }, 401);
+        if (!verified.ok) return sessionVerificationError(verified.error);
         accountId = verified.claims.accountId;
         if (verified.claims.clientNamespace
           && verified.claims.clientNamespace !== (namespace ?? "legacy")) {

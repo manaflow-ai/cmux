@@ -217,7 +217,10 @@ export class IrohRepository extends Context.Tag("cmux/IrohRepository")<
   IrohRepositoryShape
 >() {}
 
-export const IrohRepositoryLive = Layer.succeed(IrohRepository, makeIrohRepository(cloudDb));
+export const IrohRepositoryLive = Layer.succeed(
+  IrohRepository,
+  makeIrohRepository(cloudDb, { lockMode: "hybrid" }),
+);
 
 export function makeIrohRepository(
   dbProvider: () => ReturnType<typeof cloudDb>,
@@ -244,7 +247,7 @@ export function makeIrohRepository(
         // (insert, reincarnation, and heartbeat paths alike), so if each new
         // challenge is strictly newer than every prior challenge for its slot,
         // the strict `<` gate is exact. All mints for a user serialize under
-        // the per-user challenge advisory lock above, so this read cannot race
+        // the per-user mutation fence above, so this read cannot race
         // another mint for the same slot.
         const [priorChallenge] = await tx
           .select({ createdAt: irohRegistrationChallenges.createdAt })
@@ -393,7 +396,7 @@ export function makeIrohRepository(
         }
 
         // Reject a stale challenge minted before the slot's current registration.
-        // Challenges resolve under the slot advisory lock, so two registrations
+        // Challenges resolve under the slot mutation fence, so two registrations
         // for one slot serialize; without this gate an older challenge that lost
         // the race (issued before the row's last registeredAt) could still land
         // second and overwrite — or reincarnate away — the newer incarnation,
@@ -1087,7 +1090,7 @@ export function makeIrohRepository(
 
     pruneExpiredStateGlobally: (input) => repositoryEffect(
       "prune_expired_state_globally",
-      () => drainIrohRetention(input),
+      () => drainIrohRetention({ ...input, dbProvider }),
     ),
 
     finalizeEndpointAttestation: (input) => repositoryEffect("finalize_endpoint_attestation", async () => {
@@ -1410,6 +1413,7 @@ async function drainIrohRetention(input: {
   readonly now: Date;
   readonly maxRows?: number;
   readonly maxDurationMs?: number;
+  readonly dbProvider: () => ReturnType<typeof cloudDb>;
 }): Promise<IrohRetentionResult> {
   const maxRows = retentionBudget(
     input.maxRows,
@@ -1431,7 +1435,7 @@ async function drainIrohRetention(input: {
   const operations: readonly RetentionBatchOperation[] = [
     {
       category: "revokedHints",
-      run: (limit) => runRetentionBatch(async (tx) => await tx.execute(sql`
+      run: (limit) => runRetentionBatch(input.dbProvider, async (tx) => await tx.execute(sql`
         with candidates as materialized (
           select id
           from iroh_endpoint_bindings
@@ -1460,7 +1464,7 @@ async function drainIrohRetention(input: {
     },
     {
       category: "expiredHints",
-      run: (limit) => runRetentionBatch(async (tx) => await tx.execute(sql`
+      run: (limit) => runRetentionBatch(input.dbProvider, async (tx) => await tx.execute(sql`
         with candidates as materialized (
           select id
           from iroh_endpoint_bindings
@@ -1512,7 +1516,7 @@ async function drainIrohRetention(input: {
     },
     {
       category: "expiredChallenges",
-      run: (limit) => runRetentionBatch(async (tx) => await tx.execute(sql`
+      run: (limit) => runRetentionBatch(input.dbProvider, async (tx) => await tx.execute(sql`
         with candidates as materialized (
           select id
           from iroh_registration_challenges
@@ -1531,7 +1535,7 @@ async function drainIrohRetention(input: {
     },
     {
       category: "consumedChallenges",
-      run: (limit) => runRetentionBatch(async (tx) => await tx.execute(sql`
+      run: (limit) => runRetentionBatch(input.dbProvider, async (tx) => await tx.execute(sql`
         with candidates as materialized (
           select id
           from iroh_registration_challenges
@@ -1550,7 +1554,7 @@ async function drainIrohRetention(input: {
     },
     {
       category: "relayAudits",
-      run: (limit) => runRetentionBatch(async (tx) => await tx.execute(sql`
+      run: (limit) => runRetentionBatch(input.dbProvider, async (tx) => await tx.execute(sql`
         with candidates as materialized (
           select id
           from iroh_relay_token_issuances
@@ -1569,7 +1573,7 @@ async function drainIrohRetention(input: {
     },
     {
       category: "pairGrantAudits",
-      run: (limit) => runRetentionBatch(async (tx) => await tx.execute(sql`
+      run: (limit) => runRetentionBatch(input.dbProvider, async (tx) => await tx.execute(sql`
         with candidates as materialized (
           select id
           from iroh_pair_grant_issuances
@@ -1588,7 +1592,7 @@ async function drainIrohRetention(input: {
     },
     {
       category: "revokedBindings",
-      run: (limit) => runRetentionBatch(async (tx) => await tx.execute(sql`
+      run: (limit) => runRetentionBatch(input.dbProvider, async (tx) => await tx.execute(sql`
         with candidates as materialized (
           select binding.id
           from iroh_endpoint_bindings as binding
@@ -1652,14 +1656,20 @@ async function drainIrohRetention(input: {
       : null;
   const backlog = budgetExhausted === "time"
     ? true
-    : await irohRetentionBacklogExists(input.now, challengeRetentionCutoff, auditRetentionCutoff);
+    : await irohRetentionBacklogExists(
+      input.dbProvider,
+      input.now,
+      challengeRetentionCutoff,
+      auditRetentionCutoff,
+    );
   return { rowsProcessed, batches, backlog, budgetExhausted, byCategory };
 }
 
 async function runRetentionBatch(
+  dbProvider: () => ReturnType<typeof cloudDb>,
   execute: (tx: CloudDbTransaction) => Promise<unknown>,
 ): Promise<number> {
-  return await cloudDb().transaction(async (tx) => {
+  return await dbProvider().transaction(async (tx) => {
     const result = await execute(tx);
     const [row] = databaseRows(result);
     const affected = Number(row?.affected ?? 0);
@@ -1671,11 +1681,12 @@ async function runRetentionBatch(
 }
 
 async function irohRetentionBacklogExists(
+  dbProvider: () => ReturnType<typeof cloudDb>,
   now: Date,
   challengeRetentionCutoff: Date,
   auditRetentionCutoff: Date,
 ): Promise<boolean> {
-  const result = await cloudDb().execute(sql`
+  const result = await dbProvider().execute(sql`
     select (
       exists (
         select 1 from iroh_endpoint_bindings
@@ -1772,8 +1783,8 @@ function databaseConflict(cause: unknown): IrohConflictError | null {
   if (candidate.constraint === "iroh_endpoint_bindings_active_endpoint_unique") {
     return new IrohConflictError({ code: "endpoint_already_bound" });
   }
-  // The slot advisory lock (pg_advisory_xact_lock on iroh:slot:user:device:tag)
-  // serializes registrations for one slot, so the partial unique index on
+  // The slot mutation fence (the shared row fence plus the Vercel advisory
+  // fast path) serializes registrations for one slot, so the partial unique index on
   // (user, client namespace, device, tag) where revoked_at is null is
   // unreachable in practice.
   // Map it defensively anyway: without this branch a slot race would fall

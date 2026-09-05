@@ -4,6 +4,7 @@
 // proxy to a direct Aurora/Hyperdrive repository.
 
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { env } from "../../app/env";
 
 export const IROH_SESSION_TICKET_HEADER = "x-cmux-iroh-session-ticket";
 export const IROH_SESSION_SCOPE = "iroh.control.v1";
@@ -102,7 +103,7 @@ export function verifyIrohSessionRequest(
   if (!raw) return { ok: false, error: "missing" };
   return verifyIrohSessionTicket(
     raw,
-    options.secret ?? process.env.CMUX_IROH_SESSION_SIGNING_KEY,
+    options.secret ?? env.CMUX_IROH_SESSION_SIGNING_KEY,
     options.nowMs ?? Date.now(),
   );
 }

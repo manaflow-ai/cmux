@@ -51,7 +51,7 @@ import { withVaultUserQuotaLock } from "../../../services/vault/usage";
 import {
   AccountDeletionAnalyticsForwardInProgressError,
   AccountDeletionUserMutationInProgressError,
-  accountDeletionAdvisoryLockKey,
+  acquireAccountDeletionLock,
   accountDeletionUserHash,
   assertNoAccountAnalyticsForwardInProgress,
   assertNoAccountDeletionUserMutationInProgress,
@@ -622,7 +622,10 @@ async function markAccountDeletionTombstonePending(userId: string): Promise<Acco
   const now = new Date();
   const userIdHash = accountDeletionUserHash(userId);
   return await db.transaction(async (tx) => {
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${accountDeletionAdvisoryLockKey(userId)}, 0))`);
+    // Account deletion remains on Vercel during the Iroh cutover. Take both
+    // lock forms so it serializes with legacy Vercel mutations and direct
+    // Worker mutations before checking leases or writing the tombstone.
+    await acquireAccountDeletionLock(tx, userId, "hybrid");
     await assertNoAccountDeletionUserMutationInProgress(tx, userId, now);
     const [existing] = await tx
       .select({

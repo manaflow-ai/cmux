@@ -408,6 +408,9 @@ public actor MobileIrxRuntimeComposition {
             sessionTicketProvider: {
                 try await broker.ensureSessionTicket()
             },
+            sessionTicketInvalidator: {
+                await broker.invalidateSessionTicket()
+            },
             mintProofProvider: { endpointID in
                 try await broker.makeControlPlaneMintProof(endpointID: endpointID)
             },

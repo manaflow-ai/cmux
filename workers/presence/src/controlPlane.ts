@@ -1632,19 +1632,11 @@ export class ControlPlaneCore {
     if (credentials === undefined) return null;
     const result = await this.upstreamOnceRetry(DISCOVERY_PATH, {
       method: "GET",
-      // The control-plane socket is authenticated with the account's Stack
-      // bearer, but it does not hold the endpoint private key needed to sign
-      // a binding-request proof.  Discovery is intentionally account-scoped
-      // here, so use the legacy namespace compatibility mode.  The returned
-      // directory is still protected by the socket's account bearer and the
-      // DO's per-account routing, while the app's own namespace remains on
-      // mutation/relay requests.
-      headers: {
-        ...upstreamHeaders(credentials, attachment.namespace ?? "legacy", false),
-        ...(attachment.endpointId
-          ? { "x-cmux-control-endpoint-id": attachment.endpointId }
-          : {}),
-      },
+      // The request is generated inside the already-authenticated account DO,
+      // which passes an in-process trust flag to the direct adapter. It may
+      // retain the socket namespace for the correct directory projection; no
+      // client-supplied endpoint header is used as authorization.
+      headers: upstreamHeaders(credentials, attachment.namespace ?? "legacy", false),
     });
     if (result === null || result.status < 200 || result.status >= 300) return null;
     return directoryPayloadFromDiscovery(result.json);

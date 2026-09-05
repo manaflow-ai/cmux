@@ -313,6 +313,52 @@ describe("Connectivity authority", () => {
     expect(stackCalls).toBe(0);
   });
 
+  test("binds a session ticket to the requested app namespace", async () => {
+    let authorityCalled = false;
+    const response = await handleConnectivitySync(new Request(
+      "https://cmux.test/api/connectivity/v2/sync",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-cmux-app-namespace": "other.app",
+        },
+        body: JSON.stringify({ protocol_version: 2, known_revision: null }),
+      },
+    ), {
+      verify: async () => USER,
+      verifySession: () => ({
+        ok: true,
+        identity: {
+          accountId: USER.id,
+          sessionId: "session-namespaced",
+          epoch: 0,
+          issuedAt: 1,
+          expiresAt: 2_000_000_000,
+          renewAt: 1_500_000_000,
+          scope: "iroh.control.v1" as const,
+          clientNamespace: "com.cmux.app",
+        },
+      }),
+      authority: {
+        sync: () => {
+          authorityCalled = true;
+          return Effect.succeed({
+            protocol_version: 2 as const,
+            revision: 0,
+            changed: false,
+            reset: false,
+          });
+        },
+        syncScoped: () => Effect.die(new Error("unexpected scoped sync")),
+      },
+    });
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: "client_namespace_mismatch" });
+    expect(authorityCalled).toBe(false);
+  });
+
   test("rejects malformed and oversized sync requests before authority work", async () => {
     let calls = 0;
     const authority = makeConnectivityAuthority({

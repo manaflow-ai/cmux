@@ -25,7 +25,6 @@ import {
 } from "../../../web/services/relay/token";
 import { verifyBindingRequestSignature } from "../../../web/services/iroh/crypto";
 import type { IrohTrustBrokerShape } from "../../../web/services/iroh/trustBroker";
-import type { IrohBindingRecord } from "../../../web/services/iroh/repository";
 import {
   IrohConflictError,
   IrohConfigurationError,
@@ -59,10 +58,17 @@ export type IrohHttpResult = {
   readonly revision?: number;
 };
 
+export type IrohHttpOptions = {
+  /** Set only by the account DO after it has authenticated the request. This
+   * is an in-process trust boundary, never a caller-controlled header. */
+  readonly accountSessionTrusted?: boolean;
+};
+
 export async function handleIrohControlRequest(
   request: Request,
   accountId: string,
   backend: WorkerIrohBackend,
+  options: IrohHttpOptions = {},
 ): Promise<IrohHttpResult> {
   const url = new URL(request.url);
   const namespace = request.headers.get("x-cmux-app-namespace")?.trim() || "legacy";
@@ -107,19 +113,6 @@ export async function handleIrohControlRequest(
     const bytes = parsed.kind === "discovery" ? new Uint8Array() : parsed.bytes;
     const proof = await parseBindingProof(request, bytes);
     if (proof instanceof Response) return { response: proof };
-    let trustedCaller: IrohBindingRecord | undefined;
-    if (operation === "discover") {
-      const endpointId = request.headers.get("x-cmux-control-endpoint-id")?.trim();
-      if (endpointId) {
-        if (!isValidEndpointId(endpointId)) {
-          return { response: json({ error: "invalid_control_endpoint_id" }, 400) };
-        }
-        const candidate = await runWorkerEffect(
-          backend.repository.findActiveBindingByEndpoint(accountId, endpointId.toLowerCase()),
-        );
-        if (candidate?.clientNamespace === namespace) trustedCaller = candidate;
-      }
-    }
     const value = await runWorkerEffect(invokeBroker(
       backend.broker,
       operation,
@@ -127,7 +120,7 @@ export async function handleIrohControlRequest(
       body,
       namespace,
       proof,
-      trustedCaller,
+      options.accountSessionTrusted === true && operation === "discover",
     ));
     const revision = mutationRevision(operation, value);
     return {
@@ -168,7 +161,7 @@ function invokeBroker(
   body: unknown,
   namespace: string,
   proof: IrohBindingRequestProof | undefined,
-  trustedCaller?: IrohBindingRecord,
+  accountSessionTrusted: boolean,
 ) {
   switch (operation) {
     case "challenge": return broker.issueChallenge(accountId, body, undefined, namespace);
@@ -179,9 +172,7 @@ function invokeBroker(
       body,
       namespace,
       proof,
-      true,
-      undefined,
-      trustedCaller,
+      accountSessionTrusted,
     );
     case "endpoint_attestation": {
       return broker.issueEndpointAttestation(accountId, body, undefined, namespace, proof);
@@ -310,16 +301,16 @@ async function handleManagedRelayToken(
     }));
     if (!completed) throw new IrohNotFoundError({ resource: "binding" });
     const relayCredentials = credentials.map((credential) => ({
-      relay_url: credential.relayUrl,
+      relayUrl: credential.relayUrl,
       token: credential.token,
-      expires_at: credential.expiresAt,
-      refresh_after: credential.refreshAfter,
-      ttl_seconds: credential.ttlSeconds,
+      expiresAt: credential.expiresAt,
+      refreshAfter: credential.refreshAfter,
+      ttlSeconds: credential.ttlSeconds,
     }));
     return {
       response: json({
         endpointId,
-        relay_credentials: relayCredentials,
+        relayCredentials,
         ...(credentials.every((item) =>
           item.token === first.token && item.expiresAt === first.expiresAt &&
           item.ttlSeconds === first.ttlSeconds)
@@ -408,7 +399,12 @@ async function parseBindingProof(
   if (!Number.isSafeInteger(timestampSeconds)) {
     return json({ error: "invalid_binding_request_proof" }, 400);
   }
-  const digest = await crypto.subtle.digest("SHA-256", body);
+  // Copy into an ArrayBuffer-backed view for the stricter WebCrypto typings
+  // used by both workerd and the current TypeScript lib.dom definitions.
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    body.slice().buffer as unknown as ArrayBuffer,
+  );
   const bytes = new Uint8Array(digest);
   let bodySha256 = "";
   for (const byte of bytes) bodySha256 += byte.toString(16).padStart(2, "0");

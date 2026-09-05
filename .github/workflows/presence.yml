@@ -117,9 +117,10 @@ jobs:
           fi
 
       # Runtime secrets are provisioned once per Worker, outside CI. Keeping
-      # this inventory next to the deploy gate makes a missing session key or
-      # Sentry DSN visible before a production cutover instead of after the
-      # first iOS reconnect.
+      # this inventory next to the deploy gate makes a missing session key
+      # visible before a production cutover instead of after the first iOS
+      # reconnect. Sentry is optional and is checked by the observability
+      # dashboard rather than blocking deployment here.
       - name: Check Worker runtime secret inventory
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

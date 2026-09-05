@@ -82,10 +82,9 @@ async function handleIrohRouteWithIdentity(
     readonly verifiedSession?: IrohSessionIdentity;
   } = {},
 ): Promise<Response> {
-  // Identity only: the broker needs the user id, and local token verification
-  // keeps the ~100 req/s registration traffic off Stack's per-request API
-  // budget. Pair grants, revocation, and relay tokens are rare and sensitive,
-  // so they still ask Stack and refuse a revoked session immediately.
+  // A ticket-authenticated request is authorized by local signature, expiry,
+  // endpoint proof, and database state, so it makes no Stack call. The Stack
+  // requirement below applies only to legacy requests without a session ticket.
   const verify = dependencies.verify ?? verifyRequestIdentity;
   let user: { readonly id: string } | null;
   try {

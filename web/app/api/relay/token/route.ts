@@ -166,9 +166,11 @@ export async function handleRelayTokenRequest(
   }
 
   let user: { readonly id: string } | null;
+  let sessionNamespace: string | undefined;
   const session = verifyIrohSessionRequest(request);
   if (session.ok) {
     user = { id: session.identity.accountId };
+    sessionNamespace = session.identity.clientNamespace;
   } else if (session.error !== "missing") {
     return jsonResponse(
       { error: session.error === "not_configured" ? "iroh_session_not_configured" : "iroh_session_invalid" },
@@ -185,6 +187,9 @@ export async function handleRelayTokenRequest(
   const clientNamespace = request.headers.get("x-cmux-app-namespace") ?? "legacy";
   if (!/^[A-Za-z0-9._:-]{1,255}$/.test(clientNamespace)) {
     return jsonResponse({ error: "invalid_client_namespace" }, 400);
+  }
+  if (sessionNamespace && sessionNamespace !== clientNamespace) {
+    return jsonResponse({ error: "client_namespace_mismatch" }, 403);
   }
   const proofRequest = request.clone();
 

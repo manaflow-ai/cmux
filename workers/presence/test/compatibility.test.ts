@@ -1,5 +1,8 @@
 import { describe, expect, it } from "bun:test";
-import { compatibilityProtectionHeaders } from "../src/compatibility";
+import {
+  compatibilityProtectionHeaders,
+  validatedCompatibilityBaseURL,
+} from "../src/compatibility";
 
 describe("compatibility upstream protection", () => {
   it("adds the bypass only for HTTPS Vercel origins", () => {
@@ -24,5 +27,19 @@ describe("compatibility upstream protection", () => {
     }
     expect(compatibilityProtectionHeaders("https://cmux-staging.vercel.app", " "))
       .toEqual({});
+  });
+
+  it("rejects non-HTTPS compatibility origins before forwarding tickets", () => {
+    expect(validatedCompatibilityBaseURL(
+      "https://cmux-staging.vercel.app/",
+    )).toBe("https://cmux-staging.vercel.app");
+    for (const origin of [
+      "http://cmux-staging.vercel.app",
+      "https://user:password@example.com",
+      "https://example.com?ticket=leak",
+      "not a URL",
+    ]) {
+      expect(validatedCompatibilityBaseURL(origin)).toBeNull();
+    }
   });
 });

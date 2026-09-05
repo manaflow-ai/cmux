@@ -32,6 +32,7 @@ import {
   sessionTicketFromRequest,
   verifyIrohSessionTicket,
   type IrohSessionClaims,
+  type IrohSessionVerification,
 } from "./irohSession";
 import {
   CONTROL_REFRESH_INTERVAL_MS,
@@ -43,7 +44,10 @@ import {
   type CtlStorage,
 } from "./controlPlane";
 import { captureSentryException, type SentryEnv } from "./sentry";
-import { compatibilityProtectionHeaders } from "./compatibility";
+import {
+  compatibilityProtectionHeaders,
+  validatedCompatibilityBaseURL,
+} from "./compatibility";
 
 export interface ControlPlaneEnv extends SentryEnv, IrohWorkerEnvironment {
   /** Compatibility origin used only while CMUX_IROH_BACKEND_MODE is
@@ -76,6 +80,7 @@ const SESSION_EPOCH_KEY = "iroh:session:epoch";
 const SESSION_PREFIX = "iroh:session:";
 const MAX_STORED_IROH_SESSIONS = 32;
 const SESSION_CLEANUP_SCAN_LIMIT = 64;
+const SESSION_LAST_SEEN_WRITE_INTERVAL_MS = 60_000;
 const MAX_SESSION_BODY_BYTES = 8 * 1_024;
 const MAX_IROH_PROXY_BODY_BYTES = 64 * 1_024;
 
@@ -116,6 +121,14 @@ function json(body: unknown, status: number): Response {
     status,
     headers: { "content-type": "application/json" },
   });
+}
+
+function sessionVerificationError(
+  error: Extract<IrohSessionVerification, { readonly ok: false }>["error"],
+): Response {
+  return error === "not_configured"
+    ? json({ error: "session_unavailable" }, 503)
+    : json({ error: `session_${error}` }, 401);
 }
 
 function requestID(request: Request): string {
@@ -176,8 +189,11 @@ export class AccountControlPlane extends DurableObject<ControlPlaneEnv> {
   private irohBackend: WorkerIrohBackend | undefined;
 
   private directIrohBackendEnabled(): boolean {
+    // The deployment mode is an explicit safety switch. A binding alone must
+    // not silently move a rollout from the compatibility proxy to Aurora.
     return this.env.CMUX_IROH_BACKEND_MODE === "direct"
-      || this.env.HYPERDRIVE !== undefined;
+      || (this.env.CMUX_IROH_BACKEND_MODE === undefined
+        && this.env.HYPERDRIVE !== undefined);
   }
 
   private readonly core = new ControlPlaneCore({
@@ -199,6 +215,7 @@ export class AccountControlPlane extends DurableObject<ControlPlaneEnv> {
           directRequest,
           accountId,
           this.irohBackend ??= makeWorkerIrohBackend(this.env),
+          { accountSessionTrusted: true },
         );
         if (result.revision !== undefined) {
           this.ctx.waitUntil(this.publishConnectivityRevision(
@@ -228,7 +245,12 @@ export class AccountControlPlane extends DurableObject<ControlPlaneEnv> {
         return { status: result.response.status, json: jsonBody };
       }
 
-      const base = (this.env.CMUX_WEB_BASE_URL ?? PRODUCTION_WEB_BASE_URL).replace(/\/+$/, "");
+      const base = validatedCompatibilityBaseURL(
+        this.env.CMUX_WEB_BASE_URL ?? PRODUCTION_WEB_BASE_URL,
+      );
+      if (!base) {
+        throw new Error("compatibility_origin_not_https");
+      }
       let response: Response;
       try {
         response = await fetch(`${base}${path}`, {
@@ -326,7 +348,7 @@ export class AccountControlPlane extends DurableObject<ControlPlaneEnv> {
       epoch,
       ...(context ? context : {}),
     }).catch(() => null);
-    if (!minted) return json({ error: "session_not_configured" }, 503);
+    if (!minted) return json({ error: "session_unavailable" }, 503);
     await this.ctx.storage.put(`${SESSION_PREFIX}${minted.claims.sid}`, {
       accountId,
       expiresAt: minted.claims.exp * 1_000,
@@ -425,14 +447,14 @@ export class AccountControlPlane extends DurableObject<ControlPlaneEnv> {
   ): Promise<{ ok: true; claims: IrohSessionClaims } | { ok: false; response: Response }> {
     const ticket = sessionTicketFromRequest(request);
     if (!ticket) return { ok: false, response: json({ error: "session_required" }, 401) };
+    const now = Date.now();
     const verification = await verifyIrohSessionTicket(
       this.env.IROH_SESSION_SIGNING_KEY,
       ticket,
-      Date.now(),
+      now,
     );
     if (!verification.ok) {
-      const status = verification.error === "not_configured" ? 503 : 401;
-      return { ok: false, response: json({ error: `session_${verification.error}` }, status) };
+      return { ok: false, response: sessionVerificationError(verification.error) };
     }
     const accountId = expectedAccountId ?? request.headers.get(ACCOUNT_ID_HEADER)?.trim();
     if (!accountId || accountId !== verification.claims.accountId) {
@@ -455,15 +477,17 @@ export class AccountControlPlane extends DurableObject<ControlPlaneEnv> {
       `${SESSION_PREFIX}${verification.claims.sid}`,
     );
     if (!stored || stored.accountId !== accountId || stored.epoch !== epoch
-      || stored.expiresAt <= Date.now()) {
+      || stored.expiresAt <= now) {
       return { ok: false, response: json({ error: "session_unknown" }, 401) };
     }
-    // A write is cheap local DO storage and gives observability a last-seen
-    // timestamp without retaining any bearer or request body.
-    await this.ctx.storage.put(`${SESSION_PREFIX}${verification.claims.sid}`, {
-      ...stored,
-      lastSeenAt: Date.now(),
-    } satisfies StoredIrohSession);
+    // A coarse write interval preserves last-seen observability without turning
+    // every ordinary request into a Durable Object storage mutation.
+    if (now - stored.lastSeenAt >= SESSION_LAST_SEEN_WRITE_INTERVAL_MS) {
+      await this.ctx.storage.put(`${SESSION_PREFIX}${verification.claims.sid}`, {
+        ...stored,
+        lastSeenAt: now,
+      } satisfies StoredIrohSession);
+    }
     return { ok: true, claims: verification.claims };
   }
 
@@ -479,8 +503,7 @@ export class AccountControlPlane extends DurableObject<ControlPlaneEnv> {
     // request body is parsed once by the adapter and the repositories use the
     // existing Aurora/Postgres schema through Hyperdrive. No Vercel fetch or
     // Stack Auth call is made on this path.
-    const direct = this.env.CMUX_IROH_BACKEND_MODE === "direct"
-      || this.env.HYPERDRIVE !== undefined;
+    const direct = this.directIrohBackendEnabled();
     if (direct) {
       const id = requestID(request);
       const started = Date.now();
@@ -490,6 +513,7 @@ export class AccountControlPlane extends DurableObject<ControlPlaneEnv> {
           request,
           claims.accountId,
           this.irohBackend ??= makeWorkerIrohBackend(this.env),
+          { accountSessionTrusted: true },
         );
       } catch (error) {
         console.error("iroh direct backend unavailable", {
@@ -551,7 +575,18 @@ export class AccountControlPlane extends DurableObject<ControlPlaneEnv> {
     // Compatibility mode is retained for a staged deployment or a local
     // worker without a Hyperdrive binding. It is explicit and observable so a
     // production rollout cannot silently fall back to Vercel.
-    const base = (this.env.CMUX_WEB_BASE_URL ?? PRODUCTION_WEB_BASE_URL).replace(/\/+$/, "");
+    const base = validatedCompatibilityBaseURL(
+      this.env.CMUX_WEB_BASE_URL ?? PRODUCTION_WEB_BASE_URL,
+    );
+    if (!base) {
+      const id = requestID(request);
+      console.error("iroh control compatibility origin rejected", {
+        request_id: id,
+        operation: url.pathname,
+        reason: "https_required",
+      });
+      return json({ error: "iroh_backend_unavailable", requestId: id }, 503);
+    }
     const target = `${base}${url.pathname}${url.search}`;
     const headers = new Headers();
     for (const name of [
@@ -710,6 +745,17 @@ export class AccountControlPlane extends DurableObject<ControlPlaneEnv> {
     // Verified by the worker; never client input.
     const accountId = request.headers.get(ACCOUNT_ID_HEADER)?.trim();
     if (!accountId) return json({ error: "account_required" }, 403);
+    // Legacy bearer sockets can arrive before the session bootstrap route was
+    // introduced. Seed the same account owner marker used by direct HTTP
+    // requests so their first discovery refresh has an explicit account scope;
+    // never overwrite a marker belonging to another DO account.
+    const currentAccount = await this.ctx.storage.get<string>(SESSION_ACCOUNT_KEY);
+    if (currentAccount !== undefined && currentAccount !== accountId) {
+      return json({ error: "account_mismatch" }, 403);
+    }
+    if (currentAccount === undefined) {
+      await this.ctx.storage.put(SESSION_ACCOUNT_KEY, accountId);
+    }
     const ticket = sessionTicketFromRequest(request);
     const verifiedTicket = ticket
       ? await this.authenticateIrohTicket(request, accountId)
@@ -725,7 +771,12 @@ export class AccountControlPlane extends DurableObject<ControlPlaneEnv> {
     // The web API's native auth requires the refresh token BESIDE the bearer
     // (parseNativeStackTokens); without it every upstream proxy call 401s.
     const refresh = request.headers.get("x-stack-refresh-token")?.trim() || undefined;
-    const namespace = request.headers.get("x-cmux-app-namespace")?.trim() || undefined;
+    // A legacy bearer socket has no signed client-context claim. Keep it in
+    // the legacy projection instead of allowing an arbitrary namespace header
+    // to become an implicit cross-app directory grant.
+    const namespace = ticket
+      ? request.headers.get("x-cmux-app-namespace")?.trim() || undefined
+      : undefined;
 
     const connected = this.ctx.getWebSockets().filter((ws) => {
       const attachment = wrapSocket(ws).getAttachment();
