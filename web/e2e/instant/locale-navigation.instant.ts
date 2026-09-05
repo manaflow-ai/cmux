@@ -12,7 +12,7 @@ const suffix = "?ref=locale-test#locale-check";
 
 test.use({ extraHTTPHeaders: { "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8" } });
 
-async function expectHomeLocale(page: Page, locale: TestLocale) {
+async function expectHomeLocale(page: Page, locale: TestLocale, checkCookie = true) {
   const pathname = locale === "en" ? "/" : `/${locale}`;
   await expect(page).toHaveURL((url) => url.pathname === pathname && url.search + url.hash === suffix);
   await expect(page.getByRole("combobox", { name: "Language", exact: true })).toHaveValue(locale);
@@ -20,16 +20,19 @@ async function expectHomeLocale(page: Page, locale: TestLocale) {
   await expect(page.locator("html")).toHaveAttribute("lang", locale);
   await expect(page.locator("html")).toHaveAttribute("dir", locale === "ar" ? "rtl" : "ltr");
   await expect(page.getByRole("heading", { name: languages[locale].heading, exact: true })).toBeVisible();
-  await expect.poll(async () => (await page.context().cookies(page.url()))
-    .find((cookie) => cookie.name === "NEXT_LOCALE")?.value).toBe(locale);
   await page.waitForLoadState("load");
+  if (checkCookie) {
+    await expect.poll(async () => (await page.context().cookies(page.url()))
+      .find((cookie) => cookie.name === "NEXT_LOCALE")?.value).toBe(locale);
+  }
 }
 
 for (const initialLocale of ["ko", "ja", "ar"] as const) {
   test(`locale ${initialLocale} ↔ English keeps the cookie, URL, document and content together across reloads`, async ({ page }) => {
     test.setTimeout(60_000);
     await page.goto(`/${initialLocale}${suffix}`);
-    await expectHomeLocale(page, initialLocale);
+    // An initial visit can use Accept-Language without setting a preference.
+    await expectHomeLocale(page, initialLocale, false);
 
     // Revisit English after each locale to exercise a warm route cache. The
     // Korean Accept-Language preference must not override explicit English.
@@ -59,6 +62,9 @@ test("locale switch preserves a nested route after client-side navigation", asyn
   await expect(page.getByRole("heading", { name: "Blog", exact: true })).toBeVisible();
   await expect(page.locator("html")).toHaveAttribute("lang", "en");
   await expect(page.getByRole("combobox", { name: "Language", exact: true })).toHaveValue("en");
+  await page.waitForLoadState("load");
+  await expect.poll(async () => (await page.context().cookies(page.url()))
+    .find((cookie) => cookie.name === "NEXT_LOCALE")?.value).toBe("en");
   const title = await page.title();
   await page.reload();
   await expect(page).toHaveURL((url) => url.pathname === "/blog" && url.search + url.hash === suffix);
