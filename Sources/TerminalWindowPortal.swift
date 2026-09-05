@@ -1241,6 +1241,16 @@ final class WindowTerminalPortal: NSObject {
     /// already fingerprints exactly the geometry a sync pass reads and
     /// deliberately excludes the window's origin, so dragging a window by its
     /// titlebar does not repaint every tick.
+    /// Keeps the overlay above the hosted views, repainting only if that
+    /// re-placement actually moved something.
+    ///
+    /// Placement only, and deliberately cheap: this runs twice per
+    /// `synchronizeHostedView` (once through `ensureInstalled`, once at the
+    /// end), and `synchronizeAllHostedViews` runs that per entry. Anything
+    /// O(entries) in here is O(entries squared) for the batch, and a session
+    /// of mirrored tmux windows carries dozens of surfaces. The geometry
+    /// comparison lives in `refreshDividerOverlayIfGeometryChanged`, which the
+    /// batch calls once at its boundary.
     private func ensureDividerOverlayOnTop() {
         var placementChanged = false
 
@@ -1258,11 +1268,28 @@ final class WindowTerminalPortal: NSObject {
             placementChanged = true
         }
 
-        let signature = externalGeometrySignature()
-        let geometryChanged = lastDividerOverlaySignature != signature
-        lastDividerOverlaySignature = signature
+        guard placementChanged else { return }
+        markDividerOverlayNeedingDisplay()
+    }
 
-        guard placementChanged || geometryChanged else { return }
+    /// Repaints the overlay when the geometry it draws from has moved.
+    ///
+    /// `SplitDividerOverlayView.draw` walks the whole window view tree from
+    /// `contentView` before it consults `dirtyRect`, so an invalidation that
+    /// changes nothing still costs a full traversal. `shouldRenderOverlay`
+    /// paints a segment only where a portal-hosted surface crosses the divider
+    /// centerline, and those rects come from the hosted views this signature
+    /// fingerprints, so nothing the overlay can draw moves without moving the
+    /// signature. The signature excludes the window's origin, so a titlebar
+    /// drag stays free.
+    private func refreshDividerOverlayIfGeometryChanged() {
+        let signature = externalGeometrySignature()
+        guard lastDividerOverlaySignature != signature else { return }
+        lastDividerOverlaySignature = signature
+        markDividerOverlayNeedingDisplay()
+    }
+
+    private func markDividerOverlayNeedingDisplay() {
 #if DEBUG
         RemoteTmuxSizingDiagnostics.dividerOverlayRepaintCount += 1
 #endif
@@ -1273,6 +1300,11 @@ final class WindowTerminalPortal: NSObject {
     /// `lastHierarchySyncSignature`, which the layout-sync path owns and
     /// updates on its own schedule.
     private var lastDividerOverlaySignature: ExternalGeometrySignature?
+
+    /// Set while `synchronizeAllHostedViews` is walking its entries, so the
+    /// per-entry syncs skip the geometry comparison and the batch pays for it
+    /// once.
+    private var isBatchSynchronizingHostedViews = false
 
     @discardableResult
     private func ensureInstalled(syncLayout: Bool = true) -> Bool {
@@ -1933,6 +1965,13 @@ final class WindowTerminalPortal: NSObject {
         }
         pruneDeadEntries()
         let hostedIds = Array(entriesByHostedId.keys)
+        // One geometry comparison for the whole batch. Per entry it would be
+        // O(entries) work inside an O(entries) loop.
+        isBatchSynchronizingHostedViews = true
+        defer {
+            isBatchSynchronizingHostedViews = false
+            refreshDividerOverlayIfGeometryChanged()
+        }
         for hostedId in hostedIds {
             if hostedId == hostedIdToSkip { continue }
             // An already-hidden entry for a hidden tab is a no-op here by
@@ -2361,6 +2400,9 @@ final class WindowTerminalPortal: NSObject {
 #endif
 
         ensureDividerOverlayOnTop()
+        if !isBatchSynchronizingHostedViews {
+            refreshDividerOverlayIfGeometryChanged()
+        }
     }
 
     private func pruneDeadEntries() {
