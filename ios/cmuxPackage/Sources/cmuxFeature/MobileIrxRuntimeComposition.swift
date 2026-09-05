@@ -114,7 +114,6 @@ public actor MobileIrxRuntimeComposition {
     private var deviceListStore: IrxDeviceListStore?
     private var provisioningTask: Task<Void, Never>?
     private var provisionInFlight: Task<IrxBrokerService, any Error>?
-    private var networkPathObservationTask: Task<Void, Never>?
     /// Auth observation stays alive for the lifetime of the composition. A
     /// successful first provision must not terminate it, otherwise an
     /// implicit token clear or account switch leaves the endpoint running.
@@ -213,30 +212,22 @@ public actor MobileIrxRuntimeComposition {
         auth: AuthCoordinator,
         legacy: MobileIrohRuntimeComposition? = nil,
         controlPlaneBaseURL: URL? = nil
-    ) {
+    ) async {
         self.auth = auth
         legacyComposition = legacy
         self.controlPlaneBaseURL = controlPlaneBaseURL
-        networkPathObservationTask?.cancel()
-        networkPathObservationTask = nil
         lifecycleEpoch &+= 1
         let configurationEpoch = lifecycleEpoch
         if let reachability {
-            let networkPathState = self.networkPathState
-            let lanPeerDiscovery = self.lanPeerDiscovery
-            networkPathObservationTask = Task { [weak self] in
-                guard let self,
-                      await self.isLifecycleEpochCurrent(configurationEpoch),
-                      !Task.isCancelled
-                else { return }
-                await networkPathState.start(
-                    reachability: reachability,
-                    onPathChange: { [weak self] in
-                        await self?.invalidateCachedDirectRoutesForNetworkChange()
-                        await lanPeerDiscovery.pathDidChange()
-                    }
-                )
-            }
+            guard isLifecycleEpochCurrent(configurationEpoch),
+                  !Task.isCancelled else { return }
+            await networkPathState.start(
+                reachability: reachability,
+                onPathChange: { [weak self] in
+                    await self?.invalidateCachedDirectRoutesForNetworkChange()
+                    await self?.lanPeerDiscovery.pathDidChange()
+                }
+            )
         }
         Self.journal.record(
             "client-runtime", "configured",
@@ -506,8 +497,6 @@ public actor MobileIrxRuntimeComposition {
     /// the next account starts from its own directory.
     public func handleSignOut() async {
         lifecycleEpoch &+= 1
-        networkPathObservationTask?.cancel()
-        networkPathObservationTask = nil
         await networkPathState.stop()
         activeAccountID = nil
         provisioningTask?.cancel()
@@ -1208,9 +1197,14 @@ public actor MobileIrxRuntimeComposition {
                 expectedMacDeviceID: expectedDeviceID,
                 expectedEndpointID: discoveredRoute.binding.endpointID
             ) {
-                var direct = directAddresses
-                for peer in peers where peer.binding.endpointID == discoveredRoute.binding.endpointID {
-                    for hint in peer.pathHints where !direct.contains(hint.value) {
+                var direct = Array(directAddresses.prefix(16))
+                var seenDirect = Set(direct)
+                for peer in peers
+                    where peer.binding.endpointID == discoveredRoute.binding.endpointID
+                        && direct.count < 16
+                {
+                    for hint in peer.pathHints where direct.count < 16 {
+                        guard seenDirect.insert(hint.value).inserted else { continue }
                         direct.append(hint.value)
                     }
                 }
@@ -1240,7 +1234,9 @@ public actor MobileIrxRuntimeComposition {
                 directPorts: discoveredRoute.binding.directPorts
             )
             if !privateAddresses.isEmpty {
-                for address in privateAddresses where !directAddresses.contains(address) {
+                var seenDirect = Set(directAddresses)
+                for address in privateAddresses where directAddresses.count < 16 {
+                    guard seenDirect.insert(address).inserted else { continue }
                     directAddresses.append(address)
                 }
                 routesByPeer[peerHex] = (relayURL, directAddresses)
