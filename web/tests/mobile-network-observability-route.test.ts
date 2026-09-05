@@ -160,14 +160,14 @@ describe("iOS mobile network observability route", () => {
     expect(await response.json()).toEqual({ error: "observability_unavailable" });
   });
 
-  test("does not acknowledge a failure batch when trace flush fails", async () => {
+  test("does not retry a batch when trace flush times out after span creation", async () => {
     flushResult = false;
     const response = await POST(outcomeRequest([
       outcome({ phase: "transport_dial", outcome: "timeout", duration_ms: 10 }),
     ]));
 
-    expect(response.status).toBe(503);
-    expect(await response.json()).toEqual({ error: "observability_unavailable" });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, accepted: 1 });
   });
 
   test("fails closed when deployed rate limiting is unconfigured", async () => {

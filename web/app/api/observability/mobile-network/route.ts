@@ -97,13 +97,10 @@ export function makeMobileNetworkOutcomeHandler(
           // Serverless instances can be torn down after the response. Bound
           // every batch flush so successful latency denominators are not lost.
           const flushed = await dependencies.flushTraces(1_000);
-          if (!flushed) {
-            return jsonResponse(
-              { error: "observability_unavailable" },
-              503,
-              { "cache-control": "no-store" },
-            );
-          }
+          // Spans are already ended in the exporter when a bounded flush
+          // times out. A retry would create duplicate latency observations,
+          // so acknowledge the accepted batch and let the exporter drain.
+          void flushed;
         } catch {
           return jsonResponse(
             { error: "observability_unavailable" },

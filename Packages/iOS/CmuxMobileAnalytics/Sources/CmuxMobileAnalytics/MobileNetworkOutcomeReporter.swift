@@ -292,7 +292,7 @@ public final class MobileNetworkOutcomeReporter: Sendable {
             outcome = "cancelled"
         } else if failureKind == .timedOut || failureKind == .transportIdleTimedOut {
             outcome = "timeout"
-        } else if failureKind != nil {
+        } else if failureKind != nil || Self.isFailureCode(event.code) {
             outcome = "failure"
         } else {
             outcome = "success"
@@ -305,6 +305,19 @@ public final class MobileNetworkOutcomeReporter: Sendable {
             failure: failureKind,
             userUsable: userUsable
         )
+    }
+
+    private static func isFailureCode(_ code: DiagnosticEventCode) -> Bool {
+        switch code {
+        case .pairFail, .pairUnreachable, .error, .transportDialFailed,
+             .transportDialLegFailed, .recoveryFailed, .endpointFailed,
+             .relayPolicyRefreshFailed, .sessionClosed, .routeUnavailable,
+             .discoveryFailed, .admissionFailed, .hostAuthenticationFailed,
+             .rpcFailed:
+            true
+        default:
+            false
+        }
     }
 
     private static func properties(for observation: Observation) -> [String: AnalyticsValue] {
