@@ -8,6 +8,11 @@ final class GhosttyScrollView: NSScrollView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
 
+        // NSScrollView is a layer-backed viewport in the terminal hierarchy.
+        // Keep its view boundary clipped even when AppKit retile/reparent work
+        // changes the backing layer during a live window resize.
+        clipsToBounds = true
+
         // Bonsplit lays out the tab strip outside this viewport, so AppKit must not
         // infer another terminal-content inset from the window title bar.
         automaticallyAdjustsContentInsets = false

@@ -3955,6 +3955,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private let scrollSpeedAccumulator = TerminalScrollSpeedAccumulator()
     private var visibleInUI: Bool = true
     private var pendingSurfaceSize: CGSize?
+    /// Portal geometry follows every window-resize tick, but the renderer
+    /// keeps its last committed size until the final pane geometry is ready.
+    private var defersSurfaceSizeDuringWindowLiveResize = false
+    private var portalWindowLiveResizeState: Bool?
     private var deferSurfaceSizeForPortalGeometrySettlement = false
     private var deferredSurfaceSizeRetryQueued = false, needsSurfaceSizeRetryAfterMetalLayerRealizes = false
     private var deferredSurfaceSizeNonMetalRetryCount = 0
@@ -4019,6 +4023,22 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         visibleInUI = visible
     }
 
+    /// Holds renderer and PTY size writes while the portal commits a window
+    /// resize. The view frame may follow the pane, but its drawable does not.
+    fileprivate func setWindowLiveResizeActive(_ active: Bool) {
+        portalWindowLiveResizeState = active
+        defersSurfaceSizeDuringWindowLiveResize = active
+        terminalSurface?.setSurfaceSizeUpdatesDeferred(active)
+        clipsToBounds = true
+        layer?.masksToBounds = true
+    }
+
+    fileprivate func clearWindowLiveResizeStateForPortal() {
+        portalWindowLiveResizeState = nil
+        defersSurfaceSizeDuringWindowLiveResize = false
+        terminalSurface?.setSurfaceSizeUpdatesDeferred(false)
+    }
+
     override init(frame frameRect: NSRect) {
         imageTransferPreparation = nil
         super.init(frame: frameRect)
@@ -4063,6 +4083,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // GhosttyMetalLayer provides render stats and opt-in frame notifications for
         // input sequencing that needs to wait for terminal redraws.
         wantsLayer = true
+        // Ghostty installs and can replace the backing layer after this view is
+        // created. Keep clipping at the view boundary as well as on the layer,
+        // so a stale drawable cannot paint outside the terminal pane.
+        clipsToBounds = true
         layer?.masksToBounds = true
         setupKeyboardCopyModeCursorOverlay()
         installEventMonitor()
@@ -4445,6 +4469,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         terminalSurface = surface
         tabId = surface.tabId
+        surface.setSurfaceSizeUpdatesDeferred(defersSurfaceSizeDuringWindowLiveResize)
         if !isAlreadyAttached {
             surface.attachToView(self)
         } else {
@@ -5023,7 +5048,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private var isWindowLiveResizeActive: Bool {
-        inLiveResize || window?.inLiveResize == true
+        portalWindowLiveResizeState ?? (inLiveResize || window?.inLiveResize == true)
     }
 
     @discardableResult private func scheduleDeferredSurfaceSizeRetryIfNeeded() -> Bool {
@@ -5057,6 +5082,24 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         if pendingSurfaceSize != size { deferredSurfaceSizeNonMetalRetryCount = 0 }
         pendingSurfaceSize = size
+        // Reassert the view-level boundary on every size publication. AppKit
+        // may re-materialize the layer while a window is resized, and the
+        // renderer must remain contained without adding a redraw or queue hop.
+        clipsToBounds = true
+        layer?.masksToBounds = true
+        if defersSurfaceSizeDuringWindowLiveResize {
+#if DEBUG
+            let signature = "windowLiveResize-\(Int(size.width.rounded()))x\(Int(size.height.rounded()))"
+            if lastSizeSkipSignature != signature {
+                cmuxDebugLog(
+                    "surface.size.defer surface=\(terminalSurface.id.uuidString.prefix(5)) " +
+                    "reason=windowLiveResize size=\(String(format: "%.1fx%.1f", size.width, size.height))"
+                )
+                lastSizeSkipSignature = signature
+            }
+#endif
+            return false
+        }
         if let deferralReason = activeSurfaceResizeDeferralReason() {
             scheduleDeferredSurfaceSizeRetryIfNeeded()
 #if DEBUG
@@ -9697,11 +9740,37 @@ final class GhosttySurfaceScrollView: NSView {
     private var activeDropZone: DropZone?
     private var pendingDropZone: DropZone?
     private var sessionContentWidthPresentation = SessionContentWidthPresentation.disabled
+    private var committedRendererSize: CGSize?
+    private var windowLiveResizeActive = false
     private var dropZoneOverlayAnimationGeneration: UInt64 = 0
     private var pendingAutomaticFirstResponderApply = false
     private var pendingAutomaticFirstResponderFocusTransactionId: UUID?
     private var pendingSuppressedFirstResponderFocusReapply = false
     // Hidden/tiny focus retry is bounded by layout/visibility signals, not a timer loop.
+
+    func setWindowLiveResizeActive(_ active: Bool) {
+        windowLiveResizeActive = active
+        surfaceView.setWindowLiveResizeActive(active)
+        clipsToBounds = true
+        layer?.masksToBounds = true
+        surfaceView.clipsToBounds = true
+        surfaceView.layer?.masksToBounds = true
+    }
+
+    func clearWindowLiveResizeStateForPortal() {
+        windowLiveResizeActive = false
+        surfaceView.clearWindowLiveResizeStateForPortal()
+    }
+
+    private func rendererSizeDuringLiveResize(fallback: CGSize) -> CGSize {
+        guard windowLiveResizeActive,
+              let committedRendererSize,
+              committedRendererSize.width > 0,
+              committedRendererSize.height > 0 else {
+            return fallback
+        }
+        return committedRendererSize
+    }
 
     /// Tracks whether keyboard focus should go to the search field or the terminal
     /// when the window becomes key while the find bar is open.
@@ -9928,12 +9997,22 @@ final class GhosttySurfaceScrollView: NSView {
         scrollView.surfaceView = surfaceView
 
         documentView = NSView(frame: .zero)
+        // The surface is positioned explicitly below. Clearing its inherited
+        // autoresizing mask prevents AppKit from growing it past the viewport
+        // between two synchronous resize ticks.
+        surfaceView.autoresizingMask = []
+        surfaceView.translatesAutoresizingMaskIntoConstraints = true
         scrollView.documentView = documentView
         documentView.addSubview(surfaceView)
 
         super.init(frame: .zero)
         wantsLayer = true
+        clipsToBounds = true
         layer?.masksToBounds = true
+        scrollView.clipsToBounds = true
+        documentView.clipsToBounds = true
+        surfaceView.clipsToBounds = true
+        surfaceView.layer?.masksToBounds = true
 
         backgroundView.wantsLayer = true
         backgroundView.layer?.backgroundColor = NSColor.clear.cgColor
@@ -10391,6 +10470,17 @@ final class GhosttySurfaceScrollView: NSView {
         forceViewportSync: Bool? = nil,
         preservedReviewOriginY: CGFloat? = nil
     ) -> Bool {
+        // Keep every AppKit boundary in the rendering chain clipped. These
+        // assignments are idempotent and avoid any deferred layout or display
+        // work, which is important while the window resize callback is open.
+        clipsToBounds = true
+        layer?.masksToBounds = true
+        scrollView.clipsToBounds = true
+        scrollView.contentView.clipsToBounds = true
+        documentView.clipsToBounds = true
+        surfaceView.clipsToBounds = true
+        surfaceView.layer?.masksToBounds = true
+        surfaceView.autoresizingMask = []
         let preservedReviewOriginY = preservedReviewOriginY ?? {
             guard scrollbackViewportIntent.preservesViewportDuringPendingSync else { return nil }
             return max(scrollView.contentView.bounds.origin.y, 0)
@@ -10411,7 +10501,8 @@ final class GhosttySurfaceScrollView: NSView {
 #if DEBUG
         logLayoutDuringActiveDrag(targetSize: targetSize)
 #endif
-        let targetSurfaceFrame = CGRect(origin: surfaceView.frame.origin, size: targetSize)
+        let rendererSize = rendererSizeDuringLiveResize(fallback: targetSize)
+        let targetSurfaceFrame = CGRect(origin: surfaceView.frame.origin, size: rendererSize)
         _ = setFrameIfNeeded(surfaceView, to: targetSurfaceFrame)
         let targetDocumentFrame = CGRect(
             origin: documentView.frame.origin,
@@ -10457,6 +10548,12 @@ final class GhosttySurfaceScrollView: NSView {
             scrollView.tile()
         }
         scrollView.layoutSubtreeIfNeeded()
+        let settledTargetSize = scrollView.bounds.size
+        let settledRendererSize = rendererSizeDuringLiveResize(fallback: settledTargetSize)
+        _ = setFrameIfNeeded(
+            surfaceView,
+            to: CGRect(origin: surfaceView.frame.origin, size: settledRendererSize)
+        )
         updateNotificationRingPath()
         updateFlashPath(style: lastFlashStyle)
         updateFlashAppearance(style: lastFlashStyle)
@@ -10465,8 +10562,11 @@ final class GhosttySurfaceScrollView: NSView {
             preservedReviewOriginY: preservedReviewOriginY
         )
         synchronizeSurfaceView()
-        let didCoreSurfaceChange = synchronizeCoreSurface()
-        return !sizeApproximatelyEqual(previousSurfaceSize, targetSize) || didCoreSurfaceChange
+        let didCoreSurfaceChange = windowLiveResizeActive ? false : synchronizeCoreSurface()
+        if !windowLiveResizeActive {
+            committedRendererSize = surfaceView.frame.size
+        }
+        return !sizeApproximatelyEqual(previousSurfaceSize, surfaceView.frame.size) || didCoreSurfaceChange
     }
 
     /// Updates terminal content geometry without shrinking pane-level overlays.
@@ -13203,7 +13303,8 @@ final class GhosttySurfaceScrollView: NSView {
     private func synchronizeTerminalGeometryAfterScrollerStyleChange() {
         scrollView.layoutSubtreeIfNeeded()
         let targetSize = scrollView.contentView.bounds.size
-        let targetSurfaceFrame = CGRect(origin: surfaceView.frame.origin, size: targetSize)
+        let rendererSize = rendererSizeDuringLiveResize(fallback: targetSize)
+        let targetSurfaceFrame = CGRect(origin: surfaceView.frame.origin, size: rendererSize)
         _ = setFrameIfNeeded(surfaceView, to: targetSurfaceFrame)
         let targetDocumentFrame = CGRect(
             origin: documentView.frame.origin,
@@ -13211,7 +13312,10 @@ final class GhosttySurfaceScrollView: NSView {
         )
         _ = setFrameIfNeeded(documentView, to: targetDocumentFrame)
         synchronizeSurfaceView()
-        _ = synchronizeCoreSurface()
+        if !windowLiveResizeActive {
+            _ = synchronizeCoreSurface()
+            committedRendererSize = surfaceView.frame.size
+        }
     }
 
     private func handleTerminalScrollBarPreferenceChange() {

@@ -306,6 +306,9 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// the pinned grid and clips or letterboxes the difference — the same
     /// answer tmux gives a client whose size disagrees with the window.
     var assignedGrid: (columns: Int, rows: Int)?
+    /// Prevents renderer and PTY size writes while a portal commits a live
+    /// window resize. The portal clears this before its final geometry pass.
+    var surfaceSizeUpdatesDeferred = false
     /// Temporary runtime font-size ownership while a mobile viewport is fitted.
     var mobileViewportFontFitState: MobileViewportFontFitState?
     // Debug metadata is read from debug/CLI paths off the main thread; the
