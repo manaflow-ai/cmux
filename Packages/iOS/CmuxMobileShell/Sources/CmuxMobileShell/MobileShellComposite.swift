@@ -272,6 +272,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             recomputeNotificationFeedItems()
         }
     }
+#if DEBUG
+    /// Debug-only fixture hook for rendering a retained terminal after its Mac
+    /// connection drops.
+    public func setUITestMacConnectionStatus(_ status: MobileMacConnectionStatus) {
+        macConnectionStatus = status
+    }
+#endif
     public internal(set) var connectedHostName: String
     public private(set) var connectionError: String?
     /// User-facing recovery copy for a terminal create that did not become
