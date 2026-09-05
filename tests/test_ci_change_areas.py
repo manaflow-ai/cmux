@@ -16,6 +16,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "scripts" / "ci" / "detect_ci_change_areas.py"
 CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
+GATE_WORKFLOW = ROOT / ".github" / "workflows" / "ci-status-gate.yml"
 PERF_ACTIVATION_WORKFLOW = ROOT / ".github" / "workflows" / "perf-activation.yml"
 
 spec = importlib.util.spec_from_file_location("detect_ci_change_areas", HELPER)
@@ -655,8 +656,8 @@ def test_non_pr_events_run_all_areas() -> None:
     assert "Resolved areas: macos=true web=true agent_session_web=true" in result.stdout
 
 
-def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
-    block = workflow_job_block("ci-status")
+def test_ci_status_advisory_job_accepts_skipped_routed_jobs() -> None:
+    block = workflow_job_block("ci-status-advisory")
 
     for job_name in [
         "changes",
@@ -855,6 +856,22 @@ def test_agent_session_web_resources_runs_only_for_agent_session_web_area() -> N
     block = workflow_job_block("agent-session-web-resources")
 
     assert "if: ${{ needs.changes.outputs.agent_session_web == 'true' }}" in block
+
+
+def test_legacy_ci_status_context_is_preserved_during_gate_migration() -> None:
+    advisory = workflow_job_block("ci-status-advisory")
+    compatibility = workflow_job_block("ci-status")
+    trusted_alias = workflow_job_block("ci-status", GATE_WORKFLOW)
+
+    assert "ci-status-validator-canary" not in advisory
+    assert "if: ${{ always() }}" in compatibility
+    assert "needs: ci-status-advisory" in compatibility
+    assert "timeout-minutes: 5" in compatibility
+    assert "ADVISORY_RESULT" in compatibility
+    assert "exit 1" in compatibility
+    assert "if: ${{ always() &&" in trusted_alias
+    assert "needs: ci-status-gate" in trusted_alias
+    assert "GATE_RESULT" in trusted_alias
 
 
 def test_perf_activation_workflow_keeps_required_status_while_gating_benchmark() -> None:

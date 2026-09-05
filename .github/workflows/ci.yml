@@ -314,6 +314,15 @@ jobs:
       - name: Validate CI change area filter
         run: python3 tests/test_ci_change_areas.py
 
+      - name: Validate CI status validator
+        run: python3 tests/test_ci_status_validator.py
+
+      - name: Validate base-owned CI status gate
+        run: python3 tests/test_ci_status_gate.py
+
+      - name: Validate bootstrap CI governance
+        run: python3 tests/test_ci_governance_bootstrap.py
+
       - name: Validate Python R2 appcast upload guard
         run: ./tests/test_ci_r2_upload_python.sh
 
@@ -572,7 +581,7 @@ jobs:
       - linux-preflight
     # !cancelled() disables the implicit success() gate, which GitHub evaluates
     # over the transitive needs chain: linux-preflight runs behind routed linux
-    # jobs that legitimately skip (web/go/agent-session paths), and that
+    # jobs that legitimately skip (web/agent-session paths), and that
     # transitive skip otherwise marks every macOS job skipped even when
     # linux-preflight itself succeeds. Require the direct needs explicitly.
     if: ${{ !cancelled() && needs.changes.result == 'success' && needs.linux-preflight.result == 'success' && needs.changes.outputs.macos == 'true' }}
@@ -1508,7 +1517,7 @@ jobs:
       - linux-preflight
     # !cancelled() disables the implicit success() gate, which GitHub evaluates
     # over the transitive needs chain: linux-preflight runs behind routed linux
-    # jobs that legitimately skip (web/go/agent-session paths), and that
+    # jobs that legitimately skip (web/agent-session paths), and that
     # transitive skip otherwise marks every macOS job skipped even when
     # linux-preflight itself succeeds. Require the direct needs explicitly.
     if: ${{ !cancelled() && needs.changes.result == 'success' && needs.linux-preflight.result == 'success' && needs.changes.outputs.macos == 'true' }}
@@ -1862,7 +1871,7 @@ jobs:
       - linux-preflight
     # !cancelled() disables the implicit success() gate, which GitHub evaluates
     # over the transitive needs chain: linux-preflight runs behind routed linux
-    # jobs that legitimately skip (web/go/agent-session paths), and that
+    # jobs that legitimately skip (web/agent-session paths), and that
     # transitive skip otherwise marks every macOS job skipped even when
     # linux-preflight itself succeeds. Require the direct needs explicitly.
     if: ${{ !cancelled() && needs.changes.result == 'success' && needs.linux-preflight.result == 'success' && needs.changes.outputs.macos == 'true' }}
@@ -2384,7 +2393,7 @@ jobs:
           ./scripts/verify-diff-sidecar-artifact.sh "$DIFF_SIDECAR"
           [[ "$SDK_VERSION" == 26.* ]]
 
-  ci-status:
+  ci-status-advisory:
     needs:
       - changes
       - workflow-guard-tests
@@ -2428,3 +2437,59 @@ jobs:
           for name, data in sorted(needs.items()):
               print(f"{name}: {data['result']}")
           PY
+
+  ci-status:
+    needs: ci-status-advisory
+    if: ${{ always() }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    # Temporary bootstrap producer. Keep this context until the base-owned
+    # gate is present on main and the ruleset switches atomically.
+    steps:
+      - name: Preserve legacy CI status context
+        env:
+          ADVISORY_RESULT: ${{ needs.ci-status-advisory.result }}
+        run: |
+          set -euo pipefail
+          if [[ "$ADVISORY_RESULT" != "success" ]]; then
+            echo "::error::Legacy ci-status bootstrap context mirrors ci-status-advisory: $ADVISORY_RESULT" >&2
+            exit 1
+          fi
+
+  ci-status-validator-canary:
+    needs:
+      - changes
+      - workflow-guard-tests
+      - ghosttykit-release-check
+      - web-typecheck
+      - react-apps-check
+      - diff-sidecar-check
+      - web-db-migrations
+      - linux-preflight
+      - app-host-unit-tests
+      - tests
+      - swift-package-tests
+      - agent-session-web-resources
+      - tests-build-and-lag
+      - release-build
+    if: ${{ always() }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    # This diagnostic job exercises the new validator with real needs data.
+    # It is intentionally not a required context. PR11540 moves the required
+    # ci-status job to the exact trusted base revision before activation.
+    steps:
+      - name: Checkout CI status validator
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Check serialized routed jobs
+        env:
+          CI_NEEDS: ${{ toJSON(needs) }}
+        run: |
+          python3 scripts/ci/check_ci_status.py --phase aggregate
