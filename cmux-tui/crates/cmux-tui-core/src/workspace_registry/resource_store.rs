@@ -2309,9 +2309,7 @@ pub(super) fn repair_dangling_terminal_resources(
                 OR (rt.deleted_revision IS NULL AND ri.deleted_revision IS NOT NULL)
                 OR (rt.deleted_revision IS NOT NULL AND ri.deleted_revision IS NULL)",
         )?;
-        statement
-            .query_map([], |row| row.get::<_, String>(0))?
-            .collect::<Result<Vec<_>, _>>()?
+        statement.query_map([], |row| row.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?
     };
     if dangling.is_empty() {
         return Ok(());
