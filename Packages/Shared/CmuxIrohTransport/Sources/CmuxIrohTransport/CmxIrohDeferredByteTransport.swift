@@ -104,7 +104,12 @@ actor CmxIrohDeferredByteTransport:
     }
 
     func waitUntilTransportClosureObservationIsReady() async -> Bool {
-        guard transport == nil, !closed else {
+        guard !closed else { return false }
+        if let transport {
+            if let readiness = transport as?
+                any CmxByteTransportClosureObservationReadiness {
+                return await readiness.waitUntilTransportClosureObservationIsReady()
+            }
             return transport is any CmxByteTransportClosureObserving
         }
         await withCheckedContinuation { continuation in
@@ -114,6 +119,7 @@ actor CmxIrohDeferredByteTransport:
                 closureObservationReadyWaiters.append(continuation)
             }
         }
+        guard !closed, let transport else { return false }
         return transport is any CmxByteTransportClosureObserving
     }
 

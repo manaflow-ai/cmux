@@ -148,6 +148,7 @@ extension IrxControlByteTransport: CmxByteTransportLivenessObserving {
     /// Read the session snapshot directly so application-level liveness can
     /// repair this lane without redialing every other lane.
     public func isTransportClosed() async -> Bool {
+        if isClosed { return true }
         guard let connection = pair?.0 ?? lastConnection else { return false }
         return await connection.isConnectionClosed()
     }
