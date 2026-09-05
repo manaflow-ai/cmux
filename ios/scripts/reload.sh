@@ -273,8 +273,9 @@ fi
 cmux_ios_require_production_origin() {
   local label="$1"
   local value="$2"
-  if [[ -n "$value" && "$value" != "https://cmux.com" ]]; then
-    echo "error: --prod-auth cannot use $label '$value'; production builds must use https://cmux.com" >&2
+  local expected="${3:-https://cmux.com}"
+  if [[ -n "$value" && "$value" != "$expected" ]]; then
+    echo "error: --prod-auth cannot use $label '$value'; production builds must use $expected" >&2
     return 1
   fi
 }
@@ -309,20 +310,20 @@ cmux_ios_resolve_iroh_broker_base_url() {
   local explicit_base_url="${CMUX_IOS_IROH_BROKER_BASE_URL:-${CMUX_IROH_BROKER_BASE_URL:-}}"
 
   if [[ "$PROD_AUTH" -eq 1 ]]; then
-    cmux_ios_require_production_origin "the Iroh broker origin" "$explicit_base_url" || return 1
-    printf '%s' "https://cmux.com"
+    cmux_ios_require_production_origin "the Iroh broker origin" "$explicit_base_url" "https://presence.cmux.dev" || return 1
+    printf '%s' "https://presence.cmux.dev"
     return 0
   fi
 
   if [[ -n "$explicit_base_url" ]]; then
     printf '%s' "$explicit_base_url"
   else
-    printf '%s' "https://cmux-staging.vercel.app"
+    printf '%s' "https://cmux-presence-dev.debussy.workers.dev"
   fi
 }
 
 if [[ "$PROD_AUTH" -eq 1 ]]; then
-  cmux_ios_require_production_origin "the presence origin" "${CMUX_PRESENCE_BASE_URL:-}" || exit 1
+  cmux_ios_require_production_origin "the presence origin" "${CMUX_PRESENCE_BASE_URL:-}" "https://presence.cmux.dev" || exit 1
   CMUX_PRESENCE_BASE_URL="https://presence.cmux.dev"
   export CMUX_PRESENCE_BASE_URL
 fi

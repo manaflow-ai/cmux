@@ -7,7 +7,10 @@ import {
   type IrohInvalidInputError,
   IrohRelayMintError,
 } from "./errors";
-import { IrohTrustBrokerConfig } from "./config";
+import {
+  IrohTrustBrokerConfig,
+  type IrohTrustBrokerConfigShape,
+} from "./configCore";
 import {
   IROH_RELAY_MINTER_PATH,
   parseIrohMinterUrl,
@@ -39,13 +42,19 @@ export class IrohRelayMinter extends Context.Tag("cmux/IrohRelayMinter")<
   IrohRelayMinterShape
 >() {}
 
+export function makeIrohRelayMinter(
+  config: IrohTrustBrokerConfigShape,
+): IrohRelayMinterShape {
+  return {
+    mint: (input) => mintWithIsolatedService(config, input),
+  } satisfies IrohRelayMinterShape;
+}
+
 export const IrohRelayMinterLive = Layer.effect(
   IrohRelayMinter,
   Effect.gen(function* () {
     const config = yield* IrohTrustBrokerConfig;
-    return {
-      mint: (input) => mintWithIsolatedService(config, input),
-    } satisfies IrohRelayMinterShape;
+    return makeIrohRelayMinter(config);
   }),
 );
 

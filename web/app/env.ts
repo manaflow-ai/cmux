@@ -367,6 +367,13 @@ export const env = createEnv({
     // optional rate-limit IDs (for example
     // CMUX_RELAY_PREFERENCES_RATE_LIMIT_ID).
     CMUX_IROH_RATE_LIMIT_ID: z.string().min(1).optional(),
+    // Shared with the Cloudflare presence Worker and account DO. It verifies
+    // short-lived Iroh session tickets so the compatibility route does not
+    // spend a Stack call on every control request.
+    CMUX_IROH_SESSION_SIGNING_KEY: requireVercelNonPreviewValue(
+      "CMUX_IROH_SESSION_SIGNING_KEY",
+      z.string().min(32).max(512),
+    ),
     // Account-scoped route invalidations. The payload is revision-only; apps
     // reconcile through /api/connectivity/v2/sync. Optional so previews and
     // local tests can run without a presence worker.
@@ -507,6 +514,7 @@ export const env = createEnv({
     CMUX_IROH_MINT_URL: trimEnv(process.env.CMUX_IROH_MINT_URL),
     CMUX_IROH_MINT_HMAC_SECRET_B64: trimEnv(process.env.CMUX_IROH_MINT_HMAC_SECRET_B64),
     CMUX_IROH_RATE_LIMIT_ID: trimEnv(process.env.CMUX_IROH_RATE_LIMIT_ID),
+    CMUX_IROH_SESSION_SIGNING_KEY: trimEnv(process.env.CMUX_IROH_SESSION_SIGNING_KEY),
     CMUX_PRESENCE_BASE_URL: trimEnv(process.env.CMUX_PRESENCE_BASE_URL),
     CMUX_CONNECTIVITY_INVALIDATION_SECRET: trimEnv(
       process.env.CMUX_CONNECTIVITY_INVALIDATION_SECRET,

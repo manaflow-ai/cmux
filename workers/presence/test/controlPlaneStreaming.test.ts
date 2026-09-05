@@ -285,12 +285,12 @@ describe("hello fact streaming", () => {
     expect(socket.frame("snapshot_complete")?.rev).toBe(42);
 
     // Discovery is account-scoped because the control-plane socket has no
-    // endpoint private key for a binding proof. Mint still carries the
-    // socket's app namespace and replicates the Swift client's request body.
+    // endpoint private key for a binding proof. The direct adapter keeps the
+    // socket's app namespace so a tagged client never receives another scope.
     const discovery = harness.discoveryCalls();
     expect(discovery).toHaveLength(1);
     expect(discovery[0]?.init.headers.authorization).toBe("Bearer token-s1");
-    expect(discovery[0]?.init.headers["x-cmux-app-namespace"]).toBe("legacy");
+    expect(discovery[0]?.init.headers["x-cmux-app-namespace"]).toBe("irx");
     const mint = harness.mintCalls();
     expect(mint).toHaveLength(1);
     expect(mint[0]?.init.method).toBe("POST");

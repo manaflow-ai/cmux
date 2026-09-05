@@ -127,4 +127,39 @@ describe("verifyRequest negative cache", () => {
       globalThis.fetch = realFetch;
     }
   });
-})
+});
+
+describe("verifyIdentityRequest", () => {
+  const env = {
+    STACK_PROJECT_ID: "proj",
+    STACK_PUBLISHABLE_CLIENT_KEY: "pk",
+    STACK_API_URL: "https://stack.test",
+  };
+
+  it("caches the one Stack identity lookup used by session bootstrap", async () => {
+    const { verifyIdentityRequest } = await import("../src/auth");
+    const realFetch = globalThis.fetch;
+    let calls = 0;
+    const token = `identity-cache-token-${Math.random().toString(36).slice(2)}`;
+    globalThis.fetch = (async () => {
+      calls += 1;
+      return new Response(JSON.stringify({ id: "user-identity" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+    try {
+      const make = () => new Request("https://presence.test/v1/iroh/session", {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}` },
+      });
+      const first = await verifyIdentityRequest(make(), env);
+      const second = await verifyIdentityRequest(make(), env);
+      expect(first?.id).toBe("user-identity");
+      expect(second?.id).toBe("user-identity");
+      expect(calls).toBe(1);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+});

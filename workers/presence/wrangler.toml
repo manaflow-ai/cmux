@@ -17,14 +17,32 @@
 # Worker secrets (see README.md) and survive deploys:
 #   wrangler secret put STACK_PROJECT_ID
 #   wrangler secret put STACK_PUBLISHABLE_CLIENT_KEY
+#   wrangler secret put IROH_SESSION_SIGNING_KEY
 # Optional plain var STACK_API_URL defaults to https://api.stack-auth.com.
 
 name = "cmux-presence"
 main = "src/index.ts"
 compatibility_date = "2026-05-01"
+compatibility_flags = ["nodejs_compat"]
 
 [observability]
 enabled = true
+
+# Production is intentionally fail-closed. Until HYPERDRIVE is attached,
+# Iroh control requests return a backend-unavailable response rather than
+# silently sending traffic back to Vercel.
+[vars]
+CMUX_IROH_BACKEND_MODE = "direct"
+
+[alias]
+"../../db/client" = "./src/hyperdriveDb.ts"
+
+# One-time account provisioning creates this config against the existing Aurora
+# database. Keep the id out of source until the least-privilege DB role and
+# private network route have been approved, then add:
+# [[hyperdrive]]
+# binding = "HYPERDRIVE"
+# id = "<existing-aurora-hyperdrive-config-id>"
 
 [[durable_objects.bindings]]
 name = "TEAM_PRESENCE"

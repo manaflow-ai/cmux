@@ -3,6 +3,11 @@ export interface SentryEnv {
   SENTRY_DSN?: string;
 }
 
+type SentryFetch = (
+  input: Request,
+  init?: RequestInit,
+) => Promise<Response>;
+
 function details(error: unknown): { type: string; message: string; stack?: string } {
   if (error instanceof Error) {
     return {
@@ -38,7 +43,7 @@ export async function captureSentryException(
   distinctId: string,
   error: unknown,
   context: Record<string, string | number | boolean | undefined>,
-  sentryFetch: typeof fetch = fetch,
+  sentryFetch: SentryFetch = fetch,
 ): Promise<void> {
   const dsn = env.SENTRY_DSN ? parseDsn(env.SENTRY_DSN) : null;
   if (!dsn) return;
@@ -67,14 +72,14 @@ export async function captureSentryException(
   const envelope = `${JSON.stringify({ event_id: eventId, sent_at: new Date().toISOString() })}\n` +
     `${JSON.stringify({ type: "event" })}\n${JSON.stringify(event)}\n`;
   try {
-    await sentryFetch(
+    await sentryFetch(new Request(
       `${dsn.endpoint}?sentry_version=7&sentry_key=${encodeURIComponent(dsn.publicKey)}&sentry_client=cmux-presence-worker/1.0`,
       {
         method: "POST",
         headers: { "Content-Type": "application/x-sentry-envelope" },
         body: envelope,
       },
-    );
+    ));
   } catch {
     // Error reporting must never become a second production failure.
   }

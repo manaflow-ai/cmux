@@ -10,6 +10,14 @@ public enum IrxBrokerServiceError: Error, Sendable {
     case deactivated
 }
 
+private struct IrxControlPlaneMintBody: Encodable {
+    let endpointID: String
+
+    private enum CodingKeys: String, CodingKey {
+        case endpointID = "endpointId"
+    }
+}
+
 /// Persisted registration receipt: the full binding tuple, so the host can
 /// build its exact acceptor identity for grant verification with the backend
 /// unreachable.
@@ -200,7 +208,14 @@ public actor IrxBrokerService {
             baseURL: configuration.baseURL,
             tokenSource: tokenSource,
             clientNamespace: configuration.clientNamespace,
-            bindingAuthorization: retainedAuthorization
+            bindingAuthorization: retainedAuthorization,
+            sessionConfiguration: CmxIrohSessionConfiguration(
+                deviceID: identity.deviceID,
+                appInstanceID: identity.appInstanceID,
+                clientNamespace: configuration.clientNamespace,
+                tag: configuration.tag,
+                platform: configuration.platform
+            )
         )
         trustCache = IrxBrokerCacheFactory.make(
             kind: "trust",
@@ -222,6 +237,34 @@ public actor IrxBrokerService {
     /// The underlying trust-broker client, exposed for the legacy-dialect
     /// admission registry (online revalidation parity for old phones).
     public nonisolated var hostBrokerClient: CmxIrohTrustBrokerClient { client }
+
+    /// Returns the ticket used by both HTTP broker calls and the account
+    /// control-plane WebSocket. The trust-broker actor single-flights bootstrap
+    /// and renewal, so callers may invoke this from reconnect paths freely.
+    public func ensureSessionTicket() async throws -> String? {
+        guard !deactivated else { return nil }
+        return try await client.ensureSessionTicket()
+    }
+
+    /// Signs the exact body sent by the control-plane relay mint shortcut.
+    /// A cold client may not have a retained binding yet, in which case nil
+    /// keeps the HTTPS autopilot as the safe fallback.
+    public func makeControlPlaneMintProof(
+        endpointID: String
+    ) async throws -> PurpleProof? {
+        guard !deactivated else { return nil }
+        let body = try JSONEncoder().encode(IrxControlPlaneMintBody(endpointID: endpointID))
+        guard let proof = try await client.makeControlPlaneRequestProof(
+            method: "POST",
+            path: "api/relay/token",
+            body: body
+        ) else { return nil }
+        return PurpleProof(
+            bindingID: proof.bindingID,
+            signature: proof.signature,
+            timestamp: proof.timestamp
+        )
+    }
 
     // MARK: - Registration
 

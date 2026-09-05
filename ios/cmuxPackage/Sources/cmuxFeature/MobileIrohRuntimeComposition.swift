@@ -2418,7 +2418,7 @@ public final class MobileIrohRuntimeComposition:
             .lowercased()
         if authEnvironment == "production"
             || isOfficialReleaseBundle(bundleIdentifier) {
-            return URL(string: "https://cmux.com")
+            return URL(string: "https://presence.cmux.dev")
         }
 
         if let baked = infoDictionary?["CMUXIrohBrokerBaseURL"] as? String {
@@ -2431,7 +2431,7 @@ public final class MobileIrohRuntimeComposition:
             infoDictionary: infoDictionary,
             bundleIdentifier: bundleIdentifier
         ) != nil {
-            return URL(string: "https://cmux-staging.vercel.app")
+            return URL(string: "https://cmux-presence-dev.debussy.workers.dev")
         }
         return validatedBrokerBaseURL(apiBaseURL, allowsLoopback: allowsLoopback)
     }

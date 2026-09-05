@@ -2,6 +2,11 @@ import { createHash, randomUUID } from "node:crypto";
 import { and, eq, gt, inArray, lt, lte, sql } from "drizzle-orm";
 import type { cloudDb } from "../../db/client";
 import {
+  acquireMutationLock,
+  type MutationLockExecutor,
+  type MutationLockMode,
+} from "../../db/mutationLock";
+import {
   accountAnalyticsForwardLeases,
   accountDeletionTombstones,
   accountMutationLeases,
@@ -229,8 +234,13 @@ async function hasBlockingAccountDeletionIdentityHashes(
 export async function assertAccountDeletionUserMutationAllowed(
   tx: CloudDbTransaction,
   userId: string,
+  options: { readonly lockMode?: MutationLockMode } = {},
 ): Promise<void> {
-  await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${accountDeletionAdvisoryLockKey(userId)}, 0))`);
+  await acquireMutationLock(
+    tx as unknown as MutationLockExecutor,
+    accountDeletionAdvisoryLockKey(userId),
+    options.lockMode,
+  );
   const userIdHash = accountDeletionUserHash(userId);
   const [deletion] = await tx
     .select({

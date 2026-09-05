@@ -78,10 +78,17 @@ public actor IrxControlPlaneClient {
     }
 
     private let configuration: Configuration
-    /// Stack token pair: the worker's upstream proxy needs BOTH the access
-    /// token (Authorization) and the refresh token (x-stack-refresh-token);
-    /// the web API's native auth rejects a bearer alone.
+    /// Legacy Stack token pair. New clients provide a session-ticket provider
+    /// and only use this pair when the configured origin predates the session
+    /// route.
     private let tokenPair: @Sendable () async throws -> (access: String, refresh: String)?
+    /// Supplies the account-scoped Cloudflare ticket for a socket upgrade.
+    /// Bootstrap and renewal are single-flighted by the broker actor.
+    private let sessionTicketProvider: (@Sendable () async throws -> String?)?
+    /// Signs the exact relay-token body for a socket mint request. The proof
+    /// is optional during cold start, when the HTTPS registration path is still
+    /// arming the retained binding authorization.
+    private let mintProofProvider: (@Sendable (_ endpointID: String) async throws -> PurpleProof?)?
     private let journal: IrxJournal
     private let handlers: Handlers
     private let cursorCache: IrxDiskCache<IrxControlPlaneCursor>
@@ -197,11 +204,15 @@ public actor IrxControlPlaneClient {
     public init(
         configuration: Configuration,
         tokenPair: @escaping @Sendable () async throws -> (access: String, refresh: String)?,
+        sessionTicketProvider: (@Sendable () async throws -> String?)? = nil,
+        mintProofProvider: (@Sendable (_ endpointID: String) async throws -> PurpleProof?)? = nil,
         handlers: Handlers,
         journal: IrxJournal
     ) {
         self.configuration = configuration
         self.tokenPair = tokenPair
+        self.sessionTicketProvider = sessionTicketProvider
+        self.mintProofProvider = mintProofProvider
         self.handlers = handlers
         self.journal = journal
         decoder = Self.makeDecoder()
@@ -270,15 +281,42 @@ public actor IrxControlPlaneClient {
     }
 
     private func connectAndServe(generation: UInt64) async throws {
-        guard let tokens = try await tokenPair() else {
+        let sessionTicket: String?
+        do {
+            sessionTicket = try await sessionTicketProvider?()
+        } catch {
+            // A ticket renewal/bootstrap outage must not strand the legacy
+            // control socket. The Worker still accepts the old Stack pair
+            // during rollout, and this fallback is taken only on that failure
+            // path, never for ordinary requests while a ticket is valid.
+            journal.record(
+                "control-plane", "session-ticket-unavailable",
+                ["error": String(describing: error)]
+            )
+            sessionTicket = nil
+        }
+        let tokens: (access: String, refresh: String)?
+        if sessionTicket == nil {
+            tokens = try await tokenPair()
+        } else {
+            tokens = nil
+        }
+        guard sessionTicket != nil || tokens != nil else {
             throw IrxConnectionError.closed(nil)
         }
         guard generation == loopGeneration, !Task.isCancelled else {
             throw CancellationError()
         }
         var request = URLRequest(url: configuration.socketURL)
-        request.setValue("Bearer \(tokens.access)", forHTTPHeaderField: "Authorization")
-        request.setValue(tokens.refresh, forHTTPHeaderField: "x-stack-refresh-token")
+        if let sessionTicket {
+            request.setValue(
+                sessionTicket,
+                forHTTPHeaderField: "x-cmux-iroh-session-ticket"
+            )
+        } else if let tokens {
+            request.setValue("Bearer \(tokens.access)", forHTTPHeaderField: "Authorization")
+            request.setValue(tokens.refresh, forHTTPHeaderField: "x-stack-refresh-token")
+        }
         // The DO borrows this connection's identity for its upstream
         // discovery fetches; without the namespace the broker serves the
         // release-scoped view and per-tag isolation hides every dev-tagged
@@ -547,10 +585,11 @@ public actor IrxControlPlaneClient {
     /// relay_passes fact; the HTTPS autopilot stays as the fallback minter.
     public func requestMint() async {
         guard let socket else { return }
+        let proof = try? await mintProofProvider?(configuration.endpointIDHex)
         let frame = CTLMintRequest(
             payload: CTLMintRequestPayload(
                 endpointID: configuration.endpointIDHex,
-                proof: nil
+                proof: proof ?? nil
             ),
             type: .mintRequest,
             v: 1

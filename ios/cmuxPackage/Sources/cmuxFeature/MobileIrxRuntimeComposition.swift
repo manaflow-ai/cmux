@@ -7,10 +7,10 @@ import CmuxMobileShellModel
 public import Foundation
 
 /// iOS composition root for the irx transport (the from-scratch iroh rebuild
-/// in `CmuxIrxTransport`). DEBUG-only, default-off: when `cmux.irx.enabled`
-/// (or `CMUX_IRX_ENABLED=1`) is set, cmuxApp routes ALL `.iroh` traffic here
-/// and the legacy `MobileIrohRuntimeComposition` is never configured, so the
-/// two stacks cannot fight over the broker binding slot.
+/// in `CmuxIrxTransport`). The irx runtime is the default `.iroh` path. An
+/// explicit `cmux.irx.enabled=false` remains a remote-revert switch, and when
+/// irx is enabled the legacy `MobileIrohRuntimeComposition` is never
+/// configured, so the two stacks cannot fight over the broker binding slot.
 public actor MobileIrxRuntimeComposition {
     public static let enabledDefaultsKey = "cmux.irx.enabled"
     public static let forceRelayDefaultsKey = "cmux.irx.force-relay"
@@ -283,7 +283,10 @@ public actor MobileIrxRuntimeComposition {
     // MARK: - Control-plane fact ingestion
 
     private func startControlPlane(identity: IrxIdentity) {
-        guard controlPlane == nil, let controlPlaneBaseURL, let auth else { return }
+        guard controlPlane == nil,
+              let controlPlaneBaseURL,
+              let auth,
+              let broker else { return }
         let epoch = lifecycleEpoch
         let client = IrxControlPlaneClient(
             configuration: .init(
@@ -311,6 +314,12 @@ public actor MobileIrxRuntimeComposition {
                 guard let auth else { return nil }
                 let session = try await auth.authenticatedSessionSnapshot()
                 return (session.accessToken, session.refreshToken)
+            },
+            sessionTicketProvider: {
+                try await broker.ensureSessionTicket()
+            },
+            mintProofProvider: { endpointID in
+                try await broker.makeControlPlaneMintProof(endpointID: endpointID)
             },
             handlers: .init(
                 onRelayPasses: { [weak self] credentials in
