@@ -729,10 +729,13 @@ fn sidebar_tree_pointer_topology(tree: &TreeView) -> SidebarTreePointerTopology 
 }
 
 impl SidebarTreePointerTopology {
-    fn identity_eq(&self, other: &Self) -> bool {
-        self.workspace_revision == other.workspace_revision
-            && self.pane_revision == other.pane_revision
-            && self.active_workspace == other.active_workspace
+    /// Compare only the resources and geometry that can move a rendered hit
+    /// target. The backend revisions are cache invalidation metadata, not
+    /// pointer identity: a workspace rename, or a pane registry update in an
+    /// unrelated workspace, must not interrupt an active drag whose target is
+    /// unchanged.
+    fn structural_identity_eq(&self, other: &Self) -> bool {
+        self.active_workspace == other.active_workspace
             && self.active_workspace_id == other.active_workspace_id
             && strict_identity_matches(
                 self.active_workspace_resource_id.as_ref(),
@@ -786,6 +789,10 @@ impl SidebarTreePointerTopology {
                 .iter()
                 .zip(&other.screens)
                 .all(|(previous, next)| previous.identity_eq(next))
+    }
+
+    fn identity_eq(&self, other: &Self) -> bool {
+        self.structural_identity_eq(other)
     }
 
     fn active_surface_identity_eq(&self, other: &Self) -> bool {
@@ -55125,6 +55132,66 @@ mod tests {
         assert!(app.drag.is_none(), "a key replacement must retire workspace capture");
         assert!(app.active_pointer_buttons.is_empty());
         assert!(app.canceled_pointer_buttons.contains(&MouseButton::Left));
+    }
+
+    #[test]
+    fn revision_only_tree_updates_keep_pointer_capture_when_targets_are_unchanged() {
+        let mux = Mux::new("revision-only-pointer-capture-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut previous = notify_tree(11, false);
+        previous.workspaces_mut()[0].name = "before".into();
+        app.tree = previous.clone();
+        app.rebuild_tab_locations();
+        app.drag = Some(Drag::WorkspaceScrollbar {
+            track: Rect { x: 20, y: 1, width: 1, height: 4 },
+            total_rows: 8,
+            visible_rows: 4,
+            anchor_y: 2,
+            anchor_offset: 1,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+
+        let mut next = previous;
+        next.workspaces_mut()[0].name = "after".into();
+        next.workspace_revision = next.workspace_revision.saturating_add(1);
+        app.replace_tree(next);
+
+        assert!(
+            matches!(app.drag, Some(Drag::WorkspaceScrollbar { .. })),
+            "a workspace rename must not retire an unchanged workspace scrollbar target"
+        );
+        assert!(app.active_pointer_buttons.contains(&MouseButton::Left));
+
+        let mut pane_app = test_app(Session::Local(Mux::new(
+            "pane-revision-only-pointer-capture-test",
+            SurfaceOptions::default(),
+        )));
+        let pane_previous = notify_tree(11, false);
+        pane_app.tree = pane_previous.clone();
+        pane_app.rebuild_tab_locations();
+        pane_app.drag = Some(Drag::ResizeSplit {
+            screen: 3,
+            horizontal: Some(PaneResizeDragTarget::ViewportColumn {
+                pane: 2,
+                edge: PaneEdge::Right,
+                column_x: 0,
+                viewport_x: 0,
+                viewport_width: 80,
+                viewport_offset: 0,
+            }),
+            vertical: None,
+        });
+        pane_app.active_pointer_buttons.insert(MouseButton::Left);
+
+        let mut pane_next = pane_previous;
+        pane_next.pane_revision = pane_next.pane_revision.map(|revision| revision + 1);
+        pane_app.replace_tree(pane_next);
+
+        assert!(
+            matches!(pane_app.drag, Some(Drag::ResizeSplit { .. })),
+            "an unrelated pane registry revision must not retire an unchanged pane target"
+        );
+        assert!(pane_app.active_pointer_buttons.contains(&MouseButton::Left));
     }
 
     #[test]
