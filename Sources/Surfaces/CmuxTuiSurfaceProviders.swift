@@ -440,7 +440,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         } else {
             scannedPorts = portsCache?.ports
         }
-        guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return }
+        guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
         // A failed/incomplete port probe preserves the prior port rows; a
         // successful empty scan is authoritative and must not be repopulated
         // by the later link-failure fallback.
@@ -460,18 +460,17 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 stats: nil,
                 remoteWorkspaces: info.remoteWorkspaces
             )
-            guard catalog.replaceResources(
+            catalog.replaceResources(
                 catalog.preservingConcurrentPortResources(resources, on: machine, since: previousResources),
                 on: machine,
-                resources: resources,
                 info: info,
-                pendingWrites: pendingMutationMetadata()
+                from: self
             )
             return false
         }
         // Publish the display before the terminal link is ready. Its private URL
         // still waits for the browser Network Extension when the user opens it.
-        guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return }
+        guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
         if !resources.isEmpty, !catalog.hasResources(on: machine) {
             catalog.replaceResources(resources, on: machine, info: info, from: self)
         }
@@ -488,7 +487,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             let connected = try await links.connected(machineID: machineID)
             guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
             guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
-            guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return }
+            guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
             if let refreshedPorts = await ports(
                 link: link,
                 socketPath: connected.socketPath,
@@ -496,7 +495,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 generation: generation,
                 privateAddress: privateAddress
             ) {
-                guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return }
+                guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
                 resources.removeAll { $0.id.isForwardedPort }
                 resources.append(contentsOf: Self.portResources(
                     machine: machine,
@@ -579,7 +578,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         } catch {
             guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
             let status = await links.status(machineID: machineID)
-            guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return }
+            guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
             linkState = status?.state ?? .error
             let text = status?.error ?? CloudMachineLink.errorText(error)
             linkError = text
