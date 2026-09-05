@@ -26,11 +26,11 @@ public struct HTTPMobileNetworkOutcomeUploader: AnalyticsUploading {
     public init(
         apiBaseURL: String,
         tokenProvider: any AnalyticsTokenProviding,
-        session: sending URLSession = .shared
+        session: sending URLSession? = nil
     ) {
         self.apiBaseURL = apiBaseURL
         self.tokenProvider = tokenProvider
-        self.session = session
+        self.session = session ?? Self.shortTimeoutSession()
     }
 
     /// Uploads one batch to the Axiom-backed observability endpoint.
@@ -117,6 +117,14 @@ public struct HTTPMobileNetworkOutcomeUploader: AnalyticsUploading {
             )
             return .retry
         }
+    }
+
+    private static func shortTimeoutSession() -> URLSession {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 10
+        configuration.timeoutIntervalForResource = 15
+        configuration.waitsForConnectivity = false
+        return URLSession(configuration: configuration)
     }
 
     static func result(forStatusCode statusCode: Int) -> AnalyticsUploadResult {

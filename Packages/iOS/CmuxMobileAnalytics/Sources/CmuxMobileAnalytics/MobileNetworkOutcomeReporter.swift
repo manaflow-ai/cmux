@@ -38,6 +38,7 @@ public final class MobileNetworkOutcomeReporter: Sendable {
     }
 
     private static let pendingStartLifetimeNanos: UInt64 = 5 * 60 * 1_000_000_000
+    private static let maxPendingStarts = 32
 
     private struct Observation: Sendable {
         let phase: Phase
@@ -116,10 +117,13 @@ public final class MobileNetworkOutcomeReporter: Sendable {
             )
 
         case .transportDialStarted:
-            state.starts[Key(
+            Self.storeStart(Start(
+                tNanos: event.tNanos,
+                transport: transport
+            ), for: Key(
                 phase: .transportDial,
                 correlation: Self.correlation(event.c)
-            )] = Start(tNanos: event.tNanos, transport: transport)
+            ), state: &state)
             return nil
 
         case .transportDialConnected, .transportDialFailed, .transportDialCancelled:
@@ -129,10 +133,10 @@ public final class MobileNetworkOutcomeReporter: Sendable {
             )
             let start = state.starts.removeValue(forKey: key)
             if event.code == .transportDialConnected {
-                state.starts[Key(phase: .hostAuth, correlation: nil)] = Start(
+                Self.storeStart(Start(
                     tNanos: event.tNanos,
                     transport: transport ?? start?.transport
-                )
+                ), for: Key(phase: .hostAuth, correlation: nil), state: &state)
             }
             return Self.terminal(
                 phase: .transportDial,
@@ -166,10 +170,13 @@ public final class MobileNetworkOutcomeReporter: Sendable {
             )
 
         case .recoveryStarted:
-            state.starts[Key(
+            Self.storeStart(Start(
+                tNanos: event.tNanos,
+                transport: transport
+            ), for: Key(
                 phase: .recovery,
                 correlation: Self.correlation(event.surface)
-            )] = Start(tNanos: event.tNanos, transport: transport)
+            ), state: &state)
             return nil
 
         case .recoverySucceeded, .recoveryFailed:
@@ -187,10 +194,10 @@ public final class MobileNetworkOutcomeReporter: Sendable {
             )
 
         case .endpointStarting:
-            state.starts[Key(phase: .endpointStart, correlation: nil)] = Start(
+            Self.storeStart(Start(
                 tNanos: event.tNanos,
                 transport: transport
-            )
+            ), for: Key(phase: .endpointStart, correlation: nil), state: &state)
             return nil
 
         case .endpointActive, .endpointFailed:
@@ -206,10 +213,10 @@ public final class MobileNetworkOutcomeReporter: Sendable {
             )
 
         case .relayPolicyRefreshStarted:
-            state.starts[Key(phase: .relayPolicy, correlation: nil)] = Start(
+            Self.storeStart(Start(
                 tNanos: event.tNanos,
                 transport: transport
-            )
+            ), for: Key(phase: .relayPolicy, correlation: nil), state: &state)
             return nil
 
         case .relayPolicyRefreshSucceeded, .relayPolicyRefreshFailed:
@@ -259,6 +266,14 @@ public final class MobileNetworkOutcomeReporter: Sendable {
             transport: transport,
             userUsable: userUsable
         )
+    }
+
+    private static func storeStart(_ start: Start, for key: Key, state: inout State) {
+        if state.starts[key] == nil, state.starts.count >= Self.maxPendingStarts,
+           let oldest = state.starts.min(by: { $0.value.tNanos < $1.value.tNanos })?.key {
+            state.starts.removeValue(forKey: oldest)
+        }
+        state.starts[key] = start
     }
 
     private static func observation(
