@@ -10,6 +10,7 @@ const originalRuleId = process.env.CMUX_MOBILE_OBSERVABILITY_RATE_LIMIT_ID;
 let authenticatedUser: { readonly id: string } | null = { id: "user-7" };
 let authError: unknown = null;
 let emitError: unknown = null;
+let flushResult = true;
 let rateLimitResult: Awaited<ReturnType<typeof checkVercelRateLimit>> = { rateLimited: false };
 const emitted: Array<{ readonly userId: string; readonly batch: readonly MobileNetworkOutcome[] }> = [];
 const flushTimeouts: Array<number | undefined> = [];
@@ -25,7 +26,7 @@ const emitOutcomes = async (userId: string, batch: readonly MobileNetworkOutcome
 };
 const flushTraces = async (timeoutMs?: number): Promise<boolean> => {
   flushTimeouts.push(timeoutMs);
-  return true;
+  return flushResult;
 };
 const POST = makeMobileNetworkOutcomeHandler({
   verifyRequest,
@@ -40,6 +41,7 @@ beforeEach(() => {
   authenticatedUser = { id: "user-7" };
   authError = null;
   emitError = null;
+  flushResult = true;
   rateLimitResult = { rateLimited: false };
   emitted.length = 0;
   flushTimeouts.length = 0;
@@ -156,6 +158,28 @@ describe("iOS mobile network observability route", () => {
 
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({ error: "observability_unavailable" });
+  });
+
+  test("does not acknowledge a failure batch when trace flush fails", async () => {
+    flushResult = false;
+    const response = await POST(outcomeRequest([
+      outcome({ phase: "transport_dial", outcome: "timeout", duration_ms: 10 }),
+    ]));
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "observability_unavailable" });
+  });
+
+  test("fails closed when deployed rate limiting is unconfigured", async () => {
+    process.env.VERCEL = "1";
+    delete process.env.CMUX_MOBILE_OBSERVABILITY_RATE_LIMIT_ID;
+
+    const response = await POST(outcomeRequest([
+      outcome({ phase: "rpc_ready", outcome: "success", duration_ms: 10 }),
+    ]));
+
+    expect(response.status).toBe(503);
+    expect(verifyRequest).not.toHaveBeenCalled();
   });
 });
 

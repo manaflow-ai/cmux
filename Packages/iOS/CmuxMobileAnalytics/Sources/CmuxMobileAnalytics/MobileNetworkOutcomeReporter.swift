@@ -112,7 +112,7 @@ public final class MobileNetworkOutcomeReporter: Sendable {
                 event: event,
                 start: start,
                 transport: transport,
-                userUsable: false
+                userUsable: event.code == .pairOk
             )
 
         case .transportDialStarted:

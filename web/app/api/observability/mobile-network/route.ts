@@ -98,7 +98,14 @@ export function makeMobileNetworkOutcomeHandler(
             // Failure-heavy serverless instances are the exact place deferred
             // exporters lose data. Bound the flush so observability never holds
             // the app request indefinitely.
-            await dependencies.flushTraces(1_000);
+            const flushed = await dependencies.flushTraces(1_000);
+            if (!flushed) {
+              return jsonResponse(
+                { error: "observability_unavailable" },
+                503,
+                { "cache-control": "no-store" },
+              );
+            }
           }
         } catch {
           return jsonResponse(
@@ -126,7 +133,11 @@ async function enforceRateLimit(
   if (process.env.VERCEL !== "1") return null;
   if (!rateLimitId) {
     void reportMissingRateLimitRule({ route: ROUTE, reason: "unset" });
-    return null;
+    return jsonResponse(
+      { error: "observability_unavailable" },
+      503,
+      { "cache-control": "no-store" },
+    );
   }
   try {
     const { error, rateLimited } = await dependencies.checkRateLimit(rateLimitId, { request });
@@ -135,7 +146,11 @@ async function enforceRateLimit(
     }
     if (error === "not-found") {
       void reportMissingRateLimitRule({ route: ROUTE, reason: "not-found" });
-      return null;
+      return jsonResponse(
+        { error: "observability_unavailable" },
+        503,
+        { "cache-control": "no-store" },
+      );
     }
     if (error) {
       return jsonResponse(
