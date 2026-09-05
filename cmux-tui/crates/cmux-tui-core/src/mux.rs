@@ -2264,6 +2264,10 @@ pub struct Mux {
     cell_pixel_fanout_timeout: Mutex<Option<Duration>>,
     default_colors: Mutex<DefaultColors>,
     durable_terminal_defaults: AtomicBool,
+    /// A durable/session-local receipt that at least one agent has existed.
+    /// The live roster removes completed agents, but the sidebar still needs
+    /// to distinguish an empty session from a session with only history.
+    agent_history: AtomicBool,
     sidebar_plugin: Mutex<SidebarPluginRuntime>,
     journal_plugin: crate::journal_plugin::JournalPluginRuntime,
     machine_usage: Mutex<Option<MachineUsage>>,
@@ -2541,6 +2545,7 @@ impl Mux {
         let RestoredPublicProjections {
             default_colors,
             has_terminal_defaults,
+            has_agent_history,
             next_notification_id,
             agent_records,
             agent_hook_fences,
@@ -2658,6 +2663,7 @@ impl Mux {
             cell_pixel_fanout_timeout: Mutex::new(None),
             default_colors: Mutex::new(default_colors),
             durable_terminal_defaults: AtomicBool::new(has_terminal_defaults),
+            agent_history: AtomicBool::new(has_agent_history),
             sidebar_plugin: Mutex::new(SidebarPluginRuntime::default()),
             journal_plugin: crate::journal_plugin::JournalPluginRuntime::default(),
             machine_usage: Mutex::new(None),
@@ -9893,6 +9899,10 @@ impl Mux {
             effective_hook_state,
             journal_sequence,
         )?;
+        // The live roster intentionally drops completed lifecycles. Keep a
+        // session-local receipt so a frontend can explain an empty active
+        // queue as "no active agents" instead of "no agent history".
+        self.agent_history.store(true, Ordering::Release);
         if !commit.replayed
             && let (Some(direct_state), Some(sequence_guard)) =
                 (direct_hook_state.as_ref(), sequence_guard.as_mut())
@@ -10059,6 +10069,83 @@ impl Mux {
             })
             .filter(|record| state.is_none_or(|state| record.state == state))
             .collect()
+    }
+
+    /// Return durable agent projections for an explicit lifecycle query. The
+    /// normal roster is a live queue and removes ended hook sessions; a view
+    /// with a state filter must still be able to inspect those historical
+    /// projections while their terminal remains present in the tree.
+    pub fn list_agent_history(
+        &self,
+        surface: Option<SurfaceId>,
+        state: Option<AgentState>,
+    ) -> Vec<AgentRecord> {
+        let result = self.with_resource_projection(|registry, state_snapshot| {
+            let requested_terminal = surface.and_then(|surface| {
+                state_snapshot
+                    .surfaces
+                    .get(&surface)
+                    .or_else(|| state_snapshot.terminal_runtime_by_id(surface))
+                    .and_then(|surface| surface.terminal_public_id().cloned())
+            });
+            let mut records = registry
+                .public_projections()?
+                .agents
+                .into_iter()
+                .filter_map(|projection| {
+                    let agent_state = parse_projection_agent_state(&projection.state);
+                    if !state.is_none_or(|wanted| wanted == agent_state) {
+                        return None;
+                    }
+                    let terminal_id = projection.terminal_id;
+                    if requested_terminal.as_ref().is_some_and(|wanted| wanted != &terminal_id) {
+                        return None;
+                    }
+                    let representative = state_snapshot
+                        .placements_of_content(&ContentPublicId::Terminal(terminal_id.clone()))
+                        .first()
+                        .copied()
+                        .or_else(|| {
+                            state_snapshot
+                                .terminal_catalog
+                                .get(&terminal_id)
+                                .map(|surface| surface.id)
+                        })?;
+                    let source = match projection.source.as_str() {
+                        "plugin" => AgentSource::Plugin,
+                        "detected" => AgentSource::Detected,
+                        "socket" => AgentSource::Socket,
+                        "hook" => AgentSource::Hook,
+                        _ => return None,
+                    };
+                    let session = projection.source_session.filter(|value| {
+                        !value.starts_with("cmux-hook-sequence:")
+                            && !value.starts_with("cmux-hook-ended:")
+                    });
+                    Some(AgentRecord {
+                        surface: representative,
+                        terminal_id,
+                        state: agent_state,
+                        source,
+                        session,
+                        agent: None,
+                        updated_at_ms: projection.updated_at_ms,
+                    })
+                })
+                .collect::<Vec<_>>();
+            records
+                .sort_by(|left, right| left.terminal_id.as_str().cmp(right.terminal_id.as_str()));
+            Ok(records)
+        });
+        result.unwrap_or_default()
+    }
+
+    /// Whether this session has ever committed an agent projection. Completed
+    /// hook lifecycles leave the live roster, so callers that render an empty
+    /// state must not infer that the feature has never been used from
+    /// `list_agents` alone.
+    pub fn has_agent_history(&self) -> bool {
+        self.agent_history.load(Ordering::Acquire)
     }
 
     pub fn shutdown(&self) {

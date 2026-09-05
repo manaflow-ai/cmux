@@ -3173,6 +3173,14 @@ impl OrderedSession {
         self.inner.agents()
     }
 
+    fn agent_history(&self) -> Vec<AgentInfo> {
+        self.inner.agent_history()
+    }
+
+    fn has_agent_history(&self) -> bool {
+        self.inner.has_agent_history()
+    }
+
     fn respond_pairing(&self, request: u64, approve: bool) -> anyhow::Result<()> {
         self.inner.respond_pairing(request, approve)
     }
@@ -12323,7 +12331,7 @@ impl App {
     /// Whether the canonical session has any agent records. The renderer uses
     /// this only to distinguish an empty queue from a history-only queue.
     pub(crate) fn has_agent_records(&self) -> bool {
-        !self.session.agents().is_empty()
+        self.session.has_agent_history()
     }
 
     /// Return the compact profile-strip attention receipt. `!N` counts
@@ -12400,15 +12408,14 @@ impl App {
         let Some(spec) = self.config.sidebar.views.get(index).cloned() else {
             return Arc::<[ProjectionRow]>::from(Vec::new());
         };
-        let agents = if spec.includes(SidebarResourceKind::Agents) {
-            self.session.agents()
-        } else {
-            Vec::new()
-        };
+        let live_agents = spec
+            .includes(SidebarResourceKind::Agents)
+            .then(|| self.session.agents())
+            .unwrap_or_default();
         // Refresh the client-local seen stamp before consulting the LRU. A
         // projection can be requested before the profile strip is drawn, and
         // a cache hit must not reuse the pre-seen ordering from that frame.
-        if !agents.is_empty() && self.refresh_agent_focus_stamp(&agents) {
+        if !live_agents.is_empty() && self.refresh_agent_focus_stamp(&live_agents) {
             self.invalidate_projection_rows_cache();
         }
         let collapsed = self
@@ -12447,6 +12454,25 @@ impl App {
             self.projection_rows_cache.push_front(cache);
             rows
         } else {
+            let agents = if spec.filter.states.is_empty() {
+                live_agents
+            } else {
+                let mut agents = self.session.agent_history();
+                // The durable projection is the source for explicit lifecycle
+                // filters. Overlay the live roster so a terminal that starts
+                // a new lifecycle after a completed one cannot render the
+                // stale historical state.
+                for live in live_agents {
+                    if let Some(existing) =
+                        agents.iter_mut().find(|agent| agent.surface == live.surface)
+                    {
+                        *existing = live;
+                    } else {
+                        agents.push(live);
+                    }
+                }
+                agents
+            };
             let seen_idle = self.seen_idle_agent_surfaces(&agents);
             let rows = crate::sidebar_projection::rows(
                 &spec,
@@ -12725,19 +12751,50 @@ impl App {
         surface: SurfaceId,
         change: ProjectionSurfaceChange,
     ) -> bool {
+        // An agent update can create the first row in a view, so an empty
+        // cache has no dependency id to wake from. Use the current tree and
+        // the view's semantic scope as a bounded fallback. A surface that is
+        // not in this client's tree remains unrelated, preserving the cheap
+        // no-paint path for foreign workspace updates.
+        let agent_surface_workspace = (change == ProjectionSurfaceChange::Agent)
+            .then(|| self.tab_locations.get(&surface).map(|location| location[0]))
+            .flatten();
+        let agent_scope_views = agent_surface_workspace.map_or_else(HashSet::new, |workspace| {
+            self.config
+                .sidebar
+                .views
+                .iter()
+                .filter(|spec| {
+                    spec.includes(SidebarResourceKind::Agents)
+                        && self.projection_view_is_visible(&spec.id)
+                        && (spec.scope == SidebarViewScope::All
+                            || spec.levels.first() != Some(&SidebarResourceKind::Agents)
+                            || workspace == self.sidebar_workspace_selection)
+                })
+                .map(|spec| spec.id.clone())
+                .collect()
+        });
         let was_affected = self.projection_rows_cache.iter().any(|cache| {
             self.projection_view_is_visible(&cache.view_id)
                 && match change {
-                    ProjectionSurfaceChange::Agent => cache.agent_surfaces.contains(&surface),
+                    ProjectionSurfaceChange::Agent => {
+                        cache.agent_surfaces.contains(&surface)
+                            || agent_scope_views.contains(&cache.view_id)
+                    }
                     ProjectionSurfaceChange::Title => cache.title_surfaces.contains(&surface),
                 }
         });
         self.projection_rows_cache.retain(|cache| match change {
-            ProjectionSurfaceChange::Agent => !cache.agent_surfaces.contains(&surface),
+            ProjectionSurfaceChange::Agent => {
+                !cache.agent_surfaces.contains(&surface)
+                    && !agent_scope_views.contains(&cache.view_id)
+            }
             ProjectionSurfaceChange::Title => !cache.title_surfaces.contains(&surface),
         });
         let visible = match change {
-            ProjectionSurfaceChange::Agent => self.projection_agent_surfaces.contains(&surface),
+            ProjectionSurfaceChange::Agent => {
+                self.projection_agent_surfaces.contains(&surface) || !agent_scope_views.is_empty()
+            }
             ProjectionSurfaceChange::Title => self.projection_title_surfaces.contains(&surface),
         };
         if !(was_affected || visible) || self.projection_paint_pending {
@@ -45819,7 +45876,13 @@ mod tests {
     #[test]
     fn split_drag_updates_the_coalescing_lane_while_a_ratio_is_pending() {
         let mux = Mux::new("pending-split-drag-test", SurfaceOptions::default());
+        let surface = mux.new_workspace(None, Some((40, 12))).unwrap();
+        let initial_tree = Session::Local(mux.clone()).tree();
+        let active_screen = initial_tree.active_screen().expect("split drag test screen");
+        let screen_id = active_screen.id;
+        let active_pane = active_screen.active_pane;
         let (mut app, _events) = test_app_with_events(Session::Local(mux));
+        app.replace_tree(initial_tree);
         let (started_tx, started_rx) = std::sync::mpsc::channel();
         let (_release_tx, release_rx) = std::sync::mpsc::channel::<()>();
         app.session.enqueue("blocking ratio", move |_| {
@@ -45829,9 +45892,9 @@ mod tests {
         });
         started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
         app.drag = Some(Drag::ResizeSplit {
-            screen: app.active_screen_id().unwrap_or(0),
+            screen: screen_id,
             horizontal: Some(PaneResizeDragTarget::ViewportColumn {
-                pane: 1,
+                pane: active_pane,
                 edge: PaneEdge::Right,
                 column_x: 0,
                 viewport_x: 0,
@@ -45859,6 +45922,8 @@ mod tests {
         .unwrap();
         assert!(app.deferred_input.is_empty());
         assert!(app.drag.is_none());
+
+        mux.close_surface(surface.id).unwrap();
     }
 
     #[test]

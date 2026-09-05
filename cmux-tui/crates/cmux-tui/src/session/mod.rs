@@ -102,11 +102,38 @@ pub enum Session {
 /// remains on `Session::tree`.
 pub(crate) trait SessionPort: Send + Sync {
     fn agents(&self) -> Vec<AgentInfo>;
+    fn agent_history(&self) -> Vec<AgentInfo>;
+    fn has_agent_history(&self) -> bool;
 }
 
 impl SessionPort for Session {
     fn agents(&self) -> Vec<AgentInfo> {
         self.agents_impl()
+    }
+
+    fn agent_history(&self) -> Vec<AgentInfo> {
+        match self {
+            Session::Local(mux) => mux
+                .list_agent_history(None, None)
+                .into_iter()
+                .map(|agent| AgentInfo {
+                    surface: agent.surface,
+                    state: agent.state.as_str().to_string(),
+                    source: agent.source.as_str().to_string(),
+                    session: agent.session,
+                    agent: agent.agent,
+                    updated_at_ms: agent.updated_at_ms,
+                })
+                .collect(),
+            Session::Remote(remote) => remote.cached_agent_history(),
+        }
+    }
+
+    fn has_agent_history(&self) -> bool {
+        match self {
+            Session::Local(mux) => mux.has_agent_history(),
+            Session::Remote(remote) => remote.has_agent_history(),
+        }
     }
 }
 
@@ -964,6 +991,14 @@ impl Session {
 
     pub fn agents(&self) -> Vec<AgentInfo> {
         <Self as SessionPort>::agents(self)
+    }
+
+    pub fn agent_history(&self) -> Vec<AgentInfo> {
+        <Self as SessionPort>::agent_history(self)
+    }
+
+    pub fn has_agent_history(&self) -> bool {
+        <Self as SessionPort>::has_agent_history(self)
     }
 
     fn agents_impl(&self) -> Vec<AgentInfo> {

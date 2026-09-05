@@ -7,6 +7,9 @@ use crate::workspace_registry::RegistryPublicProjections;
 pub(super) struct RestoredPublicProjections {
     pub(super) default_colors: DefaultColors,
     pub(super) has_terminal_defaults: bool,
+    /// True when the registry contains any agent projection, including a
+    /// completed lifecycle that the live roster intentionally omits.
+    pub(super) has_agent_history: bool,
     pub(super) next_notification_id: u64,
     pub(super) agent_records: HashMap<TerminalPublicId, TerminalAgentRecord>,
     pub(super) agent_hook_fences: HashMap<TerminalPublicId, HookFence>,
@@ -19,6 +22,7 @@ pub(super) fn restore_public_projections(
     projections: RegistryPublicProjections,
 ) -> anyhow::Result<RestoredPublicProjections> {
     let has_terminal_defaults = projections.terminal_defaults.is_some();
+    let has_agent_history = !projections.agents.is_empty();
     let default_colors = projections.terminal_defaults.unwrap_or_default();
     let mut notification_ledger = VecDeque::with_capacity(projections.notifications.len());
     let mut terminal_notifications = HashMap::new();
@@ -123,6 +127,7 @@ pub(super) fn restore_public_projections(
     Ok(RestoredPublicProjections {
         default_colors,
         has_terminal_defaults,
+        has_agent_history,
         next_notification_id,
         agent_records,
         agent_hook_fences,

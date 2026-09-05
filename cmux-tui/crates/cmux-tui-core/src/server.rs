@@ -11624,7 +11624,13 @@ fn handle_command_with_cancellation(
                 None => None,
             };
             let agents = mux.list_agents(surface, state).iter().map(agent_json).collect::<Vec<_>>();
-            Ok(json!({ "agents": agents }))
+            let history =
+                mux.list_agent_history(surface, state).iter().map(agent_json).collect::<Vec<_>>();
+            Ok(json!({
+                "agents": agents,
+                "history": history,
+                "has_history": mux.has_agent_history(),
+            }))
         }
         Command::ReportAgent { surface, state, source, session } => {
             get_surface(mux, surface)?;

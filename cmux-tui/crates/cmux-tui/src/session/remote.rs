@@ -291,6 +291,11 @@ impl Default for RemoteBrowserState {
 struct RemoteTreeCache {
     view: TreeView,
     agents: Vec<AgentInfo>,
+    /// Durable agent projections retained for explicit lifecycle filters.
+    /// `agents` remains the live queue and can legitimately be empty after a
+    /// completed hook session.
+    agent_history: Vec<AgentInfo>,
+    has_agent_history: bool,
     surface_tabs: HashMap<SurfaceId, [usize; 4]>,
     title_generation: u64,
     title_updates: HashMap<SurfaceId, TitleUpdate>,
@@ -378,6 +383,9 @@ impl RemoteTreeCache {
         refresh_generation: u64,
         retired_surfaces: &HashSet<SurfaceId>,
     ) {
+        if !agents.is_empty() {
+            self.has_agent_history = true;
+        }
         self.agents =
             agents.into_iter().filter(|agent| !retired_surfaces.contains(&agent.surface)).collect();
         let updates = std::mem::take(&mut self.agent_updates);
@@ -394,6 +402,7 @@ impl RemoteTreeCache {
                 // authoritative roster response when a stale topology
                 // briefly shows the surface again.
                 if update.generation > refresh_generation {
+                    self.replace_history_agent(update.agent.clone());
                     self.replace_agent(update.agent);
                 }
             } else if update.generation > refresh_generation {
@@ -409,12 +418,36 @@ impl RemoteTreeCache {
         if retired_surfaces.contains(&agent.surface) {
             return;
         }
+        self.has_agent_history = true;
         self.agent_generation = self.agent_generation.saturating_add(1);
         self.agent_updates.insert(
             agent.surface,
             AgentUpdate { generation: self.agent_generation, agent: agent.clone() },
         );
+        self.replace_history_agent(agent.clone());
         self.replace_agent(agent);
+    }
+
+    fn replace_agent_history(
+        &mut self,
+        agents: Vec<AgentInfo>,
+        retired_surfaces: &HashSet<SurfaceId>,
+    ) {
+        if !agents.is_empty() {
+            self.has_agent_history = true;
+        }
+        self.agent_history =
+            agents.into_iter().filter(|agent| !retired_surfaces.contains(&agent.surface)).collect();
+    }
+
+    fn replace_history_agent(&mut self, agent: AgentInfo) {
+        if let Some(existing) =
+            self.agent_history.iter_mut().find(|item| item.surface == agent.surface)
+        {
+            *existing = agent;
+        } else {
+            self.agent_history.push(agent);
+        }
     }
 
     fn replace_agent(&mut self, agent: AgentInfo) {
@@ -3462,6 +3495,14 @@ impl RemoteSession {
         self.tree.lock().unwrap().agents.clone()
     }
 
+    pub fn cached_agent_history(&self) -> Vec<AgentInfo> {
+        self.tree.lock().unwrap().agent_history.clone()
+    }
+
+    pub fn has_agent_history(&self) -> bool {
+        self.tree.lock().unwrap().has_agent_history
+    }
+
     pub fn refresh_tree(&self) -> anyhow::Result<TreeView> {
         self.refresh_tree_inner(true)
     }
@@ -3489,15 +3530,21 @@ impl RemoteSession {
                 return Err(e);
             }
         };
-        let agents = self
-            .request(json!({"cmd": "list-agents"}))
-            .ok()
-            .and_then(|data| {
-                data.get("agents")
-                    .cloned()
-                    .and_then(|agents| serde_json::from_value::<Vec<AgentInfo>>(agents).ok())
-            })
-            .unwrap_or_default();
+        let agent_snapshot = self.request(json!({"cmd": "list-agents"})).ok().map(|data| {
+            let agents = data
+                .get("agents")
+                .cloned()
+                .and_then(|agents| serde_json::from_value::<Vec<AgentInfo>>(agents).ok())
+                .unwrap_or_default();
+            let history = data
+                .get("history")
+                .cloned()
+                .and_then(|history| serde_json::from_value::<Vec<AgentInfo>>(history).ok());
+            let has_history = data.get("has_history").and_then(Value::as_bool);
+            (agents, history, has_history)
+        });
+        let (agents, history, has_history) =
+            agent_snapshot.unwrap_or_else(|| (Vec::new(), None, None));
         let capabilities = self.capabilities.lock().unwrap();
         let tree = parse_tree_with_capabilities(
             &data,
@@ -3545,6 +3592,15 @@ impl RemoteSession {
             tree.retain_not_retired(&retired_surfaces);
             cache.replace(tree, title_refresh_generation);
             cache.replace_agents(agents, agent_refresh_generation, &retired_surfaces);
+            if let Some(history) = history {
+                cache.replace_agent_history(history, &retired_surfaces);
+                if let Some(has_history) = has_history {
+                    cache.has_agent_history =
+                        has_history || !cache.agent_history.is_empty() || !cache.agents.is_empty();
+                }
+            } else if has_history == Some(true) {
+                cache.has_agent_history = true;
+            }
             cache.view.clone()
         };
         drop(retired_surfaces);
