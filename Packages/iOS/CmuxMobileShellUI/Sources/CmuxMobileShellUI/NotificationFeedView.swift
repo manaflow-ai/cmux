@@ -39,6 +39,7 @@ struct NotificationFeedView: View {
                 hasSearchQuery: !projection.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                 status: status,
                 actions: actions,
+                toggleGroup: { projection.toggleGroup($0) },
                 loadMoreRows: {
                     actions.loadMore()
                     projection.extendRowWindow()
@@ -137,7 +138,9 @@ private struct NotificationFeedList: View {
     let hasSearchQuery: Bool
     let status: MobileNotificationFeedStatus
     let actions: NotificationFeedActions
+    let toggleGroup: @MainActor (MobileNotificationFeedItemID) -> Void
     let loadMoreRows: @MainActor () -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         List {
@@ -153,12 +156,25 @@ private struct NotificationFeedList: View {
             } else {
                 ForEach(sections) { section in
                     Section {
-                        ForEach(section.items) { model in
-                            NotificationFeedRow(model: model, actions: actions)
-                                .equatable()
-                                .disabled(hasStaleSourceSections)
-                                .allowsHitTesting(!hasStaleSourceSections)
+                        ForEach(section.rows) { row in
+                            NotificationFeedRow(
+                                model: row.model,
+                                actions: actions,
+                                context: row.context,
+                                disclosure: row.disclosure,
+                                toggleGroup: {
+                                    guard let disclosure = row.disclosure else { return }
+                                    withAnimation(reduceMotion ? nil : .smooth(duration: 0.3)) {
+                                        toggleGroup(disclosure.groupID)
+                                    }
+                                }
+                            )
+                            .equatable()
+                            .padding(.leading, row.context.isNested ? 20 : 0)
+                            .listRowBackground(Color.clear)
                         }
+                        .disabled(hasStaleSourceSections)
+                        .allowsHitTesting(!hasStaleSourceSections)
                     } header: {
                         NotificationFeedDayHeader(section: section)
                     }
@@ -184,6 +200,7 @@ private struct NotificationFeedList: View {
             status: status
         )
     }
+
 }
 
 private struct NotificationFeedDayHeader: View {
