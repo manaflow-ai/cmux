@@ -158,6 +158,21 @@ public struct SidebarCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarNotificationBadgePosition"
     )
 
+    /// Visual treatment for modifier-hold shortcut hints in workspace rows.
+    public let shortcutHintStyle = DefaultsKey<SidebarShortcutHintStyle>(
+        id: "sidebar.shortcutHintStyle",
+        defaultValue: .pill,
+        userDefaultsKey: "sidebarShortcutHintStyle"
+    )
+
+    /// Optional hex color for bare shortcut-hint text on unselected rows.
+    /// An empty value means the row's semantic label color.
+    public let shortcutHintColorHex = DefaultsKey<String>(
+        id: "sidebar.shortcutHintColor",
+        defaultValue: "",
+        userDefaultsKey: "sidebarShortcutHintColorHex"
+    )
+
     public let showCustomMetadata = DefaultsKey<Bool>(
         id: "sidebar.showCustomMetadata",
         defaultValue: true,

@@ -1175,6 +1175,8 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "shortcutHintStyle": "Vizuelni izgled savjeta za prečice u bočnoj traci radnog prostora dok se drži modifikatorska tipka.",
+          "shortcutHintColor": "Opcionalna boja za tekstualne savjete za prečice u neodabranim redovima bočne trake; odabrani redovi koriste čitljivu boju prednjeg plana.",
           "notificationMessageLineLimit": "Maksimalan broj redova prikazanih za najnoviju obavijest ispod naslova svakog radnog prostora.",
           "rightMaxWidth": "Maksimalna širina desne bočne trake u tačkama. Ako se izostavi, primjenjuje se ugrađeno dinamičko ograničenje."
         },

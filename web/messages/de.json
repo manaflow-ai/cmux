@@ -1175,6 +1175,8 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "shortcutHintStyle": "Visuelle Darstellung der Shortcut-Hinweise in der Workspace-Seitenleiste, solange eine Modifikatortaste gehalten wird.",
+          "shortcutHintColor": "Optionale Farbe für reine Text-Shortcut-Hinweise in nicht ausgewählten Seitenleistenzeilen; ausgewählte Zeilen verwenden eine gut lesbare Vordergrundfarbe.",
           "notificationMessageLineLimit": "Maximale Anzahl der Zeilen, die für die neueste Benachrichtigung unter jedem Workspace-Titel angezeigt werden.",
           "rightMaxWidth": "Maximale Breite der rechten Seitenleiste in Punkten. Wenn weggelassen, gilt die integrierte dynamische Obergrenze."
         },

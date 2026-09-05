@@ -1175,6 +1175,8 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "shortcutHintStyle": "工作区侧边栏中按住修饰键时显示的快捷键提示视觉样式。",
+          "shortcutHintColor": "未选中侧边栏行的纯文本快捷键提示的可选颜色；选中行使用可读的前景色。",
           "notificationMessageLineLimit": "每个工作区标题下方显示的最新通知的最大行数。",
           "rightMaxWidth": "右侧边栏的最大宽度（点）。省略时使用内置动态上限。"
         },

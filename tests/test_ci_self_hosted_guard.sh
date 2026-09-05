@@ -1262,6 +1262,7 @@ check_no_self_hosted_fleet_runners() {
 check_cla_guard_runner
 
 # ci.yml jobs
+check_cla_guard_runner
 check_no_bare_github_hosted_runners
 check_no_self_hosted_fleet_runners
 check_macos_runner "$CI_FILE" "app-host-unit-tests"

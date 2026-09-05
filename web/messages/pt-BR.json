@@ -1175,6 +1175,8 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "shortcutHintStyle": "Tratamento visual das dicas de atalhos na barra lateral do espaço de trabalho enquanto uma tecla modificadora é mantida pressionada.",
+          "shortcutHintColor": "Cor opcional para o texto das dicas de atalhos sem cápsula em linhas não selecionadas da barra lateral; linhas selecionadas usam uma cor de primeiro plano legível.",
           "notificationMessageLineLimit": "Número máximo de linhas exibidas para a notificação mais recente abaixo do título de cada espaço de trabalho.",
           "rightMaxWidth": "Largura máxima em pontos para a barra lateral direita. Quando omitida, o limite dinâmico integrado se aplica."
         },

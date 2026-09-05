@@ -1175,6 +1175,8 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "shortcutHintStyle": "Visuel udformning af genvejstips i arbejdsområdets sidepanel, mens en modifikatortast holdes nede.",
+          "shortcutHintColor": "Valgfri farve til tekstbaserede genvejstips på ikke-valgte rækker i sidepanelet; valgte rækker bruger en læselig forgrundsfarve.",
           "notificationMessageLineLimit": "Det maksimale antal linjer, der vises for den seneste notifikation under hver arbejdsområdetitel.",
           "rightMaxWidth": "Maksimal bredde i punkter for højre sidepanel. Hvis den udelades, bruges den indbyggede dynamiske grænse."
         },

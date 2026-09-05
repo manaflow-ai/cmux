@@ -15619,6 +15619,16 @@ struct TabItemView: View, Equatable {
         return "\(workspaceShortcutModifierSymbol)\(workspaceShortcutDigit)"
     }
 
+    private var shortcutHintTextColor: Color? {
+        guard settings.shortcutHintStyle == .bare else { return nil }
+        if isActive || isMultiSelected {
+            return Color(nsColor: selectedWorkspaceForegroundNSColor(opacity: 1.0))
+        }
+        return settings.shortcutHintColorHex
+            .flatMap { NSColor(hex: $0) }
+            .map { Color(nsColor: $0) }
+    }
+
     private var showsWorkspaceShortcutHint: Bool {
         (showsModifierShortcutHints || alwaysShowShortcutHints) && workspaceShortcutLabel != nil
     }
@@ -16136,7 +16146,9 @@ struct TabItemView: View, Equatable {
             emphasis: shortcutHintEmphasis,
             offsetX: sidebarShortcutHintXOffset,
             offsetY: sidebarShortcutHintYOffset,
-            fontSize: scaledFontSize(10)
+            fontSize: scaledFontSize(10),
+            style: settings.shortcutHintStyle,
+            textColor: shortcutHintTextColor
         )
         .shortcutHintVisibilityAnimation(value: showsWorkspaceShortcutHint)
         .padding(.horizontal, SidebarWorkspaceListMetrics.rowOuterHorizontalPadding)

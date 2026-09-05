@@ -1175,6 +1175,8 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "shortcutHintStyle": "작업 공간 사이드바에서 수정자 키를 누르고 있을 때 표시되는 단축키 힌트의 시각적 스타일입니다.",
+          "shortcutHintColor": "선택되지 않은 사이드바 행의 텍스트 단축키 힌트에 사용할 선택적 색상입니다. 선택된 행에는 읽기 쉬운 전경색이 사용됩니다.",
           "notificationMessageLineLimit": "각 작업 공간 제목 아래에 표시되는 최신 알림의 최대 줄 수입니다.",
           "rightMaxWidth": "오른쪽 사이드바의 최대 너비(포인트). 생략하면 내장 동적 상한이 적용됩니다."
         },

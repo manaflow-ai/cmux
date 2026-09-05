@@ -1175,6 +1175,8 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "shortcutHintStyle": "Tratamiento visual de las sugerencias de atajos en la barra lateral del espacio de trabajo mientras se mantiene pulsada una tecla modificadora.",
+          "shortcutHintColor": "Color opcional para el texto de las sugerencias de atajos sin fondo en filas no seleccionadas de la barra lateral; las filas seleccionadas usan un primer plano legible.",
           "notificationMessageLineLimit": "Número máximo de líneas que se muestran para la notificación más reciente debajo del título de cada espacio de trabajo.",
           "rightMaxWidth": "Ancho máximo en puntos para la barra lateral derecha. Si se omite, se aplica el límite dinámico integrado."
         },
