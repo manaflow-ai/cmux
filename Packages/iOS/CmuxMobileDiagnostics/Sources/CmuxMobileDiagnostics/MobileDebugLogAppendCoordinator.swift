@@ -135,10 +135,11 @@ final class MobileDebugLogAppendCoordinator: @unchecked Sendable {
             let admitted = withStateLock { state in
                 guard !state.finished else { return false }
                 if state.entries.count >= maxBufferedEntries {
-                    guard let oldestDroppable = state.entries.firstIndex(where: Self.isDroppable) else {
-                        return false
-                    }
-                    state.entries.remove(at: oldestDroppable)
+                    // A barrier must not displace a line that was already
+                    // accepted. Failing closed preserves the ordering
+                    // guarantee and lets the caller retry after the drain
+                    // makes progress.
+                    return false
                 }
                 state.entries.append(.barrier(acknowledgement))
                 return true

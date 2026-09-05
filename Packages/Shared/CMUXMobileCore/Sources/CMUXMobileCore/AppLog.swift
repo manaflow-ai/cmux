@@ -266,8 +266,8 @@ public actor AppLog {
 
     /// Synchronously admits entries from arbitrary producer threads while
     /// keeping normal event and mirrored-line traffic bounded. Control entries
-    /// are never evicted; when the traffic budget is full, the oldest droppable
-    /// entry is discarded.
+    /// never evict an entry that was already accepted. If the queue is full,
+    /// control admission fails and the caller receives a failed acknowledgement.
     // lint:allow lock - synchronous admission is required for nonisolated
     // producers; the lock is held only while updating a bounded in-memory queue.
     private final class EntryIngress: @unchecked Sendable {
@@ -307,11 +307,10 @@ public actor AppLog {
                     }
                     state.bufferedDroppableCount += 1
                 } else if state.entries.count >= maxBufferedEntries {
-                    guard let oldestDroppable = state.entries.firstIndex(where: Self.isDroppable) else {
-                        return false
-                    }
-                    state.entries.remove(at: oldestDroppable)
-                    state.bufferedDroppableCount -= 1
+                    // A barrier or clear must not displace an already
+                    // accepted event. Failing closed preserves ordering and
+                    // lets the caller retry after the drain makes progress.
+                    return false
                 }
                 state.entries.append(entry)
                 return true
@@ -319,7 +318,7 @@ public actor AppLog {
             if admitted {
                 wakeContinuation.yield(())
             } else {
-                Self.resumeControl(entry)
+                Self.resumeControl(entry, result: false)
             }
         }
 
@@ -363,7 +362,7 @@ public actor AppLog {
                 return pending
             }
             for entry in pending {
-                Self.resumeControl(entry)
+                Self.resumeControl(entry, result: false)
             }
             wakeContinuation.finish()
         }
@@ -383,10 +382,10 @@ public actor AppLog {
             }
         }
 
-        private static func resumeControl(_ entry: Entry) {
+        private static func resumeControl(_ entry: Entry, result: Bool) {
             switch entry {
             case .barrier(let acknowledgement), .clear(let acknowledgement):
-                acknowledgement.signal()
+                acknowledgement.signal(result)
             case .event, .appLine:
                 break
             }
