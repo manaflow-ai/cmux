@@ -13,7 +13,7 @@ test("generated protocol coverage matches the canonical v12 IR", () => {
   assert.equal(MUX_PROTOCOL_VERSION, 12);
   assert.equal(SDK_SCHEMA_VERSION, 2);
   assert.equal(Object.keys(COMMAND_METADATA).length, 106);
-  assert.equal(Object.keys(EVENT_METADATA).length, 47);
+  assert.equal(Object.keys(EVENT_METADATA).length, 48);
   assert.equal(SDK_IR_SHA256.length, 64);
   assert.deepEqual(Object.keys(PROFILES).sort(), [
     "control",
