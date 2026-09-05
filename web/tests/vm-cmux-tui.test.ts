@@ -843,14 +843,73 @@ describe("cmux-tui attach bundle", () => {
     ["__CMUX_PROBE__", probe, "__CMUX_DEVICES__", devices, "__CMUX_INVITE__", invite, "__CMUX_END__", ""].join("\n");
   const invitation = `cmux://enroll/${Buffer.from(JSON.stringify({ id: "inv-abc", expires_at_unix: 1900000000 })).toString("base64url")}`;
 
-  test("one exec carries the readiness gate, the probe, the devices, and a conditional mint", () => {
-    const command = cmuxTuiAttachBundleCommand({ readyGate: "test -f /ready", deviceFingerprint: "fp-1" });
-    expect(command).toContain("{ test -f /ready; } || exit 3");
-    expect(command).toContain("remote-probe --json");
-    expect(command).toContain("remote enroll devices --session cloud --json");
-    expect(command).toContain(`case "$D" in *'"fingerprint":"fp-1"'*) ;; *) env HOME=/root /root/.cmux/bin/cmux-tui remote enroll create --session cloud --ttl 300 --json;; esac`);
-    expect(cmuxTuiAttachBundleCommand({})).not.toContain("exit 3");
-    expect(cmuxTuiAttachBundleCommand({})).not.toContain("case");
+  const runBundle = (readyGate: string, deviceFingerprint?: string) => {
+    const root = mkdtempSync(join(tmpdir(), "cmux-tui-attach-bundle-"));
+    const binary = join(root, "cmux-tui");
+    const callsPath = join(root, "calls");
+    writeFileSync(binary, [
+      "#!/bin/sh",
+      "printf '%s\\n' \"$*\" >> \"$CMUX_TEST_CALLS\"",
+      "case \"$*\" in",
+      `  'remote-probe --json') printf '%s\\n' '{"build_identity":"abc123","remote_protocol":12,"version":"0.13.0"}' ;;`,
+      `  'remote enroll devices --session cloud --json') printf '%s\\n' '[{"fingerprint":"fp-1","revoked_at_unix":null}]' ;;`,
+      `  'remote enroll create --session cloud --ttl 300 --json') printf '%s\\n' '${JSON.stringify({ uri: invitation })}' ;;`,
+      "  *) exit 64 ;;",
+      "esac",
+      "",
+    ].join("\n"));
+    chmodSync(binary, 0o755);
+    try {
+      const result = spawnSync("/bin/sh", ["-c", cmuxTuiAttachBundleCommand({ readyGate, deviceFingerprint, binary })], {
+        encoding: "utf8",
+        env: { ...process.env, CMUX_TEST_CALLS: callsPath },
+        timeout: 5_000,
+      });
+      expect(result.error).toBeUndefined();
+      return {
+        status: result.status,
+        stdout: result.stdout,
+        calls: existsSync(callsPath) ? readFileSync(callsPath, "utf8").trim().split("\n") : [],
+      };
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  };
+
+  test("a successful readiness exit continues with the complete attach bundle", () => {
+    const result = runBundle("exit 0", "fp-new");
+    expect(result.status).toBe(0);
+    expect(result.calls).toEqual([
+      "remote-probe --json",
+      "remote enroll devices --session cloud --json",
+      "remote enroll create --session cloud --ttl 300 --json",
+    ]);
+    const bundle = parseCmuxTuiAttachBundle(result.stdout, "freestyle", "vm-1", "fp-new");
+    expect(bundle.daemonBuild).toEqual({ commit: "abc123", remoteProtocol: 12, version: "0.13.0" });
+    expect(bundle.enrolled).toBe(false);
+    expect(bundle.invitation?.invitationId).toBe("inv-abc");
+  });
+
+  test("a failed readiness exit returns the repair signal without calling the daemon", () => {
+    const result = runBundle("exit 1");
+    expect(result.status).toBe(3);
+    expect(result.calls).toEqual([]);
+    expect(result.stdout).toBe("");
+  });
+
+  test("an enrolled device passes the readiness exit without minting an invitation", () => {
+    const result = runBundle("exit 0", "fp-1");
+    expect(result.status).toBe(0);
+    expect(result.calls).toEqual([
+      "remote-probe --json",
+      "remote enroll devices --session cloud --json",
+    ]);
+    const bundle = parseCmuxTuiAttachBundle(result.stdout, "freestyle", "vm-1", "fp-1");
+    expect(bundle.enrolled).toBe(true);
+    expect(bundle.invitation).toBeNull();
+  });
+
+  test("rejects a malformed device fingerprint", () => {
     expect(() => cmuxTuiAttachBundleCommand({ deviceFingerprint: "bad fp; rm -rf /" })).toThrow("unexpected shape");
   });
 
