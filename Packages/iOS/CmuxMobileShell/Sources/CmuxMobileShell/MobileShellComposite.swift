@@ -11808,6 +11808,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             && isSignedIn
     }
 
+    var terminalEventSubscriptionIsValidated: Bool {
+        terminalEventListenerID.map { listenerID in
+            lastSuccessfulTerminalSubscription
+                == MobileTerminalSubscriptionValidation(
+                    connectionGeneration: connectionGeneration,
+                    listenerID: listenerID
+                )
+        } ?? false
+    }
+
     func markMacConnectionHealthy() {
         guard connectionState == .connected else {
             macConnectionStatus = .unavailable
@@ -11817,14 +11827,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             revalidateActiveMacCompatibilityPolicy()
             guard connectionState == .connected else { return }
         }
-        let subscriptionIsValidated =
-            terminalEventListenerID.map { listenerID in
-                lastSuccessfulTerminalSubscription
-                    == MobileTerminalSubscriptionValidation(
-                        connectionGeneration: connectionGeneration,
-                        listenerID: listenerID
-                    )
-            } ?? false
         let requiresSubscriptionValidation =
             runtime?.supportsServerPushEvents == true
                 || terminalEventListenerID != nil
@@ -11834,7 +11836,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // subscription race otherwise blanks the workspace UI even though the
         // live Iroh client can still serve requests.
         guard !requiresSubscriptionValidation
-                || subscriptionIsValidated
+                || terminalEventSubscriptionIsValidated
                 || macConnectionStatus == .connected else {
             macConnectionStatus = .reconnecting
             connectionRecoveryFailed = false
@@ -13371,7 +13373,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             terminalOutputTransport = transport
             reconcileTerminalLanesForOutputTransport()
             MobileDebugLog.anchormux("sync.transport=\(transport.debugName)")
-            upgradePendingColdTerminalReplaysIfNeeded()
             return transport
         } catch {
             guard let fallback = Self.guardedFallbackTerminalOutputTransport(
@@ -13425,6 +13426,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard let client = remoteClient,
               runtime?.supportsServerPushEvents ?? true,
               terminalEventListenerTask == nil else {
+            if remoteClient != nil, runtime?.supportsServerPushEvents == false {
+                upgradePendingColdTerminalReplaysIfNeeded()
+            }
             if let subscriptionReadiness {
                 Task { await subscriptionReadiness.resolve(false) }
             }
@@ -13822,6 +13826,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             didSubscribe = true
             MobileDebugLog.anchormux("sync.subscribe_ok topics=\(topics.count) transport=\(transport)")
+            // A terminal can stay mounted throughout reconnect. Capture its
+            // replacement only after registration, so output between the
+            // snapshot and the first live event cannot disappear in a gap.
+            self.upgradePendingColdTerminalReplaysIfNeeded()
             // Negotiate state sync v2 only from the subscription
             // ACKNOWLEDGEMENT: the ack proves the Mac registered this
             // connection for `mobile.sync.delta`, so a fetch snapshot taken
