@@ -487,8 +487,7 @@ actor CloudMachineLink {
         let subscriptionID = UUID()
         eventsSubscriptionID = subscriptionID
         await stopEventsProcess()
-        guard !Task.isCancelled,
-              state == .connected,
+        guard state == .connected,
               connected?.socketPath == socketPath,
               eventsSubscriptionID == subscriptionID else { return false }
         let process = Process()
