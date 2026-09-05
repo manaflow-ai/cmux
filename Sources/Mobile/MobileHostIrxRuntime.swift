@@ -378,10 +378,23 @@ final class MobileHostIrxRuntime {
             // namespaces need the binding authorization it establishes
             // before any other broker call (relay minting, discovery) is
             // accepted.
-            let binding = try await broker.register(
-                pairingEnabled: true,
-                relayURLHint: nil
-            )
+            // A warm launch already has the exact binding authorization in the
+            // broker client. Reusing it avoids publishing a blank route and
+            // immediately publishing the real route again, which would create
+            // two account-wide invalidations before the endpoint is ready.
+            let binding: IrxBindingSnapshot
+            if let cachedBinding = await broker.cachedBinding() {
+                binding = cachedBinding
+                Self.journal.record(
+                    "host-runtime", "registration-cache-hit",
+                    ["binding": cachedBinding.bindingID]
+                )
+            } else {
+                binding = try await broker.register(
+                    pairingEnabled: true,
+                    relayURLHint: nil
+                )
+            }
             localBinding = binding
             let credentials = try await pilot.usableCredentials()
             let initialDiscovery = try await broker.discover()
