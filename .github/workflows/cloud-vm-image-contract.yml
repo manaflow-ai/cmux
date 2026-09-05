@@ -40,7 +40,7 @@ concurrency:
 
 jobs:
   contract:
-    runs-on: ubuntu-24.04
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     defaults:
       run:
         working-directory: web
