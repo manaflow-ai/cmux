@@ -1350,7 +1350,7 @@ export class FreestyleProvider implements VMProvider {
   }
 
   private async loadCmuxRemoteBundle(
-    vm: VMHandle,
+    vm: Vm,
     vmId: string,
     fingerprint: string | undefined,
   ) {
