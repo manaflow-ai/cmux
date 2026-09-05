@@ -18,15 +18,13 @@ import AppKit
 #endif
 
 struct WorkspaceDetailView: View {
-    /// Whether the title menu offers manual Reconnect: only once the
-    /// connection is unavailable (an active reconnect needs no manual entry),
-    /// and never during reauthentication, whose blocking banner owns
-    /// recovery.
+    /// A connected session may still have stale output. Offer manual repair
+    /// unless an active reconnect or reauthentication already owns recovery.
     static func canReconnectFromTitleMenu(
         effectiveConnectionStatus: MobileMacConnectionStatus,
         connectionRequiresReauth: Bool
     ) -> Bool {
-        effectiveConnectionStatus == .unavailable && !connectionRequiresReauth
+        effectiveConnectionStatus != .reconnecting && !connectionRequiresReauth
     }
 
     let connectionStatus: MobileMacConnectionStatus

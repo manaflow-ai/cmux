@@ -1279,13 +1279,10 @@ struct MacComputerDetailView: View {
     private var actionsSection: some View {
         Section {
             Button {
-                // Reconnect THIS computer, not whichever Mac is currently active:
-                // `switchToMac` promotes a live secondary connection to this Mac or
-                // re-dials it specifically. `reconnectOrRefresh()` would instead
-                // refresh/redial the foreground/active Mac and leave the computer
-                // shown here untouched.
+                // Use the shared reconnect action for this exact computer so
+                // an already-connected Mac also refreshes its terminal output.
                 Task {
-                    await store.switchToMac(
+                    await store.reconnectToMac(
                         macDeviceID: macDeviceID,
                         instanceTag: instanceTag
                     )
@@ -1293,6 +1290,7 @@ struct MacComputerDetailView: View {
             } label: {
                 Label(L10n.string("mobile.workspace.reconnect", defaultValue: "Reconnect"), systemImage: "arrow.clockwise")
             }
+            .accessibilityIdentifier("MobileComputerReconnect")
             // Iroh is the permanent identity route and is deliberately not
             // removable row-by-row, so route deletion alone can never delete
             // an Iroh-paired Computer. Forget is that record's one deletion
