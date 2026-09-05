@@ -429,6 +429,26 @@ jobs:
             exit "$status"
           done
 
+      # Verification-only branch: retain real simulator screenshots without
+      # changing the feature PR or the source revision selected by inputs.ref.
+      - name: Export notification screenshots
+        if: ${{ always() && matrix.family == 'iphone' }}
+        run: |
+          for result in "$IOS_DERIVED_DATA"/Logs/Test/*.xcresult; do
+            [ -d "$result" ] || continue
+            xcrun xcresulttool export attachments --path "$result" \
+              --output-path "$IOS_DERIVED_DATA/notification-screenshots/$(basename "$result")"
+          done
+
+      - name: Upload notification screenshots
+        if: ${{ always() && matrix.family == 'iphone' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: notification-alignment-screenshots
+          path: ${{ env.IOS_DERIVED_DATA }}/notification-screenshots
+          if-no-files-found: warn
+          retention-days: 7
+
   ios-tests:
     name: ios-tests
     # Aggregate gate for this workflow's iOS suites. Add this check to the branch
