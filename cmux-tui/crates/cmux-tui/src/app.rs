@@ -732,6 +732,21 @@ fn sidebar_tree_pointer_topology(tree: &TreeView) -> SidebarTreePointerTopology 
 }
 
 impl SidebarTreePointerTopology {
+    fn surface_identity(&self, surface: SurfaceId) -> Option<&TabPointerTopology> {
+        self.screens
+            .iter()
+            .flat_map(|screen| screen.panes.iter())
+            .flat_map(|pane| pane.tabs.iter())
+            .find(|tab| tab.surface == surface)
+    }
+
+    fn surface_identity_eq(&self, other: &Self, surface: SurfaceId) -> bool {
+        match (self.surface_identity(surface), other.surface_identity(surface)) {
+            (Some(previous), Some(next)) => previous.identity_eq(next),
+            _ => false,
+        }
+    }
+
     /// Compare only the resources and geometry that can move a rendered hit
     /// target. The backend revisions are cache invalidation metadata, not
     /// pointer identity: a workspace rename, or a pane registry update in an
@@ -16143,6 +16158,14 @@ impl App {
         else {
             return;
         };
+        if self.tree.active_surface() != Some(surface) {
+            // Creation completions select a target in the client-owned tree
+            // after the authoritative snapshot has been adopted. That local
+            // focus mutation changes pane and tab hit frames without another
+            // tree replacement, so retire any old pointer owner first. Do
+            // not settle a split against the pre-focus frame.
+            self.cancel_pointer_before_tree_focus_change();
+        }
         self.tree.active_workspace = workspace_index;
         if !self.tree.set_active_screen(workspace_index, screen_index)
             || !self.tree.set_active_pane(workspace_index, screen_index, pane_id)
@@ -20212,6 +20235,7 @@ impl App {
         }
         let identity_changed = !previous.identity_eq(next);
         if identity_changed {
+            self.invalidate_selection_for_surface_identity_change(previous, next);
             self.invalidate_sidebar_pointer_domains(&[
                 SidebarPointerDomain::Workspace,
                 SidebarPointerDomain::Tabs,
@@ -20272,6 +20296,30 @@ impl App {
             if !split_changes_expected || !viewport_changes_expected {
                 self.invalidate_pane_layout_capture(change.screen);
             }
+        }
+    }
+
+    fn invalidate_selection_for_surface_identity_change(
+        &mut self,
+        previous: &SidebarTreePointerTopology,
+        next: &SidebarTreePointerTopology,
+    ) {
+        let selection_surfaces = [
+            self.selection.map(|selection| selection.surface),
+            self.selection_mode_surface,
+            self.selection_click_sequence.as_ref().map(|sequence| sequence.surface),
+        ];
+        if selection_surfaces
+            .into_iter()
+            .flatten()
+            .any(|surface| !previous.surface_identity_eq(next, surface))
+        {
+            // A selection stores terminal coordinates, not a copy of the
+            // selected text. Keep it only while its surface identity is the
+            // same; otherwise a release or copy would read replacement
+            // content through the old coordinates.
+            self.replace_selection(None);
+            self.reset_selection_click_sequence();
         }
     }
 
@@ -26283,6 +26331,17 @@ impl App {
     /// Retained mouse samples belong to the old hit-test frame too, so advance
     /// the pointer generation when a modal boundary consumes them.
     fn cancel_pointer_before_modal(&mut self) {
+        self.cancel_pointer_before_boundary(true);
+    }
+
+    /// A creation completion can change the client-owned active pane or tab
+    /// without replacing the authoritative tree. Fence the old route before
+    /// that focus mutation, but never settle a split against its old frame.
+    fn cancel_pointer_before_tree_focus_change(&mut self) {
+        self.cancel_pointer_before_boundary(false);
+    }
+
+    fn cancel_pointer_before_boundary(&mut self, settle_split: bool) {
         let menu_scrollbar_dragging =
             self.menu.as_ref().is_some_and(|menu| menu.scrollbar_drag.is_some());
         let shortcut_help_scrollbar_dragging =
@@ -26312,7 +26371,7 @@ impl App {
             || shortcut_help_scrollbar_dragging
             || retained_discrete_mouse
         {
-            self.cancel_pointer_interaction();
+            self.cancel_pointer_interaction_with_split_settle(settle_split);
             self.advance_pointer_focus_generation();
         }
     }
