@@ -53,9 +53,11 @@ or permissions are not a reason to begin setup automatically.
   Claude). Launch-time migration removes or retargets only links proven to be
   cmux-managed, including the legacy `cmux-computer-use` and `codex-cua`
   aliases. User-owned directories, unrelated symlinks, and project skills are
-  preserved. A project or user-owned same-name skill keeps precedence, and no
-  automatic fallback is added when it would add a duplicate picker row;
-  project mirrors that resolve to the bundled document remain one canonical
+preserved. A project or user-owned same-name skill keeps precedence, and no
+automatic fallback is added when it would add a duplicate picker row;
+an already explicit durable global choice is retained across later launches
+and cwd collisions while the project skill keeps bare-name precedence;
+project mirrors that resolve to the bundled document remain one canonical
   identity. There is deliberately no plugin fallback or plugin manifest in
   this directory, because a manifest namespaces Codex's skill
   (`cmux-cua:cmux-cua`) and qualifies it in Claude. Relaunching a cmux agent

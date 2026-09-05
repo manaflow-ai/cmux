@@ -33,7 +33,9 @@ or retargets only links proven to point at a cmux app (including the legacy
 `cmux-computer-use` and `codex-cua` aliases); real directories, unrelated
 symlinks, and project skills are never overwritten or removed. Project and
 user-owned same-name skills retain precedence, and no automatic fallback is
-added when it would create a second `cmux-cua` row. A project mirror that
+added when it would create a second `cmux-cua` row. An already explicit durable
+global choice is retained across later launches and cwd collisions; the
+project skill still wins bare-name resolution. A project mirror that
 resolves to the bundled document is one canonical identity, so it remains one
 entry. The skill directory ships no plugin manifest — Codex treats
 `.claude-plugin/plugin.json` as a plugin manifest and would namespace the skill

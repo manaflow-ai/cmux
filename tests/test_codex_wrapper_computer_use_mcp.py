@@ -1103,8 +1103,11 @@ def test_codex_home_ancestor_is_not_project_collision(failures: list[str]) -> No
     )
     expect(code == 0, f"home-ancestor wrapper exited {code}: {stderr}", failures)
     expect(
-        skill["exists"] is False and skill["is_symlink"] is False,
-        f"managed global link should be cleaned, got {skill}",
+        skill["exists"] is True
+        and skill["is_symlink"] is True
+        and isinstance(skill["target"], str)
+        and skill["target"].endswith("/Contents/Resources/cmux-cua"),
+        f"durable managed global link should be retained and migrated, got {skill}",
         failures,
     )
     expect(
@@ -1113,8 +1116,9 @@ def test_codex_home_ancestor_is_not_project_collision(failures: list[str]) -> No
         failures,
     )
     expect(
-        len(skill.get("picker_entries", [])) == 0,
-        f"cleanup should leave no Codex picker row without opt-in, got {skill.get('picker_entries')}",
+        len(skill.get("picker_entries", [])) == 1
+        and skill["picker_entries"][0]["scope"] == "global",
+        f"durable managed link should leave one global picker row, got {skill.get('picker_entries')}",
         failures,
     )
 
@@ -1213,6 +1217,28 @@ def test_codex_explicit_global_opt_in_does_not_override_project_skill(
     expect(
         configured_skill_path(args) is None,
         f"collision opt-in must not add a same-name fallback, got {args}",
+        failures,
+    )
+
+
+def test_codex_durable_global_link_survives_project_collision(failures: list[str]) -> None:
+    code, args, stderr, skill = run_wrapper(
+        ["hello"],
+        preexisting_valid_cmux_link=True,
+        project_skill_collision=True,
+    )
+    expect(code == 0, f"durable collision wrapper exited {code}: {stderr}", failures)
+    expect(
+        skill["is_symlink"] is True
+        and isinstance(skill["target"], str)
+        and skill["target"].endswith("/Contents/Resources/cmux-cua"),
+        f"ordinary launch must preserve the explicit durable link across a project collision, got {skill}",
+        failures,
+    )
+    expect(
+        isinstance(skill.get("picker_entries"), list)
+        and {entry["scope"] for entry in skill["picker_entries"]} == {"project", "global"},
+        f"explicit durable choice should remain visible while project bare-name precedence is preserved, got {skill.get('picker_entries')}",
         failures,
     )
 
@@ -1555,6 +1581,7 @@ def main() -> int:
     test_codex_collision_keeps_project_skill_and_one_picker_row(failures)
     test_codex_explicit_global_opt_in_still_installs_without_collision(failures)
     test_codex_explicit_global_opt_in_does_not_override_project_skill(failures)
+    test_codex_durable_global_link_survives_project_collision(failures)
     test_codex_preserves_unrelated_global_symlink_by_default(failures)
     test_codex_preserves_unverified_legacy_computer_use_link(failures)
     test_codex_preserves_unverified_legacy_codex_cua_link(failures)

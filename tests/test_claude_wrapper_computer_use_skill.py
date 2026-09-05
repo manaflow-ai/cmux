@@ -355,8 +355,8 @@ def test_claude_home_ancestor_is_not_project_collision(
         failures,
     )
     expect(
-        not link.exists() and not link.is_symlink(),
-        f"managed global Claude link should be cleaned, got {link}",
+        link.is_symlink() and os.path.realpath(link) == os.path.realpath(bundled_skill),
+        f"durable managed Claude link should be retained and migrated, got {link}",
         failures,
     )
     expect(add_dir_arg(args) is None, f"HOME ancestor must not add an automatic skill directory, got {args}", failures)

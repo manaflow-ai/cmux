@@ -5,11 +5,6 @@
 # wrappers. It deliberately has no launch side effects until
 # cmux_cua_skill_reconcile is called by a cmux-owned session.
 
-CMUX_CUA_SKILL_GLOBAL_INSTALLED=0
-CMUX_CUA_SKILL_FALLBACK_ALLOWED=0
-CMUX_CUA_SKILL_PROJECT_COLLISION=0
-CMUX_CUA_SKILL_USER_PATH_COLLISION=0
-CMUX_CUA_SKILL_MANAGED_LINK_REMOVED=0
 
 cmux_cua_skill_readlink() {
     /usr/bin/readlink "$1" 2>/dev/null || /bin/readlink "$1" 2>/dev/null
@@ -166,9 +161,6 @@ cmux_cua_skill_remove_managed_link() {
         # rm acts on the link itself because the target was validated and the
         # operand is an absolute path. Never recurse or follow the target.
         /bin/rm -f "$link" 2>/dev/null || true
-        if [[ ! -L "$link" ]]; then
-            CMUX_CUA_SKILL_MANAGED_LINK_REMOVED=1
-        fi
         return 0
     fi
     return 1
@@ -315,14 +307,11 @@ cmux_cua_skill_reconcile() {
     local source_document="$source_dir/SKILL.md"
     [[ -f "$source_document" ]] || return 1
 
-    CMUX_CUA_SKILL_GLOBAL_INSTALLED=0
-    CMUX_CUA_SKILL_FALLBACK_ALLOWED=0
-    CMUX_CUA_SKILL_PROJECT_COLLISION=0
-    CMUX_CUA_SKILL_USER_PATH_COLLISION=0
-    CMUX_CUA_SKILL_MANAGED_LINK_REMOVED=0
-
-    cmux_cua_skill_project_has_collision "$cwd" "$provider" "$source_document" \
-        && CMUX_CUA_SKILL_PROJECT_COLLISION=1
+    local project_collision=0
+    if [[ "$install_requested" == 1 ]] \
+       && cmux_cua_skill_project_has_collision "$cwd" "$provider" "$source_document"; then
+        project_collision=1
+    fi
     cmux_cua_skill_remove_legacy_links "$home" "$provider"
 
     local skills_root destination state legacy_root legacy_state
@@ -335,48 +324,37 @@ cmux_cua_skill_reconcile() {
     fi
     destination="$skills_root/cmux-cua"
     state="$(cmux_cua_skill_link_state "$destination")"
-    [[ "$state" == user ]] && CMUX_CUA_SKILL_USER_PATH_COLLISION=1
+    local user_path_collision=0
+    [[ "$state" == user ]] && user_path_collision=1
     if [[ -n "$legacy_root" && "$legacy_root" != "$skills_root" ]]; then
         legacy_state="$(cmux_cua_skill_link_state "$legacy_root/cmux-cua")"
-        [[ "$legacy_state" == user ]] && CMUX_CUA_SKILL_USER_PATH_COLLISION=1
+        [[ "$legacy_state" == user ]] && user_path_collision=1
     else
         legacy_state=missing
     fi
 
     if [[ "$install_requested" == 1 \
-          && "$CMUX_CUA_SKILL_PROJECT_COLLISION" != 1 \
-          && "$CMUX_CUA_SKILL_USER_PATH_COLLISION" != 1 ]]; then
+          && "$project_collision" != 1 \
+          && "$user_path_collision" != 1 ]]; then
         /bin/mkdir -p "$skills_root" 2>/dev/null || true
         if [[ "$state" == missing ]]; then
             /bin/ln -s "$source_dir" "$destination" 2>/dev/null || true
         elif [[ "$state" == managed ]]; then
             /bin/ln -sfn "$source_dir" "$destination" 2>/dev/null || true
         fi
-        local installed_target
-        installed_target="$(cmux_cua_skill_readlink "$destination")" || installed_target=""
-        if [[ "$installed_target" == "$source_dir" ]]; then
-            CMUX_CUA_SKILL_GLOBAL_INSTALLED=1
-        fi
         # Keep the deprecated CODEX_HOME root from contributing a second
         # discovery path. Only a link proven to be cmux-managed is removed.
         if [[ "$legacy_state" == managed ]]; then
             cmux_cua_skill_remove_managed_link "$legacy_root/cmux-cua" || true
         fi
-    else
-        # Opt-out and collision paths remove only a link we can prove cmux
-        # owns. A real directory or unrelated symlink remains untouched.
-        [[ "$state" == managed ]] && cmux_cua_skill_remove_managed_link "$destination" || true
+    elif [[ "$state" == managed ]]; then
+        # An explicit durable install persists across ordinary launches and
+        # project cwd changes. Migrate a verified stale target in place, but
+        # never delete the user's durable choice because a cwd has a collision.
+        /bin/ln -sfn "$source_dir" "$destination" 2>/dev/null || true
         if [[ "$legacy_state" == managed ]]; then
             cmux_cua_skill_remove_managed_link "$legacy_root/cmux-cua" || true
         fi
-    fi
-
-    # A session path would be a second same-name picker row beside either a
-    # project skill or a user-owned global path. Leave those authorities alone.
-    if [[ "$CMUX_CUA_SKILL_PROJECT_COLLISION" != 1 \
-          && "$CMUX_CUA_SKILL_USER_PATH_COLLISION" != 1 \
-          && "$CMUX_CUA_SKILL_GLOBAL_INSTALLED" != 1 ]]; then
-        CMUX_CUA_SKILL_FALLBACK_ALLOWED=1
     fi
     return 0
 }

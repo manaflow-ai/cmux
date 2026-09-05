@@ -1182,15 +1182,10 @@ cmux_claude_reconcile_skill_links() {
     cmux_claude_global_skill_install_enabled && install_requested=1
 
     if ! cmux_claude_load_skill_link_policy; then
-        CMUX_COMPUTER_USE_GLOBAL_SKILL_INSTALLED=0
-        CMUX_COMPUTER_USE_SKILL_FALLBACK_ALLOWED=0
         return 0
     fi
 
     cmux_cua_skill_reconcile claude "$source_dir" "${PWD:-}" "$install_requested" || return 1
-    CMUX_COMPUTER_USE_GLOBAL_SKILL_INSTALLED="$CMUX_CUA_SKILL_GLOBAL_INSTALLED"
-    CMUX_COMPUTER_USE_SKILL_FALLBACK_ALLOWED="$CMUX_CUA_SKILL_FALLBACK_ALLOWED"
-    CMUX_COMPUTER_USE_PROJECT_SKILL_COLLISION="$CMUX_CUA_SKILL_PROJECT_COLLISION"
 }
 
 claude_interactive_entry_flag() {
@@ -1609,9 +1604,6 @@ fi
 # discovery remains inert unless durable installation is explicitly requested.
 # CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL=1 is the explicit opt-in for a durable
 # user-global link.
-CMUX_COMPUTER_USE_GLOBAL_SKILL_INSTALLED=0
-CMUX_COMPUTER_USE_SKILL_FALLBACK_ALLOWED=0
-CMUX_COMPUTER_USE_PROJECT_SKILL_COLLISION=0
 if cmux_claude_computer_use_enabled_for_invocation "$@"; then
     cmux_claude_reconcile_skill_links || true
 fi
