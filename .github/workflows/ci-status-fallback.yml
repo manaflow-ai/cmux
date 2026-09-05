@@ -15,6 +15,7 @@ on:
       - tests/test_ci_change_areas.py
       - .github/workflows/ci.yml
     types: [opened, edited, reopened, synchronize, ready_for_review]
+  workflow_dispatch: {}
 
 permissions: {}
 
