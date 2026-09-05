@@ -15,6 +15,8 @@ public struct MobileDiscoveredIrohMac: Equatable, Sendable {
     public let instanceTag: String
     /// Exact bundle-derived Mac namespace asserted by the broker.
     public let clientNamespace: String
+    /// Mac version stamp, absent for pre-rollout registrations.
+    public let appVersion: String?
     /// Iroh-pinned routes for this endpoint.
     public let routes: [CmxAttachRoute]
     /// Capabilities asserted by the authenticated broker binding.
@@ -27,6 +29,7 @@ public struct MobileDiscoveredIrohMac: Equatable, Sendable {
         deviceID: String,
         displayName: String?,
         instanceTag: String,
+        appVersion: String? = nil,
         routes: [CmxAttachRoute],
         lastSeenAt: Date,
         capabilities: [String] = [],
@@ -40,6 +43,7 @@ public struct MobileDiscoveredIrohMac: Equatable, Sendable {
         self.displayName = displayName
         self.instanceTag = identity.instanceTag ?? ""
         self.clientNamespace = clientNamespace
+        self.appVersion = appVersion
         self.routes = routes
         self.lastSeenAt = lastSeenAt
         self.capabilities = capabilities

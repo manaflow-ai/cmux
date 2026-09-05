@@ -10,6 +10,7 @@ public struct CmxIrohBrokerBinding: Codable, Equatable, Sendable {
         case clientNamespace = "client_namespace"
         case tag
         case platform
+        case appVersion = "app_version"
         case displayName = "display_name"
         case endpointID = "endpoint_id"
         case identityGeneration = "identity_generation"
@@ -28,6 +29,8 @@ public struct CmxIrohBrokerBinding: Codable, Equatable, Sendable {
     public let clientNamespace: String
     public let tag: String
     public let platform: CmxIrohPlatform
+    /// Endpoint-reported `<marketing>+<build>` stamp, absent on old clients.
+    public let appVersion: String?
     public let displayName: String?
     public let endpointID: CmxIrohPeerIdentity
     public let identityGeneration: Int
@@ -49,6 +52,7 @@ public struct CmxIrohBrokerBinding: Codable, Equatable, Sendable {
         let tag = try container.decode(String.self, forKey: .tag)
         let endpointID = try container.decode(String.self, forKey: .endpointID)
         let identityGeneration = try container.decode(Int.self, forKey: .identityGeneration)
+        let appVersion = try container.decodeIfPresent(String.self, forKey: .appVersion)
         let capabilities = try container.decode([String].self, forKey: .capabilities)
         let displayName = try container.decodeIfPresent(String.self, forKey: .displayName)
         let pathHints = try container.decode([CmxIrohPathHint].self, forKey: .pathHints)
@@ -63,6 +67,13 @@ public struct CmxIrohBrokerBinding: Codable, Equatable, Sendable {
               cmxIrohIsSafeToken(clientNamespace, maximumUTF8ByteCount: 255),
               cmxIrohIsSafeToken(tag),
               (1 ... Int(Int32.max)).contains(identityGeneration),
+              appVersion.map({
+                  !$0.isEmpty
+                      && $0.utf8.count <= 64
+                      && !$0.unicodeScalars.contains(where: {
+                          $0.value <= 0x1f || $0.value == 0x7f
+                      })
+              }) ?? true,
               capabilities.count <= 32,
               Set(capabilities).count == capabilities.count,
               capabilities.allSatisfy({ cmxIrohIsSafeToken($0) }),
@@ -84,6 +95,7 @@ public struct CmxIrohBrokerBinding: Codable, Equatable, Sendable {
         self.clientNamespace = clientNamespace
         self.tag = tag
         platform = try container.decode(CmxIrohPlatform.self, forKey: .platform)
+        self.appVersion = appVersion
         self.displayName = displayName
         self.endpointID = try CmxIrohPeerIdentity(endpointID: endpointID)
         self.identityGeneration = identityGeneration
@@ -102,6 +114,7 @@ public struct CmxIrohBrokerBinding: Codable, Equatable, Sendable {
         try container.encode(clientNamespace, forKey: .clientNamespace)
         try container.encode(tag, forKey: .tag)
         try container.encode(platform, forKey: .platform)
+        try container.encodeIfPresent(appVersion, forKey: .appVersion)
         try container.encodeIfPresent(displayName, forKey: .displayName)
         try container.encode(endpointID.endpointID, forKey: .endpointID)
         try container.encode(identityGeneration, forKey: .identityGeneration)

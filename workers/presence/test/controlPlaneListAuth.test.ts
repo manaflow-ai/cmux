@@ -29,6 +29,7 @@ const T0 = 1_800_000_000_000;
 const T0_SECONDS = Math.floor(T0 / 1000);
 const ENDPOINT_A = "a".repeat(64);
 const ENDPOINT_B = "b".repeat(64);
+const ENDPOINT_C = "c".repeat(64);
 const RELAY_1 = "https://usw1.relay.example/";
 const RELAY_2 = "https://use4.relay.example/";
 
@@ -346,6 +347,112 @@ describe("confirm-on-hello", () => {
     expect(
       laterDirectory.payload.bindings.some((binding) => binding.endpointId === ENDPOINT_B),
     ).toBe(false);
+  });
+});
+
+describe("App Store directory partition", () => {
+  function responseFor(
+    ...bindings: { endpointId: string; clientNamespace: string }[]
+  ): unknown {
+    const base = discoveryResponse(42) as { bindings: Record<string, unknown>[] };
+    base.bindings = bindings.map((binding, index) => ({
+      ...base.bindings[0],
+      binding_id: `binding-${index}`,
+      endpoint_id: binding.endpointId,
+      client_namespace: binding.clientNamespace,
+    }));
+    return base;
+  }
+
+  async function appStoreSnapshot(
+    harness: Harness,
+    endpointId: string,
+  ): Promise<Record<string, unknown>[]> {
+    const socket = await harness.connect("ios", { namespace: "com.cmux.app" });
+    await harness.hello(socket, { endpointId, haveRev: null, wantPasses: false });
+    return ((socket.frame("directory") as {
+      payload: { bindings: Record<string, unknown>[] };
+    }).payload.bindings);
+  }
+
+  it("only exposes an active Mac that reported the minimum nightly stamp", async () => {
+    const harness = new Harness();
+    harness.serveDiscovery(() => responseFor(
+      { endpointId: ENDPOINT_A, clientNamespace: "mac:com.cmuxterm.app.nightly" },
+      { endpointId: ENDPOINT_B, clientNamespace: "mac:com.cmuxterm.app.nightly" },
+    ));
+
+    const good = await harness.connect("good", { namespace: "mac:com.cmuxterm.app.nightly" });
+    await harness.hello(good, {
+      endpointId: ENDPOINT_A,
+      haveRev: null,
+      wantPasses: false,
+      deviceId: "good-device",
+      platform: "mac",
+      appVersion: "0.64.22-nightly.3359013153901+1",
+      releaseTrack: "nightly",
+    });
+    const old = await harness.connect("old", { namespace: "mac:com.cmuxterm.app.nightly" });
+    await harness.hello(old, { endpointId: ENDPOINT_B, haveRev: null, wantPasses: false });
+
+    const bindings = await appStoreSnapshot(harness, ENDPOINT_C);
+    expect(bindings.map((binding) => binding.endpointId)).toEqual([ENDPOINT_A]);
+  });
+
+  it("keeps stable Macs hidden until a stable minimum is published", async () => {
+    const harness = new Harness();
+    harness.serveDiscovery(() => responseFor({
+      endpointId: ENDPOINT_A,
+      clientNamespace: "mac:com.cmuxterm.app",
+    }));
+    const stable = await harness.connect("stable", { namespace: "mac:com.cmuxterm.app" });
+    await harness.hello(stable, {
+      endpointId: ENDPOINT_A,
+      haveRev: null,
+      wantPasses: false,
+      deviceId: "stable-device",
+      platform: "mac",
+      appVersion: "99.0.0+1",
+      releaseTrack: "stable",
+    });
+
+    expect(await appStoreSnapshot(harness, ENDPOINT_C)).toEqual([]);
+  });
+
+  it("rejects a nightly below the floor and accepts a later base version", async () => {
+    const harness = new Harness();
+    let version = "0.64.21-nightly.9999999999999+1";
+    harness.serveDiscovery(() => responseFor({
+      endpointId: ENDPOINT_A,
+      clientNamespace: "mac:com.cmuxterm.app.nightly",
+    }));
+    const mac = await harness.connect("mac", { namespace: "mac:com.cmuxterm.app.nightly" });
+    await harness.hello(mac, {
+      endpointId: ENDPOINT_A,
+      haveRev: null,
+      wantPasses: false,
+      deviceId: "mac-device",
+      platform: "mac",
+      appVersion: version,
+      releaseTrack: "nightly",
+    });
+    expect(await appStoreSnapshot(harness, ENDPOINT_C)).toEqual([]);
+
+    // A reconnecting Mac confirms its current version into the same fresh
+    // partition; the next App Store snapshot sees the updated overlay.
+    version = "0.64.23-nightly.1+1";
+    const newer = await harness.connect("newer", { namespace: "mac:com.cmuxterm.app.nightly" });
+    await harness.hello(newer, {
+      endpointId: ENDPOINT_A,
+      haveRev: null,
+      wantPasses: false,
+      deviceId: "mac-device",
+      platform: "mac",
+      appVersion: version,
+      releaseTrack: "nightly",
+    });
+    const bindings = await appStoreSnapshot(harness, ENDPOINT_C);
+    expect(bindings.map((binding) => binding.endpointId)).toEqual([ENDPOINT_A]);
   });
 });
 

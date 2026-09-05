@@ -8,12 +8,18 @@ const OFFICIAL_IOS_NAMESPACES = new Set([
 const DEVELOPMENT_IOS_NAMESPACE_PREFIX = "dev.cmux.ios.";
 const DEVELOPMENT_MAC_NAMESPACE_PREFIX = "mac:com.cmuxterm.app.debug";
 const NON_DEVELOPMENT_MAC_TAGS = new Set(["default", "nightly", "rc", "staging"]);
+const APP_STORE_IOS_NAMESPACE = "com.cmux.app";
+const OFFICIAL_STABLE_MAC_NAMESPACE = "mac:com.cmuxterm.app";
+const OFFICIAL_NIGHTLY_MAC_NAMESPACE = "mac:com.cmuxterm.app.nightly";
+const APP_STORE_MIN_NIGHTLY_BASE = [0, 64, 22] as const;
+const APP_STORE_MIN_NIGHTLY_BUILD = BigInt("3359013153901");
 
 type BuildBinding = {
   readonly platform: string;
   readonly deviceUuid: string;
   readonly tag: string;
   readonly clientNamespace: string;
+  readonly appVersion?: string | null;
 };
 
 export function canIOSBindingUseMac(
@@ -40,6 +46,9 @@ function iosBindingMacLaneCompatible(
   legacyDefaultFallback: boolean,
 ): boolean {
   if (caller.platform !== "ios" || target.platform !== "mac") return false;
+  if (caller.clientNamespace === APP_STORE_IOS_NAMESPACE) {
+    return canAppStoreIOSUseMac(target);
+  }
   const targetHasCompatibleNamespace = target.clientNamespace === "legacy"
     || target.clientNamespace.startsWith("mac:");
   if (!targetHasCompatibleNamespace) return false;
@@ -73,6 +82,33 @@ function iosBindingMacLaneCompatible(
     return target.tag === "default" || target.tag === "nightly";
   }
   return caller.tag === target.tag;
+}
+
+/** App Store iOS has a clean compatibility lane. A Mac must identify itself
+ * with an official namespace and report the full marketing/nightly stamp; a
+ * missing stamp is an old client and is intentionally invisible. */
+export function canAppStoreIOSUseMac(target: BuildBinding): boolean {
+  if (target.platform !== "mac") return false;
+  const namespace = target.clientNamespace;
+  const isNightly = namespace === OFFICIAL_NIGHTLY_MAC_NAMESPACE
+    || namespace.startsWith(`${OFFICIAL_NIGHTLY_MAC_NAMESPACE}.`);
+  if (namespace === OFFICIAL_STABLE_MAC_NAMESPACE || !isNightly) return false;
+  const raw = target.appVersion?.trim() ?? "";
+  const marketing = raw.split("+", 1)[0]?.trim() ?? "";
+  const match = /^(\d+)\.(\d+)\.(\d+)-nightly\.(\d+)$/.exec(marketing);
+  if (!match) return false;
+  const base = [Number(match[1]), Number(match[2]), Number(match[3])];
+  if (base.some((part) => !Number.isSafeInteger(part) || part < 0)) return false;
+  for (let index = 0; index < APP_STORE_MIN_NIGHTLY_BASE.length; index += 1) {
+    const difference = (base[index] ?? 0) - (APP_STORE_MIN_NIGHTLY_BASE[index] ?? 0);
+    if (difference > 0) return true;
+    if (difference < 0) return false;
+  }
+  try {
+    return BigInt(match[4]) >= APP_STORE_MIN_NIGHTLY_BUILD;
+  } catch {
+    return false;
+  }
 }
 
 function isDevelopmentMacNamespace(clientNamespace: string): boolean {

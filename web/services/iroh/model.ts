@@ -48,6 +48,9 @@ export type IrohRegistrationPayload = {
   readonly clientNamespace: string;
   readonly tag: string;
   readonly platform: "mac" | "ios";
+  /** `<CFBundleShortVersionString>+<CFBundleVersion>` from current clients.
+   * Missing on pre-rollout builds, which remain invisible to App Store iOS. */
+  readonly appVersion?: string;
   readonly displayName?: string;
   readonly endpointId: string;
   readonly identityGeneration: number;
@@ -174,6 +177,9 @@ export function parseRegistrationPayload(value: unknown, now: Date): IrohRegistr
     clientNamespace: clientNamespace(body.clientNamespace),
     tag: safeTag(body.tag),
     platform: oneOf(body.platform, ["mac", "ios"] as const, "invalid_platform"),
+    ...(body.appVersion === undefined || body.appVersion === null
+      ? {}
+      : { appVersion: boundedString(body.appVersion, 1, 64, "invalid_app_version") }),
     ...(body.displayName === undefined || body.displayName === null
       ? {}
       : { displayName: safeDisplayName(body.displayName) }),
@@ -193,6 +199,7 @@ export function parseRegistrationPayload(value: unknown, now: Date): IrohRegistr
     "clientNamespace",
     "tag",
     "platform",
+    "appVersion",
     "displayName",
     "endpointId",
     "identityGeneration",

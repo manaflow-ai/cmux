@@ -19,6 +19,10 @@ extension MobileHostIrohRuntime {
             throw CmxIrohHostRuntimeError.inactive
         }
         let tag = Self.currentTag()
+        let buildIdentity = MobileHostBuildIdentity.current()
+        let appVersion = buildIdentity.appVersion.map { version in
+            buildIdentity.appBuild.map { "\(version)+\($0)" } ?? version
+        }
         guard let clientNamespace = CmxIrohMacBundleNamespace(
             bundleIdentifier: Bundle.main.bundleIdentifier
         ) else {
@@ -258,6 +262,7 @@ extension MobileHostIrohRuntime {
             appInstanceID: appInstanceID,
             clientNamespace: clientNamespace,
             tag: tag,
+            appVersion: appVersion,
             displayName: MobileHostIdentity.instanceDisplayName(),
             identity: identity,
             // Under a managed remote-control disable the runtime should never

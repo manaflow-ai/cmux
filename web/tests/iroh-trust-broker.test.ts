@@ -25,6 +25,7 @@ import {
 } from "../services/iroh/model";
 import {
   canBindingRevokeStale,
+  canAppStoreIOSUseMac,
   canIOSBindingForgetMac,
   canIOSBindingUseMac,
 } from "../services/iroh/buildCompatibility";
@@ -47,6 +48,34 @@ type TestDirectPorts = {
 };
 
 describe("Iroh build compatibility", () => {
+  test("App Store iOS only admits the minimum nightly Mac and no stable Mac yet", () => {
+    const appStore = binding({
+      platform: "ios",
+      tag: "default",
+      clientNamespace: "com.cmux.app",
+    });
+    const floor = binding({
+      platform: "mac",
+      tag: "nightly",
+      clientNamespace: "mac:com.cmuxterm.app.nightly",
+      appVersion: "0.64.22-nightly.3359013153901+1",
+    });
+    const old = { ...floor, appVersion: null };
+    const stable = binding({
+      platform: "mac",
+      tag: "default",
+      clientNamespace: "mac:com.cmuxterm.app",
+      appVersion: "99.0.0+1",
+    });
+
+    expect(canAppStoreIOSUseMac(floor)).toBe(true);
+    expect(canAppStoreIOSUseMac(old)).toBe(false);
+    expect(canAppStoreIOSUseMac(stable)).toBe(false);
+    expect(canIOSBindingUseMac(appStore, floor)).toBe(true);
+    expect(canIOSBindingUseMac(appStore, old)).toBe(false);
+    expect(canIOSBindingUseMac(appStore, stable)).toBe(false);
+  });
+
   test("accepts distinct bundle-derived Mac namespaces for one tag", () => {
     const ios = binding({
       platform: "ios",
@@ -2547,6 +2576,7 @@ function binding(overrides: Partial<MutableBinding> = {}): MutableBinding {
     clientNamespace: "legacy",
     tag: "stable",
     platform: "mac",
+    appVersion: null,
     displayName: null,
     endpointId: randomUUID().replaceAll("-", "").repeat(2),
     identityGeneration: 1,

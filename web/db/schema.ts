@@ -1101,6 +1101,9 @@ export const irohEndpointBindings = pgTable(
     clientNamespace: text("client_namespace").notNull().default("legacy"),
     tag: text("tag").notNull(),
     platform: text("platform").notNull(),
+    // Version reported by the endpoint during registration. Legacy clients do
+    // not send it and remain null, which lets the App Store lane hide them.
+    appVersion: text("app_version"),
     displayName: text("display_name"),
     endpointId: text("endpoint_id").notNull(),
     identityGeneration: integer("identity_generation").notNull(),
@@ -1123,6 +1126,7 @@ export const irohEndpointBindings = pgTable(
     check("iroh_endpoint_bindings_tag_check", sql`${table.tag} ~ '^[A-Za-z0-9._-]{1,64}$'`),
     check("iroh_endpoint_bindings_client_namespace_check", sql`${table.clientNamespace} ~ '^[A-Za-z0-9._:-]{1,255}$'`),
     check("iroh_endpoint_bindings_platform_check", sql`${table.platform} in ('mac', 'ios')`),
+    check("iroh_endpoint_bindings_app_version_check", sql`${table.appVersion} is null or (length(${table.appVersion}) between 1 and 64 and ${table.appVersion} !~ '[[:cntrl:]]')`),
     check("iroh_endpoint_bindings_display_name_check", sql`${table.displayName} is null or ${table.displayName} !~ '[[:cntrl:]]'`),
     check("iroh_endpoint_bindings_capabilities_check", sql`jsonb_typeof(${table.capabilities}) = 'array' and jsonb_array_length(${table.capabilities}) <= 32`),
     check("iroh_endpoint_bindings_direct_port_v4_check", sql`${table.directPortV4} is null or ${table.directPortV4} between 1 and 65535`),

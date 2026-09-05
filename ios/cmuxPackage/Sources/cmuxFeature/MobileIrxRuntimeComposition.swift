@@ -626,6 +626,8 @@ public actor MobileIrxRuntimeComposition {
                 clientNamespace: clientNamespace,
                 tag: tag,
                 platform: .ios,
+                appVersion: IrxCtlClientInfo.appVersionString(
+                    infoDictionary: Bundle.main.infoDictionary),
                 displayName: nil,
                 cacheDirectory: stateDirectory,
                 identityGeneration: adopted.material.generation,

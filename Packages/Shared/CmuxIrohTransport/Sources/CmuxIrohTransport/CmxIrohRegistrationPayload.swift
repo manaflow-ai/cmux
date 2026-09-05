@@ -13,6 +13,7 @@ public struct CmxIrohRegistrationPayload: Encodable, Equatable, Sendable {
         case clientNamespace
         case tag
         case platform
+        case appVersion
         case displayName
         case endpointID = "endpointId"
         case identityGeneration
@@ -34,6 +35,9 @@ public struct CmxIrohRegistrationPayload: Encodable, Equatable, Sendable {
     public let tag: String
     /// Device role used by grant policy.
     public let platform: CmxIrohPlatform
+    /// `<CFBundleShortVersionString>+<CFBundleVersion>`. Older clients omit
+    /// this field and are treated as unversioned by the App Store lane.
+    public let appVersion: String?
     /// Optional user-facing device name.
     public let displayName: String?
     /// Canonical 64-character lowercase Iroh EndpointID.
@@ -59,6 +63,7 @@ public struct CmxIrohRegistrationPayload: Encodable, Equatable, Sendable {
         clientNamespace: String = "legacy",
         tag: String,
         platform: CmxIrohPlatform,
+        appVersion: String? = nil,
         displayName: String? = nil,
         endpointID: String,
         identityGeneration: Int,
@@ -91,12 +96,22 @@ public struct CmxIrohRegistrationPayload: Encodable, Equatable, Sendable {
                 throw CmxIrohRegistrationError.invalidPayload
             }
         }
+        if let appVersion {
+            guard !appVersion.isEmpty,
+                  appVersion.utf8.count <= 64,
+                  !appVersion.unicodeScalars.contains(where: {
+                      $0.value <= 0x1f || $0.value == 0x7f
+                  }) else {
+                throw CmxIrohRegistrationError.invalidPayload
+            }
+        }
         routeContractVersion = Self.currentRouteContractVersion
         self.deviceID = cmxCanonicalDeviceID(deviceID)
         self.appInstanceID = appInstanceID.lowercased()
         self.clientNamespace = clientNamespace
         self.tag = tag
         self.platform = platform
+        self.appVersion = appVersion
         self.displayName = displayName
         self.endpointID = endpointID
         self.identityGeneration = identityGeneration

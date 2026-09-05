@@ -86,6 +86,9 @@ public actor IrxBrokerService {
         public var clientNamespace: String
         public var tag: String
         public var platform: CmxIrohPlatform
+        /// Version stamp sent to the broker so newer audiences can exclude
+        /// pre-rollout registrations. Nil preserves old-client behavior.
+        public var appVersion: String?
         public var displayName: String?
         public var cacheDirectory: URL
         /// Rotates only when the endpoint identity rotates (legacy-adopted
@@ -107,6 +110,7 @@ public actor IrxBrokerService {
             clientNamespace: String,
             tag: String,
             platform: CmxIrohPlatform,
+            appVersion: String? = nil,
             displayName: String?,
             cacheDirectory: URL,
             identityGeneration: Int = 1,
@@ -117,6 +121,7 @@ public actor IrxBrokerService {
             self.clientNamespace = clientNamespace
             self.tag = tag
             self.platform = platform
+            self.appVersion = appVersion
             self.displayName = displayName
             self.cacheDirectory = cacheDirectory
             self.identityGeneration = identityGeneration
@@ -306,6 +311,7 @@ public actor IrxBrokerService {
             clientNamespace: configuration.clientNamespace,
             tag: configuration.tag,
             platform: configuration.platform,
+            appVersion: configuration.appVersion,
             displayName: configuration.displayName,
             endpointID: identity.endpointIDHex,
             identityGeneration: configuration.identityGeneration,
