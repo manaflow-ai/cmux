@@ -1882,7 +1882,7 @@ describe("Cloud VM publication REST adapters", () => {
       verify,
     );
     expect(response.status).toBe(401);
-    expect(verified).toEqual([{ listAllTeams: true, forceCompleteTeamList: true, requestedTeamId: "team-2" }]);
+    expect(verified).toEqual([{ listAllTeams: true, forceCompleteTeamList: true, requireFreshTeamMembership: true, requestedTeamId: "team-2" }]);
 
     expect(await requestedPublicationTeamId(
       new Request("https://cmux.com/api/vm/publications", { method: "GET" }),

@@ -33,7 +33,7 @@ const publication = {
   disabledAt: null,
 };
 const domain = { hostname: "example.com" };
-const target = { publication, domain, vm: { providerVmId: "vm-1" } };
+const target = { publication, domain, vm: { providerVmId: "vm-1", userId: publication.ownerUserId, billingTeamId: publication.ownerUserId } };
 
 describe("Cloud VM publication auth exchange", () => {
   test("removes a personal-mode owner's team VM session when team membership ends", async () => {
@@ -211,6 +211,7 @@ describe("Cloud VM publication auth exchange", () => {
     const state = randomPublicationToken();
     const issued: { current: Record<string, unknown> | null } = { current: null };
     const pending = {
+      vm: target.vm,
       transaction: {
         transactionHash: hashPublicationToken(transaction),
         stateHash: hashPublicationToken(state),
@@ -256,6 +257,7 @@ describe("Cloud VM publication auth exchange", () => {
       teamId: "team-1",
     };
     const pending = {
+      vm: target.vm,
       transaction: {
         transactionHash: hashPublicationToken(transaction),
         stateHash: hashPublicationToken(state),

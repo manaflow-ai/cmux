@@ -5,8 +5,8 @@ import * as Effect from "effect/Effect";
 import { closeCloudDbForTests } from "../db/client";
 import { reserveManagedPublication, type ManagedPublicationInput } from "../services/vm-publications/managedRepository";
 import { CloudVmPublicationRepository, CloudVmPublicationRepositoryLive, type CloudVmPublicationRepositoryShape } from "../services/vm-publications/repository";
-import { evaluatePublicationRequest, PublicationViewerResolver } from "../services/vm-publications/auth";
-import { hashPublicationToken, randomPublicationToken } from "../services/vm-publications/security";
+import { evaluatePublicationRequest, resolvePublicationAccess, PublicationViewerResolver } from "../services/vm-publications/auth";
+import { hashPublicationToken, publicationPkceChallenge, randomPublicationToken } from "../services/vm-publications/security";
 
 const dbTest = process.env.CMUX_DB_TEST === "1" ? test : test.skip;
 const now = new Date("2026-09-05T01:00:00Z");
@@ -103,5 +103,43 @@ describe("managed port publications in Postgres", () => {
     await expect(reserveManagedPublication({ ...input, ownerUserId: guest, billingTeamId: guest })).rejects.toMatchObject({ resource: "vm" });
     const change = await Effect.runPromise(Effect.either(repository.setEmailGrant({ ...grant, ownerUserId: guest })));
     expect(change._tag).toBe("Left");
+  });
+
+  dbTest("uses current VM ownership for personal-mode sessions and sign-in handoffs", async () => {
+    const input = await seed(`team-${randomUUID().slice(0, 8)}`);
+    const team = randomUUID();
+    await db`update cloud_vms set billing_team_id = ${team} where user_id = ${input.ownerUserId}`;
+    const target = await activate({ ...input, billingTeamId: team, teamIds: [team] });
+    const sessionToken = randomPublicationToken();
+    const transaction = randomPublicationToken();
+    const state = randomPublicationToken();
+    await db`insert into cloud_vm_publication_sessions(token_hash, publication_id, user_id, routing_revision, created_at, expires_at)
+      values (${hashPublicationToken(sessionToken)}, ${target.publication.id}, ${input.ownerUserId}, 1, ${now}, ${new Date(now.getTime() + 60000)})`;
+    await Effect.runPromise(repository.createAuthTransaction({
+      publicationId: target.publication.id, transactionHash: hashPublicationToken(transaction),
+      stateHash: hashPublicationToken(state), pkceChallenge: publicationPkceChallenge(randomPublicationToken()),
+      hostname: target.publication.hostname, returnPath: "/", now, expiresAt: new Date(now.getTime() + 60000),
+    }));
+    let teamIds = [team];
+    const services = Effect.provideService(PublicationViewerResolver, {
+      resolve: () => Effect.sync(() => ({ userId: input.ownerUserId, teamIds, verifiedEmails: ["owner@example.com"] })),
+    });
+    const check = () => Effect.runPromise(evaluatePublicationRequest({
+      providerTlsRuleId: target.publication.providerTlsRuleId!, sessionToken, method: "POST", now,
+    }).pipe(Effect.provideService(CloudVmPublicationRepository, repository), services));
+    expect(await check()).toEqual({ kind: "allow" });
+    teamIds = [];
+    expect(await check()).toEqual({ kind: "unauthorized" });
+    const handoff = await Effect.runPromise(resolvePublicationAccess({
+      transaction, state, now,
+      user: { userId: input.ownerUserId, teamIds: [team], identity: "owner@example.com" },
+    }).pipe(Effect.provideService(CloudVmPublicationRepository, repository), services));
+    expect(handoff.kind).toBe("denied");
+    // An explicit grant remains an independent publication-only audience.
+    await Effect.runPromise(repository.setEmailGrant({
+      publicationId: target.publication.id, ownerUserId: input.ownerUserId,
+      email: "owner@example.com", expiresAt: null, revoke: false, now,
+    }));
+    expect(await check()).toEqual({ kind: "allow" });
   });
 });

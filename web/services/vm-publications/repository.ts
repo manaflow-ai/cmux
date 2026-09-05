@@ -61,6 +61,7 @@ export type CloudVmPublicationAuthTransaction = {
   readonly transaction: CloudVmPublicationAuthTransactionRow;
   readonly publication: CloudVmPublicationRow;
   readonly domain: CloudVmDomainRow | null;
+  readonly vm: typeof cloudVms.$inferSelect;
 };
 
 export type CloudVmPublicationSessionPrincipal = {
@@ -1989,6 +1990,7 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
             transaction: cloudVmPublicationAuthTransactions,
             publication: cloudVmPublications,
             domain: cloudVmDomains,
+            vm: cloudVms,
           })
           .from(cloudVmPublicationAuthTransactions)
           .innerJoin(
@@ -1998,6 +2000,7 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
               cloudVmPublications.id,
             ),
           )
+          .innerJoin(cloudVms, eq(cloudVmPublications.vmId, cloudVms.id))
           .leftJoin(
             cloudVmDomains,
             eq(cloudVmPublications.domainId, cloudVmDomains.id),

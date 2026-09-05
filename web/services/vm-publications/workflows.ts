@@ -173,7 +173,7 @@ export function listPublications(input: {
   return Effect.gen(function* () {
     const repository = yield* CloudVmPublicationRepository;
     const targets = yield* repository.listOwnedPublications(input.principal.userId);
-    return targets.map(publicationDto);
+    return targets.filter((target) => publicationInCurrentAccount(target, input.principal)).map(publicationDto);
   });
 }
 
@@ -186,6 +186,7 @@ export function listCustomDomains(input: {
     const targets = yield* repository.listOwnedPublications(input.principal.userId);
     const byDomain = new Map<string, CloudVmPublicationTarget[]>();
     for (const target of targets) {
+      if (!publicationInCurrentAccount(target, input.principal)) continue;
       if (!target.domain) continue;
       const bucket = byDomain.get(target.domain.id) ?? [];
       bucket.push(target);
@@ -330,6 +331,7 @@ export function verifyCustomDomain(input: {
         provider,
         domain,
         ownerUserId,
+        teamIds: input.principal.teamIds,
         forwardAuth: input.forwardAuth,
         now,
       });
@@ -339,7 +341,7 @@ export function verifyCustomDomain(input: {
       ownerUserId,
       domainId: domain.id,
     });
-    return customDomainDto(domain, targets);
+    return customDomainDto(domain, targets.filter((target) => publicationInCurrentAccount(target, input.principal)));
   });
 }
 
@@ -376,6 +378,7 @@ function provisionPublicationsWaitingOnZone(input: {
   readonly provider: VmPublicationProviderShape;
   readonly domain: CloudVmDomainRow;
   readonly ownerUserId: string;
+  readonly teamIds: readonly string[];
   readonly forwardAuth?: PublicationForwardAuthConfig;
   readonly now: Date;
 }) {
@@ -385,6 +388,7 @@ function provisionPublicationsWaitingOnZone(input: {
       domainId: input.domain.id,
     });
     for (const target of targets) {
+      if (!publicationInCurrentAccount(target, { userId: input.ownerUserId, teamIds: input.teamIds })) continue;
       if (target.publication.state !== "provisioning") continue;
       const attempt = yield* Effect.either(provisionReservedPublication({
         repository: input.repository,
@@ -1220,7 +1224,7 @@ export function requireOwnedPublication(
   repository: CloudVmPublicationRepositoryShape,
   reference: string,
   ownerUserId: string,
-  teamIds?: readonly string[],
+  teamIds: readonly string[],
 ) {
   return Effect.gen(function* () {
     const trimmed = reference.trim();
@@ -1228,11 +1232,18 @@ export function requireOwnedPublication(
     const target = hostname
       ? yield* repository.findOwnedPublicationByHostname({ hostname, ownerUserId })
       : yield* repository.findOwnedPublication({ id: trimmed, ownerUserId });
-    if (!target || (teamIds !== undefined && target.vm.billingTeamId && target.vm.billingTeamId !== ownerUserId && !teamIds.includes(target.vm.billingTeamId))) {
+    if (!target || !publicationInCurrentAccount(target, { userId: ownerUserId, teamIds })) {
       return yield* new PublicationNotFoundError({ resource: "publication" });
     }
     return target;
   });
+}
+
+/** Creation is not a durable team permission: every management path rechecks membership. */
+function publicationInCurrentAccount(target: CloudVmPublicationTarget, principal: PublicationPrincipal): boolean {
+  const scope = target.vm.billingTeamId;
+  return target.publication.ownerUserId === principal.userId &&
+    (!scope || scope === principal.userId || principal.teamIds.includes(scope));
 }
 
 function requireProviderVmId(target: CloudVmPublicationTarget) {

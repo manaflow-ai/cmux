@@ -350,10 +350,10 @@ describe("VM REST auth", () => {
     const first = { id: "team-first", displayName: "First" };
     const second = { id: "team-second", displayName: "Second" };
     let removed = false;
-    const listTeams = mock(async (options?: { cursor?: string }) => {
+    const listTeams = async (options?: { cursor?: string }) => {
       if (removed) return [];
       return options?.cursor === "page-2" ? [second] : Object.assign([first], { nextCursor: "page-2" });
-    });
+    };
     getUser.mockResolvedValue({
       id: "user-1", displayName: null, primaryEmail: "user@example.com",
       clientReadOnlyMetadata: {}, selectedTeam: first, listTeams,

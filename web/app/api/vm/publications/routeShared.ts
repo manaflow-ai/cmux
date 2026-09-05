@@ -49,10 +49,8 @@ export type AuthedPublicationRouteContext = {
 };
 
 /**
- * Team publication policy may name a team other than the selected billing
- * team, so the requested team is resolved explicitly, the same way VM create
- * resolves a requested billing team. VM access itself follows the caller's
- * account scope (selected team or `X-Cmux-Team-Id`), like every VM route.
+ * Publication management requires fresh membership in the VM's owning team.
+ * Do not reuse the native VM authentication cache or a stale team selection.
  */
 export async function withAuthedPublicationApiRoute(
   request: Request,
@@ -65,6 +63,7 @@ export async function withAuthedPublicationApiRoute(
     user = await verify(request, {
       listAllTeams: true,
       forceCompleteTeamList: true,
+      requireFreshTeamMembership: true,
       requestedTeamId: await requestedPublicationTeamId(request),
     });
   } catch (error) {

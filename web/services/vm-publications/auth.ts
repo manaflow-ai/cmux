@@ -14,6 +14,7 @@ import {
   type VmPublicationPolicy,
   type VmPublicationViewer,
   vmPublicationAllowsViewer,
+  publicationOwningTeamId,
 } from "./policy";
 import {
   PUBLICATION_CALLBACK_PATH,
@@ -172,13 +173,14 @@ export function evaluatePublicationRequest(input: {
         now: input.now ?? new Date(),
       });
       if (principal) {
-        // The owner can use a personal session directly. All other viewers
-        // require current team membership or a current verified email grant.
+        const owningTeamId = publicationOwningTeamId(target.vm);
+        // Only the owner of a personal VM can skip the identity lookup. Team
+        // VM ownership and email grants depend on current Stack identity.
         const viewer: VmPublicationViewer | null =
-          principal.publication.accessMode === "team" || principal.session.userId !== principal.publication.ownerUserId
+          owningTeamId !== null || principal.publication.accessMode === "team" || principal.session.userId !== principal.publication.ownerUserId
             ? yield* viewerResolver.resolve(principal.session.userId)
             : { userId: principal.session.userId, teamIds: [] };
-        if (yield* publicationAllowsViewer(principal.publication, viewer, input.now ?? new Date())) {
+        if (yield* publicationAllowsViewer(principal.publication, viewer, input.now ?? new Date(), owningTeamId)) {
           return { kind: "allow" } as const satisfies PublicationRequestEvaluation;
         }
       }
@@ -294,11 +296,13 @@ export function resolvePublicationAccess(input: {
     if (!input.user) {
       return { kind: "signed_out", transaction: pending } as const;
     }
+    const owningTeamId = publicationOwningTeamId(pending.vm);
     const currentViewer = yield* currentPublicationViewer(
       pending.publication,
       input.user,
+      owningTeamId,
     );
-    if (yield* publicationAllowsViewer(pending.publication, currentViewer, now)) {
+    if (yield* publicationAllowsViewer(pending.publication, currentViewer, now, owningTeamId)) {
       const code = randomPublicationToken();
       yield* repository.issueAuthCode({
         transactionHash: pending.transaction.transactionHash,
@@ -328,9 +332,10 @@ export function resolvePublicationAccess(input: {
 function currentPublicationViewer(
   publication: VmPublicationPolicy,
   user: PublicationAccessUser,
+  owningTeamId: string | null,
 ) {
   return Effect.gen(function* () {
-    if (publication.accessMode === "public" || (publication.accessMode === "personal" && user.userId === publication.ownerUserId)) {
+    if (publication.accessMode === "public" || (owningTeamId === null && publication.accessMode === "personal" && user.userId === publication.ownerUserId)) {
       return user;
     }
     // Team access is dynamic. Never trust the membership snapshot carried by
@@ -345,9 +350,9 @@ function currentPublicationViewer(
 }
 
 /** Grants are read on each request, so deletion and expiry apply to existing sessions. */
-function publicationAllowsViewer(publication: VmPublicationPolicy & { readonly id: string }, viewer: VmPublicationViewer | null, now: Date) {
+function publicationAllowsViewer(publication: VmPublicationPolicy & { readonly id: string }, viewer: VmPublicationViewer | null, now: Date, owningTeamId: string | null) {
   return Effect.gen(function* () {
-    if (vmPublicationAllowsViewer(publication, viewer)) return true;
+    if (vmPublicationAllowsViewer(publication, viewer, owningTeamId)) return true;
     if (!viewer) return false;
     const repository = yield* CloudVmPublicationRepository;
     for (const value of viewer.verifiedEmails ?? []) {
