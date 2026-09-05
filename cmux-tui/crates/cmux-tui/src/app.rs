@@ -24117,6 +24117,12 @@ impl App {
         action_destination: Option<SurfaceId>,
         action_fallback_destination: Option<SurfaceId>,
     ) -> anyhow::Result<RenderAction> {
+        // Frontend actions can arrive from modeless keys, deferred replay, or
+        // a remote action surface without passing through the raw keyboard
+        // handler. All of them are modal boundaries for pointer ownership:
+        // an old release must never settle a drag after focus or layout
+        // changed.
+        self.cancel_pointer_before_modal();
         if action == Action::SendPrefix && self.workspace_sidebar_focused() {
             self.forward_sidebar_key(prefix.into());
             return Ok(RenderAction::Draw);
