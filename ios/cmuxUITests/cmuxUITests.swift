@@ -1587,40 +1587,6 @@ final class cmuxUITests: XCTestCase {
         assertTerminalRow(2, label: "host: UI Test Mac", in: app)
     }
 
-    /// Temporary visual proof for the terminal safe-area fix. Keep the real
-    /// Workspace Detail terminal mounted while the mock Mac drops offline.
-    @MainActor
-    func testVisualProofDisconnectedTerminalSafeArea() async throws {
-        let server = try MobileSyncMockHostServer()
-        let port = try await server.start()
-        let app = try launchConnectedApp(port: port)
-        defer { app.terminate() }
-
-        let surface = app.otherElements["MobileTerminalSurface"]
-        XCTAssertTrue(surface.waitForExistence(timeout: 8))
-        server.stop()
-
-        let connectionStatus = app.descendants(matching: .any)[
-            "MobileTerminalMacConnectionStatus"
-        ]
-        XCTAssertTrue(connectionStatus.waitForExistence(timeout: 12))
-        let disconnected = XCTNSPredicateExpectation(
-            predicate: NSPredicate(
-                format: "label CONTAINS[c] %@ OR label CONTAINS[c] %@",
-                "Reconnecting",
-                "Disconnected"
-            ),
-            object: connectionStatus
-        )
-        XCTAssertEqual(XCTWaiter.wait(for: [disconnected], timeout: 12), .completed)
-
-        let screenshot = XCTAttachment(screenshot: app.screenshot())
-        screenshot.name = "workspace-detail-terminal-disconnected-safe-area"
-        screenshot.lifetime = .keepAlways
-        add(screenshot)
-        sleep(4)
-    }
-
     @MainActor
     func testIOSControlsMacKeepAwakePerComputer() async throws {
         let server = try MobileSyncMockHostServer(advertisesCaffeineControl: true)
