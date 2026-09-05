@@ -219,7 +219,7 @@ public final class MobileNetworkOutcomeReporter: Sendable {
                 userUsable: false
             )
 
-        case .rpcReady:
+        case .rpcReady, .rpcFailed:
             let start = state.readinessStarts.removeValue(forKey: event.surface)
                 ?? Self.takeUniqueConnectStart(surface: event.surface, state: &state)
             return Self.terminal(
@@ -227,7 +227,7 @@ public final class MobileNetworkOutcomeReporter: Sendable {
                 event: event,
                 start: start,
                 transport: transport ?? start?.transport,
-                userUsable: true
+                userUsable: event.code == .rpcReady
             )
 
         case .recoveryStarted:
@@ -448,7 +448,7 @@ public final class MobileNetworkOutcomeReporter: Sendable {
         case .connect, .pairOk, .pairFail, .pairUnreachable,
              .transportDialStarted, .transportDialConnected, .transportDialFailed,
              .transportDialCancelled, .hostAuthenticated, .hostAuthenticationFailed,
-             .rpcReady, .recoveryStarted, .recoverySucceeded, .recoveryFailed,
+             .rpcReady, .rpcFailed, .recoveryStarted, .recoverySucceeded, .recoveryFailed,
              .endpointStarting, .endpointActive, .endpointFailed,
              .relayPolicyRefreshStarted, .relayPolicyRefreshSucceeded,
              .relayPolicyRefreshFailed,
@@ -482,7 +482,7 @@ public final class MobileNetworkOutcomeReporter: Sendable {
             .transportDial
         case .hostAuthenticated, .hostAuthenticationFailed:
             .hostAuth
-        case .rpcReady:
+        case .rpcReady, .rpcFailed:
             .rpcReady
         case .recoverySucceeded, .recoveryFailed:
             .recovery
