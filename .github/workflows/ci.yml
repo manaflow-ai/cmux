@@ -296,6 +296,9 @@ jobs:
       - name: Validate universal nightly workflow
         run: bash ./tests/test_nightly_universal_build.sh
 
+      - name: Validate cmux-tui client commit resolution
+        run: ./tests/test_ci_resolve_cmux_tui_client_commit.sh
+
       - name: Validate nightly notarization behavior
         run: ./tests/test_notarize_nightly_dmg.sh
 
