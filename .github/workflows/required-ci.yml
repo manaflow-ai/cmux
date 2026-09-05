@@ -62,8 +62,8 @@ jobs:
           # These guards are themselves the trust boundary. Keep this check in
           # the base-controlled shell so a PR cannot weaken its detector and
           # then classify the detector change as a cheap, unverified edit.
-          if grep -Eq '^(scripts/ci/detect_browser_engine_changes\.py|scripts/ci/verify_browser_runtime_artifact\.py|scripts/ci/verify_required_ci_run\.py)$' "$files"; then
-            echo "Browser verification guard changed; running browser verification."
+          if grep -Eq '^(\.github/|scripts/)' "$files"; then
+            echo "Browser/build control-plane changed; running browser verification."
             echo "browser_engine=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi

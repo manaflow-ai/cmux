@@ -308,7 +308,7 @@ def test_browser_change_detector_routes_guard_implementation_edits() -> None:
         required_ci = (ROOT / ".github" / "workflows" / "required-ci.yml").read_text(encoding="utf-8")
         assert "Checkout trusted verifier" in required_ci
         assert "trusted/scripts/ci/detect_browser_engine_changes.py" in required_ci
-        assert "Browser verification guard changed; running browser verification." in required_ci
+        assert "Browser/build control-plane changed; running browser verification." in required_ci
 
 
 def test_ci_workflow_runs_for_every_pull_request() -> None:
