@@ -4111,10 +4111,7 @@ fn private_dump_modified_time(metadata: &libc::stat) -> (u64, u32) {
     #[cfg(not(any(target_os = "aix", target_os = "hurd")))]
     let nanoseconds = metadata.st_mtime_nsec;
 
-    (
-        u64::try_from(seconds).unwrap_or(0),
-        u32::try_from(nanoseconds).unwrap_or(0),
-    )
+    (u64::try_from(seconds).unwrap_or(0), u32::try_from(nanoseconds).unwrap_or(0))
 }
 
 #[cfg(unix)]
