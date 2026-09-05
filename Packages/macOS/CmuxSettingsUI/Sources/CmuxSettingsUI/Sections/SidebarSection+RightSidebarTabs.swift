@@ -88,6 +88,12 @@ extension SidebarSection {
             .labelsHidden()
             .controlSize(.small)
             .disabled(tab.isVisible && visibleCount == 1)
+            .accessibilityLabel(
+                String.localizedStringWithFormat(
+                    String(localized: "settings.sidebar.rightTabs.toggleVisible", defaultValue: "Show %@"),
+                    tab.title
+                )
+            )
             .accessibilityIdentifier("SettingsRightSidebarTabVisibleToggle.\(tab.id)")
         }
         .padding(.horizontal, 14)

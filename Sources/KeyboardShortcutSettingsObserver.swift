@@ -51,7 +51,7 @@ final class KeyboardShortcutSettingsObserver {
         // matcher must rebuild when a gate changes, even when no shortcut was
         // edited.
         featureGateObserver = notificationCenter.addObserver(
-            forName: UserDefaults.didChangeNotification,
+            forName: RightSidebarBetaFeatureSettings.didChangeNotification,
             object: nil,
             queue: nil
         ) { [weak self] _ in

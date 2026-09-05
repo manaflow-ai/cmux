@@ -337,16 +337,9 @@ struct cmuxApp: App {
     /// installed into the settings package as process-global mutable state.
     private static func makeShortcutDefaultResolver() -> CmuxSettings.ShortcutDefaultResolver {
         CmuxSettings.ShortcutDefaultResolver { action in
-            let mode: RightSidebarMode
-            switch action {
-            case .switchRightSidebarToFiles: mode = .files
-            case .switchRightSidebarToFind: mode = .find
-            case .switchRightSidebarToSessions: mode = .sessions
-            case .switchRightSidebarToFeed: mode = .feed
-            case .switchRightSidebarToDock: mode = .dock
-            case .switchRightSidebarToMachines: mode = .machines
-            default: return .useBuiltIn
-            }
+            guard let mode = RightSidebarMode.allCases.first(where: {
+                $0.shortcutAction?.rawValue == action.rawValue
+            }) else { return .useBuiltIn }
             guard let digit = RightSidebarMode.positionalDigit(for: mode) else {
                 return .stroke(nil)
             }

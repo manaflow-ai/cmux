@@ -277,6 +277,7 @@ final class HostSettingsActions: SettingsHostActions {
                 )
             }
             let drainTask = Task { @MainActor in
+                continuation.yield(Self.rightSidebarTabItems())
                 for await _ in signals {
                     if Task.isCancelled { break }
                     continuation.yield(Self.rightSidebarTabItems())
