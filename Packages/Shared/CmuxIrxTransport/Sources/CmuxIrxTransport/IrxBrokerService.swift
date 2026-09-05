@@ -260,6 +260,12 @@ public actor IrxBrokerService {
         return try await client.ensureSessionTicket()
     }
 
+    /// Drop a ticket only after the transport observes an explicit auth
+    /// rejection. Transient disconnects keep the cached capability intact.
+    public func invalidateSessionTicket() {
+        client.invalidateSessionTicket()
+    }
+
     /// Signs the exact body sent by the control-plane relay mint shortcut.
     /// A cold client may not have a retained binding yet, in which case nil
     /// keeps the HTTPS autopilot as the safe fallback.
