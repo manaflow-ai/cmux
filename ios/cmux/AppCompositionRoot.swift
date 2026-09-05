@@ -448,7 +448,7 @@ final class AppCompositionRoot {
                 emitter.capture("ios_session_ended", props)
             }
             // Force a flush before the OS may suspend us, so queued events survive.
-            let networkOutcomeReporter = networkOutcomeReporter
+            let networkOutcomeReporter = self.networkOutcomeReporter
             Task {
                 await emitter.flush()
                 await networkOutcomeReporter.flush()
