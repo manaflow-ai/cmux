@@ -242,10 +242,18 @@ private struct NotificationFeedActivityRow: View {
             .accessibilityIdentifier("MobileNotificationFeedGroupToggle-\(group.items[0].notificationID)")
 
             if isExpanded {
-                ForEach(Array(group.items.dropFirst())) { model in
-                    Divider()
-                    NotificationFeedRow(model: model, actions: actions)
-                        .equatable()
+                VStack(alignment: .leading, spacing: 12) {
+                    ForEach(Array(group.items.dropFirst())) { model in
+                        Divider()
+                        NotificationFeedRow(model: model, actions: actions, isNested: true)
+                            .equatable()
+                    }
+                }
+                .padding(.leading, 20)
+                .overlay(alignment: .leading) {
+                    Rectangle()
+                        .fill(.separator)
+                        .frame(width: 1)
                 }
                 .transition(.opacity)
             }

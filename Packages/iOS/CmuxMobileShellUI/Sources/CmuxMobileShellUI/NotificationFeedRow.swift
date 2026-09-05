@@ -6,9 +6,10 @@ import SwiftUI
 struct NotificationFeedRow: View, Equatable {
     let model: NotificationFeedRowModel
     let actions: NotificationFeedActions
+    var isNested = false
 
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.model == rhs.model
+        lhs.model == rhs.model && lhs.isNested == rhs.isNested
     }
 
     private var item: MobileNotificationFeedItem { model.item }
@@ -20,7 +21,8 @@ struct NotificationFeedRow: View, Equatable {
             NotificationFeedRowLabel(
                 createdAt: item.createdAt,
                 isRead: item.isRead,
-                presentation: model.presentation
+                presentation: model.presentation,
+                isNested: isNested
             )
         }
         .buttonStyle(.plain)
@@ -128,13 +130,19 @@ private struct NotificationFeedRowLabel: View {
     let createdAt: Date
     let isRead: Bool
     let presentation: NotificationFeedRowPresentation
+    let isNested: Bool
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
             NotificationFeedUnreadIndicator(isRead: isRead)
 
             VStack(alignment: .leading, spacing: 4) {
-                NotificationFeedHeadline(
+                if isNested {
+                    Text(createdAt, style: .relative)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    NotificationFeedHeadline(
                     title: presentation.headline,
                     createdAt: createdAt,
                     isRead: isRead
@@ -145,6 +153,7 @@ private struct NotificationFeedRowLabel: View {
                     computerName: presentation.computerName,
                     computerIsReachable: presentation.connectionStatus == .connected
                 )
+                }
 
                 if let contentPreview = presentation.contentPreview {
                     NotificationFeedContentPreview(text: contentPreview)
