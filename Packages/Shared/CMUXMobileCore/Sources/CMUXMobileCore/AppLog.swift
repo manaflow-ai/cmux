@@ -1181,7 +1181,7 @@ public actor AppLog {
                 appendUInt32(0x0201_4b50, to: &central)
                 appendUInt16(20, to: &central) // version made by
                 appendUInt16(20, to: &central) // version needed to extract
-                appendUInt16(0x0800, to: &central)
+                appendUInt16(0x0808, to: &central) // UTF-8 + data descriptor
                 appendUInt16(0, to: &central)
                 appendUInt16(0, to: &central)
                 appendUInt16(0, to: &central)
@@ -1352,17 +1352,23 @@ public actor AppLog {
     private static func removeStaleExportArchives() {
         let fileManager = FileManager.default
         let directory = fileManager.temporaryDirectory
+        let staleBefore = Date().addingTimeInterval(-60 * 60)
         guard let names = try? fileManager.contentsOfDirectory(
             at: directory,
-            includingPropertiesForKeys: nil,
+            includingPropertiesForKeys: [.contentModificationDateKey],
             options: [.skipsHiddenFiles]
         ) else { return }
         for url in names {
             let name = url.lastPathComponent
             guard name.hasPrefix("cmux-diagnostics-") else { continue }
-            if name.hasSuffix(".zip") || name.hasPrefix("cmux-diagnostics-snapshot-") {
-                try? fileManager.removeItem(at: url)
+            guard name.hasSuffix(".zip") || name.hasPrefix("cmux-diagnostics-snapshot-") else {
+                continue
             }
+            guard let modified = try? url.resourceValues(
+                forKeys: [.contentModificationDateKey]
+            ).contentModificationDate,
+                  modified < staleBefore else { continue }
+            try? fileManager.removeItem(at: url)
         }
     }
 
