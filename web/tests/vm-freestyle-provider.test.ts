@@ -379,16 +379,14 @@ describe("Freestyle platform contract", () => {
   });
 
   test("an explicit empty canonical vpcs list does not use stale legacy metadata", () => {
-    expect(
-      freestyleCmuxRemoteRoute(
-        {
-          publicIpv6: "2602:f75c:0:1::2a",
-          vpcs: [],
-          networks: [{ ipv6: "fd7a:115c:a1e0::b" }],
-        },
-        VM_ID,
-      ),
-    ).toBe("ws://[2602:f75c:0:1::2a]:1337/v1/link");
+    expect(() => freestyleCmuxRemoteRoute(
+      {
+        publicIpv6: "2602:f75c:0:1::2a",
+        vpcs: [],
+        networks: [{ ipv6: "fd7a:115c:a1e0::b" }],
+      },
+      VM_ID,
+    )).toThrow("not attached to a private network");
   });
 
   test("daemon health requires a v6-table listener; start installs the dual-stack override", () => {
@@ -646,6 +644,7 @@ describe("FreestyleProvider create with edge rules", () => {
     const fake = fakeFreestyle({ probeExit: 0 });
     await providerWith(fake).create({
       image: "sh-devbox-4gb",
+      network: { id: "vpc_1" },
       imageSize: { name: "sm", cpu: 1, memoryMb: 4096, storageMb: 16384 },
     });
 

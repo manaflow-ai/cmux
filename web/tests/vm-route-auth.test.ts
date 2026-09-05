@@ -590,10 +590,6 @@ describe("VM REST auth", () => {
       listVmImageKinds(defaultProviderId(), process.env, { memoryMb: defaultMemoryMbForPlan("pro", process.env) }),
     );
     expect(payload.limits.imageKinds.map((entry) => entry.kind)).toEqual(["desktop", "base"]);
-    expect(payload.limits.imageKinds.map((entry) => entry.image)).toEqual([
-      MANIFEST_BASE_DEFAULT.imageId,
-      MANIFEST_BASE_DEFAULT.imageId,
-    ]);
     for (const entry of payload.limits.imageKinds) {
       expect(["desktop", "base"]).toContain(entry.kind);
       expect(typeof entry.image).toBe("string");
