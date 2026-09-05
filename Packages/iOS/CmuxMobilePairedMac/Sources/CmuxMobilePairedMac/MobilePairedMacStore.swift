@@ -16,8 +16,10 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
     /// The schema version this build creates and migrates to.
     public static let currentSchemaVersion: Int32 = 12
 
-    /// Keep route-removal suppression bounded while retaining ample history for
-    /// normal Tailscale endpoint churn. Explicit pairing can restore any route.
+    /// Keep route-removal suppression bounded. Once a scope churns beyond this
+    /// limit, it parks a conservative kind-wide marker until explicit pairing.
+    static let routeRemovalTombstoneLimit = 256
+    static let routeRemovalWildcardEndpoint = "*"
 
     private let dbPath: String
     // `nonisolated(unsafe)` only so the (Swift 6 nonisolated) `deinit` can close
@@ -735,7 +737,35 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
             // so accepting an id-only match could delete the wrong route.
             guard let removedIndex = currentRoutes.firstIndex(where: {
                 $0.kind == route.kind && $0.endpoint == route.endpoint
-            }) else { return }
+            }) else {
+                // A compatibility grant can outlive the route snapshot after
+                // a refresh. Revoke that stale bearer and park its endpoint
+                // even though there is no route row left to rewrite.
+                guard route.kind == .tailscale,
+                      try revokeLegacyTailscaleGrant(
+                          macDeviceID: macDeviceID,
+                          ownerKey: ownerKey,
+                          endpoint: route.endpoint
+                      ) else { return }
+                let encoded = try Self.encodeRouteEndpoint(route)
+                try exec("""
+                    INSERT OR IGNORE INTO mac_route_removals (
+                        mac_device_id, owner_key, kind, endpoint_json
+                    ) VALUES (?, ?, ?, ?);
+                """, binding: [
+                    .text(macDeviceID),
+                    .text(ownerKey),
+                    .text(route.kind.rawValue),
+                    .text(encoded),
+                ])
+                try compactRouteRemovalTombstones(
+                    macDeviceID: macDeviceID,
+                    ownerKey: ownerKey,
+                    kind: route.kind
+                )
+                didWrite = true
+                return
+            }
             let removed = currentRoutes[removedIndex]
             var remaining = currentRoutes
             remaining.remove(at: removedIndex)
@@ -752,7 +782,12 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 .text(removed.kind.rawValue),
                 .text(encoded),
             ])
-            try revokeLegacyTailscaleGrant(
+            try compactRouteRemovalTombstones(
+                macDeviceID: macDeviceID,
+                ownerKey: ownerKey,
+                kind: removed.kind
+            )
+            _ = try revokeLegacyTailscaleGrant(
                 macDeviceID: macDeviceID,
                 ownerKey: ownerKey,
                 endpoint: removed.endpoint
@@ -802,7 +837,7 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         macDeviceID: String,
         ownerKey: String,
         endpoint: CmxAttachEndpoint
-    ) throws {
+    ) throws -> Bool {
         var statement: OpaquePointer?
         defer { sqlite3_finalize(statement) }
         let result = sqlite3_prepare_v2(
@@ -832,6 +867,7 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 binding: [.text(macDeviceID), .text(ownerKey), .text(encoded)]
             )
         }
+        return !encodedMatches.isEmpty
     }
 
     /// Persist `'user'`-origin Tailscale compatibility grants for routes the
@@ -871,9 +907,22 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 macDeviceID: macDeviceID,
                 ownerKey: ownerKey
             )
+            // A fresh pairing code replaces the previously authorized
+            // Tailscale destination set. Capture all older grants before
+            // inserting the incoming routes, including migration grants whose
+            // route snapshot may already have been refreshed away.
+            let previousGrantedRoutes = try fetchLegacyTailscaleRoutes(
+                macDeviceID: macDeviceID,
+                ownerKey: ownerKey
+            )
             for route in grantRoutes {
                 let encoded = try Self.encodeRoute(route)
                 let encodedEndpoint = try Self.encodeRouteEndpoint(route)
+                _ = try revokeLegacyTailscaleGrant(
+                    macDeviceID: macDeviceID,
+                    ownerKey: ownerKey,
+                    endpoint: route.endpoint
+                )
                 try exec("""
                     INSERT INTO legacy_tailscale_route_grants (
                         mac_device_id, owner_key, endpoint_json, origin
@@ -895,12 +944,13 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                     WHERE mac_device_id = ?
                       AND owner_key = ?
                       AND kind = ?
-                      AND endpoint_json = ?;
+                      AND endpoint_json IN (?, ?);
                 """, binding: [
                     .text(macDeviceID),
                     .text(ownerKey),
                     .text(route.kind.rawValue),
                     .text(encodedEndpoint),
+                    .text(Self.routeRemovalWildcardEndpoint),
                 ])
                 // The preceding passive refresh intentionally filtered this
                 // endpoint because its tombstone was still present. Reinsert
@@ -912,6 +962,40 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                     }
                     currentRoutes.append(disclosed)
                 }
+            }
+            for staleRoute in previousGrantedRoutes where !grantRoutes.contains(where: {
+                $0.endpoint == staleRoute.endpoint
+            }) {
+                if let removedIndex = currentRoutes.firstIndex(where: {
+                    $0.kind == .tailscale && $0.endpoint == staleRoute.endpoint
+                }) {
+                    var remaining = currentRoutes
+                    remaining.remove(at: removedIndex)
+                    if !remaining.isEmpty {
+                        currentRoutes = remaining
+                    }
+                }
+                let encodedEndpoint = try Self.encodeRouteEndpoint(staleRoute)
+                try exec("""
+                    INSERT OR IGNORE INTO mac_route_removals (
+                        mac_device_id, owner_key, kind, endpoint_json
+                    ) VALUES (?, ?, ?, ?);
+                """, binding: [
+                    .text(macDeviceID),
+                    .text(ownerKey),
+                    .text(staleRoute.kind.rawValue),
+                    .text(encodedEndpoint),
+                ])
+                try compactRouteRemovalTombstones(
+                    macDeviceID: macDeviceID,
+                    ownerKey: ownerKey,
+                    kind: staleRoute.kind
+                )
+                _ = try revokeLegacyTailscaleGrant(
+                    macDeviceID: macDeviceID,
+                    ownerKey: ownerKey,
+                    endpoint: staleRoute.endpoint
+                )
             }
             try exec(
                 "DELETE FROM mac_routes WHERE mac_device_id = ? AND owner_key = ?;",

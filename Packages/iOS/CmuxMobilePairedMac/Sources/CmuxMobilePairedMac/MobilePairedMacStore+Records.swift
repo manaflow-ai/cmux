@@ -373,6 +373,59 @@ extension MobilePairedMacStore {
         return removedKeys
     }
 
+    /// Bound tombstone storage without evicting suppression state. Once a
+    /// scope exceeds the exact-marker budget for a transport kind, replace its
+    /// markers with one conservative kind-wide marker. Explicit pairing clears
+    /// that marker for the newly authorized destination set.
+    func compactRouteRemovalTombstones(
+        macDeviceID: String,
+        ownerKey: String,
+        kind: CmxAttachTransportKind
+    ) throws {
+        var statement: OpaquePointer?
+        defer { sqlite3_finalize(statement) }
+        let rc = sqlite3_prepare_v2(
+            db,
+            "SELECT COUNT(*) FROM mac_route_removals WHERE mac_device_id = ? AND owner_key = ? AND kind = ? AND endpoint_json <> ?;",
+            -1,
+            &statement,
+            nil
+        )
+        guard rc == SQLITE_OK else {
+            throw MobilePairedMacStoreError.prepareFailed(rc, lastErrorMessage())
+        }
+        try bind(statement: statement, parameters: [
+            .text(macDeviceID),
+            .text(ownerKey),
+            .text(kind.rawValue),
+            .text(MobilePairedMacStore.routeRemovalWildcardEndpoint),
+        ])
+        guard sqlite3_step(statement) == SQLITE_ROW,
+              sqlite3_column_int(statement, 0) > MobilePairedMacStore.routeRemovalTombstoneLimit else {
+            return
+        }
+        try exec("""
+            INSERT OR IGNORE INTO mac_route_removals (
+                mac_device_id, owner_key, kind, endpoint_json
+            ) VALUES (?, ?, ?, ?);
+        """, binding: [
+            .text(macDeviceID),
+            .text(ownerKey),
+            .text(kind.rawValue),
+            .text(MobilePairedMacStore.routeRemovalWildcardEndpoint),
+        ])
+        try exec("""
+            DELETE FROM mac_route_removals
+            WHERE mac_device_id = ? AND owner_key = ? AND kind = ?
+              AND endpoint_json <> ?;
+        """, binding: [
+            .text(macDeviceID),
+            .text(ownerKey),
+            .text(kind.rawValue),
+            .text(MobilePairedMacStore.routeRemovalWildcardEndpoint),
+        ])
+    }
+
     func fetchRoutes(macDeviceID: String, ownerKey: String) throws -> [CmxAttachRoute] {
         let removedKeys = try fetchRouteRemovalKeys(
             macDeviceID: macDeviceID,
@@ -404,7 +457,10 @@ extension MobilePairedMacStore {
                 continue
             }
             if let endpoint = try? Self.encodeRouteEndpoint(route),
-               removedKeys.contains("\(route.kind.rawValue)\u{1F}\(endpoint)") {
+               (removedKeys.contains("\(route.kind.rawValue)\u{1F}\(endpoint)")
+                || removedKeys.contains(
+                    "\(route.kind.rawValue)\u{1F}\(MobilePairedMacStore.routeRemovalWildcardEndpoint)"
+                )) {
                 continue
             }
             routes.append(route)
