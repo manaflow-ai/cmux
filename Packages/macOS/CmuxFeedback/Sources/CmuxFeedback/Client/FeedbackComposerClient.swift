@@ -237,7 +237,10 @@ public struct FeedbackComposerClient {
         to body: inout Data,
         boundary: String
     ) {
-        let sanitizedFileName = attachment.fileName.replacingOccurrences(of: "\"", with: "")
+        let sanitizedFileName = attachment.fileName
+            .components(separatedBy: .controlCharacters)
+            .joined()
+            .replacingOccurrences(of: "\"", with: "")
 
         body.append(Data("--\(boundary)\r\n".utf8))
         body.append(
