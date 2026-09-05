@@ -1,77 +1,5 @@
 import AppKit
-
-/// The exact Sky cursor geometry and cmux brand fill shared by the live pointer
-/// and the standalone Computer Use helper icon.
-private enum ComputerUseCursorArtwork {
-    static func path() -> CGPath {
-        let kite = CGMutablePath()
-        kite.move(to: CGPoint(x: 0.68, y: 1.83))
-        kite.addLine(to: CGPoint(x: 3.63, y: 9.78))
-        kite.addQuadCurve(to: CGPoint(x: 5.3, y: 9.66), control: CGPoint(x: 4.67, y: 12.59))
-        kite.addLine(to: CGPoint(x: 5.44, y: 9.01))
-        kite.addQuadCurve(to: CGPoint(x: 9.01, y: 5.44), control: CGPoint(x: 6.08, y: 6.08))
-        kite.addLine(to: CGPoint(x: 9.66, y: 5.3))
-        kite.addQuadCurve(to: CGPoint(x: 9.78, y: 3.63), control: CGPoint(x: 12.59, y: 4.67))
-        kite.addLine(to: CGPoint(x: 1.83, y: 0.68))
-        kite.addQuadCurve(to: CGPoint(x: 0.68, y: 1.83), control: CGPoint(x: 0, y: 0))
-        kite.closeSubpath()
-        return kite
-    }
-
-    static func draw(
-        in context: CGContext,
-        scale: CGFloat,
-        outlineColor: CGColor? = nil,
-        outlineWidth: CGFloat = 0
-    ) {
-        context.saveGState()
-        context.scaleBy(x: scale, y: scale)
-        let kite = path()
-
-        if let outlineColor, outlineWidth > 0 {
-            // The upstream asset uses `paint-order: stroke`, so its outline is
-            // drawn first and remains outside the gradient fill.
-            context.addPath(kite)
-            context.setLineWidth(outlineWidth)
-            context.setLineJoin(.round)
-            context.setStrokeColor(outlineColor)
-            context.strokePath()
-        }
-
-        context.saveGState()
-        context.addPath(kite)
-        context.clip()
-        let colorSpace = CGColorSpaceCreateDeviceRGB()
-        let colors = [
-            CGColor(
-                colorSpace: colorSpace,
-                components: [0x12 / 255.0, 0xC7 / 255.0, 0xF5 / 255.0, 1.0]
-            )!,
-            CGColor(
-                colorSpace: colorSpace,
-                components: [0x2D / 255.0, 0x8C / 255.0, 0xFF / 255.0, 1.0]
-            )!,
-            CGColor(
-                colorSpace: colorSpace,
-                components: [0x6C / 255.0, 0x5C / 255.0, 0xFF / 255.0, 1.0]
-            )!,
-        ] as CFArray
-        if let gradient = CGGradient(
-            colorsSpace: colorSpace,
-            colors: colors,
-            locations: [0.0, 0.5, 1.0]
-        ) {
-            context.drawLinearGradient(
-                gradient,
-                start: CGPoint(x: 0.68, y: 0.68),
-                end: CGPoint(x: 11.0, y: 11.0),
-                options: [.drawsBeforeStartLocation, .drawsAfterEndLocation]
-            )
-        }
-        context.restoreGState()
-        context.restoreGState()
-    }
-}
+import CmuxComputerUseVisuals
 
 /// Produces the helper's rounded app icon with the live cursor's exact shape
 /// and gradient, drawn on the same tile treatment as the cmux app icon: a
@@ -80,16 +8,20 @@ private enum ComputerUseCursorArtwork {
 /// appearance so the icon always matches the effective cmux appearance (the
 /// cmux setting when overridden, the system otherwise).
 ///
-/// Keep the tile constants in sync with
-/// `scripts/generate-computer-use-helper-icon.swift`, which bakes the same
-/// artwork into `Resources/ComputerUseHelperIcon.icns` for System Settings.
+/// The geometry comes from `CmuxComputerUseVisuals`, which the generator also
+/// imports before baking `Resources/ComputerUseHelperIcon.icns` for System
+/// Settings.
 @MainActor
 enum ComputerUseHelperIconRenderer {
-    private static let canvasSize = NSSize(width: 1_024, height: 1_024)
-    private static let plateCornerRadius: CGFloat = 224
-    private static let cursorTranslation = CGPoint(x: 293.4, y: 293.4)
-    private static let cursorScale: CGFloat = 44.8
-    private static let rimWidth: CGFloat = 14
+    private static let visualTokens = ComputerUseOnboardingVisualTokens.reference
+    private static let canvasSize = NSSize(
+        width: visualTokens.helperIconCanvasSize.width,
+        height: visualTokens.helperIconCanvasSize.height
+    )
+    private static let plateCornerRadius = visualTokens.helperIconCornerRadius
+    private static let cursorTranslation = visualTokens.helperIconCursorTranslation
+    private static let cursorScale = visualTokens.helperIconCursorScale
+    private static let rimWidth = visualTokens.helperIconRimWidth
     private static var cachedImages: [Bool: NSImage] = [:]
 
     private static func plateGradientColors(dark: Bool) -> [CGColor] {
@@ -215,7 +147,7 @@ enum ComputerUseHelperIconRenderer {
         context.restoreGState()
 
         context.translateBy(x: cursorTranslation.x, y: cursorTranslation.y)
-        ComputerUseCursorArtwork.draw(
+        ComputerUseCursorArtwork().draw(
             in: context,
             scale: cursorScale
         )
@@ -277,7 +209,7 @@ final class AgentCursorPointerView: NSView {
 
         // The icon renderer calls this same path/gradient without an outline;
         // the live pointer keeps the upstream white stroke for contrast over apps.
-        ComputerUseCursorArtwork.draw(
+        ComputerUseCursorArtwork().draw(
             in: context,
             scale: Self.skyScale,
             outlineColor: NSColor.white.cgColor,

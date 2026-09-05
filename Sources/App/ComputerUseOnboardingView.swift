@@ -69,16 +69,23 @@ struct ComputerUseOnboardingView: View {
     var body: some View {
         Group {
             if isPermissionCompanionVisible {
-                permissionCompanion
+                // The companion can briefly share the titled host window while
+                // AppKit swaps windows. Center its measured block in the
+                // visible safe area so it does not sit under the title bar.
+                ComputerUseVisibleContentCenter {
+                    permissionCompanion
+                }
             } else {
                 expandedOnboarding
+                    // The expanded design owns its title-bar treatment and
+                    // deliberately lays artwork under the transparent header.
+                    .ignoresSafeArea()
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .ignoresSafeArea()
         .background {
             if !isPermissionCompanionVisible {
-                onboardingBackground
+                onboardingBackground.ignoresSafeArea()
             }
         }
         .onAppear {

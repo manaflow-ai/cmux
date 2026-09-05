@@ -1,15 +1,34 @@
 import AppKit
+import CmuxComputerUseVisuals
 import SwiftUI
 
 /// Hosts onboarding without allowing SwiftUI measurements to resize its AppKit window.
 @MainActor
 final class ComputerUseOnboardingHostingView: NSHostingView<AnyView> {
-    private let zeroSafeAreaLayoutGuide = NSLayoutGuide()
+    /// The visible content rect expressed in this hosting view's flipped space.
+    /// A titled full-size-content window still reserves its title bar in
+    /// `contentLayoutRect`; the shared geometry value performs the coordinate
+    /// conversion instead of relying on a fixed title-bar height.
+    override var safeAreaRect: NSRect {
+        guard let window else { return super.safeAreaRect }
+        return ComputerUseWindowContentGeometry(
+            contentBounds: bounds,
+            contentLayoutRect: window.contentLayoutRect
+        ).visibleContentRect
+    }
 
-    override var safeAreaInsets: NSEdgeInsets { NSEdgeInsetsZero }
-    override var safeAreaRect: NSRect { bounds }
-    override var safeAreaLayoutGuide: NSLayoutGuide { zeroSafeAreaLayoutGuide }
+    /// Derives edge insets from the same measured visible rect used by SwiftUI.
+    override var safeAreaInsets: NSEdgeInsets {
+        let rect = safeAreaRect
+        return NSEdgeInsets(
+            top: max(0, rect.minY - bounds.minY),
+            left: max(0, rect.minX - bounds.minX),
+            bottom: max(0, bounds.maxY - rect.maxY),
+            right: max(0, bounds.maxX - rect.maxX)
+        )
+    }
 
+    /// Prevents SwiftUI's intrinsic measurement from enlarging the fixed window.
     override func setFrameSize(_ newSize: NSSize) {
         var size = newSize
         if let window {
@@ -19,25 +38,20 @@ final class ComputerUseOnboardingHostingView: NSHostingView<AnyView> {
         super.setFrameSize(size)
     }
 
+    /// Erases the generic view type while preserving the hosting configuration.
     convenience init<Content: View>(rootView: Content) {
         self.init(rootView: AnyView(rootView))
     }
 
+    /// Initializes a hosting view with AppKit-owned sizing and autoresizing.
     required init(rootView: AnyView) {
         super.init(rootView: rootView)
         sizingOptions = []
-        safeAreaRegions = []
         autoresizingMask = [.width, .height]
-        addLayoutGuide(zeroSafeAreaLayoutGuide)
-        NSLayoutConstraint.activate([
-            zeroSafeAreaLayoutGuide.leadingAnchor.constraint(equalTo: leadingAnchor),
-            zeroSafeAreaLayoutGuide.trailingAnchor.constraint(equalTo: trailingAnchor),
-            zeroSafeAreaLayoutGuide.topAnchor.constraint(equalTo: topAnchor),
-            zeroSafeAreaLayoutGuide.bottomAnchor.constraint(equalTo: bottomAnchor),
-        ])
     }
 
     @available(*, unavailable)
+    /// Storyboard construction is not supported for this programmatic window.
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
@@ -103,6 +117,7 @@ final class ComputerUseOnboardingWindow: NSPanel {
         completion?()
     }
 
+    /// Allows AppKit's animated intermediate frames through the fixed-size guard.
     /// Runs the sequence of frame updates produced by AppKit while preserving
     /// the fixed-size guard before and after the controller-owned transition.
     /// This small seam also lets tests exercise intermediate frame acceptance
@@ -120,6 +135,7 @@ final class ComputerUseOnboardingWindow: NSPanel {
         appKitOwnedAnimationDuration = nil
     }
 
+    /// Starts the native animated frame transition for a controller-owned move.
     private func animateFrameWithAppKit(
         _ frameRect: NSRect,
         display flag: Bool
@@ -127,6 +143,7 @@ final class ComputerUseOnboardingWindow: NSPanel {
         super.setFrame(frameRect, display: flag, animate: true)
     }
 
+    /// Keeps unsolicited SwiftUI size changes from changing the window frame.
     /// Origin-only moves remain available for centering and permission-window
     /// placement. Size changes must go through `setAppKitOwnedFrame` so hosted
     /// SwiftUI measurements cannot feed back into the window during layout.
@@ -147,6 +164,7 @@ final class ComputerUseOnboardingWindow: NSPanel {
         )
     }
 
+    /// Returns the controller-supplied duration for native frame animations.
     override func animationResizeTime(_ newFrame: NSRect) -> TimeInterval {
         appKitOwnedAnimationDuration ?? super.animationResizeTime(newFrame)
     }
