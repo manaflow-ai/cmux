@@ -39,8 +39,14 @@ import {
   isVmPrivateNetworkUnavailableError,
   isVmProviderOperationError,
   isVmResizeInvalidError,
+  isVmResizeInProgressError,
+  isVmSharedResourceLimitExceededError,
   isVmSnapshotNotFoundError,
   isVmTunnelNotFoundError,
+  isVmTunnelEnrollmentBusyError,
+  isVmTunnelEnrollmentUnavailableError,
+  isVmAccessGrantRevokedError,
+  isVmAccessGrantMutationBusyError,
   vmWorkflowErrorCause,
   type VmModelPlaneError,
   type VmOperationUnsupportedError,
@@ -60,7 +66,13 @@ import {
   vmIdFromRequestPath,
   type VmRequestContext,
 } from "./requestContext";
-import { vmRequestLocale, vmRequiresProCopy, vmUnsupportedCopy, vmUnsupportedOperationKey } from "./vmErrorMessages";
+import {
+  vmRequestLocale,
+  vmRequiresProCopy,
+  vmSharedResourceCopy,
+  vmUnsupportedCopy,
+  vmUnsupportedOperationKey,
+} from "./vmErrorMessages";
 import type { Locale } from "../../i18n/routing";
 
 /** Bearer + refresh token pair the mac app stashes in keychain. */
@@ -508,6 +520,50 @@ export function vmActiveLimitExceededResponse(input: {
   });
 }
 
+/** Translate a plan-wide resource pool rejection into a stable client error. */
+export async function vmSharedResourceLimitExceededResponse(
+  err: {
+    readonly resource: "vcpus" | "memoryMb" | "diskMb";
+    readonly used: number;
+    readonly requested: number;
+    readonly limit: number;
+    readonly phase?: VmLifecyclePhase;
+  },
+  phase: VmLifecyclePhase = err.phase ?? "create",
+  locale: Locale = "en",
+): Promise<Response> {
+  const resource = err.resource === "vcpus"
+    ? "vCPU"
+    : err.resource === "memoryMb"
+      ? "memory"
+      : "disk";
+  const unit = err.resource === "vcpus"
+    ? "vCPU"
+    : err.resource === "memoryMb"
+      ? "MB of memory"
+      : "MB of disk";
+  const copy = await vmSharedResourceCopy(locale, {
+    resource,
+    oversized: err.requested > err.limit,
+  });
+  return vmErrorResponse({
+    error: "vm_shared_resource_limit_exceeded",
+    status: 409,
+    message: copy.message,
+    action: copy.action,
+    phase,
+    retryable: false,
+    details: {
+      resource: err.resource,
+      used: err.used,
+      requested: err.requested,
+      limit: err.limit,
+      unit,
+      shared: true,
+    },
+  });
+}
+
 export type VmCreateLikeOperation = "fork" | "restore";
 
 /**
@@ -515,14 +571,15 @@ export type VmCreateLikeOperation = "fork" | "restore";
  * Operation-specific retry guidance stays at the route boundary, while the response
  * shape and billing errors remain centralized here.
  */
-export function vmCreateLikeErrorResponse(
+export async function vmCreateLikeErrorResponse(
   err: unknown,
   input: {
     readonly operation: VmCreateLikeOperation;
     readonly planId: string;
     readonly retryAction: string;
+    readonly locale?: Locale;
   },
-): Response | null {
+): Promise<Response | null> {
   if (isVmCreateInProgressError(err)) {
     return vmErrorResponse({
       error: "vm_create_in_progress",
@@ -547,6 +604,9 @@ export function vmCreateLikeErrorResponse(
       planId: input.planId,
       retryAction: input.retryAction,
     });
+  }
+  if (isVmSharedResourceLimitExceededError(err)) {
+    return vmSharedResourceLimitExceededResponse(err, input.operation, input.locale ?? "en");
   }
   if (input.operation === "restore" && isVmSnapshotNotFoundError(err)) {
     return vmErrorResponse({
@@ -597,7 +657,50 @@ export function vmModelPlaneErrorResponse(
   });
 }
 
+/** Translate private-network tunnel enrollment failures into the public VM error contract. */
+function vmTunnelErrorResponse(error: unknown): Response | null {
+  if (isVmTunnelNotFoundError(error)) {
+    return vmErrorResponse({
+      error: "vm_tunnel_not_found",
+      status: 404,
+      message: "This computer is not enrolled on your Cloud VM network.",
+      action: "Enroll it with POST /api/vm/tunnel, then bring the WireGuard tunnel up.",
+      phase: "network",
+      retryable: false,
+      details: { deviceFingerprint: error.deviceFingerprint },
+    });
+  }
+
+  if (isVmTunnelEnrollmentBusyError(error)) {
+    return vmErrorResponse({
+      error: "vm_tunnel_enrollment_busy",
+      status: 409,
+      message: "This computer is already being enrolled on the Cloud VM network.",
+      action: "Retry the same enrollment request after the current request finishes.",
+      phase: "network",
+      retryable: true,
+      retryAfterSeconds: error.retryAfterSeconds,
+    });
+  }
+
+  if (isVmTunnelEnrollmentUnavailableError(error)) {
+    return vmErrorResponse({
+      error: "vm_tunnel_enrollment_unavailable",
+      status: 503,
+      message: "Cloud VM network enrollment is temporarily unavailable.",
+      action: "Retry after the Cloud VM service has completed its database upgrade.",
+      reason: error.reason,
+      phase: "network",
+      retryable: true,
+      retryAfterSeconds: 30,
+    });
+  }
+
+  return null;
+}
+
 /** Translate a normalized workflow failure into the public VM error contract. */
+// oxlint-disable-next-line complexity -- Centralized dispatch preserves the public error precedence contract.
 export async function vmWorkflowErrorResponse(
   err: unknown,
   options: { readonly locale?: Locale } = {},
@@ -645,6 +748,10 @@ export async function vmWorkflowErrorResponse(
     return vmModelPlaneErrorResponse(workflowError);
   }
 
+  if (isVmSharedResourceLimitExceededError(workflowError)) {
+    return vmSharedResourceLimitExceededResponse(workflowError, workflowError.phase ?? "create", options.locale ?? "en");
+  }
+
   if (isVmResizeInvalidError(workflowError)) {
     const requested = Math.round(workflowError.requestedMb / 1024);
     const current = Math.round(workflowError.currentMb / 1024);
@@ -662,14 +769,24 @@ export async function vmWorkflowErrorResponse(
     });
   }
 
+  if (isVmResizeInProgressError(workflowError)) {
+    return vmErrorResponse({
+      error: "vm_resize_in_progress",
+      status: 409,
+      message: "A disk resize is already running for this Cloud VM.",
+      action: "Wait for the current resize to finish, then retry.",
+      phase: "resize",
+      retryable: true,
+      retryAfterSeconds: 5,
+    });
+  }
+
   if (isVmPrivateNetworkUnavailableError(workflowError)) {
     return vmErrorResponse({
       error: "vm_private_network_unavailable",
       status: 409,
       message: "Cloud VM private networking is not available in this environment.",
-      action:
-        "Machines in this environment are reached at their public address, so no tunnel is needed. " +
-        "Stop offering to set one up; retrying will not change this.",
+      action: "Update cmux or contact support. Retrying will not change this deployment setting.",
       reason: workflowError.reason,
       phase: "network",
       // Not retryable on purpose: this is how the deployment is configured, so
@@ -688,6 +805,26 @@ export async function vmWorkflowErrorResponse(
       phase: "network",
       retryable: false,
       details: { deviceFingerprint: workflowError.deviceFingerprint },
+    });
+  }
+  if (isVmAccessGrantRevokedError(workflowError)) {
+    return vmErrorResponse({
+      error: "vm_access_revoked",
+      status: 403,
+      message: "Cloud access for this Mac login was revoked.",
+      action: "Sign out of cmux, then sign in again to enroll this Mac.",
+      phase: "network",
+    });
+  }
+  if (isVmAccessGrantMutationBusyError(workflowError)) {
+    return vmErrorResponse({
+      error: "vm_access_grant_busy",
+      status: 409,
+      message: "Another Cloud access change for this Mac is still in progress.",
+      action: "Wait one second, then try again.",
+      phase: "network",
+      retryable: true,
+      retryAfterSeconds: 1,
     });
   }
 

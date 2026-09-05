@@ -399,17 +399,7 @@ extension DockSplitStore {
             terminal.surface.setFocusPlacement(.rightSidebarDock)
             terminal.updateWorkspaceId(workspaceId)
         } else if let browser = panel as? BrowserPanel {
-            let remote = currentRemoteBrowserSettings()
-            browser.reattachToWorkspace(
-                workspaceId,
-                isRemoteWorkspace: remote.isRemoteWorkspace,
-                remoteWebsiteDataStoreIdentifier: remote.isRemoteWorkspace &&
-                    !browser.bypassesRemoteWorkspaceProxyForTabDuplication
-                    ? remote.remoteWebsiteDataStoreIdentifier
-                    : nil,
-                proxyEndpoint: remote.proxyEndpoint,
-                remoteStatus: remote.remoteStatus
-            )
+            browser.updateWorkspaceId(workspaceId)
         } else if let deferredBrowser = panel as? DeferredBrowserPanel {
             deferredBrowser.updateWorkspaceId(workspaceId)
         } else if let filePreview = panel as? FilePreviewPanel {

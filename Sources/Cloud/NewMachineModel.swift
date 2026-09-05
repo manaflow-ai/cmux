@@ -22,6 +22,7 @@ struct MachineSizeOption: Equatable, Sendable {
         self.diskMb = diskMb
     }
 
+    /// The localized RAM value shown as the selected picker title.
     var title: String {
         String(
             format: String(localized: "machines.new.size.option", defaultValue: "%d GB RAM"),
@@ -29,9 +30,27 @@ struct MachineSizeOption: Equatable, Sendable {
         )
     }
 
+    /// The localized disk value shown below the selected picker title.
     var detail: String {
         String(
             format: String(localized: "machines.new.size.detail", defaultValue: "%d GB disk included"),
+            diskMb / 1024
+        )
+    }
+
+    /// The localized disk value shown in the resource summary.
+    var diskTitle: String {
+        String(
+            format: String(localized: "machines.new.size.gb", defaultValue: "%d GB"),
+            diskMb / 1024
+        )
+    }
+
+    /// The localized, compact row title shown in the size menu.
+    var menuTitle: String {
+        String(
+            format: String(localized: "machines.new.size.menu", defaultValue: "%1$d GB RAM · %2$d GB disk"),
+            memoryMb / 1024,
             diskMb / 1024
         )
     }
@@ -74,7 +93,7 @@ final class NewMachineModel {
     /// 24/96, 32/128, or 64/128 GB of memory/disk. The server's list trims
     /// this set for plan limits. The 128 MiB BusyBox image is intentionally
     /// not a coding-machine option because it has no baked dev tools.
-    static let memoryOptionsMb: [Int] = [4096, 8192, 16384, 24576, 32768, 65536]
+    nonisolated static let memoryOptionsMb: [Int] = [4096, 8192, 16384, 24576, 32768, 65536]
     static let planMachineMemoryMb = 8192
     /// The pre-ladder backend default. It is used only when the server omits
     /// `limits.memoryOptionsMb`, so the client does not send an unsupported
@@ -82,11 +101,13 @@ final class NewMachineModel {
     static let legacyPlanMachineMemoryMb = 20480
     /// Mirrors `maxMemoryMbForPlan`: development and paid plans may use the
     /// largest supported base image unless an operator sets a lower ceiling.
+    /// The pricing page separately describes the 5 vCPU / 20 GB RAM / 200 GB
+    /// disk pool shared across a paid plan's Cloud VMs.
     static func maxMemoryMb(planId: String?) -> Int {
         _ = planId
         return memoryOptionsMb.max() ?? planMachineMemoryMb
     }
-    /// Mirrors `defaultMemoryMbForPlan`: the plan machine, never above the max.
+    /// Mirrors `defaultMemoryMbForPlan`: the provider sizing profile, never above the max.
     static func defaultMemoryMb(planId: String?) -> Int {
         min(planMachineMemoryMb, maxMemoryMb(planId: planId))
     }
@@ -114,7 +135,7 @@ final class NewMachineModel {
     ) {
         self.mode = mode
         self.plan = plan
-        let serverOptions = memoryOptionsMb.filter { MachineSizeOption(memoryMb: $0) != nil }
+        let serverOptions = Set(memoryOptionsMb.filter { MachineSizeOption(memoryMb: $0) != nil }).sorted()
         // An empty list means an older control plane did not advertise the
         // ladder. Preserve its 20 GiB default and omit --size entirely.
         self.availableMemoryOptionsMb = serverOptions

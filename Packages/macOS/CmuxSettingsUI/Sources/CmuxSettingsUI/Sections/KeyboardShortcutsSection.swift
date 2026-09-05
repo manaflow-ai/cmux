@@ -20,12 +20,14 @@ public struct KeyboardShortcutsSection: View {
     ///   - catalog: The settings key catalog shared with the stores.
     ///   - errorLog: The error sink for failed JSON writes.
     ///   - hostActions: Host callbacks for opening the external configuration editor.
+    ///   - defaultShortcutResolver: Host-scoped factory defaults for dynamic actions.
     public init(
         jsonStore: JSONConfigStore,
         userDefaultsStore: UserDefaultsSettingsStore? = nil,
         catalog: SettingCatalog,
         errorLog: SettingsErrorLog,
-        hostActions: SettingsHostActions
+        hostActions: SettingsHostActions,
+        defaultShortcutResolver: ShortcutDefaultResolver = .builtIn
     ) {
         self.hostActions = hostActions
         _model = State(initialValue: ShortcutListModel(
@@ -36,6 +38,7 @@ public struct KeyboardShortcutsSection: View {
             canRegisterSystemWideHotkey: {
                 hostActions.canRegisterSystemWideHotkey($0)
             },
+            defaultShortcutResolver: defaultShortcutResolver,
             onShortcutsChanged: { hostActions.notifyShortcutSettingsDidChange() }
         ))
     }

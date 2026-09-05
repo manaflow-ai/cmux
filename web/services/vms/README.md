@@ -1,6 +1,6 @@
 # Cloud VMs service
 
-Backend for `cmux vm new/ls/rm/exec/attach` and the sidebar Cloud VM surface. Stack Auth gates every public route. Provider API keys stay server-side. Every machine attaches through the cmux-tui remote daemon (transport `cmux-remote`). The legacy `cmuxd-remote` WebSocket PTY and the Freestyle SSH gateway are gone.
+Backend for `cmux vm new/ls/rm/exec/attach` and the sidebar Cloud VM surface. Stack Auth gates every public route. Provider API keys stay server-side. Every managed machine session uses the cmux-tui remote daemon (transport `cmux-remote`). The legacy `cmuxd-remote` WebSocket PTY is gone. Freestyle still exposes a scoped SSH proxy for provider-level diagnostics, but that unmanaged path does not carry cmux workspace, tab, or revision state.
 
 ## Layout
 
@@ -52,17 +52,55 @@ The backend validates membership before create or team-filtered list. If Stack r
 the backend treats it as the personal team created on sign-up. If Stack returns no team, or multiple
 teams without a selected/requested team, create fails before providers or billing are called.
 
-The auth regression tests live in `web/tests/vm-route-auth.test.ts`. They verify unauthenticated create, list, destroy, attach, SSH endpoint, and exec requests return `401` before the VM workflow runs, and that cross-site cookie mutations are rejected.
+The auth regression tests live in `web/tests/vm-route-auth.test.ts`. They verify unauthenticated create, list, destroy, attach, and exec requests return `401` before the VM workflow runs, and that cross-site cookie mutations are rejected.
 
 ## State model
 
 - `cloud_vms` owns VM lifecycle state, provider ids, image ids, billing team/plan ids, and per-user idempotency keys.
+- The Freestyle cmux-tui daemon owns the complete remote graph. The macOS
+  catalog stores one lossless canonical fragment document plus typed projections
+  and materialized ID / relationship indexes, never a second provider-specific
+  graph. The document owns every known and unknown field. Typed and raw-row
+  indexes are rebuilt at snapshot boundaries, updated transactionally by deltas,
+  and omitted from encoded state because they are caches. Raw `id` and legacy
+  agent `terminal_id` lookup is O(1) after the snapshot build, and duplicate
+  identities fail closed. `rawSnapshot` is an export compatibility
+  view, not a second store. A cursor `(generation, revision)` marks `journaled`
+  state. A missing or null cursor marks `snapshot_only` legacy state.
+- Mutation responses are read-your-write receipts. A journaled response carries
+  `(generation, revision)`, and terminal creation carries the exact terminal,
+  workspace, screen, pane, and tab path. The provider keeps that path as a
+  transient overlay and exports it as `pending_writes` until an accepted graph
+  reaches the receipt. The canonical document remains authoritative, and a
+  generation change retires an old receipt. This is what makes create followed
+  immediately by tab rename deterministic during event-feed lag.
+- Snapshot-only state stays readable and agent-visible, but the client pauses
+  event consumption and rejects revision-fenced workspace and tab renames until
+  the daemon is upgraded. This preserves old VM visibility without claiming
+  ordering that the old protocol cannot provide.
+- Event-feed recovery is an explicit phase machine with a capped backoff. One
+  accepted event starts a ten-second stability window; the retry budget resets
+  only after that window or a new authenticated link. The first exhausted run
+  gets one snapshot-recovery restart without erasing the spent budget. Later
+  snapshot refreshes do not restart an exhausted feed.
 - `cloud_vm_leases` stores hashed PTY/RPC/SSH lease tokens, provider identity handles, session ids, expiry, and revocation timestamps.
+- `cmux-remote` lease rows are account-scoped and are marked revoked on sign-out.
+  Freestyle daemon enrollment records are device-scoped and are not revoked yet,
+  because the lease row does not store the claimed device id. The follow-up must
+  persist that id and issue one exact `remote enroll revoke` command per device;
+  revoking all devices would disconnect other team members.
 - `cloud_vm_usage_events` records lifecycle, attach, SSH, and exec events with billing team/plan ids for billing and audit rollups.
 - `cloud_vm_networks` records the one provider private network per (user, provider).
 - `cloud_vm_tunnels` records each computer's WireGuard tunnel: provider tunnel id, device
   fingerprint, the client's **public** key, and its address inside the network. No private
   key is ever sent to or stored by the backend.
+- `cloud_vm_tunnel_enrollment_locks` is the cross-instance mutation lease for one
+  `(user_id, device_fingerprint)`. Despite the historical table name, it covers
+  enrollment, read-with-attachment-heal, revoke, and account cleanup. The owner
+  token fences release and renewal; a ten-minute expiry recovers crashed requests.
+  Live contention returns `409 vm_tunnel_enrollment_busy`; a deployment missing
+  the migration fails closed with `503 vm_tunnel_enrollment_unavailable`. Apply
+  the migration before deploying code that calls `/api/vm/tunnel`.
 
 Every create row gets a `slug`, a generated `adjective-color-animal` name (`sleepy-teal-otter`, `services/vms/vmNaming.ts`) picked inside the create transaction and never changed afterwards. It is unique among the team's live rows (`provisioning`, `running`, `paused`) via a partial unique index, so a destroyed or failed machine releases its name. Clients show it when no `display_name` is set; the provider VM id stays the machine's address. The same name is sent to the provider as its console label.
 
@@ -153,9 +191,9 @@ bootstrap. See the devbox README for the bake + verify + manifest flow. The lega
 (`build-cloud-vm-images.ts`) has been deleted; images it produced remain in the
 manifest for reference but cannot serve the cmux-remote transport.
 
-## Browser automation from Cloud VM SSH
+## Browser automation from a Cloud VM remote session
 
-`cmux browser ...` inside a `cmux ssh` or Cloud VM SSH session controls the local cmux browser
+`cmux browser ...` inside a `cmux ssh` or `cmux vm ssh` session controls the local cmux browser
 through the authenticated relay. It does not start Chrome inside the VM. This keeps browser UI,
 cookies, profiles, and screenshots on the local Mac while agent computation runs remotely.
 
@@ -164,20 +202,18 @@ The Linux relay CLI supports the common browser automation subcommands: `open`, 
 `check`, `uncheck`, `fill`, `type`, `press`, `select`, and `screenshot`. Existing-browser commands
 default to `CMUX_SURFACE_ID`; `open` defaults to `CMUX_WORKSPACE_ID`.
 
-## SSH session lifecycle
+## Cloud VM session lifecycle
 
-`cmux vm ssh <id>` and `cmux vm attach <id>` open a cmux-managed remote workspace. For providers
-that return SSH attach info, the CLI resolves the VM endpoint and then uses the same workspace,
-relay, startup, and session-state path as `cmux ssh`. `cmux vm ssh-info <id>` is the print-only
-debugging command.
+`cmux vm ssh <id>` and `cmux vm attach <id>` open a cmux-managed remote workspace. On Freestyle,
+`vm ssh` is a compatibility alias for the `cmux-remote` daemon path. Freestyle's scoped SSH proxy
+(`beta-ssh.freestyle.sh`) is intentionally not used for managed sessions, because raw SSH cannot
+carry the daemon graph or revision fence. `cmux vm ssh-info <id>` remains a legacy print-only
+command and is unsupported by the managed API.
 
-Plain `cmux ssh` uses OpenSSH control sockets and `ControlPersist` by default. If the foreground
-SSH process exits after sleep or a network transition, the startup wrapper retries the same command
-before reporting the session ended. `cmux ssh` and `cmux vm ssh` share this wrapper, so both paths
-surface reconnect progress in the terminal and keep workspace remote state visible while the daemon
-or proxy controller reconnects. Cloud VM provider sessions that expose only short-lived gateway
-credentials may still require a fresh attach lease; after the retry limit is exhausted, the terminal
-prints the existing disconnect banner instead of falling back silently to a local shell.
+Plain `cmux ssh` uses OpenSSH control sockets and `ControlPersist` by default. Cloud VM Freestyle
+sessions use the cmux-tui daemon and its reconnecting Noise link, not OpenSSH. If a legacy provider
+returns SSH attach info, the shared wrapper still retries after sleep or a network transition;
+Freestyle never enters that branch and never falls back silently to a local shell.
 
 Manual sleep/network smoke:
 
@@ -231,14 +267,13 @@ Set these Vercel environment variables per production/staging environment:
   deployment. See "Model plane".
 - `CMUX_VM_CODEROUTER_ENV_ENABLED`, local-dev only. `0` creates unwired machines with no
   coderouter env or edge rule. Never set it in production or staging.
-- `CMUX_VM_PRIVATE_NETWORK_ENABLED`, private networking rollback switch. Unset/`1`: new
-  Freestyle machines join their owner's VPC, open no public inbound port, and are
-  attached at their private VPC address through the owner's WireGuard tunnel. `0`: later
-  creates revert to the public-IPv6 posture (inbound 1337 open). Machines keep working
-  across a flip either way, because reachability is resolved from the addresses each
-  machine actually holds.
+- `CMUX_VM_PRIVATE_NETWORK_ENABLED`, fail-closed private networking switch. Unset/`1`:
+  Freestyle machines join their owner's VPC and open no public inbound port. `0`: new
+  machine creation and tunnel enrollment stop. The switch never selects public ingress.
 - `CMUX_VM_ALLOWED_ORIGINS`, optional comma-separated extra origins allowed for cookie mutations.
-- `FREESTYLE_API_KEY`, Freestyle provider key.
+- `FREESTYLE_API_KEY`, the normal Freestyle provider credential. A complete
+  `FREESTYLE_STACK_ACCESS_TOKEN` plus `FREESTYLE_TEAM_ID` pair is the supported
+  short-lived alternative.
 - `CMUX_VM_DEFAULT_PROVIDER`, only `freestyle` (and its default).
 - `CMUX_VM_DEFAULT_PLAN`, optional fallback for accounts without plan metadata. It defaults to `free`;
   paid values are ignored unless `CMUX_VM_ALLOW_FREE_PROVISIONING=1`, so deployment configuration
@@ -365,7 +400,11 @@ Use `CMUX_PORT` to run multiple isolated web and database environments on one ma
 CMUX_PORT=10180 bun dev
 ```
 
-`bun dev` sources `~/.secrets/cmuxterm-dev.env` (falling back to the legacy secret files), derives the local database URL from `CMUX_PORT`, starts this worktree's Docker Postgres, applies Drizzle migrations, then starts Next.js. When it exits or is interrupted, it stops the matching Docker container and network while preserving the Postgres volume.
+`bun dev` sources provider values from `~/.secrets/cmux.env`, then sources
+`~/.secrets/cmuxterm-dev.env` (falling back to the legacy secret files). It derives the local
+database URL from `CMUX_PORT`, starts this worktree's Docker Postgres, applies Drizzle migrations,
+then starts Next.js. When it exits or is interrupted, it stops the matching Docker container and
+network while preserving the Postgres volume.
 
 The dev Postgres port is `CMUX_PORT + 10000`, so `CMUX_PORT=10180` maps to `localhost:20180`. `bun db:test` starts a separate test DB on `CMUX_PORT + 30000`, applies migrations twice, and runs behavior tests against a real Postgres container.
 
@@ -377,15 +416,17 @@ The dev Postgres port is `CMUX_PORT + 10000`, so `CMUX_PORT=10180` maps to `loca
 | `cmux vm new --workspace` | yes |
 | `cmux vm new --detach` | yes |
 | `cmux vm attach <id>` | yes |
-| `cmux vm ssh <id>` | yes |
-| `cmux vm ssh-info <id>` | no (cmux-remote only) |
+| `cmux vm ssh <id>` | yes (cmux-remote alias) |
+| `cmux vm ssh-info <id>` | no (managed API has no SSH credential endpoint) |
 | `cmux vm exec <id> -- ...` | yes |
 | `cmux vm ls / rm` | yes |
 | snapshot / restore | yes |
 
 `cmux vm ssh <id>` is the user-facing interactive alias and opens the same managed workspace path
-as `cmux vm attach <id>`. No provider serves an SSH gateway any more, so `cmux vm ssh-info <id>`
-has nothing to print and `POST /api/vm/:id/ssh-endpoint` is gone.
+as `cmux vm attach <id>`. Freestyle's provider SSH proxy is available outside cmux's managed
+session protocol, but the managed API does not mint or expose its scoped identities. This keeps
+workspace, tab, terminal, and revision state on one authoritative cmux-tui path. Therefore
+`cmux vm ssh-info <id>` and `POST /api/vm/:id/ssh-endpoint` stay unsupported.
 
 Freestyle machines boot the shared devbox snapshot (definition in
 `services/vms/images/devbox/`, baked with `web/scripts/build-devbox-freestyle.ts` against
@@ -419,14 +460,15 @@ needs a customer-verified domain), so the daemon is reached directly at a VM add
 
 **Private networking is the default.** Every Freestyle machine joins the one VPC that
 belongs to its owner (provisioned on first create, slug `cmux-net-<hash>`); the owner's
-computers join the same VPC over WireGuard tunnels (`/api/vm/tunnel`, `cmux vpn up`). The
+computers join the same VPC over WireGuard tunnels (`/api/vm/tunnel`). The app starts a
+user-space WireGuard hub for terminal and metadata traffic. The Network Extension starts
+only when a browser or webview needs the private network. The
 route is then the VM's *private* address — `ws://[<vpc ipv6>]:1337/v1/link` — and creates
 state outbound-only firewall rules: no public inbound port at all. The VPC's single
 members-reach-each-other rule is what admits the owner's other machines and tunnels to the
-daemon port. Machines created before private networking (or while
-`CMUX_VM_PRIVATE_NETWORK_ENABLED=0`) keep the older posture: inbound 1337 open and the
-route at the stable public IPv6. The daemon binds dual-stack (`[::]:1337`), re-asserted on
-every attach-time heal, which is also what makes the VPC address reachable.
+daemon port. A machine with no private address fails closed. The daemon binds dual-stack
+(`[::]:1337`), re-asserted on every attach-time heal, which is also what makes the VPC
+address reachable.
 The Noise handshake encrypts and authenticates the session end to end, so carrier TLS is not
 required; the route token exists only for the lease ledger. Creates take no ports field and
 no create-time env; the guest's model-plane env is the same for every machine and baked at
@@ -443,28 +485,27 @@ the root layout they are baked around.
 `{"transport":"cmux-remote","clientCapabilities":[...]}` returns
 `{route, token, session, daemonBuild?, invitation?}` where `invitation` is a single-use
 `cmux://enroll/…` URI minted only when the caller's device is not enrolled. The client
-connects with `cmux-tui remote connect <route> --invite-file …`, then
+connects with `cmux-tui remote connect <route> --invite-file …` through the user-space
+WireGuard hub, then
 `POST /api/vm/[id]/cmux-remote/approve {invitationId}` approves the pending claim (poll
-until `state` is `approved`). The legacy websocket/SSH attach (`attach-endpoint` without a
+inside one provider-side wait command until `state` is `approved`). The legacy websocket/SSH attach (`attach-endpoint` without a
 transport, `POST /api/vm/[id]/sessions`) answers `409 vm_attach_transport_unsupported` with
 `details.supportedTransports: ["cmux-remote"]`. `cmux vm shell`, `cmux vm new`,
 `cmux vm base open` and the Machines panel all drive this from the Mac.
 See docs/cloud-cmux-tui-daemon.md for the design.
 
 Freestyle machines run the cmux-tui daemon and only the `cmux-remote`
-transport. The route is the VM's stable public IPv6 straight to the daemon
-(`ws://[<ipv6>]:1337/v1/link`): the platform has no HTTP ingress proxy to
-arbitrary VM ports, so the carrier is plain ws and the daemon's Noise
-enrollment is what gates sessions. The backend writes only a hash of attach
-tokens to Postgres; raw tokens are returned once to the Mac client. Machines
-created by the old cmuxd-remote drivers cannot serve this transport and need
-recreation.
+transport. The route is the VM's private VPC address. The app carries it through
+user-space WireGuard. The daemon's Noise enrollment gates sessions. The backend writes
+only a hash of attach tokens to Postgres; raw tokens are returned once to the Mac client.
+Machines created by the old cmuxd-remote drivers need recreation on the private network.
 
-Operational note: before rollout, verify the deployed
-`CMUX_VM_DEFAULT_PROVIDER`, `CMUX_VM_FREESTYLE_ENABLED`, `FREESTYLE_API_KEY`,
-env values with
-`bun run cloud-vm:env:audit -- <target> --strict`, then confirm attach and
-daemon health with `bun run cloud-vm:stress -- <target> --provider default`.
+Operational note: before rollout, verify the deployed provider, create switch,
+image manifest, and credential presence with
+`bun run cloud-vm:env:audit -- <target> --strict`. The audit reads Vercel
+metadata for Sensitive variables and never exposes their values. Credential
+presence is not credential validity, so confirm create, attach, and daemon
+health with `bun run cloud-vm:stress -- <target> --provider default`.
 
 ## Model plane
 
@@ -504,7 +545,7 @@ machine (no env, no rule, still no secret) and must never be set in production.
 
 The usage ledger is in Postgres. VM create pricing gates can use Stack Auth payment items, but free-plan create credits are opt-in. Configure `CMUX_VM_PLAN_FREE_CREATE_CREDIT_ITEM_ID` only when the free plan should consume a prepaid create-credit bucket. When enabled, the create workflow records a one-time local grant row, seeds the configured Stack Auth item credits once per billing team, reserves one create credit only for a newly inserted row, calls the provider, and refunds the credit if provisioning fails before a usable VM exists.
 
-Plan limits are team-based. Stack Auth personal teams should stay enabled for both dev/staging and production projects (`createTeamOnSignUp` / `teams.createPersonalTeamOnSignUp`). New VM rows store `billing_team_id` and `billing_plan_id`; the free plan allows zero active VMs by default and remains at zero regardless of stale free-limit env values while the paid-plan gate is on. A deliberate `CMUX_VM_ALLOW_FREE_PROVISIONING=1` escape hatch re-enables the configured free allowance for local demos or a controlled rollback; paid plans get the allowance sold on /pricing, 50 active machines per billing team, multiplied by the Team subscription's paid seats (`cmuxSeats` in the team's Stack metadata, written from the Stripe quantity) so "50 per user" holds for the whole team (`PAID_MAX_ACTIVE_VMS_DEFAULT`; `maxActiveVms` in entitlements and the list response). New machines use validated Freestyle base snapshots from 4 GiB RAM / 16 GB disk through 64 GiB RAM / 128 GB disk, including the 24 GiB / 96 GB intermediate size. The default is 8 GiB RAM and 32 GB disk. Disk growth is independent, grow-only, and capped at 256 GiB in 4 GiB steps. The Freestyle driver applies the default at create (`CMUX_VM_DISK_MB` overrides it), and the resize API reads provider stats before and after the provider confirms the change. Destroyed VMs do not count against a limit; pausing does not free quota on the production provider. Paid plan activation should write a readable plan id such as `pro` into Stack Auth team read-only metadata (`cmuxVmPlan`) or equivalent billing sync metadata. `CMUX_VM_PLAN_<PLAN>_MAX_ACTIVE_VMS` and `CMUX_VM_PAID_MAX_ACTIVE_VMS` exist only as incident brakes; the product number lives in code. Paid plans only consume Stack Auth create credits when `CMUX_VM_PLAN_<PLAN>_CREATE_CREDIT_ITEM_ID` or the global `CMUX_VM_CREATE_CREDIT_ITEM_ID` is configured.
+Plan limits are team-based. Stack Auth personal teams should stay enabled for both dev/staging and production projects (`createTeamOnSignUp` / `teams.createPersonalTeamOnSignUp`). New VM rows store `billing_team_id` and `billing_plan_id`; the free plan allows zero active VMs by default and remains at zero regardless of stale free-limit env values while the paid-plan gate is on. A deliberate `CMUX_VM_ALLOW_FREE_PROVISIONING=1` escape hatch re-enables the configured free allowance for local demos or a controlled rollback; paid plans get the allowance sold on /pricing, 50 active machines per billing team, multiplied by the Team subscription's paid seats (`cmuxSeats` in the team's Stack metadata, written from the Stripe quantity) so "50 per user" holds for the whole team (`PAID_MAX_ACTIVE_VMS_DEFAULT`; `maxActiveVms` in entitlements and the list response). New machines use validated Freestyle base snapshots from 4 GiB RAM / 16 GB disk through 64 GiB RAM / 128 GB disk, including the 24 GiB / 96 GB intermediate size. The default is 8 GiB RAM and 32 GB disk. Pricing separately advertises 5 vCPU, 20 GB memory, and 200 GB disk as one pool shared across the plan's active VMs. The repository records each reservation in `provider_metadata` and adds every CPU, memory, and disk claim under the billing-team lock before create, Base open/reset, and disk resize. The 50-machine count is an upper bound because the shared resource pool can fill first. Disk growth is independent, grow-only, and capped at 256 GiB in 4 GiB steps. The Freestyle driver applies the default at create (`CMUX_VM_DISK_MB` overrides it), and the resize API reads provider stats before and after the provider confirms the change. Destroyed VMs do not count against a limit; pausing does not free quota on the production provider. Paid plan activation should write a readable plan id such as `pro` into Stack Auth team read-only metadata (`cmuxVmPlan`) or equivalent billing sync metadata. `CMUX_VM_PLAN_<PLAN>_MAX_ACTIVE_VMS` and `CMUX_VM_PAID_MAX_ACTIVE_VMS` exist only as incident brakes; the product number lives in code. Paid plans only consume Stack Auth create credits when `CMUX_VM_PLAN_<PLAN>_CREATE_CREDIT_ITEM_ID` or the global `CMUX_VM_CREATE_CREDIT_ITEM_ID` is configured.
 
 ### The free limit is the paywall moment
 
@@ -512,4 +553,4 @@ Plan limits are team-based. Stack Auth personal teams should stay enabled for bo
 
 ### Pricing is flat
 
-Paid plans include up to 50 active VMs (per paid seat on Team) for a flat subscription price, every one the plan machine. There is no usage metering, no overages, and no per-hour VM size pricing; an earlier GB-RAM-awake-seconds metering design was considered and dropped to keep pricing simple.
+Paid plans include up to 50 active VMs (per paid seat on Team) for a flat subscription price, with 5 vCPU, 20 GB memory, and 200 GB disk shared across those VMs. There is no usage metering, no overages, and no per-hour VM size pricing; an earlier GB-RAM-awake-seconds metering design was considered and dropped to keep pricing simple. Legacy VM resource claims are repaired by the status-reconcile cron in batches of 50, so create and resize requests do not fan out provider stats reads. Until a row is repaired, the repository uses a conservative claim and may delay a create until the next cron pass.

@@ -375,7 +375,7 @@ extension MobilePairingFailureCategory {
                     return String(
                         format: L10n.string(
                             "mobile.pairing.macVersionTooOld.nightlyUnknownFormat",
-                            defaultValue: "This version of the app needs a newer cmux Nightly on this Mac (%1$@ or later)."
+                            defaultValue: "This Mac needs a newer cmux Nightly. Update cmux on this Mac to %1$@ or later to connect."
                         ),
                         requiredVersion
                     )
@@ -383,7 +383,7 @@ extension MobilePairingFailureCategory {
                 return String(
                     format: L10n.string(
                         "mobile.pairing.macVersionTooOld.nightlyFormat",
-                        defaultValue: "This Mac is running cmux %1$@, but this version of the app needs a newer cmux Nightly (%2$@ or later)."
+                        defaultValue: "This Mac is running cmux %1$@. Update cmux on this Mac to Nightly %2$@ or later to connect."
                     ),
                     macVersion,
                     requiredVersion
@@ -393,7 +393,7 @@ extension MobilePairingFailureCategory {
                 return String(
                     format: L10n.string(
                         "mobile.pairing.macVersionTooOld.unknownFormat",
-                        defaultValue: "This Mac is running an older version of cmux. This version of the app requires cmux %1$@ or newer on the Mac."
+                        defaultValue: "This Mac is running an older version of cmux. Update cmux on this Mac to %1$@ or newer to connect."
                     ),
                     requiredVersion
                 )
@@ -401,7 +401,7 @@ extension MobilePairingFailureCategory {
             return String(
                 format: L10n.string(
                     "mobile.pairing.macVersionTooOld.format",
-                    defaultValue: "This Mac is running cmux %1$@, but this version of the app requires cmux %2$@ or newer on the Mac."
+                    defaultValue: "This Mac is running cmux %1$@. Update cmux on this Mac to %2$@ or newer to connect."
                 ),
                 macVersion,
                 requiredVersion
