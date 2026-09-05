@@ -4033,7 +4033,7 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    func testDiagnosticsLogLabelsAndIconsPresentTheShareSheet() throws {
+    func testDiagnosticsExportPresentsTheShareSheet() throws {
         let app = launchApp(
             mockData: false,
             environment: ["CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1"]
@@ -4044,35 +4044,35 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(settings.waitForExistence(timeout: 8))
         tap(settings, in: app)
 
-        let appLog = app.buttons["MobileSettingsShareAppLog"]
-        let networkLog = app.buttons["MobileSettingsShareNetworkLog"]
-        for _ in 0..<8 where !appLog.isHittable || !networkLog.isHittable {
+        let exportLogs = app.buttons["MobileSettingsExportLogs"]
+        for _ in 0..<8 where !exportLogs.isHittable {
             app.swipeUp(velocity: .slow)
         }
-        XCTAssertTrue(appLog.waitForExistence(timeout: 4))
-        XCTAssertTrue(networkLog.waitForExistence(timeout: 4))
-        XCTAssertTrue(appLog.isHittable)
-        XCTAssertTrue(networkLog.isHittable)
+        XCTAssertTrue(exportLogs.waitForExistence(timeout: 4))
+        XCTAssertTrue(exportLogs.isHittable)
+        XCTAssertTrue(app.switches["MobileIrohVerboseLogToggle"].waitForExistence(timeout: 4))
+        XCTAssertTrue(app.buttons["MobileSettingsClearLogs"].waitForExistence(timeout: 4))
+        XCTAssertFalse(app.buttons["MobileSettingsShareAppLog"].exists)
+        XCTAssertFalse(app.buttons["MobileSettingsShareNetworkLog"].exists)
+        XCTAssertFalse(app.buttons["MobileIrohShareVerboseLog"].exists)
+        XCTAssertFalse(app.buttons["MobileIrohShareDiagnosticReport"].exists)
 
-        func assertShareSheetAfterTap(
-            _ element: XCUIElement,
-            at offset: CGVector,
-            name: String
-        ) {
-            element.coordinate(withNormalizedOffset: offset).tap()
-            let copy = app.buttons["Copy"]
-            XCTAssertTrue(
-                copy.waitForExistence(timeout: 4),
-                "Tapping the diagnostics \(name) must present the share sheet."
-            )
+        exportLogs.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        let activityList = app.otherElements["ActivityListView"]
+        let shareSheetPresented = activityList.waitForExistence(timeout: 4)
+            || app.sheets.firstMatch.waitForExistence(timeout: 4)
+        XCTAssertTrue(
+            shareSheetPresented,
+            "Tapping Export Logs must present the share sheet."
+        )
+        if app.buttons["Cancel"].exists {
             app.buttons["Cancel"].tap()
-            XCTAssertTrue(element.waitForExistence(timeout: 2))
+        } else if activityList.exists {
+            activityList.swipeDown()
+        } else {
+            app.sheets.firstMatch.swipeDown()
         }
-
-        assertShareSheetAfterTap(appLog, at: CGVector(dx: 0.1, dy: 0.5), name: "app-log icon")
-        assertShareSheetAfterTap(appLog, at: CGVector(dx: 0.5, dy: 0.5), name: "app-log label")
-        assertShareSheetAfterTap(networkLog, at: CGVector(dx: 0.1, dy: 0.5), name: "network-log icon")
-        assertShareSheetAfterTap(networkLog, at: CGVector(dx: 0.5, dy: 0.5), name: "network-log label")
+        XCTAssertTrue(exportLogs.waitForExistence(timeout: 2))
     }
 
     @MainActor
