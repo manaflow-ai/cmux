@@ -55364,10 +55364,7 @@ mod tests {
         tab.public_id =
             Some(TabPublicId::parse("tab_00000000000000000000000000000011".to_string()).unwrap());
         tab.content_id = Some(ContentPublicId::Terminal(
-            cmux_tui_core::resource::TerminalPublicId::parse(
-                "term_00000000000000000000000000000011".to_string(),
-            )
-            .unwrap(),
+            TerminalPublicId::parse("term_00000000000000000000000000000011".to_string()).unwrap(),
         ));
         app.tree = previous.clone();
         app.rebuild_tab_locations();
@@ -55409,10 +55406,7 @@ mod tests {
         tab.public_id =
             Some(TabPublicId::parse("tab_00000000000000000000000000000031".to_string()).unwrap());
         tab.content_id = Some(ContentPublicId::Terminal(
-            cmux_tui_core::resource::TerminalPublicId::parse(
-                "term_00000000000000000000000000000031".to_string(),
-            )
-            .unwrap(),
+            TerminalPublicId::parse("term_00000000000000000000000000000031".to_string()).unwrap(),
         ));
         app.tree = previous.clone();
         app.rebuild_tab_locations();
@@ -55428,10 +55422,8 @@ mod tests {
         let mut next = previous;
         next.workspaces_mut()[0].screens[0].panes[0].tabs[0].content_id =
             Some(ContentPublicId::Terminal(
-                cmux_tui_core::resource::TerminalPublicId::parse(
-                    "term_00000000000000000000000000000032".to_string(),
-                )
-                .unwrap(),
+                TerminalPublicId::parse("term_00000000000000000000000000000032".to_string())
+                    .unwrap(),
             ));
         app.replace_tree(next);
 
@@ -55489,10 +55481,7 @@ mod tests {
         tab.public_id =
             Some(TabPublicId::parse("tab_00000000000000000000000000000021".to_string()).unwrap());
         tab.content_id = Some(ContentPublicId::Terminal(
-            cmux_tui_core::resource::TerminalPublicId::parse(
-                "term_00000000000000000000000000000021".to_string(),
-            )
-            .unwrap(),
+            TerminalPublicId::parse("term_00000000000000000000000000000021".to_string()).unwrap(),
         ));
         app.tree = previous.clone();
         app.rebuild_tab_locations();
