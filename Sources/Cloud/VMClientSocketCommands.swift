@@ -475,6 +475,12 @@ extension TerminalController {
                             "expires_at_unix": invitation.expiresAtUnix,
                         ]
                     }
+                    if let addresses = endpoint.networkAddresses {
+                        payload["network_addresses"] = [
+                            "ipv4": addresses.ipv4.map { $0 as Any } ?? NSNull(),
+                            "ipv6": addresses.ipv6.map { $0 as Any } ?? NSNull(),
+                        ]
+                    }
                 }
                 // A `vm tui` pane execs its own client, which the app cannot watch, so a
                 // private-network route pins the hub for the rest of the app session.
