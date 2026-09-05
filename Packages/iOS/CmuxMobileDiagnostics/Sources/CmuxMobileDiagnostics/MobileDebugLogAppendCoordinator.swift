@@ -114,6 +114,12 @@ final class MobileDebugLogAppendCoordinator: @unchecked Sendable {
         private func enqueue(_ entry: Entry) {
             withStateLock { state in
                 guard !state.finished else { return }
+                if Self.isDroppable(entry), state.entries.count >= maxBufferedEntries {
+                    // The synchronous hot path drops the incoming line in
+                    // constant time. Control admission below may still evict
+                    // an older droppable entry to preserve ordering barriers.
+                    return
+                }
                 if state.entries.count >= maxBufferedEntries {
                     guard let oldestDroppable = state.entries.firstIndex(where: Self.isDroppable) else {
                         return

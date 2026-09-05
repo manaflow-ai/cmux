@@ -298,10 +298,12 @@ public actor AppLog {
             let admitted = withStateLock { state in
                 guard !state.finished else { return false }
                 if Self.isDroppable(entry) {
-                    if state.bufferedDroppableCount >= maxBufferedEntries,
-                       let oldestDroppable = state.entries.firstIndex(where: Self.isDroppable) {
-                        state.entries.remove(at: oldestDroppable)
-                        state.bufferedDroppableCount -= 1
+                    // Drop the incoming hot-path event when the droppable
+                    // budget is full. Control admission may still evict an
+                    // older droppable entry below, but event producers never
+                    // scan or shift the queue while holding the lock.
+                    guard state.bufferedDroppableCount < maxBufferedEntries else {
+                        return false
                     }
                     state.bufferedDroppableCount += 1
                 } else if state.entries.count >= maxBufferedEntries {
