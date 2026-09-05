@@ -1,6 +1,7 @@
 import CMUXMobileCore
 import Network
 import UIKit
+import Vision
 import XCTest
 
 final class cmuxUITests: XCTestCase {
@@ -4073,6 +4074,76 @@ final class cmuxUITests: XCTestCase {
         assertShareSheetAfterTap(appLog, at: CGVector(dx: 0.5, dy: 0.5), name: "app-log label")
         assertShareSheetAfterTap(networkLog, at: CGVector(dx: 0.1, dy: 0.5), name: "network-log icon")
         assertShareSheetAfterTap(networkLog, at: CGVector(dx: 0.5, dy: 0.5), name: "network-log label")
+    }
+
+    @MainActor
+    func testNotificationHistoryKeepsOrdinaryRowTrailingAlignment() throws {
+        // Measure rendered glyphs, not List's full-width accessibility hit
+        // targets. Both variants mount the same production row and fixture.
+        for contentSize in ["UICTContentSizeCategoryL", "UICTContentSizeCategoryXXXL"] {
+            var ordinaryTimestamp: CGRect?
+            for grouped in [false, true] {
+                let app = launchApp(mockData: false, environment: [
+                    "CMUX_UITEST_NOTIFICATION_FEED_PREVIEW": "1",
+                    "CMUX_UITEST_NOTIFICATION_FEED_GROUP_PREVIEW": grouped ? "1" : "0",
+                ], launchArguments: ["-UIPreferredContentSizeCategoryName", contentSize])
+                defer { app.terminate() }
+
+                let parent = app.buttons["MobileNotificationFeedRow-studio-legacy-codex-approval"]
+                XCTAssertTrue(parent.waitForExistence(timeout: 10))
+                let screenshot = app.screenshot()
+                let attachment = XCTAttachment(screenshot: screenshot)
+                attachment.name = "Notification alignment, \(contentSize), grouped=\(grouped)"
+                attachment.lifetime = .keepAlways
+                add(attachment)
+
+                let request = VNRecognizeTextRequest()
+                request.recognitionLevel = .accurate
+                request.recognitionLanguages = ["en-US"]
+                let image = try XCTUnwrap(screenshot.image.cgImage)
+                try VNImageRequestHandler(cgImage: image).perform([request])
+                let observations = request.results ?? []
+
+                func renderedFrame(matching pattern: String) throws -> CGRect {
+                    for observation in observations {
+                        guard let text = observation.topCandidates(1).first,
+                              let range = text.string.range(of: pattern, options: .regularExpression),
+                              let bounds = try text.boundingBox(for: range)?.boundingBox else { continue }
+                        let frame = CGRect(
+                            x: app.frame.minX + bounds.minX * app.frame.width,
+                            y: app.frame.minY + (1 - bounds.maxY) * app.frame.height,
+                            width: bounds.width * app.frame.width,
+                            height: bounds.height * app.frame.height
+                        )
+                        if parent.frame.contains(CGPoint(x: frame.midX, y: frame.midY)) { return frame }
+                    }
+                    XCTFail("Missing rendered text matching \(pattern): \(observations.compactMap { $0.topCandidates(1).first?.string })")
+                    return .zero
+                }
+
+                let timestamp = try renderedFrame(matching: #"\d+\s+\w+\s+ago"#)
+                let computer = try renderedFrame(matching: "Studio")
+                XCTAssertEqual(computer.maxX, timestamp.maxX, accuracy: 3,
+                               "Computer metadata must stay trailing even when it wraps below the source")
+                if grouped {
+                    XCTAssertEqual(timestamp.maxX, try XCTUnwrap(ordinaryTimestamp).maxX, accuracy: 3,
+                                   "Grouping must not take width away from the ordinary row's timestamp")
+                    let toggle = app.buttons["MobileNotificationFeedGroupToggle-codex-approval"]
+                    XCTAssertTrue(toggle.exists)
+                    XCTAssertGreaterThanOrEqual(toggle.frame.minY, parent.frame.maxY - 1,
+                                                "The disclosure belongs below the full-width row content")
+                    XCTAssertGreaterThanOrEqual(toggle.frame.width, 44)
+                    XCTAssertGreaterThanOrEqual(toggle.frame.height, 44)
+                    toggle.tap()
+                    XCTAssertTrue(app.buttons["MobileNotificationFeedRow-studio-legacy-group-title-only"]
+                        .waitForExistence(timeout: 5))
+                    XCTAssertTrue((parent.value as? String)?.hasPrefix("Unread") == true,
+                                  "Expanding history must not open or mark the latest notification read")
+                } else {
+                    ordinaryTimestamp = timestamp
+                }
+            }
+        }
     }
 
     @MainActor
