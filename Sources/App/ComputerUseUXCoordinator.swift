@@ -24,7 +24,7 @@ final class ComputerUseUXCoordinator {
     private var onboardingWindowController: ComputerUseOnboardingWindowController?
     private var enabledSettingTask: Task<Void, Never>?
     private var toolInvocationTask: Task<Void, Never>?
-    private var onboardingGateTask: Task<Void, Never>?
+    private var onboardingCoordinator: ComputerUseOnboardingCoordinator?
     /// Hook completion events can briefly race a live-index refresh. Retain
     /// the last accepted invocation identity so a matching Stop/SessionEnd can
     /// still retire the cursor during that bookkeeping gap without allowing a
@@ -47,7 +47,8 @@ final class ComputerUseUXCoordinator {
         runtimeService: ComputerUseRuntimeService,
         userDefaults: UserDefaults,
         workspaceTitle: @escaping @MainActor (UUID) -> String?,
-        featureEnabled: @escaping @MainActor () -> Bool
+        featureEnabled: @escaping @MainActor () -> Bool,
+        onboardingCoordinator: ComputerUseOnboardingCoordinator? = nil
     ) {
         self.stateRepository = stateRepository
         self.stateDirectoryURL = stateDirectoryURL
@@ -62,6 +63,7 @@ final class ComputerUseUXCoordinator {
         self.liveSessionProjection = ComputerUseLiveSessionProjection(
             liveAgentIndex: liveAgentIndex
         )
+        self.onboardingCoordinator = onboardingCoordinator
         runtimeService.helperBuildReplacedHandler = { [userDefaults] in
             ComputerUseOnboardingWindowController.invalidateDirectCaptureReady(
                 in: userDefaults
@@ -72,7 +74,6 @@ final class ComputerUseUXCoordinator {
     deinit {
         enabledSettingTask?.cancel()
         toolInvocationTask?.cancel()
-        onboardingGateTask?.cancel()
     }
 
     static func isComputerUseToolInvocation(_ event: WorkstreamEvent) -> Bool {
@@ -90,19 +91,14 @@ final class ComputerUseUXCoordinator {
             || toolName.hasPrefix("cmux_cua.")
     }
 
-    static func shouldReconcileToolInvocation(
-        featureEnabled: Bool,
-        settingEnabled: Bool
-    ) -> Bool {
-        featureEnabled && settingEnabled
-    }
-
     func install(
         onFocusTerminal:
             @escaping ComputerUseSessionPresentationController
                 .TerminalFocusEffect
     ) {
         guard menuBarController == nil else { return }
+
+        _ = ensureOnboardingCoordinator()
 
         let initialComputerUseEnabled = configStore.snapshotValue(for: enabledKey)
         runtimeService.setInitialOnboardingCompletion(
@@ -270,9 +266,9 @@ final class ComputerUseUXCoordinator {
         watchTarget.start()
         watchTargetController = watchTarget
 
-        // Starting or restoring a supported agent stays quiet. The hook event
-        // above presents setup only when that agent first invokes a Computer Use
-        // MCP tool, or the user explicitly launches setup from Settings.
+        // Starting or restoring a supported agent stays quiet. Workstream
+        // events are used only for live-session/cursor bookkeeping; they never
+        // present permission onboarding.
     }
 
     func teardown() {
@@ -280,8 +276,6 @@ final class ComputerUseUXCoordinator {
         enabledSettingTask = nil
         toolInvocationTask?.cancel()
         toolInvocationTask = nil
-        onboardingGateTask?.cancel()
-        onboardingGateTask = nil
         menuBarController?.removeFromMenuBar()
         menuBarController = nil
         menuBarSnapshotStore = nil
@@ -289,6 +283,7 @@ final class ComputerUseUXCoordinator {
         watchTargetController = nil
         onboardingWindowController?.dismiss()
         onboardingWindowController = nil
+        onboardingCoordinator = nil
         acceptedInvocationByDriverSessionID.removeAll()
     }
 
@@ -297,8 +292,17 @@ final class ComputerUseUXCoordinator {
         runtimeService.stopForTermination()
     }
 
-    func presentOnboarding(
+    /// Presents onboarding only for a deliberate Settings permission/setup
+    /// action. No workstream event is allowed to call this entrypoint.
+    @discardableResult
+    func presentOnboardingFromSettings(
         startingAt startingPoint: ComputerUseOnboardingWindowController.StartingPoint = .overview
+    ) -> Bool {
+        ensureOnboardingCoordinator().requestFromSettings(startingAt: startingPoint)
+    }
+
+    private func presentOnboardingWindow(
+        startingAt startingPoint: ComputerUseOnboardingWindowController.StartingPoint
     ) {
         userDefaults.set(true, forKey: ComputerUseOnboardingWindowController.seenDefaultsKey)
         let controller = onboardingWindowController ?? ComputerUseOnboardingWindowController(
@@ -309,11 +313,21 @@ final class ComputerUseUXCoordinator {
         controller.present(startingAt: startingPoint)
     }
 
-    private func handleWorkstreamEvent(_ event: WorkstreamEvent) {
-        let isComputerUseInvocation = Self.isComputerUseToolInvocation(event)
-        if isComputerUseInvocation {
-            reconcileToolInvocation(event)
+    private func ensureOnboardingCoordinator() -> ComputerUseOnboardingCoordinator {
+        if let onboardingCoordinator {
+            return onboardingCoordinator
         }
+        let coordinator = ComputerUseOnboardingCoordinator(
+            presenter: { [weak self] startingPoint in
+                self?.presentOnboardingWindow(startingAt: startingPoint)
+            }
+        )
+        onboardingCoordinator = coordinator
+        return coordinator
+    }
+
+    func handleWorkstreamEvent(_ event: WorkstreamEvent) {
+        let isComputerUseInvocation = Self.isComputerUseToolInvocation(event)
         let isCompletion =
             event.hookEventName == .stop
                 || event.hookEventName == .sessionEnd
@@ -380,37 +394,4 @@ final class ComputerUseUXCoordinator {
         }
     }
 
-    private func reconcileToolInvocation(_ event: WorkstreamEvent) {
-        guard onboardingGateTask == nil else { return }
-        onboardingGateTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            defer { onboardingGateTask = nil }
-            let enabled = Self.shouldReconcileToolInvocation(
-                featureEnabled: featureEnabled(),
-                settingEnabled: configStore.snapshotValue(for: enabledKey)
-            )
-            if enabled {
-                // The persisted setting remains the authority. A real tool
-                // invocation may only finish recovery while that setting is
-                // still enabled; it must never override an explicit opt-out.
-                await runtimeService.setEnabled(true)
-            }
-            let status = enabled
-                ? await runtimeService.refreshHelperStatus()
-                : runtimeService.status()
-            let shouldPresent = ComputerUseOnboardingWindowController.shouldPresentAutomatically(
-                seen: userDefaults.bool(forKey: ComputerUseOnboardingWindowController.seenDefaultsKey),
-                featureEnabled: enabled,
-                permissionStatusIsKnown: runtimeService.permissionStatusIsKnown,
-                accessibilityGranted: status.accessibility,
-                screenRecordingGranted: status.screenRecording,
-                directCaptureReady: userDefaults.bool(
-                    forKey: ComputerUseOnboardingWindowController.directCaptureReadyDefaultsKey
-                )
-            )
-            guard shouldPresent else { return }
-            guard onboardingWindowController?.isVisible != true else { return }
-            presentOnboarding()
-        }
-    }
 }

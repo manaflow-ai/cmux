@@ -39,8 +39,21 @@ import Testing
     @Test func invalidOwnershipCannotCreateRestoreLaunch() {
         #expect(AgentRestoreLaunch(kind: "gemini", sessionID: sessionID) == nil)
         #expect(AgentRestoreLaunch(kind: "codex", sessionID: "not-a-session-id") == nil)
+        #expect(AgentRestoreLaunch(kind: "amp", sessionID: sessionID) == nil)
+        #expect(AgentRestoreLaunch(kind: "amp", sessionID: "not-an-amp-thread") == nil)
         #expect(AgentRestoreLaunch(kind: nil, sessionID: sessionID) == nil)
         #expect(AgentRestoreLaunch(kind: "claude", sessionID: nil) == nil)
+    }
+
+    @Test func ampProviderOwnsNonUUIDThreadAndWrapperConfiguration() throws {
+        let threadID = "T-amp-thread-9758"
+        let launch = try #require(AgentRestoreLaunch(kind: " AMP ", sessionID: threadID))
+
+        #expect(launch.executableName == "amp")
+        #expect(launch.wrapperShellExecutableToken.contains("CMUX_AMP_WRAPPER_SHIM"))
+        #expect(launch.customExecutablePathEnvironmentKey == "CMUX_CUSTOM_AMP_PATH")
+        #expect(launch.authorizationEnvironmentValue == "amp:\(threadID)")
+        #expect(launch.portableWrapperShellCommand(posixCommand: "amp threads continue").hasPrefix("/bin/sh -c "))
     }
 
     @Test func preflightInvocationRequiresExecutableArgument() throws {
@@ -261,6 +274,56 @@ import Testing
         #expect(invocation.arguments.first == executable)
         #expect(invocation.arguments.dropFirst().starts(with: ["resume", sessionID]))
         #expect(invocation.environment["CMUX_CUSTOM_CODEX_PATH"] == executable)
+    }
+
+    @Test func structuredAmpRestoreRoutesThroughWrapperAndReplacesCapturedThread() throws {
+        let oldThreadID = "T-old-thread"
+        let restoredThreadID = "T-restored-thread"
+        let executable = "/opt/custom amp/bin/amp"
+        let shim = "/tmp/cmux-shims/amp"
+        let request = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: "amp",
+            checkpointID: restoredThreadID,
+            source: "agent-hook",
+            workingDirectory: "/tmp/amp project",
+            environment: [:],
+            launchCommand: AgentLaunchCommand(
+                launcher: "amp",
+                executablePath: executable,
+                arguments: [
+                    executable,
+                    "threads", "continue", oldThreadID,
+                    "--mode", "smart",
+                    "--effort", "high",
+                ],
+                workingDirectory: "/tmp/amp project",
+                environment: [
+                    "AMP_SETTINGS_FILE": "/tmp/amp-settings.json",
+                    "CMUX_CUSTOM_AMP_PATH": executable,
+                ]
+            ),
+            preparedArguments: nil,
+            observedPermissionMode: nil
+        )
+        let invocation = try #require(AgentRestorePlanner(
+            isExecutableFile: { $0 == shim || $0 == executable }
+        ).invocation(
+            for: request,
+            ambientEnvironment: [
+                "PATH": "/usr/bin:/bin",
+                "CMUX_AMP_WRAPPER_SHIM": shim,
+            ]
+        ))
+
+        #expect(invocation.arguments.first == shim)
+        #expect(Array(invocation.arguments.dropFirst(3)) == [
+            "--mode", "smart", "--effort", "high", restoredThreadID,
+        ])
+        #expect(invocation.arguments.contains(oldThreadID) == false)
+        #expect(invocation.environment["AMP_SETTINGS_FILE"] == "/tmp/amp-settings.json")
+        #expect(invocation.environment["CMUX_CUSTOM_AMP_PATH"] == executable)
+        #expect(invocation.environment["CMUX_AGENT_RESTORE_LAUNCH"] == "amp:\(restoredThreadID)")
     }
 
     @Test func directBindingPreservesStructuredArgumentsBeyondFormerInlineBudget() throws {

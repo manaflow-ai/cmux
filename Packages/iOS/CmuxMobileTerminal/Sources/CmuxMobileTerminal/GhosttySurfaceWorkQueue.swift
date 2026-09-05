@@ -39,6 +39,25 @@ final class GhosttySurfaceWorkQueue: @unchecked Sendable {
         return observedGridGeneration
     }
 
+    /// Check the last grid recorded by a geometry or exact render-grid pass.
+    /// Must be called from ``queue``. This keeps the direct primary-screen
+    /// delta path fenced against stale producer dimensions without another
+    /// libghostty surface read.
+    func observedGridMatches(columns: Int, rows: Int) -> Bool {
+        observedGridColumns > 0
+            && observedGridRows > 0
+            && observedGridColumns == columns
+            && observedGridRows == rows
+    }
+
+    /// Human-readable form of the cached grid for fence diagnostics. Must be
+    /// called from ``queue``.
+    var observedGridDescription: String {
+        observedGridColumns > 0 && observedGridRows > 0
+            ? "\(observedGridColumns)x\(observedGridRows)"
+            : "unknown"
+    }
+
     init(generation: UInt64) {
         // carve-out justification: serial event-delivery queue for low-level libghostty C calls; not used as a lock.
         queue = DispatchQueue(

@@ -404,6 +404,14 @@ struct SessionIndexViewTests {
                 "agent:claude",
                 "agent:grok"
             ])
+            #expect(sections.allSatisfy { section in
+                section.entries.allSatisfy { entry in
+                    let accessory = section.accessories[entry.id]
+                    return accessory != nil
+                        && accessory?.detail == entry.cwdBasename
+                        && accessory?.hasSubtitle == true
+                }
+            })
         }
     }
 
@@ -440,6 +448,14 @@ struct SessionIndexViewTests {
                 "dir:/project-a",
                 "dir:/project-c"
             ])
+            #expect(sections.allSatisfy { section in
+                section.entries.allSatisfy { entry in
+                    let accessory = section.accessories[entry.id]
+                    return accessory != nil
+                        && accessory?.detail == entry.cwdBasename
+                        && accessory?.hasSubtitle == true
+                }
+            })
         }
     }
 
@@ -604,7 +620,8 @@ struct SessionIndexViewTests {
                 loadSnapshot: loadSnapshot,
                 beginSessionDrag: { _, _, _, _, _ in false },
                 onResume: nil,
-                onOpen: nil
+                onOpen: nil,
+                statusSnapshot: .init()
             ),
             onDismiss: onDismiss
         )
@@ -646,7 +663,8 @@ struct SessionIndexViewTests {
         let keys = [
             "sessionIndex.agentOrder",
             "sessionIndex.directoryOrder",
-            "sessionIndex.grouping"
+            "sessionIndex.grouping",
+            "sessionIndex.compactView"
         ]
         let previousValues = keys.map { (key: $0, value: defaults.object(forKey: $0)) }
         defer {
