@@ -45,7 +45,7 @@ test("a stalled provider call fails at the cleanup deadline and cancels its requ
   const outcome = await Effect.runPromise(Effect.gen(function* () {
     const work = yield* Effect.fork(cleanupPrivateLinkResource("VPC probe", (signal) => new Promise(() => {
       signal.addEventListener("abort", () => { aborted = true; }, { once: true });
-    })));
+    })).pipe(Effect.uninterruptible));
     yield* TestClock.adjust("30 seconds");
     const result = yield* Fiber.poll(work);
     yield* Fiber.interrupt(work);
@@ -54,4 +54,20 @@ test("a stalled provider call fails at the cleanup deadline and cancels its requ
   expect(outcome._tag).toBe("Some");
   if (outcome._tag === "Some") expect(outcome.value._tag).toBe("Failure");
   expect(aborted).toBe(true);
+});
+
+test("scope interruption still runs resource cleanup", async () => {
+  const { Deferred } = await import("effect");
+  let calls = 0;
+  await Effect.runPromise(Effect.gen(function* () {
+    const using = yield* Deferred.make<void>();
+    const work = yield* Effect.fork(Effect.scoped(Effect.gen(function* () {
+      yield* Effect.acquireRelease(Effect.void, () => cleanupPrivateLinkResource("VM probe", async () => { calls++; }));
+      yield* Deferred.succeed(using, undefined);
+      yield* Effect.never;
+    })));
+    yield* Deferred.await(using);
+    yield* Fiber.interrupt(work);
+  }));
+  expect(calls).toBe(1);
 });

@@ -293,8 +293,9 @@ The client need not match the image's older baked commit: successful protocol
 operations are the compatibility check.
 
 Keys and invitations are held in an owner-only temporary directory. Processes,
-VM, tunnel, and VPC are cleaned up on success and failure; VPC deletion retries
-while the provider finishes detaching the deleted VM. The probe never opens
+VM, tunnel, and VPC are cleaned up on success and failure; Deletion retries only explicit provider conflict responses with bounded
+exponential backoff; only a successful delete confirms completion. Permanent
+refusals fail immediately, and each resource cleanup has a 30-second deadline. The probe never opens
 public ingress, installs a system VPN, or changes an existing machine. A
 cleanup failure names the resource requiring operator attention and fails the
 command. Run this alongside `devbox:verify` when validating a new image or a

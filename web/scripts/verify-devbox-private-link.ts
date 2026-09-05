@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 /**
+ * Maintainer-only test harness, not a shipped application command.
  * Verify an image through the same private carrier as the Mac app. Local daemon
  * readiness alone misses a stale client, VPC routing, or enrollment failure.
  *
@@ -19,9 +20,11 @@ import { cleanupPrivateLinkResource as cleanup } from "./devbox-private-link-cle
 import { startPrivateLinkClient } from "./devbox-private-link-process";
 import { FreestyleProvider } from "../services/vms/drivers/freestyle";
 
+/** Convert provider failures to local operator stage labels without upstream payloads. */
 const attempt = <A>(label: string, run: (signal: AbortSignal) => Promise<A>) =>
   Effect.tryPromise({ try: run, catch: () => new Error(label) });
 
+/** Run one bounded client command and capture its machine-readable response. */
 function command(client: string, args: string[], label: string) {
   return attempt(label, (signal) => new Promise<string>((resolve, reject) => {
     const child = spawn(client, args, { signal, stdio: ["ignore", "pipe", "pipe"] });
@@ -36,6 +39,7 @@ function command(client: string, args: string[], label: string) {
   })).pipe(Effect.timeoutFail({ duration: "30 seconds", onTimeout: () => new Error(`${label}: timed out`) }));
 }
 
+/** Require a usable resource graph from the connected session. */
 function readSnapshot(client: string, socket: string) {
   return Effect.gen(function* () {
     const stdout = yield* command(client, ["--socket", socket, "--json", "session", "current", "snapshot"], "Session snapshot failed");
@@ -46,6 +50,7 @@ function readSnapshot(client: string, socket: string) {
   });
 }
 
+/** Verify private enrollment and reconnect using exclusively probe-owned resources. */
 function verify(image: string, client: string) {
   return Effect.gen(function* () {
     const rawProbe = yield* command(client, ["remote-probe", "--json"], "Client probe failed");

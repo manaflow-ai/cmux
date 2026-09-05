@@ -1,3 +1,4 @@
+// Maintainer-only verification subprocesses; these diagnostics are not product CLI copy.
 import { Effect } from "effect";
 import { spawn, type ChildProcess } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
@@ -88,7 +89,11 @@ function launch(client: string, args: string[], expected: ReadyEvent) {
   });
 }
 
-/** Own a headless verifier process until scope exit, including failed startup. */
+/**
+ * Own a headless verifier process until scope exit, including failed startup.
+ * acquireRelease masks interruption through acquisition and finalizer registration:
+ * cancellation between spawn() and its spawn event still acquires, then stops, the child.
+ */
 export function startPrivateLinkClient(client: string, args: string[], ready: ReadyEvent) {
   return Effect.acquireRelease(launch(client, args, ready), ({ child }) => stop(child));
 }
