@@ -34,7 +34,7 @@ export function LanguageSwitcher() {
     // the canonical English URL directly so the document, metadata, and
     // messages are loaded together.
     if (newLocale === "en") {
-      window.location.replace(pathname + qs);
+      window.location.replace(canonicalEnglishPath(pathname) + qs);
       return;
     }
 
@@ -74,4 +74,18 @@ export function LanguageSwitcher() {
       </select>
     </div>
   );
+}
+
+function canonicalEnglishPath(pathname: string): string {
+  if (typeof window === "undefined") return pathname;
+
+  const browserPathname = window.location.pathname;
+  const localePrefix = locales.find(
+    (locale) =>
+      browserPathname === `/${locale}` ||
+      browserPathname.startsWith(`/${locale}/`),
+  );
+  if (!localePrefix) return pathname;
+
+  return browserPathname.slice(localePrefix.length + 1) || "/";
 }
