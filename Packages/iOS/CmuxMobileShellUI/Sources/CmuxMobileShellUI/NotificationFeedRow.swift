@@ -15,12 +15,9 @@ struct NotificationFeedRow: View, Equatable {
     }
 
     var body: some View {
-        // Group controls own a bottom-trailing slot, not a full-height
-        // column that narrows the ordinary row's headline and provenance.
-        VStack(alignment: .trailing, spacing: 0) {
+        HStack(spacing: 0) {
             NotificationFeedOpenRow(model: model, actions: actions, context: context)
                 .equatable()
-                .frame(maxWidth: .infinity)
 
             if let disclosure {
                 NotificationFeedDisclosureButton(
@@ -47,7 +44,7 @@ private struct NotificationFeedDisclosureButton: View {
             }
             .font(.caption.weight(.semibold))
             .foregroundStyle(.secondary)
-            .frame(minWidth: 44, minHeight: 44, alignment: .trailing)
+            .frame(minWidth: 44, minHeight: 44)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -338,7 +335,6 @@ private struct NotificationFeedProvenance: View {
                         isReachable: computerIsReachable,
                         allowsWrapping: true
                     )
-                    .frame(maxWidth: .infinity, alignment: .trailing)
                 }
             }
         } else if let sourceName {
@@ -376,7 +372,6 @@ private struct NotificationFeedComputer: View {
             .font(.caption)
             .foregroundStyle(isReachable ? Color.secondary.opacity(0.7) : Color.orange)
             .lineLimit(allowsWrapping ? 2 : 1)
-            .multilineTextAlignment(.trailing)
     }
 }
 
