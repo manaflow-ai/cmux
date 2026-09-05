@@ -35471,6 +35471,7 @@ mod tests {
         })];
         config.sidebar.views_explicit = true;
         app.config = config;
+        app.sidebar_view = SidebarView::Workspaces;
 
         // Capture the divider between the second and third children while all
         // four children fit.
@@ -35507,6 +35508,7 @@ mod tests {
         let mux = Mux::new("sidebar-split-focus-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
         app.config = split_sidebar_config();
+        app.sidebar_view = SidebarView::Workspaces;
         app.sync_layout((120, 31));
 
         app.focus = FocusTarget::WorkspaceRail;
@@ -35525,6 +35527,7 @@ mod tests {
         let mux = Mux::new("empty-projection-boundary-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
         app.config = split_sidebar_config();
+        app.sidebar_view = SidebarView::Workspaces;
         app.sync_layout((120, 31));
         app.focus = FocusTarget::ProjectionRail(1);
 
@@ -35532,6 +35535,12 @@ mod tests {
         app.handle_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)).unwrap();
         assert_eq!(app.focus, FocusTarget::WorkspaceRail);
 
+        let last_workspace_target = app
+            .workspace_rail_targets()
+            .last()
+            .cloned()
+            .expect("the empty workspace rail still exposes its footer action");
+        app.select_workspace_rail_target(last_workspace_target);
         app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)).unwrap();
         assert_eq!(app.focus, FocusTarget::ProjectionRail(1));
     }
@@ -39304,9 +39313,15 @@ mod tests {
                 .unwrap(),
             RenderAction::None
         );
-        assert!(app.encode_buf.is_empty());
+        assert_eq!(
+            app.encode_buf, b"\x1b[<2;5;3M",
+            "a mismatched drag is ignored without forwarding a second PTY sample"
+        );
         app.handle_mouse(event(MouseEventKind::Up(MouseButton::Left), KeyModifiers::NONE)).unwrap();
-        assert!(app.encode_buf.is_empty());
+        assert_eq!(
+            app.encode_buf, b"\x1b[<2;5;3M",
+            "a mismatched release does not release the retained right-button owner"
+        );
         assert!(matches!(app.drag, Some(Drag::PtyMouse { button: MouseButton::Right, .. })));
         app.handle_mouse(event(MouseEventKind::Up(MouseButton::Right), KeyModifiers::NONE))
             .unwrap();
@@ -45797,6 +45812,7 @@ mod tests {
             Ok(())
         });
         started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        app.active_pointer_buttons.insert(MouseButton::Left);
         app.drag = Some(Drag::ResizeSplit {
             screen: app.active_screen_id().unwrap_or(0),
             horizontal: Some(PaneResizeDragTarget::ViewportColumn {
@@ -46785,6 +46801,10 @@ mod tests {
         let mux = Mux::new("machine-sidebar-pointer-boundary-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
         app.machine_ui = Some(provider_machine_ui());
+        // Model the already-presented provider machine. The refresh changes
+        // only the catalog, so its active workspace policy must remain stable.
+        app.machine_selection_intent = Some(MachineKey(41));
+        app.machine_presented = Some(MachineKey(41));
         app.drag = Some(Drag::FilesScrollbar {
             track: Rect { x: 20, y: 1, width: 1, height: 4 },
             total_rows: 8,
@@ -48490,6 +48510,7 @@ mod tests {
         let mux = Mux::new("pty-release-barrier-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
         app.session.pending_mutations.store(1, Ordering::Release);
+        app.active_pointer_buttons.insert(MouseButton::Right);
         app.drag = Some(Drag::PtyMouse {
             surface: 42,
             handle: None,
@@ -48503,7 +48524,7 @@ mod tests {
         });
 
         app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
-            kind: MouseEventKind::Drag(MouseButton::Left),
+            kind: MouseEventKind::Drag(MouseButton::Right),
             column: 8,
             row: 6,
             modifiers: KeyModifiers::NONE,
@@ -49102,7 +49123,9 @@ mod tests {
             super::FilesRailSelection::Action(SidebarActionTarget::Run(Action::NewTab));
         app.handle_mouse(MouseEvent {
             kind: MouseEventKind::Down(MouseButton::Left),
-            column: input.x + 1,
+            // Place the cursor before the wide `界` cell, then Delete removes
+            // that grapheme rather than the leading combining sequence.
+            column: input.x + 2,
             row: input.y,
             modifiers: KeyModifiers::NONE,
         })
@@ -52192,6 +52215,19 @@ mod tests {
     #[test]
     fn wheel_over_projection_does_not_use_a_pruned_workspace_fallback() {
         let mux = Mux::new("pruned-workspace-wheel-test", SurfaceOptions::default());
+        let mut agent_surfaces = Vec::new();
+        for index in 0..24 {
+            let surface =
+                mux.new_workspace(Some(format!("agent-workspace-{index}")), Some((20, 8))).unwrap();
+            mux.report_agent(
+                surface.id,
+                AgentState::Working,
+                AgentSource::Hook,
+                Some(format!("agent-{index}")),
+            )
+            .unwrap();
+            agent_surfaces.push(surface.id);
+        }
         let workspace = SidebarViewSpec::legacy(SidebarColumnKind::Workspaces, 22, 0);
         let agents = SidebarViewSpec {
             id: "agents".into(),
@@ -52214,7 +52250,8 @@ mod tests {
             views: views.clone(),
             layout: layout.clone(),
         };
-        let mut app = test_app(Session::Local(mux));
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
         app.config.sidebar.columns.clear();
         app.config.sidebar.views = views;
         app.config.sidebar.layout = layout;
@@ -52231,6 +52268,7 @@ mod tests {
             .rail(RailKind::Projection(1))
             .expect("Agents projection remains visible");
         assert!(!app.sidebar_layout.ordered.is_empty());
+        assert!(app.projection_rows(1).len() > 1, "the wheel target must have scrollable rows");
         app.sidebar_width = 22;
 
         app.handle_scroll(agents_area.x + 1, agents_area.y + 2, true, KeyModifiers::NONE).unwrap();
@@ -52246,6 +52284,10 @@ mod tests {
                 .is_some_and(|state| state.scroll > 0),
             "the visible Agents projection receives the wheel"
         );
+
+        for surface in agent_surfaces {
+            mux.close_surface(surface).unwrap();
+        }
     }
 
     #[test]
@@ -52594,7 +52636,10 @@ mod tests {
 
         assert!(action.y > rail.y, "the Agents header must stay above actions");
         assert!(action.y < row.y, "top actions must precede the projection body");
-        assert!(buffer_text(terminal.backend().buffer()).contains("rename workspace"));
+        assert!(
+            buffer_text(terminal.backend().buffer())
+                .contains(localization::catalog().sidebar.rename_workspace)
+        );
 
         // Keyboard order must use the same top-mounted action as the mouse
         // hit map. Enter on the first visible action opens its workspace
@@ -53525,7 +53570,8 @@ mod tests {
         let mut terminal = Terminal::new(TestBackend::new(100, 12)).unwrap();
         terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
         assert!(
-            buffer_text(terminal.backend().buffer()).contains("no active agents"),
+            buffer_text(terminal.backend().buffer())
+                .contains(localization::catalog().sidebar.no_active_agents),
             "history-only records explain why the default queue is empty"
         );
 

@@ -138,14 +138,6 @@ pub fn draw_presentation(app: &mut App, frame: &mut Frame) {
             .sum::<usize>()
             .saturating_add(profiles.len().saturating_sub(1))
     };
-    let fits = |profiles: &[ProfileLabel], tail: &[String]| {
-        let profile_width = profiles_width(profiles);
-        let tail_width = joined_width(tail);
-        profile_width
-            .saturating_add(usize::from(profile_width > 0 && tail_width > 0))
-            .saturating_add(tail_width)
-            <= content_width
-    };
     let active = labels
         .iter()
         .find(|(index, _)| *index == active_index)
@@ -161,10 +153,17 @@ pub fn draw_presentation(app: &mut App, frame: &mut Frame) {
     // candidate at a time so the fallback path does not clone labels that are
     // never rendered.
     let mut chosen: Option<PresentationCandidate> = None;
-    let mut try_candidate = |profiles: &[ProfileLabel], tail: Vec<String>| {
+    let mut try_candidate = |profiles: &[ProfileLabel],
+                             tail: Vec<String>,
+                             allow_active_truncation: bool| {
         if chosen.is_none() {
-            let profiles_fit = profiles.len() == labels.len();
-            if fits(profiles, &tail) {
+            let profile_width = profiles_width(profiles);
+            let tail_width = joined_width(&tail);
+            let available = content_width
+                .saturating_sub(tail_width)
+                .saturating_sub(usize::from(profile_width > 0 && tail_width > 0));
+            let profiles_fit = profile_width <= available;
+            if profiles_fit || (allow_active_truncation && profiles.len() == 1 && available > 0) {
                 chosen = Some((profiles.to_vec(), tail, profiles_fit));
             }
         }
@@ -184,17 +183,17 @@ pub fn draw_presentation(app: &mut App, frame: &mut Frame) {
             tail.push(manage.to_string());
             tail
         };
-    try_candidate(&labels, tail_for(false, true, true));
-    try_candidate(&labels, tail_for(false, true, false));
-    try_candidate(&labels, tail_for(false, false, true));
-    try_candidate(&labels, tail_for(false, false, false));
-    try_candidate(&active, tail_for(true, true, true));
-    try_candidate(&active, tail_for(true, true, false));
-    try_candidate(&active, tail_for(false, true, true));
-    try_candidate(&active, tail_for(false, true, false));
-    try_candidate(&active, tail_for(false, false, true));
-    try_candidate(&active, tail_for(false, false, false));
-    try_candidate(&active, vec![manage.to_string()]);
+    try_candidate(&labels, tail_for(false, true, true), false);
+    try_candidate(&labels, tail_for(false, true, false), false);
+    try_candidate(&labels, tail_for(false, false, true), false);
+    try_candidate(&labels, tail_for(false, false, false), false);
+    try_candidate(&active, tail_for(true, true, true), true);
+    try_candidate(&active, tail_for(true, true, false), true);
+    try_candidate(&active, tail_for(false, true, true), true);
+    try_candidate(&active, tail_for(false, true, false), true);
+    try_candidate(&active, tail_for(false, false, true), true);
+    try_candidate(&active, tail_for(false, false, false), true);
+    try_candidate(&active, vec![manage.to_string()], true);
     let (shown, tail_parts, profiles_fit) = chosen.unwrap_or_else(|| {
         // A name can be wider than the entire strip. Preserve at least one
         // visible cell of the active identity, and keep the menu affordance
