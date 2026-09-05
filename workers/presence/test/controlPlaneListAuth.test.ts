@@ -456,6 +456,64 @@ describe("App Store directory partition", () => {
   });
 });
 
+describe("compat-test DEV directory partition", () => {
+  function responseFor(...bindings: {
+    endpointId: string;
+    clientNamespace: string;
+    appVersion?: string;
+  }[]): unknown {
+    const base = discoveryResponse(42) as { bindings: Record<string, unknown>[] };
+    base.bindings = bindings.map((binding, index) => ({
+      ...base.bindings[0],
+      binding_id: `binding-dev-${index}`,
+      endpoint_id: binding.endpointId,
+      client_namespace: binding.clientNamespace,
+      ...(binding.appVersion === undefined ? {} : { app_version: binding.appVersion }),
+    }));
+    return base;
+  }
+
+  it("filters old, missing, stable, and other-tag DEV Macs", async () => {
+    const harness = new Harness();
+    harness.serveDiscovery(() => responseFor(
+      {
+        endpointId: ENDPOINT_A,
+        clientNamespace: "mac:com.cmuxterm.app.debug.compat-test",
+        appVersion: "0.64.22-nightly.3359013153901+1",
+      },
+      {
+        endpointId: ENDPOINT_B,
+        clientNamespace: "mac:com.cmuxterm.app.debug.compat-test",
+        appVersion: "0.64.22-nightly.3359013153900+1",
+      },
+      {
+        endpointId: ENDPOINT_C,
+        clientNamespace: "mac:com.cmuxterm.app.debug.other",
+        appVersion: "0.64.22-nightly.3359013153901+1",
+      },
+      {
+        endpointId: "d".repeat(64),
+        clientNamespace: "mac:com.cmuxterm.app.debug.compat-test",
+      },
+    ));
+
+    const ios = await harness.connect("ios", { namespace: "dev.cmux.ios.compat-test" });
+    await harness.hello(ios, {
+      endpointId: "i".repeat(64),
+      haveRev: null,
+      wantPasses: false,
+      deviceId: "compat-ios",
+      platform: "ios",
+      appVersion: "1.0.0+1",
+    });
+
+    const bindings = ((ios.frame("directory") as {
+      payload: { bindings: Record<string, unknown>[] };
+    }).payload.bindings);
+    expect(bindings.map((binding) => binding.endpointId)).toEqual([ENDPOINT_A]);
+  });
+});
+
 describe("ack tracking and the alarm retry ladder", () => {
   it("resends the latest directory at 5s/30s/2m/10m then hourly until acked, and stands down on ack", async () => {
     const harness = new Harness();

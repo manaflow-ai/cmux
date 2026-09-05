@@ -127,6 +127,12 @@ const OFFICIAL_NIGHTLY_MAC_NAMESPACE = "mac:com.cmuxterm.app.nightly";
 const OFFICIAL_NIGHTLY_MAC_NAMESPACE_PREFIX = `${OFFICIAL_NIGHTLY_MAC_NAMESPACE}.`;
 const APP_STORE_MIN_NIGHTLY_BASE = [0, 64, 22] as const;
 const APP_STORE_MIN_NIGHTLY_BUILD = 3_359_013_153_901n;
+/** Mirrors DEVELOPMENT_BUILD_CONSTRAINTS in web/services/iroh/buildCompatibility.ts.
+ * Only the explicitly named DEV tag is constrained; ordinary DEV tags retain
+ * their existing behavior. */
+const DEVELOPMENT_COMPATIBILITY_TEST_TAG = "compat-test";
+const DEVELOPMENT_MIN_NIGHTLY_BASE = [0, 64, 22] as const;
+const DEVELOPMENT_MIN_NIGHTLY_BUILD = 3_359_013_153_901n;
 
 // ---- Storage keys (all under the account DO's own storage) ----
 
@@ -554,6 +560,48 @@ function appStoreMacVisible(
   if (baseComparison > 0) return true;
   if (baseComparison < 0) return false;
   return parsed.nightlyBuild >= APP_STORE_MIN_NIGHTLY_BUILD;
+}
+
+function developmentMacVisible(
+  recipientNamespace: string,
+  clientNamespace: string,
+  overlay: DeviceOverlay | undefined,
+  brokerAppVersion?: string | null,
+): boolean {
+  const tag = /^dev\.cmux\.ios\.([A-Za-z0-9._-]+)$/.exec(recipientNamespace)?.[1];
+  if (tag !== DEVELOPMENT_COMPATIBILITY_TEST_TAG) return true;
+  if (clientNamespace !== `mac:com.cmuxterm.app.debug.${tag}`) return false;
+  if (overlay === undefined) return false;
+  if (overlay.status !== "active" && brokerAppVersion == null) return false;
+  const parsed = parseMacVersion(brokerAppVersion ?? overlay.appVersion);
+  if (parsed === null || parsed.nightlyBuild === null) return false;
+  const baseComparison = compareMacBase(parsed.base, DEVELOPMENT_MIN_NIGHTLY_BASE);
+  if (baseComparison > 0) return true;
+  if (baseComparison < 0) return false;
+  return parsed.nightlyBuild >= DEVELOPMENT_MIN_NIGHTLY_BUILD;
+}
+
+function recipientMaySeeMac(
+  recipientNamespace: string | undefined,
+  clientNamespace: string,
+  overlay: DeviceOverlay | undefined,
+  brokerAppVersion?: string | null,
+): boolean {
+  if (recipientNamespace === APP_STORE_IOS_NAMESPACE) {
+    return appStoreMacVisible(clientNamespace, overlay, brokerAppVersion);
+  }
+  if (recipientNamespace === undefined) return true;
+  return developmentMacVisible(
+    recipientNamespace,
+    clientNamespace,
+    overlay,
+    brokerAppVersion,
+  );
+}
+
+function recipientNeedsFilteredDirectory(namespace: string | undefined): boolean {
+  return namespace === APP_STORE_IOS_NAMESPACE
+    || namespace === `dev.cmux.ios.${DEVELOPMENT_COMPATIBILITY_TEST_TAG}`;
 }
 
 // ---- Server frame builders ----
@@ -1376,13 +1424,8 @@ export class ControlPlaneCore {
     const broker = await this.deps.storage.get<BrokerDirectoryPayload>(DIR_KEY);
     const hintedBinding = broker?.bindings.find((binding) => binding.endpointId === endpointId);
     const hintedOverlay = await this.deps.storage.get<DeviceOverlay>(DEV_PREFIX + endpointId);
-    const appStoreMayReceiveHint = hintedBinding !== undefined
-      && hintedOverlay !== undefined
-      && appStoreMacVisible(
-        hintedBinding.clientNamespace,
-        hintedOverlay,
-        hintedBinding.appVersion,
-      );
+    const hintedMacMayBeSeen = hintedBinding?.clientNamespace.startsWith("mac:") === true
+      && hintedOverlay !== undefined;
     // The announcement is NOT revision-bearing (rev did not move), so it never
     // arms the peers' ack retry ladders; the confirm re-fetch does when the
     // broker revision actually advances.
@@ -1391,7 +1434,12 @@ export class ControlPlaneCore {
       if (!peerAttachment) continue;
       if (peerAttachment.sessionId === attachment.sessionId) continue; // announcer knows its own hint
       if (!this.deliverable(peerAttachment, now)) continue;
-      if (peerAttachment.namespace === APP_STORE_IOS_NAMESPACE && !appStoreMayReceiveHint) continue;
+      if (hintedMacMayBeSeen && !recipientMaySeeMac(
+        peerAttachment.namespace,
+        hintedBinding.clientNamespace,
+        hintedOverlay,
+        hintedBinding.appVersion,
+      )) continue;
       try {
         peer.send(frameJson);
       } catch {
@@ -1430,8 +1478,12 @@ export class ControlPlaneCore {
     const emitted = new Set<string>();
     for (const binding of broker.bindings) {
       const overlay = await this.ensureOverlay(binding.endpointId);
-      if (recipientNamespace === APP_STORE_IOS_NAMESPACE
-        && !appStoreMacVisible(binding.clientNamespace, overlay, binding.appVersion)) {
+      if (!recipientMaySeeMac(
+        recipientNamespace,
+        binding.clientNamespace,
+        overlay,
+        binding.appVersion,
+      )) {
         continue;
       }
       emitted.add(binding.endpointId);
@@ -1467,8 +1519,11 @@ export class ControlPlaneCore {
         ? Number.NaN
         : Date.parse(overlay.lastConfirmedAt);
       if (!(confirmedAtMs > cutoffMs)) continue;
-      if (recipientNamespace === APP_STORE_IOS_NAMESPACE
-        && !appStoreMacVisible(overlay.clientNamespace ?? "legacy", overlay)) {
+      if (!recipientMaySeeMac(
+        recipientNamespace,
+        overlay.clientNamespace ?? "legacy",
+        overlay,
+      )) {
         continue;
       }
       bindings.push({
@@ -1750,7 +1805,7 @@ export class ControlPlaneCore {
       // A filtered App Store directory cannot safely consume a raw hint delta:
       // the hinted endpoint may be hidden, newly eligible, or newly ineligible.
       // Send a complete scoped snapshot for that audience instead.
-      const frames = attachment.namespace === APP_STORE_IOS_NAMESPACE
+      const frames = recipientNeedsFilteredDirectory(attachment.namespace)
         ? [JSON.stringify(directoryFrame(
           rev,
           await this.mergedDirectory(next, attachment.namespace),

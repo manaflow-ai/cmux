@@ -14,6 +14,17 @@ const OFFICIAL_NIGHTLY_MAC_NAMESPACE = "mac:com.cmuxterm.app.nightly";
 const APP_STORE_MIN_NIGHTLY_BASE = [0, 64, 22] as const;
 const APP_STORE_MIN_NIGHTLY_BUILD = BigInt("3359013153901");
 
+/** Explicit opt-in DEV lane for exercising the retirement gate end to end.
+ * Normal DEV tags are unchanged; only compat-test is constrained. Keep this
+ * section mirrored in the presence worker's control-plane filter. */
+export const DEVELOPMENT_BUILD_CONSTRAINTS = {
+  "compat-test": {
+    requireReportedVersion: true,
+    stableMinVersion: null,
+    nightly: { minBaseVersion: [0, 64, 22] as const, minBuild: BigInt("3359013153901") },
+  },
+} as const;
+
 type BuildBinding = {
   readonly platform: string;
   readonly deviceUuid: string;
@@ -65,6 +76,7 @@ function iosBindingMacLaneCompatible(
     if (!targetIsDevelopmentMac || NON_DEVELOPMENT_MAC_TAGS.has(targetTag)) {
       return false;
     }
+    if (!canDevelopmentIOSUseMac(caller, target)) return false;
     return legacyDefaultFallback || caller.tag === target.tag;
   }
 
@@ -82,6 +94,36 @@ function iosBindingMacLaneCompatible(
     return target.tag === "default" || target.tag === "nightly";
   }
   return caller.tag === target.tag;
+}
+
+/** DEV-only server admission for the compat-test tag. This deliberately has
+ * no effect on ordinary tagged builds, while exercising the same old/missing/
+ * stable/nightly cases as the App Store lane. */
+export function canDevelopmentIOSUseMac(
+  caller: BuildBinding,
+  target: BuildBinding,
+): boolean {
+  const constraint = DEVELOPMENT_BUILD_CONSTRAINTS[caller.tag as keyof typeof DEVELOPMENT_BUILD_CONSTRAINTS];
+  if (constraint === undefined) return true;
+  if (target.tag !== caller.tag) return false;
+  const raw = target.appVersion?.trim() ?? "";
+  if (raw.length === 0) return !constraint.requireReportedVersion;
+  const marketing = raw.split("+", 1)[0]?.trim() ?? "";
+  const match = /^(\d+)\.(\d+)\.(\d+)(?:-nightly\.(\d+))?$/.exec(marketing);
+  if (!match) return false;
+  if (match[4] === undefined) return constraint.stableMinVersion !== null;
+  const base = [Number(match[1]), Number(match[2]), Number(match[3])];
+  if (base.some((part) => !Number.isSafeInteger(part) || part < 0)) return false;
+  for (let index = 0; index < constraint.nightly.minBaseVersion.length; index += 1) {
+    const difference = (base[index] ?? 0) - (constraint.nightly.minBaseVersion[index] ?? 0);
+    if (difference > 0) return true;
+    if (difference < 0) return false;
+  }
+  try {
+    return BigInt(match[4]) >= constraint.nightly.minBuild;
+  } catch {
+    return false;
+  }
 }
 
 /** App Store iOS has a clean compatibility lane. A Mac must identify itself

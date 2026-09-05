@@ -26,6 +26,7 @@ import {
 import {
   canBindingRevokeStale,
   canAppStoreIOSUseMac,
+  canDevelopmentIOSUseMac,
   canIOSBindingForgetMac,
   canIOSBindingUseMac,
 } from "../services/iroh/buildCompatibility";
@@ -162,6 +163,33 @@ describe("Iroh build compatibility", () => {
       tag: "mdev",
       clientNamespace: "mac:com.cmuxterm.app.debug.mdev",
     }))).toBe(true);
+  });
+
+  test("compat-test DEV lane enforces the same minimum-version cases", () => {
+    const ios = binding({
+      platform: "ios",
+      tag: "compat-test",
+      clientNamespace: "dev.cmux.ios.compat-test",
+    });
+    const mac = (appVersion: string | null, tag = "compat-test") => binding({
+      platform: "mac",
+      tag,
+      clientNamespace: `mac:com.cmuxterm.app.debug.${tag}`,
+      appVersion,
+    });
+
+    expect(canDevelopmentIOSUseMac(ios, mac("0.64.22-nightly.3359013153901+1"))).toBe(true);
+    expect(canDevelopmentIOSUseMac(ios, mac("0.64.22-nightly.3359013153900+1"))).toBe(false);
+    expect(canDevelopmentIOSUseMac(ios, mac(null))).toBe(false);
+    expect(canDevelopmentIOSUseMac(ios, mac("0.64.22+1"))).toBe(false);
+    expect(canDevelopmentIOSUseMac(ios, mac("0.64.22-nightly.3359013153901+1", "other"))).toBe(false);
+    // Ordinary DEV tags retain the existing permissive development behavior.
+    const ordinary = binding({
+      platform: "ios",
+      tag: "mdev",
+      clientNamespace: "dev.cmux.ios.mdev",
+    });
+    expect(canDevelopmentIOSUseMac(ordinary, mac(null, "mdev"))).toBe(true);
   });
 
   test("a legacy default-lane iOS binding may use default and nightly Macs", () => {
