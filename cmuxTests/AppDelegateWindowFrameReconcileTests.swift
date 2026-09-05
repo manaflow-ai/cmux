@@ -55,6 +55,23 @@ final class AppDelegateWindowFrameReconcileTests: XCTestCase {
         )
     }
 
+    func testReconciledFrameAfterScreenChangeLeavesAeroSpaceParkedWindowUntouched() {
+        let builtIn = AppDelegate.SessionDisplayGeometry(
+            displayID: 1,
+            frame: CGRect(x: 0, y: 0, width: 1_512, height: 982),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1_512, height: 944)
+        )
+        let parked = CGRect(x: 1_511, y: -909, width: 1_506, height: 941)
+
+        XCTAssertNil(
+            AppDelegate.reconciledFrameAfterScreenChange(
+                frame: parked,
+                availableDisplays: [builtIn]
+            ),
+            "A spurious screen-membership callback must not pull an AeroSpace-parked window on-screen."
+        )
+    }
+
     func testReconciledFrameAfterScreenChangeReturnsNilWithoutDisplays() {
         XCTAssertNil(
             AppDelegate.reconciledFrameAfterScreenChange(

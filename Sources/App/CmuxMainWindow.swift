@@ -1,4 +1,5 @@
 import AppKit
+import CmuxWindowing
 import SwiftUI
 
 final class MainWindowHostingView<Content: View>: NSHostingView<Content> {
@@ -331,13 +332,16 @@ final class CmuxMainWindow: NSWindow {
     /// whatever the re-constrain produced sticks and accumulates.
     ///
     /// Fix: refuse the re-constrain for any frame that is already reachable on
-    /// some screen, and defer to AppKit's default only when the frame would
-    /// otherwise be stranded off-screen (e.g. a display was disconnected), so a
-    /// genuinely lost window can still be pulled back into view.
+    /// some screen, or that matches an external tiling window manager's tight
+    /// corner-parking signature. Defer to AppKit's default for other stranded
+    /// frames (e.g. after a display disconnect), so a genuinely lost window can
+    /// still be pulled back into view.
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
+        let screens = NSScreen.screens
         if Self.shouldPreserveFrameDuringConstrain(
             frameRect,
-            visibleFrames: NSScreen.screens.map(\.visibleFrame)
+            visibleFrames: screens.map(\.visibleFrame),
+            displayFrames: screens.map(\.frame)
         ) {
             return frameRect
         }
@@ -360,15 +364,23 @@ final class CmuxMainWindow: NSWindow {
     /// is what stops the sleep/wake drift (#6305).
     ///
     /// Delegates to the shared ``isTitlebarReachable(frame:visibleFrame:)``
-    /// predicate used by the reactive titlebar-stranding safety net. Persisted
-    /// frames and display-topology changes use the stricter visible-frame fit
-    /// policy instead: restored windows must be fully covered by current
-    /// displays even when this lenient drag-reachability test passes.
+    /// predicate used by the reactive titlebar-stranding safety net, with a
+    /// narrow exception for external tiling-window-manager parking at a display
+    /// corner. `displayFrames` must contain the full physical display bounds;
+    /// parking can occupy the menu-bar or Dock inset excluded from `visibleFrames`.
+    /// Persisted frames and display-topology changes use the stricter
+    /// visible-frame fit policy instead: restored windows must be fully covered
+    /// by current displays unless they match that intentional parking signature.
     nonisolated static func shouldPreserveFrameDuringConstrain(
         _ proposedFrame: NSRect,
-        visibleFrames: [NSRect]
+        visibleFrames: [NSRect],
+        displayFrames: [NSRect]
     ) -> Bool {
         visibleFrames.contains { isTitlebarReachable(frame: proposedFrame, visibleFrame: $0) }
+            || MainWindowVisibleFrameFitCore().isLikelyWindowManagerParkedFrame(
+                frame: proposedFrame,
+                displayFrames: displayFrames
+            )
     }
 
     /// Whether a grabbable slice of `frame`'s titlebar — its top strip — is

@@ -3830,10 +3830,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func persistWindowGeometry(from window: NSWindow?) {
-        guard let window else { return }
+        guard let geometry = persistableWindowGeometry(for: window) else { return }
         persistWindowGeometry(
-            frame: SessionRectSnapshot(window.frame),
-            display: displaySnapshot(for: window)
+            frame: geometry.frame,
+            display: geometry.display
         )
     }
 
@@ -5337,6 +5337,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if let window {
             captureWindowConfigFrame(window, reason: "sessionSnapshot")
         }
+        let persistedGeometry = persistableWindowGeometry(for: window)
         let dockSnapshot = existingWindowDock(forWindowId: windowId)?.sessionSnapshot(
             includeScrollback: includeScrollback,
             restorableAgentIndex: restorableAgentIndex,
@@ -5344,8 +5345,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         return SessionWindowSnapshot(
             windowId: windowId,
-            frame: window.map { SessionRectSnapshot($0.frame) },
-            display: displaySnapshot(for: window),
+            frame: persistedGeometry?.frame,
+            display: persistedGeometry?.display,
             tabManager: tabManagerSnapshot,
             sidebar: sidebarSnapshot,
             configFrames: windowConfigFrames[windowId]?.entries,

@@ -60,6 +60,39 @@ struct MainWindowVisibleFrameFitCoreTests {
         #expect(fitted.minY == mostlyOffscreen.minY)
     }
 
+    @Test func aeroSpaceCornerParkingIsNotFittedBackOnScreen() {
+        // The issue repro's CGWindow frame {1511, 950, 1506, 941} converts to
+        // this AppKit frame on a 1512x982 display. Only a 1x32pt corner sliver
+        // intersects the physical and visible display areas.
+        let parked = CGRect(x: 1_511, y: -909, width: 1_506, height: 941)
+
+        #expect(core.isLikelyWindowManagerParkedFrame(
+            frame: parked,
+            displayFrames: [Self.builtInDisplay.frame]
+        ))
+        #expect(core.fittedFrame(
+            for: parked,
+            displays: [Self.builtInDisplay],
+            minimumWidth: Self.minimumWidth,
+            minimumHeight: Self.minimumHeight
+        ) == nil)
+    }
+
+    @Test func aeroSpaceCornerParkingIsExcludedFromPersistenceFallbacks() throws {
+        let parked = CGRect(x: 1_511, y: -909, width: 1_506, height: 941)
+        let visible = CGRect(x: 200, y: 120, width: 900, height: 600)
+
+        #expect(AppDelegate.persistableWindowFrameSnapshot(
+            for: parked,
+            displayFrames: [Self.builtInDisplay.frame]
+        ) == nil)
+        let persisted = try #require(AppDelegate.persistableWindowFrameSnapshot(
+            for: visible,
+            displayFrames: [Self.builtInDisplay.frame]
+        ))
+        #expect(persisted.cgRect == visible)
+    }
+
     @Test func oversizedFrameIsShrunkToOnlyRemainingScreen() throws {
         let oversized = CGRect(x: -100, y: -80, width: 3_000, height: 2_000)
 
