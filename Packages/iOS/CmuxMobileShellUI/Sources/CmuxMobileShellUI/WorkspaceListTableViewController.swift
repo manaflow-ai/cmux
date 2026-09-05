@@ -153,6 +153,7 @@ final class WorkspaceListTableViewController: UIViewController {
             RunLoop.main.perform(inModes: [.common]) { [weak self] in
                 self?.chromeInsetWriteBudget.reset()
                 self?.chromeInsetBudgetResetPending = false
+                self?.view.setNeedsLayout()
             }
         }
         additionalSafeAreaInsets = nextAdditionalInsets

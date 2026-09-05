@@ -326,6 +326,7 @@ struct WorkspaceShellView: View {
             workspaceSearchNavigationPath: workspaceSearchNavigationPath,
             notificationSearchNavigationPath: notificationSearchNavigationPath
         )
+        #if os(iOS)
         GeometryReader { geometry in
             Group {
                 if usesCompactStack {
@@ -405,6 +406,7 @@ struct WorkspaceShellView: View {
                 notificationFeedProjection.update(items: items)
             }
         }
+        #endif
         #else
         workspaceTabContent(canCreateWorkspaceForSelection: canCreateWorkspaceForMacSelection)
         .onAppear {
