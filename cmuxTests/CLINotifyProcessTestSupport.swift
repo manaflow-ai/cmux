@@ -512,6 +512,50 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
+    /// Beads cases for `testRightSidebarCLIForwardsV1SocketCommandsQuietly`.
+    /// CMUXCLI is not linked by cmuxTests; this is how `isRightSidebarCLIMode("beads")`
+    /// is exercised (set + short alias).
+    func testRightSidebarBeadsCLIForwardsV1SocketCommandsQuietly() throws {
+        let cliPath = try bundledCLIPath()
+        let cases: [(name: String, arguments: [String], expectedCommand: String, response: String, stdout: String)] = [
+            ("set-beads", ["right-sidebar", "set", "beads"], "right_sidebar set beads", "OK", ""),
+            ("beads-alias", ["right-sidebar", "beads"], "right_sidebar set beads", "OK", ""),
+        ]
+
+        for item in cases {
+            let socketPath = makeSocketPath("rs-\(item.name)")
+            let listenerFD = try bindUnixSocket(at: socketPath)
+            let state = MockSocketServerState()
+            defer {
+                Darwin.close(listenerFD)
+                unlink(socketPath)
+            }
+
+            let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+                XCTAssertEqual(line, item.expectedCommand)
+                return item.response
+            }
+
+            var environment = ProcessInfo.processInfo.environment
+            environment["CMUX_SOCKET_PATH"] = socketPath
+            environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: item.arguments,
+                environment: environment,
+                timeout: 5
+            )
+
+            wait(for: [serverHandled], timeout: 5)
+            XCTAssertFalse(result.timedOut, "\(item.name): \(result.stderr)")
+            XCTAssertEqual(result.status, 0, "\(item.name): \(result.stderr)")
+            XCTAssertEqual(result.stdout, item.stdout, item.name)
+            XCTAssertTrue(result.stderr.isEmpty, "\(item.name): \(result.stderr)")
+            XCTAssertEqual(state.commands, [item.expectedCommand], item.name)
+        }
+    }
+
     /// App-host CI gives XCTest an isolated Core Foundation home. CLI tests
     /// then supply a narrower HOME for each subprocess. Keep all three user
     /// configuration roots on that per-test home so the inherited app-host

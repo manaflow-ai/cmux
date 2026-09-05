@@ -25,6 +25,7 @@ enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
     case feed
     case dock
     case machines
+    case beads
     case customSidebar = "custom-sidebar"
 
     var label: String {
@@ -35,6 +36,7 @@ enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         case .feed: return String(localized: "rightSidebar.mode.feed", defaultValue: "Feed")
         case .dock: return String(localized: "rightSidebar.mode.dock", defaultValue: "Dock")
         case .machines: return String(localized: "rightSidebar.mode.machines", defaultValue: "Cloud")
+        case .beads: return String(localized: "rightSidebar.mode.beads", defaultValue: "Beads")
         case .customSidebar: return String(localized: "rightSidebar.mode.customSidebar", defaultValue: "Custom")
         }
     }
@@ -48,6 +50,7 @@ enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         case .feed: return "dot.radiowaves.left.and.right"
         case .dock: return "dock.rectangle"
         case .machines: return "cloud"
+        case .beads: return "checklist"
         case .customSidebar: return "wand.and.stars"
         }
     }
@@ -60,6 +63,7 @@ enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         case .feed: return .switchRightSidebarToFeed
         case .dock: return .switchRightSidebarToDock
         case .machines: return .switchRightSidebarToMachines
+        case .beads: return nil
         case .customSidebar: return nil
         }
     }
@@ -85,7 +89,7 @@ enum FileExplorerRootSyncPolicy {
         switch mode {
         case .files, .find:
             return true
-        case .sessions, .feed, .dock, .machines, .customSidebar:
+        case .sessions, .feed, .dock, .machines, .beads, .customSidebar:
             return false
         }
     }
@@ -508,12 +512,41 @@ struct RightSidebarPanelView: View {
                 MachinesPanelView(
                     chromeBackgroundColor: windowAppearance.resolvedChromeBackgroundColor
                 )
+            case .beads:
+                beadsPanel
             case .customSidebar:
                 customSidebarPanel
             }
         } else {
             Color.clear
         }
+    }
+
+    /// Built-in Beads rail (#11707): sibling of Files/Find/Dock. Hosts the
+    /// cmux-beads sidebar without `sidebar open` or custom-on-right.
+    @ViewBuilder
+    private var beadsPanel: some View {
+        VStack(spacing: 6) {
+            Image(systemName: "checklist")
+                .font(.system(size: 20))
+                .foregroundStyle(.tertiary)
+            Text(String(
+                localized: "rightSidebar.beads.empty",
+                defaultValue: "Beads"
+            ))
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            Text(String(
+                localized: "rightSidebar.beads.emptyHint",
+                defaultValue: "Switch here with: cmux right-sidebar set beads"
+            ))
+            .font(.caption)
+            .foregroundStyle(.tertiary)
+            .multilineTextAlignment(.center)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityIdentifier("RightSidebarBeads")
     }
 
     /// Custom mode: mounts the selected `~/.config/cmux/sidebars/<name>.{js,swift,json}`
