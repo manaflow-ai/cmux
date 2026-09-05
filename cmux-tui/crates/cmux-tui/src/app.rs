@@ -19627,7 +19627,11 @@ impl App {
             }
             TerminalInput::FocusLost => {
                 self.prefix_armed = false;
-                let action = if self.cancel_pointer_interaction_with_split_settle(false) {
+                // Focus loss is an intentional end of a local gesture. A
+                // split drag must publish its final coalesced ratio before
+                // the pointer epoch is retired. Remote topology boundaries
+                // use the no-settle invalidation path instead.
+                let action = if self.cancel_pointer_interaction() {
                     RenderAction::Draw
                 } else {
                     RenderAction::None
@@ -23972,7 +23976,6 @@ impl App {
         action_destination: Option<SurfaceId>,
         action_fallback_destination: Option<SurfaceId>,
     ) -> anyhow::Result<RenderAction> {
-        self.cancel_pointer_before_modal();
         if action == Action::SendPrefix && self.workspace_sidebar_focused() {
             self.forward_sidebar_key(prefix.into());
             return Ok(RenderAction::Draw);
@@ -24117,7 +24120,7 @@ impl App {
             Action::ToggleSidebar => {
                 // Visibility changes repack the sidebar. End any gesture
                 // whose rectangles belong to the pre-toggle topology.
-                self.invalidate_pointer_topology_without_split_settle();
+                self.cancel_pointer_before_modal();
                 self.sidebar_visible = !self.sidebar_visible;
                 if !self.sidebar_visible {
                     self.session.invalidate_sidebar_plugin_sync();
@@ -24133,7 +24136,7 @@ impl App {
             Action::ToggleSidebarCompact => {
                 // Compact mode changes rail widths and can move split
                 // dividers. Pointer capture must not cross that boundary.
-                self.invalidate_pointer_topology_without_split_settle();
+                self.cancel_pointer_before_modal();
                 self.sidebar_compact = !self.sidebar_compact;
                 self.sidebar_visible = true;
                 self.rebuild_projection_surface_indexes();
@@ -26118,16 +26121,30 @@ impl App {
             self.menu.as_ref().is_some_and(|menu| menu.scrollbar_drag.is_some());
         let shortcut_help_scrollbar_dragging =
             self.shortcut_help.as_ref().is_some_and(|help| help.scrollbar_drag.is_some());
-        let retained_mouse = self.pending_pointer_motion.is_some()
-            || self
-                .deferred_input
-                .iter()
-                .any(|input| matches!(&input.event, TerminalInput::Mouse(_)));
+        // Passive motion has no frozen hit owner. Keep the latest sample
+        // across a local redraw so it can be routed against the new frame.
+        // Button and wheel events do own a concrete route and must be
+        // consumed before a modal surface can appear.
+        let retained_discrete_mouse = self.deferred_input.iter().any(|input| {
+            matches!(
+                &input.event,
+                TerminalInput::Mouse(MouseEvent {
+                    kind: MouseEventKind::Down(_)
+                        | MouseEventKind::Drag(_)
+                        | MouseEventKind::Up(_)
+                        | MouseEventKind::ScrollUp
+                        | MouseEventKind::ScrollDown
+                        | MouseEventKind::ScrollLeft
+                        | MouseEventKind::ScrollRight,
+                    ..
+                })
+            )
+        });
         if self.drag.is_some()
             || !self.active_pointer_buttons.is_empty()
             || menu_scrollbar_dragging
             || shortcut_help_scrollbar_dragging
-            || retained_mouse
+            || retained_discrete_mouse
         {
             self.cancel_pointer_interaction();
             self.advance_pointer_focus_generation();
