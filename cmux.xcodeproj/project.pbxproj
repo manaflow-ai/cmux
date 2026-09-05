@@ -1459,6 +1459,11 @@
 		BDFCA25C0CE77A299C915E26 /* GhosttyOptionAsAltModsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F34462AE2F2EECEF5298031 /* GhosttyOptionAsAltModsTests.swift */; };
 		3069F1D10000000000000003 /* GhosttyPasteboardFidelityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3069F1D10000000000000004 /* GhosttyPasteboardFidelityTests.swift */; };
 		7269A0017269A0017269A001 /* GhosttyPhysicalInputFocusReassertionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7269A0027269A0027269A002 /* GhosttyPhysicalInputFocusReassertionTests.swift */; };
+		A10200000000000000000001 /* GhosttyPointerStyleIngress.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10200000000000000000002 /* GhosttyPointerStyleIngress.swift */; };
+		A10500000000000000000001 /* GhosttyPointerStyleIngressEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10500000000000000000002 /* GhosttyPointerStyleIngressEvent.swift */; };
+		A10400000000000000000001 /* GhosttyPointerStyleIngressPendingState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10400000000000000000002 /* GhosttyPointerStyleIngressPendingState.swift */; };
+		A10300000000000000000001 /* GhosttyPointerStyleIngressRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10300000000000000000002 /* GhosttyPointerStyleIngressRequest.swift */; };
+		A10600000000000000000001 /* GhosttyPointerStyleIngressRuntimePending.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10600000000000000000002 /* GhosttyPointerStyleIngressRuntimePending.swift */; };
 		5C0011AA0000000000000001 /* GhosttyScrollPreciseBoostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C0011AA0000000000000002 /* GhosttyScrollPreciseBoostTests.swift */; };
 		816400000000000000000001 /* GhosttyScrollView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 816400000000000000000002 /* GhosttyScrollView.swift */; };
 		816400000000000000000003 /* GhosttyScrollViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 816400000000000000000004 /* GhosttyScrollViewTests.swift */; };
@@ -2838,6 +2843,7 @@
 		B88359000000000000000001 /* TerminalPastePreparationWorkerSupervisor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88359000000000000000002 /* TerminalPastePreparationWorkerSupervisor.swift */; };
 		2681A216F02BEE5AD12CE00D /* TerminalPastePreparationWorkerTextPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = B85403EFC95DBB4FA4AE9CE7 /* TerminalPastePreparationWorkerTextPayload.swift */; };
 		F87910110000000000000001 /* TerminalPendingConfigurationReload.swift in Sources */ = {isa = PBXBuildFile; fileRef = F87910110000000000000002 /* TerminalPendingConfigurationReload.swift */; };
+		873900010000000000000001 /* TerminalPointerStyleViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 873900010000000000000002 /* TerminalPointerStyleViewTests.swift */; };
 		9612A0010000000000000001 /* TerminalPortalReconciliation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9612B0010000000000000001 /* TerminalPortalReconciliation.swift */; };
 		D0F101000000000000000003 /* TerminalRawMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0F101000000000000000013 /* TerminalRawMode.swift */; };
 		D5671001D5671001D5671001 /* TerminalScrollSpeedSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5671002D5671002D5671002 /* TerminalScrollSpeedSettings.swift */; };
@@ -4685,6 +4691,11 @@
 		4F34462AE2F2EECEF5298031 /* GhosttyOptionAsAltModsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyOptionAsAltModsTests.swift; sourceTree = "<group>"; };
 		3069F1D10000000000000004 /* GhosttyPasteboardFidelityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyPasteboardFidelityTests.swift; sourceTree = "<group>"; };
 		7269A0027269A0027269A002 /* GhosttyPhysicalInputFocusReassertionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyPhysicalInputFocusReassertionTests.swift; sourceTree = "<group>"; };
+		A10200000000000000000002 /* GhosttyPointerStyleIngress.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyPointerStyleIngress.swift; sourceTree = "<group>"; };
+		A10500000000000000000002 /* GhosttyPointerStyleIngressEvent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyPointerStyleIngressEvent.swift; sourceTree = "<group>"; };
+		A10400000000000000000002 /* GhosttyPointerStyleIngressPendingState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyPointerStyleIngressPendingState.swift; sourceTree = "<group>"; };
+		A10300000000000000000002 /* GhosttyPointerStyleIngressRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyPointerStyleIngressRequest.swift; sourceTree = "<group>"; };
+		A10600000000000000000002 /* GhosttyPointerStyleIngressRuntimePending.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyPointerStyleIngressRuntimePending.swift; sourceTree = "<group>"; };
 		5C0011AA0000000000000002 /* GhosttyScrollPreciseBoostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyScrollPreciseBoostTests.swift; sourceTree = "<group>"; };
 		816400000000000000000002 /* GhosttyScrollView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyScrollView.swift; sourceTree = "<group>"; };
 		816400000000000000000004 /* GhosttyScrollViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyScrollViewTests.swift; sourceTree = "<group>"; };
@@ -6048,6 +6059,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		B88359000000000000000002 /* TerminalPastePreparationWorkerSupervisor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPastePreparationWorkerSupervisor.swift; sourceTree = "<group>"; };
 		B85403EFC95DBB4FA4AE9CE7 /* TerminalPastePreparationWorkerTextPayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPastePreparationWorkerTextPayload.swift; sourceTree = "<group>"; };
 		F87910110000000000000002 /* TerminalPendingConfigurationReload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPendingConfigurationReload.swift; sourceTree = "<group>"; };
+		873900010000000000000002 /* TerminalPointerStyleViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPointerStyleViewTests.swift; sourceTree = "<group>"; };
 		9612B0010000000000000001 /* TerminalPortalReconciliation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPortalReconciliation.swift; sourceTree = "<group>"; };
 		D0F101000000000000000013 /* TerminalRawMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalRawMode.swift; sourceTree = "<group>"; };
 		D5671002D5671002D5671002 /* TerminalScrollSpeedSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/TerminalScrollSpeedSettings.swift; sourceTree = "<group>"; };
@@ -7002,6 +7014,11 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				468110000000000000000004 /* GhosttyTitleUpdateDispatcher.swift */,
 				A10507000000000000000006 /* GhosttyTitleUpdateDeadline.swift */,
 				46811000000000000000000C /* GhosttyTitleUpdateIngress.swift */,
+				A10200000000000000000002 /* GhosttyPointerStyleIngress.swift */,
+				A10300000000000000000002 /* GhosttyPointerStyleIngressRequest.swift */,
+				A10400000000000000000002 /* GhosttyPointerStyleIngressPendingState.swift */,
+				A10500000000000000000002 /* GhosttyPointerStyleIngressEvent.swift */,
+				A10600000000000000000002 /* GhosttyPointerStyleIngressRuntimePending.swift */,
 				46814000000000000000000A /* GhosttyTitleUpdateSurfaceKey.swift */,
 				46814000000000000000000C /* GhosttyTitleUpdateSurfaceState.swift */,
 				D7C6F5010000000000000001 /* GhosttyTitleChangeSubscription.swift */,
@@ -9193,6 +9210,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				DE71CE000000000000000005 /* MobileHostNetworkPathRefreshTests.swift */,
 				AA5269A0C0DE0003FACE0003 /* ForeignFirstResponderPolicyTests.swift */,
 				F1C1AA20B7E84D10A1C10001 /* InactivePaneFirstClickFocusTests.swift */,
+				873900010000000000000002 /* TerminalPointerStyleViewTests.swift */,
 				FA000001A1B2C3D4E5F60718 /* WorkspaceStressProfileTests.swift */,
 				A5008380 /* BrowserFindJavaScriptTests.swift */,
 				C2B6A97D1F2E4C71A8B9D002 /* BrowserOmnibarPerformanceSupportTests.swift */,
@@ -11226,6 +11244,11 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C75100010000000000000001 /* GhosttyNSView+SelectionTranslation.swift in Sources */,
 				EC010E01 /* GhosttyNSView+TerminalCustomUpload.swift in Sources */,
 				C54860070000000000000001 /* GhosttyNSViewSurfaceLinkCopy.swift in Sources */,
+				A10200000000000000000001 /* GhosttyPointerStyleIngress.swift in Sources */,
+				A10500000000000000000001 /* GhosttyPointerStyleIngressEvent.swift in Sources */,
+				A10400000000000000000001 /* GhosttyPointerStyleIngressPendingState.swift in Sources */,
+				A10300000000000000000001 /* GhosttyPointerStyleIngressRequest.swift in Sources */,
+				A10600000000000000000001 /* GhosttyPointerStyleIngressRuntimePending.swift in Sources */,
 				816400000000000000000001 /* GhosttyScrollView.swift in Sources */,
 				B8835700000000000000000F /* GhosttySurfaceCallbackContext+ClipboardInputSequencing.swift in Sources */,
 				B84BD7AD94EE485B8DDAB6FF /* GhosttySurfaceConfigurationRefresh.swift in Sources */,
@@ -13424,6 +13447,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A5E380700000000000000001 /* TerminalNotificationSocketActionTests.swift in Sources */,
 				11189010A1B2C3D4E5F60718 /* TerminalNotificationSocketAttributionTests.swift in Sources */,
 				596100000000000000000007 /* TerminalNotificationStore+NativeNotificationDeliveryTesting.swift in Sources */,
+				873900010000000000000001 /* TerminalPointerStyleViewTests.swift in Sources */,
 				D5671101D5671101D5671101 /* TerminalScrollSpeedSettingsFileStoreTests.swift in Sources */,
 				222425EC9FE2E318D8F6F46A /* TerminalSearchNavigationTests.swift in Sources */,
 				C0DE53360000000000000001 /* TerminalSearchOverlayMouseReleaseTests.swift in Sources */,

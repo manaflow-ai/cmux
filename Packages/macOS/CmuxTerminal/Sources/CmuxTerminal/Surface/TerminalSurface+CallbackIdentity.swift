@@ -1,3 +1,4 @@
+public import Foundation
 public import CmuxTerminalCore
 
 extension TerminalSurface {
@@ -12,5 +13,12 @@ extension TerminalSurface {
         _ callbackContext: GhosttySurfaceCallbackContext
     ) -> Bool {
         surfaceCallbackContext?.takeUnretainedValue() === callbackContext
+    }
+
+    /// Returns whether a runtime lifetime id still owns this surface's callback slot.
+    @MainActor
+    public func isActiveRuntimeLifetime(_ runtimeLifetimeId: UUID) -> Bool {
+        surfaceCallbackContext?.takeUnretainedValue().runtimeLifetimeId
+            == runtimeLifetimeId
     }
 }

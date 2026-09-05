@@ -63,6 +63,9 @@ public final class GhosttySurfaceCallbackContext {
     /// The stable identity of the surface this context was created for.
     public let surfaceId: UUID
 
+    /// The pointer-ingress generation assigned to this runtime lifetime before
+    /// its native constructor can emit callbacks.
+    public private(set) var runtimeGeneration: UInt64 = 0
     /// The model identity used to authenticate callbacks from this runtime.
     public let sourceSurfaceIdentifier: ObjectIdentifier
 
@@ -71,6 +74,9 @@ public final class GhosttySurfaceCallbackContext {
 
     /// The immutable title that overrides runtime OSC title updates, if any.
     public let titleOverride: String?
+
+    /// The unique native runtime lifetime represented by this callback context.
+    public let runtimeLifetimeId: UUID
 
     /// Runs after renderer activity consumes an armed presentation repair.
     private let rendererMailboxDidDrainHandler: @Sendable (UUID) -> Void
@@ -95,6 +101,7 @@ public final class GhosttySurfaceCallbackContext {
     ///     native runtime surface.
     ///   - titleOverride: An immutable title derived from the runtime's launch
     ///     metadata, or `nil` to use Ghostty's OSC title updates.
+    ///   - runtimeLifetimeId: A unique identity for this native runtime.
     ///   - rendererMailboxDidDrain: Called with only the stable surface id after
     ///     an armed repair observes renderer activity following a mailbox drain.
     ///   - maximumRuntimeClipboardRequests: Maximum simultaneous native
@@ -104,6 +111,7 @@ public final class GhosttySurfaceCallbackContext {
         surfaceController: any TerminalSurfaceControlling,
         terminalLifecycleID: UUID,
         titleOverride: String? = nil,
+        runtimeLifetimeId: UUID = UUID(),
         rendererMailboxDidDrain: @escaping @Sendable (UUID) -> Void = { _ in },
         maximumRuntimeClipboardRequests: Int = 32
     ) {
@@ -113,6 +121,7 @@ public final class GhosttySurfaceCallbackContext {
         self.sourceSurfaceIdentifier = ObjectIdentifier(surfaceController)
         self.terminalLifecycleID = terminalLifecycleID
         self.titleOverride = titleOverride
+        self.runtimeLifetimeId = runtimeLifetimeId
         self.rendererMailboxDidDrainHandler = rendererMailboxDidDrain
         self.maximumRuntimeClipboardRequests = max(
             0,
@@ -142,6 +151,17 @@ public final class GhosttySurfaceCallbackContext {
         ) else { return false }
         rendererMailboxDidDrainHandler(surfaceId)
         return true
+    }
+
+    /// Binds the callback context to its pointer-ingress generation.
+    ///
+    /// This is called during runtime setup, before ``ghostty_surface_new``;
+    /// keeping the generation on the context prevents delayed callbacks from
+    /// inheriting a later runtime's global generation.
+    ///
+    /// - Parameter generation: The generation returned by the view's ingress.
+    public func installPointerIngressGeneration(_ generation: UInt64) {
+        runtimeGeneration = generation
     }
 
     /// Binds this callback context to the native surface that owns its userdata.
