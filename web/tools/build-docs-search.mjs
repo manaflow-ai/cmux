@@ -1,5 +1,6 @@
+import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { access, cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as ts from "typescript";
@@ -16,6 +17,10 @@ const projectRoot = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
 const repoRoot = path.resolve(projectRoot, "..");
 const siteDir = path.join(projectRoot, ".pagefind-site");
 const outputDir = path.join(projectRoot, "public", "pagefind");
+const cacheDir = path.join(projectRoot, ".next", "cache", "cmux-docs-search");
+const cacheOutputDir = path.join(cacheDir, "pagefind");
+const cacheManifestPath = path.join(cacheDir, "manifest");
+const pagefindCacheVersion = "pagefind-1.5.2";
 const rawMessagesCache = new Map();
 const mergedMessagesCache = new Map();
 
@@ -81,11 +86,36 @@ async function main() {
   await rm(outputDir, { force: true, recursive: true });
   await mkdir(siteDir, { recursive: true });
 
-  const pages = await docsSearchPages(docsSearchChannel());
+  const channel = docsSearchChannel();
+  const pages = await docsSearchPages(channel);
+  const htmlByPath = new Map(pages.map((page) => [page.path, pageHtml(page)]));
+  const fingerprint = createHash("sha256")
+    .update(pagefindCacheVersion)
+    .update("\0")
+    .update(channel)
+    .update("\0")
+    .update(
+      pages
+        .map((page) => `${page.path}\0${htmlByPath.get(page.path) ?? ""}`)
+        .join("\0"),
+    )
+    .digest("hex");
 
   try {
-    await Promise.all(pages.map(writePageHtml));
-    await runPagefind();
+    const cachedFingerprint = await readFile(cacheManifestPath, "utf8").catch(() => "");
+    if (cachedFingerprint === fingerprint && await pathExists(cacheOutputDir)) {
+      await cp(cacheOutputDir, outputDir, { recursive: true, force: true });
+      console.log(`Docs search index restored for ${pages.length} localized pages`);
+    } else {
+      await Promise.all(
+        pages.map((page) => writePageHtml(page, htmlByPath.get(page.path) ?? "")),
+      );
+      await runPagefind();
+      await mkdir(cacheDir, { recursive: true });
+      await rm(cacheOutputDir, { force: true, recursive: true });
+      await cp(outputDir, cacheOutputDir, { recursive: true });
+      await writeFile(cacheManifestPath, fingerprint, "utf8");
+    }
     const elapsedSeconds = ((Date.now() - startedAt) / 1000).toFixed(2);
     console.log(
       `Docs search index built for ${pages.length} localized pages in ${elapsedSeconds}s`,
@@ -605,10 +635,19 @@ async function changelogSearchText() {
   return uniqueText([...markdownText, ...mediaText]);
 }
 
-async function writePageHtml(page) {
+async function writePageHtml(page, html) {
   const filePath = path.join(siteDir, page.path.slice(1), "index.html");
   await mkdir(path.dirname(filePath), { recursive: true });
-  await writeFile(filePath, pageHtml(page));
+  await writeFile(filePath, html);
+}
+
+async function pathExists(filePath) {
+  try {
+    await access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function pageHtml(page) {
