@@ -374,8 +374,15 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         refreshGeneration &+= 1
         changeWatcher?.cancel()
         changeWatcher = nil
-        refreshDebounce?.cancel()
-        refreshDebounce = nil
+        watchedLink = nil
+        changeWatcherID = nil
+        scheduledRefresh?.cancel()
+        scheduledRefresh = nil
+        stateRecoveryRefreshTask?.cancel()
+        stateRecoveryRefreshTask = nil
+        stateRecoveryRefreshQueued = false
+        stateRecoveryCount = 0
+        eventsFeedWarning = nil
         for session in manualMirrorSessions.values { session.stop() }
         manualMirrorSessions.removeAll()
         manualMirrorSurfaceIDsSocketPath = nil
@@ -445,6 +452,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         // successful empty scan is authoritative and must not be repopulated
         // by the later link-failure fallback.
         var resourcesToPreserveAfterPortScan = scannedPorts == nil ? previousResources : preservedNonPortResources
+        var currentPorts = scannedPorts ?? []
         resources.append(contentsOf: Self.portResources(
             machine: machine,
             scannedPorts: scannedPorts,
@@ -496,6 +504,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 privateAddress: privateAddress
             ) {
                 guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
+                currentPorts = refreshedPorts
                 resources.removeAll { $0.id.isForwardedPort }
                 resources.append(contentsOf: Self.portResources(
                     machine: machine,
