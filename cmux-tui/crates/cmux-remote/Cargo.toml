@@ -11,7 +11,7 @@ description = "Authenticated remote daemon, transports, and workspace services f
 workspace = true
 
 [features]
-default = ["iroh-transport"]
+default = []
 iroh-transport = ["dep:iroh"]
 
 [dependencies]

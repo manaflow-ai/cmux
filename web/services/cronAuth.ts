@@ -1,4 +1,4 @@
-import { timingSafeEqual } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 
 /**
  * Shared authentication for cron-triggered routes (Vercel Cron and any
@@ -25,10 +25,10 @@ export function authorizeCronRequest(request: Request): CronAuthResult {
   const token = authorization.toLowerCase().startsWith("bearer ")
     ? authorization.slice("bearer ".length).trim()
     : "";
-  const tokenBytes = Buffer.from(token);
-  const secretBytes = Buffer.from(secret);
-  const matches =
-    tokenBytes.length === secretBytes.length &&
-    timingSafeEqual(tokenBytes, secretBytes);
+  // Compare fixed-length digests so a malformed token cannot reveal the
+  // configured secret length before the constant-time comparison.
+  const tokenDigest = createHash("sha256").update(token).digest();
+  const secretDigest = createHash("sha256").update(secret).digest();
+  const matches = timingSafeEqual(tokenDigest, secretDigest);
   return matches ? { ok: true } : { ok: false, reason: "unauthorized" };
 }

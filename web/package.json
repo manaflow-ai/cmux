@@ -23,6 +23,7 @@
     "devbox:bake:freestyle": "bun scripts/build-devbox-freestyle.ts",
     "devbox:verify": "bun scripts/verify-devbox-image.ts",
     "devbox:promote": "bun scripts/promote-devbox-image.ts",
+    "devbox:manifest:check": "bun scripts/validate-devbox-ladder.ts",
     "devbox:probe:busybox": "bun scripts/probe-busybox-cmux-tui.ts",
     "db:check": "bunx drizzle-kit check --config drizzle.config.ts",
     "db:down": "bash scripts/db-local.sh down",
