@@ -1405,6 +1405,9 @@ final class WindowTerminalPortal: NSObject {
         if !Self.rectApproximatelyEqual(dividerOverlayView.frame, hostView.bounds) {
             dividerOverlayView.frame = hostView.bounds
         }
+#if DEBUG
+        RemoteTmuxSizingDiagnostics.dividerOverlayRepaintCount += 1
+#endif
         dividerOverlayView.needsDisplay = true
 
         if paneSwapOverlayView.superview !== hostView {
