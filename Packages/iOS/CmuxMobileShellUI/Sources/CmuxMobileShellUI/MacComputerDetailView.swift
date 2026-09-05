@@ -122,8 +122,7 @@ struct MacComputerDetailView: View {
     }
     var body: some View {
         Form {
-            if let listAuthEntry,
-               listAuthEntry.status == "seeded" || listAuthEntry.isOutdated {
+            if let listAuthEntry, listAuthEntry.isOutdated {
                 MacComputerCompatibilitySection(entry: listAuthEntry)
             }
             connectionMethodSection
@@ -390,7 +389,12 @@ struct MacComputerDetailView: View {
             )]
         }
         if let registryEntry = thisMacPrivateNetworkRegistryEntry {
-            return [registryEntry]
+            return [.init(
+                macDeviceID: registryEntry.macDeviceID,
+                instanceTag: registryEntry.instanceTag,
+                displayName: displayTitle,
+                supportsPrivatePaths: registryEntry.supportsPrivatePaths
+            )]
         }
         return []
     }
@@ -1332,10 +1336,9 @@ struct MacComputerDetailView: View {
     }
 }
 
-/// Persistent explanation for a Mac that has not confirmed the current
-/// control plane or is below the server-advertised version floor. This is a
-/// separate view so the detail form's other state does not share this section's
-/// invalidation boundary.
+/// Persistent explanation for a Mac whose remembered build is below the
+/// server-advertised version floor. This is a separate view so the detail
+/// form's other state does not share this section's invalidation boundary.
 private struct MacComputerCompatibilitySection: View {
     let entry: MobileMacListAuthState.Entry
 
@@ -1359,33 +1362,19 @@ private struct MacComputerCompatibilitySection: View {
     }
 
     private var warningTitle: String {
-        if entry.isOutdated {
-            return L10n.string(
-                "computers.version.outdated.title",
-                defaultValue: "Mac update required"
-            )
-        }
         return L10n.string(
-            "computers.listauth.unverified.title",
-            defaultValue: "Not verified on the new connection system yet"
+            "computers.version.outdated.title",
+            defaultValue: "Mac update required"
         )
     }
 
     private var warningMessage: String {
-        if entry.isOutdated,
-           let installed = entry.appVersion,
-           let required = entry.minimumSupportedVersion {
-            let updateMessage = L10n.string(
-                "computers.version.outdated.detail",
-                defaultValue: "This Mac is running %@. Update it to %@ or later."
-            )
-            return String(format: updateMessage, installed, required)
-        }
-        return L10n.string(
-            "computers.listauth.unverified.detail",
-            defaultValue:
-                "It may be running an older cmux version. Update the Mac, or if it's already updated, open cmux on it once to verify."
-        )
+        guard let required = entry.minimumSupportedVersion else { return "" }
+        let requirement = "cmux \(required) or later"
+        return String(format: L10n.string(
+            "mobile.macUpdate.requiredOnMacFormat",
+            defaultValue: "Requires %@ on your Mac."
+        ), requirement)
     }
 }
 

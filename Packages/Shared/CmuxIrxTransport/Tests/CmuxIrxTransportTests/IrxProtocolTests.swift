@@ -5,6 +5,25 @@ import Testing
 
 @Suite("irx wire protocol")
 struct IrxProtocolTests {
+    @Test("deadline returns when the operation ignores cancellation")
+    func deadlineReturnsWhenOperationIgnoresCancellation() async throws {
+        let gate = IrxDeadlineGate()
+        let startedAt = DispatchTime.now().uptimeNanoseconds
+
+        let result = try await withIrxDeadline(.milliseconds(20), onTimeout: {
+            await gate.open()
+        }) {
+            await gate.wait()
+            await gate.markFinished()
+            return "late"
+        }
+
+        let elapsed = DispatchTime.now().uptimeNanoseconds - startedAt
+        #expect(result == nil)
+        #expect(elapsed < 100_000_000)
+        await gate.waitUntilFinished()
+    }
+
     @Test("control frames round-trip through the codec")
     func controlFrameRoundTrip() throws {
         let hello = IrxHello(grant: "grant.jws.value")
@@ -152,5 +171,51 @@ struct IrxIdentityTests {
         let signature = try identity.sign(message)
         #expect(signature.count == 64)
         try? FileManager.default.removeItem(at: dir)
+    }
+}
+
+@Suite("endpoint path policy")
+struct IrxEndpointPathPolicyTests {
+    @Test("automatic dials carry direct candidates and relay-only dials strip them")
+    func dialAddressPolicy() throws {
+        let identity = IrxIdentity(
+            privateKeyData: Data(repeating: 7, count: 32),
+            deviceID: "device-a",
+            appInstanceID: "instance-a"
+        )
+        let directAddresses = ["127.0.0.1:58470", "[::1]:58470"]
+        let automatic = IrxEndpointSupervisor(
+            configuration: IrxEndpointConfiguration(
+                identity: identity,
+                pathMode: .automatic,
+                initialRemoteBiStreams: 0,
+                initialRemoteUniStreams: 0
+            ),
+            journal: IrxJournal(subsystem: "dev.cmux.tests", category: "irx-paths")
+        )
+        let relayOnly = IrxEndpointSupervisor(
+            configuration: IrxEndpointConfiguration(
+                identity: identity,
+                pathMode: .relayOnly,
+                initialRemoteBiStreams: 0,
+                initialRemoteUniStreams: 0
+            ),
+            journal: IrxJournal(subsystem: "dev.cmux.tests", category: "irx-paths")
+        )
+
+        #expect(
+            try automatic.dialAddress(
+                peerEndpointIDHex: identity.endpointIDHex,
+                relayURL: "https://relay.example.com/",
+                directAddresses: directAddresses
+            ).directAddresses() == directAddresses
+        )
+        #expect(
+            try relayOnly.dialAddress(
+                peerEndpointIDHex: identity.endpointIDHex,
+                relayURL: "https://relay.example.com/",
+                directAddresses: directAddresses
+            ).directAddresses().isEmpty
+        )
     }
 }

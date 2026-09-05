@@ -151,6 +151,71 @@ jobs:
           npm run build
           npm test
 
+  lint:
+    name: lint (${{ matrix.os }})
+    needs: validate-inputs
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos
+            runner: blacksmith-6vcpu-macos-15
+          - os: linux
+            runner: blacksmith-4vcpu-ubuntu-2404
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.commit }}
+
+      - name: Require exact checkout
+        env:
+          EXACT_COMMIT: ${{ inputs.commit }}
+        run: test "$(git rev-parse HEAD)" = "$EXACT_COMMIT"
+
+      - name: Init ghostty submodule
+        run: git submodule update --init --depth 1 ghostty
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev pkg-config
+
+      - name: Install zig
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: cargo fmt
+        id: rustfmt-check
+        working-directory: cmux-tui
+        run: cargo fmt --check
+
+      - name: Prepare hosted rustfmt patch
+        if: ${{ failure() && steps.rustfmt-check.outcome == 'failure' }}
+        working-directory: cmux-tui
+        run: |
+          cargo fmt
+          git diff --binary -- . > "$RUNNER_TEMP/rustfmt.patch"
+          test -s "$RUNNER_TEMP/rustfmt.patch"
+
+      - name: Upload hosted rustfmt patch
+        if: ${{ failure() && steps.rustfmt-check.outcome == 'failure' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: rustfmt-${{ matrix.os }}-${{ github.sha }}
+          path: ${{ runner.temp }}/rustfmt.patch
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: cargo clippy
+        working-directory: cmux-tui
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
   valgrind-leak-check-shard:
     name: valgrind-leak-check (startup)
     needs: validate-inputs
@@ -400,34 +465,6 @@ jobs:
 
       - name: Test isolated TUI test-runner policy
         run: python3 .github/scripts/test_run_cmux_tui_core_tests_isolated.py
-
-      - name: cargo fmt
-        id: rustfmt-check
-        working-directory: cmux-tui
-        run: cargo fmt --check
-
-      - name: Prepare hosted rustfmt patch
-        if: ${{ failure() && steps.rustfmt-check.outcome == 'failure' }}
-        working-directory: cmux-tui
-        run: |
-          cargo fmt
-          git diff --binary -- . > "$RUNNER_TEMP/rustfmt.patch"
-          test -s "$RUNNER_TEMP/rustfmt.patch"
-
-      - name: Upload hosted rustfmt patch
-        if: ${{ failure() && steps.rustfmt-check.outcome == 'failure' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: rustfmt-${{ runner.os }}-${{ github.sha }}
-          path: ${{ runner.temp }}/rustfmt.patch
-          if-no-files-found: error
-          retention-days: 1
-
-      # Lint in every hosted mode. When this ran only in full mode, warnings
-      # accumulated on main unnoticed because the full lane was rarely used.
-      - name: cargo clippy
-        working-directory: cmux-tui
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
       - name: focused Linux journal process-fence test
         if: inputs.mode == 'focused' && runner.os == 'Linux'
@@ -780,6 +817,7 @@ jobs:
     if: always()
     needs:
       - validate-inputs
+      - lint
       - msrv-check
       - web-frontend
       - valgrind-leak-check
@@ -793,6 +831,7 @@ jobs:
     env:
       MODE: ${{ inputs.mode }}
       VALIDATE_RESULT: ${{ needs.validate-inputs.result }}
+      LINT_RESULT: ${{ needs.lint.result }}
       MSRV_RESULT: ${{ needs.msrv-check.result }}
       WEB_RESULT: ${{ needs.web-frontend.result }}
       VALGRIND_RESULT: ${{ needs.valgrind-leak-check.result }}
@@ -815,6 +854,7 @@ jobs:
           }
 
           require_success "input validation" "$VALIDATE_RESULT"
+          require_success "lint" "$LINT_RESULT"
           require_success "Rust MSRV check" "$MSRV_RESULT"
           require_success "Rust tests" "$TEST_RESULT"
           if [[ "$MODE" == "full" ]]; then

@@ -4700,10 +4700,11 @@ final class cmuxUITests: XCTestCase {
         }
     }
 
-    /// The Composer pill scroller must clip between its neighboring controls;
-    /// its pills retain readable intrinsic widths and scroll behind hard edges.
+    /// The Composer pill scroller must keep readable intrinsic widths while
+    /// staying between its neighboring fixed controls. Its UIKit-owned alpha
+    /// mask dissolves pills at both viewport edges on every iOS version.
     @MainActor
-    func testTaskComposerComposerPillScrollerUsesHardEdges() throws {
+    func testTaskComposerComposerPillScrollerUsesScrollEdgeEffect() throws {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
         ])
@@ -4719,15 +4720,19 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(scroller.waitForExistence(timeout: 3))
         XCTAssertTrue(submit.waitForExistence(timeout: 3))
 
-        XCTAssertGreaterThanOrEqual(
+        let attachmentButton = app.buttons["MobileTaskComposerAttachmentButton"]
+        let leadingFixedControl = attachmentButton.exists ? attachmentButton : options
+        XCTAssertEqual(
             scroller.frame.minX,
-            options.frame.maxX,
-            "The scroller must begin after the fixed options control"
+            leadingFixedControl.frame.maxX,
+            accuracy: 1,
+            "The scroller must start flush at the leading control edge"
         )
-        XCTAssertLessThanOrEqual(
+        XCTAssertEqual(
             scroller.frame.maxX,
             submit.frame.minX,
-            "The scroller must end before the fixed submit control"
+            accuracy: 1,
+            "The scroller must end flush at the trailing control edge"
         )
 
         let agentPill = app.buttons["MobileTaskComposerAgentPill"]
@@ -4739,8 +4744,8 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(modelPill.waitForExistence(timeout: 3))
         tap(modelPill, in: app)
         tapMenuItem(app.buttons["Claude Opus 4.8"], in: app)
-        XCTAssertGreaterThanOrEqual(scroller.frame.minX, options.frame.maxX)
-        XCTAssertLessThanOrEqual(scroller.frame.maxX, submit.frame.minX)
+        XCTAssertEqual(scroller.frame.minX, leadingFixedControl.frame.maxX, accuracy: 1)
+        XCTAssertEqual(scroller.frame.maxX, submit.frame.minX, accuracy: 1)
         XCTAssertGreaterThanOrEqual(modelPill.frame.minX, scroller.frame.minX)
         XCTAssertGreaterThan(
             modelPill.frame.width,
@@ -4756,7 +4761,7 @@ final class cmuxUITests: XCTestCase {
         )
 
         let attachment = XCTAttachment(screenshot: app.screenshot())
-        attachment.name = "task-composer-hard-scroll-edges"
+        attachment.name = "task-composer-scroll-edge-effect"
         attachment.lifetime = .keepAlways
         add(attachment)
     }
@@ -5055,20 +5060,29 @@ final class cmuxUITests: XCTestCase {
         } else {
             leadingFixedControl = options
         }
-        XCTAssertGreaterThanOrEqual(
+        XCTAssertEqual(
             scroller.frame.minX,
             leadingFixedControl.frame.maxX,
-            "The pill viewport must begin after the fixed leading controls"
+            accuracy: 1,
+            "The pill viewport must start flush at the leading control edge"
         )
-        XCTAssertLessThanOrEqual(
+        XCTAssertEqual(
             scroller.frame.maxX,
             create.frame.minX,
-            "The pill viewport must end before the fixed submit control"
+            accuracy: 1,
+            "The pill viewport must end flush at the submit control edge"
         )
 
-        XCTAssertGreaterThanOrEqual(model.frame.midX, scroller.frame.minX)
-        XCTAssertLessThanOrEqual(model.frame.maxX, scroller.frame.maxX)
-        XCTAssertLessThanOrEqual(model.frame.maxX, create.frame.minX)
+        XCTAssertLessThan(
+            model.frame.minX,
+            scroller.frame.maxX,
+            "The selected model must intersect the bounded pill viewport"
+        )
+        XCTAssertGreaterThan(
+            model.frame.maxX,
+            scroller.frame.minX,
+            "The selected model must intersect the bounded pill viewport"
+        )
         XCTAssertTrue(model.isHittable)
 
         let navigationBar = app.navigationBars.firstMatch
@@ -5099,7 +5113,7 @@ final class cmuxUITests: XCTestCase {
     }
 
     /// The fully populated production row must group its two leading utilities
-    /// while only the provider/model viewport absorbs width pressure.
+    /// while the pill viewport stays between both edge controls.
     @MainActor
     func testTaskComposerAccessibilityXXXLKeepsAttachmentAndEdgeControlsVisible() throws {
         let app = launchApp(
@@ -5146,8 +5160,8 @@ final class cmuxUITests: XCTestCase {
             1,
             "Task Options and Add Attachment should read as one compact utility group"
         )
-        XCTAssertGreaterThanOrEqual(scroller.frame.minX - attachment.frame.maxX, 9)
-        XCTAssertGreaterThanOrEqual(submit.frame.minX - scroller.frame.maxX, 9)
+        XCTAssertEqual(scroller.frame.minX, attachment.frame.maxX, accuracy: 1)
+        XCTAssertEqual(scroller.frame.maxX, submit.frame.minX, accuracy: 1)
         XCTAssertGreaterThan(scroller.frame.width, 0)
 
         print(
@@ -6513,6 +6527,42 @@ final class cmuxUITests: XCTestCase {
             object: send
         )
         XCTAssertEqual(XCTWaiter.wait(for: [normalSend], timeout: 4), .completed)
+    }
+
+    /// The terminal keyboard toggle and the composer attachment control share
+    /// the same leading guide, so the two bottom-dock controls read as one
+    /// aligned column when the keyboard is visible.
+    @MainActor
+    func testTerminalKeyboardToggleAlignsWithComposerAttachment() throws {
+        // Use the deterministic workspace-detail fixture instead of a mock
+        // network attach, so this geometry assertion is isolated from pairing
+        // and simulator loopback timing.
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_DETAIL_DELAYED_TERMINAL": "1",
+            "CMUX_MOBILE_SOAK_OPEN_SELECTED_WORKSPACE": "1",
+        ])
+        defer { app.terminate() }
+
+        XCTAssertTrue(app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 12))
+        let composerField = app.descendants(matching: .any)[Composer.field]
+        XCTAssertTrue(composerField.waitForExistence(timeout: 8))
+        composerField.tap()
+        XCTAssertTrue(
+            app.keyboards.firstMatch.waitForExistence(timeout: 8),
+            "Keyboard must be visible before checking the terminal accessory control"
+        )
+
+        let keyboardToggle = app.buttons["terminal.inputAccessory.hideKeyboard"]
+        let attachment = app.descendants(matching: .any)[Composer.attachButton]
+        XCTAssertTrue(keyboardToggle.waitForExistence(timeout: 8))
+        XCTAssertTrue(attachment.waitForExistence(timeout: 8))
+
+        XCTAssertEqual(
+            keyboardToggle.frame.minX,
+            attachment.frame.minX,
+            accuracy: 1,
+            "Terminal keyboard toggle and composer attachment must share the leading guide"
+        )
     }
 
     /// Freeze fuzzing for the keyboard + layout interactions, modeled on

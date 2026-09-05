@@ -549,7 +549,7 @@ private struct MobileIrohCooldownFixture {
                 customRelayCredentials: customRelayCredentials,
                 relayPolicyTrustRoot: relayPolicyTrustRoot,
                 endpointFactory: endpointFactory,
-                brokerFactory: { _, _ in broker },
+                brokerFactory: { _, _, _ in broker },
                 brokerBackpressureGate: CmxIrohBrokerBackpressureGate(
                     store: CmxIrohUserDefaultsInstallStateStore(defaults: defaults),
                     now: { clock.now() }
@@ -899,14 +899,12 @@ private actor MobileIrohCooldownBroker:
         totalRequests += 1
     }
 
-    func revokeStale(bindingID _: String) async throws {
+    func revokeStale(bindingID _: String) {
         totalRequests += 1
-        throw MobileIrohCooldownTestError.unavailable
     }
 
-    func forgetMac(bindingID _: String) async throws {
+    func forgetMac(bindingID _: String) {
         totalRequests += 1
-        throw MobileIrohCooldownTestError.unavailable
     }
 
     func issueRelayBootstrap(

@@ -22,6 +22,11 @@
       "title": "Требуется cmux Pro",
       "message": "Для Cloud VM требуется план cmux Pro.",
       "action": "Перейдите на cmux Pro на {upgradeUrl}, чтобы создавать Cloud VM."
+    },
+    "sharedResource": {
+      "message": "Общий пул ресурса {resource} для Cloud VM заполнен.",
+      "action": "Удалите неиспользуемую Cloud VM и повторите попытку.",
+      "oversizedAction": "Запросите меньший размер {resource} для Cloud VM, который помещается в общий пул."
     }
   },
   "billingRecovery": {
@@ -1183,6 +1188,14 @@
         "shortcuts": {
           "when": "Необязательные контекстные предикаты для каждой операции (условия `when` в стиле VS Code), заданные по идентификатору операции cmux. Каждое значение — булево выражение над ключами контекста, объединенными с помощью !, &&, || и скобок. Булевы ключи: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Типизированные ключи поддерживают сравнения: строка sidebarMode (files, find, sessions, feed или dock) и целые числа paneCount и workspaceCount. Операторы сравнения: ==, !=, =~ (регулярное выражение), <, <=, >, >= и `in [a, b]`; неизвестный или отсутствующий ключ считается false. Также принимаются булевы литералы true и false; `key == false` эквивалентно `!key`. Сочетание клавиш операции срабатывает (и конфликтует с другими сочетаниями) только когда условие истинно. Примеры: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } выбирает рабочие области с помощью Ctrl+1–9 везде, кроме случаев, когда в фокусе правая боковая панель; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } ограничивает привязку боковой панелью поиска, когда в рабочей области несколько панелей.",
           "showModifierHoldHints": "Показывать подсказки сочетаний клавиш, пока удерживается Cmd или Control."
+        },
+        "fileEditor": {
+          "wordWrap": "Переносит длинные строки у правого края редактора вместо горизонтальной прокрутки.",
+          "syntaxHighlighting": "Раскрашивает токены исходного кода во встроенном редакторе файлов.",
+          "lineNumbers": "Показывает поле с номерами строк во встроенном редакторе файлов.",
+          "indentGuides": "Рисует вертикальные направляющие отступа во встроенном редакторе файлов.",
+          "currentLineHighlight": "Подсвечивает строку с кареткой, когда ничего не выделено.",
+          "tabWidth": "Ширина табуляции в столбцах для отступов и направляющих отступа."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

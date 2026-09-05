@@ -56,6 +56,8 @@ actor LivenessHostRouter {
     private var delayedSubscribeRequestNumbers: Set<Int> = []
     private var invalidSubscribeRequestNumbers: Set<Int> = []
     private var subscribeErrorCodesByRequestNumber: [Int: String] = [:]
+    private var successfulSubscribeRequestCount = 0
+    private var successfulSubscribeStreamIDValues: [String] = []
     private var holdSubscribe = false
     private var unsubscribeRequestCount = 0
     private var heldUnsubscribeRequestNumbers: Set<Int> = []
@@ -153,6 +155,14 @@ actor LivenessHostRouter {
 
     func count(of method: String) -> Int {
         recorded.filter { $0.method == method }.count
+    }
+
+    func successfulSubscribeCount() -> Int {
+        successfulSubscribeRequestCount
+    }
+
+    func successfulSubscribeStreamIDs() -> [String] {
+        successfulSubscribeStreamIDValues
     }
 
     func requests(for method: String) -> [RecordedRequest] {
@@ -602,6 +612,8 @@ actor LivenessHostRouter {
             }
             let alreadySubscribed = hasActiveSubscription
             hasActiveSubscription = true
+            successfulSubscribeRequestCount += 1
+            successfulSubscribeStreamIDValues.append(streamID ?? "")
             return try? Self.resultFrame(id: id, result: [
                 "stream_id": invalidSubscribeRequestNumbers.contains(
                     subscribeRequestCount
@@ -811,7 +823,7 @@ struct LivenessTransportFactory: CmxByteTransportFactory {
     }
 }
 
-actor LivenessTransport: CmxByteTransport {
+actor LivenessTransport: CmxByteTransport, CmxByteTransportLivenessObserving {
     private let router: LivenessHostRouter
     private let closeGate: LivenessTransportCloseGate?
     private var pendingFrames: [Data] = []
@@ -903,6 +915,10 @@ actor LivenessTransport: CmxByteTransport {
     }
 
     func isClosedForTesting() -> Bool {
+        isClosed
+    }
+
+    func isTransportClosed() async -> Bool {
         isClosed
     }
 

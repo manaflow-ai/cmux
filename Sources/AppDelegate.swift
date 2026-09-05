@@ -290,12 +290,7 @@ enum CmuxTypingTiming {
 
     @inline(__always)
     private static func eventFields(_ event: NSEvent) -> String {
-        // NSEvent.keyCode and isARepeat raise NSInternalInconsistencyException
-        // for non-key events (CEF posts app-defined events, for example).
-        let isKeyEvent = event.type == .keyDown || event.type == .keyUp
-        let keyCode = isKeyEvent || event.type == .flagsChanged ? "\(event.keyCode)" : "-"
-        let isRepeat = isKeyEvent ? (event.isARepeat ? "1" : "0") : "-"
-        return "eventType=\(event.type.rawValue) keyCode=\(keyCode) mods=\(event.modifierFlags.rawValue) repeat=\(isRepeat)"
+        "eventType=\(event.type.rawValue) keyCode=\(event.keyCode) mods=\(event.modifierFlags.rawValue) repeat=\(event.isARepeat ? 1 : 0)"
     }
 
     @inline(__always)
@@ -375,12 +370,8 @@ final class CmuxMainRunLoopStallMonitor {
 
         let mode = CFRunLoopCopyCurrentMode(CFRunLoopGetMain()).map { String(describing: $0) } ?? "nil"
         let firstResponder = NSApp.keyWindow?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
-        let currentEvent = NSApp.currentEvent.map { event -> String in
-            // keyCode raises for non-key events; see eventFields.
-            let isKeyLike = event.type == .keyDown || event.type == .keyUp
-                || event.type == .flagsChanged
-            let keyCode = isKeyLike ? "\(event.keyCode)" : "-"
-            return "eventType=\(event.type.rawValue) keyCode=\(keyCode) mods=\(event.modifierFlags.rawValue)"
+        let currentEvent = NSApp.currentEvent.map {
+            "eventType=\($0.type.rawValue) keyCode=\($0.keyCode) mods=\($0.modifierFlags.rawValue)"
         } ?? "event=nil"
         cmuxDebugLog(
             "runloop.stall gapMs=\(String(format: "%.2f", elapsedMs)) prev=\(label(for: lastActivity)) " +
@@ -503,12 +494,8 @@ final class CmuxMainThreadTurnProfiler {
 
         let mode = CFRunLoopCopyCurrentMode(CFRunLoopGetMain()).map { String(describing: $0) } ?? "nil"
         let firstResponder = NSApp.keyWindow?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
-        let eventSummary = NSApp.currentEvent.map { event -> String in
-            // keyCode raises for non-key events (CEF posts app-defined ones).
-            let isKeyLike = event.type == .keyDown || event.type == .keyUp
-                || event.type == .flagsChanged
-            let keyCode = isKeyLike ? "\(event.keyCode)" : "-"
-            return "eventType=\(event.type.rawValue) keyCode=\(keyCode) mods=\(event.modifierFlags.rawValue)"
+        let eventSummary = NSApp.currentEvent.map {
+            "eventType=\($0.type.rawValue) keyCode=\($0.keyCode) mods=\($0.modifierFlags.rawValue)"
         } ?? "event=nil"
         let bucketSummary = buckets
             .sorted {
@@ -1141,6 +1128,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         get { mainWindowLifecycleCoordinator.registeredContextsByLookupKey }
         set { mainWindowLifecycleCoordinator.replaceRegisteredContextLookups(newValue) }
     }
+    /// The app-managed Cloud tunnel (see `AppDelegate+CloudTunnel.swift`).
+    var cloudTunnelCoordinator: CloudTunnelCoordinator?
+    /// The in-flight sign-out teardown of that tunnel, so a second sign-out
+    /// replaces rather than stacks it.
+    var cloudTunnelTeardownTask: Task<Void, Never>?
     private var mainWindowControllers: [MainWindowController] = []
 
     /// Tracks the cascade point for new windows, matching Ghostty's upstream algorithm.
@@ -1171,7 +1163,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// `nonisolated` because the autosave write block runs on `sessionPersistenceQueue`.
     nonisolated let sessionSnapshotStore: any SessionSnapshotStoring<AppSessionSnapshot> = SessionSnapshotRepository(
         schemaVersion: SessionSnapshotSchema.currentVersion,
-        bundleIdentifier: Bundle.main.bundleIdentifier
+        bundleIdentifier: Bundle.main.bundleIdentifier,
+        decoderUserInfo: [.cmuxTrustedPersistedSessionSnapshot: true]
     )
     /// Accessibility window-hierarchy cache (CmuxWindowing); composition-root
     /// owned. The `NSApplication` AX swizzle forwards to it behind
@@ -1287,12 +1280,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let eventWindowNumber = event?.window?.windowNumber ?? -1
         let eventNumber = event?.windowNumber ?? -1
         let eventChars = safeShortcutCharactersIgnoringModifiers(for: event)
-        let eventKeyCode = event.map { event -> String in
-            // keyCode raises for non-key events (CEF posts app-defined ones).
-            let isKeyLike = event.type == .keyDown || event.type == .keyUp
-                || event.type == .flagsChanged
-            return isKeyLike ? String(event.keyCode) : "-"
-        } ?? "nil"
+        let eventKeyCode = event.map { String($0.keyCode) } ?? "nil"
         let keyWindowNumber = NSApp.keyWindow?.windowNumber ?? -1
         let mainWindowNumber = NSApp.mainWindow?.windowNumber ?? -1
         let ws = workspaceId.map { String($0.uuidString.prefix(8)) } ?? "nil"
@@ -1467,13 +1455,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Deferred CEF panes wait for the launch callout to finish; see
-        // CEFRuntimeBootstrap.waitUntilSafeToInitialize.
-        defer { CEFRuntimeBootstrap.noteAppLaunchComplete() }
-
         // Composition root for surfaces: this Mac's panes and every cloud machine's
         // cmux-tui session feed one catalog, and the sidebar, drag/drop, socket and CLI all
         // open through `SurfaceCatalog.project`.
+        // Inject the live workspace registry into the catalog-owned rename service before
+        // any restore or provider callbacks can reconcile a cloud binding.
+        let cloudRenameEnvironment = CloudWorkspaceRenameEnvironment(
+            workspace: { [weak self] workspaceID in
+                self?.workspaceFor(tabId: workspaceID)
+            },
+            tabManager: { [weak self] workspaceID in
+                self?.tabManagerFor(tabId: workspaceID)
+            },
+            workspaces: { [weak self] in
+                self?.surfaceCatalogWorkspaces() ?? []
+            }
+        )
+        SurfaceCatalog.shared.installCloudWorkspaceRenameService(
+            CloudWorkspaceRenameService(environment: cloudRenameEnvironment)
+        )
         SurfaceCatalog.shared.register(LocalSurfaceProvider.shared)
         SurfaceCatalog.shared.focusProjection = { projection in
             SurfacePaneFactory.focus(panelID: projection.panelID, in: projection.workspaceID)
@@ -2382,6 +2382,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         closeAllWebInspectorsBeforeAppTeardown()
         stopSessionAutosaveTimer()
         CloudVMActionLauncher.shared.terminateAll()
+        // No Cloud session survives the app, so neither does the tunnel.
+        cloudTunnelCoordinator?.appWillTerminate()
+        CmuxTuiSurfaceProviderRegistry.shared.terminateWireGuardHubForAppQuit()
         CmuxSSHURLProcessLauncher.shared.terminateAll()
         caffeineController.setEnabled(false)
         MobileHostService.shared.stop()
@@ -2395,7 +2398,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         pendingCrashScanTask?.cancel()
         pendingCrashScanTask = nil
         notificationStore?.clearAll()
-        CEFRuntimeBootstrap.shutdown()
         GhosttyCrashBreadcrumb.markCleanExit()
         unregisterDisplayReconfigurationCallbackIfNeeded()
         StartupBreadcrumbLog.append("appDelegate.willTerminate.complete")
@@ -2453,9 +2455,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         self.auth = auth
         self.computerUseRuntimeService = computerUseRuntimeService
         (settingsRuntime.hostActions as? HostSettingsActions)?.setRunComputerUseOnboardingAction { [weak self] startingPoint in
-            self?.computerUseUXCoordinator.presentOnboarding(startingAt: startingPoint)
+            self?.computerUseUXCoordinator.presentOnboardingFromSettings(startingAt: startingPoint)
         }
-        VMClient.bootstrap(auth: auth.coordinator)
+        let cloudTunnel = makeCloudTunnelCoordinator()
+        cloudTunnelCoordinator = cloudTunnel
+        VMClient.bootstrap(auth: auth.coordinator, privateNetwork: cloudTunnel)
+        TerminalController.shared.cloudTunnel = cloudTunnel
         RemotesClient.bootstrap(auth: auth.coordinator)
         AIAccountsClient.bootstrap(auth: auth.coordinator)
         CoderouterClient.bootstrap(auth: auth.coordinator)
@@ -2473,11 +2478,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         PresenceHeartbeatClient.shared.configure(auth: auth.coordinator)
         PhoneReplyInboxClient.shared.configure(auth: auth.coordinator)
         PhoneReplyInboxCoordinator.shared.configure(client: PhoneReplyInboxClient.shared)
-        // Relayed phone replies type through the SAME entrypoint as the phone's
-        // direct RPC sends, so both lanes share claim resolution and injection.
-        PhoneReplyInboxCoordinator.shared.injectTerminalInput = { params in
-            switch TerminalController.shared.v2MobileTerminalInput(params: params) {
+        // Relayed phone replies type through the SAME paste-and-submit
+        // entrypoint as the phone's direct RPC sends, so both lanes share claim
+        // resolution and key-event submission semantics.
+        PhoneReplyInboxCoordinator.shared.injectTerminalInput = { [weak self] params, retargetsToLiveSurfaceOwner in
+            guard let self else { return .permanentlyUndeliverable }
+            let routedParams: [String: Any]
+            if retargetsToLiveSurfaceOwner {
+                guard let surfaceID = TerminalController.shared.v2UUID(params, "surface_id"),
+                      let target = self.agentNotificationDeliveryTarget(
+                          claimedTabId: TerminalController.shared.v2UUID(params, "workspace_id"),
+                          surfaceId: surfaceID
+                      ) else {
+                    return .retryable
+                }
+                var resolved = params
+                resolved["workspace_id"] = target.tabId.uuidString
+                resolved["surface_id"] = (target.surfaceId ?? surfaceID).uuidString
+                routedParams = resolved
+            } else {
+                routedParams = params
+            }
+            switch TerminalController.shared.v2MobileTerminalPaste(params: routedParams) {
             case .ok:
+                // `terminal.paste` applies the text before it attempts the
+                // named key. A false `submitted` flag is therefore a partial
+                // success, not a safe invitation to replay the whole reply:
+                // doing so would duplicate text in the agent prompt. The
+                // accepted paste is the durable delivery boundary; the user
+                // can press Return manually if the key was rejected.
                 return .delivered
             case .err(let code, _, _):
                 // `not_found` is transient here, not proof the target is gone:
@@ -9137,6 +9166,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // entrypoint; remove only Cloud VM records while preserving local tab
         // history for the next account/session.
         ClosedItemHistoryStore.shared.removeManagedCloudVMRecords()
+        cloudTunnelAccessDidEnd()
         NotificationCenter.default.post(name: .cmuxCloudVMAccessDidEnd, object: self)
         _ = saveSessionSnapshotUsingCachedProcessDetectedIndexes(
             includeScrollback: false,

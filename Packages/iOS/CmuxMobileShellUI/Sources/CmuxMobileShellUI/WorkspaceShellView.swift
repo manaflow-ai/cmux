@@ -74,6 +74,7 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
     let select: (WorkspaceMacSelection) -> Void
     let machines: [WorkspaceFilterMachine]
     let showAddDevice: (() -> Void)?
+    var gateWarningDeviceIDs: Set<String> = []
     var statusLine: WorkspaceConnectionStatusLine?
 
     var body: some ToolbarContent {
@@ -104,7 +105,10 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
         }
         ToolbarItem(id: "workspace-list-devices", placement: .topBarLeading) {
             Button(action: openDevices) {
-                Image(systemName: "desktopcomputer")
+                MobileDevicesToolbarLabel(
+                    gateWarningDeviceIDs: gateWarningDeviceIDs,
+                    computerDeviceIDs: Set(machines.map(\.macDeviceID).filter { !$0.isEmpty })
+                )
             }
             .accessibilityLabel(L10n.string("mobile.connections.title", defaultValue: "Computers"))
             .accessibilityIdentifier("MobileWorkspaceDevicesButton")
@@ -120,6 +124,7 @@ private struct WorkspaceRootToolbarLiveContent: ToolbarContent {
     let pendingSelection: WorkspaceMacSelection?
     let select: (WorkspaceMacSelection) -> Void
     let showAddDevice: (() -> Void)?
+    var gateWarningDeviceIDs: Set<String> = []
 
     var body: some ToolbarContent {
         WorkspaceRootToolbarContent(
@@ -131,6 +136,7 @@ private struct WorkspaceRootToolbarLiveContent: ToolbarContent {
             select: select,
             machines: renderContext.machines,
             showAddDevice: showAddDevice,
+            gateWarningDeviceIDs: gateWarningDeviceIDs,
             statusLine: renderContext.statusLine
         )
     }
@@ -885,7 +891,8 @@ struct WorkspaceShellView: View {
             openDevices: showComputers,
             pendingSelection: rootToolbarPendingSelection,
             select: handleRootToolbarSelection,
-            showAddDevice: showAddDevice
+            showAddDevice: showAddDevice,
+            gateWarningDeviceIDs: store.macVersionUpdateRequiredDeviceIDs
         )
     }
 

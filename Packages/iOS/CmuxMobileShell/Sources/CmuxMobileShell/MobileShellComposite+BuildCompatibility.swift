@@ -42,6 +42,39 @@ extension MobileShellComposite {
         return .macAppVersionTooOld(violation)
     }
 
+    /// Rechecks the live foreground Mac after a background policy refresh.
+    /// Startup remains non-blocking, but a newly stricter remote policy cannot
+    /// leave an already-connected older Mac admitted indefinitely.
+    public func revalidateActiveMacCompatibilityPolicy() {
+        guard connectionState == .connected else {
+            pendingMacCompatibilityPolicyRevalidation = true
+            return
+        }
+        pendingMacCompatibilityPolicyRevalidation = false
+        guard let channel = versionGateChannel(
+                  instanceTag: activeMacInstanceTag,
+                  macAppVersion: authenticatedMacAppVersion
+              ),
+              let violation = macCompatPolicy.violation(
+                  iosVersion: versionGateIOSAppVersion,
+                  channel: channel,
+                  macAppVersion: authenticatedMacAppVersion
+              ) else {
+            return
+        }
+        let macDeviceID = connectedMacDeviceID ?? activeTicket?.macDeviceID
+        noteMacVersionUpdateRequired(for: macDeviceID ?? "")
+        disconnectLiveConnection(preservingOtherMacWorkspaceState: true)
+        applyPairingFailure(
+            .macAppVersionTooOld(
+                macVersion: violation.macAppVersion,
+                requiredVersion: violation.requiredVersionDisplay,
+                isNightlyChannel: violation.channel == .nightly
+            ),
+            phase: "policy-refresh"
+        )
+    }
+
     /// The release lane the version gate holds this Mac to, or `nil` when
     /// the Mac is outside the gate. Only the official audience is gated:
     /// development builds admit only development-tag Macs (rebuilt from

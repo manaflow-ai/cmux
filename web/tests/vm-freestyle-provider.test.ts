@@ -8,6 +8,7 @@ import {
   FreestyleProvider,
   PORT_OPEN_LEASE_TTL_SECONDS,
   assertNoRouteTokenInGuestPayload,
+  createOrReuseFreestyleTunnel,
   freestyleCmuxRemoteRoute,
   freestyleNetworkAddressMetadata,
   freestyleRouteAddressesFromMetadata,
@@ -23,7 +24,10 @@ import {
   mapFreestyleState,
   normalizeFreestyleExecTimeout,
   freestylePinCheckCommand,
+  recoverFreestyleTunnelAfterConflict,
+  renderFreestyleModelPlaneEnvFile,
 } from "../services/vms/drivers/freestyle";
+import { FreestyleApiError } from "freestyle";
 import { cmuxTuiPinCheckCommand } from "../services/vms/drivers/cmuxTuiDaemon";
 import { ProviderError, type VmEdgeRule } from "../services/vms/drivers/types";
 import { DEVBOX_DESKTOP_NOVNC_PORT } from "../services/vms/images/desktop";
@@ -35,11 +39,182 @@ const EDGE_RULE: VmEdgeRule = {
   headers: { "x-coderouter-route-token": "crt_secret-token", "x-cmux-vm-id": CLOUD_VM_ID },
 };
 
+function tunnelApiData(overrides: Partial<{
+  tunnelId: string;
+  clientPublicKey: string;
+  attachments: Array<{
+    vpcId: string;
+    ipv4: string;
+    ipv6: string;
+    address: string;
+    vpcCidr: string;
+    allowedIps: string[];
+    createdAt: string;
+  }>;
+}> = {}) {
+  return {
+    id: overrides.tunnelId ?? "tun-test-1",
+    tunnelId: overrides.tunnelId ?? "tun-test-1",
+    slug: "cmux-wg-test",
+    displayName: "cmux computer",
+    clientConfig: "[Interface]\nPrivateKey =\n[Peer]\n",
+    clientPublicKey: overrides.clientPublicKey ?? "client-key-a",
+    serverPublicKey: "server-key",
+    endpointHost: "vpn.freestyle.sh",
+    endpointPort: 51820,
+    clientAddressV4: "100.64.0.2",
+    clientAddressV6: "fd7a:7570:6c6b::2",
+    routes: ["10.0.0.0/8", "fd00::/8"],
+    attachments: overrides.attachments ?? [],
+    createdAt: "2026-09-02T00:00:00.000Z",
+    updatedAt: "2026-09-02T00:00:00.000Z",
+  };
+}
+
+function tunnelAttachment(vpcId = "vpc-test-1") {
+  return {
+    vpcId,
+    ipv4: "10.40.0.2",
+    ipv6: "fd00:40::2",
+    address: "fd00:40::2",
+    vpcCidr: "fd00:40::/64",
+    allowedIps: ["10.40.0.0/24", "fd00:40::/64"],
+    createdAt: "2026-09-02T00:00:00.000Z",
+  };
+}
+
+const tunnelCreateOptions = {
+  slug: "cmux-wg-test",
+  displayName: "cmux computer",
+  clientPublicKey: "client-key-b",
+  networkId: "vpc-test-1",
+};
+
+describe("Freestyle tunnel create recovery", () => {
+  test("reconciles a provider slug conflict without creating a second tunnel", async () => {
+    const calls: string[] = [];
+    let existing = tunnelApiData({ clientPublicKey: tunnelCreateOptions.clientPublicKey });
+    const api = {
+      create: async () => {
+        throw new FreestyleApiError(409, { code: "CONFLICT", message: "slug is already in use" });
+      },
+      get: async (id: string) => {
+        calls.push(`get:${id}`);
+        return existing;
+      },
+      attachVpc: async (id: string, vpc: string) => {
+        calls.push(`attach:${id}:${vpc}`);
+        existing = { ...existing, attachments: [tunnelAttachment(vpc)] };
+        return existing;
+      },
+      rotateKey: async () => {
+        throw new Error("must not rotate an equal key");
+      },
+    };
+
+    const result = await createOrReuseFreestyleTunnel(api, tunnelCreateOptions);
+    expect(result.created).toBe(false);
+    expect(result.rotated).toBe(false);
+    expect(result.tunnel.id).toBe("tun-test-1");
+    expect(result.tunnel.addressV4).toBe("10.40.0.2");
+    expect(calls).toEqual([
+      "get:cmux-wg-test",
+      "attach:cmux-wg-test:vpc-test-1",
+      "get:cmux-wg-test",
+    ]);
+  });
+
+  test("attaches the requested VPC before rotating a stale client key", async () => {
+    const calls: string[] = [];
+    let existing = tunnelApiData({
+      clientPublicKey: "client-key-a",
+      attachments: [tunnelAttachment("vpc-old")],
+    });
+    const api = {
+      create: async () => {
+        throw new FreestyleApiError(409, { code: "CONFLICT", message: "slug is already in use" });
+      },
+      get: async () => existing,
+      attachVpc: async (_id: string, vpc: string) => {
+        calls.push(`attach:${vpc}`);
+        existing = { ...existing, attachments: [...existing.attachments, tunnelAttachment(vpc)] };
+        return existing;
+      },
+      rotateKey: async (_id: string, options: { clientPublicKey?: string }) => {
+        const key = options.clientPublicKey ?? "";
+        calls.push(`rotate:${key}`);
+        existing = {
+          ...existing,
+          clientPublicKey: key,
+          attachments: [...existing.attachments, tunnelAttachment("vpc-test-1")],
+        };
+        return existing;
+      },
+    };
+
+    const result = await createOrReuseFreestyleTunnel(api, tunnelCreateOptions);
+    expect(result.created).toBe(false);
+    expect(result.rotated).toBe(true);
+    expect(result.tunnel.clientPublicKey).toBe(tunnelCreateOptions.clientPublicKey);
+    expect(calls).toEqual([
+      "attach:vpc-test-1",
+      "rotate:client-key-b",
+    ]);
+  });
+
+  test("keeps the ordinary create path unchanged", async () => {
+    const calls: string[] = [];
+    const api = {
+      create: async (options: {
+        slug?: string;
+        displayName?: string;
+        clientPublicKey?: string;
+        routes?: string[];
+        vpcs?: { vpcId?: string; vpc?: string }[];
+      }) => {
+        calls.push(`create:${options.slug}`);
+        return tunnelApiData({
+          clientPublicKey: options.clientPublicKey,
+          attachments: [tunnelAttachment("vpc-test-1")],
+        });
+      },
+      get: async () => {
+        throw new Error("must not read after a successful create");
+      },
+      attachVpc: async () => {
+        throw new Error("must not attach after a successful create");
+      },
+      rotateKey: async () => {
+        throw new Error("must not rotate after a successful create");
+      },
+    };
+
+    const result = await createOrReuseFreestyleTunnel(api, tunnelCreateOptions);
+    expect(result.created).toBe(true);
+    expect(result.rotated).toBe(false);
+    expect(calls).toEqual(["create:cmux-wg-test"]);
+  });
+
+  test("does not hide non-conflict provider failures", async () => {
+    const failure = new FreestyleApiError(503, { code: "UNAVAILABLE", message: "provider is down" });
+    const api = {
+      create: async () => {
+        throw failure;
+      },
+      get: async () => tunnelApiData(),
+      attachVpc: async () => tunnelApiData(),
+      rotateKey: async () => tunnelApiData(),
+    };
+    await expect(createOrReuseFreestyleTunnel(api, tunnelCreateOptions)).rejects.toBe(failure);
+  });
+});
+
 // A fake Freestyle SDK client: records every create, exec, file write, and
 // delete so the driver's guest-facing behavior can be asserted without a
 // platform. `probeExit` is what the edge readiness probe returns.
 function fakeFreestyle(input: { readonly probeExit: number }) {
   const creates: unknown[] = [];
+  const resizes: unknown[] = [];
   const execs: string[] = [];
   const writes: Array<{ path: string; content: string }> = [];
   const deletes: string[] = [];
@@ -60,7 +235,9 @@ function fakeFreestyle(input: { readonly probeExit: number }) {
     data: async () => ({ publicIpv6: "2602:f75c:0:1::2a" }),
     // Every VM boots at its snapshot's resources; create grows it to the plan
     // machine before bootstrap (see growToRequestedSize).
-    resize: async () => {},
+    resize: async (options: unknown) => {
+      resizes.push(options);
+    },
   };
   const client = {
     vms: {
@@ -72,7 +249,7 @@ function fakeFreestyle(input: { readonly probeExit: number }) {
       ref: () => vm,
     },
   } as unknown as Freestyle;
-  return { client, creates, execs, writes, deletes };
+  return { client, creates, resizes, execs, writes, deletes };
 }
 
 function providerWith(fake: ReturnType<typeof fakeFreestyle>): FreestyleProvider {
@@ -101,10 +278,16 @@ describe("FreestyleProvider transport contract", () => {
     await expect(provider.openAttach(VM_ID)).rejects.toThrow("cmux-remote");
   });
 
-  test("openSSH refuses: the public platform has no SSH gateway", async () => {
+  test("openSSH refuses as a managed transport even though provider SSH exists", async () => {
     const provider = new FreestyleProvider();
-    await expect(provider.openSSH(VM_ID)).rejects.toThrow(ProviderError);
-    await expect(provider.openSSH(VM_ID)).rejects.toThrow("cmux-remote");
+    try {
+      await provider.openSSH(VM_ID);
+      throw new Error("openSSH unexpectedly resolved");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ProviderError);
+      expect(String(error)).toContain("unmanaged");
+      expect(String(error)).toContain("cmux-remote");
+    }
   });
 
   test("revokeSSHIdentity is a no-op, so destroy/cleanup paths stay safe", async () => {
@@ -126,13 +309,6 @@ describe("Freestyle platform contract", () => {
     // an inbound rule here would re-expose 1337 to the Internet.
     expect(freestyleFirewallRules()).toEqual([
       { action: "allow", source: {}, destination: { public: true } },
-    ]);
-  });
-
-  test("firewall without a network: inbound 1337 opens publicly, as before", () => {
-    expect(freestyleFirewallRules({ publicDaemonIngress: true })).toEqual([
-      { action: "allow", source: {}, destination: { public: true } },
-      { action: "allow", source: { public: true }, destination: { port: 1337, protocol: "tcp" } },
     ]);
   });
 
@@ -187,9 +363,9 @@ describe("Freestyle platform contract", () => {
     ).toThrow("no address");
   });
 
-  test("cmux-remote route without a network is the public IPv6, as before", () => {
-    expect(freestyleCmuxRemoteRoute({ publicIpv6: "2602:f75c:0:1::2a" }, VM_ID)).toBe(
-      "ws://[2602:f75c:0:1::2a]:1337/v1/link",
+  test("cmux-remote route without a private network fails closed", () => {
+    expect(() => freestyleCmuxRemoteRoute({ publicIpv6: "2602:f75c:0:1::2a" }, VM_ID)).toThrow(
+      "not attached to a private network",
     );
     // The deprecated `networks` alias still resolves for older responses.
     expect(
@@ -198,13 +374,24 @@ describe("Freestyle platform contract", () => {
         VM_ID,
       ),
     ).toBe("ws://[fd7a:115c:a1e0::b]:1337/v1/link");
-    expect(() => freestyleCmuxRemoteRoute({ publicIpv6: null }, VM_ID)).toThrow("public IPv6");
-    expect(() => freestyleCmuxRemoteRoute({ publicIpv6: "  " }, VM_ID)).toThrow("public IPv6");
+    expect(() => freestyleCmuxRemoteRoute({ publicIpv6: null }, VM_ID)).toThrow("private network");
+    expect(() => freestyleCmuxRemoteRoute({ publicIpv6: "  " }, VM_ID)).toThrow("private network");
+  });
+
+  test("an explicit empty canonical vpcs list does not use stale legacy metadata", () => {
+    expect(() => freestyleCmuxRemoteRoute(
+      {
+        publicIpv6: "2602:f75c:0:1::2a",
+        vpcs: [],
+        networks: [{ ipv6: "fd7a:115c:a1e0::b" }],
+      },
+      VM_ID,
+    )).toThrow("not attached to a private network");
   });
 
   test("daemon health requires a v6-table listener; start installs the dual-stack override", () => {
     // 0x0539 = 1337; a 0.0.0.0-bound daemon appears only in /proc/net/tcp and
-    // is unreachable at the public IPv6, so it must be restarted.
+    // cannot accept a private IPv6 connection, so it must be restarted.
     expect(freestyleDaemonHealthyCommand()).toContain("/proc/net/tcp6");
     expect(freestyleDaemonHealthyCommand()).toContain(":0539 ");
     const start = freestyleStartDaemonCommand();
@@ -219,6 +406,29 @@ describe("Freestyle platform contract", () => {
     expect(check).toContain("if [ -s /etc/cmux/cmux-tui-pin ]; then");
     expect(check).toContain("cut -d' ' -f1 /etc/cmux/cmux-tui-pin");
     expect(check).toContain(`else ${cmuxTuiPinCheckCommand(source)}; fi`);
+  });
+
+  test("model-plane env renders the exact file agent-config.sh persists", () => {
+    expect(
+      renderFreestyleModelPlaneEnvFile({
+        OPENAI_BASE_URL: "https://cmux.example/v1",
+        OPENAI_API_KEY: "crt_secret'quote",
+        CMUX_CODEROUTER_URL: "https://cmux.example",
+      }),
+    ).toBe(
+      [
+        "# generated by cmux from machine boot env; managed, do not edit",
+        "export OPENAI_BASE_URL='https://cmux.example/v1'",
+        `export OPENAI_API_KEY='crt_secret'\\''quote'`,
+        "export CMUX_CODEROUTER_URL='https://cmux.example'",
+        "export ANTHROPIC_BASE_URL='https://cmux.example'",
+        `export ANTHROPIC_AUTH_TOKEN='crt_secret'\\''quote'`,
+        `export ANTHROPIC_API_KEY='crt_secret'\\''quote'`,
+        "",
+      ].join("\n"),
+    );
+    expect(renderFreestyleModelPlaneEnvFile({})).toBeNull();
+    expect(renderFreestyleModelPlaneEnvFile({ OPENAI_API_KEY: "crt_x" })).toBeNull();
   });
 
 
@@ -265,12 +475,115 @@ describe("Freestyle platform contract", () => {
     expect(mapFreestyleState("paused")).toBe("paused");
     expect(mapFreestyleState("stopped")).toBe("paused");
   });
+
+  test("a lost create response is recovered by slug without rotating a live key", async () => {
+    const key = "client-public-key";
+    const options = {
+      slug: "cmux-wg-recovery",
+      displayName: "cmux computer",
+      clientPublicKey: key,
+      networkId: "vpc-dev",
+    };
+    const existing = {
+      id: "tun-recovered",
+      tunnelId: "tun-recovered",
+      slug: options.slug,
+      clientConfig: "[Interface]\\nPrivateKey = \\n[Peer]\\n",
+      clientPublicKey: key,
+      serverPublicKey: "server-key",
+      endpointHost: "vpn.example.invalid",
+      endpointPort: 51820,
+      routes: ["10.0.0.0/8"],
+      attachments: [],
+      clientAddressV4: "100.64.0.1",
+      clientAddressV6: "fd7a:7570:6c6b::1",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    let getCalls = 0;
+    let attachCalls = 0;
+    const recovered = await recoverFreestyleTunnelAfterConflict(
+      {
+        get: async () => {
+          getCalls += 1;
+          return existing;
+        },
+        attachVpc: async () => {
+          attachCalls += 1;
+          return { ...existing, attachments: [{
+            vpcId: options.networkId,
+            ipv4: "10.16.170.3",
+            ipv6: "fd98:deb9:4c94::3",
+            address: "10.16.170.3",
+            vpcCidr: "10.16.170.0/24",
+            allowedIps: ["10.16.170.0/24"],
+            createdAt: new Date().toISOString(),
+          }] };
+        },
+      },
+      options,
+      key,
+    );
+    expect(getCalls).toBe(1);
+    expect(attachCalls).toBe(1);
+    expect(recovered.id).toBe("tun-recovered");
+    expect(recovered.addressV4).toBe("10.16.170.3");
+  });
+
+  test("recovery refuses a slug collision with a different client key", async () => {
+    await expect(
+      recoverFreestyleTunnelAfterConflict(
+        {
+          get: async () => ({
+            id: "tun-other",
+            tunnelId: "tun-other",
+            clientConfig: "[Interface]\\n[Peer]\\n",
+            clientPublicKey: "different-key",
+            serverPublicKey: "server-key",
+            endpointPort: 51820,
+            routes: [],
+            attachments: [],
+            clientAddressV4: "100.64.0.2",
+            clientAddressV6: "fd7a:7570:6c6b::2",
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          }),
+          attachVpc: async () => {
+            throw new Error("must not attach on key mismatch");
+          },
+        },
+        {
+          slug: "cmux-wg-collision",
+          displayName: "cmux computer",
+          clientPublicKey: "expected-key",
+          networkId: "vpc-dev",
+        },
+        "expected-key",
+      ),
+    ).rejects.toThrow("different client key");
+  });
 });
 
 describe("FreestyleProvider create with edge rules", () => {
+  test("fails closed when create has no private network", async () => {
+    const fake = fakeFreestyle({ probeExit: 0 });
+    await expect(providerWith(fake).create({ image: "sh-devbox" })).rejects.toThrow(
+      "create requires a private network",
+    );
+    expect(fake.creates).toHaveLength(0);
+  });
+
+  test("fails closed when restore has no private network", async () => {
+    const fake = fakeFreestyle({ probeExit: 0 });
+    await expect(providerWith(fake).restore("snap-1")).rejects.toThrow(
+      "restore requires a private network",
+    );
+    expect(fake.creates).toHaveLength(0);
+  });
+
   test("creates persistent machines with idle pausing disabled", async () => {
     const fake = fakeFreestyle({ probeExit: 0 });
-    await providerWith(fake).create({ image: "sh-devbox" });
+    await providerWith(fake).create({ image: "sh-devbox", network: { id: "vpc_1" } });
 
     expect(fake.creates[0]).toMatchObject({
       // Cloud machines keep their durable box available until the user
@@ -285,16 +598,16 @@ describe("FreestyleProvider create with edge rules", () => {
     const handle = await providerWith(fake).create({
       image: "sh-devbox",
       edgeRules: [EDGE_RULE],
+      network: { id: "vpc_1" },
     });
     expect(handle.providerVmId).toBe(VM_ID);
     expect(fake.creates).toHaveLength(1);
     expect(fake.creates[0]).toMatchObject({
       snapshotId: "sh-devbox",
-      // No network given, so the daemon port stays publicly reachable.
-      firewall: { rules: freestyleFirewallRules({ publicDaemonIngress: true }) },
+      firewall: { rules: freestyleFirewallRules() },
+      vpcs: [{ vpcId: "vpc_1", ipv4: true, ipv6: true }],
       tls: { rules: freestyleEdgeRules([EDGE_RULE]) },
     });
-    expect(fake.creates[0]).not.toHaveProperty("vpcs");
     // The token reaches the platform create call and nothing else.
     expect(JSON.stringify(fake.execs)).not.toContain("crt_");
     expect(JSON.stringify(fake.writes)).not.toContain("crt_");
@@ -311,7 +624,7 @@ describe("FreestyleProvider create with edge rules", () => {
       network: { id: "vpc_1" },
     });
     expect(fake.creates[0]).toMatchObject({
-      firewall: { rules: freestyleFirewallRules({ publicDaemonIngress: false }) },
+      firewall: { rules: freestyleFirewallRules() },
       vpcs: [{ vpcId: "vpc_1", ipv4: true, ipv6: true }],
       tls: { rules: freestyleEdgeRules([EDGE_RULE]) },
     });
@@ -321,21 +634,37 @@ describe("FreestyleProvider create with edge rules", () => {
 
   test("omits the tls block and the probe when no rules are given", async () => {
     const fake = fakeFreestyle({ probeExit: 1 });
-    await providerWith(fake).create({ image: "sh-devbox" });
+    await providerWith(fake).create({ image: "sh-devbox", network: { id: "vpc_1" } });
     expect(fake.creates[0]).not.toHaveProperty("tls");
     expect(fake.execs.some((command) => command.includes("/api/coderouter/vm-usage/self"))).toBe(false);
     expect(fake.writes).toEqual([]);
+  });
+
+  test("grows a 4 GB image to the documented 32 GB starting disk", async () => {
+    const fake = fakeFreestyle({ probeExit: 0 });
+    await providerWith(fake).create({
+      image: "sh-devbox-4gb",
+      network: { id: "vpc_1" },
+      imageSize: { name: "sm", cpu: 1, memoryMb: 4096, storageMb: 16384 },
+    });
+
+    expect(fake.resizes).toEqual([{ storage: 32768 }]);
   });
 
 
 
   test("restore passes the rule inline and writes nothing into the guest", async () => {
     const ok = fakeFreestyle({ probeExit: 0 });
-    const restored = await providerWith(ok).restore("snap-1", { edgeRules: [EDGE_RULE] });
+    const restored = await providerWith(ok).restore("snap-1", {
+      edgeRules: [EDGE_RULE],
+      network: { id: "vpc_1" },
+    });
     expect(restored.image).toBe("snap-1");
     expect(ok.creates[0]).toMatchObject({
       snapshotId: "snap-1",
       idleTimeoutSeconds: FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS,
+      firewall: { rules: freestyleFirewallRules() },
+      vpcs: [{ vpcId: "vpc_1", ipv4: true, ipv6: true }],
       tls: { rules: freestyleEdgeRules([EDGE_RULE]) },
     });
     expect(ok.writes).toEqual([]);

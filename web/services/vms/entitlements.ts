@@ -15,6 +15,22 @@ export {
   VM_DISK_MB_MAX,
   VM_DISK_MB_STEP,
   VM_MEMORY_MB_PER_VCPU,
+  PLAN_SHARED_VCPU,
+  PLAN_SHARED_MEMORY_MB,
+  PLAN_SHARED_DISK_MB,
+  PLAN_SHARED_RESOURCE_CAPACITY,
+  DEFAULT_VM_RESOURCE_RESERVATION,
+  VM_RESOURCE_RESERVATION_METADATA_KEY,
+  VM_RESOURCE_FORK_PENDING_METADATA_KEY,
+  vmResourceForkPendingFromMetadata,
+  sharedResourceCapacityForMaxActiveVms,
+  firstExceededSharedResource,
+  sharedResourceUsage,
+  vmResourceReservationForCreate,
+  vmResourceReservationFromMetadata,
+  vmResourceResizePendingFromMetadata,
+  hasVmResourceReservationMetadata,
+  withVmResourceReservationMetadata,
   vcpusForMemoryMb,
   vmDiskMb,
 } from "./machineSpec";
@@ -148,6 +164,8 @@ function resolveBillingContext(
  * 4/16, 8/32, 16/64, 24/96, 32/128, and 64/128 (memory/disk in GB). vCPUs
  * follow memory (vcpusForMemoryMb). The server owns this list so clients show
  * valid sizes. BusyBox's 128 MiB image is a bootstrap image, not a coding VM.
+ * The paid plan's 5 vCPU, 20 GB RAM, and 200 GB disk entitlement is a shared
+ * pool enforced by the repository, not a per-VM size profile.
  */
 export const VM_MEMORY_OPTIONS_MB: readonly number[] = [4096, 8192, 16384, 24576, 32768, 65536];
 

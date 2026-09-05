@@ -12,6 +12,111 @@ import Testing
 struct SurfaceCatalogTests {
     private struct TestTimeout: Error {}
 
+    @Test("Cloud rename ordering is shared across local windows")
+    func cloudRenameCoordinatorSerializesOneRemoteIdentity() async {
+        let coordinator = CloudRenameCoordinator()
+        let key = CloudRenameCoordinator.Key.tab(machine: .cloud("vm-1"), id: "tab-1")
+        let recorder = RenameEventRecorder()
+
+        let first = coordinator.enqueue(key: key, pendingName: "first") {
+            recorder.events.append("first-start")
+            await Task.yield()
+            recorder.events.append("first-end")
+        }
+        let second = coordinator.enqueue(key: key, pendingName: "second") {
+            recorder.events.append("second-start")
+            recorder.events.append("second-end")
+        }
+
+        #expect(coordinator.pendingName(for: key) == "second")
+        _ = try? await second.value
+        _ = try? await first.value
+        #expect(recorder.events == ["first-start", "first-end", "second-start", "second-end"])
+        #expect(coordinator.pendingName(for: key) == nil)
+    }
+
+    @Test("Cloud rename ordering shares one machine lane across scopes")
+    func cloudRenameCoordinatorSerializesDifferentRemoteIdentities() async {
+        let coordinator = CloudRenameCoordinator()
+        let machine = SurfaceMachineID.cloud("vm-1")
+        let workspaceKey = CloudRenameCoordinator.Key.workspace(machine: machine, id: "workspace-1")
+        let tabKey = CloudRenameCoordinator.Key.tab(machine: machine, id: "tab-1")
+        let recorder = RenameEventRecorder()
+
+        let workspace = coordinator.enqueue(key: workspaceKey, pendingName: "workspace") {
+            recorder.events.append("workspace-start")
+            await Task.yield()
+            recorder.events.append("workspace-end")
+        }
+        let tab = coordinator.enqueue(key: tabKey, pendingName: "tab") {
+            recorder.events.append("tab-start")
+            recorder.events.append("tab-end")
+        }
+
+        _ = try? await tab.value
+        _ = try? await workspace.value
+        #expect(recorder.events == ["workspace-start", "workspace-end", "tab-start", "tab-end"])
+        #expect(coordinator.pendingName(for: workspaceKey) == nil)
+        #expect(coordinator.pendingName(for: tabKey) == nil)
+    }
+
+    @Test("Cloud rename coordinator preserves an empty pending tab name")
+    func cloudRenameCoordinatorPreservesEmptyPendingTabName() async throws {
+        let coordinator = CloudRenameCoordinator()
+        let key = CloudRenameCoordinator.Key.tab(machine: .cloud("vivid-newt"), id: "tab-1")
+        let operation = coordinator.enqueue(key: key, pendingName: "") {}
+        #expect(coordinator.pendingName(for: key) == "")
+        try await operation.value
+        #expect(coordinator.pendingName(for: key) == nil)
+    }
+
+    @MainActor
+    private final class RenameEventRecorder {
+        var events: [String] = []
+    }
+
+    @Test("Explicit remote placement fails closed without view metadata")
+    func explicitRemotePlacementFailsClosedWithoutViewMetadata() throws {
+        let machine = SurfaceMachineID.cloud("vivid-newt")
+        let catalog = SurfaceCatalog()
+        let provider = FakeProvider(machine: machine)
+        catalog.register(provider)
+        let id = SurfaceResourceID(machine: machine, kind: .terminal, key: "term_1")
+        var resource = terminal(machine, "term_1")
+        resource.remoteViews = nil
+        catalog.upsert(resource)
+
+        #expect(throws: SurfaceCatalogError.unavailable(
+            id,
+            reason: "remote placement data is unavailable"
+        )) {
+            try catalog.remoteView(for: id, tabID: "tab_1")
+        }
+    }
+
+    @Test("Duplicate remote tab placement fails closed")
+    func duplicateRemoteTabPlacementFailsClosed() throws {
+        let machine = SurfaceMachineID.cloud("vivid-newt")
+        let catalog = SurfaceCatalog()
+        let provider = FakeProvider(machine: machine)
+        catalog.register(provider)
+        let id = SurfaceResourceID(machine: machine, kind: .terminal, key: "term_1")
+        var resource = terminal(machine, "term_1")
+        let workspace = SurfaceRemoteWorkspace(id: "ws_1", name: "main", index: 0, focused: true)
+        resource.remoteViews = [
+            SurfaceRemoteView(tabID: "tab_1", workspace: workspace),
+            SurfaceRemoteView(tabID: "tab_1", workspace: workspace),
+        ]
+        catalog.upsert(resource)
+
+        #expect(throws: SurfaceCatalogError.unavailable(
+            id,
+            reason: "remote tab tab_1 has ambiguous placement"
+        )) {
+            try catalog.remoteView(for: id, tabID: "tab_1")
+        }
+    }
+
     /// Lets timeout behavior be tested without waiting on wall-clock time.
     private final class ImmediateClock: Clock, @unchecked Sendable {
         typealias Instant = ContinuousClock.Instant
@@ -157,6 +262,129 @@ struct SurfaceCatalogTests {
 
     private func terminal(_ machine: SurfaceMachineID, _ key: String, title: String = "shell") -> SurfaceResource {
         SurfaceResource(id: SurfaceResourceID(machine: machine, kind: .terminal, key: key), title: title, detail: "/root", lifecycle: .running, agent: nil, remoteWorkspace: nil, port: nil, url: nil)
+    }
+
+    @Test("Cloud delta patch preserves unaffected capability rows")
+    func cloudDeltaPatchPreservesUnaffectedRows() throws {
+        let machine = SurfaceMachineID.cloud("vivid-newt")
+        let catalog = SurfaceCatalog()
+        let provider = FakeProvider(machine: machine)
+        catalog.register(provider)
+
+        let snapshot: [String: Any] = [
+            "cursor": ["generation": "g1", "revision": "1"],
+            "workspaces": [["id": "ws", "name": "main"]],
+            "screens": [["id": "screen", "workspace_id": "ws"]],
+            "panes": [["id": "pane", "screen_id": "screen"]],
+            "tabs": [
+                ["id": "tab_one", "pane_id": "pane", "content_kind": "terminal", "content_id": "term_one", "name": "one"],
+                ["id": "tab_two", "pane_id": "pane", "content_kind": "terminal", "content_id": "term_two", "name": "two"],
+            ],
+            "terminals": [
+                ["id": "term_one", "tab_id": "tab_one", "tab_ids": ["tab_one"], "title": "old", "lifecycle": "running"],
+                ["id": "term_two", "tab_id": "tab_two", "tab_ids": ["tab_two"], "title": "untouched", "lifecycle": "running"],
+            ],
+            "browsers": [],
+            "agents": [],
+        ]
+        let initial = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: snapshot, machine: machine))
+        let termOne = try #require(CmuxTuiSnapshotParser.resources(from: initial).first { $0.id.key == "term_one" })
+        let termTwo = try #require(CmuxTuiSnapshotParser.resources(from: initial).first { $0.id.key == "term_two" })
+        let port = CmuxTuiSnapshotParser.portBrowser(machine: machine, port: 3000)
+        catalog.replaceCloudState(initial, resources: [termOne, termTwo, port], info: provider.info)
+        #expect(catalog.hasResources(on: machine))
+
+        let delta: [String: Any] = [
+            "changes": [[
+                "kind": "upsert",
+                "resource": "tab",
+                "id": "tab_one",
+                "value": ["id": "tab_one", "pane_id": "pane", "content_kind": "terminal", "content_id": "term_one", "name": "new"],
+            ]],
+        ]
+        let application = try #require(CmuxTuiSnapshotParser.applyingWithImpact(
+            deltaPayload: try JSONSerialization.data(withJSONObject: delta),
+            cursor: CloudVMCursor(generation: "g1", revision: 2),
+            to: initial
+        ))
+        let updated = try #require(CmuxTuiSnapshotParser.resources(from: application.state, matching: application.impact.resourceIDs).first { $0.id.key == "term_one" })
+        _ = catalog.applyCloudStateResourcePatch(
+            application.state,
+            resources: [updated],
+            affectedResourceIDs: application.impact.resourceIDs,
+            info: provider.info
+        )
+
+        #expect(catalog.snapshot.resources(on: machine).first { $0.id.key == "term_one" }?.title == "new")
+        #expect(catalog.snapshot.resources(on: machine).contains(termTwo))
+        #expect(catalog.snapshot.resources(on: machine).contains(port))
+        #expect(catalog.cloudStates[machine]?.cursor == CloudVMCursor(generation: "g1", revision: 2))
+        #expect(catalog.hasResources(on: machine))
+    }
+
+    @Test("Cloud unavailable replacement keeps the reverse resource index exact")
+    func cloudUnavailableReplacementKeepsResourceIndexExact() throws {
+        let machine = SurfaceMachineID.cloud("vivid-newt")
+        let catalog = SurfaceCatalog()
+        let provider = FakeProvider(machine: machine)
+        catalog.register(provider)
+
+        let snapshot: [String: Any] = [
+            "cursor": ["generation": "g1", "revision": "1"],
+            "workspaces": [["id": "ws", "name": "main"]],
+            "screens": [],
+            "panes": [],
+            "tabs": [],
+            "terminals": [["id": "term", "tab_ids": [], "title": "shell", "lifecycle": "running"]],
+            "browsers": [],
+            "agents": [],
+        ]
+        let state = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: snapshot, machine: machine))
+        let terminal = try #require(CmuxTuiSnapshotParser.resources(from: state).first)
+        catalog.replaceCloudState(state, resources: [terminal], info: provider.info)
+        #expect(catalog.hasResources(on: machine))
+
+        catalog.replaceUnavailableCloudState(on: machine, resources: [], info: provider.info)
+        #expect(catalog.snapshot.resources(on: machine).isEmpty)
+        #expect(!catalog.hasResources(on: machine))
+
+        catalog.replaceUnavailableCloudState(on: machine, resources: [terminal], info: provider.info)
+        #expect(catalog.hasResources(on: machine))
+    }
+
+    @Test("Stale machine metadata cannot regress the accepted cloud workspace graph")
+    func staleMachineMetadataPreservesCanonicalWorkspaceNames() throws {
+        let machine = SurfaceMachineID.cloud("vivid-newt")
+        let catalog = SurfaceCatalog()
+        let provider = FakeProvider(machine: machine)
+        catalog.register(provider)
+        let snapshot: [String: Any] = [
+            "cursor": ["generation": "g1", "revision": "1"],
+            "workspaces": [["id": "ws", "name": "canonical"]],
+            "screens": [],
+            "panes": [],
+            "tabs": [],
+            "terminals": [],
+            "browsers": [],
+            "agents": [],
+        ]
+        let state = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: snapshot, machine: machine))
+        var canonicalInfo = provider.info
+        canonicalInfo.remoteWorkspaces = [
+            SurfaceRemoteWorkspace(id: "ws", name: "canonical", index: 0, focused: true),
+        ]
+        catalog.replaceCloudState(state, resources: [], info: canonicalInfo)
+
+        var staleInfo = provider.info
+        staleInfo.remoteWorkspaces = [
+            SurfaceRemoteWorkspace(id: "ws", name: "old-name", index: 0, focused: false),
+            SurfaceRemoteWorkspace(id: "removed", name: "removed", index: 1, focused: false),
+        ]
+        catalog.updateMachine(staleInfo, from: provider)
+
+        #expect(catalog.machines[machine]?.remoteWorkspaces == [
+            SurfaceRemoteWorkspace(id: "ws", name: "canonical", index: 0, focused: true),
+        ])
     }
 
     @Test func `Resource ID round trips through the wire form`() {

@@ -335,6 +335,8 @@ import Testing
         )
         #expect(category.message.contains("0.64.22"))
         #expect(category.message.contains("0.64.23"))
+        #expect(category.message.contains("Update cmux on this Mac"))
+        #expect(category.message.contains("to connect"))
         #expect(category.guidance?.isEmpty == false)
         #expect(category.analyticsReason == "mac_app_version_too_old")
     }
@@ -346,6 +348,7 @@ import Testing
             isNightlyChannel: false
         )
         #expect(category.message.contains("0.64.23"))
+        #expect(category.message.contains("Update cmux on this Mac"))
     }
 
     @Test func versionTooOldCopyOnNightlyChannelNamesBothBuilds() {
@@ -357,12 +360,14 @@ import Testing
         #expect(category.message.contains("Nightly"))
         #expect(category.message.contains("0.64.22-nightly.99"))
         #expect(category.message.contains("0.64.22-nightly.100"))
+        #expect(category.message.contains("Update cmux on this Mac"))
         let unknown = MobilePairingFailureCategory.macAppVersionTooOld(
             macVersion: nil,
             requiredVersion: "0.64.22-nightly.100",
             isNightlyChannel: true
         )
         #expect(unknown.message.contains("0.64.22-nightly.100"))
+        #expect(unknown.message.contains("Update cmux on this Mac"))
     }
 
     @Test func versionGateRPCCodeFallsBackToGenericUpdateCategory() {

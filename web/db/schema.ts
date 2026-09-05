@@ -27,6 +27,11 @@ export const vmStatus = pgEnum("vm_status", [
 
 export const vmLeaseKind = pgEnum("vm_lease_kind", ["pty", "rpc", "ssh", "preview"]);
 
+export const cloudVmTunnelPurpose = pgEnum("cloud_vm_tunnel_purpose", [
+  "terminal",
+  "browser",
+]);
+
 export const cloudVmSessionStatus = pgEnum("cloud_vm_session_status", [
   "running",
   "detached",
@@ -250,9 +255,69 @@ export const cloudVmNetworks = pgTable(
  * The client keypair is generated on the Mac and only its public half is ever
  * sent here, so no row in this table can be used to impersonate a device — and
  * a config re-issued to a reinstalled app is useless without the private key
- * still in that Mac's Keychain. `revokedAt` is set when the device is
+ * still on that Mac. `revokedAt` is set when the device is
  * unenrolled; the provider-side tunnel is deleted in the same workflow.
  */
+export const cloudVmAccessGrants = pgTable(
+  "cloud_vm_access_grants",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id").notNull(),
+    /** Stable Mac identity. This is separate from the iOS/Iroh device registry. */
+    deviceId: text("device_id").notNull(),
+    /** The latest name reported by macOS. A user rename does not overwrite it. */
+    reportedName: text("reported_name"),
+    /** Optional name chosen by the user on cmux.com. */
+    displayName: text("display_name"),
+    modelIdentifier: text("model_identifier"),
+    osVersion: text("os_version"),
+    architecture: text("architecture"),
+    cmuxVersion: text("cmux_version"),
+    cmuxBuild: text("cmux_build"),
+    cmuxChannel: text("cmux_channel"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    lastControlPlaneAt: timestamp("last_control_plane_at", { withTimezone: true }).notNull().defaultNow(),
+    /** Short durable fence for provider peer create, rotate, and revoke. */
+    mutationLeaseId: uuid("mutation_lease_id"),
+    mutationLeaseExpiresAt: timestamp("mutation_lease_expires_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex("cloud_vm_access_grants_user_device_unique")
+      .on(table.userId, table.deviceId)
+      .where(sql`${table.revokedAt} is null`),
+    index("cloud_vm_access_grants_user_idx").on(table.userId),
+    check(
+      "cloud_vm_access_grants_mutation_lease_pair",
+      sql`(${table.mutationLeaseId} is null) = (${table.mutationLeaseExpiresAt} is null)`,
+    ),
+  ],
+);
+
+/** Every Stack login session seen from one physical Mac. */
+export const cloudVmAccessGrantSessions = pgTable(
+  "cloud_vm_access_grant_sessions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    accessGrantId: uuid("access_grant_id")
+      .notNull()
+      .references(() => cloudVmAccessGrants.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
+    stackSessionId: text("stack_session_id").notNull(),
+    /** `iat` from the verified Stack access token. */
+    sessionIssuedAt: timestamp("session_issued_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("cloud_vm_access_grant_sessions_grant_session_unique")
+      .on(table.accessGrantId, table.stackSessionId),
+    index("cloud_vm_access_grant_sessions_user_session_idx")
+      .on(table.userId, table.stackSessionId),
+  ],
+);
+
 export const cloudVmTunnels = pgTable(
   "cloud_vm_tunnels",
   {
@@ -261,11 +326,15 @@ export const cloudVmTunnels = pgTable(
     networkId: uuid("network_id")
       .notNull()
       .references(() => cloudVmNetworks.id, { onDelete: "cascade" }),
+    accessGrantId: uuid("access_grant_id")
+      .notNull()
+      .references(() => cloudVmAccessGrants.id, { onDelete: "cascade" }),
     provider: vmProvider("provider").notNull(),
     /** The provider's id for the tunnel (Freestyle `tun-…`). */
     providerTunnelId: text("provider_tunnel_id").notNull(),
     /** Stable per-installation device id minted by the Mac app. */
     deviceFingerprint: text("device_fingerprint").notNull(),
+    tunnelPurpose: cloudVmTunnelPurpose("tunnel_purpose").notNull(),
     /** Human label for the device, shown when listing enrolled computers. */
     deviceName: text("device_name"),
     /** Base64 Curve25519 public key. The private half never leaves the Mac. */
@@ -279,12 +348,13 @@ export const cloudVmTunnels = pgTable(
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
   },
   (table) => [
-    uniqueIndex("cloud_vm_tunnels_user_device_unique")
-      .on(table.userId, table.deviceFingerprint)
+    uniqueIndex("cloud_vm_tunnels_user_device_purpose_unique")
+      .on(table.userId, table.deviceFingerprint, table.tunnelPurpose)
       .where(sql`${table.revokedAt} is null`),
     uniqueIndex("cloud_vm_tunnels_provider_tunnel_id_unique")
       .on(table.provider, table.providerTunnelId),
     index("cloud_vm_tunnels_network_idx").on(table.networkId),
+    index("cloud_vm_tunnels_access_grant_idx").on(table.accessGrantId),
   ],
 );
 
@@ -457,6 +527,17 @@ export const cloudVmPublicationProviderConfigs = pgTable(
   ],
 );
 
+/** Globally reserved organization identity under the managed zone; not a DNS zone. */
+export const cloudOrganizations = pgTable("cloud_organizations", {
+  scopeId: text("scope_id").primaryKey(),
+  ownerUserId: text("owner_user_id").notNull(),
+  slug: text("slug").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("cloud_organizations_slug_unique").on(table.slug),
+  check("cloud_organizations_slug_check", sql`char_length(${table.slug}) between 1 and 19 and ${table.slug} ~ '^[a-z0-9]+(-[a-z0-9]+)*$'`),
+]);
+
 /** One canonical hostname mapping to one Cloud VM HTTP port. */
 export const cloudVmPublications = pgTable(
   "cloud_vm_publications",
@@ -467,7 +548,6 @@ export const cloudVmPublications = pgTable(
       .notNull()
       .references(() => cloudVms.id, { onDelete: "restrict" }),
     domainId: uuid("domain_id")
-      .notNull()
       .references(() => cloudVmDomains.id, { onDelete: "restrict" }),
     /** Exact public hostname. The related domain row is its reusable verified zone. */
     hostname: text("hostname").notNull(),
@@ -553,6 +633,18 @@ export const cloudVmPublications = pgTable(
     ),
   ],
 );
+
+/** A verified email grants access to this publication only. Never a VM membership. */
+export const cloudVmPublicationEmailGrants = pgTable("cloud_vm_publication_email_grants", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  publicationId: uuid("publication_id").notNull().references(() => cloudVmPublications.id, { onDelete: "cascade" }),
+  email: text("email").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("cloud_vm_publication_email_grants_unique").on(table.publicationId, table.email),
+  check("cloud_vm_publication_email_grants_email_check", sql`${table.email} = lower(${table.email}) and char_length(${table.email}) between 3 and 254`),
+]);
 
 /**
  * Cross-origin browser transaction created on the publication hostname before
@@ -694,6 +786,33 @@ export const cloudVmPublicationSessions = pgTable(
       "cloud_vm_pub_sessions_expiry_check",
       sql`${table.expiresAt} > ${table.createdAt}`,
     ),
+  ],
+);
+
+/**
+ * A short-lived cross-instance lease for provider-side tunnel enrollment.
+ *
+ * Freestyle tunnel creation is keyed by a deterministic slug, but the provider
+ * call and the control-plane insert are separate operations. This lease makes
+ * that boundary single-owner across Vercel instances, while expiry recovers a
+ * request whose process died before it could release the lease.
+ */
+export const cloudVmTunnelEnrollmentLocks = pgTable(
+  "cloud_vm_tunnel_enrollment_locks",
+  {
+    userId: text("user_id").notNull(),
+    deviceFingerprint: text("device_fingerprint").notNull(),
+    ownerToken: text("owner_token").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      name: "cloud_vm_tunnel_enrollment_locks_pkey",
+      columns: [table.userId, table.deviceFingerprint],
+    }),
+    index("cloud_vm_tunnel_enrollment_locks_expiry_idx").on(table.expiresAt),
   ],
 );
 
