@@ -66,6 +66,123 @@ enum IrxLiveTestSupport {
 
 @Suite("live QUIC", .serialized)
 struct IrxLiveQUICTests {
+    @Test("closing a control transport releases its owner without closing the session")
+    func controlTransportReleasesOwner() async throws {
+        let journal = IrxLiveTestSupport.journal()
+        let server = try await IrxLiveTestSupport.bindLoopback(
+            seed: IrxLiveTestSupport.identitySeed(), remoteBiCredit: 1)
+        let client = try await IrxLiveTestSupport.bindLoopback(
+            seed: IrxLiveTestSupport.identitySeed(), remoteBiCredit: 0)
+        let serverTask = Task { () -> IrxConnection? in
+            guard let incoming = await server.acceptNext() else { return nil }
+            let accepting = try await incoming.accept()
+            let connection = try await accepting.connect()
+            let irx = IrxConnection(
+                connection: connection, role: .acceptor, journal: journal)
+            guard await IrxAdmission.performServer(
+                connection: irx,
+                judgment: IrxLiveTestSupport.fixedJudgment(accepting: "good-grant"),
+                journal: journal
+            ) != nil else {
+                return nil
+            }
+            return irx
+        }
+
+        let connection = try await client.connect(
+            addr: IrxLiveTestSupport.loopbackAddr(of: server), alpn: IrxProtocol.alpnData)
+        let irx = IrxConnection(connection: connection, role: .dialer, journal: journal)
+        let (_, control) = try await IrxAdmission.performClient(
+            connection: irx, grantJWS: "good-grant", journal: journal)
+        let releaseProbe = IrxControlReleaseProbe()
+        let transport = IrxControlByteTransport(
+            closeCode: .explicitRedial,
+            establish: { (irx, control) },
+            onClose: { await releaseProbe.record() }
+        )
+
+        try await transport.connect()
+        await transport.close()
+        await transport.close()
+
+        #expect(await releaseProbe.count == 1)
+        #expect(await !irx.isClosed)
+
+        let serverConnection = try #require(try await serverTask.value)
+        await irx.close(code: .userRequested, origin: .local)
+        await serverConnection.close(code: .userRequested, origin: .local)
+        try? await server.close()
+        try? await client.close()
+    }
+
+    @Test("closing while establishment is in flight releases the owner once")
+    func closeDuringEstablishmentReleasesOwner() async throws {
+        let journal = IrxLiveTestSupport.journal()
+        let server = try await IrxLiveTestSupport.bindLoopback(
+            seed: IrxLiveTestSupport.identitySeed(), remoteBiCredit: 1)
+        let client = try await IrxLiveTestSupport.bindLoopback(
+            seed: IrxLiveTestSupport.identitySeed(), remoteBiCredit: 0)
+        let serverTask = Task { () -> IrxConnection? in
+            guard let incoming = await server.acceptNext() else { return nil }
+            let accepting = try await incoming.accept()
+            let connection = try await accepting.connect()
+            let irx = IrxConnection(
+                connection: connection, role: .acceptor, journal: journal)
+            guard await IrxAdmission.performServer(
+                connection: irx,
+                judgment: IrxLiveTestSupport.fixedJudgment(accepting: "good-grant"),
+                journal: journal
+            ) != nil else {
+                return nil
+            }
+            return irx
+        }
+
+        let connection = try await client.connect(
+            addr: IrxLiveTestSupport.loopbackAddr(of: server), alpn: IrxProtocol.alpnData)
+        let irx = IrxConnection(connection: connection, role: .dialer, journal: journal)
+        let (_, control) = try await IrxAdmission.performClient(
+            connection: irx, grantJWS: "good-grant", journal: journal)
+        let establishmentStarted = IrxAsyncLatch()
+        let releaseEstablishment = IrxAsyncLatch()
+        let releaseProbe = IrxControlReleaseProbe()
+        let transport = IrxControlByteTransport(
+            closeCode: .explicitRedial,
+            establish: {
+                await establishmentStarted.signal()
+                await releaseEstablishment.wait()
+                return (irx, control)
+            },
+            onClose: { await releaseProbe.record() }
+        )
+
+        let connectTask = Task { try await transport.connect() }
+        await establishmentStarted.wait()
+        await transport.close()
+        await releaseEstablishment.signal()
+
+        do {
+            try await connectTask.value
+            Issue.record("establishment unexpectedly succeeded after close")
+        } catch let error as IrxConnectionError {
+            switch error {
+            case .closed:
+                break
+            default:
+                Issue.record("unexpected connection error: \(error)")
+            }
+        } catch {
+            Issue.record("unexpected error: \(error)")
+        }
+        #expect(await releaseProbe.count == 1)
+
+        let serverConnection = try #require(try await serverTask.value)
+        await irx.close(code: .userRequested, origin: .local)
+        await serverConnection.close(code: .userRequested, origin: .local)
+        try? await server.close()
+        try? await client.close()
+    }
+
     @Test("admission admits a valid grant in one round trip and lanes carry raw bytes")
     func admissionAndLanes() async throws {
         let journal = IrxLiveTestSupport.journal()
@@ -214,6 +331,21 @@ struct IrxLiveQUICTests {
         }
         #expect(await !first.connection.isClosed)
         #expect(journal.counterSnapshot()["pong"] ?? 0 >= 1)
+
+        // Foreground recovery must not replace a healthy session merely
+        // because it is older than the historical 15-second threshold.
+        await engine.foregroundKick(staleAfter: .seconds(15))
+        var retained = false
+        for _ in 0..<20 {
+            try await Task.sleep(for: .milliseconds(50))
+            if let current = await engine.currentSession(),
+               current.admit.session == first.admit.session
+            {
+                retained = true
+                break
+            }
+        }
+        #expect(retained, "foreground recovery replaced a healthy session")
 
         // Host closes (e.g. shutdown): the engine must redial by itself and
         // reach ready again without any external trigger.

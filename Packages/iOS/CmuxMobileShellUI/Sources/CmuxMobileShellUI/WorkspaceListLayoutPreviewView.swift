@@ -17,6 +17,9 @@ private final class WorkspaceListLayoutPreviewModel {
         case off
         /// `1`: visible churn — unread toggles plus activity restamps.
         case visible
+        /// `sessions`: several agent rows complete together, changing their
+        /// description height while the list is being interacted with.
+        case agentSessions
         /// `timestamps`: sub-minute activity restamps only, the shape the Mac
         /// emits while agents stream (`last_activity_at` is the latest
         /// notification's `createdAt`). Rows render identically, so a correct
@@ -43,6 +46,7 @@ private final class WorkspaceListLayoutPreviewModel {
     func runLiveUpdates() async {
         guard liveUpdateMode != .off else { return }
         var updateLane = 0
+        var updateGenerationByLane = Array(repeating: 0, count: 10)
         while !Task.isCancelled {
             do {
                 try await Task.sleep(for: .milliseconds(80))
@@ -50,11 +54,20 @@ private final class WorkspaceListLayoutPreviewModel {
                 return
             }
             for index in workspaces.indices where index % 10 == updateLane {
-                if liveUpdateMode == .visible {
+                if liveUpdateMode == .visible || liveUpdateMode == .agentSessions {
                     workspaces[index].hasUnread.toggle()
                     workspaces[index].unreadCount = workspaces[index].hasUnread ? 1 + index % 5 : 0
                     workspaces[index].previewAt = Date()
                     workspaces[index].lastActivityAt = Date()
+                    if liveUpdateMode == .agentSessions {
+                        let completed = updateGenerationByLane[updateLane].isMultiple(of: 2)
+                        workspaces[index].customDescription = completed
+                            ? "Agent session \(index) completed"
+                            : nil
+                        workspaces[index].previewText = completed
+                            ? "Agent session completed"
+                            : "Agent session is working"
+                    }
                 } else {
                     // Restamp relative to the row's own clock: the seeded
                     // timestamps are hours old, so jumping them to `Date()`
@@ -77,6 +90,7 @@ private final class WorkspaceListLayoutPreviewModel {
                     workspaces[index].lastActivityAt = restamped
                 }
             }
+            updateGenerationByLane[updateLane] += 1
             updateLane = (updateLane + 1) % 10
         }
     }
@@ -171,6 +185,7 @@ public struct WorkspaceListLayoutPreviewView: View {
         let liveUpdateMode: WorkspaceListLayoutPreviewModel.LiveUpdateMode
         switch environment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW_LIVE_UPDATES"] {
         case "1": liveUpdateMode = .visible
+        case "sessions": liveUpdateMode = .agentSessions
         case "timestamps": liveUpdateMode = .timestampsOnly
         default: liveUpdateMode = .off
         }
@@ -553,8 +568,13 @@ public struct WorkspaceListLayoutPreviewView: View {
         return (workspaces, groups)
     }
 
-    private var showNotificationBanner: Bool {
-        ProcessInfo.processInfo.environment["CMUX_UITEST_NOTIFICATION_BANNER"] == "1"
+    /// `"1"` = agent-input banner; `"reply"` = inline-reply lock-screen fixture.
+    private var notificationBannerMode: String? {
+        switch ProcessInfo.processInfo.environment["CMUX_UITEST_NOTIFICATION_BANNER"] {
+        case "1": "1"
+        case "reply": "reply"
+        default: nil
+        }
     }
 
     /// `CMUX_UITEST_WORKSPACE_LIST_PREVIEW_TABS=1` wraps the list in a tab
@@ -835,9 +855,10 @@ public struct WorkspaceListLayoutPreviewView: View {
         }
         .task {
             // Fire a REAL local notification (not a drawn banner) so the system
-            // renders the genuine banner over this workspace list.
-            if showNotificationBanner {
-                notificationPresenter.fire()
+            // renders the genuine banner over this workspace list. Mode "reply"
+            // schedules the inline-reply fixture for the lock-screen shot.
+            if let mode = notificationBannerMode {
+                notificationPresenter.fire(mode: mode)
             }
 
             await model.runLiveUpdates()

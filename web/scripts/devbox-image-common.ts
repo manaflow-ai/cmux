@@ -18,7 +18,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { vmImageSizeRank, type VmImageSizeName } from "../services/vms/images/sizes";
+import { VM_IMAGE_SIZES, VM_IMAGE_SIZE_NAMES, vmImageSizeRank, type VmImageSizeName } from "../services/vms/images/sizes";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const webRoot = path.resolve(__dirname, "..");
@@ -468,6 +468,7 @@ export function promoteImageManifestEntry(
     options.sizes && options.sizes.length > 0
       ? [...options.sizes].sort((a, b) => vmImageSizeRank(a.size.name) - vmImageSizeRank(b.size.name))
       : [{ imageId: entry.imageId }];
+  const promotesLocalDevBase = kinds.includes("base") && variants.some((variant) => variant.size?.name === "sm");
   for (const kind of kinds) {
     for (const variant of variants) {
       const clash = manifest.images.find((candidate) =>
@@ -487,6 +488,7 @@ export function promoteImageManifestEntry(
   const demoted = manifest.images.map((candidate) => {
     if (candidate.provider !== entry.provider) return candidate;
     const next: DevboxManifestEntry = { ...candidate };
+    if (promotesLocalDevBase && next.provider === entry.provider && next.defaultForLocalDev) next.defaultForLocalDev = false;
     // A sized promotion demotes the provider's size-less defaults too: the
     // ladder replaces the single-shape image, not just one row of it.
     const sameSize = promotedSizes.has(sizeKey(next)) || (sizeKey(next) === "" && promotedSizes.size > 0);
@@ -505,6 +507,9 @@ export function promoteImageManifestEntry(
         kind,
         defaultForKind: true,
         ...(variant.size ? { size: variant.size } : {}),
+        ...(promotesLocalDevBase && kind === "base" && variant.size?.name === "sm"
+          ? { defaultForLocalDev: true }
+          : {}),
         ...(notes ? { notes } : {}),
       });
     }
@@ -560,6 +565,75 @@ export function imageManifestProblems(manifest: DevboxImageManifest): string[] {
   for (const [key, entries] of defaults) {
     if (entries.length > 1) {
       problems.push(`${key}: ${entries.length} entries flagged defaultForKind (${entries.map((e) => e.version).join(", ")})`);
+    }
+  }
+  return problems;
+}
+
+/**
+ * Checks the production Freestyle defaults as a complete machine-size
+ * ladder. Historical, size-less entries remain valid for rollback, but active
+ * defaults must cover every size with the exact shape that the resolver uses.
+ */
+export function devboxImageLadderProblems(
+  manifest: DevboxImageManifest,
+  provider: DevboxProvider = "freestyle",
+): string[] {
+  const problems: string[] = [];
+  for (const kind of ["base", "desktop"] as const) {
+    const defaults = manifest.images.filter(
+      (entry) => entry.provider === provider && (entry.kind ?? "base") === kind && entry.defaultForKind,
+    );
+    if (defaults.length === 0) {
+      problems.push(`${provider}/${kind}: no default image ladder`);
+      continue;
+    }
+    const byName = new Map<string, DevboxManifestEntry>();
+    for (const entry of defaults) {
+      const sizeName = entry.size?.name;
+      if (!sizeName) {
+        problems.push(`${entry.version}: ${provider}/${kind} default is size-less`);
+        continue;
+      }
+      if (byName.has(sizeName)) {
+        problems.push(`${provider}/${kind}/${sizeName}: duplicate default images`);
+        continue;
+      }
+      byName.set(sizeName, entry);
+      const expected = VM_IMAGE_SIZES.find((size) => size.name === sizeName);
+      if (!expected) continue;
+      if (
+        entry.size?.cpu !== expected.cpu ||
+        entry.size.memoryMb !== expected.memoryMb ||
+        entry.size.storageMb !== expected.storageMb
+      ) {
+        problems.push(
+          `${entry.version}: ${provider}/${kind}/${sizeName} shape is ` +
+            `${entry.size?.cpu} vCPU/${entry.size?.memoryMb} MiB/${entry.size?.storageMb} MiB; ` +
+            `expected ${expected.cpu} vCPU/${expected.memoryMb} MiB/${expected.storageMb} MiB`,
+        );
+      }
+    }
+    for (const name of VM_IMAGE_SIZE_NAMES) {
+      if (!byName.has(name)) problems.push(`${provider}/${kind}: missing default size ${name}`);
+    }
+    const ids = new Map<string, string>();
+    for (const [name, entry] of byName) {
+      const previous = ids.get(entry.imageId);
+      if (previous) {
+        problems.push(`${provider}/${kind}: image ${entry.imageId} is used for sizes ${previous} and ${name}`);
+      } else {
+        ids.set(entry.imageId, name);
+      }
+    }
+  }
+  const localDefaults = manifest.images.filter((entry) => entry.provider === provider && entry.defaultForLocalDev);
+  if (localDefaults.length !== 1) {
+    problems.push(`${provider}: expected exactly one defaultForLocalDev entry, found ${localDefaults.length}`);
+  } else {
+    const local = localDefaults[0];
+    if ((local.kind ?? "base") !== "base" || local.size?.name !== "sm" || !local.defaultForKind) {
+      problems.push(`${local.version}: defaultForLocalDev must be the base sm default`);
     }
   }
   return problems;

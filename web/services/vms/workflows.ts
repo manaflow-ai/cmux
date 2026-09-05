@@ -109,9 +109,12 @@ export {
   enrollVmTunnel,
   isWireGuardPublicKey,
   listVmTunnels,
+  listVmAccessGrants,
   networkSlugForUser,
   readVmTunnel,
+  renameVmAccessGrant,
   resolveOwnerNetwork,
+  revokeVmAccessGrant,
   revokeVmTunnel,
   tunnelSlugForDevice,
 } from "./privateNetwork";
@@ -591,7 +594,7 @@ export function createVm(input: {
         memoryMb: input.memoryMb,
         imageSize: input.imageSize,
         edgeRules: materials?.edgeRules,
-        ...(network ? { network: { id: network.providerNetworkId } } : {}),
+        network: { id: network.providerNetworkId },
       }),
     ).pipe(
       Effect.tapError((err) =>
@@ -841,7 +844,7 @@ function finishBaseCreate(
         image: input.image,
         displayName: create.vm.slug ?? undefined,
         providerMetadata: create.vm.providerMetadata,
-        ...(network ? { network: { id: network.providerNetworkId } } : {}),
+        network: { id: network.providerNetworkId },
       }),
     ).pipe(
       Effect.tapError((err) =>

@@ -5177,6 +5177,65 @@
         }
       }
     },
+    "mobile.connections.tailscale.replace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Replace Tailscale Connection"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale接続を置換"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale-Verbindung ersetzen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remplacer la connexion Tailscale"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استبدال اتصال Tailscale"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reemplazar conexión de Tailscale"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取代 Tailscale 連線"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "替换 Tailscale 连接"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale 연결 교체"
+          }
+        }
+      }
+    },
     "mobile.connections.route.deleteComputer.title": {
       "extractionState": "manual",
       "localizations": {
@@ -8074,55 +8133,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Clear Report"
+            "value": "Clear Logs"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "レポートを消去"
+            "value": "ログを消去"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Klarer Bericht"
+            "value": "Protokolle löschen"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Effacer le rapport"
+            "value": "Effacer les journaux"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "مسح التقرير"
+            "value": "مسح السجلات"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Borrar informe"
+            "value": "Borrar registros"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "清晰的報告"
+            "value": "清除日誌"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "清晰的报告"
+            "value": "清除日志"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "보고서 지우기"
+            "value": "로그 지우기"
           }
         }
       }
@@ -8133,55 +8192,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Clear this diagnostic report?"
+            "value": "Clear all diagnostic logs?"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この診断レポートを消去しますか？"
+            "value": "すべての診断ログを消去しますか？"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diesen Diagnosebericht löschen?"
+            "value": "Alle Diagnoseprotokolle löschen?"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Effacer ce rapport de diagnostic ?"
+            "value": "Effacer tous les journaux de diagnostic ?"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "هل تريد مسح هذا التقرير التشخيصي؟"
+            "value": "هل تريد مسح جميع سجلات التشخيص؟"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "¿Borrar este informe de diagnóstico?"
+            "value": "¿Borrar todos los registros de diagnóstico?"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "清除這份診斷報告嗎？"
+            "value": "要清除所有診斷日誌嗎？"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "清除这份诊断报告吗？"
+            "value": "要清除所有诊断日志吗？"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 진단 보고서를 삭제하시겠습니까?"
+            "value": "모든 진단 로그를 삭제하시겠습니까?"
           }
         }
       }
@@ -8192,55 +8251,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This permanently removes the connection timeline stored on this device."
+            "value": "This permanently removes the app, networking, verbose, and connection logs stored on this device."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このデバイスに保存された接続タイムラインを完全に削除します。"
+            "value": "このデバイスに保存されたアプリ、ネットワーク、詳細、接続ログを完全に削除します。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dadurch wird die auf diesem Gerät gespeicherte Verbindungszeitleiste dauerhaft entfernt."
+            "value": "Dadurch werden die auf diesem Gerät gespeicherten App-, Netzwerk-, ausführlichen und Verbindungsprotokolle dauerhaft entfernt."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cela supprime définitivement la chronologie de connexion stockée sur cet appareil."
+            "value": "Cela supprime définitivement les journaux d’app, réseau, détaillés et de connexion stockés sur cet appareil."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يؤدي هذا إلى إزالة المخطط الزمني للاتصال المخزن على هذا الجهاز بشكل دائم."
+            "value": "يؤدي هذا إلى إزالة سجلات التطبيق والشبكة والسجلات المطولة والاتصال المخزنة على هذا الجهاز بشكل دائم."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Esto elimina permanentemente la línea de tiempo de conexión almacenada en este dispositivo."
+            "value": "Esto elimina permanentemente los registros de la aplicación, la red, los detalles y la conexión almacenados en este dispositivo."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "這將永久刪除儲存在該裝置上的連接時間軸。"
+            "value": "這將永久刪除儲存在該裝置上的應用程式、網路、詳細和連線日誌。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "这将永久删除存储在该设备上的连接时间线。"
+            "value": "这将永久删除存储在该设备上的应用程序、网络、详细和连接日志。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 장치에 저장된 연결 타임라인이 영구적으로 제거됩니다."
+            "value": "이 기기에 저장된 앱, 네트워크, 상세 및 연결 로그가 영구적으로 제거됩니다."
           }
         }
       }
@@ -12493,6 +12552,28 @@
         }
       }
     },
+    "mobile.settings.taskComposerFullLiquidGlass": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Task Composer Liquid Glass"
+          }
+        }
+      }
+    },
+    "mobile.settings.taskComposerFullLiquidGlassCaption": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Liquid Glass controls and a transparent bar in New Task."
+          }
+        }
+      }
+    },
     "mobile.iroh.diagnostics.failure.unknown": {
       "extractionState": "manual",
       "localizations": {
@@ -12548,6 +12629,39 @@
           "stringUnit": {
             "state": "translated",
             "value": "알려지지 않은"
+          }
+        }
+      }
+    },
+    "mobile.settings.diagnostics.export": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Export Logs"
+          }
+        }
+      }
+    },
+    "mobile.settings.diagnostics.export.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t export logs. Check available storage and try again."
+          }
+        }
+      }
+    },
+    "mobile.settings.diagnostics.clear.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t clear logs. Check available storage and try again."
           }
         }
       }

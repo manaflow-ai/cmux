@@ -20,11 +20,12 @@ struct PairingView: View {
     /// when the headline is already the full instruction.
     let connectionErrorGuidance: String?
     let versionWarning: String?
-    let connectPairingCode: () async -> Void
-    let acceptVersionWarning: () async -> Void
-    let connectManualHost: (String, String, Int) async -> Void
+    let connectPairingCode: () async -> MobilePairingURLConnectionResult
+    let acceptVersionWarning: () async -> MobilePairingURLConnectionResult
+    let connectManualHost: (String, String, Int) async -> MobilePairingURLConnectionResult
     let cancelPairing: () -> Void
     let cancel: () -> Void
+    let onPairingResult: ((MobilePairingURLConnectionResult) -> Void)?
 
     @State private var isShowingScanner: Bool
     @State private var deviceName = UITestConfig.addDeviceName
@@ -45,11 +46,12 @@ struct PairingView: View {
         connectionError: String?,
         connectionErrorGuidance: String?,
         versionWarning: String?,
-        connectPairingCode: @escaping () async -> Void,
-        acceptVersionWarning: @escaping () async -> Void,
-        connectManualHost: @escaping (String, String, Int) async -> Void,
+        connectPairingCode: @escaping () async -> MobilePairingURLConnectionResult,
+        acceptVersionWarning: @escaping () async -> MobilePairingURLConnectionResult,
+        connectManualHost: @escaping (String, String, Int) async -> MobilePairingURLConnectionResult,
         cancelPairing: @escaping () -> Void,
-        cancel: @escaping () -> Void
+        cancel: @escaping () -> Void,
+        onPairingResult: ((MobilePairingURLConnectionResult) -> Void)? = nil
     ) {
         _pairingCode = pairingCode
         self.initialPresentation = initialPresentation
@@ -61,6 +63,7 @@ struct PairingView: View {
         self.connectManualHost = connectManualHost
         self.cancelPairing = cancelPairing
         self.cancel = cancel
+        self.onPairingResult = onPairingResult
         _isShowingScanner = State(initialValue: initialPresentation.showsScanner)
     }
 
@@ -187,7 +190,8 @@ struct PairingView: View {
 
                             Button(role: .destructive) {
                                 startPairingTask {
-                                    await acceptVersionWarning()
+                                    let result = await acceptVersionWarning()
+                                    onPairingResult?(result)
                                 }
                             } label: {
                                 Text(L10n.string("mobile.pairing.versionWarningContinue", defaultValue: "Continue anyway"))
@@ -294,6 +298,12 @@ struct PairingView: View {
                 defaultValue: "Add Tailscale Connection"
             )
         }
+        if initialPresentation == .tailscaleReplacement {
+            return L10n.string(
+                "mobile.connections.tailscale.replace",
+                defaultValue: "Replace Tailscale Connection"
+            )
+        }
         if initialPresentation.showsManualPairingControls {
             return L10n.string("mobile.connections.add", defaultValue: "Add Computer")
         }
@@ -331,7 +341,8 @@ struct PairingView: View {
             pairingCode = scannedCode
             isShowingScanner = false
             startPairingTask {
-                await connectPairingCode()
+                let result = await connectPairingCode()
+                onPairingResult?(result)
             }
         }
     }
@@ -411,7 +422,8 @@ struct PairingView: View {
         if CmxPairingURLScheme(urlString: trimmedHost) != nil {
             pairingCode = trimmedHost
             startPairingTask {
-                await connectPairingCode()
+                let result = await connectPairingCode()
+                onPairingResult?(result)
             }
             return
         }
@@ -426,7 +438,8 @@ struct PairingView: View {
         }
 
         startPairingTask {
-            await connectManualHost(deviceName, trimmedHost, parsedPort)
+            let result = await connectManualHost(deviceName, trimmedHost, parsedPort)
+            onPairingResult?(result)
         }
     }
 

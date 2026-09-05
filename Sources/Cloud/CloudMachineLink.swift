@@ -140,7 +140,9 @@ actor CloudMachineLink {
     // Foundation `Process` and its pipes are actor-isolated state; every callback hops
     // back into the actor through a Task, so nothing else touches them.
     private var process: Process?
+    private var processExit: CloudLinkFirstValue<Int32>?
     private var eventsProcess: Process?
+    private var eventsProcessExit: CloudLinkFirstValue<Int32>?
     private var eventsSubscriptionID: UUID?
     private var eventsReaderTask: Task<Void, Never>?
     private var eventsCursor: CloudVMCursor?
@@ -151,6 +153,8 @@ actor CloudMachineLink {
     private var eventsRecoveryPhase: EventsRecoveryPhase = .healthy
     private var inviteFileURL: URL?
     private var stderrTail: [String] = []
+    /// Releases this link's claim on the app's WireGuard hub; runs once when the link ends.
+    private var releaseHubLease: (@Sendable () async -> Void)?
 
     /// The newest change is buffered. If pressure drops an earlier delta, the next
     /// `previous_revision` check detects the gap and forces a complete snapshot.
@@ -175,8 +179,23 @@ actor CloudMachineLink {
     var isConnected: Bool { connected != nil && state == .connected }
 
     /// Spawns the headless client against `route` and waits for its local socket.
-    func connect(route: String, session: String, invitationURI: String?, timeout: Duration = .seconds(60)) async throws -> Connected {
-        if let connected, state == .connected { return connected }
+    ///
+    /// `wireguardHubSocket` routes the client through the app's WireGuard hub for a
+    /// machine on the private network; `releaseHubLease` is called exactly once when the
+    /// link ends (disconnect, exit, or a failed connect), so the hub can idle out.
+    func connect(
+        route: String,
+        session: String,
+        invitationURI: String?,
+        timeout: Duration = .seconds(60),
+        wireguardHubSocket: String? = nil,
+        releaseHubLease: (@Sendable () async -> Void)? = nil
+    ) async throws -> Connected {
+        if let connected, state == .connected {
+            await releaseHubLease?()
+            return connected
+        }
+        self.releaseHubLease = releaseHubLease
         eventsCursor = nil
         resetEventsRecovery()
         try paths.ensureStateDir()
@@ -195,7 +214,8 @@ actor CloudMachineLink {
             route: route,
             deviceName: CloudTuiClientPaths.deviceName(),
             stateDir: paths.stateDir.path,
-            inviteFilePath: inviteFilePath
+            inviteFilePath: inviteFilePath,
+            wireguardHubSocket: wireguardHubSocket
         )
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_REMOTE_STATE_DIR"] = paths.stateDir.path
@@ -205,9 +225,11 @@ actor CloudMachineLink {
         process.standardOutput = stdout
         process.standardError = stderr
         process.standardInput = FileHandle.nullDevice
+        let processExit = CloudLinkFirstValue<Int32>()
         process.terminationHandler = { [weak self] terminated in
             let status = terminated.terminationStatus
-            Task { await self?.linkProcessDidExit(status: status) }
+            processExit.resolve(status)
+            Task { await self?.linkProcessDidExit(terminated, status: status) }
         }
         state = .connecting
         lastError = nil
@@ -217,9 +239,11 @@ actor CloudMachineLink {
             state = .error
             lastError = Self.errorText(error)
             removeInviteFile()
+            await releaseHubLeaseOnce()
             throw LinkError.spawnFailed(error.localizedDescription)
         }
         self.process = process
+        self.processExit = processExit
         drainStderr(stderr.fileHandleForReading)
 
         // The first connection-snapshot line names the socket; later lines only update
@@ -235,45 +259,70 @@ actor CloudMachineLink {
             }
             firstSocket.resolve(nil)
         }
-        let socketPath: String = try await withThrowingTaskGroup(of: String?.self) { group in
-            group.addTask { await firstSocket.result }
-            group.addTask {
-                try await Task.sleep(for: timeout)
-                return nil
+        let socketPath: String
+        do {
+            socketPath = try await withThrowingTaskGroup(of: String?.self) { group in
+                group.addTask { await firstSocket.result }
+                group.addTask {
+                    try await Task.sleep(for: timeout)
+                    return nil
+                }
+                defer { group.cancelAll() }
+                guard let first = try await group.next(), let socket = first else {
+                    throw LinkError.timedOut
+                }
+                return socket
             }
-            defer { group.cancelAll() }
-            guard let first = try await group.next(), let socket = first else {
-                throw LinkError.timedOut
+            guard process.isRunning else {
+                throw LinkError.exited(status: process.terminationStatus, output: stderrTail.joined(separator: "\n"))
             }
-            return socket
-        }
-        guard process.isRunning else {
-            throw LinkError.exited(status: process.terminationStatus, output: stderrTail.joined(separator: "\n"))
+        } catch {
+            state = .error
+            lastError = Self.errorText(error)
+            removeInviteFile()
+            await Self.terminateAndWait(process, exit: processExit)
+            if self.process === process {
+                self.process = nil
+                self.processExit = nil
+            }
+            await releaseHubLeaseOnce()
+            throw error
         }
         let connected = Connected(socketPath: socketPath, session: session)
         self.connected = connected
         state = .connected
-        startEventsSubscription(socketPath: socketPath, cursor: nil)
+        await startEventsSubscription(socketPath: socketPath, cursor: nil)
         changesContinuation.yield(.connected)
         return connected
     }
 
-    func disconnect() {
+    func disconnect() async {
         eventsSubscriptionID = nil
         eventsReaderTask?.cancel()
         eventsReaderTask = nil
-        eventsProcess?.terminate()
-        eventsProcess = nil
         eventsRecoveryTask?.cancel()
         eventsRecoveryTask = nil
         cancelEventsStabilityReset()
         eventsRecoveryPhase = .healthy
-        process?.terminate()
-        process = nil
-        connected = nil
         state = .unavailable
+        connected = nil
         removeInviteFile()
         changesContinuation.finish()
+        if let eventsProcess, let eventsProcessExit {
+            await Self.terminateAndWait(eventsProcess, exit: eventsProcessExit)
+            if self.eventsProcess === eventsProcess {
+                self.eventsProcess = nil
+                self.eventsProcessExit = nil
+            }
+        }
+        if let process, let processExit {
+            await Self.terminateAndWait(process, exit: processExit)
+            if self.process === process {
+                self.process = nil
+                self.processExit = nil
+            }
+        }
+        await releaseHubLeaseOnce()
     }
 
     /// Records a cursor only after the owner has accepted the corresponding
@@ -304,7 +353,7 @@ actor CloudMachineLink {
 
     /// Reopens the event reader from the last accepted cursor. A stream can end
     /// on journal overflow, daemon restart, or a transient local socket close.
-    func restartEventsSubscription(from cursor: CloudVMCursor? = nil) {
+    func restartEventsSubscription(from cursor: CloudVMCursor? = nil) async {
         guard state == .connected, let socketPath = connected?.socketPath else { return }
         guard Self.canRestartEventsSubscription(for: eventsRecoveryPhase) else { return }
         // Cancel a delayed retry owned by the old reader, but keep its phase and
@@ -312,7 +361,7 @@ actor CloudMachineLink {
         eventsRecoveryTask?.cancel()
         eventsRecoveryTask = nil
         replaceEventsCursor(cursor ?? eventsCursor)
-        _ = startEventsSubscription(socketPath: socketPath, cursor: eventsCursor)
+        _ = await startEventsSubscription(socketPath: socketPath, cursor: eventsCursor)
     }
 
     /// Marks a snapshot as the new synchronization boundary and resumes the event
@@ -320,7 +369,7 @@ actor CloudMachineLink {
     /// feed is left in place, so accepting a normal snapshot does not create a
     /// second reader or lose events between two subscriptions.
     @discardableResult
-    func resumeEventsSubscription(from cursor: CloudVMCursor) -> Bool {
+    func resumeEventsSubscription(from cursor: CloudVMCursor) async -> Bool {
         // A versioned snapshot is allowed to leave snapshot-only mode. Routine
         // refreshes must not reset an exhausted recovery budget, or a broken
         // daemon would be respawned forever by each refresh.
@@ -345,7 +394,7 @@ actor CloudMachineLink {
             eventsRecoveryPhase = .snapshotRecovery
         }
         guard eventsRecoveryPhase == .healthy || eventsRecoveryPhase == .snapshotRecovery else { return false }
-        return startEventsSubscription(socketPath: socketPath, cursor: eventsCursor)
+        return await startEventsSubscription(socketPath: socketPath, cursor: eventsCursor)
     }
 
     /// Stops the journal reader when the daemon only provides an unversioned
@@ -385,21 +434,44 @@ actor CloudMachineLink {
         try process.run()
         async let outData = CloudLinkPipe.readToEnd(stdout.fileHandleForReading)
         async let errData = CloudLinkPipe.readToEnd(stderr.fileHandleForReading)
-        let deadline = Task<Bool, Never> {
-            do {
-                try await Task.sleep(for: timeout)
-            } catch {
-                return false
+        // `CloudLinkFirstValue.result` is cancellation-aware. Wait for it from a detached
+        // task so cancellation cannot release a still-running Foundation `Process`.
+        // `NSConcreteTask` aborts the whole app when that happens. Every return path below
+        // first terminates, then observes the real child exit.
+        let exitTask = Task.detached { await exit.result }
+        let outcome = await withTaskCancellationHandler {
+            await withTaskGroup(of: CloudLinkCommandOutcome.self) { group in
+                group.addTask {
+                    .exited(await exitTask.value ?? -1)
+                }
+                group.addTask {
+                    do {
+                        try await Task.sleep(for: timeout)
+                        return .timedOut
+                    } catch {
+                        return .cancelled
+                    }
+                }
+                let first = await group.next() ?? .cancelled
+                switch first {
+                case .exited:
+                    break
+                case .timedOut, .cancelled:
+                    if process.isRunning { process.terminate() }
+                }
+                group.cancelAll()
+                return first
             }
-            process.terminate()
-            return true
+        } onCancel: {
+            if process.isRunning { process.terminate() }
         }
-        let status = await exit.result ?? process.terminationStatus
-        deadline.cancel()
-        let timedOut = await deadline.value
+        // The task group does not return until its exit waiter observes termination.
+        // Reading terminationStatus is now safe on every path.
+        let status = process.terminationStatus
         let out = await outData
         let err = await errData
-        if timedOut { throw LinkError.timedOut }
+        if Task.isCancelled || outcome == .cancelled { throw CancellationError() }
+        if outcome == .timedOut { throw LinkError.timedOut }
         guard status == 0 else {
             let text = String(data: err, encoding: .utf8) ?? ""
             let fallback = String(data: out, encoding: .utf8) ?? ""
@@ -411,14 +483,21 @@ actor CloudMachineLink {
     // MARK: - internals
 
     @discardableResult
-    private func startEventsSubscription(socketPath: String, cursor: CloudVMCursor?) -> Bool {
+    private func startEventsSubscription(socketPath: String, cursor: CloudVMCursor?) async -> Bool {
         guard !socketPath.isEmpty else { return false }
         cancelEventsStabilityReset()
         eventsSubscriptionID = nil
         eventsReaderTask?.cancel()
         eventsReaderTask = nil
-        eventsProcess?.terminate()
-        eventsProcess = nil
+        // Wait for the previous events child to exit before spawning its replacement,
+        // so two readers never race on the same socket.
+        if let eventsProcess, let eventsProcessExit {
+            await Self.terminateAndWait(eventsProcess, exit: eventsProcessExit)
+            if self.eventsProcess === eventsProcess {
+                self.eventsProcess = nil
+                self.eventsProcessExit = nil
+            }
+        }
         let subscriptionID = UUID()
         eventsSubscriptionID = subscriptionID
         let process = Process()
@@ -428,6 +507,11 @@ actor CloudMachineLink {
         process.standardError = FileHandle.nullDevice
         let stdout = Pipe()
         process.standardOutput = stdout
+        let exit = CloudLinkFirstValue<Int32>()
+        process.terminationHandler = { [weak self] terminated in
+            exit.resolve(terminated.terminationStatus)
+            Task { await self?.eventsProcessDidExit(terminated) }
+        }
         do {
             try process.run()
         } catch {
@@ -437,6 +521,8 @@ actor CloudMachineLink {
             return false
         }
         eventsProcess = process
+        eventsProcessExit = exit
+        let continuation = changesContinuation
         let lines = CloudLinkPipe.lines(from: stdout.fileHandleForReading)
         eventsReaderTask = Task.detached { [weak self] in
             var receivedStreamEnd = false
@@ -550,7 +636,7 @@ actor CloudMachineLink {
         }
     }
 
-    private func recoverEventsSubscription(socketPath: String) {
+    private func recoverEventsSubscription(socketPath: String) async {
         eventsRecoveryTask = nil
         guard state == .connected,
               connected?.socketPath == socketPath,
@@ -560,7 +646,7 @@ actor CloudMachineLink {
               eventsRecoveryPhase != .snapshotRecovery,
               eventsRecoveryPhase != .snapshotOnly
         else { return }
-        _ = startEventsSubscription(socketPath: socketPath, cursor: eventsCursor)
+        _ = await startEventsSubscription(socketPath: socketPath, cursor: eventsCursor)
     }
 
     /// Starts a cancellable healthy-stream window after the owner accepts an
@@ -610,17 +696,24 @@ actor CloudMachineLink {
         if stderrTail.count > 20 { stderrTail.removeFirst(stderrTail.count - 20) }
     }
 
-    private func linkProcessDidExit(status: Int32) {
+    private func linkProcessDidExit(_ exitedProcess: Process, status: Int32) async {
+        guard process === exitedProcess else { return }
         eventsSubscriptionID = nil
         eventsReaderTask?.cancel()
         eventsReaderTask = nil
-        eventsProcess?.terminate()
-        eventsProcess = nil
         eventsRecoveryTask?.cancel()
         eventsRecoveryTask = nil
         cancelEventsStabilityReset()
         eventsRecoveryPhase = .healthy
+        if let eventsProcess, let eventsProcessExit {
+            await Self.terminateAndWait(eventsProcess, exit: eventsProcessExit)
+            if self.eventsProcess === eventsProcess {
+                self.eventsProcess = nil
+                self.eventsProcessExit = nil
+            }
+        }
         process = nil
+        processExit = nil
         connected = nil
         removeInviteFile()
         if state != .unavailable {
@@ -629,6 +722,30 @@ actor CloudMachineLink {
         }
         changesContinuation.yield(.streamEnded(reason: "link_exit", cursor: nil))
         changesContinuation.finish()
+        await releaseHubLeaseOnce()
+    }
+
+    private func eventsProcessDidExit(_ exitedProcess: Process) {
+        guard eventsProcess === exitedProcess else { return }
+        eventsProcess = nil
+        eventsProcessExit = nil
+    }
+
+    /// Foundation aborts if a running `Process` is released. Keep a detached exit
+    /// waiter alive because the caller can already be cancelled when cleanup starts.
+    private nonisolated static func terminateAndWait(
+        _ process: Process,
+        exit: CloudLinkFirstValue<Int32>
+    ) async {
+        let exitTask = Task.detached { await exit.result }
+        if process.isRunning { process.terminate() }
+        _ = await exitTask.value
+    }
+
+    private func releaseHubLeaseOnce() async {
+        guard let release = releaseHubLease else { return }
+        releaseHubLease = nil
+        await release()
     }
 
     /// Parses the public `session current events --jsonl` envelope. Complete
@@ -696,6 +813,12 @@ actor CloudMachineLink {
             self.inviteFileURL = nil
         }
     }
+}
+
+private enum CloudLinkCommandOutcome: Sendable, Equatable {
+    case exited(Int32)
+    case timedOut
+    case cancelled
 }
 
 /// GCD-driven reading of the link's child-process pipes. `FileHandle.bytes.lines` and
@@ -793,9 +916,11 @@ final class CloudLinkFirstValue<Value: Sendable>: @unchecked Sendable {
         case done(Value?)
     }
 
+    // A GCD or Process callback and task cancellation can race to resume one
+    // continuation. This short lock protects only that synchronous handoff.
     private let lock = NSLock()
     private var state: State = .pending
-    private var waiters: [CheckedContinuation<Value?, Never>] = []
+    private var waiters: [UUID: CheckedContinuation<Value?, Never>] = [:]
 
     func resolve(_ value: Value?) {
         lock.lock()
@@ -804,8 +929,8 @@ final class CloudLinkFirstValue<Value: Sendable>: @unchecked Sendable {
             return
         }
         state = .done(value)
-        let waiting = waiters
-        waiters = []
+        let waiting = Array(waiters.values)
+        waiters.removeAll()
         lock.unlock()
         for waiter in waiting {
             waiter.resume(returning: value)
@@ -814,16 +939,31 @@ final class CloudLinkFirstValue<Value: Sendable>: @unchecked Sendable {
 
     var result: Value? {
         get async {
-            await withCheckedContinuation { continuation in
-                lock.lock()
-                if case .done(let value) = state {
-                    lock.unlock()
-                    continuation.resume(returning: value)
-                } else {
-                    waiters.append(continuation)
-                    lock.unlock()
+            let waiterID = UUID()
+            return await withTaskCancellationHandler {
+                await withCheckedContinuation { continuation in
+                    lock.lock()
+                    if case .done(let value) = state {
+                        lock.unlock()
+                        continuation.resume(returning: value)
+                    } else if Task.isCancelled {
+                        lock.unlock()
+                        continuation.resume(returning: nil)
+                    } else {
+                        waiters[waiterID] = continuation
+                        lock.unlock()
+                    }
                 }
+            } onCancel: {
+                cancel(waiterID: waiterID)
             }
         }
+    }
+
+    private func cancel(waiterID: UUID) {
+        lock.lock()
+        let waiter = waiters.removeValue(forKey: waiterID)
+        lock.unlock()
+        waiter?.resume(returning: nil)
     }
 }

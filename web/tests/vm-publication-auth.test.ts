@@ -33,9 +33,45 @@ const publication = {
   disabledAt: null,
 };
 const domain = { hostname: "example.com" };
-const target = { publication, domain, vm: { providerVmId: "vm-1" } };
+const target = { publication, domain, vm: { providerVmId: "vm-1", userId: publication.ownerUserId, billingTeamId: publication.ownerUserId } };
 
 describe("Cloud VM publication auth exchange", () => {
+  test("removes a personal-mode owner's team VM session when team membership ends", async () => {
+    const teamTarget = { ...target, vm: { ...target.vm, userId: publication.ownerUserId, billingTeamId: "team-1" } };
+    const repository = authRepository({
+      findActivePublicationForRequest: () => Effect.succeed(teamTarget as never),
+      findValidSession: () => Effect.succeed({ session: { userId: publication.ownerUserId }, publication, domain } as never),
+      hasEmailGrant: () => Effect.succeed(false),
+    });
+    let teamIds = ["team-1"];
+    const check = () => run(evaluatePublicationRequest({
+      providerTlsRuleId: "tls-rule-1", method: "POST", sessionToken: randomPublicationToken(), now,
+    }), repository, { resolve: () => Effect.succeed({ userId: publication.ownerUserId, teamIds }) });
+    expect(await check()).toEqual({ kind: "allow" });
+    teamIds = [];
+    expect(await check()).toEqual({ kind: "unauthorized" });
+  });
+
+  test("does not issue a personal-mode code to a removed team VM owner", async () => {
+    const transaction = randomPublicationToken();
+    const state = randomPublicationToken();
+    let issued = false;
+    const repository = authRepository({
+      findPendingAuthTransaction: () => Effect.succeed({
+        transaction: { transactionHash: hashPublicationToken(transaction), stateHash: hashPublicationToken(state) },
+        publication, domain, vm: { userId: publication.ownerUserId, billingTeamId: "team-1" },
+      } as never),
+      issueAuthCode: () => { issued = true; return Effect.succeed({} as never); },
+      hasEmailGrant: () => Effect.succeed(false),
+    });
+    const resolution = await run(resolvePublicationAccess({
+      transaction, state, now,
+      user: { userId: publication.ownerUserId, teamIds: ["team-1"], identity: "owner@example.com" },
+    }), repository, { resolve: () => Effect.succeed({ userId: publication.ownerUserId, teamIds: [] }) });
+    expect(resolution.kind).toBe("denied");
+    expect(issued).toBe(false);
+  });
+
   test("starts a PKCE-bound transaction and redirects only safe browser methods", async () => {
     const created: { current: Record<string, unknown> | null } = { current: null };
     const repository = authRepository({
@@ -175,6 +211,7 @@ describe("Cloud VM publication auth exchange", () => {
     const state = randomPublicationToken();
     const issued: { current: Record<string, unknown> | null } = { current: null };
     const pending = {
+      vm: target.vm,
       transaction: {
         transactionHash: hashPublicationToken(transaction),
         stateHash: hashPublicationToken(state),
@@ -220,6 +257,7 @@ describe("Cloud VM publication auth exchange", () => {
       teamId: "team-1",
     };
     const pending = {
+      vm: target.vm,
       transaction: {
         transactionHash: hashPublicationToken(transaction),
         stateHash: hashPublicationToken(state),

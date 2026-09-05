@@ -32,6 +32,11 @@ public struct MobileAnalyticsComposition {
     public let clientConfig: any ClientConfigLoading
     /// The per-install anonymous id used for analytics and feature flag evaluation.
     public let anonymousID: String
+    /// Important transport and backend outcomes sent to the authenticated Axiom bridge.
+    public let networkOutcomeReporter: MobileNetworkOutcomeReporter
+    /// The network emitter owns the same consent provider and revocation
+    /// observer as the product emitter, so opt-out cancels both upload paths.
+    public let networkOutcomeEmitter: AnalyticsEmitter
     /// The default mobile evaluation context sent to `/api/client-config`.
     public let clientConfigContext: ClientConfigEvaluationContext
     /// A request for anonymous mobile flag evaluation.
@@ -93,9 +98,25 @@ public struct MobileAnalyticsComposition {
         if resolved.created {
             emitter.capture("ios_app_first_launch", ["client_id": .string(anonymousID)])
         }
+        let networkOutcomeEmitter = AnalyticsEmitter(
+            uploader: HTTPMobileNetworkOutcomeUploader(
+                apiBaseURL: apiBaseURL,
+                tokenProvider: AnalyticsTokenProviderBridge(tokenProvider: tokenProvider),
+                session: session ?? Self.analyticsSession()
+            ),
+            consent: consent,
+            anonymousID: anonymousID,
+            flushBatchSize: 25,
+            flushInterval: .seconds(10),
+            maxPendingEvents: 500,
+            diagnosticLog: nil
+        )
+        networkOutcomeEmitter.setSuperProperties(Self.networkObservabilityProperties())
         self.emitter = emitter
         self.clientConfig = HTTPClientConfigLoader(apiBaseURL: apiBaseURL, session: networkSession)
         self.anonymousID = anonymousID
+        self.networkOutcomeEmitter = networkOutcomeEmitter
+        self.networkOutcomeReporter = MobileNetworkOutcomeReporter(emitter: networkOutcomeEmitter)
         self.clientConfigContext = ClientConfigEvaluationContext(
             personProperties: Self.clientConfigDeviceProperties(anonymousID: anonymousID),
             anonDistinctId: anonymousID,
@@ -115,6 +136,27 @@ public struct MobileAnalyticsComposition {
         config.timeoutIntervalForRequest = 15
         config.waitsForConnectivity = false
         return URLSession(configuration: config)
+    }
+
+    /// Signed app metadata attached to every Axiom outcome. Values come from
+    /// the bundle and OS, never from terminal or user content.
+    @MainActor private static func networkObservabilityProperties() -> [String: AnalyticsValue] {
+        let info = Bundle.main.infoDictionary
+        var properties: [String: AnalyticsValue] = [
+            "platform": .string("ios"),
+            "os_version": .string(UIDevice.current.systemVersion),
+            "device_model": .string(UIDevice.current.model),
+        ]
+        if let bundleIdentifier = Bundle.main.bundleIdentifier {
+            properties["bundle_identifier"] = .string(bundleIdentifier)
+        }
+        if let version = info?["CFBundleShortVersionString"] as? String {
+            properties["app_version"] = .string(version)
+        }
+        if let build = info?["CFBundleVersion"] as? String {
+            properties["build_number"] = .string(build)
+        }
+        return properties
     }
 
     /// The static device/app super-properties merged onto every event. Sizes and

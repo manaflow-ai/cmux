@@ -24,6 +24,10 @@ import Testing
         DiagnosticEvent(code: .transportDialConnected, tNanos: seconds * Self.second, a: 1, c: 1)
     }
 
+    private func rpcReady(at seconds: UInt64) -> DiagnosticEvent {
+        DiagnosticEvent(code: .rpcReady, tNanos: seconds * Self.second, a: 1, c: 1)
+    }
+
     @Test func firstFailureCaptures() {
         var policy = TransportIncidentPolicy(locale: englishLocale)
         let incident = policy.decide(dialFailed(at: 10))
@@ -129,13 +133,52 @@ import Testing
         var policy = TransportIncidentPolicy(locale: englishLocale)
         #expect(policy.decide(dialFailed(at: 10))?.consecutiveFailures == 1)
         #expect(policy.decide(dialFailed(at: 20)) == nil)
-        _ = policy.decide(connected(at: 30))
+        _ = policy.decide(rpcReady(at: 30))
         // New failure after a success starts a fresh streak but stays inside
         // the signature cooldown, so it coalesces rather than captures.
         #expect(policy.decide(dialFailed(at: 40)) == nil)
         let recapture = policy.decide(dialFailed(at: 700))
         #expect(recapture?.consecutiveFailures == 2)
         #expect(recapture?.secondsSinceLastSuccess == 670)
+    }
+
+    @Test func intermediateProgressDoesNotHideSustainedConnectivityFailure() {
+        var policy = TransportIncidentPolicy(
+            configuration: .init(
+                signatureCooldown: 600,
+                hourlyCaptureLimit: 30,
+                outageFailureThreshold: 3,
+                outageMinimumDuration: 60
+            ),
+            locale: englishLocale
+        )
+
+        #expect(policy.decide(dialFailed(at: 10))?.kind == .failure)
+        _ = policy.decide(connected(at: 20))
+        #expect(policy.decide(DiagnosticEvent(
+            code: .hostAuthenticationFailed,
+            tNanos: 40 * Self.second,
+            b: DiagnosticFailureKind.authorizationFailed.rawValue
+        ))?.kind == .failure)
+        _ = policy.decide(DiagnosticEvent(
+            code: .discoverySucceeded,
+            tNanos: 50 * Self.second,
+            a: DiagnosticTransportKind.iroh.rawValue
+        ))
+        _ = policy.decide(DiagnosticEvent(
+            code: .admissionSucceeded,
+            tNanos: 60 * Self.second
+        ))
+
+        let outage = policy.decide(DiagnosticEvent(
+            code: .rpcFailed,
+            tNanos: 70 * Self.second,
+            b: DiagnosticFailureKind.connectionClosed.rawValue
+        ))
+
+        #expect(outage?.kind == .outage)
+        #expect(outage?.consecutiveFailures == 3)
+        #expect(outage?.secondsSinceFirstCoalesced == 60)
     }
 
     @Test func outageEscalatesAfterThresholdAndDuration() {
@@ -162,7 +205,7 @@ import Testing
         #expect(policy.decide(dialFailed(at: 80)) == nil)
 
         // A success re-arms; a new sustained streak fires a new outage.
-        _ = policy.decide(connected(at: 100))
+        _ = policy.decide(rpcReady(at: 100))
         var last: TransportIncidentPolicy.Incident?
         for t in stride(from: UInt64(4000), through: 4080, by: 20) {
             last = policy.decide(dialFailed(at: t)) ?? last
@@ -258,5 +301,20 @@ import Testing
         let incident = policy.decide(dialFailed(at: 10))
         #expect(incident?.reachable == true)
         #expect(incident?.appPhase == .active)
+    }
+
+    @Test func individualCapturesCanBeDisabledWhileOutageEscalationRemains() {
+        var policy = TransportIncidentPolicy(
+            configuration: .init(
+                outageFailureThreshold: 2,
+                outageMinimumDuration: 1,
+                captureIndividualFailures: false
+            ),
+            locale: englishLocale
+        )
+
+        #expect(policy.decide(dialFailed(at: 10)) == nil)
+        let outage = policy.decide(dialFailed(at: 11))
+        #expect(outage?.kind == .outage)
     }
 }

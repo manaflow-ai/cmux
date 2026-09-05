@@ -1364,6 +1364,7 @@ final class MobileHostService {
         authorization: MobileHostConnectionAuthorizationContext,
         artifactTransfers: MobileHostIrohArtifactTransferRegistry? = nil,
         independentEventWriter: (any MobileHostIndependentEventWriting)? = nil,
+        idleTimeoutNanoseconds: UInt64? = nil,
         promoteUsableSession: @escaping @Sendable () async -> Bool = { true },
         remoteControlDisabledByPolicy: @escaping @Sendable () -> Bool = {
             MobileRemoteControlPolicy.isDisabled
@@ -1394,6 +1395,8 @@ final class MobileHostService {
         let session = MobileHostConnection(
             id: id,
             transport: transport,
+            idleTimeoutNanoseconds: idleTimeoutNanoseconds
+                ?? MobileHostConnection.defaultIdleTimeoutNanoseconds,
             independentEventWriter: independentEventWriter,
             authorizeRequest: { request in
                 await Self.connectionAuthorizationError(
@@ -2034,7 +2037,7 @@ extension MobileHostService {
 actor MobileHostConnection {
     private static let maximumReceiveBufferByteCount = MobileSyncFrameCodec.defaultMaximumFrameByteCount + MobileSyncFrameCodec.headerByteCount
     private static let defaultFirstFrameTimeoutNanoseconds: UInt64 = 15 * 1_000_000_000
-    private static let defaultIdleTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000
+    fileprivate static let defaultIdleTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000
     /// Bounded deadline for one control-lane event write. A peer that accepted
     /// the connection but stopped reading (TCP zero-window, QUIC flow-control
     /// stall) would otherwise pin the drain — and with it this connection's

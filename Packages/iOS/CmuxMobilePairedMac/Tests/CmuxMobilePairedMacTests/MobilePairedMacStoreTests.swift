@@ -249,6 +249,69 @@ import Testing
         #expect(mac.legacyTailscaleRoutes == [tailscale])
     }
 
+    @Test func removedRouteStaysHiddenAcrossRegistryRefreshAndReopen() async throws {
+        let (store, directory) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let removed = try CmxAttachRoute(
+            id: "tailscale-old",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.64.0.40", port: 8443)
+        )
+        let refreshedRemoved = try CmxAttachRoute(
+            id: "tailscale-new",
+            kind: .tailscale,
+            endpoint: removed.endpoint
+        )
+        let retained = try CmxAttachRoute(
+            id: "tailscale-retained",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.64.0.41", port: 8443)
+        )
+
+        try await store.upsert(
+            macDeviceID: "tailscale-mac",
+            displayName: "Tailscale Mac",
+            routes: [removed, retained],
+            markActive: true,
+            stackUserID: "user-1",
+            now: Date(timeIntervalSince1970: 1)
+        )
+        #expect(
+            try await store.removeRouteIfAuthorized(
+                macDeviceID: "tailscale-mac",
+                route: removed,
+                condition: .matchingInstanceTag(nil),
+                stackUserID: "user-1",
+                teamID: nil,
+                now: Date(timeIntervalSince1970: 2)
+            )
+        )
+        #expect(try await store.activeMac(stackUserID: "user-1")?.routes == [retained])
+
+        // Presence can immediately publish the same endpoint under a new route
+        // id. The endpoint tombstone must win over that registry refresh.
+        #expect(
+            try await store.upsertRoutesIfAuthorized(
+                macDeviceID: "tailscale-mac",
+                displayName: "Tailscale Mac",
+                routes: [refreshedRemoved, retained],
+                condition: .matchingInstanceTag(nil),
+                markActive: nil,
+                stackUserID: "user-1",
+                teamID: nil,
+                now: Date(timeIntervalSince1970: 3)
+            )
+        )
+        #expect(try await store.activeMac(stackUserID: "user-1")?.routes == [retained])
+
+        // A fresh store instance represents an app relaunch and must retain the
+        // local route choice.
+        let reopenedStore = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
+        )
+        #expect(try await reopenedStore.activeMac(stackUserID: "user-1")?.routes == [retained])
+    }
+
     @Test func userEnteredPairingCodeMintsDeviceLocalGrant() async throws {
         let (store, directory) = try makeStore()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -276,6 +339,119 @@ import Testing
             try await store.activeMac(stackUserID: "user-1")?.legacyTailscaleRoutes
                 == [tailscale]
         )
+    }
+
+    @Test func replacingPairingRoutesRemovesStaleTailscaleGrant() async throws {
+        let (store, directory) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let oldRoute = try tailscaleRoute(host: "100.64.0.40")
+        let newRoute = try tailscaleRoute(host: "100.64.0.41")
+        let iroh = try irohRoute()
+
+        try await store.upsert(
+            macDeviceID: "replace-mac",
+            displayName: "Replace Mac",
+            routes: [oldRoute],
+            markActive: true,
+            stackUserID: "user-1",
+            now: Date(timeIntervalSince1970: 1)
+        )
+        try await store.authorizeUserTailscaleRoutes(
+            macDeviceID: "replace-mac",
+            instanceTag: nil,
+            stackUserID: "user-1",
+            teamID: nil,
+            routes: [oldRoute]
+        )
+        // A host refresh can replace the route snapshot while a legacy grant
+        // remains. The replacement authorization must revoke that stale grant
+        // even though the old endpoint is no longer in currentRoutes.
+        #expect(try await store.upsertRoutesIfAuthorized(
+            macDeviceID: "replace-mac",
+            displayName: "Replace Mac",
+            routes: [iroh, newRoute],
+            condition: .unclaimed,
+            markActive: true,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: Date(timeIntervalSince1970: 2)
+        ))
+        try await store.authorizeUserTailscaleRoutes(
+            macDeviceID: "replace-mac",
+            instanceTag: nil,
+            stackUserID: "user-1",
+            teamID: nil,
+            routes: [newRoute]
+        )
+
+        let current = try #require(await store.activeMac(stackUserID: "user-1"))
+        #expect(current.routes == [iroh, newRoute])
+        #expect(current.legacyTailscaleRoutes == [newRoute])
+    }
+
+    @Test func routeRemovalCompactionUsesConservativeKindMarker() async throws {
+        let (store, directory) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let iroh = try irohRoute()
+        let tailscaleRoutes = try (0..<257).map { index in
+            try CmxAttachRoute(
+                id: "tailscale-\(index)",
+                kind: .tailscale,
+                endpoint: .hostPort(host: "100.65.0.\((index / 250) + 1)", port: 58_465 - index)
+            )
+        }
+        try await store.upsert(
+            macDeviceID: "churn-mac",
+            displayName: "Churn Mac",
+            routes: [iroh] + tailscaleRoutes,
+            markActive: true,
+            stackUserID: "user-1",
+            now: Date(timeIntervalSince1970: 1)
+        )
+        for route in tailscaleRoutes {
+            let removed = try await store.removeRouteIfAuthorized(
+                macDeviceID: "churn-mac",
+                route: route,
+                condition: .unclaimed,
+                stackUserID: "user-1",
+                teamID: nil,
+                now: Date(timeIntervalSince1970: 2)
+            )
+            if !removed { break }
+        }
+
+        try await store.upsert(
+            macDeviceID: "churn-mac",
+            displayName: "Churn Mac",
+            routes: [iroh] + tailscaleRoutes,
+            markActive: true,
+            stackUserID: "user-1",
+            now: Date(timeIntervalSince1970: 3)
+        )
+        let suppressed = try #require(await store.activeMac(stackUserID: "user-1"))
+        #expect(suppressed.routes == [iroh])
+
+        try await store.authorizeUserTailscaleRoutes(
+            macDeviceID: "churn-mac",
+            instanceTag: nil,
+            stackUserID: "user-1",
+            teamID: nil,
+            routes: [tailscaleRoutes[0]]
+        )
+        let restored = try #require(await store.activeMac(stackUserID: "user-1"))
+        #expect(restored.routes.contains(iroh))
+        #expect(restored.routes.contains(tailscaleRoutes[0]))
+
+        try await store.upsert(
+            macDeviceID: "churn-mac",
+            displayName: "Churn Mac",
+            routes: [iroh] + tailscaleRoutes,
+            markActive: true,
+            stackUserID: "user-1",
+            now: Date(timeIntervalSince1970: 4)
+        )
+        let refreshed = try #require(await store.activeMac(stackUserID: "user-1"))
+        #expect(refreshed.routes == [iroh, tailscaleRoutes[0]])
     }
 
     @Test func userGrantSurvivesAuthenticatedIrohPublication() async throws {
@@ -314,6 +490,64 @@ import Testing
             try await store.activeMac(stackUserID: "user-1")?.legacyTailscaleRoutes
                 == [tailscale]
         )
+    }
+
+    @Test func userAuthorizedRouteStaysVisibleWhenPresenceOmitsIt() async throws {
+        let (store, directory) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let tailscale = try tailscaleRoute(host: "100.64.0.34")
+        let iroh = try irohRoute()
+
+        try await store.upsert(
+            macDeviceID: "scanned-mac",
+            displayName: "Scanned Mac",
+            routes: [tailscale, iroh],
+            markActive: true,
+            stackUserID: "user-1",
+            now: Date()
+        )
+        try await store.authorizeUserTailscaleRoutes(
+            macDeviceID: "scanned-mac",
+            instanceTag: nil,
+            stackUserID: "user-1",
+            teamID: nil,
+            routes: [tailscale]
+        )
+
+        // Presence commonly publishes only the authenticated Iroh route. The
+        // user-authorized Tailscale endpoint remains a visible dial option.
+        try await store.upsert(
+            macDeviceID: "scanned-mac",
+            displayName: "Scanned Mac",
+            routes: [iroh],
+            markActive: true,
+            stackUserID: "user-1",
+            now: Date().addingTimeInterval(1)
+        )
+        let retained = try #require(await store.activeMac(stackUserID: "user-1"))
+        #expect(retained.routes.contains(tailscale))
+        #expect(retained.routes.contains(iroh))
+
+        // A prior explicit removal still wins over the grant during later
+        // refreshes, so preserving user grants cannot resurrect a tombstoned
+        // endpoint.
+        #expect(try await store.removeRouteIfAuthorized(
+            macDeviceID: "scanned-mac",
+            route: tailscale,
+            condition: .unclaimed,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: Date().addingTimeInterval(2)
+        ))
+        try await store.upsert(
+            macDeviceID: "scanned-mac",
+            displayName: "Scanned Mac",
+            routes: [iroh],
+            markActive: true,
+            stackUserID: "user-1",
+            now: Date().addingTimeInterval(3)
+        )
+        #expect(!(try await store.activeMac(stackUserID: "user-1")?.routes.contains(tailscale) ?? false))
     }
 
     @Test func userGrantRequiresExistingScopedRow() async throws {
@@ -774,6 +1008,55 @@ import Testing
         #expect(claimed.first?.teamID == "team-a")
         #expect(claimed.first?.routes.map(\.id) == ["updated"])
         #expect(try await store.activeMac(stackUserID: "user-1", teamID: "team-a")?.routes.map(\.id) == ["updated"])
+    }
+
+    @Test func claimingLegacyMacPreservesRemovedRouteTombstone() async throws {
+        let (store, directory) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let removedRoute = try CmxAttachRoute(
+            id: "removed",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "10.0.0.20", port: 22)
+        )
+        let retainedRoute = try CmxAttachRoute(
+            id: "retained",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "10.0.0.21", port: 22)
+        )
+
+        try await store.upsert(
+            macDeviceID: "legacy-mac",
+            displayName: "Legacy",
+            routes: [removedRoute, retainedRoute],
+            markActive: true,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: Date(timeIntervalSince1970: 1)
+        )
+        #expect(try await store.removeRouteIfAuthorized(
+            macDeviceID: "legacy-mac",
+            route: removedRoute,
+            condition: .matchingInstanceTag(nil),
+            stackUserID: "user-1",
+            teamID: nil,
+            now: Date(timeIntervalSince1970: 2)
+        ))
+
+        try await store.upsert(
+            macDeviceID: "legacy-mac",
+            displayName: "Claimed",
+            routes: [removedRoute, retainedRoute],
+            markActive: true,
+            stackUserID: "user-1",
+            teamID: "team-a",
+            now: Date(timeIntervalSince1970: 3)
+        )
+
+        #expect(try await store.activeMac(
+            stackUserID: "user-1",
+            teamID: "team-a"
+        )?.routes == [retainedRoute])
     }
 
     @Test func activatingTeamMacClearsVisibleLegacyActiveMac() async throws {

@@ -113,6 +113,10 @@ pub const CLIENT_FOCUS_CAPABILITY: &str = "client-focus-v1";
 pub const DAEMON_SHUTDOWN_EVENT: &str = "daemon-shutdown";
 /// The daemon answers `machine-usage` and emits `machine-usage-changed`.
 pub const MACHINE_USAGE_CAPABILITY: &str = "machine-usage-v1";
+/// The daemon reads the host's listening TCP sockets for an authenticated
+/// client. Cloud clients use this over the private cmux-tui link, so routine
+/// port inventory never needs a provider or web control-plane call.
+pub const MACHINE_LISTENING_TCP_CAPABILITY: &str = "machine-listening-tcp-v1";
 const INITIAL_BROWSER_RESIZE_TIMEOUT: Duration = Duration::from_secs(10);
 pub const STABLE_SPLIT_IDS_PROTOCOL_VERSION: u32 = 8;
 pub const STACK_LAYOUT_PROTOCOL_VERSION: u32 = 9;
@@ -148,6 +152,45 @@ fn machine_usage_json(usage: Option<&MachineUsage>) -> Value {
     })
 }
 
+fn machine_listening_tcp_json() -> anyhow::Result<Value> {
+    #[cfg(not(unix))]
+    {
+        anyhow::bail!("machine listening TCP inventory is not supported on this platform");
+    }
+    #[cfg(unix)]
+    {
+        const MAX_LISTING_BYTES: usize = 512 * 1024;
+        let candidates: [(&str, &[&str]); 2] = [("ss", &["-H", "-ltn"]), ("netstat", &["-ltn"])];
+        let mut failures = Vec::new();
+        for (program, arguments) in candidates {
+            let output = match std::process::Command::new(program).args(arguments).output() {
+                Ok(output) => output,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(error) => {
+                    failures.push(format!("{program}: {error}"));
+                    continue;
+                }
+            };
+            if !output.status.success() {
+                failures.push(format!("{program}: exited with {}", output.status));
+                continue;
+            }
+            if output.stdout.len() > MAX_LISTING_BYTES {
+                anyhow::bail!("machine listening TCP inventory exceeded {MAX_LISTING_BYTES} bytes");
+            }
+            let stdout = String::from_utf8(output.stdout)
+                .context("machine listening TCP inventory was not UTF-8")?;
+            return Ok(json!({ "stdout": stdout }));
+        }
+        let detail = if failures.is_empty() {
+            "neither ss nor netstat is installed".to_string()
+        } else {
+            failures.join("; ")
+        };
+        anyhow::bail!("machine listening TCP inventory failed: {detail}");
+    }
+}
+
 fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&'static str> {
     let mut capabilities = vec![
         ATTACH_INITIAL_SIZE_CAPABILITY,
@@ -170,6 +213,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         BROWSER_PROVIDER_CAPABILITY,
         CLIENT_FOCUS_CAPABILITY,
         MACHINE_USAGE_CAPABILITY,
+        MACHINE_LISTENING_TCP_CAPABILITY,
         SERVER_STATS_CAPABILITY,
     ];
     if bounded_clear_history_fallback_writes {
@@ -657,6 +701,9 @@ enum Command {
     ListClients,
     /// Read the machine-level model spend readout hosted by this daemon.
     MachineUsage,
+    /// Read listening TCP sockets on this host. The fixed command has no
+    /// caller-controlled arguments and returns only the socket listing.
+    MachineListeningTcp,
     /// Publish the native browser process's live CDP targets. This is an
     /// owner-only, connection-scoped lease and never enters the journal.
     RegisterBrowserProvider {
@@ -11219,6 +11266,7 @@ fn handle_command_with_cancellation(
         }
         Command::ListClients => Ok(mux.control_clients_json(client)),
         Command::MachineUsage => Ok(machine_usage_json(mux.machine_usage().as_ref())),
+        Command::MachineListeningTcp => machine_listening_tcp_json(),
         Command::RegisterBrowserProvider {
             provider_id,
             endpoint,
@@ -22607,6 +22655,16 @@ mod tests {
         let supported = advertised_capabilities(true);
         assert!(supported.contains(&CLEAR_HISTORY_CAPABILITY));
         assert!(supported.contains(&CLEAR_HISTORY_KEY_CAPABILITY));
+    }
+
+    #[test]
+    fn identify_advertises_private_link_port_discovery() {
+        assert!(advertised_capabilities(true).contains(&MACHINE_LISTENING_TCP_CAPABILITY));
+        let command: Command = serde_json::from_value(json!({
+            "cmd": "machine-listening-tcp",
+        }))
+        .unwrap();
+        assert!(matches!(command, Command::MachineListeningTcp));
     }
 
     #[test]

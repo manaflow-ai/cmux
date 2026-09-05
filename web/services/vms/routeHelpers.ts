@@ -45,6 +45,8 @@ import {
   isVmTunnelNotFoundError,
   isVmTunnelEnrollmentBusyError,
   isVmTunnelEnrollmentUnavailableError,
+  isVmAccessGrantRevokedError,
+  isVmAccessGrantMutationBusyError,
   vmWorkflowErrorCause,
   type VmModelPlaneError,
   type VmOperationUnsupportedError,
@@ -784,9 +786,7 @@ export async function vmWorkflowErrorResponse(
       error: "vm_private_network_unavailable",
       status: 409,
       message: "Cloud VM private networking is not available in this environment.",
-      action:
-        "Machines in this environment are reached at their public address, so no tunnel is needed. " +
-        "Stop offering to set one up; retrying will not change this.",
+      action: "Update cmux or contact support. Retrying will not change this deployment setting.",
       reason: workflowError.reason,
       phase: "network",
       // Not retryable on purpose: this is how the deployment is configured, so
@@ -796,8 +796,37 @@ export async function vmWorkflowErrorResponse(
     });
   }
 
-  const tunnelResponse = vmTunnelErrorResponse(workflowError);
-  if (tunnelResponse) return tunnelResponse;
+  if (isVmTunnelNotFoundError(workflowError)) {
+    return vmErrorResponse({
+      error: "vm_tunnel_not_found",
+      status: 404,
+      message: "This computer is not enrolled on your Cloud VM network.",
+      action: "Enroll it with POST /api/vm/tunnel, then bring the WireGuard tunnel up.",
+      phase: "network",
+      retryable: false,
+      details: { deviceFingerprint: workflowError.deviceFingerprint },
+    });
+  }
+  if (isVmAccessGrantRevokedError(workflowError)) {
+    return vmErrorResponse({
+      error: "vm_access_revoked",
+      status: 403,
+      message: "Cloud access for this Mac login was revoked.",
+      action: "Sign out of cmux, then sign in again to enroll this Mac.",
+      phase: "network",
+    });
+  }
+  if (isVmAccessGrantMutationBusyError(workflowError)) {
+    return vmErrorResponse({
+      error: "vm_access_grant_busy",
+      status: 409,
+      message: "Another Cloud access change for this Mac is still in progress.",
+      action: "Wait one second, then try again.",
+      phase: "network",
+      retryable: true,
+      retryAfterSeconds: 1,
+    });
+  }
 
   if (isVmCreateDisabledError(workflowError)) {
     return vmErrorResponse({

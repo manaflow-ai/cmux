@@ -329,7 +329,7 @@ export type ProviderNetwork = {
  * A WireGuard tunnel: one of the owner's computers as a member of their
  * private network.
  *
- * `clientConfig` is a complete `wg-quick` config whose `PrivateKey` is blank —
+ * `clientConfig` is WireGuard configuration text whose `PrivateKey` is blank —
  * cmux always supplies its own public key, so the provider never mints (or
  * sees) a private key, and the client fills its own in from its keystore.
  */

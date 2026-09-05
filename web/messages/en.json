@@ -166,6 +166,8 @@
   "dashboard": {
     "nav": {
       "brand": "cmux",
+      "cloudGroup": "cloud",
+      "cloudDevices": "Mac access",
       "vaultGroup": "vault",
       "vaultOverview": "overview",
       "vaultSessions": "sessions",
@@ -182,6 +184,9 @@
     "home": {
       "title": "dashboard",
       "description": "choose a product dashboard.",
+      "cloudName": "Cloud Mac access",
+      "cloudDescription": "review and revoke the Macs that can reach your private Cloud VM network.",
+      "cloudLink": "manage Mac access",
       "vaultName": "vault",
       "vaultDescription": "browse synced agent sessions and manage cli access.",
       "vaultLink": "open vault",
@@ -191,6 +196,31 @@
       "iosAppName": "iOS app",
       "iosAppDescription": "install the cmux iOS app via TestFlight (beta access).",
       "iosLink": "open iOS app"
+    },
+    "cloud": {
+      "title": "Cloud Mac access",
+      "description": "These Macs have WireGuard access to your private Cloud VM network. iPhone and Iroh pairing records are separate.",
+      "empty": "No Mac has enrolled for Cloud VM access.",
+      "cmux": "cmux build",
+      "access": "network access",
+      "lastContact": "last control-plane contact",
+      "deviceId": "device ID",
+      "unknown": "unknown",
+      "none": "none",
+      "purpose": {
+        "terminal": "terminal",
+        "browser": "browser VPN"
+      },
+      "rename": "rename",
+      "revoke": "revoke",
+      "renameTitle": "Rename this Mac",
+      "nameLabel": "Name",
+      "cancel": "cancel",
+      "save": "save",
+      "renameError": "Could not rename this Mac.",
+      "revokeTitle": "Revoke {name}?",
+      "revokeBody": "This signs the Mac out and removes all of its Cloud VM network access.",
+      "revokeError": "Could not revoke this Mac."
     },
     "coderouter": {
       "metaTitle": "coderouter — cmux",
@@ -2238,7 +2268,12 @@
           "snappingEnabled": "Snap pane drags and resizes to neighbor edges and the pane gap. Hold Command to suspend snapping for one gesture."
         },
         "fileEditor": {
-          "wordWrap": "Wrap long lines at the editor's right edge instead of scrolling horizontally."
+          "wordWrap": "Wrap long lines at the editor's right edge instead of scrolling horizontally.",
+          "syntaxHighlighting": "Color source tokens in the built-in file editor.",
+          "lineNumbers": "Show a line-number gutter in the built-in file editor.",
+          "indentGuides": "Draw vertical indent guides in the built-in file editor.",
+          "currentLineHighlight": "Highlight the caret's line when the selection is empty.",
+          "tabWidth": "Width of a tab stop, in columns, for indentation and indent guides."
         },
         "sidebar": {
           "notificationMessageLineLimit": "Maximum lines shown for the latest notification below each workspace title.",
@@ -2277,7 +2312,7 @@
       "shortcutsWhenBooleanKeys": "boolean keys. An unknown or absent key reads as false; the literals true and false are also accepted.",
       "shortcutsWhenTypedKeys": "typed keys for comparisons: the right sidebar's active mode (a string) plus pane and workspace counts (integers).",
       "shortcutsWhenOperators": "boolean operators, typed comparisons, regex match, and list membership. Comparisons bind tighter than && and ||.",
-      "shortcutsWhenExample": "For example, this makes Ctrl+1–9 select workspaces everywhere except when the right sidebar is focused (leaving Ctrl+1–5 free for the sidebar's mode switcher), and scopes surface selection to the Find sidebar when the workspace has multiple panes:"
+      "shortcutsWhenExample": "For example, this makes Ctrl+1–9 select workspaces everywhere except when the right sidebar is focused (leaving the Ctrl+digit tab shortcuts free for the sidebar's mode switcher), and scopes surface selection to the Find sidebar when the workspace has multiple panes:"
     },
     "customCommands": {
       "title": "Custom Commands",
@@ -5450,6 +5485,28 @@
         "body": "See your plan, invoices, and cancellation.",
         "action": "Manage plan"
       }
+    }
+  },
+  "PublicationApi": {
+    "invalid_email": {
+      "message": "Enter a valid email address.",
+      "action": "The recipient must sign in with this verified email."
+    },
+    "invalid_expiry": {
+      "message": "The grant expiry must be a future date.",
+      "action": "Use an ISO 8601 date or omit expiresAt."
+    },
+    "public_confirmation_required": {
+      "message": "Public access requires confirmation.",
+      "action": "Review the hostname, VM, and port, then send confirmPublic: true."
+    },
+    "organization_slug": {
+      "message": "The organization slug is invalid or already reserved.",
+      "action": "Use 1 to 19 lowercase letters or digits, with single hyphens. An existing organization keeps its reserved slug."
+    },
+    "grant_body": {
+      "message": "Publication email grant",
+      "action": "Send email and optional expiresAt."
     }
   }
 }

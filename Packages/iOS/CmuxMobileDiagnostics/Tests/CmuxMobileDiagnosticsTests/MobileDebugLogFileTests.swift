@@ -151,6 +151,53 @@ import Testing
         """)
     }
 
+    @Test func clearPersistedLogRemovesGenerationsAndReopensLogging() async throws {
+        let logURL = makeLogURL()
+        defer { removeLogFiles(at: logURL) }
+        try FileManager.default.createDirectory(
+            at: logURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+
+        let sink = MobileDebugLogSink(
+            fileURL: logURL,
+            fileHeader: "h"
+        )
+        await sink.append("before clear")
+        #expect(await sink.clearPersistedLog())
+        await sink.append("after clear")
+
+        let current = try String(contentsOf: logURL, encoding: .utf8)
+        #expect(!current.contains("before clear"))
+        #expect(current.contains("after clear"))
+        #expect(!FileManager.default.fileExists(atPath: rotatedLogURL(for: logURL).path))
+    }
+
+    @Test func clearDisabledLoggingPreservesDisabledPreference() async throws {
+        let logURL = makeLogURL()
+        defer { removeLogFiles(at: logURL) }
+        let defaults = UserDefaults.standard
+        let key = MobileDebugLog.verboseLogDefaultsKey
+        let previous = defaults.object(forKey: key)
+        defer {
+            if let previous {
+                defaults.set(previous, forKey: key)
+            } else {
+                defaults.removeObject(forKey: key)
+            }
+        }
+        defaults.set(false, forKey: key)
+
+        let sink = MobileDebugLogSink(
+            fileURL: logURL,
+            startsFileLoggingEnabled: false
+        )
+        let log = MobileDebugLog(sink: sink)
+
+        #expect(await log.clearPersistedLog())
+        #expect(!defaults.bool(forKey: key))
+    }
+
     private func makeLogURL() -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-mobile-debug-log-tests-\(UUID().uuidString)")

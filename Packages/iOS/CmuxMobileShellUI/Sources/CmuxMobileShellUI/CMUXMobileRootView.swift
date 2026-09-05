@@ -596,7 +596,7 @@ struct CMUXMobileRootView: View {
             connectionErrorGuidance: store.connectionErrorGuidance,
             versionWarning: store.pairingVersionWarning,
             connectPairingCode: {
-                await store.connectPairingInput()
+                await store.connectPairingInput(allowPreview: false)
             },
             acceptVersionWarning: {
                 let result = await store.acceptPairingVersionWarning()
@@ -604,9 +604,10 @@ struct CMUXMobileRootView: View {
                 if result == .connected {
                     dismissAddDeviceSheet()
                 }
+                return result
             },
             connectManualHost: { name, host, port in
-                await store.connectManualHost(name: name, host: host, port: port)
+                await store.connectManualHostResult(name: name, host: host, port: port)
             },
             cancelPairing: cancelPairing,
             cancel: dismissAddDeviceSheet
