@@ -21,30 +21,26 @@ helper.
 
 Codex's built-in `@computer` entry is an OpenAI-bundled plugin. cmux does not
 replace that plugin: it supplies its own local MCP server and the
-`$cmux-cua` skill. Agent launches do not install a global skill or add an
-automatic skill directory. Codex's CLI does not support session skill discovery
-from `skills.config`, so Codex has no picker row until the user opts into a
-durable link. Claude's session skill directory is likewise opt-in. For users
-who want a durable Codex or Claude picker entry, set
-`CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL=1` explicitly; the wrapper then links
-only its own root (`~/.agents/skills/cmux-cua` for Codex or
-`~/.claude/skills/cmux-cua` for Claude). The flag is a per-launch preference;
-once a verified managed link exists, later launches preserve it. On each cmux
-launch, migration removes
-or retargets only links proven to point at a cmux app (including the legacy
-`cmux-computer-use` and `codex-cua` aliases); real directories, unrelated
-symlinks, and project skills are never overwritten or removed. Project and
-user-owned same-name skills retain precedence, and no automatic fallback is
-added when it would create a second `cmux-cua` row. An already explicit durable
-global choice is retained across later launches and cwd collisions; the
-project skill still wins bare-name resolution. A project mirror that
-resolves to the bundled document is one canonical identity, so it remains one
-entry. The skill directory ships no plugin manifest — Codex treats
-`.claude-plugin/plugin.json` as a plugin manifest and would namespace the skill
-as `cmux-cua:cmux-cua`. Use the normal user-owned skill installer or set
-`CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL=1` when you deliberately want a durable
-picker entry. A cmux launch only migrates links whose ownership is proven;
-links whose ownership cannot be proved are left for the user to review.
+`$cmux-cua` skill. Neither wrapper installs global skills or adds automatic skill
+directories by default. Use your agent's normal skill installer for a persistent
+user-owned installation. Codex 0.153 treats `skills.config` paths as enable/disable
+rules, not discovery roots; cmux does not inject an ineffective session fallback.
+
+Alternatively, `CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL=1` is a per-launch
+preference for an app-managed global link: `~/.agents/skills/cmux-cua` for Codex
+or `~/.claude/skills/cmux-cua` for Claude. Export the flag for future launches
+to retain these links; they are user-global and may also appear outside cmux.
+With the flag unset or `=0`, a cmux agent launch removes only verified
+app-managed links. A same-name project or user-owned skill takes precedence:
+the wrapper does not create a competing global link or hide the existing skill.
+
+Migration of `cmux-cua`, `cmux-computer-use`, and `codex-cua` links requires an
+existing cmux bundle with a verified bundle ID, known install/build root, and
+root/current-user ownership. Real skill directories, unrelated symlinks, and
+project skills remain untouched. Unknown or dangling targets lack that proof
+and require manual review; `CMUX_CUA_DIAGNOSTICS=1` reports a preserved path
+that blocks an explicit install. No plugin manifest or temporary projection is
+shipped. Final picker rendering and selection are owned by the agent client.
 
 While Codex runs inside a cmux terminal, its CLI also Apple-Events its own
 "Codex Computer Use" (`com.openai.sky.CUAService`) helper. macOS attributes

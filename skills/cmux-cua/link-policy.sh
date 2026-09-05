@@ -325,12 +325,24 @@ cmux_cua_skill_reconcile() {
     destination="$skills_root/cmux-cua"
     state="$(cmux_cua_skill_link_state "$destination")"
     local user_path_collision=0
-    [[ "$state" == user ]] && user_path_collision=1
+    local blocked_path=""
+    if [[ "$state" == user ]]; then
+        user_path_collision=1
+        blocked_path="$destination"
+    fi
     if [[ -n "$legacy_root" && "$legacy_root" != "$skills_root" ]]; then
         legacy_state="$(cmux_cua_skill_link_state "$legacy_root/cmux-cua")"
-        [[ "$legacy_state" == user ]] && user_path_collision=1
+        if [[ "$legacy_state" == user ]]; then
+            user_path_collision=1
+            [[ -n "$blocked_path" ]] || blocked_path="$legacy_root/cmux-cua"
+        fi
     else
         legacy_state=missing
+    fi
+
+    if [[ "$install_requested" == 1 && "$user_path_collision" == 1 \
+          && "${CMUX_CUA_DIAGNOSTICS:-0}" == 1 ]]; then
+        printf 'cmux-cua: skill-install=blocked-user-path path=%q\n' "$blocked_path" >&2
     fi
 
     if [[ "$install_requested" == 1 \
@@ -342,19 +354,16 @@ cmux_cua_skill_reconcile() {
         elif [[ "$state" == managed ]]; then
             /bin/ln -sfn "$source_dir" "$destination" 2>/dev/null || true
         fi
-        # Keep the deprecated CODEX_HOME root from contributing a second
-        # discovery path. Only a link proven to be cmux-managed is removed.
-        if [[ "$legacy_state" == managed ]]; then
-            cmux_cua_skill_remove_managed_link "$legacy_root/cmux-cua" || true
-        fi
     elif [[ "$state" == managed ]]; then
-        # An explicit durable install persists across ordinary launches and
-        # project cwd changes. Migrate a verified stale target in place, but
-        # never delete the user's durable choice because a cwd has a collision.
-        /bin/ln -sfn "$source_dir" "$destination" 2>/dev/null || true
-        if [[ "$legacy_state" == managed ]]; then
-            cmux_cua_skill_remove_managed_link "$legacy_root/cmux-cua" || true
-        fi
+        # This is a per-launch preference, not an install receipt. Without
+        # opt-in (or beside a project collision), retire only verified
+        # app-managed links. Normal user-installed skills are never removed.
+        cmux_cua_skill_remove_managed_link "$destination" || true
+    fi
+    # The deprecated root must not contribute a second managed discovery path,
+    # including when the canonical destination has never been installed.
+    if [[ "$legacy_state" == managed ]]; then
+        cmux_cua_skill_remove_managed_link "$legacy_root/cmux-cua" || true
     fi
     return 0
 }

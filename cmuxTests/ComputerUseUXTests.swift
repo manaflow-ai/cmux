@@ -428,11 +428,11 @@ struct ComputerUseUXTests {
             appCoordinator.handleWorkstreamEvent(event)
         }
         #expect(
-            presentations == [.screenRecording],
+            presentations == [.screenRecording, .accessibility],
             "dismissal and tool retries must not resurface onboarding"
         )
         #expect(appCoordinator.presentOnboardingFromSettings(startingAt: .accessibility))
-        #expect(presentations == [.screenRecording, .accessibility])
+        #expect(presentations == [.screenRecording, .accessibility, .accessibility])
         appCoordinator.teardown()
     }
 

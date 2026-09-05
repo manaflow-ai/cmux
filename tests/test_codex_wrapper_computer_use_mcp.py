@@ -742,6 +742,7 @@ exit 1
             legacy_codex_skill = installed_skill.parent / "codex-cua"
             codex_home_skill = codex_home / "skills" / "cmux-cua"
             skill_probe: dict[str, object] = {
+                "bundled_skill": str(bundled_skill.resolve()),
                 "exists": installed_skill.exists(),
                 "is_symlink": installed_skill.is_symlink(),
                 "target": (
@@ -1079,8 +1080,11 @@ def test_codex_explicit_opt_in_preserves_unverified_dangling_link(failures: list
         ["hello"],
         preexisting_cmux_link=True,
         install_global_skill=True,
+        diagnostics=True,
     )
     expect(code == 0, f"explicit stale-link wrapper exited {code}: {stderr}", failures)
+    expect("cmux-cua: skill-install=blocked-user-path" in stderr and "/.agents/skills/cmux-cua" in stderr,
+           f"explicit blocked install must identify the preserved path, got {stderr!r}", failures)
     expect(
         skill["is_symlink"] is True
         and skill["target"] == "/Applications/cmux NIGHTLY old.app/Contents/Resources/cmux-cua",
@@ -1096,31 +1100,21 @@ def test_codex_explicit_opt_in_preserves_unverified_dangling_link(failures: list
 
 def test_codex_home_ancestor_is_not_project_collision(failures: list[str]) -> None:
     """A managed global link under HOME must not become a project collision."""
-    code, args, stderr, skill = run_wrapper(
-        ["hello"],
-        preexisting_valid_cmux_link=True,
-        cwd_under_home_no_git=True,
-    )
-    expect(code == 0, f"home-ancestor wrapper exited {code}: {stderr}", failures)
-    expect(
-        skill["exists"] is True
-        and skill["is_symlink"] is True
-        and isinstance(skill["target"], str)
-        and skill["target"].endswith("/Contents/Resources/cmux-cua"),
-        f"durable managed global link should be retained and migrated, got {skill}",
-        failures,
-    )
-    expect(
-        configured_skill_path(args) is None,
-        f"HOME ancestor must not produce an unsupported session path, got {args}",
-        failures,
-    )
-    expect(
-        len(skill.get("picker_entries", [])) == 1
-        and skill["picker_entries"][0]["scope"] == "global",
-        f"durable managed link should leave one global picker row, got {skill.get('picker_entries')}",
-        failures,
-    )
+    for opt_in in (False, True):
+        code, args, stderr, skill = run_wrapper(
+            ["hello"], preexisting_valid_cmux_link=True,
+            cwd_under_home_no_git=True, install_global_skill=opt_in,
+        )
+        expect(code == 0, f"home-ancestor wrapper exited {code}: {stderr}", failures)
+        expect(skill["exists"] is opt_in and skill["is_symlink"] is opt_in,
+               f"per-launch opt-in={opt_in} must control the managed link: {skill}", failures)
+        if opt_in:
+            expect(skill["target"] == skill["bundled_skill"],
+                   f"HOME ancestor must permit retargeting to this exact bundle: {skill}", failures)
+        expect(configured_skill_path(args) is None,
+               f"HOME ancestor must not produce an unsupported session path: {args}", failures)
+        expect(len(skill["picker_entries"]) == int(opt_in),
+               f"per-launch opt-in must control global discovery: {skill['picker_entries']}", failures)
 
 
 def test_codex_preserves_unverified_codex_home_link(failures: list[str]) -> None:
@@ -1221,24 +1215,22 @@ def test_codex_explicit_global_opt_in_does_not_override_project_skill(
     )
 
 
-def test_codex_durable_global_link_survives_project_collision(failures: list[str]) -> None:
-    code, args, stderr, skill = run_wrapper(
+def test_codex_managed_global_link_does_not_shadow_project(failures: list[str]) -> None:
+    code, _args, stderr, skill = run_wrapper(
         ["hello"],
         preexisting_valid_cmux_link=True,
         project_skill_collision=True,
     )
     expect(code == 0, f"durable collision wrapper exited {code}: {stderr}", failures)
     expect(
-        skill["is_symlink"] is True
-        and isinstance(skill["target"], str)
-        and skill["target"].endswith("/Contents/Resources/cmux-cua"),
-        f"ordinary launch must preserve the explicit durable link across a project collision, got {skill}",
+        skill["exists"] is False and skill["is_symlink"] is False,
+        f"ordinary launch must retire the verified app-managed global link, got {skill}",
         failures,
     )
     expect(
         isinstance(skill.get("picker_entries"), list)
-        and {entry["scope"] for entry in skill["picker_entries"]} == {"project", "global"},
-        f"explicit durable choice should remain visible while project bare-name precedence is preserved, got {skill.get('picker_entries')}",
+        and [entry["scope"] for entry in skill["picker_entries"]] == ["project"],
+        f"the preserved project skill should be the only picker row, got {skill.get('picker_entries')}",
         failures,
     )
 
@@ -1294,13 +1286,6 @@ def test_codex_preserves_unverified_legacy_codex_cua_link(failures: list[str]) -
         f"canonical global link should remain absent, got {skill}",
         failures,
     )
-    expect(
-        configured_skill_path(args) is None,
-        f"legacy migration must not emit unsupported session discovery, got {args}",
-        failures,
-    )
-
-
 def test_codex_does_not_duplicate_user_owned_skill_path(failures: list[str]) -> None:
     code, args, stderr, skill = run_wrapper(["hello"], preexisting_skill_directory=True)
     expect(code == 0, f"user-owned-path wrapper exited {code}: {stderr}", failures)
@@ -1581,7 +1566,7 @@ def main() -> int:
     test_codex_collision_keeps_project_skill_and_one_picker_row(failures)
     test_codex_explicit_global_opt_in_still_installs_without_collision(failures)
     test_codex_explicit_global_opt_in_does_not_override_project_skill(failures)
-    test_codex_durable_global_link_survives_project_collision(failures)
+    test_codex_managed_global_link_does_not_shadow_project(failures)
     test_codex_preserves_unrelated_global_symlink_by_default(failures)
     test_codex_preserves_unverified_legacy_computer_use_link(failures)
     test_codex_preserves_unverified_legacy_codex_cua_link(failures)

@@ -52,6 +52,7 @@ def run_wrapper(
     install_global_skill: bool = False,
     global_skill_opt_out: bool = False,
     cwd_under_home_no_git: bool = False,
+    diagnostics: bool = False,
 ) -> tuple[subprocess.CompletedProcess[str], Path, Path, list[str]]:
     """Run the wrapper inside a sandboxed HOME and fake app bundle.
 
@@ -183,6 +184,8 @@ exit 1
     }
     if disabled:
         env["CMUX_COMPUTER_USE_MCP_DISABLED"] = "1"
+    if diagnostics:
+        env["CMUX_CUA_DIAGNOSTICS"] = "1"
     if install_global_skill:
         env["CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL"] = "1"
     elif global_skill_opt_out:
@@ -305,6 +308,7 @@ def test_claude_explicit_opt_in_preserves_unverified_dangling_link(
         ["hello"],
         preexisting_link_target=dangling,
         install_global_skill=True,
+        diagnostics=True,
     )
     expect(
         result.returncode == 0,
@@ -316,6 +320,8 @@ def test_claude_explicit_opt_in_preserves_unverified_dangling_link(
         f"explicit opt-in must preserve an unverified dangling link, got {link}",
         failures,
     )
+    expect("cmux-cua: skill-install=blocked-user-path" in result.stderr and str(link) in result.stderr,
+           f"explicit blocked install must identify the preserved path, got {result.stderr!r}", failures)
     expect(
         add_dir_arg(args) is None,
         f"retargeted global link must not add a session duplicate, got {args}",
@@ -344,22 +350,20 @@ def test_claude_default_preserves_positional_prompt_without_skill_directory(
 def test_claude_home_ancestor_is_not_project_collision(
     failures: list[str],
 ) -> None:
-    result, link, bundled_skill, args = run_wrapper(
-        ["hello"],
-        preexisting_valid_cmux_link=True,
-        cwd_under_home_no_git=True,
-    )
-    expect(
-        result.returncode == 0,
-        f"home-ancestor Claude wrapper exited {result.returncode}: {result.stderr}",
-        failures,
-    )
-    expect(
-        link.is_symlink() and os.path.realpath(link) == os.path.realpath(bundled_skill),
-        f"durable managed Claude link should be retained and migrated, got {link}",
-        failures,
-    )
-    expect(add_dir_arg(args) is None, f"HOME ancestor must not add an automatic skill directory, got {args}", failures)
+    for opt_in in (False, True):
+        result, link, bundled_skill, args = run_wrapper(
+            ["hello"], preexisting_valid_cmux_link=True,
+            cwd_under_home_no_git=True, install_global_skill=opt_in,
+        )
+        expect(result.returncode == 0,
+               f"home-ancestor Claude wrapper exited {result.returncode}: {result.stderr}", failures)
+        expect(link.exists() is opt_in and link.is_symlink() is opt_in,
+               f"per-launch opt-in={opt_in} must control the managed link at {link}", failures)
+        if opt_in:
+            expect(os.path.realpath(link) == os.path.realpath(bundled_skill),
+                   f"HOME ancestor must permit retargeting to this exact bundle: {link}", failures)
+        expect(add_dir_arg(args) is None,
+               f"HOME ancestor must not add an automatic skill directory: {args}", failures)
 
 
 def test_claude_collision_keeps_project_skill_and_avoids_second_row(
@@ -611,7 +615,7 @@ def main() -> int:
         for failure in failures:
             print(f"FAIL: {failure}")
         return 1
-    print("PASS: claude wrapper keeps the cmux-cua skill picker-visible with no plugin injection")
+    print("PASS: claude wrapper requires explicit skill installation")
     return 0
 
 
