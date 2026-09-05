@@ -465,11 +465,7 @@ impl PanePointerTopology {
             && strict_identity_matches(self.resource_id.as_ref(), other.resource_id.as_ref())
             && self.active_tab == other.active_tab
             && self.tabs.len() == other.tabs.len()
-            && self
-                .tabs
-                .iter()
-                .zip(&other.tabs)
-                .all(|(previous, next)| previous.identity_eq(next))
+            && self.tabs.iter().zip(&other.tabs).all(|(previous, next)| previous.identity_eq(next))
     }
 }
 
@@ -486,13 +482,7 @@ struct ScreenGeometryChange {
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum PointerLayoutNode {
     Leaf(PaneId),
-    Split {
-        id: SplitId,
-        dir: SplitDir,
-        ratio: u32,
-        a: Box<Self>,
-        b: Box<Self>,
-    },
+    Split { id: SplitId, dir: SplitDir, ratio: u32, a: Box<Self>, b: Box<Self> },
     Stack { panes: Vec<PaneId>, expanded: PaneId },
 }
 
@@ -506,10 +496,9 @@ fn pointer_layout_node(node: &Node) -> PointerLayoutNode {
             a: Box::new(pointer_layout_node(a)),
             b: Box::new(pointer_layout_node(b)),
         },
-        Node::Stack { panes, expanded } => PointerLayoutNode::Stack {
-            panes: panes.iter().copied().collect(),
-            expanded: *expanded,
-        },
+        Node::Stack { panes, expanded } => {
+            PointerLayoutNode::Stack { panes: panes.iter().copied().collect(), expanded: *expanded }
+        }
     }
 }
 
@@ -526,11 +515,9 @@ fn pointer_layout_split_ratios(node: &PointerLayoutNode, output: &mut Vec<(Split
 
 fn node_split_ratio(node: &Node, split: SplitId) -> Option<f32> {
     match node {
-        Node::Split { id, ratio, a, b, .. } => {
-            (*id == split).then_some(*ratio).or_else(|| {
-                node_split_ratio(a, split).or_else(|| node_split_ratio(b, split))
-            })
-        }
+        Node::Split { id, ratio, a, b, .. } => (*id == split)
+            .then_some(*ratio)
+            .or_else(|| node_split_ratio(a, split).or_else(|| node_split_ratio(b, split))),
         Node::Leaf(_) | Node::Stack { .. } => None,
     }
 }
@@ -558,7 +545,6 @@ impl PointerLayoutNode {
             _ => false,
         }
     }
-
 }
 
 /// Pointer topology uses a fail-closed identity policy. A missing public id is
@@ -596,12 +582,16 @@ impl ScreenPointerTopology {
                 .iter()
                 .zip(&other.active_surface_resource_ids)
                 .all(|(previous, next)| strict_identity_matches(previous.as_ref(), next.as_ref()))
-            && self.viewport_splits.iter().map(|(split, _)| split).eq(
-                other.viewport_splits.iter().map(|(split, _)| split),
-            )
-            && self.viewport_pane_widths.iter().map(|(pane, _)| pane).eq(
-                other.viewport_pane_widths.iter().map(|(pane, _)| pane),
-            )
+            && self
+                .viewport_splits
+                .iter()
+                .map(|(split, _)| split)
+                .eq(other.viewport_splits.iter().map(|(split, _)| split))
+            && self
+                .viewport_pane_widths
+                .iter()
+                .map(|(pane, _)| pane)
+                .eq(other.viewport_pane_widths.iter().map(|(pane, _)| pane))
     }
 
     fn geometry_eq(&self, other: &Self) -> bool {
@@ -651,13 +641,11 @@ fn sidebar_tree_pointer_topology(tree: &TreeView) -> SidebarTreePointerTopology 
         screens: Vec::new(),
     };
     for workspace in tree.workspaces() {
-        topology.active_screen_ids.push(
-            workspace.screens.get(workspace.active_screen).map(|screen| screen.id),
-        );
+        topology
+            .active_screen_ids
+            .push(workspace.screens.get(workspace.active_screen).map(|screen| screen.id));
         topology.workspace_ids.push(workspace.id);
-        topology.workspace_keys.push(
-            (!workspace.key.is_empty()).then(|| workspace.key.clone()),
-        );
+        topology.workspace_keys.push((!workspace.key.is_empty()).then(|| workspace.key.clone()));
         topology.workspace_resource_ids.push(workspace.resource_id.clone());
         for screen in &workspace.screens {
             topology.screen_ids.push(screen.id);
@@ -719,9 +707,7 @@ fn sidebar_tree_pointer_topology(tree: &TreeView) -> SidebarTreePointerTopology 
                     .panes
                     .iter()
                     .map(|pane| {
-                        pane.tabs
-                            .get(pane.active_tab)
-                            .and_then(|tab| tab.public_id.clone())
+                        pane.tabs.get(pane.active_tab).and_then(|tab| tab.public_id.clone())
                     })
                     .collect(),
             });
@@ -853,7 +839,8 @@ impl SidebarTreePointerTopology {
                 if previous.viewport_splits != next.viewport_splits {
                     change.viewport_split_values_changed = true;
                 }
-                let mut panes = previous.viewport_pane_widths.iter().copied().collect::<HashMap<_, _>>();
+                let mut panes =
+                    previous.viewport_pane_widths.iter().copied().collect::<HashMap<_, _>>();
                 for (pane, next_width) in &next.viewport_pane_widths {
                     let previous_width = panes.remove(pane);
                     if previous_width != Some(*next_width) {
@@ -872,7 +859,6 @@ impl SidebarTreePointerTopology {
         }
         changed
     }
-
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -4992,9 +4978,10 @@ pub(crate) fn projection_row_spans(
             // Keep consecutive agent blocks dense so the state line does not
             // create an unexplained third-row gap. Configured gaps continue
             // to separate agent blocks from ordinary resource rows.
-            let next_is_two_line_agent = rows[index + 1].agent_state.is_some()
-                && spec.row_lines.clamp(1, 2) >= 2;
-            let block_gap = if current_is_two_line_agent && next_is_two_line_agent { 0 } else { gap };
+            let next_is_two_line_agent =
+                rows[index + 1].agent_state.is_some() && spec.row_lines.clamp(1, 2) >= 2;
+            let block_gap =
+                if current_is_two_line_agent && next_is_two_line_agent { 0 } else { gap };
             total = total.saturating_add(block_gap);
         }
     }
@@ -8745,10 +8732,7 @@ fn matching_workspace_index(next: &TreeView, previous: &WorkspaceView) -> Option
     })
 }
 
-fn matching_screen_index(
-    next: &WorkspaceView,
-    previous: &ScreenView,
-) -> Option<usize> {
+fn matching_screen_index(next: &WorkspaceView, previous: &ScreenView) -> Option<usize> {
     next.screens.iter().enumerate().find_map(|(index, candidate)| {
         preserve_identity_matches(
             &previous.id,
@@ -8756,7 +8740,7 @@ fn matching_screen_index(
             previous.resource_id.as_ref(),
             candidate.resource_id.as_ref(),
         )
-            .then_some(index)
+        .then_some(index)
     })
 }
 
@@ -8768,7 +8752,7 @@ fn matching_pane_index(next: &ScreenView, previous: &PaneView) -> Option<usize> 
             previous.resource_id.as_ref(),
             candidate.resource_id.as_ref(),
         )
-            .then_some(index)
+        .then_some(index)
     })
 }
 
@@ -8780,7 +8764,7 @@ fn matching_tab_index(next: &PaneView, previous: &TabView) -> Option<usize> {
             previous.public_id.as_ref(),
             candidate.public_id.as_ref(),
         )
-            .then_some(index)
+        .then_some(index)
     })
 }
 
@@ -8824,9 +8808,9 @@ fn preserve_client_view(previous: &TreeView, next: &mut TreeView) {
             // This prevents the impossible state of an active pane outside a
             // zoomed screen while still preserving local focus on ordinary
             // remote refreshes.
-            let incoming_zoomed = next_screen.zoomed_pane.filter(|pane_id| {
-                next_screen.panes.iter().any(|pane| pane.id == *pane_id)
-            });
+            let incoming_zoomed = next_screen
+                .zoomed_pane
+                .filter(|pane_id| next_screen.panes.iter().any(|pane| pane.id == *pane_id));
             zoom_updates.push((next_workspace_index, next_screen_index, incoming_zoomed));
             if let Some(pane_id) = incoming_zoomed {
                 pane_updates.push((next_workspace_index, next_screen_index, pane_id));
@@ -16211,11 +16195,8 @@ impl App {
             .pointer_topology_capture_active()
             .then(|| sidebar_tree_pointer_topology(&self.tree));
         let previous_active = self.active_pane();
-        let selected_workspace = self
-            .tree
-            .workspaces()
-            .get(self.sidebar_workspace_selection)
-            .cloned();
+        let selected_workspace =
+            self.tree.workspaces().get(self.sidebar_workspace_selection).cloned();
         preserve_client_view(&self.tree, &mut tree);
         let first_adoption = self.reported_focus.is_none();
         if first_adoption {
@@ -16358,9 +16339,9 @@ impl App {
         } else if self.surface_owns_pointer_interaction(surface) {
             self.cancel_pointer_interaction();
         }
-        if self.prompt.as_ref().is_some_and(|prompt| {
-            matches!(prompt.target, PromptTarget::Surface(target) if target == surface)
-        }) {
+        if self.prompt.as_ref().is_some_and(
+            |prompt| matches!(prompt.target, PromptTarget::Surface(target) if target == surface),
+        ) {
             // A rename dialog targeting an exited surface cannot be committed
             // safely. Close it while the target is still identifiable, rather
             // than leaving a dialog whose RPC silently targets nothing.
@@ -16432,7 +16413,10 @@ impl App {
                 // not to the row's absent surface field. A pinned rail has a
                 // stable file-browser owner and must survive terminal exit.
                 !self.sidebar_files.is_pinned()
-                    && self.files_pointer_owner.as_ref().and_then(|owner| owner.active.as_ref())
+                    && self
+                        .files_pointer_owner
+                        .as_ref()
+                        .and_then(|owner| owner.active.as_ref())
                         .is_some_and(|owner| owner.surface == surface)
             }
             Some(Drag::Select { .. }) => {
@@ -19975,18 +19959,25 @@ impl App {
         };
         self.layout_resize_expectations.iter().flatten().any(|expectation| match *expectation {
             LayoutResizeExpectation::Split { screen: expected_screen, split, ratio }
-                if expected_screen == screen => {
-                    node_split_ratio(&current.layout, split).is_some_and(|current| current.to_bits() == ratio)
-                }
+                if expected_screen == screen =>
+            {
+                node_split_ratio(&current.layout, split)
+                    .is_some_and(|current| current.to_bits() == ratio)
+            }
             LayoutResizeExpectation::Viewport { screen: expected_screen, pane, width }
-                if expected_screen == screen => current
-                .layout
-                .viewport_column_owner(pane, &current.viewport_splits)
-                .and_then(|owner| match owner {
-                    ViewportColumn::Base => current.viewport_base_width,
-                    ViewportColumn::Split(split) => current.viewport_splits.get(&split).copied(),
-                })
-                .is_some_and(|current| current.to_bits() == width),
+                if expected_screen == screen =>
+            {
+                current
+                    .layout
+                    .viewport_column_owner(pane, &current.viewport_splits)
+                    .and_then(|owner| match owner {
+                        ViewportColumn::Base => current.viewport_base_width,
+                        ViewportColumn::Split(split) => {
+                            current.viewport_splits.get(&split).copied()
+                        }
+                    })
+                    .is_some_and(|current| current.to_bits() == width)
+            }
             _ => false,
         })
     }
@@ -20056,14 +20047,19 @@ impl App {
         match drag {
             Drag::HorizontalScrollbar { screen: captured, .. }
             | Drag::ResizeSplit { screen: captured, .. } => *captured == screen,
-            Drag::Select { .. } => self
-                .selection_mode_surface
-                .or_else(|| self.selection_click_sequence.as_ref().map(|sequence| sequence.surface))
-                .or_else(|| self.selection.as_ref().map(|selection| selection.surface))
-                .and_then(|surface| self.surface_screen_id(surface))
-                == Some(screen),
-            _ => Self::drag_surface(drag).and_then(|surface| self.surface_screen_id(surface))
-                == Some(screen),
+            Drag::Select { .. } => {
+                self.selection_mode_surface
+                    .or_else(|| {
+                        self.selection_click_sequence.as_ref().map(|sequence| sequence.surface)
+                    })
+                    .or_else(|| self.selection.as_ref().map(|selection| selection.surface))
+                    .and_then(|surface| self.surface_screen_id(surface))
+                    == Some(screen)
+            }
+            _ => {
+                Self::drag_surface(drag).and_then(|surface| self.surface_screen_id(surface))
+                    == Some(screen)
+            }
         }
     }
 
@@ -20071,10 +20067,8 @@ impl App {
     /// that screen reports a remote layout change. Sidebar row captures stay
     /// alive because their data owner is independent of the pane layout.
     fn invalidate_pane_layout_capture(&mut self, screen: ScreenId) {
-        let should_cancel = self
-            .drag
-            .as_ref()
-            .is_some_and(|drag| self.drag_belongs_to_screen(drag, screen));
+        let should_cancel =
+            self.drag.as_ref().is_some_and(|drag| self.drag_belongs_to_screen(drag, screen));
         let plain_pane_press = self
             .pointer_button_surfaces
             .values()
@@ -20177,7 +20171,10 @@ impl App {
                         return false;
                     };
                     let width_changes_expected = !change.viewport_widths.is_empty()
-                        && change.viewport_widths.iter().any(|(changed_pane, _, _)| *changed_pane == pane)
+                        && change
+                            .viewport_widths
+                            .iter()
+                            .any(|(changed_pane, _, _)| *changed_pane == pane)
                         && change.viewport_widths.iter().all(|(_, _, actual)| *actual == width);
                     screen == change.screen
                         && width_changes_expected
@@ -21013,12 +21010,7 @@ impl App {
             target
         };
         let Some(screen) = self.active_screen_id() else { return };
-        self.drag = Some(Drag::HorizontalScrollbar {
-            screen,
-            track,
-            anchor_x: x,
-            anchor_offset,
-        });
+        self.drag = Some(Drag::HorizontalScrollbar { screen, track, anchor_x: x, anchor_offset });
     }
 
     pub fn dragging_workspace_scrollbar(&self) -> bool {
@@ -22789,7 +22781,8 @@ impl App {
         // Resolve the active item from the navigation table. This keeps the
         // keyboard reducer aligned with the visual order for both action
         // positions, and fails closed if a saved selection no longer exists.
-        let active_target = current_target.and_then(|_| navigation.get(current).map(|item| item.target));
+        let active_target =
+            current_target.and_then(|_| navigation.get(current).map(|item| item.target));
         let selected = active_target.and_then(|target| match target {
             ProjectionNavigationTarget::Row(index) => rows.get(index).cloned(),
             ProjectionNavigationTarget::Action(_) => None,
@@ -30496,28 +30489,28 @@ mod tests {
         ForwardMuxOutcome, FrontendJournalQueue, FrontendJournalWorker, GraphicIdentity,
         GraphicPlacement, GraphicSourceRect, GraphicsSceneCache, GuardedMouseEncode,
         HostInputIngress, HostInputMessage, HostInputRuntime, LayoutResizeExpectation,
-        MachineActionWorker,
-        MachineConnectRoute, MenuAction, MenuItem, MutationImpact, MuxTitleIngress, OmnibarHit,
-        OmnibarState, OrderedSession, OuterCursorSpec, PairingDialog, PaneArea, PaneAreaProjection,
-        PaneContentGeneration, PaneEdge, PaneFocusHistory, PaneResizeDragTarget, PaneViewportClip,
-        PendingSessionMutation, PendingSessionMutationState, PointerHitIdentity,
-        PointerRouteIdentity, PointerRoutePhase, Prompt, PromptTarget, PtyFailureIngress,
-        PtyMousePressResult, RailKind, RenderAction, RenderedMenuLevel, RenderedPaneRoute,
-        RenderedPointerFrame, Selection, SelectionMode, SessionCompletion, SessionCompletionAction,
-        SessionEventSender, ShortcutHelp, SidebarActionTarget, SidebarHiddenReason,
-        SidebarHiddenView, SidebarLayout, SidebarPluginSyncClaim, SidebarPluginSyncState,
-        SidebarRailScrollState, SidebarSplitGroupPlacement, SidebarWidthOverrides,
-        StatusTemplateValues, StatusWorkerStop, StdoutLock, SurfaceAttachClaimState,
-        SurfaceResizeDecision, SurfaceResizeOwnership, TERMINAL_PAINT_CADENCE, TerminalInput,
-        TerminalPaintPacer, TerminalPointerAdmission, TerminalPointerAdmissionResult,
-        TerminalPointerEncoding, TextInput, Toast, VIEWPORT_ANIMATION_DURATION, ViewportMotion,
-        ViewportPaneAreaProjection, WorkspaceRailSelection, action_available_in_mode,
-        browser_content_size_for_rect, browser_frame_source_crop, browser_hover_forward_allowed,
-        browser_source_crop, canonical_terminal_content, catch_renderer_panic,
-        clamp_split_ratio_for_tab_bars, client_menu_item, clip_horizontal_rect,
-        content_size_for_rect, disable_host_keyboard_protocol, enable_host_keyboard_protocol,
-        expand_status_tokens, first_pane_by_id, forward_host_input, forward_mux_event,
-        forward_mux_events, host_mouse_capture_escape_if_changed, host_startup_input_modes,
+        MachineActionWorker, MachineConnectRoute, MenuAction, MenuItem, MutationImpact,
+        MuxTitleIngress, OmnibarHit, OmnibarState, OrderedSession, OuterCursorSpec, PairingDialog,
+        PaneArea, PaneAreaProjection, PaneContentGeneration, PaneEdge, PaneFocusHistory,
+        PaneResizeDragTarget, PaneViewportClip, PendingSessionMutation,
+        PendingSessionMutationState, PointerHitIdentity, PointerRouteIdentity, PointerRoutePhase,
+        Prompt, PromptTarget, PtyFailureIngress, PtyMousePressResult, RailKind, RenderAction,
+        RenderedMenuLevel, RenderedPaneRoute, RenderedPointerFrame, Selection, SelectionMode,
+        SessionCompletion, SessionCompletionAction, SessionEventSender, ShortcutHelp,
+        SidebarActionTarget, SidebarHiddenReason, SidebarHiddenView, SidebarLayout,
+        SidebarPluginSyncClaim, SidebarPluginSyncState, SidebarRailScrollState,
+        SidebarSplitGroupPlacement, SidebarWidthOverrides, StatusTemplateValues, StatusWorkerStop,
+        StdoutLock, SurfaceAttachClaimState, SurfaceResizeDecision, SurfaceResizeOwnership,
+        TERMINAL_PAINT_CADENCE, TerminalInput, TerminalPaintPacer, TerminalPointerAdmission,
+        TerminalPointerAdmissionResult, TerminalPointerEncoding, TextInput, Toast,
+        VIEWPORT_ANIMATION_DURATION, ViewportMotion, ViewportPaneAreaProjection,
+        WorkspaceRailSelection, action_available_in_mode, browser_content_size_for_rect,
+        browser_frame_source_crop, browser_hover_forward_allowed, browser_source_crop,
+        canonical_terminal_content, catch_renderer_panic, clamp_split_ratio_for_tab_bars,
+        client_menu_item, clip_horizontal_rect, content_size_for_rect,
+        disable_host_keyboard_protocol, enable_host_keyboard_protocol, expand_status_tokens,
+        first_pane_by_id, forward_host_input, forward_mux_event, forward_mux_events,
+        host_mouse_capture_escape_if_changed, host_startup_input_modes,
         initial_applied_outer_cursor, initial_host_mouse_capture, keyboard_protocol_accepts,
         layout_undo_error_completion, negotiate_host_keyboard_protocol_with, outer_cursor_escape,
         outer_cursor_escape_if_changed, pane_area_projection_work, pane_context_menu_groups,
@@ -49087,9 +49080,7 @@ mod tests {
         let (_, cursor_col) = app
             .sidebar_files
             .visible_filter_text_and_cursor(input.width.saturating_sub(1) as usize);
-        terminal
-            .backend_mut()
-            .assert_cursor_position((input.x + 1 + cursor_col as u16, input.y));
+        terminal.backend_mut().assert_cursor_position((input.x + 1 + cursor_col as u16, input.y));
 
         app.files_rail_selection =
             super::FilesRailSelection::Action(SidebarActionTarget::Run(Action::NewTab));
@@ -54798,7 +54789,9 @@ mod tests {
         let mut app = test_app(Session::Local(mux));
         app.sidebar_files = FileBrowser::new(temp.clone());
         let directory = (0..app.sidebar_files.visible_len())
-            .find(|index| app.sidebar_files.visible_entry(*index).is_some_and(|entry| entry.is_dir()))
+            .find(|index| {
+                app.sidebar_files.visible_entry(*index).is_some_and(|entry| entry.is_dir())
+            })
             .expect("test directory must be listed");
         app.sidebar_files.select(directory);
         app.sidebar_files.handle_key(&KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
@@ -54914,11 +54907,8 @@ mod tests {
         let mux = Mux::new("retired-surface-prompt-test", SurfaceOptions::default());
         let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
         let mut app = test_app(Session::Local(mux.clone()));
-        app.prompt = Some(Prompt::new(
-            "Rename",
-            "old name".to_string(),
-            PromptTarget::Surface(surface.id),
-        ));
+        app.prompt =
+            Some(Prompt::new("Rename", "old name".to_string(), PromptTarget::Surface(surface.id)));
 
         app.retire_surface_state(surface.id);
 
@@ -54929,10 +54919,7 @@ mod tests {
     #[test]
     fn retiring_surface_fences_every_geometry_capture_without_settling_a_split() {
         for (label, capture) in [
-            (
-                "horizontal-scrollbar",
-                GeometryCapture::HorizontalScrollbar,
-            ),
+            ("horizontal-scrollbar", GeometryCapture::HorizontalScrollbar),
             ("pane-resize", GeometryCapture::PaneResize),
             ("rail-resize", GeometryCapture::RailResize),
             ("sidebar-split", GeometryCapture::SidebarSplit),
@@ -55226,11 +55213,8 @@ mod tests {
             vertical: None,
         });
         app.active_pointer_buttons.insert(MouseButton::Left);
-        app.layout_resize_expectations[0] = Some(LayoutResizeExpectation::Split {
-            screen: 3,
-            split: 9,
-            ratio: 0.7_f32.to_bits(),
-        });
+        app.layout_resize_expectations[0] =
+            Some(LayoutResizeExpectation::Split { screen: 3, split: 9, ratio: 0.7_f32.to_bits() });
 
         let mut next = previous;
         if let Node::Split { ratio, .. } = &mut next.workspaces_mut()[0].screens[0].layout {
@@ -55301,9 +55285,8 @@ mod tests {
         let mut app = test_app(Session::Local(mux));
         let mut previous = notify_tree(11, false);
         let tab = &mut previous.workspaces_mut()[0].screens[0].panes[0].tabs[0];
-        tab.public_id = Some(
-            TabPublicId::parse("tab_00000000000000000000000000000011".to_string()).unwrap(),
-        );
+        tab.public_id =
+            Some(TabPublicId::parse("tab_00000000000000000000000000000011".to_string()).unwrap());
         tab.content_id = Some(ContentPublicId::Terminal(
             cmux_tui_core::resource::TerminalPublicId::parse(
                 "term_00000000000000000000000000000011".to_string(),
@@ -55340,13 +55323,15 @@ mod tests {
 
     #[test]
     fn active_surface_content_replacement_fences_unpinned_files_capture_with_same_ids() {
-        let mux = Mux::new("active-surface-content-files-capture-boundary-test", SurfaceOptions::default());
+        let mux = Mux::new(
+            "active-surface-content-files-capture-boundary-test",
+            SurfaceOptions::default(),
+        );
         let mut app = test_app(Session::Local(mux));
         let mut previous = notify_tree(11, false);
         let tab = &mut previous.workspaces_mut()[0].screens[0].panes[0].tabs[0];
-        tab.public_id = Some(
-            TabPublicId::parse("tab_00000000000000000000000000000031".to_string()).unwrap(),
-        );
+        tab.public_id =
+            Some(TabPublicId::parse("tab_00000000000000000000000000000031".to_string()).unwrap());
         tab.content_id = Some(ContentPublicId::Terminal(
             cmux_tui_core::resource::TerminalPublicId::parse(
                 "term_00000000000000000000000000000031".to_string(),
@@ -55365,14 +55350,13 @@ mod tests {
         app.active_pointer_buttons.insert(MouseButton::Left);
 
         let mut next = previous;
-        next.workspaces_mut()[0].screens[0].panes[0].tabs[0].content_id = Some(
-            ContentPublicId::Terminal(
+        next.workspaces_mut()[0].screens[0].panes[0].tabs[0].content_id =
+            Some(ContentPublicId::Terminal(
                 cmux_tui_core::resource::TerminalPublicId::parse(
                     "term_00000000000000000000000000000032".to_string(),
                 )
                 .unwrap(),
-            ),
-        );
+            ));
         app.replace_tree(next);
 
         assert!(app.drag.is_none(), "a content replacement must retire Files capture");
@@ -55382,13 +55366,13 @@ mod tests {
 
     #[test]
     fn deferred_mouse_capture_is_fenced_when_active_surface_is_replaced() {
-        let mux = Mux::new("deferred-active-surface-capture-boundary-test", SurfaceOptions::default());
+        let mux =
+            Mux::new("deferred-active-surface-capture-boundary-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
         let mut previous = notify_tree(11, false);
         let tab = &mut previous.workspaces_mut()[0].screens[0].panes[0].tabs[0];
-        tab.public_id = Some(
-            TabPublicId::parse("tab_00000000000000000000000000000021".to_string()).unwrap(),
-        );
+        tab.public_id =
+            Some(TabPublicId::parse("tab_00000000000000000000000000000021".to_string()).unwrap());
         tab.content_id = Some(ContentPublicId::Terminal(
             cmux_tui_core::resource::TerminalPublicId::parse(
                 "term_00000000000000000000000000000021".to_string(),
@@ -55405,10 +55389,11 @@ mod tests {
         };
         app.defer_input(TerminalInput::Mouse(mouse));
         let generation = app.pointer_focus_generation;
-        assert!(app
-            .deferred_input
-            .iter()
-            .any(|input| matches!(input.event, TerminalInput::Mouse(event) if event == mouse)));
+        assert!(
+            app.deferred_input
+                .iter()
+                .any(|input| matches!(input.event, TerminalInput::Mouse(event) if event == mouse))
+        );
 
         let mut next = previous;
         let tab = &mut next.workspaces_mut()[0].screens[0].panes[0].tabs[0];
@@ -55422,9 +55407,7 @@ mod tests {
         app.replace_tree(next);
 
         assert!(
-            app.deferred_input
-                .iter()
-                .all(|input| !matches!(input.event, TerminalInput::Mouse(_))),
+            app.deferred_input.iter().all(|input| !matches!(input.event, TerminalInput::Mouse(_))),
             "a deferred mouse route must not replay into a replacement surface"
         );
         assert!(
@@ -55468,9 +55451,7 @@ mod tests {
         app.replace_tree(next);
 
         assert!(
-            app.deferred_input
-                .iter()
-                .all(|input| !matches!(input.event, TerminalInput::Mouse(_))),
+            app.deferred_input.iter().all(|input| !matches!(input.event, TerminalInput::Mouse(_))),
             "a deferred route must not cross a same-id split geometry change"
         );
     }
@@ -55491,10 +55472,7 @@ mod tests {
             (moved, pane.clone())
         };
         second.id = 5;
-        second.tabs = vec![TabView {
-            surface: 13,
-            ..moved
-        }];
+        second.tabs = vec![TabView { surface: 13, ..moved }];
         second.active_tab = 0;
         screen.panes.push(second);
         screen.active_pane = pane_id;
@@ -55537,7 +55515,9 @@ mod tests {
         app.sidebar_files = FileBrowser::new(temp.clone());
         app.sidebar_files.set_viewport_height(4);
         let directory = (0..app.sidebar_files.visible_len())
-            .find(|index| app.sidebar_files.visible_entry(*index).is_some_and(|entry| entry.is_dir()))
+            .find(|index| {
+                app.sidebar_files.visible_entry(*index).is_some_and(|entry| entry.is_dir())
+            })
             .expect("test directory must be listed");
         app.sidebar_files.select(directory);
         app.sidebar_files.handle_key(&KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
@@ -55553,9 +55533,8 @@ mod tests {
 
         let mut previous = notify_tree(11, false);
         let tab = &mut previous.workspaces_mut()[0].screens[0].panes[0].tabs[0];
-        tab.public_id = Some(
-            TabPublicId::parse("tab_00000000000000000000000000000012".to_string()).unwrap(),
-        );
+        tab.public_id =
+            Some(TabPublicId::parse("tab_00000000000000000000000000000012".to_string()).unwrap());
         app.tree = previous.clone();
         app.rebuild_tab_locations();
         let mut next = previous;
@@ -55637,8 +55616,7 @@ mod tests {
         });
         app.active_pointer_buttons.insert(MouseButton::Left);
 
-        app.sidebar_files
-            .handle_key(&KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
+        app.sidebar_files.handle_key(&KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
         assert!(app.insert_sidebar_files_filter_text("src"));
 
         assert!(app.drag.is_none(), "filtering changes the Files row topology");
@@ -56879,36 +56857,17 @@ mod tests {
         previous.active_workspace = 1;
 
         for (workspace_index, workspace) in previous.workspaces_mut().iter_mut().enumerate() {
-            workspace.resource_id = Some(
-                WorkspacePublicId::parse(format!(
-                    "ws_{:032x}",
-                    workspace_index + 1
-                ))
-                .unwrap(),
-            );
+            workspace.resource_id =
+                Some(WorkspacePublicId::parse(format!("ws_{:032x}", workspace_index + 1)).unwrap());
             let screen = &mut workspace.screens[0];
             screen.resource_id = Some(
-                ScreenPublicId::parse(format!(
-                    "screen_{:032x}",
-                    workspace_index + 1
-                ))
-                .unwrap(),
+                ScreenPublicId::parse(format!("screen_{:032x}", workspace_index + 1)).unwrap(),
             );
             let pane = &mut screen.panes[0];
-            pane.resource_id = Some(
-                PanePublicId::parse(format!(
-                    "pane_{:032x}",
-                    workspace_index + 1
-                ))
-                .unwrap(),
-            );
-            pane.tabs[0].public_id = Some(
-                TabPublicId::parse(format!(
-                    "tab_{:032x}",
-                    workspace_index + 1
-                ))
-                .unwrap(),
-            );
+            pane.resource_id =
+                Some(PanePublicId::parse(format!("pane_{:032x}", workspace_index + 1)).unwrap());
+            pane.tabs[0].public_id =
+                Some(TabPublicId::parse(format!("tab_{:032x}", workspace_index + 1)).unwrap());
         }
         let expected_workspace = previous.workspaces()[1].resource_id.clone().unwrap();
 
@@ -56937,12 +56896,12 @@ mod tests {
         let active_workspace = refreshed.active_workspace().unwrap();
         assert_eq!(active_workspace.resource_id.as_ref(), Some(&expected_workspace));
         let active_screen = &active_workspace.screens[active_workspace.active_screen];
-        let active_pane = active_screen
-            .panes
-            .iter()
-            .find(|pane| pane.id == active_screen.active_pane)
-            .unwrap();
-        assert_eq!(active_pane.resource_id.as_ref().unwrap().as_str(), "pane_00000000000000000000000000000002");
+        let active_pane =
+            active_screen.panes.iter().find(|pane| pane.id == active_screen.active_pane).unwrap();
+        assert_eq!(
+            active_pane.resource_id.as_ref().unwrap().as_str(),
+            "pane_00000000000000000000000000000002"
+        );
         assert_eq!(active_pane.active_surface(), Some(112));
     }
 
