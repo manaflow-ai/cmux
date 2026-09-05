@@ -48,7 +48,12 @@ public func withIrxDeadline<T: Sendable>(
     case .operation(let value):
         return value
     case .timeout:
-        await onTimeout()
+        // Cleanup can itself cross a cancellation-insensitive native bridge.
+        // Start it without making the caller wait for that bridge, otherwise
+        // this helper's deadline would be defeated by the cleanup it invokes.
+        Task {
+            await onTimeout()
+        }
         return nil
     }
 }
