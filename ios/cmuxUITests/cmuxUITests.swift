@@ -4076,6 +4076,62 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testNotificationHistoryUsesSeparateNestedRows() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_NOTIFICATION_FEED_PREVIEW": "1",
+            "CMUX_UITEST_NOTIFICATION_FEED_GROUP_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        let parentID = "MobileNotificationFeedRow-studio-legacy-codex-approval"
+        let childID = "MobileNotificationFeedRow-studio-legacy-group-title-only"
+        let parent = app.buttons[parentID]
+        let child = app.buttons[childID]
+        let toggle = app.buttons["MobileNotificationFeedGroupToggle-codex-approval"]
+        XCTAssertTrue(parent.waitForExistence(timeout: 10))
+        XCTAssertTrue(toggle.waitForExistence(timeout: 5))
+        XCTAssertFalse(child.exists)
+        let collapsed = XCTAttachment(screenshot: app.screenshot())
+        collapsed.name = "Notification history, collapsed"
+        collapsed.lifetime = .keepAlways
+        add(collapsed)
+
+        toggle.tap()
+        XCTAssertTrue(child.waitForExistence(timeout: 5))
+        let parentCell = app.cells.containing(.button, identifier: parentID).firstMatch
+        let childCell = app.cells.containing(.button, identifier: childID).firstMatch
+        XCTAssertTrue(parentCell.exists)
+        XCTAssertTrue(childCell.exists)
+        XCTAssertGreaterThanOrEqual(childCell.frame.minY, parentCell.frame.maxY - 1,
+                                    "History must be separate list rows, not content inside the parent cell")
+        // Native List rows expose full-width accessibility hit targets even
+        // when their content is indented. Capture the visual indentation;
+        // cell separation above verifies the independent-row structure.
+        let expanded = XCTAttachment(screenshot: app.screenshot())
+        expanded.name = "Notification history, expanded"
+        expanded.lifetime = .keepAlways
+        add(expanded)
+
+        // A partial swipe reveals the action without invoking the row's
+        // separately supported full-swipe shortcut.
+        let swipeStart = childCell.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.5))
+        let swipeEnd = childCell.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.5))
+        swipeStart.press(forDuration: 0.05, thenDragTo: swipeEnd)
+        let markRead = app.buttons["MobileNotificationFeedMarkReadSwipe-studio-legacy-group-title-only"]
+        XCTAssertTrue(markRead.waitForExistence(timeout: 3))
+        markRead.tap()
+        let readState = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "value BEGINSWITH %@", "Read"), object: child
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [readState], timeout: 5), .completed)
+        XCTAssertTrue((parent.value as? String)?.hasPrefix("Unread") == true)
+
+        toggle.tap()
+        XCTAssertTrue(child.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(parent.exists)
+    }
+
+    @MainActor
     func testNotificationFeedPreviewSupportsTriageInteractions() throws {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_NOTIFICATION_FEED_PREVIEW": "1",

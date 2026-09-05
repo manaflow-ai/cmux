@@ -14473,6 +14473,60 @@
         }
       }
     },
+    "mobile.notificationFeed.history.count": {
+      "comment": "VoiceOver value for a notification group's disclosure control. The number includes the latest notification.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld updates"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld件の更新"
+          }
+        }
+      }
+    },
+    "mobile.notificationFeed.history.hide": {
+      "comment": "Collapses the older notification rows beneath the latest notification.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide earlier notifications"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以前の通知を非表示"
+          }
+        }
+      }
+    },
+    "mobile.notificationFeed.history.show": {
+      "comment": "Expands the older notification rows beneath the latest notification.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show earlier notifications"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以前の通知を表示"
+          }
+        }
+      }
+    },
     "mobile.notificationFeed.filter": {
       "extractionState": "manual",
       "localizations": {
