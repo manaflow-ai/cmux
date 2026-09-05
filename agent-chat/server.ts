@@ -133,6 +133,10 @@ const GEMINI_MODELS = [
   { value: "gemini-2.5-flash", label: "Gemini 2.5 Flash" },
   { value: "gemini-2.5-flash-lite", label: "Gemini 2.5 Flash Lite" },
 ];
+const MINIMAX_MODELS = [
+  { value: "MiniMax-M3", label: "MiniMax M3" },
+  { value: "MiniMax-M2.7", label: "MiniMax M2.7" },
+];
 
 function geminiCatalogModels(): { value: string; label: string; description?: string }[] {
   const remote = agentModelCatalog.provider("gemini");
@@ -142,6 +146,16 @@ function geminiCatalogModels(): { value: string; label: string; description?: st
 
 function geminiDefaultModel(): string | undefined {
   return agentModelCatalog.provider("gemini")?.defaultModel ?? (agentModelCatalog.hasPayload ? undefined : "gemini-3.1-pro-preview");
+}
+
+function minimaxCatalogModels(): { value: string; label: string; description?: string }[] {
+  const remote = agentModelCatalog.provider("minimax");
+  if (remote) return remote.models.map((model) => ({ value: model.id, label: model.label, description: model.description }));
+  return agentModelCatalog.hasPayload ? [] : MINIMAX_MODELS;
+}
+
+function minimaxDefaultModel(): string | undefined {
+  return agentModelCatalog.provider("minimax")?.defaultModel ?? (agentModelCatalog.hasPayload ? undefined : "MiniMax-M3");
 }
 
 const PROVIDERS: ProviderDef[] = [
@@ -158,6 +172,15 @@ const PROVIDERS: ProviderDef[] = [
     installCommand: "npm i -g @google/gemini-cli",
     models: geminiCatalogModels(),
     defaultModel: geminiDefaultModel(),
+  },
+  {
+    id: "minimax",
+    label: "MiniMax",
+    adapter: "acp",
+    cmd: ["minimax", "--acp"],
+    autoApproveArgs: ["--yolo"],
+    models: minimaxCatalogModels(),
+    defaultModel: minimaxDefaultModel(),
   },
 ];
 
@@ -270,15 +293,21 @@ function broadcastSessions() {
 
 function syncCatalogProviderDefs() {
   const gemini = PROVIDERS.find((provider) => provider.id === "gemini");
-  if (!gemini) return;
-  gemini.models = geminiCatalogModels();
-  gemini.defaultModel = geminiDefaultModel();
+  if (gemini) {
+    gemini.models = geminiCatalogModels();
+    gemini.defaultModel = geminiDefaultModel();
+  }
+  const minimax = PROVIDERS.find((provider) => provider.id === "minimax");
+  if (minimax) {
+    minimax.models = minimaxCatalogModels();
+    minimax.defaultModel = minimaxDefaultModel();
+  }
 }
 
 async function applyAgentModelCatalog() {
   syncCatalogProviderDefs();
   const cwd = process.env.CMUX_AGENT_UI_CWD ?? DEFAULT_CWD;
-  const providers = ["claude", "codex", "gemini"];
+  const providers = ["claude", "codex", "gemini", "minimax"];
   const options = new Map<string, SessionOption[]>();
   await Promise.all(providers.map(async (provider) => {
     optionCatalog.delete(provider);
