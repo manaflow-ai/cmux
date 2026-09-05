@@ -40,6 +40,7 @@ public final class MobileNetworkOutcomeReporter: Sendable {
 
     private static let pendingStartLifetimeNanos: UInt64 = 5 * 60 * 1_000_000_000
     private static let maxPendingStarts = 32
+    private static let maxPendingCorrelationKeys = 32
 
     private struct Observation: Sendable {
         let phase: Phase
@@ -109,9 +110,10 @@ public final class MobileNetworkOutcomeReporter: Sendable {
         let transport = Self.transport(for: event)
         switch event.code {
         case .connect:
+            guard let surface = event.surface else { return nil }
             Self.storeConnectStart(
                 Start(tNanos: event.tNanos, transport: transport),
-                surface: event.surface,
+                surface: surface,
                 state: &state
             )
             return nil
@@ -127,12 +129,13 @@ public final class MobileNetworkOutcomeReporter: Sendable {
             )
 
         case .transportDialStarted:
+            guard let correlation = Self.correlation(event.c) else { return nil }
             Self.storeStart(Start(
                 tNanos: event.tNanos,
                 transport: transport
             ), for: Key(
                 phase: .transportDial,
-                correlation: Self.correlation(event.c)
+                correlation: correlation
             ), state: &state)
             return nil
 
@@ -143,10 +146,19 @@ public final class MobileNetworkOutcomeReporter: Sendable {
             )
             let start = state.starts.removeValue(forKey: key)
             if event.code == .transportDialConnected {
+                guard let surface = event.surface else {
+                    return Self.terminal(
+                        phase: .transportDial,
+                        event: event,
+                        start: start,
+                        transport: transport ?? start?.transport,
+                        userUsable: false
+                    )
+                }
                 Self.storeHostAuthStart(Start(
                     tNanos: event.tNanos,
                     transport: transport ?? start?.transport
-                ), surface: event.surface, state: &state)
+                ), surface: surface, state: &state)
             }
             return Self.terminal(
                 phase: .transportDial,
@@ -177,12 +189,13 @@ public final class MobileNetworkOutcomeReporter: Sendable {
             )
 
         case .recoveryStarted:
+            guard let surface = event.surface else { return nil }
             Self.storeStart(Start(
                 tNanos: event.tNanos,
                 transport: transport
             ), for: Key(
                 phase: .recovery,
-                correlation: Self.correlation(event.surface)
+                correlation: surface
             ), state: &state)
             return nil
 
@@ -295,6 +308,14 @@ public final class MobileNetworkOutcomeReporter: Sendable {
         surface: UInt32?,
         state: inout State
     ) {
+        if state.connectStarts[surface] == nil,
+           state.connectStarts.count >= Self.maxPendingCorrelationKeys,
+           let oldest = state.connectStarts.min(by: { lhs, rhs in
+               (lhs.value.map(\.tNanos).min() ?? .max)
+                   < (rhs.value.map(\.tNanos).min() ?? .max)
+           })?.key {
+            state.connectStarts.removeValue(forKey: oldest)
+        }
         var starts = state.connectStarts[surface, default: []]
         appendBounded(start, to: &starts)
         state.connectStarts[surface] = starts
@@ -316,7 +337,7 @@ public final class MobileNetworkOutcomeReporter: Sendable {
         state: inout State
     ) {
         if state.hostAuthStarts[surface] == nil,
-           state.hostAuthStarts.count >= Self.maxPendingStarts,
+           state.hostAuthStarts.count >= Self.maxPendingCorrelationKeys,
            let oldest = state.hostAuthStarts.min(by: { $0.value.tNanos < $1.value.tNanos })?.key {
             state.hostAuthStarts.removeValue(forKey: oldest)
         }
