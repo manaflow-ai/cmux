@@ -1,21 +1,23 @@
 "use client";
 
 import { useLocale } from "next-intl";
-import { usePathname } from "../../../i18n/navigation";
 import { locales, localeNames, type Locale } from "../../../i18n/routing";
 
 export function LanguageSwitcher() {
   const locale = useLocale() as Locale;
-  const pathname = usePathname();
 
   function onChange(e: React.ChangeEvent<HTMLSelectElement>) {
     const newLocale = e.target.value as Locale;
-    const qs = typeof window !== "undefined"
-      ? window.location.search + window.location.hash
-      : "";
+    const currentPathname = window.location.pathname;
+    const currentPrefix = `/${locale}`;
+    const pathname = currentPathname === currentPrefix
+      ? "/"
+      : currentPathname.startsWith(`${currentPrefix}/`)
+        ? currentPathname.slice(currentPrefix.length)
+        : currentPathname;
     const prefix = newLocale === "en" ? "" : `/${newLocale}`;
     const localizedPathname = pathname === "/" ? prefix || "/" : `${prefix}${pathname}`;
-    window.location.assign(localizedPathname + qs);
+    window.location.assign(localizedPathname + window.location.search + window.location.hash);
   }
 
   return (
