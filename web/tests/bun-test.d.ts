@@ -26,6 +26,7 @@ declare module "bun:test" {
   type SpiedFunction<T extends (...args: never[]) => unknown> = T & {
     mock: { calls: Parameters<T>[] };
     mockRestore: () => void;
+    mockImplementation: (implementation: (...args: Parameters<T>) => ReturnType<T>) => SpiedFunction<T>;
   };
 
   export const afterAll: LifecycleHook;

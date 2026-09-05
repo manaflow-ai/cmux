@@ -266,3 +266,37 @@ Only after verify passes may an entry carry `validationStatus: "passed"`;
 `vm-image-manifest.test.ts` refuses a `defaultForKind` entry with any other
 status. Machines created from the old cmuxd-remote images cannot serve the
 `cmux-remote` transport and need recreation on a devbox image.
+
+## Checking a private connection
+
+A healthy daemon inside an image does not prove that a particular Mac client
+can connect to it. Check the client and image together before replacing a
+snapshot to address an attach failure:
+
+```bash
+# From web/, using the Freestyle account that owns this snapshot.
+# Load FREESTYLE_API_KEY from ~/.secrets/cmux.env without printing it.
+bun run devbox:verify:private-link sh-<snapshot-id> /path/to/cmux-tui
+```
+
+For a Mac app, use its `Contents/Resources/bin/cmux-tui` binary. The probe
+first requires the client's `wireguard-hub` capability; an older client must
+be updated before a private-network image can be assessed. Rebuilding a guest
+image cannot add that missing capability to an installed Mac app.
+
+The probe creates its own VPC, VM from the requested snapshot, and temporary
+WireGuard tunnel. It uses the production driver to obtain and approve an
+invitation, reads the session snapshot through the private hub, then connects
+again with the persisted device identity and no new invitation. The report
+records both commits and the enrollment, reconnect, and snapshot results.
+The client need not match the image's older baked commit: successful protocol
+operations are the compatibility check.
+
+Keys and invitations are held in an owner-only temporary directory. Processes,
+VM, tunnel, and VPC are cleaned up on success and failure; Deletion retries only explicit provider conflict responses with bounded
+exponential backoff; only a successful delete confirms completion. Permanent
+refusals fail immediately, and each resource cleanup has a 30-second deadline. The probe never opens
+public ingress, installs a system VPN, or changes an existing machine. A
+cleanup failure names the resource requiring operator attention and fails the
+command. Run this alongside `devbox:verify` when validating a new image or a
+new Cloud client.
