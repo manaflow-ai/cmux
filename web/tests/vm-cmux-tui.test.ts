@@ -65,19 +65,68 @@ describe("cmux-tui daemon source", () => {
 });
 
 describe("cmux-tui install and daemon commands", () => {
-  test("installs onto the persistent volume, verifies the pin before and after download, and probes the binary", () => {
+  test("installs the pinned build, verifies the pin before and after download, and probes the binary", () => {
     const command = cmuxTuiInstallCommand({ url: URL, sha256: SHA, commit: COMMIT, builtAt: null });
-    expect(command).toContain("mkdir -p '/root/.cmux/bin'");
+    expect(command).toContain("mkdir -p '/usr/local/lib/cmux' '/root/.cmux/bin'");
     // Skip the download when the installed copy already matches the pin.
-    expect(command).toContain(`'${SHA}' '/root/.cmux/bin/cmux-tui' | sha256sum -c >/dev/null 2>&1; then :; else`);
-    // The download is verified against the same pin before it replaces anything.
+    expect(command).toContain(`"$CMUX_TUI_EXPECTED_SHA" '/usr/local/lib/cmux/cmux-tui' | sha256sum -c >/dev/null 2>&1; then :; else`);
+    // The download is verified against the live pin before it replaces anything.
     // A stock base image has no curl yet: install it, else fall back to busybox wget.
     expect(command).toContain("command -v curl >/dev/null 2>&1 || apk add --no-cache curl");
-    expect(command).toContain(`curl -fsSL --retry 3 --retry-delay 2 -o '/root/.cmux/bin/cmux-tui.tmp' '${URL}'`);
-    expect(command).toContain(`else wget -q -O '/root/.cmux/bin/cmux-tui.tmp' '${URL}'; fi`);
-    expect(command).toContain(`'${SHA}' '/root/.cmux/bin/cmux-tui.tmp' | sha256sum -c >/dev/null 2>&1 && chmod 755`);
-    expect(command).toContain("ln -sfn '/root/.cmux/bin/cmux-tui' /usr/local/bin/cmux-tui");
+    expect(command).toContain(`curl -fsSL --retry 3 --retry-delay 2 -o '/usr/local/lib/cmux/cmux-tui.tmp' '${URL}'`);
+    expect(command).toContain(`else wget -q -O '/usr/local/lib/cmux/cmux-tui.tmp' '${URL}'; fi`);
+    expect(command).toContain(`'${SHA}' '/usr/local/lib/cmux/cmux-tui.tmp' | sha256sum -c >/dev/null 2>&1 && chmod 755`);
+    expect(command).toContain("ln -sfn '/usr/local/lib/cmux/cmux-tui' /usr/local/bin/cmux-tui");
     expect(command.endsWith("'/root/.cmux/bin/cmux-tui' --version")).toBe(true);
+  });
+
+  // Regression: the binary lived only under /root (mode 700), so `cmux-tui` was
+  // "command not found" for the uid-1000 work user (`ubuntu`) in every SSH and
+  // desktop shell, even though /usr/local/bin/cmux-tui existed: the symlink
+  // pointed into root's home. The real file must live on a world-readable path,
+  // with root's canonical path and /usr/local/bin both symlinked to it.
+  test("installs the binary on a world-readable path so the uid-1000 work user can run it", () => {
+    const command = cmuxTuiInstallCommand({ url: URL, sha256: SHA, commit: COMMIT, builtAt: null });
+    expect(command).toContain("mkdir -p '/usr/local/lib/cmux' '/root/.cmux/bin'");
+    expect(command).toContain(`"$CMUX_TUI_EXPECTED_SHA" '/usr/local/lib/cmux/cmux-tui' | sha256sum -c >/dev/null 2>&1; then :; else`);
+    expect(command).toContain(`-o '/usr/local/lib/cmux/cmux-tui.tmp' '${URL}'`);
+    expect(command).toContain("chmod 755 '/usr/local/lib/cmux/cmux-tui.tmp' && mv -f '/usr/local/lib/cmux/cmux-tui.tmp' '/usr/local/lib/cmux/cmux-tui'");
+    expect(command).toContain("ln -sfn '/usr/local/lib/cmux/cmux-tui' '/root/.cmux/bin/cmux-tui'");
+    expect(command).toContain("ln -sfn '/usr/local/lib/cmux/cmux-tui' /usr/local/bin/cmux-tui");
+    // Nothing is fetched into or executed from a path only root can traverse.
+    expect(command).not.toContain("/root/.cmux/bin/cmux-tui.tmp");
+    expect(command.endsWith("'/root/.cmux/bin/cmux-tui' --version")).toBe(true);
+    // Modes are explicit: a root-only directory or file passes every root check
+    // while leaving the work user unable to run it.
+    expect(command).toContain("chmod 755 '/usr/local/lib/cmux' && ");
+    expect(command).toContain(" && chmod 755 '/usr/local/lib/cmux/cmux-tui' && ln -sfn");
+  });
+
+  // Regression (review on #12015): an older image keeps its pinned build as a
+  // root-only regular file. The heal must migrate it without changing the
+  // version (a baked image's own pin is the contract, not the live manifest)
+  // and without a download: rename the file onto the shared path, then symlink.
+  test("migrates an older image's root-only pinned build in place instead of downloading the live pin", () => {
+    const command = cmuxTuiInstallCommand({ url: URL, sha256: SHA, commit: COMMIT, builtAt: null });
+    expect(command).toContain(
+      `CMUX_TUI_EXPECTED_SHA=$(if [ -s /etc/cmux/cmux-tui-pin ]; then cut -d' ' -f1 /etc/cmux/cmux-tui-pin; else printf '%s' '${SHA}'; fi)`,
+    );
+    expect(command).toContain(
+      "if [ ! -e '/usr/local/lib/cmux/cmux-tui' ] && [ -f '/root/.cmux/bin/cmux-tui' ] && [ ! -L '/root/.cmux/bin/cmux-tui' ] && " +
+        "printf '%s  %s\n' \"$CMUX_TUI_EXPECTED_SHA\" '/root/.cmux/bin/cmux-tui' | sha256sum -c >/dev/null 2>&1; then mv -f '/root/.cmux/bin/cmux-tui' '/usr/local/lib/cmux/cmux-tui'; fi",
+    );
+    // The migration runs before the install decision, which then sees the shared file.
+    expect(command.indexOf("mv -f '/root/.cmux/bin/cmux-tui'")).toBeLessThan(command.indexOf("if [ -x '/usr/local/lib/cmux/cmux-tui' ]"));
+    // Only a download is checked against the live pin.
+    expect(command).toContain(`'${SHA}' '/usr/local/lib/cmux/cmux-tui.tmp' | sha256sum -c`);
+  });
+
+  test("the pin check rejects a root-only layout so the heal migrates it", () => {
+    const check = cmuxTuiPinCheckCommand({ url: URL, sha256: SHA, commit: COMMIT, builtAt: null });
+    expect(check.startsWith(
+      "[ \"$(readlink '/root/.cmux/bin/cmux-tui')\" = '/usr/local/lib/cmux/cmux-tui' ] && [ \"$(readlink /usr/local/bin/cmux-tui)\" = '/usr/local/lib/cmux/cmux-tui' ] && test -x '/root/.cmux/bin/cmux-tui'",
+    )).toBe(true);
+    expect(check).toContain(`'${SHA}' '/root/.cmux/bin/cmux-tui' | sha256sum -c >/dev/null 2>&1`);
   });
 
   // Regression: `sha256sum -c -s` is BusyBox-only. GNU coreutils (the xfce-vnc desktop
