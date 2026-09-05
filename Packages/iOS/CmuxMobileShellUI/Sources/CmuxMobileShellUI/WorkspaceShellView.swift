@@ -335,7 +335,7 @@ struct WorkspaceShellView: View {
                     // columns' own toolbars; destinations move into the
                     // sidebar's bottom bar instead.
                     workspaceTabContent(
-                        canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection
+                        presentation: presentation
                     )
                 }
             }
@@ -424,7 +424,7 @@ struct WorkspaceShellView: View {
                 : taskComposerAction
         ) {
             workspaceTabContent(
-                canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection
+                presentation: presentation
             )
         } notifications: {
             NavigationStack(path: $notificationNavigationPath) {
@@ -469,11 +469,21 @@ struct WorkspaceShellView: View {
     }
     #endif
 
+    #if os(iOS)
+    private func workspaceTabContent(
+        presentation: WorkspaceShellRenderPresentation
+    ) -> some View {
+        workspaceActionToastOverlay {
+            layoutContent(presentation: presentation)
+        }
+    }
+    #else
     private func workspaceTabContent(canCreateWorkspaceForSelection: Bool) -> some View {
         workspaceActionToastOverlay {
             layoutContent(canCreateWorkspaceForSelection: canCreateWorkspaceForSelection)
         }
     }
+    #endif
 
     private func workspaceSearchTabContent(canCreateWorkspaceForSelection: Bool) -> some View {
         workspaceActionToastOverlay {
@@ -564,12 +574,15 @@ struct WorkspaceShellView: View {
         }
     }
 
-    private func layoutContent(canCreateWorkspaceForSelection: Bool) -> some View {
+    #if os(iOS)
+    private func layoutContent(presentation: WorkspaceShellRenderPresentation) -> some View {
         Group {
             if usesCompactStack {
-                stackLayout(canCreateWorkspaceForSelection: canCreateWorkspaceForSelection)
+                stackLayout(
+                    canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection
+                )
             } else {
-                splitLayout(canCreateWorkspaceForSelection: canCreateWorkspaceForSelection)
+                splitLayout(presentation: presentation)
             }
         }
         .onChange(of: usesCompactStack) { _, isCompact in
@@ -670,6 +683,12 @@ struct WorkspaceShellView: View {
         #endif
         .accessibilityIdentifier("MobileWorkspaceShell")
     }
+    #else
+    private func layoutContent(canCreateWorkspaceForSelection: Bool) -> some View {
+        splitLayout(canCreateWorkspaceForSelection: canCreateWorkspaceForSelection)
+            .accessibilityIdentifier("MobileWorkspaceShell")
+    }
+    #endif
 
     #if os(iOS)
     /// Bound on the whole pre-presentation preload (all pages load
@@ -854,12 +873,43 @@ struct WorkspaceShellView: View {
         return openTaskComposer
     }
 
-    private func splitLayout(canCreateWorkspaceForSelection: Bool) -> some View {
+    #if os(iOS)
+    private func splitLayout(presentation: WorkspaceShellRenderPresentation) -> some View {
         NavigationSplitView(columnVisibility: $splitColumnVisibility) {
             #if os(iOS)
-            splitSidebar(canCreateWorkspaceForSelection: canCreateWorkspaceForSelection)
+            splitSidebar(presentation: presentation)
                 .navigationSplitViewColumnWidth(min: 320, ideal: 380, max: 440)
             #else
+            MobilePrimaryWorkspaceSearchHost(
+                searchCoordinator: primarySearchCoordinator,
+                taskComposerAction: taskComposerAction
+            ) { searchText in
+                workspaceList(
+                    navigationStyle: .sidebar,
+                    searchText: searchText,
+                    canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection
+                )
+            }
+            .navigationSplitViewColumnWidth(min: 320, ideal: 380, max: 440)
+            #endif
+        } detail: {
+            workspaceDestination(
+                for: store.selectedWorkspaceID,
+                createWorkspace: createWorkspaceIfConnected,
+                canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection,
+                safeAreaContext: splitColumnVisibility == .detailOnly ? .fullWidth : .splitSidebarVisible,
+                toggleSidebar: toggleSplitSidebar,
+                showsSidebarToggle: splitColumnVisibility == .detailOnly
+            )
+        }
+        .navigationSplitViewStyle(.balanced)
+        .onAppear {
+            hasPresentedSplitDetail = true
+        }
+    }
+    #else
+    private func splitLayout(canCreateWorkspaceForSelection: Bool) -> some View {
+        NavigationSplitView(columnVisibility: $splitColumnVisibility) {
             MobilePrimaryWorkspaceSearchHost(
                 searchCoordinator: primarySearchCoordinator,
                 taskComposerAction: taskComposerAction
@@ -871,7 +921,6 @@ struct WorkspaceShellView: View {
                 )
             }
             .navigationSplitViewColumnWidth(min: 320, ideal: 380, max: 440)
-            #endif
         } detail: {
             workspaceDestination(
                 for: store.selectedWorkspaceID,
@@ -887,6 +936,7 @@ struct WorkspaceShellView: View {
             hasPresentedSplitDetail = true
         }
     }
+    #endif
 
     #if os(iOS)
     /// The split (iPad) sidebar column: one destination surface switched by
@@ -894,17 +944,17 @@ struct WorkspaceShellView: View {
     /// search field scoped to the visible destination. There is no TabView in
     /// this hierarchy, so no floating tab strip can overlap the column
     /// toolbars.
-    private func splitSidebar(canCreateWorkspaceForSelection: Bool) -> some View {
-        let selectedMacDeviceIDs = macSelectionScope.selectedScopeEntries
-        let notificationItems = store.notificationFeedItems(scopedTo: selectedMacDeviceIDs)
-        let unreadCount = notificationItems.lazy.filter { !$0.isRead }.count
+    private func splitSidebar(presentation: WorkspaceShellRenderPresentation) -> some View {
+        let selectedMacDeviceIDs = presentation.selectedNotificationFeedMacDeviceIDs
+        let notificationItems = presentation.notificationFeedItems
+        let unreadCount = presentation.notificationUnreadCount
         return Group {
             switch splitSidebarDestination {
             case .notifications:
                 NotificationFeedStoreView(
                     store: store,
                     items: notificationItems,
-                    status: store.notificationFeedStatus(scopedTo: selectedMacDeviceIDs),
+                    status: presentation.notificationFeedStatus,
                     projection: notificationFeedProjection,
                     selectedMacDeviceIDs: selectedMacDeviceIDs
                 )
@@ -912,7 +962,7 @@ struct WorkspaceShellView: View {
                 workspaceList(
                     navigationStyle: .sidebar,
                     searchText: primarySearchCoordinator.searchDestinationText(for: .workspaces),
-                    canCreateWorkspaceForSelection: canCreateWorkspaceForSelection,
+                    canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection,
                     sidebarToggleAction: toggleSplitSidebar
                 )
             }
