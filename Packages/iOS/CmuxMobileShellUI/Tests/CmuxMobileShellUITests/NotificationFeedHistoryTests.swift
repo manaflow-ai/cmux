@@ -67,6 +67,39 @@ import Testing
         #expect(!projection.hasMoreRows)
     }
 
+    @Test @MainActor func pruningTheExpandedAnchorPreservesSurvivingHistory() async throws {
+        let limit = notificationFeedProjectionMaxSourceItemCount
+        let items = (0..<limit).map {
+            item("event-\($0)", age: TimeInterval($0), workspace: $0 < limit - 3 ? "other" : "workspace")
+        }
+        let projection = await makeProjection(for: items)
+        for _ in stride(
+            from: notificationFeedProjectionInitialRowWindow,
+            to: limit,
+            by: notificationFeedProjectionRowWindowIncrement
+        ) {
+            projection.extendRowWindow()
+            await projection.waitForPendingRebuild()
+        }
+        #expect(!projection.hasMoreRows)
+        let groupID = try #require(projection.sections.first?.rows.last?.disclosure?.groupID)
+        #expect(groupID == items.last?.id)
+        projection.toggleGroup(groupID)
+
+        let incoming = item("incoming", age: -1, workspace: "other")
+        projection.update(items: [incoming] + items, referenceDate: referenceDate)
+        await projection.waitForPendingRebuild()
+
+        let rows = try #require(projection.sections.first).rows
+        #expect(projection.sourceItemCount == limit)
+        #expect(rows.map(\.id) == [incoming.id, items[limit - 3].id, items[limit - 2].id])
+        #expect(rows[1].disclosure?.isExpanded == true)
+        #expect(rows.last?.context.isNested == true)
+        let survivingGroupID = try #require(rows[1].disclosure?.groupID)
+        projection.toggleGroup(survivingGroupID)
+        #expect(projection.sections[0].rows.map(\.id) == [incoming.id, items[limit - 3].id])
+    }
+
     @Test func nestedRowsPreserveUniqueTitlesIncludingTitleOnlyNotifications() throws {
         let latest = NotificationFeedRowModel(item: item("latest", age: 0))
         let titleOnly = NotificationFeedRowModel(item: item(
