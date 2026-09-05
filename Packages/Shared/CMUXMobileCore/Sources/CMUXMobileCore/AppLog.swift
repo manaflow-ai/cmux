@@ -628,6 +628,7 @@ public actor AppLog {
     private let ingress: EntryIngress
     private let supplementalAppLogURLs: @Sendable () -> [URL]
     private let flushSupplementalAppLog: @Sendable () async -> Bool
+    private let supplementalAppLogSnapshot: @Sendable () async -> [Data]?
 
     private static let drainWaitTimeoutNanoseconds: UInt64 = 5_000_000_000
     private static let exportTimeoutNanoseconds: UInt64 = 10_000_000_000
@@ -643,13 +644,15 @@ public actor AppLog {
         maxRetainedBytes: Int = AppLog.defaultMaxRetainedBytes,
         now: @escaping @Sendable () -> Date = { Date() },
         supplementalAppLogURLs: @escaping @Sendable () -> [URL] = { [] },
-        flushSupplementalAppLog: @escaping @Sendable () async -> Bool = { true }
+        flushSupplementalAppLog: @escaping @Sendable () async -> Bool = { true },
+        supplementalAppLogSnapshot: @escaping @Sendable () async -> [Data]? = { nil }
     ) {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         timestampFormatter = formatter
         self.supplementalAppLogURLs = supplementalAppLogURLs
         self.flushSupplementalAppLog = flushSupplementalAppLog
+        self.supplementalAppLogSnapshot = supplementalAppLogSnapshot
         let started = formatter.string(from: now())
         if let appFileURL {
             appFile = LogFile(
@@ -750,19 +753,76 @@ public actor AppLog {
             return nil
         }
 
-        let inputs = ExportInputs(
-            appURL: appFile?.url,
-            networkURL: networkFile?.url,
-            supplementalAppURLs: supplementalAppLogURLs()
-        )
-        let exportTask = Task.detached(priority: .utility) {
-            Self.writeExportArchive(inputs: inputs)
+        guard let appGenerations = snapshotData(for: appFile?.url),
+              let networkGenerations = snapshotData(for: networkFile?.url) else {
+            return nil
         }
-        return await withTaskCancellationHandler(operation: {
-            await exportTask.value
+        let supplementalGenerations = await supplementalAppLogSnapshot()
+            ?? snapshotData(for: supplementalAppLogURLs())
+            ?? []
+        let inputs = ExportInputs(
+            appGenerations: appGenerations,
+            networkGenerations: networkGenerations,
+            supplementalGenerations: supplementalGenerations
+        )
+        let completion = ExportCompletion()
+        let exportTask = Task.detached(priority: .utility) {
+            completion.resolve(Self.writeExportArchive(inputs: inputs))
+        }
+        let timeoutTask = Task.detached {
+            do {
+                try await Task.sleep(nanoseconds: Self.exportTimeoutNanoseconds)
+                completion.resolve(nil)
+            } catch {
+                // The export completed before its deadline.
+            }
+        }
+        let result = await withTaskCancellationHandler(operation: {
+            await completion.wait()
         }, onCancel: {
-            exportTask.cancel()
+            completion.resolve(nil)
         })
+        timeoutTask.cancel()
+        _ = exportTask
+        return result
+    }
+
+    /// Reads generations while AppLog actor ownership prevents append and
+    /// rotation from changing the file set. Reads are chunked so cancellation
+    /// is observed between filesystem calls.
+    private func snapshotData(for fileURL: URL?) -> [Data]? {
+        guard let fileURL else { return nil }
+        return snapshotData(for: Self.logFileURLs(for: fileURL))
+    }
+
+    private func snapshotData(for fileURLs: [URL]) -> [Data]? {
+        var snapshots: [Data] = []
+        snapshots.reserveCapacity(fileURLs.count)
+        for fileURL in fileURLs {
+            guard !Task.isCancelled,
+                  FileManager.default.fileExists(atPath: fileURL.path),
+                  let data = Self.readDataInChunks(from: fileURL) else {
+                return nil
+            }
+            snapshots.append(data)
+        }
+        return snapshots
+    }
+
+    private static func readDataInChunks(from fileURL: URL) -> Data? {
+        do {
+            let handle = try FileHandle(forReadingFrom: fileURL)
+            defer { try? handle.close() }
+            var data = Data()
+            while !Task.isCancelled {
+                let chunk = try handle.read(upToCount: 64 * 1024) ?? Data()
+                if chunk.isEmpty { return data }
+                data.append(chunk)
+            }
+            return nil
+        } catch {
+            return nil
+        }
     }
 
     /// Clears the structured log files, including all retained generations.
@@ -776,9 +836,49 @@ public actor AppLog {
     }
 
     private struct ExportInputs: Sendable {
-        let appURL: URL?
-        let networkURL: URL?
-        let supplementalAppURLs: [URL]
+        let appGenerations: [Data]
+        let networkGenerations: [Data]
+        let supplementalGenerations: [Data]
+    }
+
+    /// Resolves the settings task independently from the detached ZIP writer.
+    /// If a late worker finishes after cancellation or timeout, its temporary
+    /// archive is removed instead of being left behind.
+    private final class ExportCompletion: @unchecked Sendable {
+        // lint:allow lock - this gate crosses the detached ZIP worker and the
+        // cancellable settings task without actor affinity.
+        private let lock = NSLock()
+        private var continuation: CheckedContinuation<URL?, Never>?
+        private var result: URL??
+
+        func wait() async -> URL? {
+            await withCheckedContinuation { continuation in
+                lock.lock()
+                if let result {
+                    lock.unlock()
+                    continuation.resume(returning: result)
+                } else {
+                    self.continuation = continuation
+                    lock.unlock()
+                }
+            }
+        }
+
+        func resolve(_ result: URL?) {
+            lock.lock()
+            guard self.result == nil else {
+                lock.unlock()
+                if let result {
+                    try? FileManager.default.removeItem(at: result)
+                }
+                return
+            }
+            self.result = .some(result)
+            let continuation = self.continuation
+            self.continuation = nil
+            lock.unlock()
+            continuation?.resume(returning: result)
+        }
     }
 
     /// Performs bounded export work away from the AppLog actor. Every stage
@@ -788,14 +888,14 @@ public actor AppLog {
         let deadline = DispatchTime.now().uptimeNanoseconds &+ exportTimeoutNanoseconds
         guard !Task.isCancelled else { return nil }
         guard let appData = mergedData(
-            for: inputs.appURL,
-            additionalURLs: inputs.supplementalAppURLs,
+            generations: inputs.appGenerations,
+            additionalGenerations: inputs.supplementalGenerations,
             deadlineNanoseconds: deadline
         ), !hasExpired(deadline) else {
             return nil
         }
         guard let networkData = mergedData(
-            for: inputs.networkURL,
+            generations: inputs.networkGenerations,
             deadlineNanoseconds: deadline
         ), !hasExpired(deadline), !Task.isCancelled else {
             return nil
@@ -811,16 +911,13 @@ public actor AppLog {
     }
 
     private static func mergedData(
-        for fileURL: URL?,
-        additionalURLs: [URL] = [],
+        generations: [Data],
+        additionalGenerations: [Data] = [],
         deadlineNanoseconds: UInt64
     ) -> Data? {
-        guard let fileURL else { return nil }
-        let generations = Array(Self.logFileURLs(for: fileURL).reversed())
         var merged = Data()
-        for generation in generations {
-            guard !hasExpired(deadlineNanoseconds),
-                  let data = try? Data(contentsOf: generation) else {
+        for data in generations.reversed() {
+            guard !hasExpired(deadlineNanoseconds) else {
                 return nil
             }
             if !merged.isEmpty, merged.last != 0x0A {
@@ -837,9 +934,8 @@ public actor AppLog {
             guard remainder.contains("] ") else { return nil }
             return String(remainder)
         })
-        for generation in additionalURLs.reversed() {
-            guard !hasExpired(deadlineNanoseconds),
-                  let data = try? Data(contentsOf: generation) else {
+        for data in additionalGenerations.reversed() {
+            guard !hasExpired(deadlineNanoseconds) else {
                 return nil
             }
             for line in data.split(separator: 0x0A, omittingEmptySubsequences: true) {

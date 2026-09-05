@@ -166,6 +166,22 @@ public actor MobileDebugLogSink {
         buffer.removeAll(keepingCapacity: true)
     }
 
+    /// Captures every durable verbose generation while actor ownership keeps
+    /// appends and rotation from changing the files mid-read. The active file
+    /// is returned first, followed by its rotated generation.
+    public func snapshotPersistedLogData() -> [Data]? {
+        guard let fileURL else { return [] }
+        var snapshots: [Data] = []
+        for generation in [
+            fileURL,
+            URL(fileURLWithPath: fileURL.path + ".1"),
+        ] where FileManager.default.fileExists(atPath: generation.path) {
+            guard let data = try? Data(contentsOf: generation) else { return nil }
+            snapshots.append(data)
+        }
+        return snapshots
+    }
+
     func isFileLoggingEnabled() -> Bool {
         fileLoggingEnabled
     }

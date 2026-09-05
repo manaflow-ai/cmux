@@ -65,6 +65,12 @@ public struct MobileDebugLog: Sendable {
         await appendCoordinator.flush()
     }
 
+    /// Captures durable verbose generations through the sink actor so export
+    /// never races a file append or rotation.
+    public func snapshotPersistedLogData() async -> [Data]? {
+        await sink.snapshotPersistedLogData()
+    }
+
     /// Clears both the in-memory buffer and the durable verbose-log file.
     @discardableResult
     public func clearPersistedLog() async -> Bool {
