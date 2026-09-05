@@ -27,6 +27,17 @@ export function LanguageSwitcher() {
     const qs = typeof window !== "undefined"
       ? window.location.search + window.location.hash
       : "";
+
+    // next-intl prefixes every locale change with /en, then the proxy
+    // canonicalizes English back to /. That redirect can reuse the instant
+    // navigation shell before the new server tree is available. Navigate to
+    // the canonical English URL directly so the document, metadata, and
+    // messages are loaded together.
+    if (newLocale === "en") {
+      window.location.replace(pathname + qs);
+      return;
+    }
+
     pendingLocale.current = newLocale;
     router.replace(pathname + qs, { locale: newLocale });
   }
