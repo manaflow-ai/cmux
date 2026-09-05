@@ -1692,7 +1692,11 @@ struct CmuxTuiSnapshotParser: Sendable {
 
     /// The VNC display of a desktop machine (`display:1`; the key is the daemon's content id
     /// once a workspace points at it).
-    static func display(machine: SurfaceMachineID, key: String = "display:1") -> SurfaceResource {
+    static func display(
+        machine: SurfaceMachineID,
+        key: String = "display:1",
+        directURL: String? = nil
+    ) -> SurfaceResource {
         SurfaceResource(
             id: SurfaceResourceID(machine: machine, kind: .display, key: key),
             title: "Desktop",
@@ -1701,7 +1705,7 @@ struct CmuxTuiSnapshotParser: Sendable {
             agent: nil,
             remoteWorkspace: nil,
             port: desktopPort,
-            url: nil
+            url: directURL
         )
     }
 
@@ -1717,8 +1721,7 @@ struct CmuxTuiSnapshotParser: Sendable {
     /// given, is where opening it actually navigates — the machine's private
     /// address over the WireGuard tunnel, never a provider port-forwarding
     /// proxy (Freestyle's public platform has none for arbitrary ports). nil
-    /// only for a machine with no private-network address yet, which falls
-    /// back to the legacy provider-minted-endpoint path.
+    /// means the resource cannot open until the machine has a private address.
     static func portBrowser(machine: SurfaceMachineID, port: Int, directURL: String? = nil) -> SurfaceResource {
         SurfaceResource(
             id: SurfaceResourceID(machine: machine, kind: .browser, key: SurfaceResourceID.portKey(port)),

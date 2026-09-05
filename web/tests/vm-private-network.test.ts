@@ -7,14 +7,15 @@ import {
   networkSlugForUser,
   readVmTunnel,
   resolveOwnerNetwork,
+  revokeVmAccessGrant,
   revokeVmTunnel,
   tunnelSlugForDevice,
 } from "../services/vms/privateNetwork";
 import {
-  VmDatabaseError,
+  VmAccessGrantMutationBusyError,
+  VmAccessGrantRevokedError,
   VmPrivateNetworkUnavailableError,
-  VmTunnelEnrollmentBusyError,
-  VmTunnelEnrollmentUnavailableError,
+  VmProviderOperationError,
   VmTunnelNotFoundError,
 } from "../services/vms/errors";
 import type {
@@ -25,6 +26,7 @@ import type {
 import { VmProviderGateway, type VmProviderGatewayShape } from "../services/vms/providerGateway";
 import {
   VmRepository,
+  type CloudVmAccessGrantRow,
   type CloudVmNetworkRow,
   type CloudVmTunnelRow,
   type VmRepositoryShape,
@@ -76,9 +78,11 @@ function tunnelRow(overrides: Partial<CloudVmTunnelRow> = {}): CloudVmTunnelRow 
     id: "00000000-0000-4000-8000-0000000000bb",
     userId: "user-1",
     networkId: "00000000-0000-4000-8000-0000000000aa",
+    accessGrantId: "00000000-0000-4000-8000-0000000000c1",
     provider: "freestyle",
     providerTunnelId: "tun-test-1",
     deviceFingerprint: "device-1",
+    tunnelPurpose: "browser",
     deviceName: "Test Mac",
     clientPublicKey: CLIENT_KEY,
     addressV4: "10.40.0.2",
@@ -86,6 +90,29 @@ function tunnelRow(overrides: Partial<CloudVmTunnelRow> = {}): CloudVmTunnelRow 
     createdAt: new Date(),
     updatedAt: new Date(),
     lastConfigIssuedAt: new Date(),
+    revokedAt: null,
+    ...overrides,
+  };
+}
+
+function accessGrantRow(overrides: Partial<CloudVmAccessGrantRow> = {}): CloudVmAccessGrantRow {
+  return {
+    id: "00000000-0000-4000-8000-0000000000c1",
+    userId: "user-1",
+    deviceId: "mac-stable-1",
+    reportedName: "Test Mac",
+    displayName: null,
+    modelIdentifier: "Mac15,6",
+    osVersion: "26.0",
+    architecture: "arm64",
+    cmuxVersion: "0.65.0",
+    cmuxBuild: "103",
+    cmuxChannel: "nightly",
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    lastControlPlaneAt: new Date(),
+    mutationLeaseId: null,
+    mutationLeaseExpiresAt: null,
     revokedAt: null,
     ...overrides,
   };
@@ -164,7 +191,6 @@ function testRepo(options: {
   tunnel?: CloudVmTunnelRow | null;
   lockAcquired?: boolean;
   lockRenewed?: boolean;
-  lockError?: VmDatabaseError;
 } = {}): VmRepositoryShape {
   const calls = options.calls;
   const base: Partial<VmRepositoryShape> = {
@@ -178,6 +204,17 @@ function testRepo(options: {
         });
       }),
     deleteNetwork: () => Effect.void,
+    findAccessGrant: () => Effect.succeed(accessGrantRow()),
+    findBlockingRevokedAccessGrant: () => Effect.succeed(null),
+    listUserAccessGrants: () => Effect.succeed([accessGrantRow()]),
+    upsertAccessGrant: () => Effect.succeed(accessGrantRow()),
+    upsertAccessGrantSession: () => Effect.void,
+    listAccessGrantSessionIds: () => Effect.succeed(["session-1"]),
+    renameAccessGrant: () => Effect.succeed(accessGrantRow()),
+    listAccessGrantTunnels: () => Effect.succeed(options.tunnel ? [options.tunnel] : []),
+    claimAccessGrantMutation: () => Effect.succeed(true),
+    releaseAccessGrantMutation: () => Effect.void,
+    revokeAccessGrant: () => Effect.succeed(true),
     findTunnel: () => Effect.succeed(options.tunnel ?? null),
     listUserTunnels: () => Effect.succeed(options.tunnel ? [options.tunnel] : []),
     insertTunnel: (input) =>
@@ -185,7 +222,9 @@ function testRepo(options: {
         if (calls) calls.inserts += 1;
         return tunnelRow({
           providerTunnelId: input.providerTunnelId,
+          accessGrantId: input.accessGrantId,
           deviceFingerprint: input.deviceFingerprint,
+          tunnelPurpose: input.tunnelPurpose,
           clientPublicKey: input.clientPublicKey,
         });
       }),
@@ -201,13 +240,10 @@ function testRepo(options: {
         calls?.revoked.push(id);
         return true;
       }),
-    acquireTunnelEnrollmentLock: () => {
-      if (options.lockError) return Effect.fail(options.lockError);
-      return Effect.sync(() => {
+    acquireTunnelEnrollmentLock: () => Effect.sync(() => {
         if (calls) calls.lockAcquires += 1;
         return options.lockAcquired ?? true;
-      });
-    },
+      }),
     releaseTunnelEnrollmentLock: () =>
       Effect.sync(() => {
         if (calls) calls.lockReleases += 1;
@@ -247,6 +283,9 @@ function newRepoCalls(): RepoCalls {
 describe("WireGuard public key validation", () => {
   test("accepts a base64 32-byte key and rejects everything else", () => {
     expect(isWireGuardPublicKey(CLIENT_KEY)).toBe(true);
+    // RFC 4648 Base64 allows digits in the final sextet. This is a real
+    // CryptoKit-generated public key from the Nightly dogfood Mac.
+    expect(isWireGuardPublicKey("/LP04D7GGKWfqnFrgW+y1f0UvH2OyvSccKvHGQnkR08=")).toBe(true);
     expect(isWireGuardPublicKey(`  ${CLIENT_KEY}  `)).toBe(true);
     expect(isWireGuardPublicKey("")).toBe(false);
     expect(isWireGuardPublicKey("not-a-key")).toBe(false);
@@ -286,7 +325,7 @@ describe("resolveOwnerNetwork", () => {
     expect(repoCalls.upserts).toBe(1);
   });
 
-  test("reconciles the recorded network with the provider before reuse", async () => {
+  test("reuses the recorded network without a provider read", async () => {
     const gatewayCalls = newGatewayCalls();
     const network = await Effect.runPromise(
       resolveOwnerNetwork({ userId: "user-1", provider: "freestyle" }).pipe(
@@ -297,10 +336,10 @@ describe("resolveOwnerNetwork", () => {
       ),
     );
     expect(network?.providerNetworkId).toBe(NETWORK.id);
-    expect(gatewayCalls.ensureNetwork).toBe(1);
+    expect(gatewayCalls.ensureNetwork).toBe(0);
   });
 
-  test("replaces a stale control-plane network id when Freestyle recreated the VPC", async () => {
+  test("keeps the recorded network id as the control-plane authority", async () => {
     const gatewayCalls = newGatewayCalls();
     const repoCalls = newRepoCalls();
     const recreated: ProviderNetwork = {
@@ -316,30 +355,32 @@ describe("resolveOwnerNetwork", () => {
         )),
       ),
     );
-    expect(network?.providerNetworkId).toBe(recreated.id);
-    expect(gatewayCalls.ensureNetwork).toBe(1);
-    expect(repoCalls.upserts).toBe(1);
+    expect(network?.providerNetworkId).toBe("vpc-deleted-1");
+    expect(gatewayCalls.ensureNetwork).toBe(0);
+    expect(repoCalls.upserts).toBe(0);
   });
 
-  test("returns null (does not fail) when the provider has no private networking", async () => {
-    const network = await Effect.runPromise(
+  test("fails closed when the provider has no private networking", async () => {
+    const error = await Effect.runPromise(
       resolveOwnerNetwork({ userId: "user-1", provider: "freestyle" }).pipe(
         Effect.provide(layerFor(testRepo(), testGateway({ supports: false }))),
+        Effect.flip,
       ),
     );
-    expect(network).toBeNull();
+    expect(error).toBeInstanceOf(VmPrivateNetworkUnavailableError);
   });
 
-  test("returns null when the rollback flag disables private networking", async () => {
+  test("fails closed when the private-network kill switch is off", async () => {
     const prior = process.env.CMUX_VM_PRIVATE_NETWORK_ENABLED;
     process.env.CMUX_VM_PRIVATE_NETWORK_ENABLED = "0";
     try {
-      const network = await Effect.runPromise(
+      const error = await Effect.runPromise(
         resolveOwnerNetwork({ userId: "user-1", provider: "freestyle" }).pipe(
           Effect.provide(layerFor(testRepo(), testGateway())),
+          Effect.flip,
         ),
       );
-      expect(network).toBeNull();
+      expect(error).toBeInstanceOf(VmPrivateNetworkUnavailableError);
     } finally {
       if (prior === undefined) delete process.env.CMUX_VM_PRIVATE_NETWORK_ENABLED;
       else process.env.CMUX_VM_PRIVATE_NETWORK_ENABLED = prior;
@@ -348,18 +389,134 @@ describe("resolveOwnerNetwork", () => {
 });
 
 describe("enrollVmTunnel", () => {
+  test("fails closed when another provider mutation owns the Mac", async () => {
+    const gatewayCalls = newGatewayCalls();
+    const repo = {
+      ...testRepo({ network: networkRow() }),
+      claimAccessGrantMutation: () => Effect.succeed(false),
+    } as VmRepositoryShape;
+
+    const error = await Effect.runPromise(
+      enrollVmTunnel({
+        userId: "user-1",
+        provider: "freestyle",
+        deviceId: "mac-stable-1",
+        deviceFingerprint: "device-1",
+        tunnelPurpose: "terminal",
+        clientPublicKey: CLIENT_KEY,
+      }).pipe(
+        Effect.provide(layerFor(repo, testGateway({ calls: gatewayCalls }))),
+        Effect.flip,
+      ),
+    );
+
+    expect(error).toBeInstanceOf(VmAccessGrantMutationBusyError);
+    expect(gatewayCalls.createTunnel).toHaveLength(0);
+  });
+
+  test("releases the Mac mutation lease when provider enrollment fails", async () => {
+    const events: string[] = [];
+    const repo = {
+      ...testRepo({ network: networkRow() }),
+      claimAccessGrantMutation: () => Effect.sync(() => {
+        events.push("claim");
+        return true;
+      }),
+      releaseAccessGrantMutation: () => Effect.sync(() => {
+        events.push("release");
+      }),
+    } as VmRepositoryShape;
+    const gateway = {
+      ...testGateway(),
+      createTunnel: () => Effect.sync(() => {
+        events.push("provider-create");
+        throw new VmProviderOperationError({
+          provider: "freestyle",
+          operation: "createTunnel",
+          cause: new Error("provider unavailable"),
+        });
+      }),
+    } as VmProviderGatewayShape;
+
+    await expect(Effect.runPromise(
+      enrollVmTunnel({
+        userId: "user-1",
+        provider: "freestyle",
+        deviceId: "mac-stable-1",
+        deviceFingerprint: "device-1",
+        tunnelPurpose: "terminal",
+        clientPublicKey: CLIENT_KEY,
+      }).pipe(Effect.provide(layerFor(repo, gateway))),
+    )).rejects.toBeDefined();
+
+    expect(events).toEqual(["claim", "provider-create", "release"]);
+  });
+
+  test("holds the physical Mac mutation lease through provider enrollment", async () => {
+    const events: string[] = [];
+    const repo = {
+      ...testRepo(),
+      claimAccessGrantMutation: () => Effect.sync(() => {
+        events.push("claim");
+        return true;
+      }),
+      releaseAccessGrantMutation: () => Effect.sync(() => {
+        events.push("release");
+      }),
+    } as VmRepositoryShape;
+    const gateway = {
+      ...testGateway(),
+      createTunnel: (_provider: string, options: CreateProviderTunnelOptions) =>
+        Effect.sync(() => {
+          events.push("provider-create");
+          return { tunnel: providerTunnel({ clientPublicKey: options.clientPublicKey }), created: true, rotated: false };
+        }),
+    } as VmProviderGatewayShape;
+
+    await Effect.runPromise(
+      enrollVmTunnel({
+        userId: "user-1",
+        provider: "freestyle",
+        deviceId: "mac-stable-1",
+        deviceFingerprint: "device-1",
+        tunnelPurpose: "terminal",
+        stackSessionId: "session-1",
+        sessionIssuedAt: new Date("2026-09-03T12:00:00Z"),
+        clientPublicKey: CLIENT_KEY,
+      }).pipe(Effect.provide(layerFor(repo, gateway))),
+    );
+
+    expect(events).toEqual(["claim", "provider-create", "release"]);
+  });
+
   test("first enrollment creates a provider tunnel keyed to the device", async () => {
     const gatewayCalls = newGatewayCalls();
     const repoCalls = newRepoCalls();
+    const issuedAt = new Date("2026-09-03T12:00:00Z");
+    const recordedSessions: Array<{ stackSessionId: string; sessionIssuedAt: Date }> = [];
+    const repo = {
+      ...testRepo({ calls: repoCalls }),
+      upsertAccessGrantSession: (input: { stackSessionId: string; sessionIssuedAt: Date }) =>
+        Effect.sync(() => {
+          recordedSessions.push({
+            stackSessionId: input.stackSessionId,
+            sessionIssuedAt: input.sessionIssuedAt,
+          });
+        }),
+    } as VmRepositoryShape;
     const tunnel = await Effect.runPromise(
       enrollVmTunnel({
         userId: "user-1",
         provider: "freestyle",
+        deviceId: "mac-stable-1",
         deviceFingerprint: "device-1",
+        tunnelPurpose: "browser",
         deviceName: "Test Mac",
+        stackSessionId: "session-stable",
+        sessionIssuedAt: issuedAt,
         clientPublicKey: CLIENT_KEY,
       }).pipe(
-        Effect.provide(layerFor(testRepo({ calls: repoCalls }), testGateway({ calls: gatewayCalls }))),
+        Effect.provide(layerFor(repo, testGateway({ calls: gatewayCalls }))),
       ),
     );
     expect(tunnel.created).toBe(true);
@@ -368,56 +525,37 @@ describe("enrollVmTunnel", () => {
     expect(gatewayCalls.createTunnel).toHaveLength(1);
     expect(gatewayCalls.createTunnel[0]?.networkId).toBe(NETWORK.id);
     expect(repoCalls.inserts).toBe(1);
-    expect(repoCalls.lockAcquires).toBe(1);
-    expect(repoCalls.lockReleases).toBe(1);
-    expect(repoCalls.lockRenews).toBeGreaterThan(0);
+    expect(recordedSessions).toEqual([{
+      stackSessionId: "session-stable",
+      sessionIssuedAt: issuedAt,
+    }]);
   });
 
-  test("reports a live enrollment lease without touching the provider", async () => {
+  test("a login issued before physical Mac revoke cannot create its first tunnel later", async () => {
     const gatewayCalls = newGatewayCalls();
-    const repoCalls = newRepoCalls();
+    const repo = {
+      ...testRepo(),
+      findBlockingRevokedAccessGrant: () => Effect.succeed(accessGrantRow({
+        revokedAt: new Date("2026-09-03T13:00:00Z"),
+      })),
+    } as VmRepositoryShape;
     const error = await Effect.runPromise(
       enrollVmTunnel({
         userId: "user-1",
         provider: "freestyle",
-        deviceFingerprint: "device-1",
+        deviceId: "mac-stable-1",
+        deviceFingerprint: "nightly-first-use",
+        tunnelPurpose: "terminal",
+        stackSessionId: "session-nightly-never-enrolled",
+        sessionIssuedAt: new Date("2026-09-03T12:00:00Z"),
         clientPublicKey: CLIENT_KEY,
       }).pipe(
-        Effect.provide(layerFor(
-          testRepo({ calls: repoCalls, lockAcquired: false }),
-          testGateway({ calls: gatewayCalls }),
-        )),
+        Effect.provide(layerFor(repo, testGateway({ calls: gatewayCalls }))),
         Effect.flip,
       ),
     );
-    expect(error).toBeInstanceOf(VmTunnelEnrollmentBusyError);
-    expect(gatewayCalls.ensureNetwork).toBe(0);
+    expect(error).toBeInstanceOf(VmAccessGrantRevokedError);
     expect(gatewayCalls.createTunnel).toHaveLength(0);
-    expect(repoCalls.lockAcquires).toBe(1);
-    expect(repoCalls.lockReleases).toBe(0);
-  });
-
-  test("stops before provider work when the lease is lost", async () => {
-    const gatewayCalls = newGatewayCalls();
-    const repoCalls = newRepoCalls();
-    const error = await Effect.runPromise(
-      enrollVmTunnel({
-        userId: "user-1",
-        provider: "freestyle",
-        deviceFingerprint: "device-1",
-        clientPublicKey: CLIENT_KEY,
-      }).pipe(
-        Effect.provide(layerFor(
-          testRepo({ calls: repoCalls, lockRenewed: false }),
-          testGateway({ calls: gatewayCalls }),
-        )),
-        Effect.flip,
-      ),
-    );
-    expect(error).toBeInstanceOf(VmTunnelEnrollmentBusyError);
-    expect(gatewayCalls.ensureNetwork).toBe(0);
-    expect(gatewayCalls.createTunnel).toHaveLength(0);
-    expect(repoCalls.lockReleases).toBe(1);
   });
 
   test("re-enrolling with the same key is idempotent: no create, no rotate", async () => {
@@ -427,7 +565,9 @@ describe("enrollVmTunnel", () => {
       enrollVmTunnel({
         userId: "user-1",
         provider: "freestyle",
+        deviceId: "mac-stable-1",
         deviceFingerprint: "device-1",
+        tunnelPurpose: "browser",
         clientPublicKey: CLIENT_KEY,
       }).pipe(
         Effect.provide(layerFor(
@@ -449,7 +589,9 @@ describe("enrollVmTunnel", () => {
       enrollVmTunnel({
         userId: "user-1",
         provider: "freestyle",
+        deviceId: "mac-stable-1",
         deviceFingerprint: "device-1",
+        tunnelPurpose: "browser",
         clientPublicKey: OTHER_KEY,
       }).pipe(
         Effect.provide(layerFor(
@@ -471,7 +613,9 @@ describe("enrollVmTunnel", () => {
       enrollVmTunnel({
         userId: "user-1",
         provider: "freestyle",
+        deviceId: "mac-stable-1",
         deviceFingerprint: "device-1",
+        tunnelPurpose: "browser",
         clientPublicKey: CLIENT_KEY,
       }).pipe(
         Effect.provide(layerFor(
@@ -490,7 +634,9 @@ describe("enrollVmTunnel", () => {
       enrollVmTunnel({
         userId: "user-1",
         provider: "freestyle",
+        deviceId: "mac-stable-1",
         deviceFingerprint: "device-1",
+        tunnelPurpose: "browser",
         clientPublicKey: CLIENT_KEY,
       }).pipe(
         Effect.provide(layerFor(testRepo(), testGateway({ supports: false }))),
@@ -502,32 +648,6 @@ describe("enrollVmTunnel", () => {
 });
 
 describe("readVmTunnel / revokeVmTunnel", () => {
-  test("keeps an existing tunnel readable while new private-network provisioning is rolled back", async () => {
-    const prior = process.env.CMUX_VM_PRIVATE_NETWORK_ENABLED;
-    process.env.CMUX_VM_PRIVATE_NETWORK_ENABLED = "0";
-    const gatewayCalls = newGatewayCalls();
-    try {
-      const tunnel = await Effect.runPromise(
-        readVmTunnel({
-          userId: "user-1",
-          provider: "freestyle",
-          deviceFingerprint: "device-1",
-        }).pipe(
-          Effect.provide(layerFor(
-            testRepo({ network: networkRow(), tunnel: tunnelRow() }),
-            testGateway({ calls: gatewayCalls }),
-          )),
-        ),
-      );
-      expect(tunnel.tunnelId).toBe("tun-test-1");
-      expect(gatewayCalls.ensureNetwork).toBe(0);
-      expect(gatewayCalls.getNetwork).toBe(1);
-    } finally {
-      if (prior === undefined) delete process.env.CMUX_VM_PRIVATE_NETWORK_ENABLED;
-      else process.env.CMUX_VM_PRIVATE_NETWORK_ENABLED = prior;
-    }
-  });
-
   test("fails closed when rollback leaves only a stale network row", async () => {
     const prior = process.env.CMUX_VM_PRIVATE_NETWORK_ENABLED;
     process.env.CMUX_VM_PRIVATE_NETWORK_ENABLED = "0";
@@ -537,6 +657,7 @@ describe("readVmTunnel / revokeVmTunnel", () => {
           userId: "user-1",
           provider: "freestyle",
           deviceFingerprint: "device-1",
+          tunnelPurpose: "terminal",
         }).pipe(
           Effect.provide(layerFor(
             testRepo({ network: networkRow(), tunnel: tunnelRow() }),
@@ -559,6 +680,7 @@ describe("readVmTunnel / revokeVmTunnel", () => {
         userId: "user-1",
         provider: "freestyle",
         deviceFingerprint: "device-unknown",
+        tunnelPurpose: "browser",
       }).pipe(
         Effect.provide(layerFor(testRepo({ network: networkRow() }), testGateway({ calls: gatewayCalls }))),
         Effect.flip,
@@ -569,26 +691,22 @@ describe("readVmTunnel / revokeVmTunnel", () => {
     expect(gatewayCalls.ensureNetwork).toBe(0);
   });
 
-  test("reports a missing lock migration as a typed unavailable response", async () => {
+  test("reports a missing device as not found without a mutation lock", async () => {
     const error = await Effect.runPromise(
       readVmTunnel({
         userId: "user-1",
         provider: "freestyle",
         deviceFingerprint: "device-unknown",
+        tunnelPurpose: "terminal",
       }).pipe(
         Effect.provide(layerFor(
-          testRepo({
-            lockError: new VmDatabaseError({
-              operation: "acquireTunnelEnrollmentLock",
-              cause: { code: "42P01", message: 'relation "cloud_vm_tunnel_enrollment_locks" does not exist' },
-            }),
-          }),
+          testRepo(),
           testGateway(),
         )),
         Effect.flip,
       ),
     );
-    expect(error).toBeInstanceOf(VmTunnelEnrollmentUnavailableError);
+    expect(error).toBeInstanceOf(VmTunnelNotFoundError);
   });
 
   test("revoke deletes the provider tunnel before marking the row revoked", async () => {
@@ -599,6 +717,7 @@ describe("readVmTunnel / revokeVmTunnel", () => {
         userId: "user-1",
         provider: "freestyle",
         deviceFingerprint: "device-1",
+        tunnelPurpose: "browser",
       }).pipe(
         Effect.provide(layerFor(
           testRepo({ calls: repoCalls, tunnel: tunnelRow() }),
@@ -609,9 +728,9 @@ describe("readVmTunnel / revokeVmTunnel", () => {
     expect(result.revoked).toBe(true);
     expect(gatewayCalls.deleteTunnel).toEqual(["tun-test-1"]);
     expect(repoCalls.revoked).toHaveLength(1);
-    expect(repoCalls.lockAcquires).toBe(1);
-    expect(repoCalls.lockReleases).toBe(1);
-    expect(repoCalls.lockRenews).toBeGreaterThan(0);
+    expect(repoCalls.lockAcquires).toBe(0);
+    expect(repoCalls.lockReleases).toBe(0);
+    expect(repoCalls.lockRenews).toBe(0);
   });
 
   test("revoking a device that never enrolled is a no-op, not an error", async () => {
@@ -620,6 +739,7 @@ describe("readVmTunnel / revokeVmTunnel", () => {
         userId: "user-1",
         provider: "freestyle",
         deviceFingerprint: "device-unknown",
+        tunnelPurpose: "browser",
       }).pipe(Effect.provide(layerFor(testRepo(), testGateway()))),
     );
     expect(result.revoked).toBe(false);
@@ -632,6 +752,7 @@ describe("readVmTunnel / revokeVmTunnel", () => {
         userId: "user-1",
         provider: "freestyle",
         deviceFingerprint: "device-unknown",
+        tunnelPurpose: "terminal",
       }).pipe(
         Effect.provide(layerFor(
           testRepo({ calls: repoCalls, network: networkRow() }),
@@ -641,7 +762,117 @@ describe("readVmTunnel / revokeVmTunnel", () => {
       ),
     );
     expect(error).toBeInstanceOf(VmTunnelNotFoundError);
-    expect(repoCalls.lockAcquires).toBe(1);
-    expect(repoCalls.lockReleases).toBe(1);
+    expect(repoCalls.lockAcquires).toBe(0);
+    expect(repoCalls.lockReleases).toBe(0);
+  });
+});
+
+describe("Cloud VM access grant revocation", () => {
+  test("holds the physical Mac mutation lease through provider deletion", async () => {
+    const events: string[] = [];
+    const row = tunnelRow();
+    const repo = {
+      ...testRepo({ tunnel: row }),
+      claimAccessGrantMutation: () => Effect.sync(() => {
+        events.push("claim");
+        return true;
+      }),
+      releaseAccessGrantMutation: () => Effect.sync(() => {
+        events.push("release");
+      }),
+      revokeTunnel: () => Effect.sync(() => {
+        events.push("row-revoke");
+        return true;
+      }),
+      revokeAccessGrant: () => Effect.sync(() => {
+        events.push("grant-revoke");
+        return true;
+      }),
+    } as VmRepositoryShape;
+    const gateway = {
+      ...testGateway(),
+      deleteTunnel: () => Effect.sync(() => {
+        events.push("provider-delete");
+      }),
+    } as VmProviderGatewayShape;
+
+    await Effect.runPromise(
+      revokeVmAccessGrant({
+        userId: "user-1",
+        accessGrantId: accessGrantRow().id,
+      }).pipe(Effect.provide(layerFor(repo, gateway))),
+    );
+
+    expect(events).toEqual([
+      "claim",
+      "provider-delete",
+      "row-revoke",
+      "grant-revoke",
+      "release",
+    ]);
+  });
+
+  test("revokes every tunnel role for one Mac", async () => {
+    const deleted: string[] = [];
+    const revoked: string[] = [];
+    const rows = [
+      tunnelRow({
+        id: "00000000-0000-4000-8000-0000000000b1",
+        providerTunnelId: "tun-userspace",
+        tunnelPurpose: "terminal",
+      }),
+      tunnelRow({
+        id: "00000000-0000-4000-8000-0000000000b2",
+        providerTunnelId: "tun-vpn",
+        tunnelPurpose: "browser",
+      }),
+    ];
+    const repo = {
+      ...testRepo(),
+      findAccessGrant: () => Effect.succeed({
+        id: "00000000-0000-4000-8000-0000000000c1",
+        userId: "user-1",
+        deviceId: "mac-stable-1",
+        reportedName: "Lawrence’s MacBook Pro",
+        displayName: null,
+        modelIdentifier: "Mac15,6",
+        osVersion: "26.0",
+        architecture: "arm64",
+        cmuxVersion: "0.65.0",
+        cmuxBuild: "103",
+        cmuxChannel: "nightly",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        lastControlPlaneAt: new Date(),
+        mutationLeaseId: null,
+        mutationLeaseExpiresAt: null,
+        revokedAt: null,
+      }),
+      listAccessGrantTunnels: () => Effect.succeed(rows),
+      listAccessGrantSessionIds: () => Effect.succeed(["session-stable", "session-nightly"]),
+      revokeTunnel: (id: string) => Effect.sync(() => {
+        revoked.push(id);
+        return true;
+      }),
+      revokeAccessGrant: () => Effect.succeed(true),
+    } as VmRepositoryShape;
+    const gateway = {
+      ...testGateway(),
+      deleteTunnel: (_provider: string, tunnelId: string) => Effect.sync(() => {
+        deleted.push(tunnelId);
+      }),
+    } as VmProviderGatewayShape;
+
+    const result = await Effect.runPromise(
+      revokeVmAccessGrant({
+        userId: "user-1",
+        accessGrantId: "00000000-0000-4000-8000-0000000000c1",
+      }).pipe(Effect.provide(layerFor(repo, gateway))),
+    );
+
+    expect(result.revoked).toBe(true);
+    expect(result.stackSessionIds).toEqual(["session-stable", "session-nightly"]);
+    expect(deleted).toEqual(["tun-userspace", "tun-vpn"]);
+    expect(revoked).toEqual(rows.map((row) => row.id));
   });
 });

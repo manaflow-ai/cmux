@@ -49,6 +49,16 @@ export function DashboardShell({
   }
   groups.push(
     {
+      label: t("cloudGroup"),
+      items: [
+        {
+          href: "/dashboard/cloud",
+          label: t("cloudDevices"),
+          active: pathname.startsWith("/dashboard/cloud"),
+        },
+      ],
+    },
+    {
       label: t("coderouterGroup"),
       items: [
         {

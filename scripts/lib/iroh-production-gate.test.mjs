@@ -359,3 +359,18 @@ test("Mac reload documents production auth without accepting secret values", () 
   assert.match(result.stdout, /--credentials-file <path>/u);
   assert.match(result.stdout, /credential values never enter argv/u);
 });
+
+test("Mac reload accepts an immutable cmux-tui manifest pin", () => {
+  const result = run("bash", ["scripts/reload.sh", "--help"]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /--cmux-tui-manifest-url <url>/u);
+
+  const source = readFileSync(
+    path.join(repositoryRoot, "scripts/reload.sh"),
+    "utf8",
+  );
+  assert.match(
+    source,
+    /--manifest-url "\$CMUX_TUI_CLIENT_MANIFEST_URL_VALUE"/u,
+  );
+});
