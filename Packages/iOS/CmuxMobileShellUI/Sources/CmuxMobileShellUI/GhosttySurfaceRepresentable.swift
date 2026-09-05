@@ -146,14 +146,14 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         // state write, so it is safe in `updateUIView`.
         context.coordinator.setTerminalPresentationActive(terminalPresentationIsActive)
         context.coordinator.attemptPendingOutputConsumerRecoveryPresentation()
-        guard let surfaceView = (uiView as? GhosttySurfaceHostView)?.surfaceView else { return }
+        let hostView = uiView as? GhosttySurfaceHostView
+        guard let surfaceView = hostView?.surfaceView ?? (uiView as? GhosttySurfaceView) else { return }
         surfaceView.autoFocusOnWindowAttach = autoFocusOnWindowAttach
         surfaceView.terminalTheme = terminalTheme
         surfaceView.terminalConfigTheme = terminalConfigTheme
         surfaceView.setTopContentInset(topContentInset)
-        if let hostView = uiView as? GhosttySurfaceHostView {
-            hostView.setCapturedBottomSafeAreaInset(bottomSafeAreaInset)
-        }
+        surfaceView.setCapturedBottomSafeAreaInset(bottomSafeAreaInset)
+        hostView?.setCapturedBottomSafeAreaInset(bottomSafeAreaInset)
         context.coordinator.onArtifactFilesRequested = onArtifactFilesRequested
         context.coordinator.onArtifactPathTapped = onArtifactPathTapped
         context.coordinator.onVisibleArtifactCountChanged = onVisibleArtifactCountChanged
