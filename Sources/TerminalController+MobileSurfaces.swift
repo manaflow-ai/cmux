@@ -6,43 +6,12 @@ import Foundation
 /// Mobile surface inventory and focus support kept outside `TerminalController.swift`.
 extension TerminalController {
     /// Maps an app panel kind to the shared, open mobile wire vocabulary.
+    ///
+    /// ``Workspace.surfaceKind(for:)`` is the canonical mapping used by Mac
+    /// workspace snapshots. Reusing it here keeps mobile descriptors and Mac
+    /// persistence on one exhaustive source of truth as panel kinds evolve.
     func mobileSurfaceKind(for panelType: PanelType) -> MobileSurfaceKind {
-        switch panelType {
-        case .terminal:
-            return .terminal
-        case .browser:
-            return .browser
-        case .markdown:
-            return .markdown
-        case .filePreview:
-            return .filePreview
-        case .rightSidebarTool:
-            return .rightSidebarTool
-        case .customSidebar:
-            return .customSidebar
-        case .agentSession:
-            return .agentSession
-        case .project:
-            return .project
-        case .extensionBrowser:
-            return .extensionBrowser
-        case .workspaceTodo:
-            return .todo
-        case .notifications:
-            // Notifications use the open-vocabulary fallback until the phone
-            // provides a native renderer for this panel kind.
-            return MobileSurfaceKind(rawValue: "notifications")
-        case .cloudVMLoading:
-            return .cloudVMLoading
-        case .simulator:
-            // Open wire vocabulary: phones without a native renderer show the
-            // fallback card for this kind (design: unknown kinds stay cards).
-            return MobileSurfaceKind(rawValue: "simulator")
-        case .mobilePairing:
-            return MobileSurfaceKind(rawValue: "mobilePairing")
-        case .accountSignIn:
-            return MobileSurfaceKind(rawValue: "accountSignIn")
-        }
+        MobileSurfaceKind(rawValue: Workspace.surfaceKind(for: panelType))
     }
 
     /// Builds the stable, spatially ordered mobile descriptors for every panel.
