@@ -71,7 +71,7 @@ public actor IrxControlByteTransport: CmxByteTransport {
 
     private func establishedPair() async throws -> (IrxConnection, IrxLaneStream) {
         guard !isClosed else { throw IrxConnectionError.closed(nil) }
-        if let pair, await !pair.0.isClosed {
+        if let pair, await !pair.0.isConnectionClosed() {
             return pair
         }
         if let connectInFlight {
@@ -124,6 +124,6 @@ extension IrxControlByteTransport: CmxByteTransportLivenessObserving {
     /// repair this lane without redialing every other lane.
     public func isTransportClosed() async -> Bool {
         guard let connection = pair?.0 ?? lastConnection else { return false }
-        return await connection.isClosed
+        return await connection.isConnectionClosed()
     }
 }

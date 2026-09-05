@@ -165,6 +165,12 @@ public actor IrxConnection {
         closedFlag || connection.closeReason() != nil
     }
 
+    /// Explicit method form for callers that need to query liveness across
+    /// actor boundaries without confusing the property with a function.
+    public func isConnectionClosed() -> Bool {
+        isClosed
+    }
+
     /// Returns whether the connection has demonstrated liveness recently.
     /// This catches suspended-app zombie sessions whose native closed flag has
     /// not flipped, while allowing a healthy long-lived session to survive a

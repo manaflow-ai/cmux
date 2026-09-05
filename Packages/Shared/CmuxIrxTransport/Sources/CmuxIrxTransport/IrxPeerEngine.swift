@@ -134,7 +134,7 @@ public actor IrxPeerEngine {
     /// This is the ONLY dial path; `explicit` overrides a parked denial and
     /// replaces any in-flight attempt.
     public func ensureSession(explicit: Bool = false, trigger: String) async throws -> IrxClientSession {
-        if let session, await !session.connection.isClosed, !explicit {
+        if let session, await !session.connection.isConnectionClosed(), !explicit {
             return session
         }
         if let parkedCode, !explicit {
@@ -246,7 +246,7 @@ public actor IrxPeerEngine {
     public func foregroundKick(staleAfter: Duration = .seconds(15)) {
         Task {
             if let session = self.currentSessionForKick(),
-               await !session.connection.isClosed
+               await !session.connection.isConnectionClosed()
             {
                 let recentlyAlive: Bool
                 if ContinuousClock.now - session.establishedAtMonotonic <= staleAfter {
@@ -299,7 +299,7 @@ public actor IrxPeerEngine {
     }
 
     public func currentSession() async -> IrxClientSession? {
-        if let session, await !session.connection.isClosed {
+        if let session, await !session.connection.isConnectionClosed() {
             return session
         }
         return nil
