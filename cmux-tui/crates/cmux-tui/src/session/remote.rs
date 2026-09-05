@@ -4101,6 +4101,23 @@ fn prune_dump_files(directory: &fs::File) -> io::Result<()> {
 }
 
 #[cfg(unix)]
+fn private_dump_modified_time(metadata: &libc::stat) -> (u64, u32) {
+    #[cfg(any(target_os = "aix", target_os = "hurd"))]
+    let seconds = metadata.st_mtim.tv_sec;
+    #[cfg(not(any(target_os = "aix", target_os = "hurd")))]
+    let seconds = metadata.st_mtime;
+    #[cfg(any(target_os = "aix", target_os = "hurd"))]
+    let nanoseconds = metadata.st_mtim.tv_nsec;
+    #[cfg(not(any(target_os = "aix", target_os = "hurd")))]
+    let nanoseconds = metadata.st_mtime_nsec;
+
+    (
+        u64::try_from(seconds).unwrap_or(0),
+        u32::try_from(nanoseconds).unwrap_or(0),
+    )
+}
+
+#[cfg(unix)]
 fn prune_dump_files_with_limits(
     directory: &fs::File,
     maximum_files: usize,
@@ -4154,28 +4171,34 @@ fn prune_dump_files_with_limits(
         let metadata = unsafe { metadata.assume_init() };
         if metadata.st_mode & libc::S_IFMT != libc::S_IFREG
             || metadata.st_uid != unsafe { libc::geteuid() }
-            || metadata.st_nlink != 1
         {
             continue;
         }
-        let descriptor = unsafe {
-            libc::openat(
-                directory.as_raw_fd(),
-                name.as_ptr(),
-                libc::O_WRONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC,
-            )
-        };
-        let modified = if descriptor >= 0 {
-            let file = unsafe { fs::File::from_raw_fd(descriptor) };
-            unsafe { libc::fchmod(file.as_raw_fd(), 0o600) };
-            file.metadata()
-                .ok()
-                .and_then(|metadata| metadata.modified().ok())
-                .and_then(|modified| modified.duration_since(std::time::UNIX_EPOCH).ok())
-                .map(|modified| (modified.as_secs(), modified.subsec_nanos()))
-                .unwrap_or((0, 0))
+        let modified = if metadata.st_nlink == 1 {
+            let descriptor = unsafe {
+                libc::openat(
+                    directory.as_raw_fd(),
+                    name.as_ptr(),
+                    libc::O_WRONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC,
+                )
+            };
+            if descriptor >= 0 {
+                let file = unsafe { fs::File::from_raw_fd(descriptor) };
+                unsafe { libc::fchmod(file.as_raw_fd(), 0o600) };
+                file.metadata()
+                    .ok()
+                    .and_then(|metadata| metadata.modified().ok())
+                    .and_then(|modified| modified.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|modified| (modified.as_secs(), modified.subsec_nanos()))
+                    .unwrap_or_else(|| private_dump_modified_time(&metadata))
+            } else {
+                private_dump_modified_time(&metadata)
+            }
         } else {
-            (0, 0)
+            // Count a hard-linked managed entry toward retention limits, but
+            // do not open it for writing or chmod it. Those operations would
+            // change the file visible through the other hard-link entries.
+            private_dump_modified_time(&metadata)
         };
         dumps.push(DumpFile {
             name: name_bytes.to_vec(),
