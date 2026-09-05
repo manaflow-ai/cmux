@@ -395,6 +395,7 @@ struct SidebarTreePointerTopology {
     active_surface_kind: Option<SurfaceKind>,
     active_surface_content_id: Option<ContentPublicId>,
     workspace_ids: Vec<WorkspaceId>,
+    workspace_keys: Vec<Option<String>>,
     workspace_resource_ids: Vec<Option<WorkspacePublicId>>,
     active_screen_ids: Vec<Option<ScreenId>>,
     screen_ids: Vec<ScreenId>,
@@ -636,6 +637,7 @@ fn sidebar_tree_pointer_topology(tree: &TreeView) -> SidebarTreePointerTopology 
         active_surface_kind,
         active_surface_content_id,
         workspace_ids: Vec::new(),
+        workspace_keys: Vec::new(),
         workspace_resource_ids: Vec::new(),
         active_screen_ids: Vec::new(),
         screen_ids: Vec::new(),
@@ -653,6 +655,9 @@ fn sidebar_tree_pointer_topology(tree: &TreeView) -> SidebarTreePointerTopology 
             workspace.screens.get(workspace.active_screen).map(|screen| screen.id),
         );
         topology.workspace_ids.push(workspace.id);
+        topology.workspace_keys.push(
+            (!workspace.key.is_empty()).then(|| workspace.key.clone()),
+        );
         topology.workspace_resource_ids.push(workspace.resource_id.clone());
         for screen in &workspace.screens {
             topology.screen_ids.push(screen.id);
@@ -753,6 +758,12 @@ impl SidebarTreePointerTopology {
                 other.active_surface_resource_id.as_ref(),
             )
             && self.workspace_ids == other.workspace_ids
+            && self.workspace_keys.len() == other.workspace_keys.len()
+            && self
+                .workspace_keys
+                .iter()
+                .zip(&other.workspace_keys)
+                .all(|(previous, next)| strict_identity_matches(previous.as_ref(), next.as_ref()))
             && self
                 .workspace_resource_ids
                 .iter()
@@ -4973,10 +4984,18 @@ pub(crate) fn projection_row_spans(
         // remain one line even when the built-in rail height is two.
         let height =
             row.agent_state.as_ref().map_or(1, |_| usize::from(spec.row_lines.clamp(1, 2)));
+        let current_is_two_line_agent = row.agent_state.is_some() && height >= 2;
         spans.push(crate::ui::rail::RowSpan::new(total, height));
         total = total.saturating_add(height);
         if index + 1 < rows.len() {
-            total = total.saturating_add(gap);
+            // A two-line agent entry is already a complete visual block.
+            // Keep consecutive agent blocks dense so the state line does not
+            // create an unexplained third-row gap. Configured gaps continue
+            // to separate agent blocks from ordinary resource rows.
+            let next_is_two_line_agent = rows[index + 1].agent_state.is_some()
+                && spec.row_lines.clamp(1, 2) >= 2;
+            let block_gap = if current_is_two_line_agent && next_is_two_line_agent { 0 } else { gap };
+            total = total.saturating_add(block_gap);
         }
     }
     (spans, total)
@@ -8700,14 +8719,24 @@ fn preserve_identity_matches<R: PartialEq, P: PartialEq>(
 }
 
 fn preserve_workspace_matches(previous: &WorkspaceView, next: &WorkspaceView) -> bool {
-    match (previous.resource_id.as_ref(), next.resource_id.as_ref()) {
-        (Some(previous), Some(next)) => previous == next,
-        (None, None) if !previous.key.is_empty() && !next.key.is_empty() => {
-            previous.key == next.key
-        }
-        (None, None) => previous.id == next.id,
-        _ => false,
+    if let (Some(previous), Some(next)) = (previous.resource_id.as_ref(), next.resource_id.as_ref())
+    {
+        return previous == next;
     }
+    // Workspace keys are the stable registry identity in snapshots that are
+    // crossing a capability boundary. Prefer them when both frames provide
+    // one, even if only one frame has a public resource id.
+    if !previous.key.is_empty() && !next.key.is_empty() {
+        return previous.key == next.key;
+    }
+    // Runtime ids are a legacy fallback only when neither semantic identity
+    // is present. A mixed key/public-id frame fails closed rather than
+    // retargeting a client to an ambiguous workspace.
+    previous.resource_id.is_none()
+        && next.resource_id.is_none()
+        && previous.key.is_empty()
+        && next.key.is_empty()
+        && previous.id == next.id
 }
 
 fn matching_workspace_index(next: &TreeView, previous: &WorkspaceView) -> Option<usize> {
@@ -19962,11 +19991,21 @@ impl App {
     }
 
     fn deferred_pointer_capture_active(&self) -> bool {
-        self.pending_pointer_motion.is_some()
-            || self
-                .deferred_input
-                .iter()
-                .any(|input| matches!(input.event, TerminalInput::Mouse(_)))
+        self.deferred_input.iter().any(|input| {
+            matches!(
+                input.event,
+                TerminalInput::Mouse(MouseEvent {
+                    kind: MouseEventKind::Down(_)
+                        | MouseEventKind::Drag(_)
+                        | MouseEventKind::Up(_)
+                        | MouseEventKind::ScrollUp
+                        | MouseEventKind::ScrollDown
+                        | MouseEventKind::ScrollLeft
+                        | MouseEventKind::ScrollRight,
+                    ..
+                })
+            )
+        })
     }
 
     /// End pointer capture at a boundary that replaces the visible geometry.
@@ -22711,24 +22750,33 @@ impl App {
                     .and_then(|state| state.projection_rails.get(&view.id))
             })
             .map(|state| match state.selected_action {
-                Some(index) if index < actions.len() => ProjectionNavigationTarget::Action(index),
-                _ => ProjectionNavigationTarget::Row(
+                Some(index) if index < actions.len() => {
+                    Some(ProjectionNavigationTarget::Action(index))
+                }
+                // A saved action index can outlive a config refresh. Do not
+                // reinterpret it as a resource row at the same numeric
+                // position, because that would collapse or activate the
+                // wrong item. The next directional key chooses a fresh
+                // target from the current navigation table.
+                Some(_) => None,
+                None => Some(ProjectionNavigationTarget::Row(
                     state.selected.min(rows.len().saturating_sub(1)),
-                ),
+                )),
             })
             .unwrap_or_else(|| {
                 if rows.is_empty() {
-                    ProjectionNavigationTarget::Action(0)
+                    Some(ProjectionNavigationTarget::Action(0))
                 } else {
-                    ProjectionNavigationTarget::Row(0)
+                    Some(ProjectionNavigationTarget::Row(0))
                 }
             });
-        let current =
-            navigation.iter().position(|item| item.target == current_target).unwrap_or_default();
+        let current = current_target
+            .and_then(|target| navigation.iter().position(|item| item.target == target))
+            .unwrap_or_default();
         // Resolve the active item from the navigation table. This keeps the
         // keyboard reducer aligned with the visual order for both action
         // positions, and fails closed if a saved selection no longer exists.
-        let active_target = navigation.get(current).map(|item| item.target);
+        let active_target = current_target.and_then(|_| navigation.get(current).map(|item| item.target));
         let selected = active_target.and_then(|target| match target {
             ProjectionNavigationTarget::Row(index) => rows.get(index).cloned(),
             ProjectionNavigationTarget::Action(_) => None,
@@ -24919,7 +24967,11 @@ impl App {
         match self.sidebar_view {
             SidebarView::Files => {
                 self.set_files_rail_selection(FilesRailSelection::File);
-                self.sidebar_followed_surface = None;
+                // Keep the semantic Files owner across a temporary mode
+                // toggle. `sync_sidebar_files_to_focus` compares it with the
+                // current surface and resets the action viewport only when
+                // the owner really changed. This preserves a user's action
+                // position when switching to Workspaces and back.
                 if !self.sync_sidebar_files_to_focus(true) {
                     self.refresh_sidebar_files();
                 }
@@ -24978,8 +25030,16 @@ impl App {
                         .then_some(last)
                         .or(Some(0))
                 });
-            if let Some(next) = next.and_then(|index| self.files_rail_target_at(index, &actions)) {
-                self.select_files_rail_target(next);
+            if let Some(next_index) = next {
+                if current == Some(next_index)
+                    && is_vertical_rail_navigation_key(key)
+                    && self.continue_past_rail_boundary(RailKind::Workspace, key)
+                {
+                    return Ok(RenderAction::Draw);
+                }
+                if let Some(next) = self.files_rail_target_at(next_index, &actions) {
+                    self.select_files_rail_target(next);
+                }
             }
             return Ok(RenderAction::Draw);
         }
@@ -25880,7 +25940,7 @@ impl App {
         &mut self,
         x: u16,
         y: u16,
-        _reported_button: MouseButton,
+        reported_button: MouseButton,
         modifiers: KeyModifiers,
     ) -> bool {
         let Some(Drag::PtyMouse { surface, semantics, content, button: active_button, .. }) =
@@ -25888,8 +25948,15 @@ impl App {
         else {
             return false;
         };
-        // Some host protocols report a drag as left regardless of the
-        // pressed button. This TUI owns one active button, so it is authoritative.
+        // The press establishes the physical button owner. A later sample
+        // for another button belongs to a separate, rejected gesture. Do not
+        // reinterpret it as motion for the active owner, or a stray host
+        // sample can move a PTY application while the user holds another
+        // button.
+        if reported_button != active_button {
+            self.encode_buf.clear();
+            return true;
+        }
         if self.menu.is_some() || self.prompt.is_some() {
             self.cancel_pty_mouse_drag();
             return true;
@@ -54952,6 +55019,32 @@ mod tests {
     }
 
     #[test]
+    fn workspace_key_replacement_fences_workspace_capture_without_public_ids() {
+        let mux = Mux::new("workspace-key-capture-boundary-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut previous = notify_tree(11, false);
+        previous.workspaces_mut()[0].key = "workspace-old".into();
+        app.tree = previous.clone();
+        app.rebuild_tab_locations();
+        app.drag = Some(Drag::WorkspaceScrollbar {
+            track: Rect { x: 20, y: 1, width: 1, height: 4 },
+            total_rows: 8,
+            visible_rows: 4,
+            anchor_y: 2,
+            anchor_offset: 1,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+
+        let mut next = previous;
+        next.workspaces_mut()[0].key = "workspace-new".into();
+        app.replace_tree(next);
+
+        assert!(app.drag.is_none(), "a key replacement must retire workspace capture");
+        assert!(app.active_pointer_buttons.is_empty());
+        assert!(app.canceled_pointer_buttons.contains(&MouseButton::Left));
+    }
+
+    #[test]
     fn same_id_split_ratio_change_fences_pane_capture_without_settling() {
         let mux = Mux::new("same-id-split-ratio-capture-boundary-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
@@ -55145,6 +55238,48 @@ mod tests {
         app.replace_tree(next);
 
         assert!(app.drag.is_none(), "a tab route replacement must retire content capture");
+        assert!(app.active_pointer_buttons.is_empty());
+        assert!(app.canceled_pointer_buttons.contains(&MouseButton::Left));
+    }
+
+    #[test]
+    fn active_surface_content_replacement_fences_unpinned_files_capture_with_same_ids() {
+        let mux = Mux::new("active-surface-content-files-capture-boundary-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut previous = notify_tree(11, false);
+        let tab = &mut previous.workspaces_mut()[0].screens[0].panes[0].tabs[0];
+        tab.public_id = Some(
+            TabPublicId::parse("tab_00000000000000000000000000000031".to_string()).unwrap(),
+        );
+        tab.content_id = Some(ContentPublicId::Terminal(
+            cmux_tui_core::resource::TerminalPublicId::parse(
+                "term_00000000000000000000000000000031".to_string(),
+            )
+            .unwrap(),
+        ));
+        app.tree = previous.clone();
+        app.rebuild_tab_locations();
+        app.drag = Some(Drag::FilesScrollbar {
+            track: Rect { x: 20, y: 1, width: 1, height: 4 },
+            total_rows: 8,
+            visible_rows: 4,
+            anchor_y: 2,
+            anchor_offset: 0,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+
+        let mut next = previous;
+        next.workspaces_mut()[0].screens[0].panes[0].tabs[0].content_id = Some(
+            ContentPublicId::Terminal(
+                cmux_tui_core::resource::TerminalPublicId::parse(
+                    "term_00000000000000000000000000000032".to_string(),
+                )
+                .unwrap(),
+            ),
+        );
+        app.replace_tree(next);
+
+        assert!(app.drag.is_none(), "a content replacement must retire Files capture");
         assert!(app.active_pointer_buttons.is_empty());
         assert!(app.canceled_pointer_buttons.contains(&MouseButton::Left));
     }
