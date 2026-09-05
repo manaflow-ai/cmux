@@ -32,6 +32,10 @@ struct WorkspaceListView: View {
     /// one presentation and computer selection. Standalone previews keep the
     /// self-contained toolbar by leaving this false.
     var usesExternalSharedToolbar = false
+    /// The regular-width split shell owns the sidebar toggle in this trailing
+    /// group so it follows the list's filter and create controls at the actual
+    /// trailing edge. `nil` keeps standalone and compact callers unchanged.
+    var sidebarToggleAction: (() -> Void)? = nil
     /// Whether workspace-row titles wrap (multi-line) instead of truncating to a
     /// single line. Passed in as a value snapshot so no `@Observable` store
     /// crosses the `List` boundary.

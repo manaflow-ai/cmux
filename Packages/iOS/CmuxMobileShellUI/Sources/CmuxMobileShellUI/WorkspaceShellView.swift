@@ -897,19 +897,21 @@ struct WorkspaceShellView: View {
                 workspaceList(
                     navigationStyle: .sidebar,
                     searchText: primarySearchCoordinator.searchDestinationText(for: .workspaces),
-                    canCreateWorkspaceForSelection: canCreateWorkspaceForSelection
+                    canCreateWorkspaceForSelection: canCreateWorkspaceForSelection,
+                    sidebarToggleAction: toggleSplitSidebar
                 )
             }
         }
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                // The system toolbar supplies the sidebar's shared glass group.
-                // Do not layer the detail bar's standalone glass capsule inside
-                // that group.
-                WorkspaceSidebarToggleButton(
-                    action: toggleSplitSidebar,
-                    usesSystemToolbarChrome: true
-                )
+            if splitSidebarDestination == .notifications {
+                ToolbarItem(placement: .topBarTrailing) {
+                    // Notifications has no WorkspaceListView toolbar, so the
+                    // sidebar owns its trailing control directly in this path.
+                    WorkspaceSidebarToggleButton(
+                        action: toggleSplitSidebar,
+                        usesSystemToolbarChrome: true
+                    )
+                }
             }
         }
         .toolbar {
@@ -1150,7 +1152,8 @@ struct WorkspaceShellView: View {
         selectWorkspaceAction: ((MobileWorkspacePreview.ID) -> Void)? = nil,
         createWorkspaceAction: (() -> Void)? = nil,
         createWorkspaceInGroupAction: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil,
-        createWorkspaceGroupAction: (() -> Void)? = nil
+        createWorkspaceGroupAction: (() -> Void)? = nil,
+        sidebarToggleAction: (() -> Void)? = nil
     ) -> some View {
         let resolvedSelectWorkspace = selectWorkspaceAction ?? selectWorkspace
         let resolvedCreateWorkspace = createWorkspaceAction ?? (
@@ -1183,6 +1186,7 @@ struct WorkspaceShellView: View {
             showsNavigationToolbar: showsNavigationToolbar
                 ?? (navigationStyle != .push || compactNavigationPath.isEmpty),
             usesExternalSharedToolbar: true,
+            sidebarToggleAction: sidebarToggleAction,
             wrapWorkspaceTitles: displaySettings.wrapWorkspaceTitles,
             previewLineLimit: displaySettings.workspacePreviewLineCount,
             unreadIndicatorLeftShift: displaySettings.unreadIndicatorLeftShift,
