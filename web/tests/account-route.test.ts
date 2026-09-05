@@ -5,6 +5,7 @@ import {
   accountAnalyticsForwardLeases,
   accountDeletionTombstones,
   accountMutationLeases,
+  cloudOrganizations,
   cloudVmBaseGenerations,
   cloudVmBases,
   cloudVmBillingGrants,
@@ -863,9 +864,12 @@ describe("account deletion route", () => {
     expect(deletedTables).not.toContain(cloudVmDomains);
     expect(deletedTables).toContain(devices);
     expect(deletedTables).toContain(proWelcomeFulfillments);
+    expect(deletedTables).toContain(cloudOrganizations);
+    expect(updatedRows.filter(({ table }) => table === cloudOrganizations)).toHaveLength(2);
     const nonStripeUpdates = updatedRows.filter(({ table }) =>
       table !== stripeSubscriptions &&
       table !== stripeCustomers &&
+      table !== cloudOrganizations &&
       table !== cloudVmDomains
     );
     expect(nonStripeUpdates.map(({ table, values }) => ({
@@ -880,6 +884,7 @@ describe("account deletion route", () => {
       { table: cloudVmBaseGenerations, values: { createdByUserId: "deleted-account" } },
     ]);
     for (const update of updatedRows) {
+      if (update.table === cloudOrganizations) continue; // Organization metadata has no updatedAt column.
       expect((update.values as { readonly updatedAt?: unknown }).updatedAt).toBeInstanceOf(Date);
     }
     expect(deletedVaultObjects).toEqual([

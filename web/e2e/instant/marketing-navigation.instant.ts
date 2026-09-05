@@ -13,6 +13,7 @@ test("blog navigation commits meaningful UI immediately", async ({ page }) => {
 
 test("locale navigation refreshes content and metadata after the URL changes", async ({ page }) => {
   await page.goto("/ko");
+  await page.waitForLoadState("networkidle");
   const language = page.locator('select[aria-label="Language"]').first();
 
   await language.selectOption("en");

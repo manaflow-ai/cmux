@@ -5486,5 +5486,27 @@
         "action": "Manage plan"
       }
     }
+  },
+  "PublicationApi": {
+    "invalid_email": {
+      "message": "Enter a valid email address.",
+      "action": "The recipient must sign in with this verified email."
+    },
+    "invalid_expiry": {
+      "message": "The grant expiry must be a future date.",
+      "action": "Use an ISO 8601 date or omit expiresAt."
+    },
+    "public_confirmation_required": {
+      "message": "Public access requires confirmation.",
+      "action": "Review the hostname, VM, and port, then send confirmPublic: true."
+    },
+    "organization_slug": {
+      "message": "The organization slug is invalid or already reserved.",
+      "action": "Use 1 to 19 lowercase letters or digits, with single hyphens. An existing organization keeps its reserved slug."
+    },
+    "grant_body": {
+      "message": "Publication email grant",
+      "action": "Send email and optional expiresAt."
+    }
   }
 }

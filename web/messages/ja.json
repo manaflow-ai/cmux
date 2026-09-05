@@ -5396,5 +5396,27 @@
         "action": "プランを管理"
       }
     }
+  },
+  "PublicationApi": {
+    "invalid_email": {
+      "message": "有効なメールアドレスを入力してください。",
+      "action": "受信者は、この確認済みメールアドレスでサインインする必要があります。"
+    },
+    "invalid_expiry": {
+      "message": "アクセス許可の有効期限には将来の日時を指定してください。",
+      "action": "ISO 8601形式の日時を使うか、expiresAtを省略してください。"
+    },
+    "public_confirmation_required": {
+      "message": "公開アクセスには確認が必要です。",
+      "action": "ホスト名、VM、ポートを確認してから、confirmPublic: trueを送信してください。"
+    },
+    "organization_slug": {
+      "message": "組織のスラッグが無効か、すでに予約されています。",
+      "action": "小文字の英数字と単一のハイフンを使い、1〜19文字にしてください。既存の組織は予約済みのスラッグを使用します。"
+    },
+    "grant_body": {
+      "message": "公開ポートのメールアクセス許可",
+      "action": "emailと、必要に応じてexpiresAtを送信してください。"
+    }
   }
 }

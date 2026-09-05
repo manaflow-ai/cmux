@@ -120,6 +120,68 @@ struct MobileIrohRuntimeCompositionTests {
     }
 
     @Test
+    func coldSignedOutLaunchDeletesStaleEndpointIdentity() async throws {
+        let fixture = try await MobileIrohSignOutFixture.make(
+            initiallySignedOut: true
+        )
+
+        var current = try await fixture.identities.identity(
+            accountID: fixture.accountID,
+            appInstanceID: fixture.appInstanceID
+        )
+        for _ in 0 ..< 20 where current == fixture.identity {
+            try await Task.sleep(for: .milliseconds(10))
+            current = try await fixture.identities.identity(
+                accountID: fixture.accountID,
+                appInstanceID: fixture.appInstanceID
+            )
+        }
+
+        #expect(current != fixture.identity)
+        #expect(current.generation == 1)
+        #expect(await fixture.endpointFactory.bindCount() == 0)
+        #expect(
+            try await fixture.brokerCredentials.loadBinding(
+                accountID: fixture.accountID,
+                appInstanceID: fixture.appInstanceID
+            ) == nil
+        )
+        #expect(
+            try await fixture.appInstances.appInstanceID(
+                accountID: fixture.accountID,
+                tag: fixture.tag
+            ) != fixture.appInstanceID
+        )
+    }
+
+    @Test
+    func explicitSignOutDeletesEndpointIdentityBeforeNextUse() async throws {
+        let fixture = try await MobileIrohSignOutFixture.make()
+        let irx = MobileIrxRuntimeComposition(
+            apiBaseURL: "https://cmux.com",
+            infoDictionary: [
+                "CMUXAuthEnvironment": "production",
+                "CMUXDevTag": fixture.tag,
+            ],
+            bundleIdentifier: "dev.cmux.ios",
+            defaults: fixture.debugDefaults
+        )
+        await irx.configure(auth: fixture.auth, legacy: fixture.composition)
+
+        await irx.handleSignOut()
+
+        // Ask the identity repository for the old scope after sign-out. A
+        // deleted key must not be returned, even if a caller still has the
+        // pre-sign-out app-instance identifier in memory.
+        let replacement = try await fixture.identities.identity(
+            accountID: fixture.accountID,
+            appInstanceID: fixture.appInstanceID
+        )
+        #expect(replacement != fixture.identity)
+        #expect(replacement.generation == 1)
+    }
+
+    @Test
     func activationSeedsCachedBindingProofBeforeRegistration() async throws {
         let fixture = try await MobileIrohSignOutFixture.make()
 
@@ -1440,6 +1502,7 @@ private struct MobileIrohSignOutFixture {
     ///     can observe the token source handed to each direct broker.
     static func make(
         resolvableDeviceID: Bool = true,
+        initiallySignedOut: Bool = false,
         tag: String = "test",
         discoveryCompatibilityPolicy: MobileMacBuildCompatibilityPolicy? = nil,
         brokerFactory: MobileIrohRuntimeComposition.BrokerFactory? = nil
@@ -1543,10 +1606,12 @@ private struct MobileIrohSignOutFixture {
                 includesDevAuth: false
             )
         )
-        try await auth.signInWithPassword(
-            email: "a@example.com",
-            password: "pw"
-        )
+        if !initiallySignedOut {
+            try await auth.signInWithPassword(
+                email: "a@example.com",
+                password: "pw"
+            )
+        }
 
         let outbox = CmxIrohPendingRevocationOutbox(secureStore: outboxStore)
         let endpointFactory = MobileIrohCountingEndpointFactory()
@@ -1594,13 +1659,17 @@ private struct MobileIrohSignOutFixture {
             expectedPeerDeviceID: "123e4567-e89b-42d3-a456-426614174074",
             authorizationMode: .transportAdmission
         )
-        await #expect(throws: CmxIrohClientRuntimeError.self) {
-            _ = try await composition.transport(for: request)
+        if !initiallySignedOut {
+            await #expect(throws: CmxIrohClientRuntimeError.self) {
+                _ = try await composition.transport(for: request)
+            }
         }
         let initialBindCount = await endpointFactory.bindCount()
         // A resolvable durable id activates and binds an endpoint; an
         // unavailable one defers activation before any endpoint is created.
-        if resolvableDeviceID {
+        if initiallySignedOut {
+            #expect(initialBindCount == 0)
+        } else if resolvableDeviceID {
             #expect(initialBindCount > 0)
         } else {
             #expect(initialBindCount == 0)
