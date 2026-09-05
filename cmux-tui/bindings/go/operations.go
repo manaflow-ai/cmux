@@ -866,7 +866,7 @@ func validateDecodedValue(raw json.RawMessage, value any) error {
 	case *AgentSnapshot:
 		required = []string{
 			"id", "session_id", "terminal_id", "state", "source",
-			"updated_at_ms", "source_session",
+			"agent", "updated_at_ms", "source_session",
 		}
 	case *PairingRequestSnapshot:
 		required = []string{

@@ -338,7 +338,7 @@ impl RosterEntry {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum RosterDelta {
     Upsert { terminal_id: String, entry: RosterEntry },
-    Remove { terminal_id: String, source: AgentSource },
+    Remove { terminal_id: String, source: AgentSource, agent: Option<String> },
 }
 
 /// Live-agent roster: terminal public id to the agent's last reported
@@ -409,8 +409,8 @@ impl AgentRoster {
             return retired
                 .into_iter()
                 .filter_map(|terminal_id| {
-                    self.entries.remove(&terminal_id)?;
-                    Some(RosterDelta::Remove { terminal_id, source: AgentSource::Plugin })
+                    let agent = self.entries.remove(&terminal_id)?.agent;
+                    Some(RosterDelta::Remove { terminal_id, source: AgentSource::Plugin, agent })
                 })
                 .collect();
         }
@@ -592,8 +592,14 @@ impl AgentRoster {
                             }))
             });
             return if owned_by_event {
+                let existing_agent =
+                    self.entries.get(terminal_id).and_then(|entry| entry.agent.clone());
                 self.entries.remove(terminal_id);
-                vec![RosterDelta::Remove { terminal_id: terminal_id.to_string(), source }]
+                vec![RosterDelta::Remove {
+                    terminal_id: terminal_id.to_string(),
+                    source,
+                    agent: agent.or(existing_agent),
+                }]
             } else {
                 Vec::new()
             };
@@ -765,7 +771,11 @@ mod tests {
         let deltas = roster.apply(&hook_event(5, "agent.session.ended", &subjects, &payload));
         assert_eq!(
             deltas,
-            vec![RosterDelta::Remove { terminal_id: "term_a".into(), source: AgentSource::Hook }]
+            vec![RosterDelta::Remove {
+                terminal_id: "term_a".into(),
+                source: AgentSource::Hook,
+                agent: None,
+            }]
         );
         assert!(roster.entries.is_empty());
     }
@@ -959,6 +969,7 @@ mod tests {
             vec![RosterDelta::Remove {
                 terminal_id: "term_a".into(),
                 source: AgentSource::Detected,
+                agent: Some("codex".into()),
             }]
         );
         assert!(roster.entries.is_empty());
@@ -1035,7 +1046,11 @@ mod tests {
         };
         assert_eq!(
             roster.apply(&event),
-            vec![RosterDelta::Remove { terminal_id: "term_a".into(), source: AgentSource::Plugin }]
+            vec![RosterDelta::Remove {
+                terminal_id: "term_a".into(),
+                source: AgentSource::Plugin,
+                agent: Some("codex".into()),
+            }]
         );
         assert!(roster.entries.is_empty());
     }
@@ -1177,7 +1192,11 @@ mod tests {
         });
         assert_eq!(
             deltas,
-            vec![RosterDelta::Remove { terminal_id: "term_a".into(), source: AgentSource::Plugin }]
+            vec![RosterDelta::Remove {
+                terminal_id: "term_a".into(),
+                source: AgentSource::Plugin,
+                agent: Some("codex".into()),
+            }]
         );
         assert!(!roster.entries.contains_key("term_a"));
         assert!(roster.entries.contains_key("term_b"));
@@ -1288,7 +1307,11 @@ mod tests {
                 payload: &exit,
                 committed_at_ms: 200,
             }),
-            vec![RosterDelta::Remove { terminal_id: "term_a".into(), source: AgentSource::Plugin }]
+            vec![RosterDelta::Remove {
+                terminal_id: "term_a".into(),
+                source: AgentSource::Plugin,
+                agent: Some("codex".into()),
+            }]
         );
         let late = payload(300);
         assert!(

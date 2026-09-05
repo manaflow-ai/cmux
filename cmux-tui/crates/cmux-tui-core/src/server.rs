@@ -11655,6 +11655,7 @@ fn handle_command_with_cancellation(
                 "surface": record.surface,
                 "state": record.state.as_str(),
                 "source": record.source.as_str(),
+                "agent": record.agent,
                 "session": record.session,
             }))
         }
@@ -19184,6 +19185,7 @@ mod tests {
         assert_eq!(result["surface"], surface.id);
         assert_eq!(result["state"], "working");
         assert_eq!(result["source"], "socket");
+        assert_eq!(result["agent"], Value::Null);
         assert_eq!(result["session"], "raw-command");
         assert_eq!(mux.with_state(|state| state.resource_revision), revision + 1);
         // A fresh direct report publishes twice on the shared change epoch:

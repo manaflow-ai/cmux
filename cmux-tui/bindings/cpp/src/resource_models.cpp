@@ -1324,6 +1324,7 @@ AgentSnapshot parse_agent(const Json& value) {
             "terminal_id",
             "state",
             "source",
+            "agent",
             "updated_at_ms",
             "source_session",
             "extra",
@@ -1334,6 +1335,7 @@ AgentSnapshot parse_agent(const Json& value) {
             "terminal_id",
             "state",
             "source",
+            "agent",
             "updated_at_ms",
             "source_session",
         },
@@ -1363,6 +1365,7 @@ AgentSnapshot parse_agent(const Json& value) {
                 {"plugin", AgentSource::plugin},
             },
             "agent source"),
+        required_nullable_string(object, "agent", "agent adapter"),
         decimal_value(
             field(object, "updated_at_ms", "agent"), "agent updated_at_ms"),
         required_nullable_string(

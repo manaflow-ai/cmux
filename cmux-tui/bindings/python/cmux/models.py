@@ -205,6 +205,7 @@ class AgentSnapshot(Snapshot[AgentId]):
     terminal_id: TerminalId
     state: Literal["working", "blocked", "idle", "done", "unknown"]
     source: Literal["hook", "socket", "detected", "plugin"]
+    agent: Optional[str]
     updated_at_ms: str
     source_session: Optional[str]
     extra: JsonObject = field(default_factory=dict)

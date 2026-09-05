@@ -198,7 +198,9 @@ are the exceptions to the mutation replay guarantee above.
 
 `agent.report` requires a live terminal and has no session-global or default
 agent record. The registry stores one current projection row per live
-terminal. Public `agent.report` and raw `report-agent` use the same durable
+terminal. Each projection exposes `agent`, a nullable canonical adapter
+identity such as `claude` or `codex`; the value is retained in the current row,
+durable history, resource snapshots, and restart restore. Public `agent.report` and raw `report-agent` use the same durable
 commit path. A report that changes the effective projection advances the
 public resource revision and publishes one agent change to `session.events`.
 A semantically identical socket report is recorded as a replay-equivalent

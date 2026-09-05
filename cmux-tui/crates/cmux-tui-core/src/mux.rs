@@ -1341,6 +1341,7 @@ struct TerminalAgentRecord {
     state: AgentState,
     source: AgentSource,
     session: Option<String>,
+    agent: Option<String>,
     updated_at_ms: u64,
 }
 
@@ -5886,6 +5887,12 @@ impl Mux {
             applied_sequence: sequence,
             ended: state == AgentState::Done,
         };
+        let agent_adapter = ingress
+            .payload
+            .get("adapter")
+            .and_then(|adapter| adapter.get("id"))
+            .and_then(Value::as_str)
+            .map(str::to_owned);
         self.report_agent_with_sequence_lock(
             surface,
             state,
@@ -5895,6 +5902,7 @@ impl Mux {
             Some(hook_state),
             Some(sequence),
             AgentReportOrigin::RosterFold,
+            agent_adapter,
         )?;
         fences.insert(
             terminal_id.clone(),
@@ -6057,6 +6065,7 @@ impl Mux {
         let matches = projection.as_ref().is_some_and(|projection| {
             projection.state == entry.state
                 && projection.source == entry.source
+                && projection.agent == entry.agent
                 && projection.source_session == entry.session
                 && projection.updated_at_ms == entry.updated_at_ms
         });
@@ -6086,8 +6095,8 @@ impl Mux {
                 entry.session.clone(),
                 entry.agent,
             ),
-            RosterDelta::Remove { terminal_id, source } => {
-                (terminal_id, AgentState::Done, source, None, None)
+            RosterDelta::Remove { terminal_id, source, agent } => {
+                (terminal_id, AgentState::Done, source, None, agent)
             }
         };
         let Ok(terminal_id) = TerminalPublicId::parse(&terminal_id) else { return };
@@ -6104,6 +6113,7 @@ impl Mux {
             "surface":surface,
             "state":state.as_str(),
             "source":source.as_str(),
+            "agent":agent_adapter,
             "source_session":session,
         });
         if let Err(error) = self.commit_agent_report(
@@ -9573,6 +9583,7 @@ impl Mux {
             None,
             None,
             AgentReportOrigin::Direct,
+            None,
         )
     }
 
@@ -9590,6 +9601,7 @@ impl Mux {
         hook_state: Option<crate::workspace_registry::AgentHookProjectionState>,
         journal_sequence: Option<u64>,
         origin: AgentReportOrigin,
+        agent_adapter: Option<String>,
     ) -> anyhow::Result<AgentRecord> {
         let mutation = WorkspaceMutation::new(
             format!("raw-agent-{}", crate::workspace_registry::new_uuid_v4()),
@@ -9600,6 +9612,7 @@ impl Mux {
             "surface":surface,
             "state":state.as_str(),
             "source":source.as_str(),
+            "agent":agent_adapter,
             "source_session":session,
         });
         let (_, record) = self.commit_agent_report(
@@ -9614,7 +9627,7 @@ impl Mux {
             hook_state.as_ref(),
             journal_sequence,
             origin,
-            None,
+            agent_adapter,
         )?;
         let record = record.context("fresh raw agent report unexpectedly replayed")?;
         if source != AgentSource::Hook {
@@ -9816,6 +9829,13 @@ impl Mux {
                         && source == AgentSource::Socket
                 },
             );
+        // Adapter identity is part of the effective projection, not only of
+        // the incoming observation. Preserve it when a legacy event omits the
+        // adapter or when a restart reconstructs the stronger durable row.
+        let effective_agent = agent_adapter
+            .clone()
+            .or_else(|| records.get(&terminal_id).and_then(|record| record.agent.clone()))
+            .or_else(|| durable_stronger.as_ref().and_then(|projection| projection.agent.clone()));
         let socket_report_ignored = source == AgentSource::Socket
             && !effective_hook_state.is_some_and(|state| state.ended)
             && (records.get(&terminal_id).is_some_and(|existing| {
@@ -9836,12 +9856,14 @@ impl Mux {
                         AgentSource::Hook
                     },
                     session: existing.source_session,
+                    agent: existing.agent,
                     updated_at_ms: existing.updated_at_ms,
                 },
                 None => TerminalAgentRecord {
                     state: agent_state,
                     source,
                     session: source_session,
+                    agent: effective_agent.clone(),
                     updated_at_ms: now,
                 },
             },
@@ -9849,6 +9871,7 @@ impl Mux {
                 state: agent_state,
                 source,
                 session: source_session,
+                agent: effective_agent,
                 updated_at_ms: now,
             },
         };
@@ -9868,6 +9891,7 @@ impl Mux {
             "terminal_id":terminal_id,
             "state":record.state.as_str(),
             "source":record.source.as_str(),
+            "agent":record.agent,
             "updated_at_ms":record.updated_at_ms.to_string(),
             "source_session":persisted_source_session.as_deref().or(record.session.as_deref()),
         });
@@ -9925,7 +9949,7 @@ impl Mux {
             state: record.state,
             source: record.source,
             session: record.session,
-            agent: agent_adapter,
+            agent: record.agent,
             updated_at_ms: record.updated_at_ms,
         };
         if !commit.replayed {
@@ -10128,7 +10152,7 @@ impl Mux {
                         state: agent_state,
                         source,
                         session,
-                        agent: None,
+                        agent: projection.agent,
                         updated_at_ms: projection.updated_at_ms,
                     })
                 })
@@ -23960,6 +23984,10 @@ mod tests {
             mux.list_agent_history(Some(surface.id), None)[0].agent.as_deref(),
             Some("codex")
         );
+        assert_eq!(
+            crate::resource_api::public_session_snapshot(&mux).unwrap()["agents"][0]["agent"],
+            "codex"
+        );
 
         mux.shutdown();
         drop(mux);
@@ -23974,6 +24002,10 @@ mod tests {
         assert_eq!(
             reopened.list_agents(Some(reopened_surface), None)[0].agent.as_deref(),
             Some("codex")
+        );
+        assert_eq!(
+            crate::resource_api::public_session_snapshot(&reopened).unwrap()["agents"][0]["agent"],
+            "codex"
         );
         reopened.shutdown();
         drop(reopened);

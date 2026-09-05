@@ -1178,10 +1178,10 @@ func TestUserlandAgentPluginUsesGenericJournalContract(t *testing.T) {
 		`{"id":"agent_00000000000000000000000000000008",`+
 			`"session_id":"session_00000000000000000000000000000002",`+
 			`"terminal_id":"term_00000000000000000000000000000007",`+
-			`"state":"working","source":"plugin","updated_at_ms":"10",`+
+			`"state":"working","source":"plugin","agent":"codex","updated_at_ms":"10",`+
 			`"source_session":"pid:42"}`,
 	), "agent snapshot")
-	if err != nil || agent.Source != AgentSourcePlugin {
+	if err != nil || agent.Source != AgentSourcePlugin || agent.Agent == nil || *agent.Agent != "codex" {
 		t.Fatalf("plugin agent snapshot = %#v, %v", agent, err)
 	}
 	screen, err := decodeValue[TerminalScreenResult](json.RawMessage(
@@ -4622,6 +4622,7 @@ func pipeClient(
 						"terminal_id":    testTerminalID,
 						"state":          AgentStateWorking,
 						"source":         AgentSourceSocket,
+						"agent":          "codex",
 						"updated_at_ms":  "14",
 						"source_session": "codex-task-42",
 					},

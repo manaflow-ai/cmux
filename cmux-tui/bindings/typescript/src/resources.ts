@@ -927,7 +927,7 @@ function agentSnapshot(value: unknown): AgentSnapshot {
   return Object.freeze({
     ...snapshotFields(payload, agentId, [
       "session_id", "terminal_id", "state", "source", "updated_at_ms",
-      "source_session",
+      "agent", "source_session",
     ]),
     sessionId: requiredId(payload, ["session_id"], sessionId),
     terminalId: requiredId(payload, ["terminal_id"], terminalId),
@@ -941,6 +941,7 @@ function agentSnapshot(value: unknown): AgentSnapshot {
       "source",
       ["hook", "socket", "detected", "plugin"] as const,
     ),
+    agent: requiredNullableString(payload, "agent"),
     updatedAtMs: requiredDecimal(payload, "updated_at_ms"),
     sourceSession: requiredNullableString(payload, "source_session"),
   });

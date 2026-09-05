@@ -580,6 +580,7 @@ type AgentSnapshot struct {
 	TerminalID    TerminalID           `json:"terminal_id"`
 	State         AgentState           `json:"state"`
 	Source        AgentSource          `json:"source"`
+	Agent         *string              `json:"agent"`
 	UpdatedAtMS   Decimal              `json:"updated_at_ms"`
 	SourceSession *string              `json:"source_session"`
 	Extra         map[string]JSONValue `json:"extra,omitempty"`

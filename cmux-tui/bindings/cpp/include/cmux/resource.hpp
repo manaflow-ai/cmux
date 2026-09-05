@@ -986,6 +986,7 @@ struct AgentSnapshot {
     TerminalId terminal_id;
     AgentState state = AgentState::unknown;
     AgentSource source = AgentSource::detected;
+    std::optional<std::string> agent;
     std::uint64_t updated_at_ms = 0;
     std::optional<std::string> source_session;
     Json::Object extra;

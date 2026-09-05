@@ -3684,6 +3684,7 @@ object{
     surface: Id,
     state: "working"|"blocked"|"idle"|"done"|"unknown",
     source: "plugin"|"detected"|"socket"|"hook",
+    agent?: string|null,
     session: string|null,
     updated_at_ms: uint64
   }>,
@@ -3691,6 +3692,7 @@ object{
     surface: Id,
     state: "working"|"blocked"|"idle"|"done"|"unknown",
     source: "plugin"|"detected"|"socket"|"hook",
+    agent?: string|null,
     session: string|null,
     updated_at_ms: uint64
   }>,
@@ -3720,7 +3722,7 @@ Example:
 
 ```json
 {"id":107,"cmd":"list-agents","state":"blocked"}
-{"id":107,"ok":true,"data":{"agents":[{"surface":1,"state":"blocked","source":"hook","session":"abc","updated_at_ms":1710000000000}],"history":[],"has_history":true}}
+{"id":107,"ok":true,"data":{"agents":[{"surface":1,"state":"blocked","source":"hook","agent":"codex","session":"abc","updated_at_ms":1710000000000}],"history":[],"has_history":true}}
 ```
 
 ### report-agent
@@ -3759,7 +3761,7 @@ Params:
 Result:
 
 ```text
-object{surface:Id,state:string,source:string,session:string|null}
+object{surface:Id,state:string,source:string,agent?:string|null,session:string|null}
 ```
 
 Errors:
@@ -3787,7 +3789,7 @@ Example:
 
 ```json
 {"id":108,"cmd":"report-agent","surface":1,"state":"working","source":"socket","session":"abc"}
-{"id":108,"ok":true,"data":{"surface":1,"state":"working","source":"socket","session":"abc"}}
+{"id":108,"ok":true,"data":{"surface":1,"state":"working","source":"socket","agent":null,"session":"abc"}}
 ```
 
 ## Journal hooks

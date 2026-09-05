@@ -2520,6 +2520,17 @@
             ]
           }
         },
+        "agent": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "Adapter identity such as claude or codex when the producer knows it. Null means the producer did not provide an adapter identity."
+        },
         "updated_at_ms": {
           "required": true,
           "type": {

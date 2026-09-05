@@ -412,7 +412,7 @@ TEST("session auxiliary APIs emit typed notification and agent routes") {
         state,
         response(
             "cpp-request-3",
-            R"({"value":{"id":"agent_55555555555555555555555555555555","session_id":"session_22222222222222222222222222222222","terminal_id":"term_44444444444444444444444444444444","state":"working","source":"socket","updated_at_ms":"21","source_session":"codex-task-42"},"generation":"g","revision":"22","replayed":false})"));
+            R"({"value":{"id":"agent_55555555555555555555555555555555","session_id":"session_22222222222222222222222222222222","terminal_id":"term_44444444444444444444444444444444","state":"working","source":"socket","agent":"codex","updated_at_ms":"21","source_session":"codex-task-42"},"generation":"g","revision":"22","replayed":false})"));
 
     auto machine_id = cmux::MachineId::parse(
         "machine_11111111111111111111111111111111");
@@ -606,12 +606,13 @@ TEST("generic journal producer contracts stay userland and wire-compatible") {
     CHECK_EQ(appended.value().sequence, 8U);
 
     auto agent_wire = cmux::Json::parse(
-        R"({"id":"agent_11111111111111111111111111111111","session_id":"session_22222222222222222222222222222222","terminal_id":"term_33333333333333333333333333333333","state":"working","source":"plugin","updated_at_ms":"9","source_session":null})");
+        R"({"id":"agent_11111111111111111111111111111111","session_id":"session_22222222222222222222222222222222","terminal_id":"term_33333333333333333333333333333333","state":"working","source":"plugin","agent":"codex","updated_at_ms":"9","source_session":null})");
     CHECK(agent_wire);
     auto agent = cmux::detail::decode_value<cmux::AgentSnapshot>(
         agent_wire.value());
     CHECK(agent);
     CHECK_EQ(agent.value().source, cmux::AgentSource::plugin);
+    CHECK_EQ(agent.value().agent, std::optional<std::string>("codex"));
 
     auto screen_wire = cmux::Json::parse(
         R"({"text":"ready","revision":"12","osc_progress":"4;1;50","cols":80,"rows":24,"cursor_row":1,"cursor_col":2,"cursor_visible":true})");

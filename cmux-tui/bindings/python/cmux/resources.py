@@ -1030,6 +1030,7 @@ def _aux_snapshot(
             "terminal_id",
             "state",
             "source",
+            "agent",
             "updated_at_ms",
             "source_session",
         ),
@@ -1103,6 +1104,7 @@ def _aux_snapshot(
                 "source",
                 ("hook", "socket", "detected", "plugin"),
             ),
+            agent=_required_nullable_string(payload, "agent"),
             updated_at_ms=_required_decimal(payload, "updated_at_ms"),
             source_session=_required_nullable_string(
                 payload,

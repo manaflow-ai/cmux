@@ -7004,6 +7004,7 @@ pub const AgentSnapshot = struct {
     terminal_id: TerminalId,
     state: AgentState,
     source: AgentSource,
+    agent: ?[]const u8,
     updated_at_ms: u64,
     source_session: ?[]const u8,
     extra: ?raw.wire.Object,
@@ -9317,6 +9318,7 @@ fn decodeAgentSnapshot(value: raw.wire.Value) !AgentSnapshot {
             "terminal_id",
             "state",
             "source",
+            "agent",
             "updated_at_ms",
             "source_session",
             "extra",
@@ -9336,6 +9338,7 @@ fn decodeAgentSnapshot(value: raw.wire.Value) !AgentSnapshot {
         ),
         .state = parseAgentState(try objectString(object, "state")),
         .source = parseAgentSource(try objectString(object, "source")),
+        .agent = try requiredNullableString(object, "agent"),
         .updated_at_ms = try decimalU64(
             object.get("updated_at_ms") orelse return error.MissingField,
         ),
@@ -18548,13 +18551,17 @@ test "generic journal producer values preserve the userland wire contract" {
 
     var agent = try raw.wire.parse(
         std.testing.allocator,
-        "{\"id\":\"agent_11111111111111111111111111111111\",\"session_id\":\"session_22222222222222222222222222222222\",\"terminal_id\":\"term_33333333333333333333333333333333\",\"state\":\"working\",\"source\":\"plugin\",\"updated_at_ms\":\"9\",\"source_session\":null}",
+        "{\"id\":\"agent_11111111111111111111111111111111\",\"session_id\":\"session_22222222222222222222222222222222\",\"terminal_id\":\"term_33333333333333333333333333333333\",\"state\":\"working\",\"source\":\"plugin\",\"agent\":\"codex\",\"updated_at_ms\":\"9\",\"source_session\":null}",
         .{},
     );
     defer agent.deinit();
     try std.testing.expectEqual(
         AgentSource.plugin,
         (try decodeAgentSnapshot(agent.value)).source,
+    );
+    try std.testing.expectEqualStrings(
+        "codex",
+        (try decodeAgentSnapshot(agent.value)).agent orelse return error.MissingField,
     );
 
     var screen = try raw.wire.parse(

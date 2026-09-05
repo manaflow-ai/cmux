@@ -487,6 +487,7 @@ class ResourceApiTests(unittest.TestCase):
                                 "terminal_id": str(TERMINAL),
                                 "state": "working",
                                 "source": "socket",
+                                "agent": "codex",
                                 "source_session": "codex-1",
                                 "updated_at_ms": "10",
                             },
@@ -661,6 +662,7 @@ class ResourceApiTests(unittest.TestCase):
                                 "terminal_id": str(TERMINAL),
                                 "state": "working",
                                 "source": "plugin",
+                                "agent": "codex",
                                 "updated_at_ms": "10",
                                 "source_session": "pid:42",
                             }

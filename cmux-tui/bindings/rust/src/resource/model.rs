@@ -716,6 +716,9 @@ pub struct AgentSnapshot {
     pub terminal_id: TerminalId,
     pub state: AgentState,
     pub source: AgentSnapshotSource,
+    /// Adapter identity such as `claude` or `codex`, when known.
+    #[serde(deserialize_with = "deserialize_nullable")]
+    pub agent: Option<String>,
     #[serde(deserialize_with = "deserialize_decimal")]
     pub updated_at_ms: u64,
     #[serde(deserialize_with = "deserialize_nullable")]

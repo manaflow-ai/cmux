@@ -2425,6 +2425,7 @@ public final class Client implements AutoCloseable {
             requiredExactId(fields, "terminal_id", Ids.TerminalId::new),
             Wire.string(fields.get(Wire.STATE), "agent state"),
             Wire.string(fields.get("source"), "agent source"),
+            requiredNullableString(fields, "agent"),
             Wire.decimal(fields.get("updated_at_ms"), "agent updated_at_ms"),
             requiredNullableString(fields, "source_session"),
             snapshotExtra(
@@ -2434,6 +2435,7 @@ public final class Client implements AutoCloseable {
                 "terminal_id",
                 Wire.STATE,
                 "source",
+                "agent",
                 "updated_at_ms",
                 "source_session"
             )

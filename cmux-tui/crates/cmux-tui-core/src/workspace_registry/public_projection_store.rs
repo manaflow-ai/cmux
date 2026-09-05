@@ -40,6 +40,9 @@ pub struct RegistryAgentProjection {
     pub terminal_id: TerminalPublicId,
     pub state: String,
     pub source: String,
+    /// The adapter that reported the state, such as `claude` or `codex`.
+    /// Older projections do not have this field.
+    pub agent: Option<String>,
     pub updated_at_ms: u64,
     pub source_session: Option<String>,
 }
@@ -60,6 +63,7 @@ impl RegistryAgentProjection {
             "terminal_id": self.terminal_id,
             "state": self.state,
             "source": self.source,
+            "agent": self.agent,
             "updated_at_ms": self.updated_at_ms.to_string(),
             "source_session": self.source_session,
         })
@@ -117,6 +121,8 @@ struct StoredAgent {
     terminal_id: TerminalPublicId,
     state: StoredAgentState,
     source: StoredAgentSource,
+    #[serde(default)]
+    agent: Option<String>,
     updated_at_ms: WireDecimal,
     source_session: Option<String>,
     #[serde(default)]
@@ -358,6 +364,7 @@ impl WorkspaceRegistry {
                 terminal_id: stored.terminal_id,
                 state: stored.state.as_str().to_string(),
                 source: stored.source.as_str().to_string(),
+                agent: stored.agent,
                 updated_at_ms: stored.updated_at_ms.get(),
                 source_session: stored.source_session,
             });

@@ -306,6 +306,7 @@ public final class Snapshots {
         Ids.TerminalId terminalId,
         String state,
         String source,
+        Optional<String> agent,
         Decimal updatedAtMS,
         Optional<String> sourceSession,
         Map<String, Object> extra
@@ -316,6 +317,7 @@ public final class Snapshots {
             Objects.requireNonNull(terminalId, "terminalId");
             oneOf(state, "state", "working", "blocked", "idle", "done", "unknown");
             oneOf(source, "source", "hook", "socket", "detected", "plugin");
+            agent = opt(agent);
             Objects.requireNonNull(updatedAtMS, "updatedAtMS");
             sourceSession = opt(sourceSession);
             extra = copy(extra);

@@ -247,6 +247,7 @@ class AgentRecord:
     source: AgentSource
     state: AgentState
     updated_at_ms: int
+    agent: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)

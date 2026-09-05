@@ -159,6 +159,7 @@ export interface AgentSnapshot extends Snapshot<AgentId> {
   readonly terminalId: TerminalId;
   readonly state: "working" | "blocked" | "idle" | "done" | "unknown";
   readonly source: "hook" | "socket" | "detected" | "plugin";
+  readonly agent: string | null;
   readonly updatedAtMs: DecimalString;
   readonly sourceSession: string | null;
 }
