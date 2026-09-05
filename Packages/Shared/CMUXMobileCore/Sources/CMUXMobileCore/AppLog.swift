@@ -623,6 +623,8 @@ public actor AppLog {
     private var appFile: LogFile?
     private var networkFile: LogFile?
     private var pendingFrameRun: FrameRun?
+    private var exportSnapshotInProgress = false
+    private var deferredExportEntries: [Entry] = []
     private var processed = 0
     private let presentation = DiagnosticEventPresentation()
     private let timestampFormatter: ISO8601DateFormatter
@@ -722,6 +724,10 @@ public actor AppLog {
     }
 
     private func write(_ entry: Entry) {
+        guard !exportSnapshotInProgress else {
+            deferredExportEntries.append(entry)
+            return
+        }
         processed += 1
         switch entry {
         case .event(let event, let wall):
@@ -787,23 +793,62 @@ public actor AppLog {
     /// this in the worker task keeps the settings task cancellable while the
     /// actor still prevents structured writes and rotation during each read.
     private func captureExportInputs() async -> ExportInputs? {
-        guard let snapshotDirectory = Self.makeSnapshotDirectory() else { return nil }
-        guard let appGenerations = snapshotFiles(
-            for: appFile?.url,
-            into: snapshotDirectory,
-            prefix: "app"
-        ), let networkGenerations = snapshotFiles(
-            for: networkFile?.url,
-            into: snapshotDirectory,
-            prefix: "network"
-        ) else {
-            try? FileManager.default.removeItem(at: snapshotDirectory)
+        guard let appURL = appFile?.url,
+              let networkURL = networkFile?.url else { return nil }
+        exportSnapshotInProgress = true
+        let appSourceURLs = Self.logFileURLs(for: appURL)
+        let networkSourceURLs = Self.logFileURLs(for: networkURL)
+        let supplementalSnapshot = await supplementalAppLogSnapshot()
+        let supplementalSourceURLs = supplementalSnapshot == nil
+            ? supplementalAppLogURLs()
+            : []
+        let copyTask = Task.detached(priority: .utility) {
+            Self.makeSnapshotInputs(
+                appSourceURLs: appSourceURLs,
+                networkSourceURLs: networkSourceURLs,
+                supplementalSourceURLs: supplementalSourceURLs,
+                supplementalSnapshot: supplementalSnapshot
+            )
+        }
+        let result = await withTaskCancellationHandler(operation: {
+            await copyTask.value
+        }, onCancel: {
+            copyTask.cancel()
+        })
+        exportSnapshotInProgress = false
+        let deferredEntries = deferredExportEntries
+        deferredExportEntries.removeAll(keepingCapacity: true)
+        for entry in deferredEntries {
+            write(entry)
+        }
+        return result
+    }
+
+    /// Copies generations from a detached worker while the AppLog actor holds
+    /// the source set stable by deferring writes. Copies are chunked so
+    /// cancellation is observed between filesystem calls.
+    private static func makeSnapshotInputs(
+        appSourceURLs: [URL],
+        networkSourceURLs: [URL],
+        supplementalSourceURLs: [URL],
+        supplementalSnapshot: [Data]?
+    ) -> ExportInputs? {
+        guard let snapshotDirectory = makeSnapshotDirectory(),
+              let appGenerations = snapshotFiles(
+                  appSourceURLs,
+                  into: snapshotDirectory,
+                  prefix: "app"
+              ), let networkGenerations = snapshotFiles(
+                  networkSourceURLs,
+                  into: snapshotDirectory,
+                  prefix: "network"
+              ) else {
             return nil
         }
         let supplementalGenerations: [URL]
-        if let snapshot = await supplementalAppLogSnapshot() {
-            guard let files = Self.writeSnapshots(
-                snapshot,
+        if let supplementalSnapshot {
+            guard let files = writeSnapshots(
+                supplementalSnapshot,
                 into: snapshotDirectory,
                 prefix: "supplemental"
             ) else {
@@ -811,25 +856,18 @@ public actor AppLog {
                 return nil
             }
             supplementalGenerations = files
+        } else if supplementalSourceURLs.isEmpty {
+            supplementalGenerations = []
         } else {
-            let supplementalURLs = supplementalAppLogURLs()
-            if supplementalURLs.isEmpty {
-                guard !Task.isCancelled else {
-                    try? FileManager.default.removeItem(at: snapshotDirectory)
-                    return nil
-                }
-                supplementalGenerations = []
-            } else {
-                guard let fallback = snapshotFiles(
-                    for: supplementalURLs,
-                    into: snapshotDirectory,
-                    prefix: "supplemental"
-                ) else {
-                    try? FileManager.default.removeItem(at: snapshotDirectory)
-                    return nil
-                }
-                supplementalGenerations = fallback
+            guard let files = snapshotFiles(
+                supplementalSourceURLs,
+                into: snapshotDirectory,
+                prefix: "supplemental"
+            ) else {
+                try? FileManager.default.removeItem(at: snapshotDirectory)
+                return nil
             }
+            supplementalGenerations = files
         }
         return ExportInputs(
             appGenerations: appGenerations,
@@ -839,25 +877,8 @@ public actor AppLog {
         )
     }
 
-    /// Copies generations while AppLog actor ownership prevents append and
-    /// rotation from changing the file set. Copies are chunked so cancellation
-    /// is observed between filesystem calls and the detached writer never
-    /// retains all log bytes at once.
-    private func snapshotFiles(
-        for fileURL: URL?,
-        into directory: URL,
-        prefix: String
-    ) -> [URL]? {
-        guard let fileURL else { return nil }
-        return snapshotFiles(
-            for: Self.logFileURLs(for: fileURL),
-            into: directory,
-            prefix: prefix
-        )
-    }
-
-    private func snapshotFiles(
-        for fileURLs: [URL],
+    private static func snapshotFiles(
+        _ fileURLs: [URL],
         into directory: URL,
         prefix: String
     ) -> [URL]? {
@@ -866,10 +887,14 @@ public actor AppLog {
         for (index, fileURL) in fileURLs.enumerated() {
             guard !Task.isCancelled,
                   FileManager.default.fileExists(atPath: fileURL.path) else {
+                try? FileManager.default.removeItem(at: directory)
                 return nil
             }
             let destination = directory.appendingPathComponent("\(prefix)-\(index).log")
-            guard Self.copyFile(from: fileURL, to: destination) else { return nil }
+            guard copyFile(from: fileURL, to: destination) else {
+                try? FileManager.default.removeItem(at: directory)
+                return nil
+            }
             snapshots.append(destination)
         }
         return snapshots
