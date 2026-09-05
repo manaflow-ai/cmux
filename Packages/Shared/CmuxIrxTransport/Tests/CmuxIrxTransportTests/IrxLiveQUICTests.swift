@@ -64,6 +64,20 @@ enum IrxLiveTestSupport {
     }
 }
 
+actor IrxKeepaliveDropProbe {
+    private var remainingDrops: Int
+
+    init(remainingDrops: Int) {
+        self.remainingDrops = remainingDrops
+    }
+
+    func shouldDrop() -> Bool {
+        guard remainingDrops > 0 else { return false }
+        remainingDrops -= 1
+        return true
+    }
+}
+
 @Suite("live QUIC", .serialized)
 struct IrxLiveQUICTests {
     @Test("closing a control transport releases its owner without closing the session")
@@ -280,6 +294,7 @@ struct IrxLiveQUICTests {
         let client = try await IrxLiveTestSupport.bindLoopback(
             seed: IrxLiveTestSupport.identitySeed(), remoteBiCredit: 0)
         let registry = IrxServerSessionRegistry(journal: journal)
+        let keepaliveDropProbe = IrxKeepaliveDropProbe(remainingDrops: 1)
 
         // Server: admit every connection, run keepalive responders, register
         // for supersession.
@@ -301,7 +316,12 @@ struct IrxLiveQUICTests {
                 Task {
                     while let lane = await irx.acceptLane() {
                         if lane.descriptor.lane == .keepalive {
-                            _ = irx.respondKeepalive(on: lane)
+                            Task {
+                                if await keepaliveDropProbe.shouldDrop() {
+                                    _ = try? await lane.reader.readControlFrame(IrxPing.self)
+                                }
+                                _ = irx.respondKeepalive(on: lane)
+                            }
                         }
                     }
                 }
@@ -331,6 +351,8 @@ struct IrxLiveQUICTests {
         }
         #expect(await !first.connection.isClosed)
         #expect(journal.counterSnapshot()["pong"] ?? 0 >= 1)
+        #expect(journal.counterSnapshot()["miss"] ?? 0 >= 1)
+        #expect(journal.counterSnapshot()["timeout"] ?? 0 == 0)
 
         // Foreground recovery must not replace a healthy session merely
         // because it is older than the historical 15-second threshold.

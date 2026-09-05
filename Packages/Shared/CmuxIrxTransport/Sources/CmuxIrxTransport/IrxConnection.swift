@@ -308,8 +308,10 @@ public actor IrxConnection {
     /// Continuous client-side keepalive on a dedicated lane: one tiny ping
     /// every interval, pong deadline enforced per ping, every exchange
     /// journaled with RTT and the selected path (the soak's relay-attribution
-    /// evidence). A single miss re-pings immediately (journaled as a `miss`,
-    /// not a death: one transient stall must never sever a healthy session);
+    /// evidence). A missed deadline resets the lane before retrying because
+    /// the timed-out receive operation may still own the native stream. A
+    /// single miss re-pings immediately (journaled as a `miss`, not a death:
+    /// one transient stall must never sever a healthy session);
     /// `IrxProtocol.keepaliveStrikeLimit` consecutive misses close with
     /// `keepalive-timeout` and report death so the engine redials at once.
     public func startClientKeepalive(
@@ -320,66 +322,97 @@ public actor IrxConnection {
         guard keepaliveTask == nil else { return }
         let lane = try await openLane(IrxLaneDescriptor(lane: .keepalive))
         keepaliveTask = Task { [journal] in
-            var strikes = 0
-            while !Task.isCancelled {
-                if strikes == 0 {
-                    try? await Task.sleep(for: interval)
+            await self.runClientKeepalive(
+                lane: lane,
+                interval: interval,
+                deadline: deadline,
+                journal: journal,
+                onDeath: onDeath
+            )
+        }
+    }
+
+    private func runClientKeepalive(
+        lane initialLane: IrxLaneStream,
+        interval: Duration,
+        deadline: Duration,
+        journal: IrxJournal,
+        onDeath: @escaping @Sendable () async -> Void
+    ) async {
+        var lane = initialLane
+
+        var strikes = 0
+        while !Task.isCancelled {
+            if strikes == 0 {
+                try? await Task.sleep(for: interval)
+            }
+            guard !Task.isCancelled else { return }
+            let seq = self.nextPingSeq()
+            let sentAt = DispatchTime.now()
+            let activeLane = lane
+            do {
+                try await activeLane.writer.writeControlFrame(IrxPing(seq: seq, pong: false))
+                let pong = try await withIrxDeadline(deadline, onTimeout: {
+                    await activeLane.reader.stop()
+                }) {
+                    () -> IrxPing? in
+                    while true {
+                        guard
+                            let reply = try await activeLane.reader.readControlFrame(
+                                IrxPing.self)
+                        else { return nil }
+                        if reply.pong, reply.seq == seq { return reply }
+                    }
                 }
+                guard pong != nil else {
+                    throw IrxConnectionError.closed(nil)
+                }
+                let rttMs =
+                    (DispatchTime.now().uptimeNanoseconds
+                        - sentAt.uptimeNanoseconds) / 1_000_000
+                journal.record(
+                    "keepalive", "pong",
+                    [
+                        "seq": String(seq),
+                        "rtt_ms": String(rttMs),
+                        "path": self.selectedPathDescription(),
+                    ]
+                )
+                self.notePong()
+                strikes = 0
+            } catch {
                 guard !Task.isCancelled else { return }
-                let seq = await self.nextPingSeq()
-                let sentAt = DispatchTime.now()
-                do {
-                    try await lane.writer.writeControlFrame(IrxPing(seq: seq, pong: false))
-                    let pong = try await withIrxDeadline(deadline, onTimeout: {
-                        await lane.reader.stop()
-                    }) {
-                        () -> IrxPing? in
-                        while true {
-                            guard
-                                let reply = try await lane.reader.readControlFrame(
-                                    IrxPing.self)
-                            else { return nil }
-                            if reply.pong, reply.seq == seq { return reply }
-                        }
-                    }
-                    guard pong != nil else {
-                        throw IrxConnectionError.closed(nil)
-                    }
-                    let rttMs =
-                        (DispatchTime.now().uptimeNanoseconds
-                            - sentAt.uptimeNanoseconds) / 1_000_000
+                strikes += 1
+                await activeLane.close()
+                if strikes < IrxProtocol.keepaliveStrikeLimit {
                     journal.record(
-                        "keepalive", "pong",
+                        "keepalive", "miss",
                         [
                             "seq": String(seq),
-                            "rtt_ms": String(rttMs),
+                            "strike": String(strikes),
                             "path": self.selectedPathDescription(),
                         ]
                     )
-                    await self.notePong()
-                    strikes = 0
-                } catch {
-                    guard !Task.isCancelled else { return }
-                    strikes += 1
-                    if strikes < IrxProtocol.keepaliveStrikeLimit {
+                    do {
+                        lane = try await openLane(IrxLaneDescriptor(lane: .keepalive))
+                    } catch {
                         journal.record(
-                            "keepalive", "miss",
-                            [
-                                "seq": String(seq),
-                                "strike": String(strikes),
-                                "path": self.selectedPathDescription(),
-                            ]
+                            "keepalive", "lane-reopen-failed",
+                            ["error": String(describing: error)]
                         )
-                        continue
+                        await self.close(code: .keepaliveTimeout, origin: .transport)
+                        await onDeath()
+                        return
                     }
-                    journal.record(
-                        "keepalive", "timeout",
-                        ["seq": String(seq), "path": self.selectedPathDescription()]
-                    )
-                    await self.close(code: .keepaliveTimeout, origin: .transport)
-                    await onDeath()
-                    return
+                    continue
                 }
+                journal.record(
+                    "keepalive", "timeout",
+                    ["seq": String(seq), "path": self.selectedPathDescription()]
+                )
+                await self.close(code: .keepaliveTimeout, origin: .transport)
+                await onDeath()
+                return
             }
         }
     }
