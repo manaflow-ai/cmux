@@ -1223,22 +1223,56 @@ final class WindowTerminalPortal: NSObject {
         )
     }
 
+    /// Re-places the divider overlay, and repaints it only when what it draws
+    /// could have moved.
+    ///
+    /// The repaint is not cheap: `SplitDividerOverlayView.draw` walks the whole
+    /// window view tree from `contentView` looking for split views before it
+    /// consults `dirtyRect`, so a one-pixel dirty region costs a full-hierarchy
+    /// traversal. This runs from `synchronizeHostedView`, once per hosted view
+    /// per geometry tick, and it used to invalidate unconditionally — the same
+    /// shape as the window-move echo storm, work scheduled off a pass that had
+    /// nothing to do. In a 20-second sample of an idle app that walk was the
+    /// heaviest cmux frame on the main thread.
+    ///
+    /// Dividers move when the panes around them resize, which reaches the
+    /// portal as a changed hosted frame, and splits appearing or disappearing
+    /// change the entry set. Both are in `ExternalGeometrySignature`, which
+    /// already fingerprints exactly the geometry a sync pass reads and
+    /// deliberately excludes the window's origin, so dragging a window by its
+    /// titlebar does not repaint every tick.
     private func ensureDividerOverlayOnTop() {
+        var placementChanged = false
+
         if dividerOverlayView.superview !== hostView {
             dividerOverlayView.frame = hostView.bounds
             hostView.addSubview(dividerOverlayView, positioned: .above, relativeTo: nil)
+            placementChanged = true
         } else if hostView.subviews.last !== dividerOverlayView {
             hostView.addSubview(dividerOverlayView, positioned: .above, relativeTo: nil)
+            placementChanged = true
         }
 
         if !Self.rectApproximatelyEqual(dividerOverlayView.frame, hostView.bounds) {
             dividerOverlayView.frame = hostView.bounds
+            placementChanged = true
         }
+
+        let signature = externalGeometrySignature()
+        let geometryChanged = lastDividerOverlaySignature != signature
+        lastDividerOverlaySignature = signature
+
+        guard placementChanged || geometryChanged else { return }
 #if DEBUG
         RemoteTmuxSizingDiagnostics.dividerOverlayRepaintCount += 1
 #endif
         dividerOverlayView.needsDisplay = true
     }
+
+    /// Geometry the divider overlay was last painted for. Separate from
+    /// `lastHierarchySyncSignature`, which the layout-sync path owns and
+    /// updates on its own schedule.
+    private var lastDividerOverlaySignature: ExternalGeometrySignature?
 
     @discardableResult
     private func ensureInstalled(syncLayout: Bool = true) -> Bool {
