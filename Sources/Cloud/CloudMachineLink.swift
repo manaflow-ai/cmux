@@ -143,6 +143,10 @@ actor CloudMachineLink {
     private var processExit: CloudLinkFirstValue<Int32>?
     private var eventsProcess: Process?
     private var eventsProcessExit: CloudLinkFirstValue<Int32>?
+    /// Serializes event-child replacement. `startEventsSubscription` awaits the previous
+    /// child's exit and the actor is re-entrant across that await: a newer start, a
+    /// suspend, a disconnect, or a link exit bumps this so an older start never spawns.
+    private var eventsStartGeneration: UInt64 = 0
     private var eventsSubscriptionID: UUID?
     private var eventsReaderTask: Task<Void, Never>?
     private var eventsCursor: CloudVMCursor?
@@ -297,6 +301,7 @@ actor CloudMachineLink {
     }
 
     func disconnect() async {
+        eventsStartGeneration &+= 1
         eventsSubscriptionID = nil
         eventsReaderTask?.cancel()
         eventsReaderTask = nil
@@ -404,11 +409,11 @@ actor CloudMachineLink {
     /// the feed. Recovery remains bounded until a stable stream or a new link
     /// connection establishes a fresh boundary.
     func suspendEventsSubscription() {
+        eventsStartGeneration &+= 1
         eventsSubscriptionID = nil
         eventsReaderTask?.cancel()
         eventsReaderTask = nil
         eventsProcess?.terminate()
-        eventsProcess = nil
         eventsRecoveryTask?.cancel()
         eventsRecoveryTask = nil
         cancelEventsStabilityReset()
@@ -484,13 +489,16 @@ actor CloudMachineLink {
 
     @discardableResult
     private func startEventsSubscription(socketPath: String, cursor: CloudVMCursor?) async -> Bool {
-        guard !socketPath.isEmpty else { return false }
+        guard !socketPath.isEmpty, state == .connected, connected?.socketPath == socketPath else { return false }
+        eventsStartGeneration &+= 1
+        let startGeneration = eventsStartGeneration
         cancelEventsStabilityReset()
         eventsSubscriptionID = nil
         eventsReaderTask?.cancel()
         eventsReaderTask = nil
         // Wait for the previous events child to exit before spawning its replacement,
-        // so two readers never race on the same socket.
+        // so two readers never race on the same socket. A concurrent start waits on the
+        // same child; only the newest start (checked below) goes on to spawn.
         if let eventsProcess, let eventsProcessExit {
             await Self.terminateAndWait(eventsProcess, exit: eventsProcessExit)
             if self.eventsProcess === eventsProcess {
@@ -498,6 +506,14 @@ actor CloudMachineLink {
                 self.eventsProcessExit = nil
             }
         }
+        // The actor was re-entrant during that await. Spawn only when this start is still
+        // the newest one, its caller was not cancelled, and the link is still the same
+        // connected socket; otherwise a superseded or torn-down start would leak a child.
+        guard startGeneration == eventsStartGeneration,
+              !Task.isCancelled,
+              state == .connected,
+              connected?.socketPath == socketPath
+        else { return false }
         let subscriptionID = UUID()
         eventsSubscriptionID = subscriptionID
         let process = Process()
@@ -574,8 +590,9 @@ actor CloudMachineLink {
         cancelEventsStabilityReset()
         eventsSubscriptionID = nil
         eventsReaderTask = nil
+        // Ask the child to exit but keep the reference: `eventsProcessDidExit` clears it
+        // once the exit is observed, so the next start waits for it instead of racing it.
         eventsProcess?.terminate()
-        eventsProcess = nil
         if let reason {
             changesContinuation.yield(.streamEnded(reason: reason, cursor: eventsCursor))
         }
@@ -698,6 +715,7 @@ actor CloudMachineLink {
 
     private func linkProcessDidExit(_ exitedProcess: Process, status: Int32) async {
         guard process === exitedProcess else { return }
+        eventsStartGeneration &+= 1
         eventsSubscriptionID = nil
         eventsReaderTask?.cancel()
         eventsReaderTask = nil
