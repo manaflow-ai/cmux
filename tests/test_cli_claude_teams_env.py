@@ -40,6 +40,7 @@ def run_claude_teams(
     base_env: dict[str, str],
     node_options: str,
     tmpdir: str | None = None,
+    node_options_dir: str | None = None,
     unexpected_path_entries: tuple[str, ...] = (),
 ) -> tuple[subprocess.CompletedProcess[str], str, str, str]:
     with (
@@ -179,6 +180,9 @@ fs.writeFileSync(
         env["ANTHROPIC_API_KEY"] = "sk-ant-must-not-cross-respawn-transport"
         expect_managed_tmux_shim = True
         env["TMPDIR"] = str(tmp) if tmpdir is None else tmpdir
+        # The CLI resolves the real account home for its state directory, so without this override
+        # the run would write the restore module into the developer's own ~/.local/state/cmux.
+        env["CMUX_NODE_OPTIONS_DIR"] = str(tmp / "node-options") if node_options_dir is None else node_options_dir
         explicit_socket_path_hint = tmp / "explicit-cmux.sock"
         explicit_socket_password = "topsecret"
 
@@ -513,16 +517,16 @@ def main() -> int:
         return 1
 
     with tempfile.TemporaryDirectory(prefix="cmux-claude-teams-bad-tmp-") as td:
-        bad_tmpdir = Path(td) / "not-a-directory"
-        bad_tmpdir.write_text("occupied", encoding="utf-8")
+        unusable_module_dir = Path(td) / "not-a-directory"
+        unusable_module_dir.write_text("occupied", encoding="utf-8")
         proc, node_options_value, runtime_node_options_value, child_node_options_value = run_claude_teams(
             cli_path,
             base_env,
             "--trace-warnings",
-            tmpdir=str(bad_tmpdir),
+            node_options_dir=str(unusable_module_dir),
         )
     if proc.returncode != 0:
-        print("FAIL: `cmux claude-teams --version` should still succeed when TMPDIR is unusable")
+        print("FAIL: `cmux claude-teams --version` should still succeed when the restore module directory is unusable")
         print(f"exit={proc.returncode}")
         print(f"stdout={proc.stdout.strip()}")
         print(f"stderr={proc.stderr.strip()}")
@@ -530,21 +534,21 @@ def main() -> int:
 
     if node_options_value != "--trace-warnings":
         print(
-            "FAIL: expected claude-teams to skip restore preload injection when TMPDIR is unusable, "
+            "FAIL: expected claude-teams to skip restore preload injection when the restore module directory is unusable, "
             f"got {node_options_value!r}"
         )
         return 1
 
     if runtime_node_options_value != "--trace-warnings":
         print(
-            "FAIL: expected Claude runtime NODE_OPTIONS to remain unchanged when TMPDIR is unusable, "
+            "FAIL: expected Claude runtime NODE_OPTIONS to remain unchanged when the restore module directory is unusable, "
             f"got {runtime_node_options_value!r}"
         )
         return 1
 
     if child_node_options_value != "--trace-warnings":
         print(
-            "FAIL: expected child NODE_OPTIONS to remain unchanged when TMPDIR is unusable, "
+            "FAIL: expected child NODE_OPTIONS to remain unchanged when the restore module directory is unusable, "
             f"got {child_node_options_value!r}"
         )
         return 1

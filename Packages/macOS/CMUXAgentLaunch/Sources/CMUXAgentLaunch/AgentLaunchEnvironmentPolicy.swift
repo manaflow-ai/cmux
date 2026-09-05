@@ -30,6 +30,106 @@ public struct ClaudeConfigDirectoryPath: Sendable {
     }
 }
 
+/// The preload module cmux injects via `NODE_OPTIONS=--require=…` so that child node processes
+/// get the caller's original `NODE_OPTIONS` back instead of cmux's own heap cap.
+///
+/// The claude wrapper, the CLI, and this policy each handle the module from a different side —
+/// two write it, one strips it back out — so the rule for "is this path ours" lives here once.
+public struct ClaudeNodeOptionsRestoreModule: Sendable {
+    private init() {}
+
+    /// The module's file name, identical in every directory cmux has written it to.
+    public static let fileName = "restore-node-options.cjs"
+
+    /// The directory holding the module under the cmux state directory.
+    public static let directoryName = "node-options"
+
+    /// The `$TMPDIR` directory older builds used. The remote daemon still appends a random suffix
+    /// to it, so both the exact name and the `<name>-<random>` form count as cmux's.
+    private static let legacyDirectoryName = "cmux-claude-node-options"
+
+    /// The V8 heap cap, in MB, that cmux injects alongside the module. Named because unwinding an
+    /// injected `NODE_OPTIONS` has to tell cmux's own value apart from one the caller chose.
+    public static let injectedHeapCapMB = "4096"
+
+    /// Name of the cmux state directory. Duplicated from `CmuxStateDirectory` because this target
+    /// has no dependencies; it is the leaf of `~/.local/state/cmux`.
+    private static let stateDirectoryName = "cmux"
+
+    /// The full directory tail cmux writes the module to, below the user's home. Matching the
+    /// whole tail rather than just `cmux/node-options` keeps an unrelated preload at, say,
+    /// `/opt/vendor/cmux/node-options/` from being claimed as ours.
+    private static let stateDirectoryTail = [".local", "state", stateDirectoryName, directoryName]
+
+    /// Whether a `--require` path points at a cmux-written copy of the module.
+    ///
+    /// The file name alone is not enough: a caller may legitimately preload their own module of
+    /// the same name, and dropping that would silently change their runtime. Path shape alone is
+    /// not enough either — it is both too generous (an unrelated `…/cmux/node-options/`) and too
+    /// mean (a configured directory that looks like neither known shape). So the authoritative
+    /// test is `moduleDirectory`, the directory the caller actually writes to; the name and tail
+    /// checks only recognise copies left by another process or an older build.
+    ///
+    /// - Parameter moduleDirectory: Where this process writes the module, when it writes one.
+    ///   Callers that only strip inherited values (they never write) pass `nil`.
+    public static func isCmuxOwnedPath(_ path: String, moduleDirectory: URL? = nil) -> Bool {
+        let unquoted = path.trimmingCharacters(in: CharacterSet(charactersIn: "'\""))
+        let moduleURL = URL(fileURLWithPath: unquoted).standardizedFileURL
+        guard moduleURL.lastPathComponent == fileName else { return false }
+
+        let parent = moduleURL.deletingLastPathComponent()
+        if let moduleDirectory, parent == moduleDirectory.standardizedFileURL {
+            return true
+        }
+
+        let parentName = parent.lastPathComponent
+        if parentName == legacyDirectoryName || parentName.hasPrefix("\(legacyDirectoryName)-") {
+            return true
+        }
+        return parent.pathComponents.suffix(stateDirectoryTail.count).elementsEqual(stateDirectoryTail)
+    }
+
+    /// How many tokens a cmux-owned `--require` occupies at `index`, or `0` when the token there
+    /// is not one.
+    ///
+    /// Both `--require=<path>` and `--require <path>` (and the `-r` spellings) have to be
+    /// recognised: a persisted launch environment can carry either shape, and missing the
+    /// space-separated one leaves a dead preload in `NODE_OPTIONS` — the failure this whole
+    /// mechanism exists to avoid.
+    public static func ownedRequireTokenWidth(
+        _ tokens: [String],
+        index: Int,
+        moduleDirectory: URL? = nil
+    ) -> Int {
+        guard index < tokens.count else { return 0 }
+        let token = tokens[index]
+
+        for prefix in ["--require=", "-r="] where token.hasPrefix(prefix) {
+            let path = String(token.dropFirst(prefix.count))
+            return isCmuxOwnedPath(path, moduleDirectory: moduleDirectory) ? 1 : 0
+        }
+        guard token == "--require" || token == "-r", index + 1 < tokens.count else { return 0 }
+        return isCmuxOwnedPath(tokens[index + 1], moduleDirectory: moduleDirectory) ? 2 : 0
+    }
+
+    /// Whether the token at `index` is the heap cap cmux injects, rather than one the caller chose.
+    public static func isInjectedHeapCap(_ tokens: [String], index: Int) -> Bool {
+        guard index < tokens.count else { return false }
+        let token = tokens[index]
+        if token == "--max-old-space-size" {
+            return index + 1 < tokens.count && tokens[index + 1] == injectedHeapCapMB
+        }
+        return token == "--max-old-space-size=\(injectedHeapCapMB)"
+    }
+
+    /// How many tokens the heap cap at `index` occupies: two for the space-separated form, one for
+    /// the `=` form.
+    public static func heapCapTokenWidth(_ tokens: [String], index: Int) -> Int {
+        guard index < tokens.count else { return 1 }
+        return tokens[index] == "--max-old-space-size" ? min(2, tokens.count - index) : 1
+    }
+}
+
 /// Selects the non-secret launch environment values that are safe to replay when restoring agents.
 public struct AgentLaunchEnvironmentPolicy: Sendable {
     /// Creates a launch environment policy.
@@ -211,22 +311,16 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         while index < tokens.count {
             let token = tokens[index]
 
-            if shouldDropInjectedHeapCap, isInjectedNodeHeapCap(tokens, index: index) {
-                index += nodeHeapCapWidth(tokens, index: index)
+            if shouldDropInjectedHeapCap, ClaudeNodeOptionsRestoreModule.isInjectedHeapCap(tokens, index: index) {
+                index += ClaudeNodeOptionsRestoreModule.heapCapTokenWidth(tokens, index: index)
                 shouldDropInjectedHeapCap = false
                 continue
             }
             shouldDropInjectedHeapCap = false
 
-            if isRequireOption(token), index + 1 < tokens.count,
-               isCmuxNodeOptionsRestoreModulePath(tokens[index + 1]) {
-                index += 2
-                shouldDropInjectedHeapCap = true
-                continue
-            }
-            if let path = inlineRequireOptionPath(token),
-               isCmuxNodeOptionsRestoreModulePath(path) {
-                index += 1
+            let ownedRequireWidth = ClaudeNodeOptionsRestoreModule.ownedRequireTokenWidth(tokens, index: index)
+            if ownedRequireWidth > 0 {
+                index += ownedRequireWidth
                 shouldDropInjectedHeapCap = true
                 continue
             }
@@ -248,36 +342,4 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         return trimmed
     }
 
-    private func isRequireOption(_ token: String) -> Bool {
-        token == "--require" || token == "-r"
-    }
-
-    private func inlineRequireOptionPath(_ token: String) -> String? {
-        for prefix in ["--require=", "-r="] where token.hasPrefix(prefix) {
-            return String(token.dropFirst(prefix.count))
-        }
-        return nil
-    }
-
-    private func isCmuxNodeOptionsRestoreModulePath(_ value: String) -> Bool {
-        let trimmed = value.trimmingCharacters(in: CharacterSet(charactersIn: "'\""))
-        guard URL(fileURLWithPath: trimmed).lastPathComponent == "restore-node-options.cjs" else {
-            return false
-        }
-        return trimmed.contains("/cmux-")
-    }
-
-    private func isInjectedNodeHeapCap(_ tokens: [String], index: Int) -> Bool {
-        guard index < tokens.count else { return false }
-        let token = tokens[index]
-        if token == "--max-old-space-size" {
-            return index + 1 < tokens.count && tokens[index + 1] == "4096"
-        }
-        return token == "--max-old-space-size=4096"
-    }
-
-    private func nodeHeapCapWidth(_ tokens: [String], index: Int) -> Int {
-        guard index < tokens.count else { return 1 }
-        return tokens[index] == "--max-old-space-size" ? min(2, tokens.count - index) : 1
-    }
 }
