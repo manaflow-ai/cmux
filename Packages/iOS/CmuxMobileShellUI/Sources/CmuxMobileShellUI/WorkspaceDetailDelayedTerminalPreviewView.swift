@@ -70,10 +70,6 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
             store.replaceForegroundWorkspaceState([workspace])
             store.selectedWorkspaceID = Self.workspaceID
             store.selectedTerminalID = Self.terminalID
-            store.navigateToWorkspaceForDeeplink(Self.workspaceID)
-            if ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_DETAIL_DISCONNECTED"] == "1" {
-                store.setUITestMacConnectionStatus(.unavailable)
-            }
             if Self.showsThemeParitySequence {
                 await runThemeParitySequence()
             }
