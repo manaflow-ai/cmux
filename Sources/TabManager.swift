@@ -2713,16 +2713,20 @@ class TabManager: ObservableObject {
         propagateWorkspaceRenameToAgents(in: tabs[index], previousTitle: previousTitle)
     }
 
-    /// When a workspace's display name changes, ask a running Claude pane to
+    /// When a workspace's display name changes, ask a running agent pane to
     /// `/rename` itself to match, so the agent's own session label (shown in
     /// `/resume` and the prompt box) tracks the workspace name automatically.
-    /// `/rename` is a fast slash command that doesn't disturb an active prompt.
+    /// `/rename` is a fast slash command that doesn't disturb an active prompt,
+    /// and both Claude and Codex understand it.
     ///
     /// Gated so it only fires when (a) the name actually changed and (b) a live
-    /// Claude agent PID is registered for the workspace — so it never fires
-    /// during workspace-set import or session restore, when the title is set
+    /// agent PID is registered for the workspace — so it never fires during
+    /// workspace-set import or session restore, when the title is set
     /// programmatically before the agent exists. Only panes whose configured
-    /// command is `claude*` receive it, leaving shells/files/lazygit untouched.
+    /// command is an agent wrapper receive it, leaving shells/files/lazygit
+    /// untouched. A pane running a bare `claude`/`codex` rather than one of the
+    /// `*-remote` wrappers registers no PID, so it is never renamed: the wrappers
+    /// are what call `cmux set-agent-pid`.
     private func propagateWorkspaceRenameToAgents(in workspace: Workspace, previousTitle: String) {
         let newName = workspace.title.trimmingCharacters(in: .whitespacesAndNewlines)
         let claudeCommands = workspace.panels.values
@@ -2737,10 +2741,12 @@ class TabManager: ObservableObject {
             #endif
             return
         }
-        guard let claudePID = workspace.agentPIDs["claude"], claudePID > 0,
-              kill(claudePID, 0) == 0 else {
+        // Any registered agent, not just Claude: `codex-remote` registers under
+        // "codex", and a Codex lane's session label tracks the workspace name the
+        // same way.
+        guard workspace.agentPIDs.values.contains(where: { $0 > 0 && kill($0, 0) == 0 }) else {
             #if DEBUG
-            dlog("rename.propagate skip: no live claude agent")
+            dlog("rename.propagate skip: no live agent")
             #endif
             return
         }
@@ -2750,7 +2756,7 @@ class TabManager: ObservableObject {
             .replacingOccurrences(of: "\r", with: " ")
         var sent = 0
         for panel in workspace.panels.values.compactMap({ $0 as? TerminalPanel })
-        where Self.isClaudeAgentCommand(panel.configuredCommand) {
+        where Self.isAgentCommand(panel.configuredCommand) {
             // Deliver via sendInput so the Return arrives as a real key event
             // (sendInput maps a trailing CR to a kVK_Return key, not a raw CR
             // byte — Claude's TUI runs in bracketed-paste mode, where a raw CR
@@ -2774,17 +2780,26 @@ class TabManager: ObservableObject {
         #endif
     }
 
-    /// True when a pane's configured command is the Claude agent itself, not
-    /// merely a command that happens to mention "claude" somewhere (a path like
-    /// `~/claude-notes`, `vim claude.md`, etc.). Matches the launched
-    /// executable's basename — `claude` or a `claude-*` wrapper (e.g. the
-    /// `claude-remote` pane wrapper) — so `/rename` only reaches real agent panes.
-    nonisolated static func isClaudeAgentCommand(_ command: String?) -> Bool {
-        guard let first = command?
+    /// True when a pane's configured command is an agent itself, not merely a
+    /// command that happens to mention one somewhere (a path like `~/claude-notes`,
+    /// `vim claude.md`, etc.). Matches the launched executable's basename —
+    /// `claude`/`codex` or a `claude-*`/`codex-*` wrapper (e.g. the `claude-remote`
+    /// pane wrapper) — so `/rename` only reaches real agent panes.
+    nonisolated static func isAgentCommand(_ command: String?) -> Bool {
+        // Skip any leading `VAR=value` env prefix — a win-desktop lane is spelled
+        // `CLAUDE_REMOTE_HOST=win-desktop claude-remote -n win`, and reading only
+        // the first token would classify it as a plain shell command.
+        guard let exe = command?
             .split(whereSeparator: { $0 == " " || $0 == "\t" })
-            .first.map(String.init) else { return false }
-        let exe = (first as NSString).lastPathComponent.lowercased()
-        return exe == "claude" || exe.hasPrefix("claude-")
+            .map(String.init)
+            .first(where: { !WorkspaceSetImporter.isEnvAssignment($0) })
+            .map({ ($0 as NSString).lastPathComponent.lowercased() }) else { return false }
+        return WorkspaceAgent.allCases.contains { exe == $0.rawValue || exe.hasPrefix($0.rawValue + "-") }
+    }
+
+    /// Back-compat alias for `isAgentCommand`.
+    nonisolated static func isClaudeAgentCommand(_ command: String?) -> Bool {
+        isAgentCommand(command)
     }
 
     func clearCustomTitle(tabId: UUID) {
@@ -3035,10 +3050,10 @@ class TabManager: ObservableObject {
         // Deliberately NOT done in releaseRestoredAwayWorkspace: that discards
         // pre-restore bootstrap objects whose sessions the restored workspaces are
         // about to reattach to.
-        if let session = workspace.ownedTmuxSession {
+        for session in workspace.ownedTmuxSessions {
             TmuxSessionReaper.kill(session)
-            workspace.ownedTmuxSession = nil
         }
+        workspace.ownedTmuxSessions.removeAll()
 
         workspace.teardownAllPanels()
         workspace.teardownRemoteConnection()

@@ -8190,10 +8190,11 @@ struct CMUXCLI {
             """
         case "clear-tmux-session":
             return """
-            Usage: cmux clear-tmux-session [flags]
+            Usage: cmux clear-tmux-session [<name>] [flags]
 
-            Give up ownership of this workspace's tmux session, leaving it
-            running when the workspace closes.
+            Give up ownership of this workspace's tmux sessions, leaving them
+            running when the workspace closes. Name one session to release just
+            that one — a workspace can own both a Claude and a Codex lane.
 
             Flags:
               --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)

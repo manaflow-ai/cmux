@@ -15142,21 +15142,28 @@ class TerminalController {
             return targetResolution.error ?? "ERROR: No tab selected"
         }
         scheduleSidebarMutation(target: target) { _, tab in
-            tab.ownedTmuxSession = name
+            tab.ownedTmuxSessions.insert(name)
         }
         return "OK"
     }
 
-    /// Unregister the tmux session, leaving it running when the workspace closes.
-    /// Usage: clear_tmux_session [--tab=<id>]
+    /// Unregister a tmux session, leaving it running when the workspace closes.
+    /// A name clears just that session (the Codex lane, say, leaving the Claude one
+    /// registered); omitting it clears every session this workspace owns.
+    /// Usage: clear_tmux_session [<name>] [--tab=<id>]
     private func clearTmuxSession(_ args: String) -> String {
         let parsed = parseOptions(args)
+        let name = parsed.positional.first
         let targetResolution = parseSidebarMutationTabTarget(options: parsed.options)
         guard let target = targetResolution.target else {
             return targetResolution.error ?? "ERROR: No tab selected"
         }
         scheduleSidebarMutation(target: target) { _, tab in
-            tab.ownedTmuxSession = nil
+            if let name, !name.isEmpty {
+                tab.ownedTmuxSessions.remove(name)
+            } else {
+                tab.ownedTmuxSessions.removeAll()
+            }
         }
         return "OK"
     }

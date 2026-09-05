@@ -89,9 +89,18 @@ enum TmuxSessionReaper {
     /// will not be predicted — callers must treat a derived name as a candidate to
     /// intersect with the live session list, never as proof a session exists.
     static func sessionName(directory: String, instanceIndex: Int) -> String {
+        sessionName(directory: directory, instanceIndex: instanceIndex, agent: .claude)
+    }
+
+    /// The same prediction for a specific agent. `codex-remote` prefixes its session
+    /// with `cx-` so a Codex lane and a Claude lane on one directory stay separate;
+    /// predicting only the bare name makes every Codex lane invisible to reattach,
+    /// restore and the orphan check.
+    static func sessionName(directory: String, instanceIndex: Int, agent: WorkspaceAgent) -> String {
         let base = slugify((directory as NSString).lastPathComponent)
         guard !base.isEmpty else { return "" }
-        return instanceIndex > 1 ? "\(base)-\(instanceIndex)" : base
+        let indexed = instanceIndex > 1 ? "\(base)-\(instanceIndex)" : base
+        return agent.sessionPrefix + indexed
     }
 
     /// tmux arguments for killing exactly one session.
