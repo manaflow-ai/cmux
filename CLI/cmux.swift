@@ -13292,7 +13292,7 @@ struct CMUXCLI {
             client: client
         )
         logVMTiming("attach_info", vmID: id, transport: "cmux-remote", startedAt: attachInfoStartedAt)
-        let payload: [String: Any] = [
+        var payload: [String: Any] = [
             "ok": true,
             "vm_id": id,
             "workspace_id": opened.workspaceId,
@@ -13305,6 +13305,9 @@ struct CMUXCLI {
             "remote_workspace_id": opened.remoteWorkspaceId ?? NSNull(),
             "surface_id": opened.terminalSurfaceId ?? NSNull(),
         ]
+        if let networkAddresses = opened.networkAddresses {
+            payload["network_addresses"] = networkAddresses
+        }
         if jsonOutput {
             print(jsonString(formatIDs(payload, mode: idFormat)))
         } else {
@@ -13795,7 +13798,7 @@ struct CMUXCLI {
         if error.vmBackendCode == "vm_not_found" || isVMNotFoundError(error) {
             return false
         }
-        if error.vmBackendCode == "vm_attach_transport_unsupported" {
+        if error.vmBackendCode == Self.vmAttachTransportUnsupportedCode {
             return true
         }
         if error.isStructuredProtocolResponse, error.v2Code == "method_not_found" {

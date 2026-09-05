@@ -164,4 +164,24 @@ import Testing
         await Task.yield()
         #expect(gate.dialCount == 0)
     }
+
+    @Test func admissionTimeoutSchedulesAutomaticRetry() async throws {
+        let journal = IrxJournal(subsystem: "test", category: "admission-timeout-retry", journalFileURL: nil)
+        let gate = DialGate()
+        let engine = IrxPeerEngine(
+            config: .init(initialBackoff: .milliseconds(10), maxBackoff: .milliseconds(20)),
+            journal: journal,
+            label: "test"
+        ) {
+            gate.dialStarted()
+            throw IrxAdmissionDenied(code: .admissionTimeout)
+        }
+
+        await engine.warmUp(trigger: "test-admission-timeout")
+        for _ in 0..<100 where gate.dialCount < 2 {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(gate.dialCount >= 2)
+        await engine.stop()
+    }
 }

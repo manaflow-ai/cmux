@@ -195,9 +195,9 @@ actor CloudMachineLink {
             await releaseHubLease?()
             return connected
         }
+        self.releaseHubLease = releaseHubLease
         eventsCursor = nil
         resetEventsRecovery()
-        self.releaseHubLease = releaseHubLease
         try paths.ensureStateDir()
         var inviteFilePath: String?
         if let invitationURI, !invitationURI.isEmpty {
@@ -297,12 +297,15 @@ actor CloudMachineLink {
     }
 
     func disconnect() async {
-        state = .unavailable
-        connected = nil
         eventsSubscriptionID = nil
         eventsReaderTask?.cancel()
         eventsReaderTask = nil
-        resetEventsRecovery()
+        eventsRecoveryTask?.cancel()
+        eventsRecoveryTask = nil
+        cancelEventsStabilityReset()
+        eventsRecoveryPhase = .healthy
+        state = .unavailable
+        connected = nil
         removeInviteFile()
         changesContinuation.finish()
         if let eventsProcess, let eventsProcessExit {
@@ -400,15 +403,16 @@ actor CloudMachineLink {
     /// later versioned snapshot can call `resumeEventsSubscription` to re-enable
     /// the feed. Recovery remains bounded until a stable stream or a new link
     /// connection establishes a fresh boundary.
-    func suspendEventsSubscription() async {
+    func suspendEventsSubscription() {
         eventsSubscriptionID = nil
         eventsReaderTask?.cancel()
         eventsReaderTask = nil
+        eventsProcess?.terminate()
+        eventsProcess = nil
         eventsRecoveryTask?.cancel()
         eventsRecoveryTask = nil
         cancelEventsStabilityReset()
         eventsRecoveryPhase = .snapshotOnly
-        await stopEventsProcess()
     }
 
     /// Runs one cmux-tui command against the link's socket and returns its stdout.
@@ -482,14 +486,20 @@ actor CloudMachineLink {
     private func startEventsSubscription(socketPath: String, cursor: CloudVMCursor?) async -> Bool {
         guard !socketPath.isEmpty else { return false }
         cancelEventsStabilityReset()
+        eventsSubscriptionID = nil
         eventsReaderTask?.cancel()
         eventsReaderTask = nil
+        // Wait for the previous events child to exit before spawning its replacement,
+        // so two readers never race on the same socket.
+        if let eventsProcess, let eventsProcessExit {
+            await Self.terminateAndWait(eventsProcess, exit: eventsProcessExit)
+            if self.eventsProcess === eventsProcess {
+                self.eventsProcess = nil
+                self.eventsProcessExit = nil
+            }
+        }
         let subscriptionID = UUID()
         eventsSubscriptionID = subscriptionID
-        await stopEventsProcess()
-        guard state == .connected,
-              connected?.socketPath == socketPath,
-              eventsSubscriptionID == subscriptionID else { return false }
         let process = Process()
         process.executableURL = clientURL
         process.arguments = CloudTuiCommandLine.eventsArguments(socketPath: socketPath, cursor: cursor)
@@ -512,6 +522,7 @@ actor CloudMachineLink {
         }
         eventsProcess = process
         eventsProcessExit = exit
+        let continuation = changesContinuation
         let lines = CloudLinkPipe.lines(from: stdout.fileHandleForReading)
         eventsReaderTask = Task.detached { [weak self] in
             var receivedStreamEnd = false
@@ -525,7 +536,7 @@ actor CloudMachineLink {
         return true
     }
 
-    private func eventChange(_ change: Change, subscriptionID: UUID) async {
+    private func eventChange(_ change: Change, subscriptionID: UUID) {
         guard eventsSubscriptionID == subscriptionID else { return }
         switch change {
         case .snapshot, .delta:
@@ -536,7 +547,7 @@ actor CloudMachineLink {
             // A stream-end cursor is only a transport observation. Advancing to
             // it here could skip journal entries when recovery is required.
             changesContinuation.yield(.streamEnded(reason: reason, cursor: cursor))
-            await finishEventsSubscription(subscriptionID: subscriptionID, reason: nil)
+            finishEventsSubscription(subscriptionID: subscriptionID, reason: nil)
             return
         case .unknown:
             // Unknown data is a barrier. Its cursor cannot be trusted because the
@@ -548,9 +559,9 @@ actor CloudMachineLink {
         changesContinuation.yield(change)
     }
 
-    private func eventReaderDidEnd(subscriptionID: UUID, receivedStreamEnd: Bool) async {
+    private func eventReaderDidEnd(subscriptionID: UUID, receivedStreamEnd: Bool) {
         guard eventsSubscriptionID == subscriptionID else { return }
-        await finishEventsSubscription(
+        finishEventsSubscription(
             subscriptionID: subscriptionID,
             reason: receivedStreamEnd ? nil : "eof"
         )
@@ -558,15 +569,16 @@ actor CloudMachineLink {
 
     /// Ends one event child and schedules its single bounded recovery owner. The subscription
     /// UUID makes late reader callbacks harmless after a replacement has started.
-    private func finishEventsSubscription(subscriptionID: UUID, reason: String?) async {
+    private func finishEventsSubscription(subscriptionID: UUID, reason: String?) {
         guard eventsSubscriptionID == subscriptionID else { return }
         cancelEventsStabilityReset()
         eventsSubscriptionID = nil
         eventsReaderTask = nil
+        eventsProcess?.terminate()
+        eventsProcess = nil
         if let reason {
             changesContinuation.yield(.streamEnded(reason: reason, cursor: eventsCursor))
         }
-        await stopEventsProcess()
         scheduleEventsRecovery()
     }
 
@@ -689,7 +701,17 @@ actor CloudMachineLink {
         eventsSubscriptionID = nil
         eventsReaderTask?.cancel()
         eventsReaderTask = nil
-        resetEventsRecovery()
+        eventsRecoveryTask?.cancel()
+        eventsRecoveryTask = nil
+        cancelEventsStabilityReset()
+        eventsRecoveryPhase = .healthy
+        if let eventsProcess, let eventsProcessExit {
+            await Self.terminateAndWait(eventsProcess, exit: eventsProcessExit)
+            if self.eventsProcess === eventsProcess {
+                self.eventsProcess = nil
+                self.eventsProcessExit = nil
+            }
+        }
         process = nil
         processExit = nil
         connected = nil
@@ -700,17 +722,7 @@ actor CloudMachineLink {
         }
         changesContinuation.yield(.streamEnded(reason: "link_exit", cursor: nil))
         changesContinuation.finish()
-        await stopEventsProcess()
         await releaseHubLeaseOnce()
-    }
-
-    private func stopEventsProcess() async {
-        guard let eventsProcess, let eventsProcessExit else { return }
-        await Self.terminateAndWait(eventsProcess, exit: eventsProcessExit)
-        if self.eventsProcess === eventsProcess {
-            self.eventsProcess = nil
-            self.eventsProcessExit = nil
-        }
     }
 
     private func eventsProcessDidExit(_ exitedProcess: Process) {
