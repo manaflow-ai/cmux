@@ -815,6 +815,7 @@ actor MobileCoreRPCSession {
             )
         }
         let nextTransportClosureTask = Task { [weak self] in
+            var waitedForClosureReadiness = false
             while !Task.isCancelled {
                 if let observation = await (
                     candidate as? any CmxByteTransportClosureObserving
@@ -828,6 +829,11 @@ actor MobileCoreRPCSession {
                     any CmxByteTransportClosureObservationReadiness else {
                     return
                 }
+                // Allow exactly one activation transition. If an activated
+                // transport still cannot produce an observation, terminate
+                // this generation instead of actor-hopping forever.
+                guard !waitedForClosureReadiness else { return }
+                waitedForClosureReadiness = true
                 // Deferred transports signal activation once. This avoids a
                 // permanent 100 ms polling task for transports that never
                 // expose native closure observation.
