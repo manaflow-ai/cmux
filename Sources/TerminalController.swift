@@ -15920,7 +15920,12 @@ class TerminalController {
         let sendResult = terminalTarget.sendInputResult(text)
         switch sendResult {
         case .sent:
-            terminalTarget.forceRefresh(reason: "mobileHost.terminalInput")
+            // PTY output is already observed by MobileTerminalByteTee, which
+            // schedules the post-parser render-grid tick. Forcing a refresh
+            // here emits a full frame before the echoed bytes arrive, sending
+            // screen-anchored iOS clients through the verified replay path on
+            // every keystroke.
+            break
         case .queued:
             break
         case .inputQueueFull:

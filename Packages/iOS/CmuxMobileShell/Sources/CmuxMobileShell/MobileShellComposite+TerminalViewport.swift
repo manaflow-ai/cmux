@@ -95,6 +95,11 @@ extension MobileShellComposite {
         let requestGeneration =
             (viewportReportGenerationsBySequenceKey[sequenceKey] ?? 0) + 1
         viewportReportGenerationsBySequenceKey[sequenceKey] = requestGeneration
+        // The output sink is registered immediately after the first geometry
+        // callback. Keep this generation marked until its acknowledgement
+        // settles so registration can let that acknowledgement own the cold
+        // replay instead of racing it with a second request.
+        terminalViewportPreparationGenerationsBySurfaceID[surfaceID] = requestGeneration
         return MobileTerminalViewportPreparation(
             workspaceID: workspaceID,
             ownerKey: ownerKey,
@@ -128,6 +133,15 @@ extension MobileShellComposite {
             workspaceID: preparedWorkspaceID,
             terminalID: MobileTerminalPreview.ID(rawValue: surfaceID)
         )
+        func finishPreparation(requestColdReplay: Bool = false) {
+            guard terminalViewportPreparationGenerationsBySurfaceID[surfaceID]
+                    == requestGeneration else { return }
+            terminalViewportPreparationGenerationsBySurfaceID.removeValue(forKey: surfaceID)
+            if requestColdReplay, hasTerminalOutputSink(surfaceID: surfaceID) {
+                requestColdAttachTerminalReplay(surfaceID: surfaceID)
+            }
+        }
+
         guard foregroundMacKey == preparation.ownerKey,
               workspaceID(forTerminalID: surfaceID) == preparedWorkspaceID,
               reportedViewportSizesByTerminalKey[key] == reportedGrid,
@@ -137,6 +151,7 @@ extension MobileShellComposite {
                 correlationID: surfaceID,
                 failure: .superseded
             )
+            finishPreparation()
             return nil
         }
         // Demonstration surfaces answer the viewport report locally with the
@@ -153,6 +168,7 @@ extension MobileShellComposite {
                 correlationID: surfaceID,
                 count: columns * rows
             )
+            finishPreparation()
             return (
                 columns: columns,
                 rows: rows,
@@ -166,6 +182,7 @@ extension MobileShellComposite {
                 correlationID: surfaceID,
                 failure: .offline
             )
+            finishPreparation(requestColdReplay: true)
             return nil
         }
         let previousReportedGrid = reportedTerminalViewportSizesBySurfaceID[surfaceID]
@@ -199,6 +216,7 @@ extension MobileShellComposite {
                     correlationID: surfaceID,
                     failure: .superseded
                 )
+                finishPreparation(requestColdReplay: true)
                 return nil
             }
             guard viewportReportGenerationsBySequenceKey[sequenceKey] == requestGeneration else {
@@ -208,6 +226,9 @@ extension MobileShellComposite {
                     correlationID: surfaceID,
                     failure: .superseded
                 )
+                // A newer preparation owns the replay decision and its
+                // generation marker. Do not issue a fallback for this stale
+                // response.
                 return nil
             }
             guard let payload = try? MobileTerminalViewportResponse.decode(data),
@@ -222,6 +243,7 @@ extension MobileShellComposite {
                     correlationID: surfaceID,
                     failure: .protocolViolation
                 )
+                finishPreparation(requestColdReplay: true)
                 return nil
             }
             reportedTerminalViewportSizesBySurfaceID[surfaceID] = reportedGrid
@@ -278,6 +300,7 @@ extension MobileShellComposite {
                 correlationID: surfaceID,
                 count: grid.columns * grid.rows
             )
+            finishPreparation()
             return (
                 columns: grid.columns,
                 rows: grid.rows,
@@ -308,6 +331,7 @@ extension MobileShellComposite {
                 token: prearmedReplayBarrierToken,
                 reason: "viewport_failed"
             )
+            finishPreparation(requestColdReplay: true)
             terminalViewportLog.error("viewport report failed surface=\(surfaceID, privacy: .public) error=\(String(describing: error), privacy: .public)")
             recordAppEvent(
                 .terminalViewportReportFailed,
@@ -322,6 +346,7 @@ extension MobileShellComposite {
     /// detach). Fire-and-forget; the Mac also clears on connection close.
     public func clearTerminalViewport(surfaceID: String) {
         recordAppEvent(.terminalViewportClearStarted, correlationID: surfaceID)
+        terminalViewportPreparationGenerationsBySurfaceID.removeValue(forKey: surfaceID)
         let workspaceID = workspaceID(forTerminalID: surfaceID)
         // A clear releases the presentation's full local viewport lease. Any
         // replay, input, or paste that races after this point must not carry

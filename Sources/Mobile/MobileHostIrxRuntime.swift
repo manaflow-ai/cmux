@@ -843,6 +843,21 @@ final class MobileHostIrxRuntime {
                         journal: journal
                     )
                 }
+            case .terminalInput:
+                guard terminalLaneCount < 4 else {
+                    await lane.writer.reset(errorCode: 3)
+                    await lane.reader.stop(errorCode: 3)
+                    continue
+                }
+                terminalLaneCount += 1
+                let resource = lane.descriptor.resource ?? ""
+                Task {
+                    await MobileHostIrxTerminalLaneServer.serveInputOnly(
+                        resourceID: resource,
+                        stream: lane.bidirectional(),
+                        journal: journal
+                    )
+                }
             case .artifact:
                 guard let resource = try? CmxIrohResourceID(lane.descriptor.resource ?? "")
                 else {
