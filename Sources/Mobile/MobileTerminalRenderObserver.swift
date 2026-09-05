@@ -432,30 +432,6 @@ final class MobileTerminalRenderObserver {
             ) else { return nil }
             switch emission {
             case .emit(let frame, let state):
-                #if DEBUG
-                if frame.full {
-                    var reasons: [String] = []
-                    if let previousEmissionState {
-                        if previousEmissionState.renderEpoch != themedFrame.renderEpoch { reasons.append("epoch") }
-                        if previousEmissionState.columns != themedFrame.columns || previousEmissionState.rows != themedFrame.rows { reasons.append("shape") }
-                        if previousEmissionState.anchor != themedFrame.anchor { reasons.append("anchor") }
-                        if previousEmissionState.activeScreen != themedFrame.activeScreen { reasons.append("screen") }
-                        if previousEmissionState.terminalTheme != themedFrame.terminalTheme { reasons.append("theme") }
-                        if previousEmissionState.terminalConfigTheme != themedFrame.terminalConfigTheme { reasons.append("config") }
-                    } else {
-                        reasons.append("no_previous")
-                    }
-                    if themedFrame.modes.contains(where: { $0.isDECOriginMode && $0.on }) {
-                        reasons.append("decom")
-                    }
-                    cmuxDebugLog(
-                        "mobile.render_grid.full_reason surface=\(surfaceID.uuidString.prefix(8)) " +
-                            "anchor=\(anchor.rawValue) reasons=\(reasons.joined(separator: ",")) " +
-                            "prevRev=\(previousEmissionState?.renderRevision ?? 0) nextRev=\(themedFrame.renderRevision) " +
-                            "prevSeq=\(previousEmissionState?.stateSeq ?? 0) nextSeq=\(themedFrame.stateSeq)"
-                    )
-                }
-                #endif
                 renderGridStatesBySurfaceID[surfaceID, default: [:]][anchor] = state
                 return frame
             case .needsScrollback(let rows):
