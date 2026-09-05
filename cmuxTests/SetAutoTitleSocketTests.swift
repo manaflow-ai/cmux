@@ -293,6 +293,135 @@ import Testing
         }
     }
 
+    // MARK: - surface.sync_codex_native_title (cmux #11144)
+    //
+    // Mirrors an OSC terminal-title update, but sourced from Codex's own
+    // native thread title instead of a terminal escape sequence, so it writes
+    // through `Workspace.updatePanelTitle` (the same raw tier OSC already
+    // uses) rather than the `.auto` custom-title tier `workspace.set_auto_title`
+    // writes to. Unlike that method, it is NOT gated by the opt-in Workspace
+    // Auto-Naming setting — matching Claude's unconditional OSC-driven tab
+    // title updates. The title itself is resolved by the caller (the detached
+    // `cmux hooks codex sync-native-title` process, via `CodexNativeTitleStore`
+    // in the CMUXAgentLaunch package) before this call, so these tests exercise
+    // the handler with a plain `title` param — the reader itself is covered by
+    // `CodexNativeTitleStoreTests` in that package.
+
+    @Test func syncCodexNativeTitleAppliesRawPanelTitleWhenNoCustomTitleExists() throws {
+        try withManager { _, workspace in
+            let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+            let panelId = try #require(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
+
+            let envelope = try call(method: "surface.sync_codex_native_title", params: [
+                "workspace_id": workspace.id.uuidString,
+                "panel_id": panelId.uuidString,
+                "title": "測試 cmux 與 codex Tab 同步"
+            ])
+            let result = try #require(envelope["result"] as? [String: Any])
+            #expect(result["applied"] as? Bool == true)
+            #expect(workspace.panelTitles[panelId] == "測試 cmux 與 codex Tab 同步")
+            // The raw tier, not the custom-title tier: no auto/user provenance recorded.
+            #expect(workspace.panelCustomTitles[panelId] == nil)
+        }
+    }
+
+    @Test func syncCodexNativeTitleNeverOverridesAUserRenamedTab() throws {
+        try withManager { _, workspace in
+            let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+            let panelId = try #require(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
+            _ = workspace.setPanelCustomTitle(panelId: panelId, title: "my renamed tab", source: .user)
+
+            let envelope = try call(method: "surface.sync_codex_native_title", params: [
+                "workspace_id": workspace.id.uuidString,
+                "panel_id": panelId.uuidString,
+                "title": "some fresh Codex title"
+            ])
+            #expect(envelope["ok"] as? Bool == true)
+            #expect(workspace.panelCustomTitles[panelId] == "my renamed tab")
+            #expect(workspace.panelCustomTitleSources[panelId] == .user)
+        }
+    }
+
+    @Test func syncCodexNativeTitleNeverOverridesAnAutoNamedTab() throws {
+        try withManager { _, workspace in
+            let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+            let panelId = try #require(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
+            _ = workspace.setPanelCustomTitle(panelId: panelId, title: "auto-named tab", source: .auto)
+
+            let envelope = try call(method: "surface.sync_codex_native_title", params: [
+                "workspace_id": workspace.id.uuidString,
+                "panel_id": panelId.uuidString,
+                "title": "some fresh Codex title"
+            ])
+            #expect(envelope["ok"] as? Bool == true)
+            #expect(workspace.panelCustomTitles[panelId] == "auto-named tab")
+        }
+    }
+
+    @Test func syncCodexNativeTitleIgnoresWorkspaceAutoNamingSetting() throws {
+        // Priority: independent of the opt-in Workspace Auto-Naming feature —
+        // must apply identically whether that setting is on or off.
+        try withAutoNamingSetting(false) {
+            try withManager { _, workspace in
+                let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+                let panelId = try #require(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
+
+                let envelope = try call(method: "surface.sync_codex_native_title", params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "panel_id": panelId.uuidString,
+                    "title": "applies even with auto-naming off"
+                ])
+                let result = try #require(envelope["result"] as? [String: Any])
+                #expect(result["applied"] as? Bool == true)
+                #expect(workspace.panelTitles[panelId] == "applies even with auto-naming off")
+            }
+        }
+    }
+
+    @Test func syncCodexNativeTitleMalformedParamsProduceCleanErrors() throws {
+        try withManager { _, workspace in
+            let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+            let panelId = try #require(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
+
+            // Missing title.
+            var envelope = try call(method: "surface.sync_codex_native_title", params: [
+                "workspace_id": workspace.id.uuidString,
+                "panel_id": panelId.uuidString
+            ])
+            #expect(envelope["ok"] as? Bool == false)
+            var error = try #require(envelope["error"] as? [String: Any])
+            #expect(error["code"] as? String == "invalid_params")
+
+            // Missing workspace id.
+            envelope = try call(method: "surface.sync_codex_native_title", params: [
+                "panel_id": panelId.uuidString,
+                "title": "Fix auth bug"
+            ])
+            #expect(envelope["ok"] as? Bool == false)
+            error = try #require(envelope["error"] as? [String: Any])
+            #expect(error["code"] as? String == "invalid_params")
+
+            // Missing panel id.
+            envelope = try call(method: "surface.sync_codex_native_title", params: [
+                "workspace_id": workspace.id.uuidString,
+                "title": "Fix auth bug"
+            ])
+            #expect(envelope["ok"] as? Bool == false)
+            error = try #require(envelope["error"] as? [String: Any])
+            #expect(error["code"] as? String == "invalid_params")
+
+            // Unknown workspace.
+            envelope = try call(method: "surface.sync_codex_native_title", params: [
+                "workspace_id": UUID().uuidString,
+                "panel_id": panelId.uuidString,
+                "title": "Fix auth bug"
+            ])
+            #expect(envelope["ok"] as? Bool == false)
+            error = try #require(envelope["error"] as? [String: Any])
+            #expect(error["code"] as? String == "not_found")
+        }
+    }
+
     @Test func malformedParamsProduceCleanErrors() throws {
         try withAutoNamingSetting(true) {
             try withManager { _, workspace in

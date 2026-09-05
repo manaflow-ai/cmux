@@ -1221,6 +1221,7 @@ class TerminalController {
         "notification.create_for_target",
         "notification.create_for_caller",
         "workspace.set_auto_title",
+        "surface.sync_codex_native_title",
     ]
 
     nonisolated func socketWorkerV2Response(handling parsedRequest: ControlRequest) -> String? {
@@ -2753,6 +2754,8 @@ class TerminalController {
             return v2Result(id: id, self.v2WorkspaceCloudVMBind(params: params))
         case "workspace.set_auto_title":
             return v2Result(id: id, self.v2WorkspaceSetAutoTitle(params: params))
+        case "surface.sync_codex_native_title":
+            return v2Result(id: id, self.v2SurfaceSyncCodexNativeTitle(params: params))
 
         // Settings/session/feedback: session.restore_previous, settings.open, and
         // feedback.open handled by ControlCommandCoordinator.
@@ -3087,6 +3090,7 @@ class TerminalController {
             "workspace.prompt_submit",
             "workspace.rename",
             "workspace.set_auto_title",
+            "surface.sync_codex_native_title",
             "workspace.group.list",
             "workspace.group.create",
             "workspace.group.ungroup",
@@ -4513,6 +4517,61 @@ class TerminalController {
             "panel_applied": v2OrNull(panelApplied),
             "enabled": true
         ])
+    }
+
+    /// `surface.sync_codex_native_title`: mirrors an OSC terminal-title
+    /// update, but sourced from Codex's own natively-generated thread title
+    /// instead of a terminal escape sequence. Codex's CLI does not emit OSC
+    /// title updates that track its live conversation title the way Claude
+    /// Code's CLI does, so a Codex panel's Bonsplit tab never picks one up
+    /// through the generic terminal-title pipeline (cmux #11144). The caller
+    /// (the detached `cmux hooks codex sync-native-title` process) has
+    /// already resolved `title` via `CodexNativeTitleStore` before this call
+    /// — this handler does no database or file I/O of its own, only the same
+    /// in-memory panel lookup and `Workspace.updatePanelTitle` write
+    /// `workspace.set_auto_title` already does. Because it writes through the
+    /// exact raw-title tier OSC already writes to, any existing custom title,
+    /// `.auto` or `.user`, is left untouched exactly as it already is for OSC
+    /// updates; this never itself becomes a `customTitle` write. Unlike
+    /// `workspace.set_auto_title`, it is not gated by the opt-in Workspace
+    /// Auto-Naming setting and never runs a summarizer: the caller already
+    /// has Codex's own title. Best-effort: an unresolved panel is a silent
+    /// `applied: false`, not an error.
+    private func v2SurfaceSyncCodexNativeTitle(params: [String: Any]) -> V2CallResult {
+        guard let title = v2String(params, "title")?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !title.isEmpty else {
+            return .err(code: "invalid_params", message: "Missing or invalid title", data: nil)
+        }
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let workspaceId = v2UUID(params, "workspace_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
+        guard let panelId = v2UUID(params, "panel_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid panel_id", data: nil)
+        }
+
+        var found = false
+        var applied = false
+        v2MainSync {
+            guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
+            let resolvedPanelId = workspace.panels[panelId] != nil
+                ? panelId
+                : workspace.panelIdFromSurfaceId(TabID(uuid: panelId))
+            guard let resolvedPanelId else { return }
+            found = true
+            applied = workspace.updatePanelTitle(panelId: resolvedPanelId, title: title)
+        }
+
+        guard found else {
+            return .err(code: "not_found", message: "Panel not found", data: [
+                "workspace_id": workspaceId.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId)
+            ])
+        }
+
+        return .ok(["applied": applied])
     }
 
     nonisolated func v2RequestedRemotePTYWorkspaceID(params: [String: Any]) -> (

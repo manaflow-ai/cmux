@@ -283,6 +283,13 @@ struct ControlCommandExecutionPolicyTests {
         #expect(ControlCommandExecutionPolicy(forMethod: "notification.clear") == .mainActor)
     }
 
+    @Test func codexNativeTitleSyncRunsOnTheWorkerAndIsMainThreadCallable() {
+        // cmux #11144: matches workspace.set_auto_title's classification,
+        // since both apply a caller-supplied title with no I/O of their own.
+        let policy = ControlCommandExecutionPolicy(forMethod: "surface.sync_codex_native_title")
+        #expect(policy == .socketWorker(mainThreadCallable: true))
+    }
+
     @Test func v1CommandsDefaultToTheMainActor() {
         for command in [
             "right_sidebar", "focus_surface",
