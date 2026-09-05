@@ -6,13 +6,17 @@ Regression test: the generated Pi extension is importable and emits cmux hook ca
 from __future__ import annotations
 
 import base64
+from collections.abc import Iterator
+from contextlib import contextmanager
 import fcntl
 import json
 import os
 import signal
 import shutil
+import socketserver
 import subprocess
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -21,6 +25,7 @@ from claude_teams_test_utils import (
     FOCUSED_WORKSPACE_ID,
     install_pi_extension,
     resolve_cmux_cli,
+    set_pi_extension_pinned_cli,
 )
 
 NONBLOCKING_LOCK_TIMEOUT_SECONDS = 5.0
@@ -96,6 +101,269 @@ def payloads_from_log(text: str) -> list[dict[str, object]]:
     return payloads
 
 
+class _AutoNamingSocketHandler(socketserver.StreamRequestHandler):
+    def handle(self) -> None:
+        while line := self.rfile.readline():
+            decoded = line.decode("utf-8").rstrip("\r\n")
+            if decoded.startswith("auth "):
+                self.wfile.write(b"OK\n")
+                self.wfile.flush()
+                continue
+            try:
+                request = json.loads(decoded)
+            except json.JSONDecodeError:
+                self.wfile.write(b"OK\n")
+                self.wfile.flush()
+                continue
+
+            method = str(request.get("method", ""))
+            params = request.get("params") or {}
+            self.server.requests.append(request)  # type: ignore[attr-defined]
+            workspace_id = self.server.workspace_id  # type: ignore[attr-defined]
+            surface_id = self.server.surface_id  # type: ignore[attr-defined]
+            if method == "agent.resolve_delivery_target":
+                result: dict[str, object] = {
+                    "source": "surface",
+                    "workspace_id": workspace_id,
+                    "surface_id": surface_id,
+                }
+            elif method == "surface.list":
+                result = {
+                    "workspace_id": workspace_id,
+                    "surfaces": [
+                        {
+                            "id": surface_id,
+                            "ref": "surface:1",
+                            "index": 1,
+                            "focused": True,
+                        }
+                    ],
+                }
+            elif method == "workspace.set_auto_title" and params.get("probe") is True:
+                result = {
+                    "enabled": True,
+                    "summarizer_agent": None,
+                    "workspace_user_owned": False,
+                }
+            elif method == "workspace.set_auto_title" and "failure" in params:
+                result = {"recorded": True, "enabled": True}
+            elif method == "workspace.set_auto_title":
+                result = {
+                    "workspace_applied": True,
+                    "surface_applied": False,
+                    "enabled": True,
+                }
+            elif method == "surface.resume.get":
+                result = {"resume_binding": None}
+            else:
+                result = {}
+            response = {"ok": True, "result": result, "id": request.get("id")}
+            try:
+                self.wfile.write((json.dumps(response) + "\n").encode("utf-8"))
+                self.wfile.flush()
+            except BrokenPipeError:
+                return
+
+
+class _AutoNamingSocketServer(socketserver.ThreadingUnixStreamServer):
+    allow_reuse_address = True
+
+    def __init__(self, socket_path: str, workspace_id: str, surface_id: str) -> None:
+        self.workspace_id = workspace_id
+        self.surface_id = surface_id
+        self.requests: list[dict[str, object]] = []
+        super().__init__(socket_path, _AutoNamingSocketHandler)
+
+
+@contextmanager
+def auto_naming_socket_server(
+    workspace_id: str,
+    surface_id: str,
+) -> Iterator[tuple[str, _AutoNamingSocketServer]]:
+    # Pin to /tmp: macOS AF_UNIX paths are limited to roughly 104 bytes, while
+    # the default TMPDIR under /var/folders can exceed that limit.
+    with tempfile.TemporaryDirectory(prefix="cmux-pi-autoname-socket-", dir="/tmp") as socket_dir:
+        socket_path = str(Path(socket_dir) / "cmux.sock")
+        server = _AutoNamingSocketServer(socket_path, workspace_id, surface_id)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            yield socket_path, server
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+
+
+def check_auto_naming_from_generated_hook_environment(
+    *,
+    bun: str,
+    root: Path,
+    cli_path: str,
+) -> int:
+    try:
+        extension_path = install_pi_extension(root / "auto-name-pi-agent", cli_path)
+    except RuntimeError as exc:
+        print(f"FAIL: auto-name Pi extension install failed: {exc}")
+        return 1
+    workspace_id = "11111111-1111-4111-8111-111111111111"
+    surface_id = "44444444-4444-4444-8444-444444444444"
+    session_id = "pi-auto-name-restricted-environment"
+    state_dir = root / "auto-name-state"
+    state_dir.mkdir()
+    state_path = state_dir / "pi-hook-sessions.json"
+    auto_name_bin = root / "auto-name-bin"
+    auto_name_bin.mkdir()
+    auto_name_log = root / "auto-name-pi.log"
+    fake_pi = auto_name_bin / "pi"
+    make_executable(
+        fake_pi,
+        f"""#!/usr/bin/env bash
+set -euo pipefail
+printf 'argv=%s\n' "$*" >> {str(auto_name_log)!r}
+if [ "${{ANTHROPIC_API_KEY-}}" != "pi-autoname-provider-key" ]; then
+  printf 'exit=1 No API key found for the selected model.\n' >> {str(auto_name_log)!r}
+  printf 'No API key found for the selected model.\n' >&2
+  exit 1
+fi
+if [ "${{AWS_ENDPOINT_URL_BEDROCK_RUNTIME-}}" != "https://bedrock-proxy.example.invalid/runtime" ] \
+  || [ "${{AWS_BEDROCK_SKIP_AUTH-}}" != "1" ] \
+  || [ "${{AWS_BEDROCK_FORCE_HTTP1-}}" != "1" ] \
+  || [ "${{AWS_BEDROCK_FORCE_CACHE-}}" != "1" ] \
+  || [ "${{HTTPS_PROXY-}}" != "http://provider-proxy.example.invalid:8080" ]; then
+  printf 'exit=1 Bedrock provider environment missing.\n' >> {str(auto_name_log)!r}
+  printf 'Bedrock provider environment missing.\n' >&2
+  exit 1
+fi
+printf 'exit=0 title=Repair Pi Auto Naming\n' >> {str(auto_name_log)!r}
+printf 'Repair Pi Auto Naming\n'
+""",
+    )
+
+    modern_package = root / "auto-name-node-modules" / "@earendil-works" / "pi-coding-agent"
+    modern_cli = modern_package / "dist" / "cli.js"
+    modern_cli.parent.mkdir(parents=True)
+    make_executable(modern_cli, "#!/usr/bin/env node\n")
+    (modern_package / "package.json").write_text(
+        json.dumps({"name": "@earendil-works/pi-coding-agent", "version": "0.81.1"}),
+        encoding="utf-8",
+    )
+
+    source = """
+const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
+const mod = await import(extensionPath);
+const handlers = new Map();
+mod.default({ on(name, handler) { handlers.set(name, handler); } });
+process.argv.splice(
+  0,
+  process.argv.length,
+  "/opt/homebrew/bin/node",
+  process.env.CMUX_TEST_PI_MODERN_SCRIPT_PATH,
+  "--model",
+  "pi-codex/gpt-5.4"
+);
+const ctx = {
+  cwd: "/tmp/pi-auto-name-project",
+  isIdle() { return true; },
+  sessionManager: {
+    getSessionId() { return "pi-auto-name-restricted-environment"; }
+  }
+};
+handlers.get("before_agent_start")({
+  prompt: "Fix Pi workspace auto naming after a resumed session"
+}, ctx);
+handlers.get("agent_end")({
+  messages: [
+    { role: "user", content: "Fix Pi workspace auto naming after a resumed session" },
+    { role: "assistant", content: "The restricted hook environment drops the fallback provider credential" }
+  ],
+  stopReason: "completed"
+}, ctx);
+handlers.get("agent_settled")({}, ctx);
+await handlers.get("session_shutdown")({ reason: "test complete" }, ctx);
+"""
+
+    with auto_naming_socket_server(workspace_id, surface_id) as (socket_path, server):
+        env = os.environ.copy()
+        env.update(
+            {
+                "PATH": str(auto_name_bin) + os.pathsep + env.get("PATH", ""),
+                "PI_CODING_AGENT_DIR": str(extension_path.parent.parent),
+                "CMUX_TEST_PI_EXTENSION_PATH": str(extension_path),
+                "CMUX_TEST_PI_MODERN_SCRIPT_PATH": str(modern_cli),
+                "CMUX_PI_CMUX_BIN": cli_path,
+                "CMUX_BUNDLED_CLI_PATH": cli_path,
+                "CMUX_SOCKET_PATH": socket_path,
+                "CMUX_WORKSPACE_ID": workspace_id,
+                "CMUX_SURFACE_ID": surface_id,
+                "CMUX_AGENT_HOOK_STATE_DIR": str(state_dir),
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+                "ANTHROPIC_API_KEY": "pi-autoname-provider-key",
+                "AWS_ENDPOINT_URL_BEDROCK_RUNTIME": "https://bedrock-proxy.example.invalid/runtime",
+                "AWS_BEDROCK_SKIP_AUTH": "1",
+                "AWS_BEDROCK_FORCE_HTTP1": "1",
+                "AWS_BEDROCK_FORCE_CACHE": "1",
+                "HTTPS_PROXY": "http://provider-proxy.example.invalid:8080",
+            }
+        )
+        result = subprocess.run(
+            [bun, "--eval", source],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=30,
+        )
+        if result.returncode != 0:
+            print(
+                "FAIL: Pi turn-end auto-name harness failed: "
+                f"exit={result.returncode} stdout={result.stdout!r} stderr={result.stderr!r}"
+            )
+            return 1
+
+        deadline = time.monotonic() + 10
+        record: dict[str, object] = {}
+        while time.monotonic() < deadline:
+            try:
+                store = json.loads(state_path.read_text(encoding="utf-8"))
+                record = (store.get("sessions") or {}).get(session_id) or {}
+            except (FileNotFoundError, json.JSONDecodeError):
+                record = {}
+            if record.get("autoNameLastAttemptAt") and record.get("autoNameLastNamedAt"):
+                break
+            time.sleep(0.05)
+
+        pi_log = auto_name_log.read_text(encoding="utf-8") if auto_name_log.exists() else ""
+        if "--no-extensions" not in pi_log:
+            print(f"FAIL: Pi auto-name did not run with --no-extensions: {pi_log!r}")
+            return 1
+        if "exit=0 title=Repair Pi Auto Naming" not in pi_log:
+            print(
+                "FAIL: Pi auto-name lost its selected fallback provider credential under "
+                f"hookEnvironment(): log={pi_log!r} record={record!r}"
+            )
+            return 1
+        if not record.get("autoNameLastAttemptAt") or not record.get("autoNameLastNamedAt"):
+            print(f"FAIL: successful Pi turn-end naming did not persist attempt/name timestamps: {record!r}")
+            return 1
+        if record.get("autoNameLastTitle") != "Repair Pi Auto Naming":
+            print(f"FAIL: Pi auto-name did not persist the returned title: {record!r}")
+            return 1
+        applied_titles = [
+            request.get("params", {}).get("title")
+            for request in server.requests
+            if request.get("method") == "workspace.set_auto_title"
+            and isinstance(request.get("params"), dict)
+            and "title" in request.get("params", {})
+        ]
+        if applied_titles != ["Repair Pi Auto Naming"]:
+            print(f"FAIL: Pi turn-end naming did not apply the returned title: {applied_titles!r}")
+            return 1
+
+    return 0
+
+
 def main() -> int:
     bun = shutil.which("bun")
     if bun is None:
@@ -126,6 +394,17 @@ def main() -> int:
 
         if "@earendil-works/pi-coding-agent" not in extension_text:
             print("FAIL: generated Pi extension does not import the current Pi package")
+            return 1
+        pinned_line = next(
+            (line for line in extension_text.splitlines() if "// cmux-pinned-executable" in line),
+            "",
+        )
+        try:
+            pinned_cli_path = Path(json.loads(pinned_line.split("=", 1)[1].split(";", 1)[0].strip()))
+        except (IndexError, json.JSONDecodeError, TypeError):
+            pinned_cli_path = Path()
+        if not pinned_cli_path.is_file() or not pinned_cli_path.samefile(cli_path):
+            print("FAIL: generated Pi extension did not pin the installing cmux executable")
             return 1
 
         extension_path.write_text(
@@ -359,24 +638,28 @@ set -euo pipefail
 printf '%s\n' "$*" >> "$CMUX_TEST_PI_ARGS_LOG"
 payload="$(cat)"
 printf '%s\n' "$payload" >> "$CMUX_TEST_PI_STDIN_LOG"
-{
-  printf 'kind=%s\n' "${CMUX_AGENT_LAUNCH_KIND-}"
-  printf 'cwd=%s\n' "${CMUX_AGENT_LAUNCH_CWD-}"
-  printf 'argv=%s\n' "${CMUX_AGENT_LAUNCH_ARGV_B64-}"
-  if [ -n "${OPENAI_API_KEY-}" ]; then printf 'OPENAI_API_KEY=present\n'; fi
-  if [ -n "${ANTHROPIC_AUTH_TOKEN-}" ]; then printf 'ANTHROPIC_AUTH_TOKEN=present\n'; fi
-  if [ -n "${CUSTOM_PASSWORD-}" ]; then printf 'CUSTOM_PASSWORD=present\n'; fi
-  if [ -n "${AMP_API_KEY-}" ]; then printf 'AMP_API_KEY=present\n'; fi
-  if [ -n "${CMUX_LEAK_TOKEN-}" ]; then printf 'CMUX_LEAK_TOKEN=present\n'; fi
-  if [ -n "${DATABASE_URL-}" ]; then printf 'DATABASE_URL=present\n'; fi
-  if [ -n "${DB_PASS-}" ]; then printf 'DB_PASS=present\n'; fi
-  if [ -n "${SENTRY_DSN-}" ]; then printf 'SENTRY_DSN=present\n'; fi
-  if [ -n "${GH_PAT-}" ]; then printf 'GH_PAT=present\n'; fi
-  if [ -n "${CLOUDFLARE_AUTH_KEY-}" ]; then printf 'CLOUDFLARE_AUTH_KEY=present\n'; fi
-  if [ -n "${STRIPE_SK-}" ]; then printf 'STRIPE_SK=present\n'; fi
-  if [ -n "${SLACK_WEBHOOK_URL-}" ]; then printf 'SLACK_WEBHOOK_URL=present\n'; fi
-  if [ -n "${CMUX_TEST_PI_TOKEN-}" ]; then printf 'CMUX_TEST_PI_TOKEN=present\n'; fi
-} >> "$CMUX_TEST_PI_ENV_LOG"
+record="command=$*|kind=${CMUX_AGENT_LAUNCH_KIND-}|cwd=${CMUX_AGENT_LAUNCH_CWD-}|argv=${CMUX_AGENT_LAUNCH_ARGV_B64-}"
+if [ -n "${ANTHROPIC_API_KEY-}" ]; then record="$record|ANTHROPIC_API_KEY=present"; fi
+if [ -n "${OPENAI_API_KEY-}" ]; then record="$record|OPENAI_API_KEY=present"; fi
+if [ -n "${AWS_ENDPOINT_URL_BEDROCK_RUNTIME-}" ]; then record="$record|AWS_ENDPOINT_URL_BEDROCK_RUNTIME=present"; fi
+if [ -n "${AWS_BEDROCK_SKIP_AUTH-}" ]; then record="$record|AWS_BEDROCK_SKIP_AUTH=present"; fi
+if [ -n "${AWS_BEDROCK_FORCE_HTTP1-}" ]; then record="$record|AWS_BEDROCK_FORCE_HTTP1=present"; fi
+if [ -n "${AWS_BEDROCK_FORCE_CACHE-}" ]; then record="$record|AWS_BEDROCK_FORCE_CACHE=present"; fi
+if [ -n "${HTTPS_PROXY-}" ]; then record="$record|HTTPS_PROXY=present"; fi
+if [ -n "${CMUX_SOCKET_PASSWORD-}" ]; then record="$record|CMUX_SOCKET_PASSWORD=present"; fi
+if [ -n "${ANTHROPIC_AUTH_TOKEN-}" ]; then record="$record|ANTHROPIC_AUTH_TOKEN=present"; fi
+if [ -n "${CUSTOM_PASSWORD-}" ]; then record="$record|CUSTOM_PASSWORD=present"; fi
+if [ -n "${AMP_API_KEY-}" ]; then record="$record|AMP_API_KEY=present"; fi
+if [ -n "${CMUX_LEAK_TOKEN-}" ]; then record="$record|CMUX_LEAK_TOKEN=present"; fi
+if [ -n "${DATABASE_URL-}" ]; then record="$record|DATABASE_URL=present"; fi
+if [ -n "${DB_PASS-}" ]; then record="$record|DB_PASS=present"; fi
+if [ -n "${SENTRY_DSN-}" ]; then record="$record|SENTRY_DSN=present"; fi
+if [ -n "${GH_PAT-}" ]; then record="$record|GH_PAT=present"; fi
+if [ -n "${CLOUDFLARE_AUTH_KEY-}" ]; then record="$record|CLOUDFLARE_AUTH_KEY=present"; fi
+if [ -n "${STRIPE_SK-}" ]; then record="$record|STRIPE_SK=present"; fi
+if [ -n "${SLACK_WEBHOOK_URL-}" ]; then record="$record|SLACK_WEBHOOK_URL=present"; fi
+if [ -n "${CMUX_TEST_PI_TOKEN-}" ]; then record="$record|CMUX_TEST_PI_TOKEN=present"; fi
+printf '%s\n' "$record" >> "$CMUX_TEST_PI_ENV_LOG"
 case "$*" in
   *"hooks pi notification"*)
     if printf '%s' "$payload" | grep -q 'pi-session-notification-fails'; then
@@ -416,6 +699,22 @@ esac
 """,
         )
 
+        shadow_cmux = bin_dir / "cmux"
+        shadow_env_log = root / "shadow-cmux-env.log"
+        make_executable(
+            shadow_cmux,
+            """#!/usr/bin/env bash
+set -euo pipefail
+record="command=$*"
+for key in ANTHROPIC_API_KEY OPENAI_API_KEY AWS_ENDPOINT_URL_BEDROCK_RUNTIME AWS_BEDROCK_SKIP_AUTH AWS_BEDROCK_FORCE_HTTP1 AWS_BEDROCK_FORCE_CACHE HTTPS_PROXY CMUX_SOCKET_PASSWORD; do
+  if [ -n "${!key-}" ]; then record="$record|$key=present"; fi
+done
+printf '%s\n' "$record" >> "$CMUX_TEST_PI_SHADOW_ENV_LOG"
+exec "$CMUX_TEST_PI_TRUSTED_CLI" "$@"
+""",
+        )
+        set_pi_extension_pinned_cli(extension_path, fake_cmux)
+
         check_env = env.copy()
         for key in (
             "CMUX_AGENT_LAUNCH_ARGV_B64",
@@ -428,16 +727,26 @@ esac
         check_env["CMUX_TEST_PI_EXTENSION_PATH"] = str(extension_path)
         check_env["CMUX_SURFACE_ID"] = "surface-pi-test"
         check_env["CMUX_WORKSPACE_ID"] = "workspace-pi-test"
-        check_env["CMUX_PI_CMUX_BIN"] = str(fake_cmux)
+        check_env["CMUX_PI_CMUX_BIN"] = "cmux"
+        check_env["CMUX_BUNDLED_CLI_PATH"] = str(shadow_cmux)
         check_env["CMUX_TEST_PI_ARGS_LOG"] = str(fake_args_log)
         check_env["CMUX_TEST_PI_STDIN_LOG"] = str(fake_stdin_log)
         check_env["CMUX_TEST_PI_ENV_LOG"] = str(fake_env_log)
         check_env["CMUX_TEST_PI_BINDING_FILE"] = str(fake_binding)
+        check_env["CMUX_TEST_PI_SHADOW_ENV_LOG"] = str(shadow_env_log)
+        check_env["CMUX_TEST_PI_TRUSTED_CLI"] = str(fake_cmux)
         check_env["CMUX_TEST_PI_MODERN_SCRIPT_PATH"] = str(modern_cli)
         check_env["CMUX_TEST_PI_LEGACY_SCRIPT_PATH"] = str(legacy_pi)
         check_env["CMUX_TEST_PI_UNKNOWN_SCRIPT_PATH"] = str(root / "unknown-bin" / "pi")
         check_env["CMUX_TEST_PI_MALFORMED_SCRIPT_PATH"] = str(malformed_cli)
-        check_env["OPENAI_API_KEY"] = "openai-secret-should-not-leak"
+        check_env["ANTHROPIC_API_KEY"] = "anthropic-autoname-provider-key"
+        check_env["OPENAI_API_KEY"] = "openai-autoname-provider-key"
+        check_env["AWS_ENDPOINT_URL_BEDROCK_RUNTIME"] = "https://bedrock-proxy.example.invalid/runtime"
+        check_env["AWS_BEDROCK_SKIP_AUTH"] = "1"
+        check_env["AWS_BEDROCK_FORCE_HTTP1"] = "1"
+        check_env["AWS_BEDROCK_FORCE_CACHE"] = "1"
+        check_env["HTTPS_PROXY"] = "http://provider-proxy.example.invalid:8080"
+        check_env["CMUX_SOCKET_PASSWORD"] = "socket-password-for-trusted-cli"
         check_env["ANTHROPIC_AUTH_TOKEN"] = "anthropic-secret-should-not-leak"
         check_env["CUSTOM_PASSWORD"] = "password-should-not-leak"
         check_env["AMP_API_KEY"] = "amp-secret-should-not-leak"
@@ -813,7 +1122,7 @@ await waitForCompletionHookCount(completionCount);
             timeout=20.0,
             expected_substrings=('"hook_event_name":"PostToolUse"',),
         )
-        env_log = wait_for_text(fake_env_log, 50 * 3, timeout=20.0)
+        env_log = wait_for_text(fake_env_log, 50, timeout=20.0)
         for expected in [
             "hooks pi session-start",
             "hooks pi prompt-submit",
@@ -1082,10 +1391,48 @@ await waitForCompletionHookCount(completionCount);
         if "kind=pi" not in env_log or "cwd=/tmp/pi-project" not in env_log or "argv=" not in env_log:
             print(f"FAIL: extension did not pass launch metadata environment, got {env_log!r}")
             return 1
+        env_records = []
+        for raw_record in env_log.splitlines():
+            fields = [field for field in raw_record.split("|") if field]
+            if not fields:
+                continue
+            command = next((field.removeprefix("command=") for field in fields if field.startswith("command=")), "")
+            present = {field.removesuffix("=present") for field in fields if field.endswith("=present")}
+            env_records.append((command, present))
+        auto_naming_env_keys = {
+            "ANTHROPIC_API_KEY",
+            "OPENAI_API_KEY",
+            "AWS_ENDPOINT_URL_BEDROCK_RUNTIME",
+            "AWS_BEDROCK_SKIP_AUTH",
+            "AWS_BEDROCK_FORCE_HTTP1",
+            "AWS_BEDROCK_FORCE_CACHE",
+            "HTTPS_PROXY",
+        }
+        stop_env_records = [record for record in env_records if "hooks pi stop" in record[0]]
+        if not stop_env_records or any(
+            not auto_naming_env_keys.issubset(present)
+            for _, present in stop_env_records
+        ):
+            print(f"FAIL: Pi Stop hooks did not receive the auto-naming provider environment: {stop_env_records!r}")
+            return 1
+        provider_leaks = [
+            (command, present & auto_naming_env_keys)
+            for command, present in env_records
+            if "hooks pi stop" not in command
+            and present & auto_naming_env_keys
+        ]
+        if provider_leaks:
+            print(f"FAIL: extension passed the auto-naming provider environment outside Pi Stop: {provider_leaks!r}")
+            return 1
+        if shadow_env_log.exists() and shadow_env_log.read_text(encoding="utf-8").strip():
+            print(
+                "FAIL: generated Pi extension ignored the trusted bundled CLI and invoked a PATH shadow: "
+                f"{shadow_env_log.read_text(encoding='utf-8')!r}"
+            )
+            return 1
         leaked = [
             name
             for name in [
-                "OPENAI_API_KEY",
                 "ANTHROPIC_AUTH_TOKEN",
                 "CUSTOM_PASSWORD",
                 "AMP_API_KEY",
@@ -1104,7 +1451,15 @@ await waitForCompletionHookCount(completionCount);
         if leaked:
             print(f"FAIL: extension leaked secret environment keys to hook subprocesses: {leaked}; env={env_log!r}")
             return 1
-        argv_line = next((line for line in env_log.splitlines() if line.startswith("argv=")), "")
+        argv_line = next(
+            (
+                field
+                for line in env_log.splitlines()
+                for field in line.split("|")
+                if field.startswith("argv=")
+            ),
+            "",
+        )
         try:
             decoded_argv = [
                 value
@@ -1122,6 +1477,85 @@ await waitForCompletionHookCount(completionCount);
         if decoded_argv != expected_argv:
             print(f"FAIL: extension captured wrong Pi launch argv; expected {expected_argv!r}, got {decoded_argv!r}")
             return 1
+
+        untrusted_state_dir = root / "untrusted-cmux-state"
+        untrusted_state_dir.mkdir()
+        untrusted_extension_path = root / "untrusted-cmux-session.ts"
+        shutil.copyfile(extension_path, untrusted_extension_path)
+        set_pi_extension_pinned_cli(untrusted_extension_path, None)
+        untrusted_env = check_env.copy()
+        untrusted_env["CMUX_TEST_PI_EXTENSION_PATH"] = str(untrusted_extension_path)
+        untrusted_env.pop("CMUX_PI_CMUX_BIN", None)
+        untrusted_env["CMUX_BUNDLED_CLI_PATH"] = str(shadow_cmux)
+        untrusted_env["CMUX_AGENT_HOOK_STATE_DIR"] = str(untrusted_state_dir)
+        untrusted_source = """
+const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
+const mod = await import(extensionPath);
+const handlers = new Map();
+mod.default({ on(name, handler) { handlers.set(name, handler); } });
+process.argv.splice(
+  0,
+  process.argv.length,
+  "/opt/homebrew/bin/node",
+  process.env.CMUX_TEST_PI_MODERN_SCRIPT_PATH,
+  "--model",
+  "anthropic/claude-sonnet-4-5"
+);
+const ctx = {
+  cwd: "/tmp/pi-untrusted-cmux-project",
+  isIdle() { return true; },
+  sessionManager: {
+    getSessionId() { return "pi-session-untrusted-cmux"; }
+  }
+};
+await handlers.get("session_start")({}, ctx);
+await handlers.get("before_agent_start")({ prompt: "verify credential boundary" }, ctx);
+await handlers.get("agent_end")({
+  messages: [{ role: "assistant", content: "done" }],
+  stopReason: "completed"
+}, ctx);
+await handlers.get("agent_settled")({}, ctx);
+await handlers.get("session_shutdown")({ reason: "test complete" }, ctx);
+"""
+        untrusted_result = subprocess.run(
+            [bun, "--eval", untrusted_source],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=False,
+            env=untrusted_env,
+            timeout=30,
+        )
+        if untrusted_result.returncode != 0:
+            print(
+                "FAIL: untrusted cmux fallback harness failed: "
+                f"exit={untrusted_result.returncode} stdout={untrusted_result.stdout!r} "
+                f"stderr={untrusted_result.stderr!r}"
+            )
+            return 1
+        shadow_env = wait_for_text(
+            shadow_env_log,
+            1,
+            timeout=10.0,
+            expected_substrings=("hooks pi stop",),
+        )
+        credential_names = auto_naming_env_keys | {"CMUX_SOCKET_PASSWORD"}
+        shadow_leaks = [
+            (line, sorted(name for name in credential_names if f"|{name}=present" in line))
+            for line in shadow_env.splitlines()
+            if any(f"|{name}=present" in line for name in credential_names)
+        ]
+        if shadow_leaks:
+            print(f"FAIL: untrusted cmux fallback received credentials: {shadow_leaks!r}")
+            return 1
+
+        auto_name_result = check_auto_naming_from_generated_hook_environment(
+            bun=bun,
+            root=root,
+            cli_path=cli_path,
+        )
+        if auto_name_result != 0:
+            return auto_name_result
 
     print("PASS: generated Pi extension installs and emits cmux hooks")
     return 0

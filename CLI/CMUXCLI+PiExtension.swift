@@ -4,6 +4,30 @@ import Darwin
 extension CMUXCLI {
     private static let piExtensionMarker = "cmux-pi-session-extension-marker"
     private static let piExtensionFilename = "cmux-session.ts"
+    private static let piPinnedExecutableTemplate =
+        "const pinnedCmuxExecutable: string | null = null; // cmux-pinned-executable"
+
+    private func renderedPiExtensionSource(fileManager: FileManager = .default) -> String {
+        // CLIExecutableLocator uses _NSGetExecutablePath, so Pi's mutable environment
+        // cannot redirect the credential-trusted executable baked into this extension.
+        guard let executableURL = CLIExecutableLocator.currentExecutableURL() else {
+            return Self.piExtensionSource
+        }
+        let executablePath = executableURL.path
+        var isDirectory = ObjCBool(false)
+        guard fileManager.fileExists(atPath: executablePath, isDirectory: &isDirectory),
+              !isDirectory.boolValue,
+              fileManager.isExecutableFile(atPath: executablePath),
+              let encodedPath = try? JSONEncoder().encode(executablePath),
+              let pathLiteral = String(data: encodedPath, encoding: .utf8)
+        else {
+            return Self.piExtensionSource
+        }
+        return Self.piExtensionSource.replacingOccurrences(
+            of: Self.piPinnedExecutableTemplate,
+            with: "const pinnedCmuxExecutable: string | null = \(pathLiteral); // cmux-pinned-executable"
+        )
+    }
 
     private func piExtensionURL(for def: AgentHookDef) -> URL {
         URL(fileURLWithPath: def.resolvedConfigDir(), isDirectory: true)
@@ -78,6 +102,7 @@ extension CMUXCLI {
     func refreshManagedPiExtensionIfNeeded(_ def: AgentHookDef) {
         let extensionURL = piExtensionURL(for: def)
         let fileManager = FileManager.default
+        let extensionSource = renderedPiExtensionSource(fileManager: fileManager)
         guard fileManager.fileExists(atPath: extensionURL.path) else { return }
         do {
             try withPiExtensionMutationLock(
@@ -89,11 +114,11 @@ extension CMUXCLI {
                 guard fileManager.fileExists(atPath: extensionURL.path) else { return }
                 let existing = try existingPiExtensionContents(at: extensionURL, fileManager: fileManager)
                 if existing.isEmpty {
-                    try Self.piExtensionSource.write(to: extensionURL, atomically: true, encoding: .utf8)
+                    try extensionSource.write(to: extensionURL, atomically: true, encoding: .utf8)
                     return
                 }
                 guard existing.contains(Self.piExtensionMarker),
-                      existing != Self.piExtensionSource
+                      existing != extensionSource
                 else {
                     return
                 }
@@ -103,7 +128,7 @@ extension CMUXCLI {
                 guard try existingPiExtensionContents(at: extensionURL, fileManager: fileManager) == existing else {
                     return
                 }
-                try Self.piExtensionSource.write(to: extensionURL, atomically: true, encoding: .utf8)
+                try extensionSource.write(to: extensionURL, atomically: true, encoding: .utf8)
             }
         } catch {
             // Hook delivery must continue when a managed extension cannot be refreshed.
@@ -113,10 +138,11 @@ extension CMUXCLI {
     func installPiExtensionHooks(_ def: AgentHookDef) throws {
         let extensionURL = piExtensionURL(for: def)
         let fileManager = FileManager.default
+        let extensionSource = renderedPiExtensionSource(fileManager: fileManager)
         let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes")
             || ProcessInfo.processInfo.arguments.contains("-y")
         let existing = try existingPiExtensionContents(at: extensionURL, fileManager: fileManager)
-        if existing == Self.piExtensionSource {
+        if existing == extensionSource {
             print(String.localizedStringWithFormat(
                 String(
                     localized: "cli.hooks.pi.alreadyUpToDate",
@@ -139,8 +165,8 @@ extension CMUXCLI {
             Self.printInstallPreview(
                 path: extensionURL.path,
                 oldContent: existing,
-                newContent: Self.piExtensionSource,
-                fallbackContent: Self.piExtensionSource
+                newContent: extensionSource,
+                fallbackContent: extensionSource
             )
             print(String(localized: "cli.hooks.pi.confirmProceed", defaultValue: "\nProceed? [y/N] "), terminator: "")
             guard readLine()?.lowercased().hasPrefix("y") == true else {
@@ -163,8 +189,8 @@ extension CMUXCLI {
                     extensionURL.path
                 ))
             }
-            if current != Self.piExtensionSource {
-                try Self.piExtensionSource.write(to: extensionURL, atomically: true, encoding: .utf8)
+            if current != extensionSource {
+                try extensionSource.write(to: extensionURL, atomically: true, encoding: .utf8)
             }
         }
         print(String.localizedStringWithFormat(
