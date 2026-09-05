@@ -152,7 +152,7 @@ public struct MobileCrashReporter {
         // Structured logs power the transport diagnostics bridge
         // (TransportSentryReporter); each log line passes the consent gate and
         // scrubber installed in `beforeSendLog`.
-        options.enableLogs = true
+        options.enableLogs = false
         // Manual breadcrumbs (the transport bridge's) are scrubbed last-mile.
         // Swizzling and automatic network capture stay OFF even with the
         // scrubber in place: swizzling injects sentry-trace/baggage headers
