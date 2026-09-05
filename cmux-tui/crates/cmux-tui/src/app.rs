@@ -39358,6 +39358,8 @@ mod tests {
         assert!(app.encode_buf.is_empty(), "Shift-right-click must bypass PTY mouse reporting");
         assert!(app.drag.is_none());
         assert!(app.menu.is_some(), "Shift-right-click must open the cmux context menu");
+        app.handle_mouse(event(MouseEventKind::Up(MouseButton::Right), KeyModifiers::SHIFT))
+            .unwrap();
         app.menu = None;
 
         app.encode_buf.clear();
@@ -39366,6 +39368,8 @@ mod tests {
         assert!(app.encode_buf.is_empty(), "Option-right-click must bypass PTY mouse reporting");
         assert!(app.drag.is_none());
         assert!(app.menu.is_some(), "Option-right-click must open the cmux context menu");
+        app.handle_mouse(event(MouseEventKind::Up(MouseButton::Right), KeyModifiers::ALT))
+            .unwrap();
         app.menu = None;
 
         app.handle_mouse(event(MouseEventKind::Down(MouseButton::Left), KeyModifiers::NONE))
@@ -45825,7 +45829,6 @@ mod tests {
             Ok(())
         });
         started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
-        app.active_pointer_buttons.insert(MouseButton::Left);
         app.drag = Some(Drag::ResizeSplit {
             screen: app.active_screen_id().unwrap_or(0),
             horizontal: Some(PaneResizeDragTarget::ViewportColumn {
@@ -53575,6 +53578,7 @@ mod tests {
         }];
         app.config.sidebar.active_profile = "agents-only".into();
         app.replace_tree(app.session.tree());
+        app.sync_layout((100, 12));
 
         assert!(
             app.projection_rows(0).is_empty(),

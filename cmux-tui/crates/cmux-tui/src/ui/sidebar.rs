@@ -183,16 +183,26 @@ pub fn draw_presentation(app: &mut App, frame: &mut Frame) {
             tail.push(manage.to_string());
             tail
         };
-    try_candidate(&labels, tail_for(false, true, true), false);
-    try_candidate(&labels, tail_for(false, true, false), false);
-    try_candidate(&labels, tail_for(false, false, true), false);
-    try_candidate(&labels, tail_for(false, false, false), false);
-    try_candidate(&active, tail_for(true, true, true), true);
-    try_candidate(&active, tail_for(true, true, false), true);
-    try_candidate(&active, tail_for(false, true, true), true);
-    try_candidate(&active, tail_for(false, true, false), true);
-    try_candidate(&active, tail_for(false, false, true), true);
-    try_candidate(&active, tail_for(false, false, false), true);
+    // A hidden-view marker is a safety disclosure. Once a view is hidden,
+    // never make it disappear just to preserve a longer profile label. Drop
+    // the optional attention and profile-overflow labels first, then shorten
+    // the active profile name. Without hidden views, keep the normal order
+    // that favors the complete profile strip.
+    if hidden.is_some() {
+        try_candidate(&labels, tail_for(false, true, true), false);
+        try_candidate(&labels, tail_for(false, false, true), false);
+        try_candidate(&active, tail_for(true, true, true), true);
+        try_candidate(&active, tail_for(true, false, true), true);
+        try_candidate(&active, tail_for(false, true, true), true);
+        try_candidate(&active, tail_for(false, false, true), true);
+    } else {
+        try_candidate(&labels, tail_for(false, true, false), false);
+        try_candidate(&labels, tail_for(false, false, false), false);
+        try_candidate(&active, tail_for(true, true, false), true);
+        try_candidate(&active, tail_for(true, false, false), true);
+        try_candidate(&active, tail_for(false, true, false), true);
+        try_candidate(&active, tail_for(false, false, false), true);
+    }
     try_candidate(&active, vec![manage.to_string()], true);
     let (shown, tail_parts, profiles_fit) = chosen.unwrap_or_else(|| {
         // A name can be wider than the entire strip. Preserve at least one
@@ -200,12 +210,20 @@ pub fn draw_presentation(app: &mut App, frame: &mut Frame) {
         // whenever a separator plus one profile cell fits.
         if !active.is_empty() {
             if content_width >= 3 {
-                (active.clone(), vec![manage.to_string()], false)
+                let tail = hidden
+                    .as_ref()
+                    .map(|hidden| vec![hidden.clone(), manage.to_string()])
+                    .unwrap_or_else(|| vec![manage.to_string()]);
+                (active.clone(), tail, false)
             } else {
                 (active.clone(), Vec::new(), false)
             }
         } else {
-            (Vec::new(), vec![manage.to_string()], false)
+            let tail = hidden
+                .as_ref()
+                .map(|hidden| vec![hidden.clone(), manage.to_string()])
+                .unwrap_or_else(|| vec![manage.to_string()]);
+            (Vec::new(), tail, false)
         }
     });
 
