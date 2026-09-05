@@ -40,7 +40,27 @@ export function isAllowedNativeReturnTo(
   }
 }
 
-export function isAllowedNativeScheme(
+export 
+const LOOPBACK_HOSTS = new Set(["127.0.0.1", "::1", "localhost"]);
+/**
+ * Loopback HTTP/HTTPS callbacks for CLI/TUI sign-in flows. Unlike native
+ * scheme callbacks these point at a listener on the signing user own
+ * machine, so they are only honored together with a verified handoff nonce
+ * (enforced at the after-sign-in call site). The path is pinned to the
+ * native callback host segment to keep the accepted target shape identical.
+ */
+export function isAllowedLoopbackReturnTo(href: string): boolean {
+  try {
+    const url = new URL(href);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return false;
+    if (!LOOPBACK_HOSTS.has(url.hostname.toLowerCase())) return false;
+    return url.pathname === "/" + NATIVE_CALLBACK_HOST;
+  } catch {
+    return false;
+  }
+}
+
+function isAllowedNativeScheme(
   scheme: string,
   request: NextRequest,
 ): boolean {

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   DEFAULT_NATIVE_CALLBACK_SCHEME,
+  isAllowedLoopbackReturnTo,
   isAllowedNativeReturnTo,
 } from "../../lib/native-callback";
 import {
@@ -468,7 +469,11 @@ export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependenc
       );
       if (
         trustedPurchaseReturnTo === nativeReturnTo ||
-        isAllowedNativeReturnTo(nativeReturnTo, request)
+        isAllowedNativeReturnTo(nativeReturnTo, request) ||
+        // Loopback CLI/TUI callbacks mirror native scheme callbacks: the
+        // verified handoff nonce (checked below) decides auto-redirect vs
+        // the manual return page.
+        isAllowedLoopbackReturnTo(nativeReturnTo)
       ) {
         const href = buildNativeHref(nativeReturnTo, refreshToken, accessCookie);
         if (href) {
