@@ -424,13 +424,38 @@ final class MobileTerminalRenderObserver {
             themedFrame.terminalTheme = resolvedTheme.theme
             themedFrame.terminalThemeRevision = resolvedTheme.revision
 
+            let previousEmissionState = renderGridStatesBySurfaceID[surfaceID]?[anchor]
             guard let emission = try? themedFrame.renderGridEmission(
-                comparedTo: renderGridStatesBySurfaceID[surfaceID]?[anchor],
+                comparedTo: previousEmissionState,
                 fullScrollbackTarget: fullScrollbackTarget,
                 allowScrollbackRequest: allowScrollbackRequest
             ) else { return nil }
             switch emission {
             case .emit(let frame, let state):
+                #if DEBUG
+                if frame.full {
+                    var reasons: [String] = []
+                    if let previousEmissionState {
+                        if previousEmissionState.renderEpoch != themedFrame.renderEpoch { reasons.append("epoch") }
+                        if previousEmissionState.columns != themedFrame.columns || previousEmissionState.rows != themedFrame.rows { reasons.append("shape") }
+                        if previousEmissionState.anchor != themedFrame.anchor { reasons.append("anchor") }
+                        if previousEmissionState.activeScreen != themedFrame.activeScreen { reasons.append("screen") }
+                        if previousEmissionState.terminalTheme != themedFrame.terminalTheme { reasons.append("theme") }
+                        if previousEmissionState.terminalConfigTheme != themedFrame.terminalConfigTheme { reasons.append("config") }
+                    } else {
+                        reasons.append("no_previous")
+                    }
+                    if themedFrame.modes.contains(where: { $0.isDECOriginMode && $0.on }) {
+                        reasons.append("decom")
+                    }
+                    cmuxDebugLog(
+                        "mobile.render_grid.full_reason surface=\(surfaceID.uuidString.prefix(8)) " +
+                            "anchor=\(anchor.rawValue) reasons=\(reasons.joined(separator: ",")) " +
+                            "prevRev=\(previousEmissionState?.renderRevision ?? 0) nextRev=\(themedFrame.renderRevision) " +
+                            "prevSeq=\(previousEmissionState?.stateSeq ?? 0) nextSeq=\(themedFrame.stateSeq)"
+                    )
+                }
+                #endif
                 renderGridStatesBySurfaceID[surfaceID, default: [:]][anchor] = state
                 return frame
             case .needsScrollback(let rows):
@@ -464,6 +489,16 @@ final class MobileTerminalRenderObserver {
     func adoptReplayBaseline(_ frame: MobileTerminalRenderGridFrame, surfaceID: UUID) {
         guard frame.anchor == .screen else { return }
         renderGridStatesBySurfaceID[surfaceID, default: [:]][.screen] = frame.emissionState
+        // Replay uses the same decorated theme/config state as the phone. Keep
+        // the resolver caches in that state as well, otherwise the next live
+        // capture resolves missing theme fields from a different source and
+        // promotes the delta to a full frame.
+        if let terminalTheme = frame.terminalTheme {
+            terminalThemesBySurfaceID[surfaceID] = terminalTheme
+        }
+        if let terminalConfigTheme = frame.terminalConfigTheme {
+            terminalConfigThemesBySurfaceID[surfaceID] = terminalConfigTheme
+        }
     }
 
     func decorateReplayFrame(_ frame: MobileTerminalRenderGridFrame) -> MobileTerminalRenderGridFrame {
