@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 979ba566544cdb19fe0709744ef3de0e773e0e5074b3a1863bc7810d2012dcb3. */
+/* cmux-tui mux protocol 12, IR d3a6f764504977b1cec6b57c7c92334a10a09fce6d29cbbb76746003157dac96. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -297,6 +297,10 @@ export type LayoutUndoUndone = {
 
 export type ListAgentsResult = {
   "agents": Array<AgentRecord>;
+  /** True when this session has committed at least one agent projection, including a completed lifecycle. Present only when the client negotiates agent-history-v1. */
+  "has_history"?: boolean;
+  /** Durable lifecycle projections retained for explicit state-filtered views. Present only when the client negotiates agent-history-v1; absent from older protocol-12 clients. */
+  "history"?: Array<AgentRecord>;
 };
 
 export type ListTerminalsResult = {

@@ -637,8 +637,8 @@
     },
     {
       "path": "ListAgentsResult.java",
-      "sha256": "48105430322199612f1460f4e2dc3e9356be32477deeee548a42bba5f16547a4",
-      "size": 2015
+      "sha256": "f218b96a744ccea6b7dbaad4b4bf21fcd22aeb33c89a93f24b1190a42c8791d9",
+      "size": 3765
     },
     {
       "path": "ListClientsRequest.java",
@@ -857,7 +857,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "b8baf415a444e1350e16aa9f1f86d00c35cd14d34193974151f4fa6046a44fc8",
+      "sha256": "822d589db3b1ca146d48c20b6e65008cf7527946e033671fc9e97e5339621398",
       "size": 4124
     },
     {
@@ -1542,7 +1542,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "979ba566544cdb19fe0709744ef3de0e773e0e5074b3a1863bc7810d2012dcb3",
+  "ir_sha256": "d3a6f764504977b1cec6b57c7c92334a10a09fce6d29cbbb76746003157dac96",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

@@ -3665,8 +3665,9 @@ Example:
 | name | `list-agents` |
 | status | implemented |
 | since | protocol 6 |
+| additive capability | `agent-history-v1` |
 
-Returns known agent status records. Records may come from detection, explicit reports, or hooks. Explicit hook-authority reports override detection for the same surface until another explicit report changes the state or the surface closes.
+Returns known agent status records. Records may come from detection, explicit reports, or hooks. Explicit hook-authority reports override detection for the same surface until another explicit report changes the state or the surface closes. Clients that negotiate `agent-history-v1` also receive durable lifecycle projections and a session history receipt. The history fields are additive and absent for clients that do not negotiate that capability.
 
 Params:
 
@@ -3685,7 +3686,15 @@ object{
     source: "plugin"|"detected"|"socket"|"hook",
     session: string|null,
     updated_at_ms: uint64
-  }>
+  }>,
+  history?: array<object{
+    surface: Id,
+    state: "working"|"blocked"|"idle"|"done"|"unknown",
+    source: "plugin"|"detected"|"socket"|"hook",
+    session: string|null,
+    updated_at_ms: uint64
+  }>,
+  has_history?: boolean
 }
 ```
 
@@ -3711,7 +3720,7 @@ Example:
 
 ```json
 {"id":107,"cmd":"list-agents","state":"blocked"}
-{"id":107,"ok":true,"data":{"agents":[{"surface":1,"state":"blocked","source":"hook","session":"abc","updated_at_ms":1710000000000}]}}
+{"id":107,"ok":true,"data":{"agents":[{"surface":1,"state":"blocked","source":"hook","session":"abc","updated_at_ms":1710000000000}],"history":[],"has_history":true}}
 ```
 
 ### report-agent

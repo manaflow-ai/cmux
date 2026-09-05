@@ -112,6 +112,9 @@ pub const SERVER_STATS_CAPABILITY: &str = "server-stats-v1";
 pub const CLIENT_FOCUS_CAPABILITY: &str = "client-focus-v1";
 /// The daemon answers `machine-usage` and emits `machine-usage-changed`.
 pub const MACHINE_USAGE_CAPABILITY: &str = "machine-usage-v1";
+/// The daemon includes durable lifecycle rows in `list-agents` responses for
+/// clients that explicitly negotiate the additive history fields.
+pub const AGENT_HISTORY_CAPABILITY: &str = "agent-history-v1";
 const INITIAL_BROWSER_RESIZE_TIMEOUT: Duration = Duration::from_secs(10);
 pub const STABLE_SPLIT_IDS_PROTOCOL_VERSION: u32 = 8;
 pub const STACK_LAYOUT_PROTOCOL_VERSION: u32 = 9;
@@ -170,6 +173,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         CLIENT_FOCUS_CAPABILITY,
         MACHINE_USAGE_CAPABILITY,
         SERVER_STATS_CAPABILITY,
+        AGENT_HISTORY_CAPABILITY,
     ];
     if bounded_clear_history_fallback_writes {
         capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);
@@ -4007,6 +4011,7 @@ impl ClientRegistry {
                     || capability == CREATION_RECEIPTS_CAPABILITY
                     || capability == CREATION_ATTEMPT_KEYS_CAPABILITY
                     || capability == CREATION_SELECTOR_FALLBACKS_CAPABILITY
+                    || capability == AGENT_HISTORY_CAPABILITY
             }));
         }
         Ok((record.name.clone(), record.kind.clone()))
@@ -11624,13 +11629,22 @@ fn handle_command_with_cancellation(
                 None => None,
             };
             let agents = mux.list_agents(surface, state).iter().map(agent_json).collect::<Vec<_>>();
-            let history =
-                mux.list_agent_history(surface, state).iter().map(agent_json).collect::<Vec<_>>();
-            Ok(json!({
-                "agents": agents,
-                "history": history,
-                "has_history": mux.has_agent_history(),
-            }))
+            if mux.control_clients.supports_capability(client, AGENT_HISTORY_CAPABILITY) {
+                let history = mux
+                    .list_agent_history(surface, state)
+                    .iter()
+                    .map(agent_json)
+                    .collect::<Vec<_>>();
+                Ok(json!({
+                    "agents": agents,
+                    "history": history,
+                    "has_history": mux.has_agent_history(),
+                }))
+            } else {
+                // Keep the protocol-6 response byte-compatible for clients
+                // that do not understand the additive history fields.
+                Ok(json!({ "agents": agents }))
+            }
         }
         Command::ReportAgent { surface, state, source, session } => {
             get_surface(mux, surface)?;
@@ -19207,6 +19221,52 @@ mod tests {
     }
 
     #[test]
+    fn list_agents_history_fields_require_the_additive_client_capability() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        mux.report_agent(
+            surface.id,
+            AgentState::Working,
+            AgentSource::Socket,
+            Some("history-capability".into()),
+        )
+        .unwrap();
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+
+        let legacy = handle_command(
+            &mux,
+            client,
+            Command::ListAgents { surface: None, state: None },
+            &writer,
+        )
+        .unwrap();
+        assert!(legacy.get("history").is_none());
+        assert!(legacy.get("has_history").is_none());
+
+        handle_command(
+            &mux,
+            client,
+            Command::SetClientInfo {
+                name: None,
+                kind: Some("tui".into()),
+                capabilities: Some(vec![AGENT_HISTORY_CAPABILITY.into()]),
+            },
+            &writer,
+        )
+        .unwrap();
+        let capable = handle_command(
+            &mux,
+            client,
+            Command::ListAgents { surface: None, state: None },
+            &writer,
+        )
+        .unwrap();
+        assert_eq!(capable["history"].as_array().map(Vec::len), Some(1));
+        assert_eq!(capable["has_history"], true);
+    }
+
+    #[test]
     fn guarded_browser_pointer_commands_require_a_numeric_frame_guard() {
         for cmd in ["browser-mouse-guarded", "browser-wheel-guarded"] {
             let mut request = json!({
@@ -22476,6 +22536,7 @@ mod tests {
             CREATION_RECEIPTS_CAPABILITY,
             CREATION_SELECTOR_FALLBACKS_CAPABILITY,
             PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
+            AGENT_HISTORY_CAPABILITY,
         ] {
             assert!(capabilities.iter().any(|value| value.as_str() == Some(expected)));
         }

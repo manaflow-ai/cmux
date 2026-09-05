@@ -4428,6 +4428,31 @@
      },
      "presence": "required",
      "nullable": false
+    },
+    "history": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "AgentRecord"
+      }
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "agent-history-v1",
+     "description": "Durable lifecycle projections retained for explicit state-filtered views. Present only when the client negotiates agent-history-v1; absent from older protocol-12 clients."
+    },
+    "has_history": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "agent-history-v1",
+     "description": "True when this session has committed at least one agent projection, including a completed lifecycle. Present only when the client negotiates agent-history-v1."
     }
    },
    "additional_properties": false

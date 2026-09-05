@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 979ba566544cdb19fe0709744ef3de0e773e0e5074b3a1863bc7810d2012dcb3. */
+/* cmux-tui mux protocol 12, IR d3a6f764504977b1cec6b57c7c92334a10a09fce6d29cbbb76746003157dac96. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "979ba566544cdb19fe0709744ef3de0e773e0e5074b3a1863bc7810d2012dcb3" as const;
+export const SDK_IR_SHA256 = "d3a6f764504977b1cec6b57c7c92334a10a09fce6d29cbbb76746003157dac96" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -3413,6 +3413,31 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "agents": {
         "nullable": false,
         "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "AgentRecord"
+          },
+          "kind": "array"
+        }
+      },
+      "has_history": {
+        "capability": "agent-history-v1",
+        "description": "True when this session has committed at least one agent projection, including a completed lifecycle. Present only when the client negotiates agent-history-v1.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "history": {
+        "capability": "agent-history-v1",
+        "description": "Durable lifecycle projections retained for explicit state-filtered views. Present only when the client negotiates agent-history-v1; absent from older protocol-12 clients.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
         "type": {
           "items": {
             "kind": "ref",

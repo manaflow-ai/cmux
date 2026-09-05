@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "979ba566544cdb19fe0709744ef3de0e773e0e5074b3a1863bc7810d2012dcb3";
+pub const ir_sha256 = "d3a6f764504977b1cec6b57c7c92334a10a09fce6d29cbbb76746003157dac96";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -624,6 +624,15 @@ pub const LayoutUndoUndone = struct {
 
 pub const ListAgentsResult = struct {
     agents: []const AgentRecord,
+    /// True when this session has committed at least one agent projection, including a completed lifecycle. Present only when the client negotiates agent-history-v1.
+    has_history: ?bool = null,
+    /// Durable lifecycle projections retained for explicit state-filtered views. Present only when the client negotiates agent-history-v1; absent from older protocol-12 clients.
+    history: ?[]const AgentRecord = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "has_history",
+        "history",
+    };
 };
 
 pub const ListTerminalsResult = struct {

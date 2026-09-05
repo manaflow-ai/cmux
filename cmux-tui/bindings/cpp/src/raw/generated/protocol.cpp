@@ -2065,6 +2065,16 @@ Result<Json> Codec<ListAgentsResult>::encode(const ListAgentsResult& value) {
     auto encoded_agents = encode_value(value.agents);
     if (!encoded_agents) return std::move(encoded_agents).error();
     object.emplace("agents", std::move(encoded_agents).value());
+    if (value.has_history) {
+        auto encoded = encode_value(*value.has_history);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("has_history", std::move(encoded).value());
+    }
+    if (value.history) {
+        auto encoded = encode_value(*value.history);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("history", std::move(encoded).value());
+    }
     return Json(std::move(object));
 }
 
@@ -2080,6 +2090,18 @@ Result<ListAgentsResult> Codec<ListAgentsResult>::decode(const Json& value) {
         auto decoded = decode_value<std::vector<AgentRecord>>(*field_agents);
         if (!decoded) return std::move(decoded).error();
         result.agents = std::move(decoded).value();
+    }
+    const Json* field_has_history = value.find("has_history");
+    if (field_has_history) {
+        auto decoded = decode_value<bool>(*field_has_history);
+        if (!decoded) return std::move(decoded).error();
+        result.has_history = std::move(decoded).value();
+    }
+    const Json* field_history = value.find("history");
+    if (field_history) {
+        auto decoded = decode_value<std::vector<AgentRecord>>(*field_history);
+        if (!decoded) return std::move(decoded).error();
+        result.history = std::move(decoded).value();
     }
     return result;
 }

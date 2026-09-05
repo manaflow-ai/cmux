@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "979ba566544cdb19fe0709744ef3de0e773e0e5074b3a1863bc7810d2012dcb3";
+inline constexpr std::string_view kProtocolIrSha256 = "d3a6f764504977b1cec6b57c7c92334a10a09fce6d29cbbb76746003157dac96";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -1365,6 +1365,8 @@ struct ListAgentsRequest {
 
 struct ListAgentsResult {
     std::vector<AgentRecord> agents{};
+    std::optional<bool> has_history{};
+    std::optional<std::vector<AgentRecord>> history{};
     friend bool operator==(const ListAgentsResult&, const ListAgentsResult&) = default;
 };
 

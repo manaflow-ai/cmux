@@ -600,6 +600,8 @@ class LayoutUndoUndone:
 class ListAgentsResult:
     __cmux_schema_path__: ClassVar[str] = 'types/ListAgentsResult'
     agents: List[AgentRecord]
+    has_history: Union[bool, MissingType] = field(default=MISSING)
+    history: Union[List[AgentRecord], MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
