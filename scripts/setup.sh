@@ -26,6 +26,30 @@ if ! ghostty_zig_version_is_compatible "$ZIG_ACTUAL" "$ZIG_REQUIRED"; then
 fi
 echo "zig ${ZIG_ACTUAL} found at $(command -v zig)"
 
+echo "==> Checking for Xcode..."
+if ! command -v xcodebuild >/dev/null 2>&1; then
+    echo "Error: xcodebuild is not available."
+    echo "Install Xcode 15+ from the App Store, then run:"
+    echo "  sudo xcode-select -s /Applications/Xcode.app/Contents/Developer"
+    exit 1
+fi
+
+DEVELOPER_DIR="$(xcode-select -p 2>/dev/null || true)"
+if [[ "$DEVELOPER_DIR" != */Xcode*.app/Contents/Developer ]]; then
+    echo "Error: full Xcode is required, but the active developer directory is not an Xcode app."
+    echo "Install Xcode 15+ from the App Store, then run:"
+    echo "  sudo xcode-select -s /Applications/Xcode.app/Contents/Developer"
+    exit 1
+fi
+
+if ! xcodebuild -version >/dev/null 2>&1; then
+    echo "Error: xcodebuild is available but could not run."
+    echo "Open Xcode once to finish setup, or accept the license with:"
+    echo "  sudo xcodebuild -license accept"
+    echo "Run 'xcodebuild -version' for details."
+    exit 1
+fi
+
 echo "==> Checking for Rust..."
 # Xcode uses a non-login shell, so verify the same PATH used by the sidecar
 # build phase rather than relying on the caller's interactive shell setup.
