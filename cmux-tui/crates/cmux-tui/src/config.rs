@@ -1188,6 +1188,27 @@ fn default_sidebar_profiles(
     ]
 }
 
+/// Copy one resolved profile into the compatibility fields consumed by the
+/// renderer and older commands. Built-in profiles keep the non-explicit
+/// flags, while custom profiles set those flags at their call site.
+fn select_sidebar_profile(config: &mut Config, profile: &SidebarProfileSpec) {
+    config.sidebar.active_profile = profile.id.clone();
+    config.sidebar.views = profile.views.clone();
+    config.sidebar.layout = profile.layout.clone();
+    config.sidebar.columns = config
+        .sidebar
+        .views
+        .iter()
+        .filter_map(|view| {
+            view.legacy_kind().map(|kind| SidebarColumn {
+                kind,
+                width: view.width,
+                max_width: view.max_width,
+            })
+        })
+        .collect();
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SidebarProfileSpec {
     pub id: String,
@@ -4500,30 +4521,30 @@ pub fn load() -> Config {
                     }
                     0
                 });
-            config.sidebar.active_profile = profiles[selected].id.clone();
-            config.sidebar.views = profiles[selected].views.clone();
-            config.sidebar.layout = profiles[selected].layout.clone();
-            config.sidebar.columns = config
-                .sidebar
-                .views
-                .iter()
-                .filter_map(|view| {
-                    view.legacy_kind().map(|kind| SidebarColumn {
-                        kind,
-                        width: view.width,
-                        max_width: view.max_width,
-                    })
-                })
-                .collect();
+            select_sidebar_profile(&mut config, &profiles[selected]);
             config.sidebar.columns_explicit = false;
             config.sidebar.views_explicit = true;
             config.sidebar.profiles = profiles;
         }
+    } else if let Some(requested) =
+        raw.sidebar.profile.as_deref().map(str::trim).filter(|id| !id.is_empty())
+    {
+        if let Some(profile) = config
+            .sidebar
+            .profiles
+            .iter()
+            .find(|profile| profile.id == requested)
+            .cloned()
+        {
+            select_sidebar_profile(&mut config, &profile);
+        } else {
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: built-in sidebar.profile {requested:?} was not found; using Work"
+            );
+        }
     } else if raw.sidebar.profile.is_some() {
-        crate::client_log::stderr_log!(
-            "config",
-            "cmux-tui: ignoring sidebar.profile without sidebar.profiles"
-        );
+        crate::client_log::stderr_log!("config", "cmux-tui: ignoring an empty sidebar.profile");
     }
     match raw.machine_provider.command {
         Some(command) if command.first().is_some_and(|program| !program.trim().is_empty()) => {

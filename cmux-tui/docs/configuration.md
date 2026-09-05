@@ -117,7 +117,7 @@ Every view has an independent width and drag handle. Lower `collapse_priority` v
 | `sidebar.width` | integer | `22` | Sidebar width, clamped to 10 through 60 on load |
 | `sidebar.compact_width` | integer | `10` | Width used by compact mode, clamped to 10 through 60 and capped at `sidebar.width` |
 | `sidebar.max_width` | integer | `0` | Maximum live drag width; `0` means no configured maximum |
-| `sidebar.profile` | string | `work`, or first configured profile | Startup profile ID; ignored without `sidebar.profiles` |
+| `sidebar.profile` | string | `work`, or first configured profile | Startup profile ID; selects built-in Work or Focus when `sidebar.profiles` is omitted |
 | `sidebar.profiles` | array of profile objects | built-in Work and Focus | Named layouts available from the strip and every context menu; overrides top-level `sidebar.views` and `sidebar.columns` |
 | `sidebar.profiles[].id` | string | required | Stable unique profile identity |
 | `sidebar.profiles[].name` | string | profile ID | Display name in the layout picker |
