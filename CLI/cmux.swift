@@ -13795,7 +13795,7 @@ struct CMUXCLI {
         if error.vmBackendCode == "vm_not_found" || isVMNotFoundError(error) {
             return false
         }
-        if error.vmBackendCode == Self.vmAttachTransportUnsupportedCode {
+        if error.vmBackendCode == "vm_attach_transport_unsupported" {
             return true
         }
         if error.isStructuredProtocolResponse, error.v2Code == "method_not_found" {
