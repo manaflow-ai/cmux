@@ -55,13 +55,17 @@ function ignoreBuild(
 
 beforeEach(() => {
   repository = mkdtempSync(join(tmpdir(), "cmux-vercel-ignore-"));
+  mkdirSync(join(repository, "web", "app"), { recursive: true });
   mkdirSync(join(repository, "web", "tools"), { recursive: true });
   mkdirSync(join(repository, "config", "iroh"), { recursive: true });
   mkdirSync(join(repository, "workers", "presence", "src", "generated"), {
     recursive: true,
   });
   mkdirSync(join(repository, "Sources"), { recursive: true });
-  writeFileSync(join(repository, "web", "page.tsx"), "export default null;\n");
+  writeFileSync(
+    join(repository, "web", "app", "page.tsx"),
+    "export default null;\n",
+  );
   writeFileSync(join(repository, ".vercelignore"), "node_modules/\n");
   writeFileSync(join(repository, "CHANGELOG.md"), "## [1.0.0] - 2026-01-01\n");
   writeFileSync(
@@ -99,13 +103,13 @@ test("builds when a web or shared build input changes", () => {
   const base = commit("base");
 
   writeFileSync(
-    join(repository, "web", "page.tsx"),
+    join(repository, "web", "app", "page.tsx"),
     "export default function Page() {}\n",
   );
   const webChange = commit("web change");
   expect(ignoreBuild(base, webChange)).toBe(1);
 
-  rmSync(join(repository, "web", "page.tsx"));
+  rmSync(join(repository, "web", "app", "page.tsx"));
   const webDeletion = commit("web deletion");
   expect(ignoreBuild(webChange, webDeletion)).toBe(1);
 
@@ -138,4 +142,17 @@ test("builds when a web or shared build input changes", () => {
   const generatedChange = commit("generated relay change");
   expect(ignoreBuild(configChange, generatedChange)).toBe(1);
   expect(ignoreBuild("missing-sha", generatedChange)).toBe(1);
+}, { timeout: 15000 });
+
+test("skips changes that cannot affect the deployed web output", () => {
+  const base = commit("base");
+
+  mkdirSync(join(repository, "web", "tests"), { recursive: true });
+  writeFileSync(join(repository, "web", "tests", "example.test.ts"), "test();\n");
+  const testChange = commit("test change");
+  expect(ignoreBuild(base, testChange)).toBe(0);
+
+  writeFileSync(join(repository, "web", "tools", "build-docs-search.mjs"), "console.log('changed');\n");
+  const buildToolChange = commit("build tool change");
+  expect(ignoreBuild(testChange, buildToolChange)).toBe(1);
 });
