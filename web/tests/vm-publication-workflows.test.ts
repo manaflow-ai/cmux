@@ -20,6 +20,7 @@ import {
   createPublication,
   deletePublication,
   listCustomDomains,
+  listPublications,
   PublicationConfigurationError,
   updatePublicationAccess,
   verifyCustomDomain,
@@ -43,6 +44,38 @@ import {
 } from "../app/api/vm/publications/routeShared";
 
 const NOW = new Date("2026-09-02T20:00:00.000Z");
+
+test("publication inventory hides VMs from a team the creator has left", async () => {
+  const personal = target(publication("personal"));
+  const team = { ...target(publication("team")), vm: { ...personal.vm, billingTeamId: "team-1" } };
+  const result = await run(listPublications({ principal: { userId: "owner-1", teamIds: [] } }),
+    fakeRepository({ listOwnedPublications: () => Effect.succeed([personal, team]) }), fakeProvider({}));
+  expect(result).toHaveLength(1);
+  expect(result[0].accessMode).toBe("personal");
+});
+
+test("zone verification cannot resume publication of a team VM after its creator leaves", async () => {
+  const zone = domain("custom", { hostname: "example.com", verificationState: "verified", certificateState: "active" });
+  const base = target(publication("public", { hostname: "app.example.com", domainId: zone.id }), zone);
+  const waiting = { ...base, vm: { ...base.vm, billingTeamId: "team-1" } };
+  let claimed = false;
+  const result = await run(verifyCustomDomain({
+    principal: { userId: "owner-1", teamIds: [] }, hostname: zone.hostname, now: NOW,
+  }), fakeRepository({
+    findOwnedDomainByHostname: () => Effect.succeed(zone),
+    updateDomainState: () => Effect.succeed(zone),
+    listOwnedPublicationsForDomain: () => Effect.succeed([waiting]),
+    claimVmPublicationOperation: () => {
+      claimed = true;
+      return Effect.succeed({ kind: "in_progress", retryAt: new Date(NOW.getTime() + 1000) });
+    },
+  }), fakeProvider({
+    requestWildcardCertificate: () => Effect.succeed({} as never),
+    getWildcardCertificateStatus: () => Effect.succeed({ state: "active", ready: true } as never),
+  }));
+  expect(claimed).toBe(false);
+  expect(result.publications).toEqual([]);
+});
 
 function domain(
   kind: "generated" | "custom",
