@@ -14482,6 +14482,12 @@
             "state": "translated",
             "value": "%lld updates"
           }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld件の更新"
+          }
         }
       }
     },
@@ -14494,6 +14500,12 @@
             "state": "translated",
             "value": "Hide earlier notifications"
           }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以前の通知を非表示"
+          }
         }
       }
     },
@@ -14505,6 +14517,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Show earlier notifications"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以前の通知を表示"
           }
         }
       }

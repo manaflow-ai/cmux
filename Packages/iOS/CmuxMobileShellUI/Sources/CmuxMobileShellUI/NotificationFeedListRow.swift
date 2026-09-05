@@ -28,9 +28,27 @@ struct NotificationFeedRowContext: Equatable, Sendable {
 
 struct NotificationFeedActivityGroup: Identifiable, Equatable, Sendable {
     var items: [NotificationFeedRowModel]
+    private(set) var id: MobileNotificationFeedItemID
 
-    /// The oldest retained event stays the anchor when newer updates arrive.
-    var id: MobileNotificationFeedItemID { items[items.count - 1].id }
+    init(items: [NotificationFeedRowModel]) {
+        self.items = items
+        id = items[items.count - 1].id
+    }
+
+    /// Reuse an authoritative event anchor while that event remains in this
+    /// group. Newer arrivals and older pagination cannot replace the anchor;
+    /// disjoint groups cannot claim each other's identities.
+    func retainingIdentity(
+        from previousIDs: Set<MobileNotificationFeedItemID>,
+        expandedIDs: Set<MobileNotificationFeedItemID>
+    ) -> Self {
+        var group = self
+        if let anchor = items.first(where: { expandedIDs.contains($0.id) })
+            ?? items.first(where: { previousIDs.contains($0.id) }) {
+            group.id = anchor.id
+        }
+        return group
+    }
 
     func accepts(_ model: NotificationFeedRowModel) -> Bool {
         let latest = items[0].item
@@ -69,6 +87,7 @@ struct NotificationFeedActivityGroup: Identifiable, Equatable, Sendable {
         for item in items {
             if let index = groups.indices.last, groups[index].accepts(item) {
                 groups[index].items.append(item)
+                groups[index].id = item.id
             } else {
                 groups.append(Self(items: [item]))
             }

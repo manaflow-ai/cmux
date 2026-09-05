@@ -15,7 +15,7 @@ struct NotificationFeedDaySection: Identifiable, Equatable, Sendable {
     let id: Date
     let kind: Kind
     let items: [NotificationFeedRowModel]
-    let groups: [NotificationFeedActivityGroup]
+    private(set) var groups: [NotificationFeedActivityGroup]
     private(set) var rows: [NotificationFeedListRow]
 
     init(id: Date, kind: Kind, items: [NotificationFeedRowModel]) {
@@ -30,6 +30,17 @@ struct NotificationFeedDaySection: Identifiable, Equatable, Sendable {
         var section = self
         section.rows = groups.flatMap { $0.rows(isExpanded: groupIDs.contains($0.id)) }
         return section
+    }
+
+    func reconcilingGroupIdentity(
+        previousIDs: Set<MobileNotificationFeedItemID>,
+        expandedIDs: Set<MobileNotificationFeedItemID>
+    ) -> Self {
+        var section = self
+        section.groups = groups.map {
+            $0.retainingIdentity(from: previousIDs, expandedIDs: expandedIDs)
+        }
+        return section.expanding(expandedIDs)
     }
 }
 
@@ -205,8 +216,14 @@ final class NotificationFeedProjection {
             // Publishing identical sections would still notify observers and
             // make the List re-diff every row, so no-op rebuilds (for example
             // a source recompute that produced the same items) publish nothing.
-            self.expandedGroupIDs.formIntersection(output.sections.flatMap { $0.groups.map(\.id) })
-            let sections = output.sections.map { $0.expanding(self.expandedGroupIDs) }
+            let previousGroupIDs = Set(self.sections.flatMap { $0.groups.map(\.id) })
+            let sections = output.sections.map {
+                $0.reconcilingGroupIdentity(
+                    previousIDs: previousGroupIDs,
+                    expandedIDs: self.expandedGroupIDs
+                )
+            }
+            self.expandedGroupIDs.formIntersection(sections.flatMap { $0.groups.map(\.id) })
             if self.sections != sections {
                 self.sections = sections
             }
