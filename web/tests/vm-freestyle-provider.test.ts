@@ -405,6 +405,11 @@ describe("Freestyle platform contract", () => {
     const check = freestylePinCheckCommand(source);
     expect(check).toContain("if [ -s /etc/cmux/cmux-tui-pin ]; then");
     expect(check).toContain("cut -d' ' -f1 /etc/cmux/cmux-tui-pin");
+    // A baked machine also has to sit on the shared layout; an older image's
+    // root-only file fails here so the reinstall path migrates it in place.
+    expect(check).toContain(
+      "then [ \"$(readlink '/root/.cmux/bin/cmux-tui')\" = '/usr/local/lib/cmux/cmux-tui' ] && [ \"$(readlink /usr/local/bin/cmux-tui)\" = '/usr/local/lib/cmux/cmux-tui' ] && test -x /root/.cmux/bin/cmux-tui",
+    );
     expect(check).toContain(`else ${cmuxTuiPinCheckCommand(source)}; fi`);
   });
 

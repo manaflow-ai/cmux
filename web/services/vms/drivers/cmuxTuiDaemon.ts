@@ -259,6 +259,12 @@ export function cmuxTuiInstallCommand(
   const shared = shellQuote(CMUX_TUI_SHARED_BINARY_PATH);
   const bin = shellQuote(binaryPath);
   const tmp = shellQuote(`${CMUX_TUI_SHARED_BINARY_PATH}.tmp`);
+  // The build this machine must run: a baked image's own pin (its
+  // /etc/cmux/cmux-tui-pin, the version contract the attach-time heal enforces),
+  // else the live manifest pin. A download is always checked against the live
+  // pin, because that is what gets downloaded.
+  const expected = '"$CMUX_TUI_EXPECTED_SHA"';
+  const matches = (path: string) => `printf '%s  %s\n' ${expected} ${path} | sha256sum -c >/dev/null 2>&1`;
   const pinned = (path: string) => `printf '%s  %s\n' ${shellQuote(source.sha256)} ${path} | sha256sum -c >/dev/null 2>&1`;
   // A stock minimal base image may have no curl until background provisioning adds
   // it, so the fetch installs curl itself (apk, Alpine) and falls back to busybox wget.
@@ -267,20 +273,45 @@ export function cmuxTuiInstallCommand(
     `if command -v curl >/dev/null 2>&1; then curl -fsSL --retry 3 --retry-delay 2 -o ${tmp} ${shellQuote(source.url)}; ` +
     `else wget -q -O ${tmp} ${shellQuote(source.url)}; fi`;
   // The real file goes on the world-readable path; the canonical root path and
-  // /usr/local/bin become symlinks to it (replacing an older image's root-only
-  // copy in place), so every existing root-side path keeps working and the work
-  // user can run the same pinned build.
+  // /usr/local/bin become symlinks to it, so every existing root-side path keeps
+  // working and the work user can run the same pinned build. Modes are set
+  // explicitly: a root-only directory or file would pass every root check while
+  // leaving ubuntu unable to run it. An older image keeps its pinned build as a
+  // regular file under /root: that file is renamed onto the shared path (the
+  // running daemon keeps its inode; nothing is downloaded and the version does
+  // not change) and the symlinks replace it.
   return [
     `mkdir -p ${shellQuote(dirname(CMUX_TUI_SHARED_BINARY_PATH))} ${shellQuote(dirname(binaryPath))}`,
-    `if [ -x ${shared} ] && ${pinned(shared)}; then :; else ` +
+    `chmod 755 ${shellQuote(dirname(CMUX_TUI_SHARED_BINARY_PATH))}`,
+    `CMUX_TUI_EXPECTED_SHA=$(if [ -s /etc/cmux/cmux-tui-pin ]; then cut -d' ' -f1 /etc/cmux/cmux-tui-pin; else printf '%s' ${shellQuote(source.sha256)}; fi)`,
+    `if [ ! -e ${shared} ] && [ -f ${bin} ] && [ ! -L ${bin} ] && ${matches(bin)}; then mv -f ${bin} ${shared}; fi`,
+    `if [ -x ${shared} ] && ${matches(shared)}; then :; else ` +
       `${fetch} && ${pinned(tmp)} && chmod 755 ${tmp} && mv -f ${tmp} ${shared}; fi`,
+    `chmod 755 ${shared}`,
     `ln -sfn ${shared} ${bin}`,
     `ln -sfn ${shared} /usr/local/bin/cmux-tui`,
     `${bin} --version`,
   ].join(" && ");
 }
 
-/** True when the installed binary matches the manifest pin (exit 0 from this command). */
+/**
+ * True when the machine has the shared layout: the canonical root path and
+ * /usr/local/bin/cmux-tui are both symlinks to the world-readable file. An
+ * older image's root-only regular file fails this, so the attach-time heal's
+ * reinstall path migrates it (cmuxTuiInstallCommand renames it in place).
+ */
+export function cmuxTuiLayoutCheckCommand(): string {
+  const shared = shellQuote(CMUX_TUI_SHARED_BINARY_PATH);
+  return (
+    `[ "$(readlink ${shellQuote(CMUX_TUI_BINARY_PATH)})" = ${shared} ] && ` +
+    `[ "$(readlink /usr/local/bin/cmux-tui)" = ${shared} ]`
+  );
+}
+
+/**
+ * True when the installed binary matches the manifest pin and sits on the shared
+ * layout (exit 0 from this command).
+ */
 export function cmuxTuiPinCheckCommand(
   source: CmuxTuiSource,
   layout?: CmuxTuiHomeLayout,
@@ -293,7 +324,7 @@ export function cmuxTuiPinCheckCommand(
       `test -x "$CMUX_TUI_BIN" && printf '%s  %s\n' ${shellQuote(source.sha256)} "$CMUX_TUI_BIN" | sha256sum -c >/dev/null 2>&1`
     );
   }
-  return `test -x ${shellQuote(CMUX_TUI_BINARY_PATH)} && printf '%s  %s\n' ${shellQuote(source.sha256)} ${shellQuote(CMUX_TUI_BINARY_PATH)} | sha256sum -c >/dev/null 2>&1`;
+  return `${cmuxTuiLayoutCheckCommand()} && test -x ${shellQuote(CMUX_TUI_BINARY_PATH)} && printf '%s  %s\n' ${shellQuote(source.sha256)} ${shellQuote(CMUX_TUI_BINARY_PATH)} | sha256sum -c >/dev/null 2>&1`;
 }
 
 /** The listener bind every container provider uses; cmux-devbox-boot's CMUX_TUI_REMOTE_WS_BIND default. */

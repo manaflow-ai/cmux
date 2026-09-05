@@ -59,6 +59,7 @@ import {
   cmuxTuiDaemonBuild,
   cmuxTuiDaemonCommand,
   cmuxTuiInstallCommand,
+  cmuxTuiLayoutCheckCommand,
   cmuxTuiPinCheckCommand,
   mintCmuxTuiInvitation,
   parseCmuxTuiAttachBundle,
@@ -637,9 +638,12 @@ export function mapFreestyleState(state: VmData["state"] | null | undefined): VM
  * live pin stays their reference.
  */
 export function freestylePinCheckCommand(source: CmuxTuiSource): string {
+  // Both branches also require the shared layout (cmuxTuiLayoutCheckCommand):
+  // a machine from an older image keeps its pinned build as a root-only file,
+  // which this check rejects so the reinstall path migrates it in place.
   return (
     "if [ -s /etc/cmux/cmux-tui-pin ]; then " +
-    `test -x ${CMUX_TUI_BINARY_PATH} && printf '%s  %s\\n' "$(cut -d' ' -f1 /etc/cmux/cmux-tui-pin)" ${CMUX_TUI_BINARY_PATH} | sha256sum -c >/dev/null 2>&1; ` +
+    `${cmuxTuiLayoutCheckCommand()} && test -x ${CMUX_TUI_BINARY_PATH} && printf '%s  %s\\n' "$(cut -d' ' -f1 /etc/cmux/cmux-tui-pin)" ${CMUX_TUI_BINARY_PATH} | sha256sum -c >/dev/null 2>&1; ` +
     `else ${cmuxTuiPinCheckCommand(source)}; fi`
   );
 }
