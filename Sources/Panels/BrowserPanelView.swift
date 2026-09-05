@@ -999,8 +999,14 @@ struct BrowserPanelView: View {
         }
     }
 
+    @ViewBuilder
     private var focusFlashOverlayView: some View {
-        WorkspaceAttentionFlashRingView(opacity: focusFlashOpacity)
+        // Only the empty new-tab state (no WKWebView mounted) flashes in SwiftUI.
+        // WebView-backed panes flash via the portal-hosted AppKit layer instead,
+        // because the native web surface would otherwise draw over this overlay.
+        if !panel.shouldRenderWebView {
+            WorkspaceAttentionFlashRingView(opacity: focusFlashOpacity)
+        }
     }
 
     @ViewBuilder
@@ -1089,8 +1095,14 @@ struct BrowserPanelView: View {
         .onDisappear {
             handleBrowserPanelDisappear()
         }
-        .onChange(of: panel.focusFlashToken) {
-            triggerFocusFlashAnimation()
+        .onChange(of: panel.focusFlashToken) { _ in
+            if panel.shouldRenderWebView {
+                // Flash above the portal-hosted WKWebView (native web surfaces draw
+                // over sibling SwiftUI layers, so the SwiftUI ring is hidden here).
+                BrowserWindowPortalRegistry.triggerFocusFlash(for: panel.webView)
+            } else {
+                triggerFocusFlashAnimation()
+            }
         }
         .onChange(of: panel.screenshotCopiedToken) { _, _ in
             showScreenshotPageCopiedIndicator()
