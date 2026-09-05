@@ -190,15 +190,25 @@ public actor IrxEndpointSupervisor {
         guard let driver, !driver.isClosed() else { return }
         let endpointGeneration = generation
         for credential in credentials {
-            guard await gate.isCurrent(rotationGeneration) else { return }
-            do {
-                try await driver.insertRelay(
-                    config: RelayConfig(
-                        url: credential.relayURL,
-                        quicPort: nil,
-                        authToken: credential.token
+            let result = await gate.withCurrentMutation(rotationGeneration) {
+                do {
+                    try await driver.insertRelay(
+                        config: RelayConfig(
+                            url: credential.relayURL,
+                            quicPort: nil,
+                            authToken: credential.token
+                        )
                     )
-                )
+                    return IrxRelayCredentialMutationResult.success
+                } catch {
+                    return IrxRelayCredentialMutationResult.failure(
+                        String(describing: error)
+                    )
+                }
+            }
+            guard let result else { return }
+            switch result {
+            case .success:
                 guard await gate.isCurrent(rotationGeneration),
                       !deactivated,
                       generation == endpointGeneration,
@@ -214,11 +224,11 @@ public actor IrxEndpointSupervisor {
                         "generation": String(generation),
                     ]
                 )
-            } catch {
+            case .failure(let error):
                 guard await gate.isCurrent(rotationGeneration) else { return }
                 journal.record(
                     "endpoint", "relay-credential-rotation-failed",
-                    ["relay": credential.relayURL, "error": String(describing: error)]
+                    ["relay": credential.relayURL, "error": error]
                 )
             }
         }
