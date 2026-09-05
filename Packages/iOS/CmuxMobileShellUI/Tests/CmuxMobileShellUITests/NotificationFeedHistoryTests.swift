@@ -105,7 +105,8 @@ import Testing
         let titleOnly = NotificationFeedRowModel(item: item(
             "title-only", age: 60, title: "Tests passed", body: ""
         ))
-        let rows = NotificationFeedActivityGroup(items: [latest, titleOnly]).rows(isExpanded: true)
+        let group = try #require(NotificationFeedActivityGroup.build(from: [latest, titleOnly]).first)
+        let rows = group.rows(isExpanded: true)
         #expect(rows[1].context.hidesHeadline)
         #expect(rows[1].context.hidesComputer)
         #expect(!rows[1].context.hidesSource)

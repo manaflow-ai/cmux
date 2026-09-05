@@ -27,12 +27,12 @@ struct NotificationFeedRowContext: Equatable, Sendable {
 }
 
 struct NotificationFeedActivityGroup: Identifiable, Equatable, Sendable {
-    var items: [NotificationFeedRowModel]
+    private(set) var items: [NotificationFeedRowModel]
     private(set) var id: MobileNotificationFeedItemID
 
-    init(items: [NotificationFeedRowModel]) {
-        self.items = items
-        id = items[items.count - 1].id
+    private init(first item: NotificationFeedRowModel) {
+        items = [item]
+        id = item.id
     }
 
     /// Reuse an authoritative event anchor while that event remains in this
@@ -89,7 +89,7 @@ struct NotificationFeedActivityGroup: Identifiable, Equatable, Sendable {
                 groups[index].items.append(item)
                 groups[index].id = item.id
             } else {
-                groups.append(Self(items: [item]))
+                groups.append(Self(first: item))
             }
         }
         return groups

@@ -40,7 +40,7 @@ struct NotificationFeedDaySection: Identifiable, Equatable, Sendable {
         section.groups = groups.map {
             $0.retainingIdentity(from: previousIDs, expandedIDs: expandedIDs)
         }
-        return section.expanding(expandedIDs)
+        return section
     }
 }
 
@@ -216,14 +216,24 @@ final class NotificationFeedProjection {
             // Publishing identical sections would still notify observers and
             // make the List re-diff every row, so no-op rebuilds (for example
             // a source recompute that produced the same items) publish nothing.
-            let previousGroupIDs = Set(self.sections.flatMap { $0.groups.map(\.id) })
-            let sections = output.sections.map {
+            let previousGroups = self.sections.flatMap(\.groups)
+            let previousGroupIDs = Set(previousGroups.map(\.id))
+            // Retention can remove an event anchor while other members remain.
+            // Carry expansion through those surviving notifications, then bind
+            // it to each rebuilt group's current, nonoverlapping anchor.
+            let expandedItemIDs = Set(previousGroups.lazy
+                .filter { self.expandedGroupIDs.contains($0.id) }
+                .flatMap { $0.items.map(\.id) })
+            var sections = output.sections.map {
                 $0.reconcilingGroupIdentity(
                     previousIDs: previousGroupIDs,
                     expandedIDs: self.expandedGroupIDs
                 )
             }
-            self.expandedGroupIDs.formIntersection(sections.flatMap { $0.groups.map(\.id) })
+            self.expandedGroupIDs = Set(sections.flatMap(\.groups).compactMap { group in
+                group.items.contains { expandedItemIDs.contains($0.id) } ? group.id : nil
+            })
+            sections = sections.map { $0.expanding(self.expandedGroupIDs) }
             if self.sections != sections {
                 self.sections = sections
             }
