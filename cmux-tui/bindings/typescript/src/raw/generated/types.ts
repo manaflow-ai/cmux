@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 65aa592727bc414fe3e66ac125c9b8541a1926bbe9eaa572acc66b4681bf6589. */
+/* cmux-tui mux protocol 12, IR edceee440fd303762bb21fb494c9289aff3066695780b87b9f613d59a41daf9c. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -7,6 +7,8 @@ export type JsonValue = null | boolean | number | bigint | string | JsonValue[] 
 export type JsonObject = { [key: string]: JsonValue };
 
 export type AgentRecord = {
+  /** Adapter identity such as claude or codex when the producer knows it. */
+  "agent"?: (string) | null;
   "session": (string) | null;
   "source": AgentSource;
   "state": AgentState;
@@ -16,7 +18,7 @@ export type AgentRecord = {
 
 export type AgentReportSource = "socket" | "hook";
 
-export type AgentSource = "detected" | "socket" | "hook";
+export type AgentSource = "plugin" | "detected" | "socket" | "hook";
 
 export type AgentState = "working" | "blocked" | "idle" | "done" | "unknown";
 
@@ -297,6 +299,10 @@ export type LayoutUndoUndone = {
 
 export type ListAgentsResult = {
   "agents": Array<AgentRecord>;
+  /** True when this session has committed at least one agent projection, including a completed lifecycle. Present only when the client negotiates agent-history-v1. */
+  "has_history"?: boolean;
+  /** Durable lifecycle projections retained for explicit state-filtered views. Present only when the client negotiates agent-history-v1; absent from older protocol-12 clients. */
+  "history"?: Array<AgentRecord>;
 };
 
 export type ListTerminalsResult = {
@@ -313,6 +319,18 @@ export type LivePane = {
   "name": (string) | null;
   "short_id"?: string;
   "tabs": Array<Tab>;
+};
+
+export type MachineUsage = {
+  "api_equivalent_usd": number;
+  "as_of": (string) | null;
+  "period_days": number;
+  "total_tokens": bigint;
+  "vm_id": string;
+};
+
+export type MachineUsageResult = {
+  "usage": (MachineUsage) | null;
 };
 
 export type MintTerminalRendererResult = {
@@ -374,6 +392,8 @@ export type ProcessInfoResult = {
   "cwd": (string) | null;
   /** Working directory of the process group that owns the PTY, read at request time. Null when the lookup fails; absent from daemons that predate the field. Clients treat absence as null. */
   "foreground_cwd"?: (string) | null;
+  /** Executable path or name of the PTY foreground process-group leader, read at request time. Null when the lookup fails; absent from daemons that predate the field. Clients treat absence as null. */
+  "foreground_executable"?: (string) | null;
   "pid": (number) | null;
 };
 
@@ -535,6 +555,77 @@ export type Screen = {
   "short_id"?: string;
   "zoomed_pane": (Id) | null;
 };
+
+export type ServerStatsConnections = {
+  "accepted": bigint;
+  "active": bigint;
+  "limit": bigint;
+  "peak": bigint;
+  "refused": bigint;
+};
+
+export type ServerStatsHistogram = {
+  "count": bigint;
+  "max": bigint;
+  "mean": bigint;
+  "p50": bigint;
+  "p90": bigint;
+  "p99": bigint;
+};
+
+export type ServerStatsJournalWriter = {
+  "batch_size": ServerStatsHistogram;
+  "batches": bigint;
+  "commit_failures": bigint;
+  "commit_lock_wait_us": ServerStatsHistogram;
+  "commit_us": ServerStatsHistogram;
+  "deadline_expiries": bigint;
+  "durable_events": bigint;
+  "durable_queued": bigint;
+  "phase": ServerStatsWriterPhase;
+  "phase_for_us": bigint;
+  "receipt_wait_us": ServerStatsHistogram;
+  "terminal_events": bigint;
+  "terminal_queued": bigint;
+};
+
+export type ServerStatsLockHolder = {
+  "held_for_us": bigint;
+  "site": string;
+};
+
+export type ServerStatsLockSite = {
+  "acquisitions": bigint;
+  "hold_max_us": bigint;
+  "hold_total_us": bigint;
+  "site": string;
+};
+
+export type ServerStatsLockStall = {
+  "blocker": (string) | null;
+  "waited_us": bigint;
+  "waiter": string;
+};
+
+export type ServerStatsRegistryLock = {
+  "contended_acquisitions": bigint;
+  "hold_us": ServerStatsHistogram;
+  "holder": (ServerStatsLockHolder) | null;
+  "last_stall": (ServerStatsLockStall) | null;
+  "stalls": bigint;
+  "top_sites": Array<ServerStatsLockSite>;
+  "wait_us": ServerStatsHistogram;
+};
+
+export type ServerStatsResult = {
+  "connections": ServerStatsConnections;
+  "journal_writer": (ServerStatsJournalWriter) | null;
+  "registry_lock": ServerStatsRegistryLock;
+  "schema": number;
+  "uptime_ms": bigint;
+};
+
+export type ServerStatsWriterPhase = "idle" | "waiting_lock" | "committing";
 
 export type SetCellPixelsResult = {
   "failures": Array<CellPixelFailure>;

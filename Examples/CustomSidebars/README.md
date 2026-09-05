@@ -32,4 +32,8 @@ cmux sidebar validate finder
 - `finder.swift`: a macOS Finder-style workspace browser with a source list,
   selected workspace inspector, and tab list.
 
-See `docs/custom-sidebars.md` for the full authoring contract.
+See `docs/custom-sidebars.md` for the full authoring contract and
+`docs/sidebar-system-design.md` for provider, instance, region, profile, and
+agent-control semantics. New examples should be mounted through **Add view**
+so they compose with Workspaces and Agents; the sidebar toggle context menu is
+only a compatibility path.

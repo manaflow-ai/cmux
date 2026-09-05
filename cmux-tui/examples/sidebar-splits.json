@@ -1,0 +1,14 @@
+{
+  "sidebar": {
+    "views": [
+      {
+        "id": "left",
+        "split": "vertical",
+        "panes": [
+          { "id": "workspaces", "levels": ["workspaces"] },
+          { "id": "all-agents", "levels": ["agents"], "scope": "all", "weight": 2 }
+        ]
+      }
+    ]
+  }
+}

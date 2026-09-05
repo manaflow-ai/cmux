@@ -4,6 +4,7 @@ package com.cmux.raw;
 import java.util.Objects;
 
 public enum AgentSource implements WireEnum {
+    PLUGIN("plugin"),
     DETECTED("detected"),
     SOCKET("socket"),
     HOOK("hook");

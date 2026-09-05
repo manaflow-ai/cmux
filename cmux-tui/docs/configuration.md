@@ -62,15 +62,54 @@ Tabs are numbered by default. A recognized agent program can appear after the nu
 
 ## Sidebar
 
-The built-in sidebar defaults to the workspace list. Set `"sidebar": {"view": "files"}` for the yazi-style file browser. `Tab` toggles the built-in view while the sidebar is focused, and the configurable `toggle-sidebar-view` action toggles it from anywhere. A configured `sidebar.plugin` still replaces either built-in view.
+The cross-frontend meaning of a view, instance, layout profile, region, and
+frontend-local presentation state is defined in the
+[presentation system](../../docs/sidebar-system-design.md). The configuration
+below documents the current TUI format and its compatibility behavior. It is
+not a second identity model.
+
+The built-in sidebar defaults to the Work layout, with Machines beside a Workspaces and Agents stack. Set `"sidebar": {"view": "files"}` for the yazi-style file browser. `Tab` toggles the built-in content while any native sidebar rail is focused, and the configurable `toggle-sidebar-view` action toggles it from anywhere. Files is the content mode of the profile's native workspace rail, so profile, visibility, split, width, and configured workspace actions stay active in both Files and Workspaces. A configured `sidebar.plugin` still replaces the native region.
 
 `sidebar.views` is an ordered list of native resource projections, with no fixed column count. Each view has a stable `id`, a `levels` path, and optional native `actions`. A one-level path renders a list. Multi-level paths such as `workspaces → agents` and `workspaces → panes → tabs` render collapsible trees in one column. Nesting is optional. Valid resources are `machines`, `workspaces`, `panes`, `tabs`, and `agents`. Flat pane, tab, and agent views follow the highlighted workspace. Omit a resource to hide it.
 
-`sidebar.profiles` names multiple view lists, and `sidebar.profile` selects the startup layout. Right-click anywhere and open **Sidebar → Layouts** to switch profiles without reconnecting machines. The same menu can hide or restore an individual view for the current session. Runtime visibility changes are keyed by profile and view ID, so switching away and back restores that profile's session-local choices.
+`sidebar.profiles` names multiple view lists, and `sidebar.profile` selects the startup layout. Right-click anywhere and open **Sidebar → Layouts** to switch profiles without reconnecting machines. The same menu can hide or restore an individual view for the current session. Runtime visibility, widths, split shares, focus, content mode, Files action viewport, and agent sort choices are keyed by profile and view ID, so switching away and back restores that profile's session-local state. A compact strip makes configured profiles visible. A single profile keeps its prior geometry while all views fit. If one becomes hidden, the strip appears for status and management, but its name is not a selectable tab.
 
 Actions use the same stable IDs and execution path as keyboard commands, including `new-workspace`, `new-tab`, and `new-pane-smart`. An entry may also be an object `{"action": "new-workspace", "label": "new"}` to rename its button, and `"command:<id>"` pins a user command from the top-level `commands` section as a button. `actions_position: "top"` mounts the buttons at the view's top instead of the bottom edge. A view rooted at `workspaces` inherits `new-workspace`, including provider-specific isolated and shared choices. Set `"actions": []` to hide every pinned action, or provide an ordered list to replace the preset. Machine creation and connection actions remain capability-driven by the selected provider.
 
-Every view has an independent width and drag handle. Lower `collapse_priority` values hide first when the terminal must preserve 40 pane columns. A hidden view needs four additional columns before it returns, which prevents resize-boundary flicker. `sidebar.columns` remains a compatibility alias for one-level machine, workspace, and tab views; `sidebar.views` wins when both are present.
+A top-level entry can also be a split group instead of a view: `{"id": "left", "split": "vertical", "panes": [ ... ]}` stacks its panes top to bottom in one column, `"split": "horizontal"` places them side by side, and groups nest up to three levels. Each pane is a view (same schema) or another split, with an optional `weight` (default `1`) setting its share. Give a split an `id` when two groups have the same children. If omitted, cmux derives a deterministic ID from the child view IDs and orientation, so reorder does not discard saved divider shares; two identical anonymous groups are rejected as ambiguous. The divider between stacked panes drags with the mouse; from a rail's first or last row, `Up`/`Down` (or `k`/`j`) moves focus into the stacked neighbor. A split column keeps one width: the group's `width`, `max_width`, and `collapse_priority` default to the largest among its panes, and a width drag on any of its rails resizes the whole column.
+
+Flat one-level `tabs` and `agents` views accept `"scope": "all"`. An `all`-scoped view sweeps every workspace instead of following the highlighted one. An Agents view with no `state` filter is an active-work queue, so it hides completed `done` and temporarily `unknown` records. Set `"filter": {"state": ["done"]}` or include `"unknown"` to inspect those lifecycle records explicitly. With the `recency` sort mode, rows order by their last status change, newest first. The default `priority` mode keeps blocked and unseen idle rows first. An agent without a session title uses its workspace name. This is how a status board like *workspaces on top, all agents below* is built:
+
+```json
+"sidebar": {
+  "views": [
+    {"id": "left", "split": "vertical", "panes": [
+      {"id": "workspaces", "levels": ["workspaces"]},
+      {"id": "all-agents", "levels": ["agents"], "scope": "all", "weight": 2}
+    ]}
+  ]
+}
+```
+
+For new configurations, the default **Work** layout mounts an all-workspaces
+Agents view below Workspaces. It stays visible when empty so a user can find
+the feature and understand its scope. **Focus** keeps the Workspaces-only
+layout. A configuration that explicitly defines `sidebar.columns`,
+`sidebar.views`, or `sidebar.profiles` remains authoritative and becomes no
+larger after an upgrade. Work uses some vertical space for agent status. Focus
+returns that space to Workspaces.
+
+`sidebar.view` selects the initial Files or Workspaces content mode. It is not an arrangement
+declaration, so a config that only sets `sidebar.view`, `sidebar.width`, or
+`sidebar.compact_width` still receives the built-in Work and Focus profiles.
+After startup, the mode is frontend state owned by each profile. A config reload
+keeps a runtime toggle unless the loaded `sidebar.view` value changed. If a
+profile has no visible Workspaces host, Files falls back to Workspaces and the
+profile retains its Files intent for a later return.
+Use `sidebar.columns`, `sidebar.views`, or `sidebar.profiles` when the old
+two-column shape must remain exact.
+
+Every view has an independent width and drag handle. Lower `collapse_priority` values hide first when the terminal must preserve 40 pane columns. A hidden view needs four additional columns before it returns, which prevents resize-boundary flicker. Panes of a split behave the same way vertically: when a column gets too short, its lowest-priority panes hide until space returns. The strip shows `+N↔` for width, `+N↕` for height, `+N×` for an explicit hide, or `+N!` for mixed reasons. Its menu names each hidden view and offers Restore. A restored view is pinned until the user allows it to auto-hide again. `sidebar.columns` remains a compatibility alias for one-level machine, workspace, and tab views; `sidebar.views` wins when both are present.
 
 | Key | Type | Default | Effect |
 | --- | --- | --- | --- |
@@ -78,19 +117,25 @@ Every view has an independent width and drag handle. Lower `collapse_priority` v
 | `sidebar.width` | integer | `22` | Sidebar width, clamped to 10 through 60 on load |
 | `sidebar.compact_width` | integer | `10` | Width used by compact mode, clamped to 10 through 60 and capped at `sidebar.width` |
 | `sidebar.max_width` | integer | `0` | Maximum live drag width; `0` means no configured maximum |
-| `sidebar.profile` | string | first configured profile | Startup profile ID; ignored without `sidebar.profiles` |
-| `sidebar.profiles` | array of profile objects | unset | Named layouts available from every context menu; overrides top-level `sidebar.views` and `sidebar.columns` |
+| `sidebar.profile` | string | `work`, or first configured profile | Startup profile ID; selects built-in Work or Focus when `sidebar.profiles` is omitted |
+| `sidebar.profiles` | array of profile objects | built-in Work and Focus | Named layouts available from the strip and every context menu; overrides top-level `sidebar.views` and `sidebar.columns` |
 | `sidebar.profiles[].id` | string | required | Stable unique profile identity |
 | `sidebar.profiles[].name` | string | profile ID | Display name in the layout picker |
-| `sidebar.profiles[].views` | array of view objects | required | Ordered projections using the same schema as `sidebar.views` |
-| `sidebar.views` | array of view objects | unset | Ordered native lists and trees; omission preserves the machine-plus-workspace default |
-| `sidebar.views[].id` | string | required | Stable unique identity for focus, collapse, scroll, and width state |
+| `sidebar.profiles[].views` | array of view objects | required | Ordered projections using the same schema as `sidebar.views`; the compatibility adapter converts them to stable view instances |
+| `sidebar.views` | array of view objects | Work uses machines plus a Workspaces/Agents split | Ordered native lists and trees |
+| `sidebar.views[].id` | string | required | Stable compatibility identity for focus, collapse, scroll, and width state; new registry APIs use a separate stable instance ID |
 | `sidebar.views[].levels` | array of strings | required | Resource path, such as `["agents"]`, `["workspaces", "agents"]`, or `["workspaces", "panes", "tabs"]` |
 | `sidebar.views[].actions` | array of action IDs | resource preset | Ordered native actions pinned below the resource rows; `[]` hides them |
 | `sidebar.views[].width` | integer | resource default | Initial width, clamped to 10 through 60 |
 | `sidebar.views[].max_width` | integer | `0` | Maximum live drag width; `0` means no configured maximum |
 | `sidebar.views[].collapse_priority` | integer | resource default | Lower priorities hide first on narrow terminals |
 | `sidebar.views[].actions_position` | `"top"` or `"bottom"` | `"bottom"` | Where the view's pinned action buttons render |
+| `sidebar.views[].scope` | `"workspace"` or `"all"` | `"workspace"` | For flat `tabs`/`agents` views: follow the highlighted workspace, or sweep all workspaces |
+| `sidebar.views[].sort` | `"priority"`, `"recency"`, `"name"`, `"agent"`, `"state"` | `"priority"` | Agents views: the starting sort mode. `priority` is herdr's attention order (blocked > unseen idle > working > seen idle). Press `s` in a focused agents view to cycle modes for this client; the header shows the active mode. Unknown values warn and fall back |
+| `sidebar.views[].filter` | object | none | Agents views: `{"agent": ["claude"], "state": ["blocked", "working"], "seen": false}`. Criteria AND together; empty lists are inactive. The header gains a `filtered` marker while active. Invalid values warn and are ignored |
+| `sidebar.views[].split` | `"vertical"` or `"horizontal"` | unset | Turns the entry into a split group of `panes` instead of a leaf view |
+| `sidebar.views[].panes` | array of entries | required with `split` | Child views or nested splits of a split group |
+| `sidebar.views[].panes[].weight` | integer | `1` | Relative share of the parent split |
 | `sidebar.row_height` | `1` or `2` | `2` | Rows per rail entry; `1` drops the subtitle line |
 | `sidebar.row_gap` | integer | `1` | Blank rows between rail entries, `0` through `2` |
 | `sidebar.rail_glyph` | string | `"▎"` | Accent glyph on active rail rows; `"none"` removes it |
@@ -98,6 +143,18 @@ Every view has an independent width and drag handle. Lower `collapse_priority` v
 | `sidebar.columns` | array of column objects | unset | Compatibility form for one-level `machines`, `workspaces`, and `tabs` views |
 | `sidebar.plugin.command` | array of strings | unset | External sidebar plugin argv; when set, the sidebar hosts this program in a PTY instead of the built-in list |
 | `sidebar.plugin.cwd` | string | unset | Working directory for the sidebar plugin process |
+
+### Agent plugin configuration
+
+Agent plugins are background userland processes. They are configured separately
+from the sidebar plugin and never replace the sidebar view.
+
+| Key | Type | Default | Effect |
+| --- | --- | --- | --- |
+| `agents.plugin.id` | string | required when `agents.plugin` is present | Stable journal producer ID for the selected userland agent plugin; a missing ID disables the entry |
+| `agents.plugin.command` | array of strings | unset | Absolute argv for the background agent plugin process |
+| `agents.plugin.cwd` | string | unset | Absolute working directory for the agent plugin process |
+| `agents.plugin.revision` | string | unset | Content revision used to restart the process after an artifact update |
 
 Live sidebar dragging also leaves at least 40 columns for pane content.
 
@@ -115,14 +172,56 @@ cmux sidebar plugin use fzf
 the optional build command, and verifies the resolved run command is
 executable. `sidebar plugin use <name>` writes `sidebar.plugin.command` as an absolute
 argv and `sidebar.plugin.cwd` as the plugin directory, preserving unrelated
-cmux-tui config keys. A running TUI applies it after config reload; `sidebar plugin use`
-sends that reload automatically when the resolved session socket is reachable.
+cmux-tui config keys. A running TUI applies changes after `cmux server reload-config`;
+the reload re-evaluates the path precedence described above using the running process's
+environment and the files that exist. It therefore can switch between the default and
+legacy fallback files when those files appear or disappear. Changing `CMUX_TUI_CONFIG`
+or `CMUX_MUX_CONFIG` in a separate shell does not change the running process environment.
+`sidebar plugin use` does not send this reload; run `cmux server reload-config`
+separately for a running local session whose socket is reachable.
 
 Return to the built-in sidebar with:
 
 ```bash
 cmux sidebar plugin use --builtin
 ```
+
+### Agent plugins
+
+Agent detection is an optional background userland plugin. It does not run in
+the sidebar and it does not add vendor rules to cmux core. Core supervises the
+process and folds its journal events. The plugin reads terminal screen and
+process metadata, then writes namespaced events.
+
+Install and select a package with:
+
+```bash
+cmux agent plugin install <git-url>
+cmux agent plugin use <name-or-id>
+cmux server reload-config
+```
+
+The manager stores packages in
+`~/.local/share/cmux/mux-plugins/agent/<name>` (or the equivalent
+`$XDG_DATA_HOME` path). It validates `cmux-plugin.toml`, runs its declared
+build command, verifies the executable, and writes an absolute command and
+content revision to `agents.plugin`. The manager does not hide a server reload
+inside an install command. This keeps the config write and process restart
+observable and works when the selected server is remote.
+
+List, replace, or remove packages with:
+
+```bash
+cmux agent plugin list
+cmux agent plugin update <name-or-id>
+cmux agent plugin remove <name-or-id>
+```
+
+The reference screen detector keeps 21 herdr-derived manifests in its own
+package. `cmux-agent-screen-detection update` checks an HTTPS catalog only when
+the user invokes it. Startup never performs network access. See
+[`spec/plugins.md`](../spec/plugins.md) for the journal envelope, lifecycle,
+source precedence, process fallback, and attribution rules.
 
 ## Machines
 

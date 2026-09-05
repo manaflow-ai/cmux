@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '65aa592727bc414fe3e66ac125c9b8541a1926bbe9eaa572acc66b4681bf6589'
+IR_SHA256 = 'edceee440fd303762bb21fb494c9289aff3066695780b87b9f613d59a41daf9c'
 
 
 @dataclass(frozen=True)
@@ -594,6 +594,16 @@ COMMANDS = {
         {
         },
     ),
+    'machine-usage': CommandMetadata(
+        'machine-usage',
+        'control',
+        12,
+        'machine-usage-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+        },
+    ),
     'mark-workspaces-provider-managed': CommandMetadata(
         'mark-workspaces-provider-managed',
         'provider-authority',
@@ -1134,6 +1144,16 @@ COMMANDS = {
             'surface': CommandFieldMetadata(None, None),
         },
     ),
+    'server-stats': CommandMetadata(
+        'server-stats',
+        'local-admin',
+        12,
+        'server-stats-v1',
+        ('local-admin',),
+        None,
+        {
+        },
+    ),
     'set-cell-pixels': CommandMetadata(
         'set-cell-pixels',
         'frontend',
@@ -1395,6 +1415,7 @@ EVENTS = {
     'frontend-projection-changed': EventMetadata('frontend-projection-changed', 7, None, ('subscribe',), 'emitted'),
     'graphics-status': EventMetadata('graphics-status', 10, None, ('subscribe',), 'emitted'),
     'layout-changed': EventMetadata('layout-changed', 6, None, ('subscribe',), 'emitted'),
+    'machine-usage-changed': EventMetadata('machine-usage-changed', 12, 'machine-usage-v1', ('subscribe',), 'emitted'),
     'notification': EventMetadata('notification', 6, None, ('subscribe', 'attach-byte', 'attach-browser'), 'emitted'),
     'output': EventMetadata('output', 5, None, ('attach-byte',), 'emitted'),
     'overflow': EventMetadata('overflow', 7, None, ('subscribe', 'attach-byte', 'attach-render', 'attach-browser'), 'emitted'),

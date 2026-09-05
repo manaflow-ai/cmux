@@ -1,6 +1,7 @@
 // Authenticated REST facade over the VM control plane. Native clients use this surface so
 // provider credentials stay behind server-side ownership checks.
 
+import { preconnectFreestyle } from "../../../services/vms/drivers/freestyle";
 import {
   unauthorized,
   verifyRequest,
@@ -10,9 +11,10 @@ import {
   defaultProviderId,
   isProviderId,
   type ProviderId,
+  vmCapabilitiesFor,
 } from "../../../services/vms/drivers";
 import { assertVmCreateEnabled } from "../../../services/vms/config";
-import { mintVmModelPlaneEnvBestEffort } from "../../../services/coderouter/vmModelPlane";
+import { vmModelPlaneGatewayFor } from "../../../services/vms/modelPlaneGateway";
 import {
   isVmCreateDisabledError,
   isVmCreateFailedError,
@@ -23,15 +25,14 @@ import {
 } from "../../../services/vms/errors";
 import {
   defaultMemoryMbForPlan,
+  memoryOptionsMbForPlan,
   isPaidVmPlan,
   isVmBillingTeamResolutionError,
-  isVmProGateBlocked,
   maxMemoryMbForPlan,
   resolveVmEntitlements,
   vmFreeAccessWindowDays,
 } from "../../../services/vms/entitlements";
 import {
-  imageUsesBakedFreestyleSignedAdmin,
   inferVmProviderForImage,
   resolveVmImage,
 } from "../../../services/vms/images/resolver";
@@ -52,8 +53,10 @@ import {
   vmWorkflowErrorResponse,
   withAuthedVmApiRoute,
   vmActiveLimitExceededResponse,
-  vmRequiresProResponse,
+  resolveVmProvisioningAccountScope,
+  runAfterResponse,
 } from "../../../services/vms/routeHelpers";
+import { vmRequestLocale } from "../../../services/vms/vmErrorMessages";
 import { captureVmProvisionOutcome } from "../../../services/vms/observability";
 import {
   createVm,
@@ -63,11 +66,17 @@ import {
 import { recordSpanError, setSpanAttributes } from "../../../services/telemetry";
 import {
   measureVmAsync,
-  measureVmSync,
   VmTimingRecorder,
 } from "../../../services/vms/timings";
 import { authProviderErrorResponse } from "../../../services/vms/authErrors";
 
+
+// Cold creates (provider VM boot, image pull, cmux-tui bootstrap) routinely
+// run minutes; without an explicit budget the platform default killed them
+// mid-provision. 600s caps a hung provider call well below the 20-minute
+// stuck-provisioning alert. The plan allows more (app/v1/responses/route.ts
+// uses 1800).
+export const maxDuration = 600;
 
 export async function GET(request: Request): Promise<Response> {
   return withAuthedVmApiRoute(
@@ -83,7 +92,6 @@ export async function GET(request: Request): Promise<Response> {
         if (requestedBillingTeamId || user.billingCustomerType === "team") {
           const entitlements = resolveVmEntitlements(user, process.env, {
             requestedBillingTeamId,
-            requireTeam: false,
           });
           listEntitlements = entitlements;
           billingTeamId = entitlements.billingTeamId;
@@ -109,7 +117,7 @@ export async function GET(request: Request): Promise<Response> {
       // resolution above, so resolve lazily here.
       if (!listEntitlements) {
         try {
-          listEntitlements = resolveVmEntitlements(user, process.env, { requireTeam: false });
+          listEntitlements = resolveVmEntitlements(user, process.env);
         } catch {
           listEntitlements = null;
         }
@@ -126,8 +134,15 @@ export async function GET(request: Request): Promise<Response> {
         image: entry.image,
         imageVersion: entry.imageVersion,
         kind: vmImageKindFor(entry.provider, entry.image),
+        // Verbs this machine's provider can honor (Checkpoint/Fork are hidden in
+        // the app when false; the CLI errors before calling).
+        capabilities: vmCapabilitiesFor(entry.provider),
         createdAt: entry.createdAt,
         displayName: entry.displayName,
+        // The machine's address on its owner's private network (reachable over
+        // the WireGuard tunnel); null for machines created before private
+        // networking. Clients surface it as "Copy IP Address".
+        address: { ipv4: entry.addressIpv4, ipv6: entry.addressIpv6 },
         // Server-authoritative expiry of the free access window for this machine
         // (epoch ms); null on paid plans or when the window is disabled. Clients
         // render countdowns from this instead of re-deriving the policy.
@@ -148,7 +163,9 @@ export async function GET(request: Request): Promise<Response> {
           ),
           // Kinds a client may request (and the image each resolves to) for the
           // default provider, so a "new machine" dialog offers only kinds that work.
-          imageKinds: listVmImageKinds(defaultProviderId()),
+          imageKinds: listVmImageKinds(defaultProviderId(), process.env, {
+            memoryMb: defaultMemoryMbForPlan(listEntitlements.planId, process.env),
+          }),
         }
         : undefined;
       return jsonResponse({ vms, limits });
@@ -157,6 +174,8 @@ export async function GET(request: Request): Promise<Response> {
 }
 
 export async function POST(request: Request): Promise<Response> {
+  // Warm the Freestyle connection while the caller is being verified.
+  preconnectFreestyle();
   return withAuthedVmApiRoute(
     request,
     "/api/vm",
@@ -167,6 +186,13 @@ export async function POST(request: Request): Promise<Response> {
       timing.record("auth", authDurationMs);
       setResponseFinalizer((response) => {
         timing.finish({ status: response.status });
+        // Per-stage timings travel with the response too, so a client or a
+        // smoke run sees where a create spent its time without Axiom.
+        try {
+          response.headers.set("Server-Timing", timing.serverTimingHeader());
+        } catch {
+          // Immutable headers on a passthrough Response: the span still has them.
+        }
         captureVmProvisionOutcome({ userId: initialUser.id, operation: "create", response, span });
       });
       let user: AuthedUser = initialUser;
@@ -292,6 +318,105 @@ export async function POST(request: Request): Promise<Response> {
           provider: candidate.provider as ProviderId | undefined,
           billingTeamId: typeof bodyBillingTeamId === "string" ? bodyBillingTeamId.trim() : undefined,
         };
+        // Idempotency-Key is standard HTTP; we also accept x-cmux-idempotency-key for CLI
+        // callers that don't know about RFC-style keys. Trim + clamp to a reasonable length
+        // so we don't store unbounded idempotency metadata.
+        const rawKey = (
+          request.headers.get("idempotency-key") ||
+          request.headers.get("x-cmux-idempotency-key") ||
+          ""
+        ).trim();
+        const idempotencyKey = rawKey ? rawKey.slice(0, 128) : undefined;
+
+        const requestedBillingTeamId = body.billingTeamId || requestedVmTeamIdFromRequest(request);
+        if (requestedBillingTeamId && !user.teamIds.includes(requestedBillingTeamId)) {
+          let refreshedUser: AuthedUser | null;
+          try {
+            refreshedUser = await measureVmAsync(timing, "auth", () =>
+              verifyRequest(request, { requestedTeamId: requestedBillingTeamId })
+            );
+          } catch (error) {
+            return authProviderErrorResponse(error, "/api/vm.create.team-auth");
+          }
+          if (!refreshedUser) return unauthorized();
+          user = refreshedUser;
+        }
+        // Read-time reconcile: a Stripe subscription change is corrected here
+        // right before paid limits apply. Best-effort — billing reads must
+        // not block VM creation, so the whole reconcile races a hard
+        // deadline and VM create proceeds with current metadata on timeout.
+        // The Stripe-to-Stack plan reconcile (a Stack read plus our subscription
+        // table) used to run before every create and cost 150 to 360 ms. It can
+        // only change this request's outcome when the cached plan would block
+        // it, so it runs inline on that path alone. Otherwise it runs after the
+        // response, so the next request still sees fresh metadata.
+        const reconcileProPlan = (recordTiming: boolean) =>
+          withBillingReconcileDeadline(
+            measureVmAsync(recordTiming ? timing : undefined, "billing_reconcile", async () => {
+              const serverUser = await getStackServerApp().getUser(user.id);
+              return serverUser ? reconcileProPlanMetadata(serverUser) : false;
+            }),
+          );
+        let account = await measureVmAsync(timing, "entitlements", () =>
+          resolveVmProvisioningAccountScope(user, request, { requestedBillingTeamId })
+        );
+        let reconcileMode: "off" | "deferred" | "inline" = isStackConfigured() ? "deferred" : "off";
+        if (!account.ok && reconcileMode === "deferred") {
+          reconcileMode = "inline";
+          try {
+            if (await reconcileProPlan(true)) {
+              const reconciledUser = await measureVmAsync(timing, "auth", () =>
+                verifyRequest(request, { requestedTeamId: requestedBillingTeamId })
+              );
+              if (reconciledUser) user = reconciledUser;
+              account = await measureVmAsync(timing, "entitlements", () =>
+                resolveVmProvisioningAccountScope(user, request, { requestedBillingTeamId })
+              );
+            }
+          } catch (err) {
+            console.error("[VM] Pro plan reconcile failed", err);
+          }
+        }
+        setSpanAttributes(span, { "cmux.billing.reconcile_mode": reconcileMode });
+        if (!account.ok) return account.response;
+        if (reconcileMode === "deferred") {
+          runAfterResponse(() => reconcileProPlan(false).then(() => undefined));
+        }
+        const entitlements = account.entitlements;
+        setSpanAttributes(span, {
+          "cmux.billing.team_id_set": !!entitlements.billingTeamId,
+          "cmux.billing.customer_type": entitlements.billingCustomerType,
+          "cmux.billing.plan_id": entitlements.planId,
+          "cmux.billing.requested_team_id_set": !!requestedBillingTeamId,
+          "cmux.vm.max_active": entitlements.maxActiveVms,
+        });
+
+        const maxMemoryMb = maxMemoryMbForPlan(entitlements.planId, process.env);
+        const memoryOptionsMb = memoryOptionsMbForPlan(entitlements.planId, process.env);
+        const planMemoryMb = defaultMemoryMbForPlan(entitlements.planId, process.env);
+        const requestedMemoryMb = candidate.memoryMb as number | undefined;
+        // Every plan sells exactly the plan machine, so a size the plan does
+        // not offer resolves to that machine instead of failing the create.
+        // Clients ship their own size table and always trail the server: the
+        // 2026-09-02 pricing change (#11610) left every installed nightly
+        // sending its old 24 GB default and the server rejecting each create
+        // with `vm_memory_exceeds_plan` until the next nightly published. The
+        // server owns the machine spec, so a stale client must still get a
+        // machine; the mismatch is recorded on the span for Axiom.
+        const memoryMb =
+          requestedMemoryMb === undefined || memoryOptionsMb.includes(requestedMemoryMb)
+            ? requestedMemoryMb ?? planMemoryMb
+            : planMemoryMb;
+        setSpanAttributes(span, {
+          "cmux.vm.memory_mb": memoryMb,
+          "cmux.vm.max_memory_mb": maxMemoryMb,
+          "cmux.vm.memory_requested_mb": requestedMemoryMb,
+          "cmux.vm.memory_coerced": requestedMemoryMb !== undefined && requestedMemoryMb !== memoryMb,
+        });
+
+        // Resolve provider/image only after the paid-plan boundary. A free or
+        // unknown plan must receive `vm_requires_pro` without consulting
+        // provider configuration, image manifests, or provider SDKs.
         // An explicit manifest image names its own provider: the CLI sends
         // provider-specific image ids without a provider field, and the
         // deployment default must not reroute them under the wrong provider.
@@ -299,7 +424,9 @@ export async function POST(request: Request): Promise<Response> {
         let imageSelection;
         try {
           assertVmCreateEnabled(provider);
-          imageSelection = resolveVmImage(provider, body.image, process.env, { kind: body.kind });
+          // The plan's memory picks the snapshot size (one snapshot per size on
+          // Freestyle), so the machine boots at its shape with nothing to resize.
+          imageSelection = resolveVmImage(provider, body.image, process.env, { kind: body.kind, memoryMb });
         } catch (err) {
           if (isVmCreateDisabledError(err)) {
             return vmErrorResponse({
@@ -330,114 +457,23 @@ export async function POST(request: Request): Promise<Response> {
           throw err;
         }
         const image = imageSelection.image;
-        // Idempotency-Key is standard HTTP; we also accept x-cmux-idempotency-key for CLI
-        // callers that don't know about RFC-style keys. Trim + clamp to a reasonable length
-        // so we don't store unbounded idempotency metadata.
-        const rawKey = (
-          request.headers.get("idempotency-key") ||
-          request.headers.get("x-cmux-idempotency-key") ||
-          ""
-        ).trim();
-        const idempotencyKey = rawKey ? rawKey.slice(0, 128) : undefined;
         setSpanAttributes(span, {
           "cmux.vm.provider": provider,
           "cmux.vm.image_set": image.length > 0,
           "cmux.vm.image_version": imageSelection.imageVersion,
           "cmux.vm.image_manifest": !!imageSelection.manifestEntry,
+          "cmux.vm.image_size": imageSelection.size?.name ?? "size-less",
           "cmux.idempotency_key_set": !!idempotencyKey,
         });
 
-        const requestedBillingTeamId = body.billingTeamId || requestedVmTeamIdFromRequest(request);
-        if (requestedBillingTeamId && !user.teamIds.includes(requestedBillingTeamId)) {
-          let refreshedUser: AuthedUser | null;
-          try {
-            refreshedUser = await measureVmAsync(timing, "auth", () =>
-              verifyRequest(request, { requestedTeamId: requestedBillingTeamId })
-            );
-          } catch (error) {
-            return authProviderErrorResponse(error, "/api/vm.create.team-auth");
-          }
-          if (!refreshedUser) return unauthorized();
-          user = refreshedUser;
-        }
-        // Read-time reconcile: a Stripe subscription change is corrected here
-        // right before paid limits apply. Best-effort — billing reads must
-        // not block VM creation, so the whole reconcile races a hard
-        // deadline and VM create proceeds with current metadata on timeout.
-        try {
-          if (isStackConfigured()) {
-            const changed = await withBillingReconcileDeadline(
-              measureVmAsync(timing, "billing_reconcile", async () => {
-                const serverUser = await getStackServerApp().getUser(user.id);
-                return serverUser ? reconcileProPlanMetadata(serverUser) : false;
-              })
-            );
-            if (changed) {
-              const reconciledUser = await measureVmAsync(timing, "auth", () =>
-                verifyRequest(request, { requestedTeamId: requestedBillingTeamId })
-              );
-              if (reconciledUser) user = reconciledUser;
-            }
-          }
-        } catch (err) {
-          console.error("[VM] Pro plan reconcile failed", err);
-        }
-        let entitlements;
-        try {
-          entitlements = measureVmSync(timing, "entitlements", () =>
-            resolveVmEntitlements(user, process.env, {
-              requestedBillingTeamId,
-              requireTeam: true,
-            })
-          );
-        } catch (err) {
-          if (isVmBillingTeamResolutionError(err)) {
-            return billingTeamErrorResponse(err);
-          }
-          throw err;
-        }
-        setSpanAttributes(span, {
-          "cmux.billing.team_id_set": !!entitlements.billingTeamId,
-          "cmux.billing.customer_type": entitlements.billingCustomerType,
-          "cmux.billing.plan_id": entitlements.planId,
-          "cmux.billing.requested_team_id_set": !!requestedBillingTeamId,
-          "cmux.vm.max_active": entitlements.maxActiveVms,
+        // Wire the machine to coderouter inside the workflow: the route token
+        // is bound to the VM row id, so provisioning runs after the row exists
+        // and before the provider call, and a failure fails the create.
+        const modelPlane = vmModelPlaneGatewayFor({
+          teamId: entitlements.billingTeamId,
+          stackUserId: user.id,
         });
-
-        if (isVmProGateBlocked(entitlements)) {
-          return vmRequiresProResponse();
-        }
-
-        const maxMemoryMb = maxMemoryMbForPlan(entitlements.planId, process.env);
-        const memoryMb =
-          candidate.memoryMb === undefined
-            ? defaultMemoryMbForPlan(entitlements.planId, process.env)
-            : candidate.memoryMb as number;
-        if (memoryMb > maxMemoryMb) {
-          return vmErrorResponse({
-            error: "vm_memory_exceeds_plan",
-            status: 400,
-            message: "The requested Cloud VM size exceeds this plan's memory limit.",
-            action: `Choose a size at or below ${maxMemoryMb} MB, or upgrade the plan before retrying.`,
-            details: { requestedMemoryMb: memoryMb, maxMemoryMb, planId: entitlements.planId },
-          });
-        }
-        setSpanAttributes(span, {
-          "cmux.vm.memory_mb": memoryMb,
-          "cmux.vm.max_memory_mb": maxMemoryMb,
-        });
-
-        // Wire the machine to coderouter: mint a per-machine route token and
-        // hand it over as create-time env (the baked image materializes agent
-        // configs from it). Best-effort: a coderouter outage or entitlement
-        // block ships an unwired machine, never a failed create.
-        const modelPlaneEnvs = await measureVmAsync(timing, "model_plane_env", () =>
-          mintVmModelPlaneEnvBestEffort({
-            teamId: entitlements.billingTeamId,
-            stackUserId: user.id,
-            requestUrl: request.url,
-          }));
-        setSpanAttributes(span, { "cmux.vm.model_plane_env": !!modelPlaneEnvs });
+        setSpanAttributes(span, { "cmux.vm.model_plane": !!modelPlane });
 
         let created;
         try {
@@ -451,11 +487,11 @@ export async function POST(request: Request): Promise<Response> {
             imageVersion: imageSelection.imageVersion,
             provider,
             idempotencyKey,
-            bakedFreestyleSignedAdmin: imageUsesBakedFreestyleSignedAdmin(provider, image),
             persistentHome: candidate.persistentHome === true,
             perMachineHome: candidate.perMachineHome === true,
             memoryMb,
-            envs: modelPlaneEnvs ?? undefined,
+            imageSize: imageSelection.size ?? undefined,
+            modelPlane,
             timing,
           }));
         } catch (err) {
@@ -485,20 +521,25 @@ export async function POST(request: Request): Promise<Response> {
             return vmActiveLimitExceededResponse({
               limit: err.limit,
               planId: entitlements.planId,
-              retryAction: "Run `cmux vm ls`, then stop or delete an active VM with `cmux vm rm <id>` before creating another. Paused VMs do not count against this limit.",
+              retryAction: "Run `cmux vm ls`, then delete an active VM with `cmux vm rm <id>` before creating another, or upgrade your plan.",
             });
           }
           if (isVmCreateCreditsInsufficientError(err)) {
+            const billsUser = entitlements.billingCustomerType === "user";
             return vmErrorResponse({
               error: "vm_create_credits_insufficient",
               status: 402,
-              message: "This team has no Cloud VM create credits left.",
-              action: "Upgrade the team's plan or ask an admin to add Cloud VM create credits, then retry.",
+              message: billsUser
+                ? "Your account has no Cloud VM create credits left."
+                : "This team has no Cloud VM create credits left.",
+              action: billsUser
+                ? "Upgrade your plan or add Cloud VM create credits, then retry."
+                : "Upgrade the team's plan or ask an admin to add Cloud VM create credits, then retry.",
               extra: { amount: err.amount },
               details: { amount: err.amount },
             });
           }
-          const workflowError = vmWorkflowErrorResponse(err);
+          const workflowError = await vmWorkflowErrorResponse(err, { locale: vmRequestLocale(request) });
           if (workflowError) return workflowError;
           throw err;
         }
@@ -509,6 +550,7 @@ export async function POST(request: Request): Promise<Response> {
           image: created.image,
           imageVersion: created.imageVersion,
           kind: imageSelection.kind,
+          ...(imageSelection.size ? { size: imageSelection.size } : {}),
           createdAt: created.createdAt,
         });
       }
@@ -521,6 +563,7 @@ export async function POST(request: Request): Promise<Response> {
 // the reconcile keeps running in the background (its result is logged, not
 // awaited) and VM create proceeds with the user's current plan metadata.
 const BILLING_RECONCILE_DEADLINE_MS = 5_000;
+
 
 export async function withBillingReconcileDeadline(
   reconcile: Promise<boolean>

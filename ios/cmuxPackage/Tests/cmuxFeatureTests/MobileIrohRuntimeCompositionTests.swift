@@ -90,6 +90,29 @@ struct MobileIrohRuntimeCompositionTests {
     }
 
     @Test
+    func productionAuthIgnoresAStagingBrokerBake() {
+        #expect(MobileIrohRuntimeComposition.resolvedBrokerBaseURL(
+            apiBaseURL: "https://cmux.com",
+            infoDictionary: [
+                "CMUXAuthEnvironment": "production",
+                "CMUXIrohBrokerBaseURL": "https://cmux-staging.vercel.app",
+                "CMUXDevTag": "internal",
+            ]
+        )?.absoluteString == "https://cmux.com")
+    }
+
+    @Test
+    func officialReleaseBundleIgnoresAStagingBrokerBakeWithoutAuthMarker() {
+        #expect(MobileIrohRuntimeComposition.resolvedBrokerBaseURL(
+            apiBaseURL: "https://cmux.com",
+            infoDictionary: [
+                "CMUXIrohBrokerBaseURL": "https://cmux-staging.vercel.app",
+            ],
+            bundleIdentifier: "dev.cmux.app.internal"
+        )?.absoluteString == "https://cmux.com")
+    }
+
+    @Test
     func initialAuthenticationAndFirstConnectionDoNotReplayTheSameAuthState() async throws {
         let fixture = try await MobileIrohSignOutFixture.make()
 
@@ -250,7 +273,7 @@ struct MobileIrohRuntimeCompositionTests {
         _ = try #require(readiness.completeFailure(
             revision: 1,
             accountID: "account-a",
-            error: CmxIrohTrustBrokerClientError.connectivity,
+            error: CmxIrohTrustBrokerClientError.connectivity(nil),
             retryAfterSeconds: nil,
             now: start
         ))

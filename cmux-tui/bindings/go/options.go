@@ -77,6 +77,7 @@ type SessionEventsOptions struct {
 	StreamOptions
 	Cursor *Cursor
 }
+type SessionJournalProducerListOptions struct{ ReadOptions }
 type JournalStart string
 
 const (

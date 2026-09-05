@@ -38,6 +38,21 @@ fn seed_workspace(registry: &mut WorkspaceRegistry, key: &str) {
 }
 
 #[test]
+fn journal_plugin_generation_reservation_is_monotonic_and_durable() {
+    let registry = WorkspaceRegistry::in_memory("plugin-generation").unwrap();
+    assert_eq!(registry.reserve_journal_plugin_generation().unwrap(), 1);
+    assert_eq!(registry.reserve_journal_plugin_generation().unwrap(), 2);
+    registry
+        .connection
+        .execute(
+            "UPDATE meta SET value = ?1 WHERE key = 'journal_plugin_generation'",
+            [u64::MAX.to_string()],
+        )
+        .unwrap();
+    assert!(registry.reserve_journal_plugin_generation().is_err());
+}
+
+#[test]
 fn interrupted_staged_workspace_keeps_reserved_public_id_without_early_publication() {
     let root = temp_root("interrupted-workspace-public-id");
     let key = "018f6e21-7b70-7e70-8000-0000000000aa";
@@ -573,6 +588,7 @@ fn terminal_host_reset_holds_structured_live_marker_lock() {
         supports_set_defaults: true,
         supports_clear_history: true,
         supports_terminate_ack: false,
+        supports_terminal_metadata: false,
     };
     let record_path = record.record_path(&root);
     let live_path = terminal_host_live_marker_path(&record_path, &record);
@@ -666,6 +682,7 @@ fn terminal_host_reset_checks_legacy_live_marker_as_orphan() {
         supports_set_defaults: false,
         supports_clear_history: false,
         supports_terminate_ack: false,
+        supports_terminal_metadata: false,
     };
     let record_path = record.record_path(&root);
     let live_path = terminal_host_live_marker_path(&record_path, &record);
@@ -773,6 +790,7 @@ fn reset_accepts_dead_v2_terminal_host_without_creating_live_marker() {
         supports_set_defaults: true,
         supports_clear_history: true,
         supports_terminate_ack: false,
+        supports_terminal_metadata: false,
     };
     let record_path = record.record_path(&host_root);
     let live_path = terminal_host_live_marker_path(&record_path, &record);
@@ -3478,9 +3496,29 @@ fn first_exit_metadata_wins_and_exited_ids_cannot_be_relaunched() {
         )
         .unwrap();
 
+    let mut malformed_exit = launching.clone();
+    malformed_exit.lifecycle = TerminalLifecycle::Exited;
+    malformed_exit.exit = Some(json!({"reason":"legacy-writer"}));
+    let error = registry
+        .commit_terminal(
+            &WorkspaceMutation::new("malformed-exit", "daemon").unwrap(),
+            &json!({"op":"terminal-exited","terminal_id":TERMINAL_ONE}),
+            None,
+            Some(1),
+            "terminal-exited",
+            &malformed_exit,
+            &json!({"terminal_id":TERMINAL_ONE}),
+        )
+        .unwrap_err();
+    assert!(error.to_string().contains("terminal exit receipt is invalid"));
+
     let mut first_exit = launching.clone();
     first_exit.lifecycle = TerminalLifecycle::Exited;
-    first_exit.exit = Some(json!({"reason":"first-observer","status":17}));
+    first_exit.exit = Some(json!({
+        "outcome":{"kind":"unknown","reason":"first-observer"},
+        "exited_at":"17",
+        "revision":"1",
+    }));
     let first = registry
         .commit_terminal(
             &WorkspaceMutation::new("exit-one", "daemon").unwrap(),
@@ -3495,7 +3533,11 @@ fn first_exit_metadata_wins_and_exited_ids_cannot_be_relaunched() {
     assert_eq!(first.revision, 2);
 
     let mut late_exit = first_exit.clone();
-    late_exit.exit = Some(json!({"reason":"late-observer","status":99}));
+    late_exit.exit = Some(json!({
+        "outcome":{"kind":"unknown","reason":"late-observer"},
+        "exited_at":"99",
+        "revision":"2",
+    }));
     let duplicate = registry
         .commit_terminal(
             &WorkspaceMutation::new("exit-two", "daemon").unwrap(),
@@ -3675,6 +3717,59 @@ fn registries_created_before_on_exit_gain_the_column_with_close_default() {
         TerminalOnExit::Keep
     );
     drop(registry);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn schema_14_legacy_terminal_exit_metadata_migrates_to_exact_receipt() {
+    let root = temp_root("legacy-terminal-exit-migration");
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        commit_terminal_topology(&mut registry, "legacy-terminal-exit");
+        let legacy_exit = json!({
+            "reason":"launch-failed",
+            "error":"terminal-host connection reset",
+        });
+        registry
+            .connection
+            .execute(
+                "UPDATE terminal_hosts
+                 SET lifecycle = 'exited', exit_json = ?1
+                 WHERE terminal_id = ?2",
+                params![canonical_json(&legacy_exit).unwrap(), TERMINAL_ONE],
+            )
+            .unwrap();
+        registry
+            .connection
+            .execute("UPDATE meta SET value = '14' WHERE key = 'schema_version'", [])
+            .unwrap();
+    }
+
+    let registry = WorkspaceRegistry::open(&root, "session").unwrap();
+    assert_eq!(
+        required_meta(&registry.connection, "schema_version").unwrap(),
+        SCHEMA_VERSION.to_string()
+    );
+    let terminal = registry.terminal_record(TERMINAL_ONE).unwrap().unwrap();
+    let exit = terminal.exit.unwrap();
+    assert_eq!(exit["outcome"]["kind"], "unknown");
+    assert_eq!(exit["outcome"]["reason"], "launch-failed: terminal-host connection reset");
+    assert!(exit["exited_at"].as_str().unwrap().parse::<u64>().is_ok());
+    assert_eq!(exit["revision"], registry.resource_revision().unwrap().to_string());
+    let stored: String = registry
+        .connection
+        .query_row(
+            "SELECT exit_json FROM terminal_hosts WHERE terminal_id = ?1",
+            [TERMINAL_ONE],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(serde_json::from_str::<Value>(&stored).unwrap(), exit);
+    drop(registry);
+
+    let reopened = WorkspaceRegistry::open(&root, "session").unwrap();
+    assert_eq!(reopened.terminal_record(TERMINAL_ONE).unwrap().unwrap().exit, Some(exit));
+    drop(reopened);
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -4793,7 +4888,10 @@ fn schema_thirteen_wraps_legacy_resource_api_frontend_projections() {
     }
 
     let migrated = WorkspaceRegistry::open(&root, "session").unwrap();
-    assert_eq!(required_meta(&migrated.connection, "schema_version").unwrap(), "14");
+    assert_eq!(
+        required_meta(&migrated.connection, "schema_version").unwrap(),
+        SCHEMA_VERSION.to_string()
+    );
     let projections = migrated.public_projections().unwrap().frontend_projections;
     assert_eq!(projections.len(), 1);
     assert_eq!(projections[0].schema_version, 2);

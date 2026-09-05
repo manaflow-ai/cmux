@@ -69,7 +69,13 @@ struct cmuxApp: App {
         )
         if irxEnabled {
             let coordinator = auth.coordinator
-            Task { await irx.configure(auth: coordinator, legacy: iroh) }
+            Task {
+                await irx.configure(
+                    auth: coordinator,
+                    legacy: iroh,
+                    controlPlaneBaseURL: connectivityInvalidationBaseURL
+                )
+            }
         } else {
             iroh.configure(
                 auth: auth.coordinator,
@@ -149,14 +155,15 @@ struct cmuxApp: App {
                 guard let panelUUID = UUID(uuidString: panelID) else {
                     throw MobileIrohSimulatorStreamLaneError.invalidPanelID
                 }
-                guard !irxEnabled else {
-                    // Simulator streaming is not served by irx v1.
-                    throw MobileIrohSimulatorStreamLaneError.closed
-                }
-                return try await iroh.openSimulatorStreamLane(
-                    for: request,
-                    panelID: panelUUID
-                )
+                return irxEnabled
+                    ? try await irx.openSimulatorStreamLane(
+                        for: request,
+                        panelID: panelUUID
+                    )
+                    : try await iroh.openSimulatorStreamLane(
+                        for: request,
+                        panelID: panelUUID
+                    )
             }
         )
 

@@ -8,6 +8,13 @@ Rich frontends consume the server's authoritative render state: draw runs, place
 
 The complete command schemas are in [`commands.md`](commands.md), event schemas and scoping are in [`events.md`](events.md), and styled-cell details are in [`render.md`](render.md).
 
+Sidebar, right-panel, Dock, and pane composition follows the shared
+[presentation system](../../docs/sidebar-system-design.md). A frontend should
+keep the resource graph and terminal attachment logic separate from its local
+region state. For agent control, use the proposed presentation catalog,
+snapshot, invoke, and wait contract when available. Do not derive provider or
+row identity from layout indexes or terminal pixels.
+
 ## 1. Connect
 
 For a local native frontend, connect to the Unix socket described in [`transports.md`](transports.md#unix-socket). Send each JSON request followed by `\n`, split incoming bytes on `\n`, and ignore blank lines.
@@ -39,6 +46,12 @@ Echo every optional capability the frontend will use through
 `set-client-info`. Capability state belongs to this connection. Lease-capable
 frontends must negotiate both view attachment capabilities before opening
 streams; creation fallbacks require both creation capabilities.
+
+For durable agent lifecycle rows, first check `identify.capabilities` for
+`agent-history-v1`, then echo that capability through `set-client-info` before
+decoding the additive `history` and `has_history` fields from `list-agents`.
+Without the capability, use `agents` as the active-work queue. The history
+projection is bounded durable state, not an unbounded event log.
 
 ## 3. Load And Track The Workspace Tree
 
@@ -122,7 +135,7 @@ render-state -> (render-delta | scroll-changed)* -> detached
 
 The initial snapshot and render tap are registered under one lock, so there is no missing or duplicated frame between them. Attach events may arrive before the attach command response.
 
-Call [`list-agents`](commands.md#list-agents) to read current agent records, optionally filtered by surface or state. Agent producers report state through [`report-agent`](commands.md#report-agent); a presentation-only frontend normally reads and displays these records rather than inventing its own agent state. There is no dedicated agent-change event in protocol v11, so re-fetch after a frontend reports state and when tree or surface lifecycle events make the presentation stale.
+Call [`list-agents`](commands.md#list-agents) to read current agent records, optionally filtered by surface or state. Agent producers report state through [`report-agent`](commands.md#report-agent); a presentation-only frontend normally reads and displays these records rather than inventing its own agent state. The optional `agent` field is the canonical adapter identity (`claude`, `codex`, or another registered producer) when the producer supplies one, and is null when identity is unknown. When `agent-history-v1` is negotiated, `agents` is the active-work projection and `history` is the durable lifecycle projection. Use the explicit state filter to inspect completed or otherwise non-active rows. There is no dedicated agent-change event in protocol v11, so re-fetch after a frontend reports state and when tree or surface lifecycle events make the presentation stale.
 
 `render-state.scrollback_rows` and later count changes tell the frontend whether history exists. Fetch visible history in bounded pages with [`read-scrollback`](commands.md#read-scrollback); do not assume indexes remain stable across eviction or resize reflow. Merge pages and project absolute graphics anchors only when the page `epoch` equals the render `history_epoch`; suppress graphics and reload the page after a mismatch.
 
@@ -154,7 +167,7 @@ while their scroll, selection, and viewport state remain independent.
 
 The workspace tree carries per-surface notification state for initial rendering. Subscribed frontends receive `notification` events with a notification subject id and an optional related surface. Show the notification and mark a related surface as needing attention until the user views it.
 
-Call [`list-agents`](commands.md#list-agents) for current agent records. Agent producers use [`report-agent`](commands.md#report-agent); presentation-only frontends display server state rather than inventing a second agent-state model.
+Call [`list-agents`](commands.md#list-agents) for current agent records. Agent producers use [`report-agent`](commands.md#report-agent); presentation-only frontends display server state rather than inventing a second agent-state model. A frontend that needs lifecycle history must negotiate `agent-history-v1` and keep the active queue separate from the durable history projection.
 
 ## End-To-End WebSocket Transcript
 

@@ -824,6 +824,10 @@ MENU_ONLY_METADATA: dict[str, dict[str, str]] = {
         "classification": "presentation-only",
         "route": "frontend per-profile view visibility",
     },
+    "SetSidebarViewPinned": {
+        "classification": "presentation-only",
+        "route": "frontend per-profile view pinning",
+    },
     "SetClientSizing": {
         "classification": "direct",
         "route": "set-client-sizing",

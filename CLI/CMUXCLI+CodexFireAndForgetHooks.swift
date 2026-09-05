@@ -2,6 +2,8 @@ import CMUXAgentLaunch
 import Foundation
 
 extension CMUXCLI {
+    private static let codexSettledStopMaximumRetries = 3
+
     /// Schedules the normal Codex Stop path after the final child exits.
     ///
     /// Native child hooks must acknowledge the lifecycle write quickly, so the
@@ -11,8 +13,15 @@ extension CMUXCLI {
     func spawnDetachedCodexSettledStop(
         payload: String,
         environment: [String: String],
-        telemetry: CLISocketSentryTelemetry
+        telemetry: CLISocketSentryTelemetry,
+        turnID: String? = nil
     ) {
+        let retryCount = max(0, Int(environment["CMUX_CODEX_SETTLED_STOP_RETRY_COUNT"] ?? "0") ?? 0)
+        guard retryCount < Self.codexSettledStopMaximumRetries else {
+            telemetry.breadcrumb("codex-hook.settled-stop.retry-limit-reached")
+            return
+        }
+        let retryDelay = [0.0, 0.5, 1.0][min(retryCount, 2)]
         let selfPath: String = {
             if let first = ProcessInfo.processInfo.arguments.first,
                first.hasPrefix("/"),
@@ -43,12 +52,19 @@ extension CMUXCLI {
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
         process.arguments = [
             "-c",
-            "nohup /bin/sh -c '\"$0\" hooks codex stop < \"$1\" >/dev/null 2>&1; rm -f \"$1\"' \"$0\" \"$1\" >/dev/null 2>&1 &",
+            "nohup /bin/sh -c 'sleep \"$2\"; \"$0\" hooks codex stop < \"$1\" >/dev/null 2>&1; rm -f \"$1\"' \"$0\" \"$1\" \"$2\" >/dev/null 2>&1 &",
             selfPath,
             payloadURL.path,
+            String(retryDelay),
         ]
         var childEnvironment = environment
         childEnvironment["CMUX_CODEX_SETTLED_CHILD_STOP"] = "1"
+        childEnvironment["CMUX_CODEX_SETTLED_STOP_RETRY_COUNT"] = String(retryCount + 1)
+        if let turnID = turnID?.trimmingCharacters(in: .whitespacesAndNewlines), !turnID.isEmpty {
+            childEnvironment["CMUX_CODEX_SETTLED_STOP_TURN_ID"] = turnID
+        } else {
+            childEnvironment.removeValue(forKey: "CMUX_CODEX_SETTLED_STOP_TURN_ID")
+        }
         process.environment = childEnvironment
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice

@@ -58,9 +58,14 @@ owner from an owner still starting.
 ```text
 cmux server start [START OPTIONS]
 cmux server status [--session <name>] [--socket <path>]
+cmux server stats [--session <name>] [--socket <path>] [--json]
 cmux server stop [--session <name>] [--socket <path>] [--force]
 cmux server reload-config [--session <name>] [--socket <path>]
 ```
+
+`server stats` prints the `server-stats` diagnostics (registry lock contention
+with holder sites, journal writer batches and commit latency, connection
+admission); see `docs/journal-operations.md` for how to read it.
 
 `server start` is the canonical foreground spelling of `--headless`.
 The shared `--session` and `--socket` routing options can also precede the
@@ -301,6 +306,7 @@ browser <selector> mouse|wheel --pointer-frame-seq <decimal>
 
 notification list|create
 agent list|report
+agent plugin list|install|use|update|remove
 pairing request list
 pairing request <selector> respond <accept|reject>
 projection <selector> show|put
@@ -353,6 +359,17 @@ remains available for transport testing.
 `sidebar plugin` commands read and write local plugin installation state. They
 never open a protocol connection or send a plugin ID to a session. Optional
 plugin names are slugs matching `[a-z0-9-_]+`.
+
+## Local agent plugins
+
+`agent plugin` commands read and write local installation state. They clone
+and build the selected package, validate its `kind = "agent"` manifest, and
+write the selected background command to `agents.plugin`. They do not open a
+protocol connection or send a plugin ID to a session. Run `cmux server
+reload-config` after changing the selection. The running plugin uses the
+generic journal producer and append operations over the server socket. Use
+`agent plugin use --builtin` to disable the selected userland plugin and return
+to no agent detector.
 
 `provider authority install` is a local Linux host-administration action. It
 installs the credential for an already running provider-managed session and is

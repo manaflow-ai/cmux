@@ -10,12 +10,19 @@ use crate::{
 pub const AGENT_HOOK_PRODUCER_ID: &str = "cmux_agent";
 pub const AGENT_HOOK_MANIFEST_VERSION: u32 = 1;
 pub(crate) const AGENT_HOOK_FORMAT: &str = "cmux.agent-hook.v1";
+/// Internal lifecycle event emitted when the generic core supervisor observes
+/// a userland journal-plugin exit. This is a core projection adapter, not an
+/// agent implementation. It lets the roster remain a journal-only projection
+/// even when a crashed plugin cannot emit per-terminal `session.ended` events.
+// Keep the wire value from the preview so journals already on disk replay
+// after this boundary rename.
+pub(crate) const JOURNAL_PLUGIN_EXIT_NATIVE_EVENT: &str = "AgentPluginExited";
 const MAX_AGENT_SOURCE_BYTES: usize = 64;
 const MAX_NATIVE_EVENT_BYTES: usize = 128;
 const NORMALIZED_TEXT_BYTES: usize = 8 * 1024;
 const REDACTED_AGENT_VALUE: &str = "[redacted]";
 
-const AGENT_EVENT_KINDS: [&str; 12] = [
+const AGENT_EVENT_KINDS: [&str; 13] = [
     "agent.session.started",
     "agent.turn.started",
     "agent.turn.completed",
@@ -28,6 +35,7 @@ const AGENT_EVENT_KINDS: [&str; 12] = [
     "agent.error.reported",
     "agent.state.changed",
     "agent.session.ended",
+    "agent.plugin.exited",
 ];
 
 pub fn agent_hook_journal_ingress(
@@ -70,6 +78,38 @@ pub fn agent_hook_journal_ingress(
             "native_event":native_event,
             "normalized":normalized,
             "native":native,
+        }),
+        causation_id: None,
+        correlation_id: None,
+    })
+}
+
+/// Build the core-owned lifecycle event for an unexpectedly exited userland
+/// plugin. The reducer uses the plugin subject to retire all entries owned by
+/// that producer in one deterministic fold.
+pub(crate) fn journal_plugin_exit_journal_ingress(
+    plugin_id: &str,
+    generation: u64,
+) -> anyhow::Result<JournalIngress> {
+    validate_agent_source(plugin_id)?;
+    Ok(JournalIngress {
+        producer_id: AGENT_HOOK_PRODUCER_ID.into(),
+        manifest_version: AGENT_HOOK_MANIFEST_VERSION,
+        kind: "agent.plugin.exited".into(),
+        schema_version: 1,
+        occurred_at_ms: None,
+        subjects: vec![JournalSubject { kind: "plugin".into(), id: plugin_id.into() }],
+        sensitivity: Some(JournalSensitivity::Sensitive),
+        payload: json!({
+            "format": AGENT_HOOK_FORMAT,
+            "adapter": {"id": "cmux", "version": 1},
+            "native_event": JOURNAL_PLUGIN_EXIT_NATIVE_EVENT,
+            "normalized": {
+                "plugin_id": plugin_id,
+                "plugin_generation": generation.to_string(),
+                "observed_at_ms": crate::workspace_registry::unix_epoch_ms()?.to_string(),
+            },
+            "native": {},
         }),
         causation_id: None,
         correlation_id: None,
@@ -179,7 +219,7 @@ pub(crate) fn built_in_agent_producer_manifest() -> JournalProducerManifest {
                         "type":"string",
                         "minLength":1,
                         "maxLength":MAX_AGENT_SOURCE_BYTES,
-                        "pattern":"^[a-z0-9_-]+$"
+                        "pattern":"^[a-z0-9][a-z0-9_-]*$"
                     },
                     "version":{"const":1}
                 },
@@ -215,10 +255,11 @@ fn validate_agent_source(source: &str) -> anyhow::Result<()> {
     anyhow::ensure!(
         !source.is_empty()
             && source.len() <= MAX_AGENT_SOURCE_BYTES
+            && source.as_bytes().first().is_some_and(|byte| byte.is_ascii_alphanumeric())
             && source.bytes().all(|byte| {
                 byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'_' | b'-')
             }),
-        "agent source must contain 1 to {MAX_AGENT_SOURCE_BYTES} lowercase ASCII letters, digits, hyphens, or underscores"
+        "agent source must match [a-z0-9][a-z0-9_-]* and contain at most {MAX_AGENT_SOURCE_BYTES} bytes"
     );
     Ok(())
 }
@@ -781,6 +822,13 @@ fn semantic_key(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn agent_source_uses_the_shared_component_grammar() {
+        assert!(agent_hook_journal_ingress("codex-agent", "Stop", None, json!({})).is_ok());
+        assert!(agent_hook_journal_ingress("-codex", "Stop", None, json!({})).is_err());
+        assert!(agent_hook_journal_ingress("codex.agent", "Stop", None, json!({})).is_err());
+    }
 
     #[test]
     fn completion_hooks_share_one_semantic_kind_and_keep_native_payload() {

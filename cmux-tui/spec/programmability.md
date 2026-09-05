@@ -21,7 +21,7 @@ Every feature belongs to one ownership class:
 | Terminal host | Durable PTY process and renderer data plane | [`terminal-host.md`](terminal-host.md) |
 | Machine provider | Machine discovery, lifecycle, scopes, and transport tickets | [`machine-provider.md`](machine-provider.md) |
 | Provider management | Root-owned authority installation and rotation | [`provider-management.md`](provider-management.md) |
-| Plugin host | Installed executable, manifest, permissions, contributions, and lifecycle | [`plugins.md`](plugins.md) |
+| Plugin host | Installed executable, manifest, permissions, contributions, and lifecycle for sidebar and userland agent plugins | [`plugins.md`](plugins.md) |
 
 An action that combines a frontend choice with a mux mutation has two steps. For example, `browser-edit-url` opens a local prompt, then calls `browser-navigate`. The local prompt is not copied into mux state.
 
@@ -47,7 +47,7 @@ unknown ownership signal rejects the action instead of selecting either route.
 
 ## Required vNext primitives
 
-The implemented v10 inventory is complete as a description of current wire behavior. The following primitives are required before the affected feature family can claim portable automation completeness.
+The implemented v12 inventory is complete as a description of current wire behavior. The machine-readable `secondary_protocols.terminal_host_v1` key remains a stable legacy alias for the terminal-host-v4 daemon message catalog. The protocol-domain row and [`terminal-host.md`](terminal-host.md) describe that daemon v4 contract; the current cross-language renderer is v3. Renderer attach to a newly launched host is not a supported route until renderer v4 support or explicit mutually supported version negotiation exists. The following primitives are required before the affected feature family can claim portable automation completeness.
 
 | Feature family | Current route | Required addition |
 | --- | --- | --- |
@@ -55,10 +55,10 @@ The implemented v10 inventory is complete as a description of current wire behav
 | Event recovery | Local consumers can replay or tail the session journal with durable cursors, structured filters, and compiled regex; remote consumers receive token-gated metadata with redaction | Classify remaining transient producers and expose retained-range discovery |
 | Mutating retries | Workspace and durable-terminal mutations have partial mutation ledgers; some legacy acknowledgements do not prove a commit | One operation identity and receipt format for every side effect; success must identify committed, changed, or no-op state |
 | Errors | Response `error` is one string | `{code,message,details,retryable}` with stable codes |
-| TUI presentation | State stays inside one frontend | `register-frontend`, `describe-frontend-actions`, `invoke-frontend-action`, and `frontend-action-result` |
+| TUI presentation | State stays inside one frontend | `register-frontend`, `describe-frontend-actions`, `invoke-frontend-action`, and `frontend-action-result`; the presentation registry contract below adds provider, instance, profile, region, snapshot, and receipt schemas |
 | PTY keyboard | `send-key` emits semantic keyboard input for PTYs | Preserve this route and add negotiated key capability discovery |
 | PTY mouse and focus | Native TUI encodes mouse/focus bytes locally | `send-mouse` and `send-focus`, with current terminal modes in render state |
-| Terminal-host resize | The host produces a length-prefixed replay, while the current consumer includes that length word in replay bytes | Repair the decoder, add producer-consumer and cross-language fixtures, then promote terminal-host v1 from partial |
+| Terminal-host resize | The daemon-side v4 decoder accepts v1-v4 and keeps the v3 payload unchanged. The current renderer defaults to protocol v3 and decodes negotiated v1-v3 payload layouts, including the length-prefixed replay and version-specific Kitty state. Newly launched hosts require v4 in `CapabilityStore::accept`; the minted one-use capability token is versionless, and no grant API exposes mutually supported downgrade negotiation, so renderer attach to those hosts is unsupported | Add renderer v4 support or explicit mutually supported grant negotiation, then keep producer-consumer and cross-language fixtures current and complete typed SDK coverage before promoting this family to complete |
 | PTY selection | Native selection is frontend-local and `copy selection` cannot reconstruct it remotely | `extract-text` by absolute range; optional frontend-local selection adapter |
 | Terminal search | Clients page scrollback and search themselves | Cursor-based `search-scrollback` with revision and match ranges |
 | Process outcome | `terminal.process.get`, `terminal.wait_exit`, and `TerminalSnapshot.exit` expose one durable child outcome per terminal | Separate execution IDs and lifecycle events for multiple sequential processes in one terminal |
@@ -71,7 +71,7 @@ The implemented v10 inventory is complete as a description of current wire behav
 | Notifications | Creation and one unread marker per inactive surface | Durable records, list/get/read/unread/dismiss/clear/open commands, counts, and lifecycle events |
 | Hooks and feeds | Versioned producer and hook manifests, schema-validated ingress, durable cursors, receipts, bounded retries, and causal loop prevention are implemented | Add declarative feed projections and stronger principal-scoped permissions |
 | Config | Local JSON contains many unversioned leaves | Versioned JSON Schema, ownership, hot/restart metadata, `get-config`, `validate-config`, `patch-config`, and `config-changed` |
-| Plugins | Trusted executable sidebar plugin is implemented | Manifest v1, contribution points, permissions, trust decisions, transactional install/update/remove, and typed management |
+| Plugins | Trusted executable sidebar plugin is implemented | Manifest v1, presentation contribution points, permissions, trust decisions, transactional install/update/remove, and typed management |
 | File sidebar | Native TUI reads the host filesystem directly | Classify as local-only, or add a separately permissioned list/stat/read/watch filesystem capability |
 | Machines | Dynamic provider v1 is separate and implemented; workspace mirror authority is one shared mux bearer | Replace the shared bearer with a provider-authenticated channel or scoped frontend/operation capabilities; generate its SDK from its own schema |
 | Session startup | CLI performs connect-or-start and relay discovery outside the wire protocol | Document socket resolution, ownership, and auto-start; enforce server-side session validation |
@@ -84,9 +84,36 @@ The implemented v10 inventory is complete as a description of current wire behav
 | Distribution identity | Binary, protocol, SDK, and registry packages version independently | One support matrix defining version relationships, platform floors, package namespaces, and compatibility guarantees |
 | Window integration | Window title requests and frontend projections cover only part of host-window state | Frontend-owned window schema and actions for create, close, focus, move, size, and host capability failures |
 
+## Presentation registry contract
+
+The cross-frontend model is specified in
+[`../../docs/sidebar-system-design.md`](../../docs/sidebar-system-design.md).
+The following operations are proposed. They must not be described as
+implemented until they have entries in `resource-operations-v2.json`, schemas,
+SDK facades, and behavior fixtures.
+
+| Proposed operation | Required behavior |
+| --- | --- |
+| `frontend.presentation.catalog` | List provider descriptors, view instances, layout profiles, region mounts, attention summaries, permissions, and a catalog revision |
+| `frontend.presentation.snapshot` | Return a bounded semantic tree with stable target IDs, labels, values, bounds when known, action schemas, source revisions, timestamps, staleness, errors, and cursors |
+| `frontend.presentation.invoke` | Accept a typed action with `operation_id` and optional `expected_revision`; return an idempotent receipt and resulting local or authoritative revision |
+| `frontend.presentation.wait` | Wait for an operation, revision, event predicate, or attention change with cancellation and timeout semantics |
+
+Provider descriptors use stable namespaced IDs. Profiles reference stable
+instance IDs, not array indexes or copied definitions. Region and presentation
+state remain frontend-window owned. A snapshot must explain why a view is
+hidden or suspended, so an agent can diagnose missing Agents without scraping
+terminal pixels.
+
+The action catalog must include parameter schemas, selectors, preconditions,
+permission class, idempotency, result type, and structured errors. The same
+action reducer serves keyboard, mouse, palette, CLI, drag, interpreted
+sidebars, and remote agents. An action that exists only in a visual menu is
+not complete.
+
 ## Frontend action adapter
 
-The proposed frontend adapter is a separate, opt-in control profile. A frontend registers an opaque frontend instance id, its action names, schemas, and whether each action is safe for unattended invocation. An authorized caller invokes one registered action with a unique operation id. The frontend returns `accepted`, `completed`, `rejected`, or `unavailable`; completion includes the resulting local projection revision.
+The proposed frontend adapter is a separate, opt-in control profile. A frontend registers an opaque frontend instance id, its action names, schemas, and whether each action is safe for unattended invocation. An authorized caller invokes one registered action with a unique operation id. The frontend returns `accepted`, `completed`, `rejected`, or `unavailable`; completion includes the resulting local projection revision. Presentation-registry actions use the same receipt vocabulary and add `indeterminate` when transport loss prevents the host from proving the outcome.
 
 The adapter must not grant mux authority to a frontend-only action. It must not serialize transient hover, drag, prompt text, or key-prefix state unless that frontend explicitly declares the field in its projection schema. A disconnected frontend makes its actions unavailable.
 
@@ -101,7 +128,7 @@ The inventory assigns each command to one disjoint authority group. Generated SD
 | `local-admin` | `control` plus the `local-admin` group on a trusted Unix-classified transport, including the current stdio relay |
 | `provider-authority` | `control` plus the `provider-authority` group after separate authority authentication |
 | `machine-provider` | Separate provider v0/v1 client and server types |
-| `terminal-renderer` | Separate terminal-host v1 frame types with a minted capability |
+| `terminal-renderer` | Separate terminal-host frame types with a minted capability. The minted one-use token is versionless; the host handshake selects a version, and the current remote renderer accepts v1-v3 only. Newly launched hosts select v4, outside that supported range, so this profile is partial and does not advertise attach to newly launched hosts until renderer v4 support or explicit mutually supported version negotiation exists |
 
 An SDK must refuse a profile when the selected transport cannot satisfy its trust boundary.
 

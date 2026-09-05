@@ -4,7 +4,9 @@ import secrets
 import math
 import base64
 import binascii
+import json
 import os
+import re
 import threading
 from dataclasses import asdict, dataclass, fields
 from typing import (
@@ -109,7 +111,16 @@ from .models import (
     SessionDelta,
     SessionEvent,
     JournalAuthority,
+    JournalAppendResult,
+    JournalClass,
+    JournalEventSchema,
+    JournalIngress,
     JournalProducer,
+    JournalProducerListResult,
+    JournalProducerManifest,
+    JournalProducerPutResult,
+    JournalReplayPolicy,
+    JournalSensitivity,
     JournalSubject,
     SessionJournalRecord,
     SessionSnapshotItem,
@@ -1019,6 +1030,7 @@ def _aux_snapshot(
             "terminal_id",
             "state",
             "source",
+            "agent",
             "updated_at_ms",
             "source_session",
         ),
@@ -1090,8 +1102,9 @@ def _aux_snapshot(
             source=_required_enum(
                 payload,
                 "source",
-                ("hook", "socket", "detected"),
+                ("hook", "socket", "detected", "plugin"),
             ),
+            agent=_required_nullable_string(payload, "agent"),
             updated_at_ms=_required_decimal(payload, "updated_at_ms"),
             source_session=_required_nullable_string(
                 payload,
@@ -1214,6 +1227,8 @@ def _terminal_screen_result(value: Any) -> TerminalScreenResult:
         payload,
         (
             "text",
+            "revision",
+            "osc_progress",
             "cols",
             "rows",
             "cursor_row",
@@ -1226,14 +1241,26 @@ def _terminal_screen_result(value: Any) -> TerminalScreenResult:
     extra = payload.get("extra", {})
     if not isinstance(extra, Mapping):
         raise ProtocolError("terminal screen extra must be an object")
+    revision = (
+        _required_nullable_decimal(payload, "revision")
+        if "revision" in payload
+        else None
+    )
+    osc_progress = (
+        _required_nullable_string(payload, "osc_progress")
+        if "osc_progress" in payload
+        else None
+    )
     return TerminalScreenResult(
-        _required_string(payload, "text"),
-        _required_positive_uint16(payload, "cols"),
-        _required_positive_uint16(payload, "rows"),
-        _required_uint16(payload, "cursor_row"),
-        _required_uint16(payload, "cursor_col"),
-        _required_bool(payload, "cursor_visible"),
-        dict(extra),
+        text=_required_string(payload, "text"),
+        cols=_required_positive_uint16(payload, "cols"),
+        rows=_required_positive_uint16(payload, "rows"),
+        cursor_row=_required_uint16(payload, "cursor_row"),
+        cursor_col=_required_uint16(payload, "cursor_col"),
+        cursor_visible=_required_bool(payload, "cursor_visible"),
+        extra=dict(extra),
+        revision=revision,
+        osc_progress=osc_progress,
     )
 
 
@@ -1386,7 +1413,15 @@ def _process_info_result(value: Any) -> ProcessInfoResult:
     payload = _mapping(value, "process info result")
     _strict_object(
         payload,
-        ("pid", "executable", "argv", "cwd", "foreground_cwd", "children"),
+        (
+            "pid",
+            "executable",
+            "argv",
+            "cwd",
+            "foreground_cwd",
+            "foreground_executable",
+            "children",
+        ),
         "process info result",
     )
     argv = payload.get("argv")
@@ -1405,6 +1440,7 @@ def _process_info_result(value: Any) -> ProcessInfoResult:
         _optional_present_string(payload, "cwd"),
         _optional_string(payload, "foreground_cwd"),
         decoded_children,
+        _optional_string(payload, "foreground_executable"),
     )
 
 
@@ -1821,16 +1857,16 @@ def _journal_record(value: Any) -> SessionJournalRecord:
     subject_values = payload.get("subjects")
     if not isinstance(subject_values, list):
         raise ProtocolError("journal subjects must be an array")
+    if len(subject_values) > 64:
+        raise ProtocolError("journal subjects must contain at most 64 entries")
     subjects = []
     for subject_value in subject_values:
-        subject = _mapping(subject_value, "journal subject")
-        _strict_object(subject, ("kind", "id"), "journal subject")
-        subjects.append(
-            JournalSubject(
-                _required_string(subject, "kind"),
-                _required_string(subject, "id"),
-            )
-        )
+        try:
+            subjects.append(_journal_subject(subject_value))
+        except ProtocolError:
+            raise
+        except (TypeError, ValueError) as error:
+            raise ProtocolError(f"journal subject is invalid: {error}") from error
     return SessionJournalRecord(
         _required_decimal(payload, "sequence"),
         _required_string(payload, "event_id"),
@@ -1857,6 +1893,409 @@ def _journal_record(value: Any) -> SessionJournalRecord:
         payload["payload"],
         _required_nullable_decimal(payload, "resource_revision"),
         _required_nullable_decimal(payload, "previous_resource_revision"),
+    )
+
+
+_JOURNAL_CLASSES = ("state", "observation", "effect", "checkpoint")
+_JOURNAL_REPLAY_POLICIES = ("required", "advisory", "never")
+_JOURNAL_SENSITIVITIES = ("public", "metadata", "sensitive", "secret")
+
+
+def _journal_json_value(value: Any, label: str) -> Any:
+    """Validate a value before putting it in a JSON protocol field."""
+    try:
+        json.dumps(value, ensure_ascii=False, allow_nan=False)
+    except (TypeError, ValueError) as error:
+        raise TypeError(f"{label} must be a JSON value") from error
+    if isinstance(value, Mapping) and not all(
+        isinstance(key, str) for key in value
+    ):
+        raise TypeError(f"{label} object keys must be strings")
+    if isinstance(value, Mapping):
+        return {
+            key: _journal_json_value(item, f"{label}.{key}")
+            for key, item in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [
+            _journal_json_value(item, f"{label}[{index}]")
+            for index, item in enumerate(value)
+        ]
+    return value
+
+
+def _journal_text(value: Any, label: str, maximum: int) -> str:
+    if not isinstance(value, str):
+        raise TypeError(f"{label} must be a string")
+    try:
+        length = len(value.encode("utf-8"))
+    except UnicodeEncodeError as error:
+        raise ValueError(f"{label} must contain valid Unicode") from error
+    if length < 1 or length > maximum:
+        raise ValueError(
+            f"{label} must contain 1 to {maximum} UTF-8 bytes"
+        )
+    return value
+
+
+def _journal_component(value: Any, label: str) -> str:
+    value = _journal_text(value, label, 64)
+    if re.fullmatch(r"[a-z0-9][a-z0-9_-]*", value) is None:
+        raise ValueError(
+            f"{label} must match [a-z0-9][a-z0-9_-]*"
+        )
+    return value
+
+
+def _journal_kind(value: Any, label: str) -> str:
+    value = _journal_text(value, label, 128)
+    if any(
+        re.fullmatch(r"[a-z0-9][a-z0-9_-]*", part) is None
+        for part in value.split(".")
+    ):
+        raise ValueError(
+            f"{label} must be a dotted lowercase name"
+        )
+    return value
+
+
+def _journal_decimal(value: Any, label: str) -> str:
+    if isinstance(value, bool):
+        raise TypeError(f"{label} must be a decimal string")
+    if isinstance(value, int):
+        if value < 0 or value > 18_446_744_073_709_551_615:
+            raise ValueError(f"{label} must be an unsigned 64-bit decimal")
+        value = str(value)
+    if not isinstance(value, str):
+        raise TypeError(f"{label} must be a decimal string")
+    return _required_decimal({label: value}, label)
+
+
+def _journal_sensitivity_rank(value: str) -> int:
+    return _JOURNAL_SENSITIVITIES.index(value)
+
+
+def _journal_event_fields(
+    event: JournalEventSchema,
+    namespace: str,
+    max_sensitivity: str,
+    seen: set[tuple[str, int]],
+) -> Dict[str, Any]:
+    if not isinstance(event, JournalEventSchema):
+        raise TypeError("events must contain JournalEventSchema values")
+    kind = _journal_kind(event.kind, "event.kind")
+    prefix = f"{namespace}."
+    if not kind.startswith(prefix):
+        raise ValueError("event.kind must be inside the producer namespace")
+    if (
+        not isinstance(event.schema_version, int)
+        or isinstance(event.schema_version, bool)
+        or not 1 <= event.schema_version <= 4_294_967_295
+    ):
+        raise ValueError("event.schema_version must be a positive uint32")
+    if event.class_ not in _JOURNAL_CLASSES:
+        raise ValueError("event.class is invalid")
+    if event.replay not in _JOURNAL_REPLAY_POLICIES:
+        raise ValueError("event.replay is invalid")
+    if event.sensitivity not in _JOURNAL_SENSITIVITIES:
+        raise ValueError("event.sensitivity is invalid")
+    if (
+        event.sensitivity == "secret"
+        or _journal_sensitivity_rank(event.sensitivity)
+        > _journal_sensitivity_rank(max_sensitivity)
+    ):
+        raise ValueError("event sensitivity exceeds producer authority")
+    identity = (kind, event.schema_version)
+    if identity in seen:
+        raise ValueError("events must not declare duplicates")
+    seen.add(identity)
+    return {
+        "kind": kind,
+        "schema_version": event.schema_version,
+        "class": event.class_,
+        "replay": event.replay,
+        "sensitivity": event.sensitivity,
+        "payload_schema": _journal_json_value(
+            event.payload_schema,
+            "event.payload_schema",
+        ),
+    }
+
+
+def _journal_manifest_fields(
+    manifest: JournalProducerManifest,
+) -> Dict[str, Any]:
+    if not isinstance(manifest, JournalProducerManifest):
+        raise TypeError("manifest must be a JournalProducerManifest")
+    producer_id = _journal_component(manifest.producer_id, "producer_id")
+    namespace = _journal_text(manifest.namespace, "namespace", 72)
+    if namespace != f"plugin.{producer_id}":
+        raise ValueError("namespace must equal plugin.<producer_id>")
+    if (
+        not isinstance(manifest.manifest_version, int)
+        or isinstance(manifest.manifest_version, bool)
+        or not 1 <= manifest.manifest_version <= 4_294_967_295
+    ):
+        raise ValueError("manifest_version must be a positive uint32")
+    if manifest.max_sensitivity not in _JOURNAL_SENSITIVITIES:
+        raise ValueError("max_sensitivity is invalid")
+    if manifest.max_sensitivity == "secret":
+        raise ValueError("secret journal payload storage is unavailable")
+    permissions = tuple(manifest.permissions)
+    if not 1 <= len(permissions) <= 32:
+        raise ValueError("permissions must contain 1 to 32 strings")
+    if not all(isinstance(permission, str) for permission in permissions):
+        raise TypeError("permissions must contain strings")
+    permissions_wire = tuple(
+        _journal_text(permission, "permission", 128)
+        for permission in permissions
+    )
+    required_permission = f"journal.append.{namespace}"
+    if required_permission not in permissions_wire:
+        raise ValueError(
+            f"permissions must include {required_permission}"
+        )
+    events = tuple(manifest.events)
+    if not 1 <= len(events) <= 64:
+        raise ValueError("events must contain 1 to 64 entries")
+    if not all(isinstance(event, JournalEventSchema) for event in events):
+        raise TypeError("events must contain JournalEventSchema values")
+    seen: set[tuple[str, int]] = set()
+    events_wire = tuple(
+        _journal_event_fields(
+            event,
+            namespace,
+            manifest.max_sensitivity,
+            seen,
+        )
+        for event in events
+    )
+    wire = {
+        "producer_id": producer_id,
+        "namespace": namespace,
+        "manifest_version": manifest.manifest_version,
+        "max_sensitivity": manifest.max_sensitivity,
+        "permissions": list(permissions_wire),
+        "events": list(events_wire),
+    }
+    try:
+        encoded = json.dumps(
+            wire,
+            ensure_ascii=False,
+            allow_nan=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    except (TypeError, ValueError) as error:
+        raise TypeError("manifest contains an invalid JSON value") from error
+    if len(encoded) > 1024 * 1024:
+        raise ValueError("journal producer manifest exceeds 1048576 bytes")
+    return wire
+
+
+def _journal_ingress_fields(event: JournalIngress) -> Dict[str, Any]:
+    if not isinstance(event, JournalIngress):
+        raise TypeError("event must be a JournalIngress")
+    fields: Dict[str, Any] = {
+        "producer_id": _journal_component(event.producer_id, "producer_id"),
+        "manifest_version": event.manifest_version,
+        "kind": _journal_kind(event.kind, "kind"),
+        "schema_version": event.schema_version,
+        "payload": _journal_json_value(event.payload, "payload"),
+    }
+    if not fields["kind"].startswith(f"plugin.{fields['producer_id']}."):
+        raise ValueError("kind must be inside the producer namespace")
+    for name in ("manifest_version", "schema_version"):
+        value = fields[name]
+        if (
+            not isinstance(value, int)
+            or isinstance(value, bool)
+            or not 1 <= value <= 4_294_967_295
+        ):
+            raise ValueError(f"{name} must be a positive uint32")
+    if event.occurred_at_ms is not None:
+        fields["occurred_at_ms"] = _journal_decimal(
+            event.occurred_at_ms,
+            "occurred_at_ms",
+        )
+    if len(event.subjects) > 64:
+        raise ValueError("subjects must contain at most 64 entries")
+    if event.subjects:
+        subjects = []
+        for subject in event.subjects:
+            if not isinstance(subject, JournalSubject):
+                raise TypeError("subjects must contain JournalSubject values")
+            subjects.append(
+                {
+                    "kind": _journal_component(subject.kind, "subject.kind"),
+                    "id": _journal_text(subject.id, "subject.id", 512),
+                }
+            )
+        fields["subjects"] = subjects
+    if event.sensitivity is not None:
+        if (
+            event.sensitivity not in _JOURNAL_SENSITIVITIES
+            or event.sensitivity == "secret"
+        ):
+            raise ValueError("sensitivity is invalid or unavailable")
+        fields["sensitivity"] = event.sensitivity
+    for name in ("causation_id", "correlation_id"):
+        value = getattr(event, name)
+        if value is not None:
+            fields[name] = _journal_text(value, name, 128)
+    return fields
+
+
+def _journal_subject(value: Any) -> JournalSubject:
+    payload = _mapping(value, "journal subject")
+    _strict_object(payload, ("kind", "id"), "journal subject")
+    return JournalSubject(
+        _journal_component(_required_string(payload, "kind"), "subject.kind"),
+        _journal_text(_required_string(payload, "id"), "subject.id", 512),
+    )
+
+
+def _journal_event_schema(value: Any) -> JournalEventSchema:
+    payload = _mapping(value, "journal event schema")
+    _strict_object(
+        payload,
+        (
+            "kind",
+            "schema_version",
+            "class",
+            "replay",
+            "sensitivity",
+            "payload_schema",
+        ),
+        "journal event schema",
+    )
+    if "payload_schema" not in payload:
+        raise ProtocolError("journal event schema omitted payload_schema")
+    return JournalEventSchema(
+        _required_string(payload, "kind"),
+        _required_positive_uint32(payload, "schema_version"),
+        _required_enum(payload, "class", _JOURNAL_CLASSES),  # type: ignore[arg-type]
+        _required_enum(payload, "replay", _JOURNAL_REPLAY_POLICIES),  # type: ignore[arg-type]
+        _required_enum(payload, "sensitivity", _JOURNAL_SENSITIVITIES),  # type: ignore[arg-type]
+        _journal_json_value(payload["payload_schema"], "payload_schema"),
+    )
+
+
+def _journal_producer_manifest(value: Any) -> JournalProducerManifest:
+    payload = _mapping(value, "journal producer manifest")
+    _strict_object(
+        payload,
+        (
+            "producer_id",
+            "namespace",
+            "manifest_version",
+            "max_sensitivity",
+            "permissions",
+            "events",
+        ),
+        "journal producer manifest",
+    )
+    permissions = payload.get("permissions")
+    events = payload.get("events")
+    if not isinstance(permissions, list) or not all(
+        isinstance(item, str) for item in permissions
+    ):
+        raise ProtocolError("journal producer permissions must be an array of strings")
+    if not isinstance(events, list):
+        raise ProtocolError("journal producer events must be an array")
+    manifest = JournalProducerManifest(
+        _required_string(payload, "producer_id"),
+        _required_string(payload, "namespace"),
+        _required_positive_uint32(payload, "manifest_version"),
+        _required_enum(
+            payload,
+            "max_sensitivity",
+            _JOURNAL_SENSITIVITIES,
+        ),  # type: ignore[arg-type]
+        tuple(permissions),
+        tuple(_journal_event_schema(item) for item in events),
+    )
+    try:
+        _journal_manifest_fields(manifest)
+    except (TypeError, ValueError) as error:
+        raise ProtocolError(
+            f"journal producer manifest is invalid: {error}"
+        ) from error
+    return manifest
+
+
+def _journal_producer_list_result(value: Any) -> JournalProducerListResult:
+    payload = _mapping(value, "journal producer list result")
+    _strict_object(payload, ("producers",), "journal producer list result")
+    producers = payload.get("producers")
+    if not isinstance(producers, list):
+        raise ProtocolError("journal producer list must be an array")
+    if len(producers) > 1024:
+        raise ProtocolError("journal producer list contains too many entries")
+    return JournalProducerListResult(
+        tuple(_journal_producer_manifest(item) for item in producers)
+    )
+
+
+def _journal_producer_put_result(value: Any) -> JournalProducerPutResult:
+    payload = _mapping(value, "journal producer result")
+    _strict_object(
+        payload,
+        ("producer_id", "manifest_version", "namespace", "sequence", "event_id"),
+        "journal producer result",
+    )
+    try:
+        producer_id = _journal_component(
+            _required_string(payload, "producer_id"),
+            "producer_id",
+        )
+        namespace = _journal_text(
+            _required_string(payload, "namespace"),
+            "namespace",
+            128,
+        )
+        if namespace != f"plugin.{producer_id}":
+            raise ValueError(
+                "namespace must equal plugin.<producer_id>"
+            )
+        event_id = _journal_text(
+            _required_string(payload, "event_id"),
+            "event_id",
+            128,
+        )
+    except (TypeError, ValueError) as error:
+        raise ProtocolError(f"journal producer result is invalid: {error}") from error
+    return JournalProducerPutResult(
+        producer_id,
+        _required_positive_uint32(payload, "manifest_version"),
+        namespace,
+        _required_decimal(payload, "sequence"),
+        event_id,
+    )
+
+
+def _journal_append_result(value: Any) -> JournalAppendResult:
+    payload = _mapping(value, "journal append result")
+    _strict_object(
+        payload,
+        ("producer_id", "sequence", "event_id"),
+        "journal append result",
+    )
+    try:
+        producer_id = _journal_component(
+            _required_string(payload, "producer_id"),
+            "producer_id",
+        )
+        event_id = _journal_text(
+            _required_string(payload, "event_id"),
+            "event_id",
+            128,
+        )
+    except (TypeError, ValueError) as error:
+        raise ProtocolError(f"journal append result is invalid: {error}") from error
+    return JournalAppendResult(
+        producer_id,
+        _required_decimal(payload, "sequence"),
+        event_id,
     )
 
 
@@ -2913,6 +3352,85 @@ class Session(_Handle[SessionId, SessionSnapshot]):
             {**self._params(), **_journal_options(options)},
             _journal_record,
             validate_item=_validate_journal_stream_item,
+        )
+
+    def list_journal_producers(self) -> List[JournalProducerManifest]:
+        """List generic journal producers installed for this session."""
+        result = _journal_producer_list_result(
+            self._client._read(
+                Operations.SESSION_JOURNAL_PRODUCER_LIST,
+                self._params(),
+            )
+        )
+        return list(result.producers)
+
+    def journal_producers(self) -> JournalProducerListResult:
+        """Return the typed producer-list result for diagnostic callers."""
+        return _journal_producer_list_result(
+            self._client._read(
+                Operations.SESSION_JOURNAL_PRODUCER_LIST,
+                self._params(),
+            )
+        )
+
+    def put_journal_producer(
+        self,
+        manifest: JournalProducerManifest,
+        *,
+        idempotency_key: Optional[str] = None,
+        expected_revision: Optional[str] = None,
+    ) -> MutationResult[JournalProducerPutResult]:
+        """Install or replace one userland journal producer manifest."""
+        return self._client._mutation(
+            Operations.SESSION_JOURNAL_PRODUCER_PUT,
+            {**self._params(), "manifest": _journal_manifest_fields(manifest)},
+            idempotency_key,
+            expected_revision,
+            _journal_producer_put_result,
+        )
+
+    def put_journal_producer_manifest(
+        self,
+        manifest: JournalProducerManifest,
+        *,
+        idempotency_key: Optional[str] = None,
+        expected_revision: Optional[str] = None,
+    ) -> MutationResult[JournalProducerPutResult]:
+        """Compatibility name for put_journal_producer."""
+        return self.put_journal_producer(
+            manifest,
+            idempotency_key=idempotency_key,
+            expected_revision=expected_revision,
+        )
+
+    def append_journal(
+        self,
+        event: JournalIngress,
+        *,
+        idempotency_key: Optional[str] = None,
+        expected_revision: Optional[str] = None,
+    ) -> MutationResult[JournalAppendResult]:
+        """Append one event from a userland journal producer."""
+        return self._client._mutation(
+            Operations.SESSION_JOURNAL_APPEND,
+            {**self._params(), "event": _journal_ingress_fields(event)},
+            idempotency_key,
+            expected_revision,
+            _journal_append_result,
+        )
+
+    def append_journal_event(
+        self,
+        event: JournalIngress,
+        *,
+        idempotency_key: Optional[str] = None,
+        expected_revision: Optional[str] = None,
+    ) -> MutationResult[JournalAppendResult]:
+        """Compatibility name for append_journal."""
+        return self.append_journal(
+            event,
+            idempotency_key=idempotency_key,
+            expected_revision=expected_revision,
         )
 
     def close(self, *, idempotency_key: Optional[str] = None, expected_revision: Optional[str] = None) -> MutationResult[ShutdownResult]:

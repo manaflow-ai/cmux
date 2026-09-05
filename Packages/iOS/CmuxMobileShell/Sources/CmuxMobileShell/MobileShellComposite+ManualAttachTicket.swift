@@ -7,6 +7,14 @@ import Foundation
 
 @MainActor
 extension MobileShellComposite {
+    /// Manual tickets are local placeholders, not authenticated Mac
+    /// identities.  The real device id is learned from the host-status
+    /// response after the exact route has authenticated.
+    nonisolated static func isSyntheticManualDeviceID(_ rawValue: String) -> Bool {
+        let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        return value == "manual-ticket-request" || value.hasPrefix("manual-")
+    }
+
     nonisolated static func boundedPairingRequestTimeoutNanoseconds(
         runtime: any MobileSyncRuntime,
         attemptStartedAt: Date
@@ -49,6 +57,9 @@ extension MobileShellComposite {
     ) async throws -> CmxAttachTicket {
         let directRoute = try Self.manualHostRoute(host: host, port: port)
         let displayName = name.isEmpty ? host : name
+        // Non-loopback callers supply an exact user-entry capability to the
+        // subsequent `connect` call. This helper intentionally mints only a
+        // route-scoped synthetic ticket and never broadens bearer authority.
         if MobileShellRouteAuthPolicy.routeAllowsStackAuth(directRoute) {
             do {
                 let ticket = try await requestManualAttachTicket(

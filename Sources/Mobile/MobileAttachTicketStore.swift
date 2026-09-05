@@ -246,7 +246,8 @@ final class MobileAttachTicketStore {
                 ),
                 let decoded = try? CmxPairingQRCode().decode(components),
                 decoded.routes.count == ticket.routes.count,
-                decoded.routes.first?.endpoint == ticket.routes.first?.endpoint else {
+                decoded.routes.first?.endpoint == ticket.routes.first?.endpoint,
+                decoded.macDeviceID == ticket.macDeviceID else {
                     throw MobileAttachTicketStoreError.invalidAttachURL
                 }
                 return url

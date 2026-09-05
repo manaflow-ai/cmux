@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 65aa592727bc414fe3e66ac125c9b8541a1926bbe9eaa572acc66b4681bf6589.
+// cmux-tui mux protocol 12, IR edceee440fd303762bb21fb494c9289aff3066695780b87b9f613d59a41daf9c.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -18,6 +18,9 @@ pub type JsonValue = serde_json::Value;
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AgentRecord {
+    /// Adapter identity such as claude or codex when the producer knows it.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub agent: Optional<String>,
     pub session: Nullable<String>,
     pub source: AgentSource,
     pub state: AgentState,
@@ -37,6 +40,8 @@ pub enum AgentReportSource {
 #[rustfmt::skip]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AgentSource {
+    #[serde(rename = "plugin")]
+    Plugin,
     #[serde(rename = "detected")]
     Detected,
     #[serde(rename = "socket")]
@@ -499,6 +504,12 @@ pub struct LayoutUndoUndone {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ListAgentsResult {
     pub agents: Vec<AgentRecord>,
+    /// True when this session has committed at least one agent projection, including a completed lifecycle. Present only when the client negotiates agent-history-v1.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub has_history: Option<bool>,
+    /// Durable lifecycle projections retained for explicit state-filtered views. Present only when the client negotiates agent-history-v1; absent from older protocol-12 clients.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub history: Option<Vec<AgentRecord>>,
 }
 
 #[rustfmt::skip]
@@ -521,6 +532,22 @@ pub struct LivePane {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub short_id: Option<String>,
     pub tabs: Vec<Tab>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MachineUsage {
+    pub api_equivalent_usd: f64,
+    pub as_of: Nullable<String>,
+    pub period_days: u32,
+    pub total_tokens: u64,
+    pub vm_id: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MachineUsageResult {
+    pub usage: Nullable<MachineUsage>,
 }
 
 #[rustfmt::skip]
@@ -625,6 +652,9 @@ pub struct ProcessInfoResult {
     /// Working directory of the process group that owns the PTY, read at request time. Null when the lookup fails; absent from daemons that predate the field. Clients treat absence as null.
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub foreground_cwd: Optional<String>,
+    /// Executable path or name of the PTY foreground process-group leader, read at request time. Null when the lookup fails; absent from daemons that predate the field. Clients treat absence as null.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub foreground_executable: Optional<String>,
     pub pid: Nullable<u32>,
 }
 
@@ -863,6 +893,102 @@ pub struct Screen {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub short_id: Option<String>,
     pub zoomed_pane: Nullable<Id>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsConnections {
+    pub accepted: u64,
+    pub active: u64,
+    pub limit: u64,
+    pub peak: u64,
+    pub refused: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsHistogram {
+    pub count: u64,
+    pub max: u64,
+    pub mean: u64,
+    pub p50: u64,
+    pub p90: u64,
+    pub p99: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsJournalWriter {
+    pub batch_size: ServerStatsHistogram,
+    pub batches: u64,
+    pub commit_failures: u64,
+    pub commit_lock_wait_us: ServerStatsHistogram,
+    pub commit_us: ServerStatsHistogram,
+    pub deadline_expiries: u64,
+    pub durable_events: u64,
+    pub durable_queued: u64,
+    pub phase: ServerStatsWriterPhase,
+    pub phase_for_us: u64,
+    pub receipt_wait_us: ServerStatsHistogram,
+    pub terminal_events: u64,
+    pub terminal_queued: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsLockHolder {
+    pub held_for_us: u64,
+    pub site: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsLockSite {
+    pub acquisitions: u64,
+    pub hold_max_us: u64,
+    pub hold_total_us: u64,
+    pub site: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsLockStall {
+    pub blocker: Nullable<String>,
+    pub waited_us: u64,
+    pub waiter: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsRegistryLock {
+    pub contended_acquisitions: u64,
+    pub hold_us: ServerStatsHistogram,
+    pub holder: Nullable<ServerStatsLockHolder>,
+    pub last_stall: Nullable<ServerStatsLockStall>,
+    pub stalls: u64,
+    pub top_sites: Vec<ServerStatsLockSite>,
+    pub wait_us: ServerStatsHistogram,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsResult {
+    pub connections: ServerStatsConnections,
+    pub journal_writer: Nullable<ServerStatsJournalWriter>,
+    pub registry_lock: ServerStatsRegistryLock,
+    pub schema: u32,
+    pub uptime_ms: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ServerStatsWriterPhase {
+    #[serde(rename = "idle")]
+    Idle,
+    #[serde(rename = "waiting_lock")]
+    WaitingLock,
+    #[serde(rename = "committing")]
+    Committing,
 }
 
 #[rustfmt::skip]

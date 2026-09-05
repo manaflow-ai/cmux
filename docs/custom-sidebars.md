@@ -1,5 +1,10 @@
 # Custom sidebars: vibe-code your own cmux sidebar
 
+The cross-frontend placement and identity model is defined in the
+[cmux presentation system](sidebar-system-design.md). This guide explains the
+authoring syntax. The host treats each file as a view provider and each open
+copy as a separate view instance.
+
 cmux lets you build your own sidebar UI by writing a small SwiftUI-style file.
 It is interpreted at runtime (no Xcode, no build step, no signing), renders as
 native SwiftUI in the real sidebar, hot-reloads on save, binds to live cmux
@@ -18,6 +23,38 @@ before choosing an executable or opening a repository.
 
 It is a beta, on by default. Turn it off in **Settings → Custom Sidebars**
 (`customSidebars.beta.enabled`). While off, custom sidebars do not appear.
+
+## Placement model
+
+The left sidebar, right tool panel, Dock, and a normal pane are different
+regions. A custom file may declare which regions it supports. Selecting a file
+does not automatically mount it everywhere. The host creates a stable
+`provider_id` for the source and a separate `instance_id` for each mount, so
+the same file can show current-workspace Agents on the left and all-workspaces
+Agents on the right without sharing scroll, filter, or focus state.
+
+The target **Add view** action is the normal way to mount a provider beside
+built-in views. The old `sidebar.plugin` replacement mode remains for compatibility,
+but it is not the composition model for new sidebars. If a provider is hidden
+because of width, trust, or a failed worker, the region shows the reason and a
+restore action.
+
+Current single-file sidebars use host defaults for their provider descriptor.
+The planned manifest lets an author declare placements, scope fields,
+dependencies, actions, minimum size, and trust requirements without changing
+the view body. Until that manifest is implemented, the host treats a custom
+file as read-only data plus explicitly granted `cmux(...)` actions and reports
+unsupported placement or capability requests as errors.
+
+### If a view is missing (target behavior)
+
+Use the region's **Add view** action first. In a compatibility build, use the
+sidebar toggle context menu or `cmux sidebar select <name>`. If the provider is not listed,
+check that custom sidebars are enabled and inspect the semantic catalog. If it
+is listed but not painted, the catalog or region overflow notice identifies
+whether the cause is an explicit hidden setting, a narrow region, missing
+trust, a suspended worker, or a provider error. A missing row is not evidence
+that the provider has no data.
 
 ## If you are an agent building this for someone
 
@@ -49,19 +86,153 @@ SwiftUI, files, or syntax. Concretely:
 
 Write a named file (the name becomes the menu label; use short kebab-case):
 
-    ~/.config/cmux/sidebars/<name>.swift     # interpreted Swift (preferred)
+    ~/.config/cmux/sidebars/<name>.js        # reactive JS scene runtime (fastest)
+    ~/.config/cmux/sidebars/<name>.swift     # interpreted Swift
     ~/.config/cmux/sidebars/<name>.json      # declarative JSON (simpler, static)
 
-Each file shows up as an option in the **sidebar toggle button's right-click
-menu** and can also open as a normal Bonsplit pane tab. Pick it from the menu
-for the left sidebar, or run `cmux sidebar open <name>` to show it in a pane;
-edit the file and save and it hot-reloads. If both `<name>.swift` and
-`<name>.json` exist, `.swift` wins.
+Target behavior: each file is discoverable from the region's **Add view** menu,
+the command palette, and the semantic provider catalog. The context menu
+remains useful for local management, but it is not the only route. A file can also open as a
+normal Bonsplit pane tab. Pick it from the menu for the left sidebar, or run
+`cmux sidebar open <name>` to show it in a pane; edit the file and save and it
+hot-reloads. If several extensions share a base name, `.js` wins over `.swift`,
+which wins over `.json`.
+
+Until the registry lands, released builds may expose only the sidebar toggle
+context menu and the existing `cmux sidebar select` and `cmux sidebar open`
+commands. That compatibility gap is why a provider can currently exist without
+an obvious Agents or Add view entry.
+
+The same files also work as **right-sidebar panels** (extensions next to
+Files/Find/Vault): `cmux right-sidebar set custom <name>` selects one and adds
+a Custom button to the right sidebar's mode bar. The panel gets the same data
+keys and `cmux(...)` actions as the left sidebar and hot-reloads the same way.
+`panel-info` (selected-workspace overview with clickable ports and PRs),
+`panel-sessions` (every session with live search and a this-workspace/all
+scope toggle), `panel-todo` (an interactive scratch checklist),
+`panel-subagents` (every coding-agent session grouped by workspace with live
+status, elapsed time, and jump-to-terminal), five agent-roster variations
+(`agents-board` by status, `agents-cards`, `agents-timeline`, `agents-focus`
+hero+queue, `agents-dense` monospace), and
+`kitchen-sink` (every runtime feature on one panel) are right-panel-shaped
+examples.
+
+`TextField(value, opts)` opts: `placeholder`, `onSubmit(text)`, `onCancel()`,
+`onEdit(text)` (fires per keystroke - live search), `autofocus` (default
+true; pass `false` for persistent fields so mounting never steals focus).
+Each workspace's `tabs[i]` carries `surfaceId` for `surface.*` verbs
+(`tabs[i].id` is the panel behind the tab, not interchangeable).
 
 A sidebar file is a single SwiftUI-style view expression (no `struct`, no
 `var body` wrapper, just the view).
 
+## Reactive JS sidebars (`.js`)
+
+A `.js` sidebar runs on a different engine than `.swift`: a JavaScriptCore
+program that executes ONCE, builds a retained scene graph, and binds to live
+data through signals. After the first run nothing re-executes per tick; a data
+change re-runs only the bindings that read it, and only those scene nodes
+re-render. Rows in `ForEach`/`Reorderable` keep stable identity by key, so
+animations, scroll position, and an in-flight drag survive live updates. Use
+`.js` when you want maximum performance or drag-to-reorder; use `.swift` when
+you want to paste SwiftUI.
+
+    sidebar(() =>
+      VStack({ spacing: 6 }, [
+        Text("Workspaces").font("headline"),
+        Divider(),
+        Reorderable(
+          {
+            items: () => data.workspaces() ?? [],
+            key: (w) => w.id,
+            onMove: (id, index) => cmux("workspace.reorder", { workspace_id: id, index: index }),
+          },
+          (w) =>
+            HStack({ spacing: 8 }, [
+              Circle({ size: 7 }).fill(() => (w().selected ? "accent" : "clear")),
+              Text(() => w().title).lineLimit(1),
+              Spacer(),
+            ])
+              .padding(6)
+              .onTap(() => cmux("workspace.select", { workspace_id: w().id }))
+        ),
+      ])
+    )
+
+Rules of the runtime:
+
+- `sidebar(fn)` runs once and must return a view. There is no re-render; a
+  prop whose value should track data must be a **function** (`Text(() =>
+  w().title)`, `.fill(() => ...)`), which becomes a live binding.
+- `data.<key>()` reads a host data key as a signal (same keys as the Swift
+  data context: `workspaces`, `groups`, `workspaceCount`, `selectedTitle`,
+  `selectedId`, `unreadTotal`, `clock`). Reading inside a binding subscribes
+  it. Each group is `{id, name, collapsed, pinned, anchorId, color?, icon?}`
+  and a grouped workspace carries its group id as `group`.
+- Author state: `const [open, setOpen] = signal(false)` and `computed(fn)`.
+  Reads inside any function-valued prop subscribe it; writes re-run exactly
+  the bindings that read it.
+- Views: `VStack` `HStack` `ZStack` `LazyVStack` `Group` `Text` `Image`
+  `Button` `Spacer` `Divider` `Circle` `Capsule` `Rectangle`
+  `RoundedRectangle` `ProgressView` `ForEach` `Reorderable`. Containers take
+  `(props, children)` or just `(children)`.
+- Chainable props: `.font(name|size)` `.weight` `.bold()` `.italic()`
+  `.monospaced()` `.color` `.secondary()` `.lineLimit` `.truncation`
+  `.padding` `.paddingHorizontal` `.paddingVertical` `.background`
+  `.hoverBackground` (host-side hover wash, no JS round trip)
+  `.cornerRadius` (continuous/squircle curvature) `.borderColor`
+  `.borderWidth` `.opacity` `.frame({width,height,minWidth,maxWidth,...})`
+  `.fill` `.stroke` `.strokeWidth` `.size` `.rotation(degrees)` (spins the
+  content in place inside its layout box, spring-animated - e.g. a group
+  chevron that turns instead of swapping glyphs) `.fade(width)` (constant
+  trailing fade: the last `width` points dissolve to transparent - use it
+  instead of trailing padding where accessories float over the content)
+  `.marquee(delaySeconds?)` (text only: after the hover holds `delay` seconds,
+  default 0.5, an overflowing title scrolls out and back; layout never
+  changes) `.onTap(fn)`. Any of them (except
+  handlers) accepts a function for a live binding. Colors are the same tokens
+  as Swift sidebars (`accent`, `secondary`, `red`, `#RRGGBB[AA]`).
+- `ForEach({ items, key }, (item, key) => row)` reconciles by key: the row
+  template runs once per key and `item()` is the row's live item signal.
+- `.fixed()` on a row inside a `Reorderable` makes it a non-grabbable slot
+  (it still shifts to open gaps and keeps its own taps). Build a grouped
+  sidebar as ONE flat Reorderable of headers (.fixed) + rows, and resolve the
+  drop's container from the flat index; `Examples/CustomSidebars/workspaces.js`
+  shows the full pattern including cross-group drag via
+  `workspace.group.add`/`workspace.group.remove`.
+- `Reorderable({ items, key, onMove, spacing }, template)` is the drag-to-reorder list:
+  the grabbed row lifts and follows the pointer, the other rows spring aside
+  live, and the drop calls `onMove(id, index)` (dispatch `workspace.reorder`
+  there to persist).
+- Right-click menus: `.contextMenu([Button("Pin", fn), Divider(),
+  Menu("Move", [...]), Button("Close", fn).destructive()])` on any view. Menu
+  items are ordinary Button/Menu/Divider nodes, so labels and actions can be
+  live bindings (`Button(() => w().pinned ? "Unpin" : "Pin", ...)`). Useful
+  verbs: `workspace.action` (pin/unpin, mark_read/mark_unread,
+  move_up/move_down/move_top, close_others, set/clear color and description),
+  `workspace.close`, `workspace.move_to_window`, `workspace.group.action`
+  (pin/unpin/ungroup/delete), `workspace.group.collapse` / `.expand`.
+- Actions: `cmux(method, params)`, `openURL(url)`, `log(message)` anywhere in
+  a handler.
+- Containment: the context has no filesystem, network, or timers, and a
+  runaway evaluation is terminated by a watchdog. Errors show in the sidebar
+  with a line number.
+- Translucent "liquid glass" behind the sidebar comes from cmux's window
+  chrome, not the sidebar file: pick a glass preset in Settings under sidebar
+  appearance (e.g. Raycast Gray / HUD Glass). `sidebar(fn, { surface:
+  "glass" })` additionally drops the pane host's opaque backdrop fill when the
+  sidebar is opened as a Bonsplit pane.
+- There is no conditional view helper yet; model visibility with a binding
+  that returns an empty string or a `null` background.
+
+A ready-to-copy example ships in `Examples/CustomSidebars/workspaces.js`.
+
 ## Choosing the renderer (in-process vs remote)
+
+Known limitation: the remote (out-of-process) renderer does not propagate
+a sidebar's `surface: "glass"` request to the host, so remotely rendered
+sidebars keep the opaque backdrop. Glass works in the default in-process
+renderer.
 
 By default a custom sidebar renders in-process: the interpreted view mounts
 as real SwiftUI inside the cmux window, so hover styling, focus, keyboard,
@@ -105,7 +276,9 @@ Then validate and open it as a Bonsplit pane:
 
 `cmux sidebar select <name>` still previews a custom sidebar in the left
 sidebar picker. Use `cmux sidebar open <name>` when you want the sidebar as a
-normal pane tab that can live in a right-side split.
+normal pane tab that can live in a right-side split. New automation should
+target the provider and instance IDs returned by the presentation catalog,
+not the display name or menu index.
 
 ## Quick start
 
@@ -131,7 +304,14 @@ with:
 
     cmux sidebar open mine
 
-## Live data you can bind to (read-only, refreshes ~1s)
+## Live data you can bind to (read-only, current runtime)
+
+The current compatibility context refreshes about once a second. The target
+presentation contract is dependency-driven: a provider receives only changes
+for the resources and event categories in its descriptor. Clock values may
+still update locally once a second. Every context value should eventually
+carry `source`, `revision`, `updated_at`, `stale`, and bounded error metadata so
+an agent can tell fresh data from a delayed or unavailable source.
 
 - `workspaces` — array, one per workspace. Always present: `id`, `title`,
   `selected` (Bool), `pinned` (Bool), `index` (Int), `directory`, `ports`
@@ -143,7 +323,15 @@ with:
   the same shape with every pull request cmux knows for the workspace),
   `progress` (`{ value: 0..1, label }`), `latestMessage` (last agent message),
   `latestPrompt` (last submitted prompt), `latestAt` (epoch), `remote`
-  (`{ target, state, connected }`).
+  (`{ target, state, connected }`), `agents` (coding-agent sessions hosted by
+  the workspace's terminals, most recent first; omitted when none). Each
+  `agents[j]` always has `id`, `kind` (`claude`/`codex`/raw source), `name`
+  (display name), `status` (`idle`|`working`|`needs_input`|`ended`), and
+  `lastActivityAt` (epoch); when available it adds `sinceEpoch` (when the
+  current working/needs-input state began), `title` (first user prompt),
+  `panelId` (the hosting terminal's `tabs[k].id`), `surfaceId` (the hosting
+  tab's `tabs[k].surfaceId`, accepted by `surface.focus`), `directory`,
+  `transcriptPath`, and `pid`.
 - `tabs` (per workspace) — array of surfaces. Always: `id`, `title`,
   `focused` (Bool), `pinned` (Bool). When available: `directory`, `branch` +
   `dirty`, `ports` (array of Int).
@@ -244,6 +432,25 @@ it runs that cmux command through the same dispatcher as the `cmux` CLI:
 
     Button(action: { cmux("workspace.select", workspace_id: w.id) }) { ... }
     ...onTapGesture { cmux("surface.focus", surface_id: t.id) }
+
+This syntax is a compatibility entry point. New providers should declare
+semantic action IDs in their provider descriptor and use the host action
+reducer. Keyboard, mouse, command palette, CLI, drag, and an autonomous agent
+must receive the same receipt for the same action. A receipt identifies the
+operation, whether it was accepted or completed, whether state changed, and
+the resulting revision. It must not be inferred from a tap callback.
+
+Use `cmux capabilities` to inspect the currently implemented dispatcher. A
+provider does not receive every method automatically. Sensitive methods such
+as authentication changes, browser evaluation, machine deletion, and broad
+filesystem access require an explicit trust grant. A denied method returns a
+structured capability error.
+
+The proposed semantic agent routes are documented in
+[the presentation system](sidebar-system-design.md#agent-facing-contract):
+catalog, bounded snapshot, invoke with an operation ID, and wait for a
+revision or event. They are not implemented until they appear in the public
+operation catalog and SDKs.
 
 Use real method and parameter names. Common ones: `workspace.select`
 (`workspace_id`), `surface.focus` (`surface_id`), `workspace.reorder`

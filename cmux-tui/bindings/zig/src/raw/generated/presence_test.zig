@@ -75,6 +75,8 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.IdentifyResult, "lifecycle_ready");
     try expectExplicitNullRejected(protocol.LayoutSplit, "split");
     try expectExplicitNullRejected(protocol.LayoutUndoUndone, "confirmation_required");
+    try expectExplicitNullRejected(protocol.ListAgentsResult, "has_history");
+    try expectExplicitNullRejected(protocol.ListAgentsResult, "history");
     try expectExplicitNullRejected(protocol.LivePane, "focused_at");
     try expectExplicitNullRejected(protocol.LivePane, "short_id");
     try expectExplicitNullRejected(protocol.RenderGraphicPlacement, "anchor_col");

@@ -437,6 +437,14 @@ pub(crate) fn public_terminal_snapshot(
         "running": durable.lifecycle == TerminalLifecycle::Running,
         "lifecycle": lifecycle,
     });
+    if let Some(surface) = surface
+        && let Ok(revision) = surface.terminal_stream_revision()
+    {
+        // This is a coalesced output revision, not the resource revision. It
+        // lets external observers skip a full screen read when the PTY did
+        // not change.
+        terminal["stream_revision"] = json!(revision.to_string());
+    }
     if let Some(cwd) = surface.and_then(crate::Surface::spawn_cwd) {
         terminal["cwd"] = json!(cwd);
     }
@@ -725,7 +733,7 @@ pub(crate) fn public_session_snapshot_with_journal_head(
             .agents
             .into_iter()
             .filter(|agent| {
-                !(agent.source == "hook" && agent.state == "done")
+                (agent.source != "hook" || agent.state != "done")
                     && !agent
                         .source_session
                         .as_deref()

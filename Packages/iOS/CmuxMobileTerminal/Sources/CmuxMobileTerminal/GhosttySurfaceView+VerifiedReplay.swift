@@ -35,6 +35,7 @@ extension GhosttySurfaceView {
         )
         let workQueue = outputQueue
         let gate = viewportRestoreGate
+        let pushedRowsCounter = localScrollbackRowsPushed
         return await withCheckedContinuation { continuation in
             let operationID = registerPendingVerifiedReplayViewportAnchorCapture(
                 continuation: continuation
@@ -53,7 +54,8 @@ extension GhosttySurfaceView {
                         captured = VerifiedReplayViewportAnchor(
                             scrollbarTotal: scrollbar.total,
                             offset: scrollbar.offset,
-                            len: scrollbar.len
+                            len: scrollbar.len,
+                            rowsPushedAtCapture: pushedRowsCounter.withLock { $0 }
                         ).map {
                             VerifiedReplayCapturedViewportAnchor(
                                 anchor: $0,
@@ -110,6 +112,7 @@ extension GhosttySurfaceView {
         )
         let workQueue = outputQueue
         let gate = viewportRestoreGate
+        let pushedRowsCounter = localScrollbackRowsPushed
         return await withCheckedContinuation { continuation in
             let operationID = registerPendingVerifiedReplayViewportAnchorRestore(
                 continuation: continuation
@@ -120,10 +123,15 @@ extension GhosttySurfaceView {
                     operation.surface,
                     &postReplay
                 )
+                let rowsPushedNow = pushedRowsCounter.withLock { $0 }
+                let rowsPushedSinceCapture = rowsPushedNow >= anchor.rowsPushedAtCapture
+                    ? rowsPushedNow - anchor.rowsPushedAtCapture
+                    : 0
                 let targetTopRow = readPostReplay
                     ? anchor.targetTopRow(
                         postReplayTotalRows: postReplay.total,
-                        postReplayVisibleRows: postReplay.len
+                        postReplayVisibleRows: postReplay.len,
+                        rowsPushedSinceCapture: rowsPushedSinceCapture
                     )
                     : nil
                 let postReplayRevision = postReplay.row_space_revision
@@ -155,7 +163,7 @@ extension GhosttySurfaceView {
                 }
                 if readPostReplay {
                     MobileDebugLog.anchormux(
-                        "verified_replay.viewport_restore preTotal=\(anchor.totalRows) preTopDistance=\(anchor.topRowDistanceFromBottom) postTotal=\(postReplay.total) postOffset=\(postReplay.offset) postLen=\(postReplay.len) targetTop=\(targetTopRow.map(String.init) ?? "nil") restored=\(restored)"
+                        "verified_replay.viewport_restore preTotal=\(anchor.totalRows) preTopDistance=\(anchor.topRowDistanceFromBottom) postTotal=\(postReplay.total) postOffset=\(postReplay.offset) postLen=\(postReplay.len) pushed=\(rowsPushedSinceCapture) targetTop=\(targetTopRow.map(String.init) ?? "nil") restored=\(restored)"
                     )
                 }
                 Task { @MainActor [weak self] in

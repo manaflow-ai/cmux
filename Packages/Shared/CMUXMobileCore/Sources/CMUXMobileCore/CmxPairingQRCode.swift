@@ -100,10 +100,20 @@ public struct CmxPairingQRCode: Sendable {
             guard let identity = encodableIrohIdentity(of: ticket) else {
                 return nil
             }
-            items = [
+            var irohItems = [
                 "v=\(Self.irohVersion)",
                 "i=\(identity.endpointID)"
             ]
+            // The Mac device id rides along so the decoded ticket can name the
+            // peer intent (`expectedPeerDeviceID`) the irx transport requires
+            // before any dial. Endpoint-only tickets decode with an empty
+            // device id, and a fresh pairing then has no post-handshake source
+            // for it, so every injected physical-device auto-pair fails
+            // `missingPeerIntent` without this field.
+            if let macDeviceID = normalizedNonEmpty(ticket.macDeviceID) {
+                irohItems.append("d=\(percentEncodeQueryValue(macDeviceID))")
+            }
+            items = irohItems
         case .legacyPrivateNetworkCompatibility:
             guard let routes = encodableTailscaleRoutes(of: ticket) else {
                 return nil
@@ -307,13 +317,19 @@ private extension CmxPairingQRCode {
     /// Decode the v3 endpoint-only Iroh grammar.
     func decodeIroh(_ components: URLComponents) throws -> CmxAttachTicket {
         let items = components.queryItems ?? []
-        guard items.count == 2,
+        // `d` (the Mac device id) is optional so pre-existing endpoint-only
+        // URLs keep decoding; everything else stays exact-cardinality strict.
+        guard items.count <= 3,
+              items.allSatisfy({ ["v", "i", "d"].contains($0.name) }),
               items.filter({ $0.name == "v" }).count == 1,
               let endpointID = items.first(where: { $0.name == "i" })?.value,
               items.filter({ $0.name == "i" }).count == 1,
+              items.filter({ $0.name == "d" }).count <= 1,
               let identity = try? CmxIrohPeerIdentity(endpointID: endpointID) else {
             throw MobileSyncPairingPayloadError.invalidURL
         }
+        let macDeviceID = items.first(where: { $0.name == "d" })?.value?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let route = try CmxAttachRoute(
             id: CmxAttachTransportKind.iroh.rawValue,
             kind: .iroh,
@@ -323,7 +339,7 @@ private extension CmxPairingQRCode {
         let ticket = try CmxAttachTicket(
             workspaceID: "",
             terminalID: nil,
-            macDeviceID: "",
+            macDeviceID: macDeviceID,
             macDisplayName: nil,
             // v3 is intentionally endpoint-only. `nil` means the QR did not
             // make a compatibility claim, unlike v2's explicit unknown value

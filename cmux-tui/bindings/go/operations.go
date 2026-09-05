@@ -415,6 +415,64 @@ func (s *Session) Journal(ctx context.Context, options SessionJournalOptions) (*
 		},
 	)
 }
+
+// JournalProducers lists generic userland journal producer manifests.
+func (s *Session) JournalProducers(ctx context.Context, options SessionJournalProducerListOptions) (JournalProducerListResult, error) {
+	input := s.route.params()
+	merge(input, options.Extra)
+	return readValue[JournalProducerListResult](
+		ctx, s.client, wirev2.SessionJournalProducerList, input,
+		"journal producer list",
+	)
+}
+
+// ListJournalProducers is the slice-oriented convenience form of JournalProducers.
+func (s *Session) ListJournalProducers(ctx context.Context, options SessionJournalProducerListOptions) ([]JournalProducerManifest, error) {
+	result, err := s.JournalProducers(ctx, options)
+	if err != nil {
+		return nil, err
+	}
+	return result.Producers, nil
+}
+
+// PutJournalProducer installs or replaces a generic userland journal producer.
+func (s *Session) PutJournalProducer(ctx context.Context, manifest JournalProducerManifest, options MutationOptions) (MutationResult[JournalProducerPutResult], error) {
+	if err := manifest.Validate(); err != nil {
+		return MutationResult[JournalProducerPutResult]{}, err
+	}
+	input := s.route.params()
+	merge(input, options.Extra)
+	input["manifest"] = manifest
+	return mutationValue[JournalProducerPutResult](
+		ctx, s.client, wirev2.SessionJournalProducerPut, input, options,
+		"journal producer result",
+	)
+}
+
+// PutJournalProducerManifest is a compatibility name for PutJournalProducer.
+func (s *Session) PutJournalProducerManifest(ctx context.Context, manifest JournalProducerManifest, options MutationOptions) (MutationResult[JournalProducerPutResult], error) {
+	return s.PutJournalProducer(ctx, manifest, options)
+}
+
+// AppendJournal appends one event from a registered userland producer.
+func (s *Session) AppendJournal(ctx context.Context, event JournalIngress, options MutationOptions) (MutationResult[JournalAppendResult], error) {
+	if err := event.Validate(); err != nil {
+		return MutationResult[JournalAppendResult]{}, err
+	}
+	input := s.route.params()
+	merge(input, options.Extra)
+	input["event"] = event
+	return mutationValue[JournalAppendResult](
+		ctx, s.client, wirev2.SessionJournalAppend, input, options,
+		"journal append result",
+	)
+}
+
+// AppendJournalEvent is a compatibility name for AppendJournal.
+func (s *Session) AppendJournalEvent(ctx context.Context, event JournalIngress, options MutationOptions) (MutationResult[JournalAppendResult], error) {
+	return s.AppendJournal(ctx, event, options)
+}
+
 func (s *Session) Ping(ctx context.Context, options SessionPingOptions) (PingResult, error) {
 	input := s.route.params()
 	merge(input, options.Extra)
@@ -808,7 +866,7 @@ func validateDecodedValue(raw json.RawMessage, value any) error {
 	case *AgentSnapshot:
 		required = []string{
 			"id", "session_id", "terminal_id", "state", "source",
-			"updated_at_ms", "source_session",
+			"agent", "updated_at_ms", "source_session",
 		}
 	case *PairingRequestSnapshot:
 		required = []string{
@@ -833,6 +891,27 @@ func validateDecodedValue(raw json.RawMessage, value any) error {
 		required = []string{
 			"text", "cols", "rows", "cursor_row", "cursor_col", "cursor_visible",
 		}
+	case *JournalEventSchema:
+		required = []string{
+			"kind", "schema_version", "class", "replay", "sensitivity", "payload_schema",
+		}
+	case *JournalProducerManifest:
+		required = []string{
+			"producer_id", "namespace", "manifest_version", "max_sensitivity",
+			"permissions", "events",
+		}
+	case *JournalIngress:
+		required = []string{
+			"producer_id", "manifest_version", "kind", "schema_version", "payload",
+		}
+	case *JournalProducerPutResult:
+		required = []string{
+			"producer_id", "manifest_version", "namespace", "sequence", "event_id",
+		}
+	case *JournalProducerListResult:
+		required = []string{"producers"}
+	case *JournalAppendResult:
+		required = []string{"producer_id", "sequence", "event_id"}
 	case *TerminalStateResult:
 		required = []string{"state_base64", "cols", "rows"}
 	case *TerminalHistoryResult:
@@ -1016,7 +1095,7 @@ func validateDecodedValue(raw json.RawMessage, value any) error {
 			return fmt.Errorf("invalid agent state %q", decoded.State)
 		}
 		switch decoded.Source {
-		case "hook", "socket", "detected":
+		case "hook", "socket", "detected", "plugin":
 		default:
 			return fmt.Errorf("invalid agent source %q", decoded.Source)
 		}
@@ -1069,6 +1148,44 @@ func validateDecodedValue(raw json.RawMessage, value any) error {
 	case *TerminalScreenResult:
 		if decoded.Cols == 0 || decoded.Rows == 0 {
 			return fmt.Errorf("terminal screen dimensions must be non-zero")
+		}
+	case *JournalEventSchema:
+		return validateDecodedJournalEvent(*decoded)
+	case *JournalProducerManifest:
+		return validateDecodedJournalManifest(*decoded)
+	case *JournalIngress:
+		return decoded.Validate()
+	case *JournalProducerListResult:
+		if decoded.Producers == nil {
+			return fmt.Errorf("journal producer list must be an array")
+		}
+		if len(decoded.Producers) > maxJournalProducerCount {
+			return fmt.Errorf("journal producer list contains too many entries")
+		}
+		for _, manifest := range decoded.Producers {
+			if err := validateDecodedJournalManifest(manifest); err != nil {
+				return err
+			}
+		}
+	case *JournalProducerPutResult:
+		if !validJournalComponent(decoded.ProducerID) {
+			return fmt.Errorf("journal producer result has an invalid producer_id")
+		}
+		if decoded.Namespace != "plugin."+decoded.ProducerID {
+			return fmt.Errorf("journal producer result has an invalid namespace")
+		}
+		if decoded.ManifestVersion == 0 {
+			return fmt.Errorf("journal producer result has an invalid manifest_version")
+		}
+		if !validJournalIdentifier(decoded.EventID, maxJournalEventIDBytes) {
+			return fmt.Errorf("journal producer result has an invalid event_id")
+		}
+	case *JournalAppendResult:
+		if !validJournalComponent(decoded.ProducerID) {
+			return fmt.Errorf("journal append result has an invalid producer_id")
+		}
+		if !validJournalIdentifier(decoded.EventID, maxJournalEventIDBytes) {
+			return fmt.Errorf("journal append result has an invalid event_id")
 		}
 	case *TerminalStateResult:
 		if decoded.Cols == 0 || decoded.Rows == 0 {

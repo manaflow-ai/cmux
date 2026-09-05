@@ -2425,6 +2425,7 @@ public final class Client implements AutoCloseable {
             requiredExactId(fields, "terminal_id", Ids.TerminalId::new),
             Wire.string(fields.get(Wire.STATE), "agent state"),
             Wire.string(fields.get("source"), "agent source"),
+            requiredNullableString(fields, "agent"),
             Wire.decimal(fields.get("updated_at_ms"), "agent updated_at_ms"),
             requiredNullableString(fields, "source_session"),
             snapshotExtra(
@@ -2434,6 +2435,7 @@ public final class Client implements AutoCloseable {
                 "terminal_id",
                 Wire.STATE,
                 "source",
+                "agent",
                 "updated_at_ms",
                 "source_session"
             )
@@ -3092,6 +3094,8 @@ public final class Client implements AutoCloseable {
             fields,
             "terminal screen result",
             Wire.TEXT,
+            Wire.REVISION,
+            "osc_progress",
             Wire.COLS,
             Wire.ROWS,
             "cursor_row",
@@ -3101,6 +3105,12 @@ public final class Client implements AutoCloseable {
         );
         return new Results.TerminalScreenResult(
             Wire.string(fields.get(Wire.TEXT), "terminal screen text"),
+            fields.get(Wire.REVISION) == null
+                ? Optional.empty()
+                : Optional.of(Wire.decimal(fields.get(Wire.REVISION), "terminal screen revision")),
+            fields.get("osc_progress") == null
+                ? Optional.empty()
+                : Optional.of(Wire.string(fields.get("osc_progress"), "terminal screen osc_progress")),
             positiveUint16(fields, Wire.COLS),
             positiveUint16(fields, Wire.ROWS),
             uint16(fields, "cursor_row"),
@@ -3320,6 +3330,7 @@ public final class Client implements AutoCloseable {
             Wire.ARGV,
             Wire.CWD,
             "foreground_cwd",
+            "foreground_executable",
             "children"
         );
         return new Results.ProcessInfoResult(
@@ -3334,7 +3345,10 @@ public final class Client implements AutoCloseable {
                 : Optional.empty(),
             Wire.array(fields.get("children"), "process children").stream()
                 .map(item -> uint32(item, "process child"))
-                .toList()
+                .toList(),
+            fields.containsKey("foreground_executable")
+                ? requiredNullableString(fields, "foreground_executable")
+                : Optional.empty()
         );
     }
 

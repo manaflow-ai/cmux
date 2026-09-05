@@ -11,7 +11,17 @@ import {
   addCoderouterBreadcrumb,
   reportCoderouterFailure,
 } from "./observability";
+import {
+  newLedgerRequestId,
+  recordRouteEvent,
+  recordUsageEvent,
+} from "./usageLedger";
 import { observeModelUsage, type ModelUsage } from "./responseUsage";
+import {
+  authenticateRequestRouteToken,
+  type RouteTokenAuthFailure,
+  type RouteTokenIdentity,
+} from "./routeTokenAuth";
 
 const CODEX_UPSTREAM = "https://chatgpt.com/backend-api/codex/responses";
 const CODEX_MODELS_UPSTREAM = "https://chatgpt.com/backend-api/codex/models";
@@ -90,14 +100,24 @@ async function proxyCodexRequestWith(
   request: Request,
 ): Promise<Response> {
   const startedAt = performance.now();
-  const token = bearerToken(request);
-  if (!token) {
-    addCoderouterBreadcrumb("auth", "Route token missing", {}, "warning");
+  const requestId = newLedgerRequestId();
+  const auth = await authenticateRequestRouteToken(
+    request,
+    dependencies.authenticate,
+  );
+  if (!auth.ok) {
+    addCoderouterBreadcrumb(
+      "auth",
+      AUTH_FAILURE_BREADCRUMBS[auth.reason],
+      {},
+      "warning",
+    );
     captureCoderouterEvent({
       event: "coderouter_auth_rejected",
-      properties: { surface: "responses", reason: "missing_route_token" },
+      properties: { surface: "responses", reason: auth.reason },
     });
     captureRouteHealth({
+      requestId,
       request,
       startedAt,
       status: 401,
@@ -107,41 +127,12 @@ async function proxyCodexRequestWith(
       failureStage: "auth",
       responseStreamed: false,
     });
-    return jsonError(
-      "unauthorized",
-      401,
-      undefined,
-      "Sign in with `cr login` and retry.",
-      false,
-    );
+    return unauthorizedError(auth.reason);
   }
-  const identity = await dependencies.authenticate(token);
-  if (!identity) {
-    addCoderouterBreadcrumb("auth", "Route token rejected", {}, "warning");
-    captureCoderouterEvent({
-      event: "coderouter_auth_rejected",
-      properties: { surface: "responses", reason: "invalid_route_token" },
-    });
-    captureRouteHealth({
-      request,
-      startedAt,
-      status: 401,
-      attempted: 0,
-      refreshRetries: 0,
-      outcome: "unauthorized",
-      failureStage: "auth",
-      responseStreamed: false,
-    });
-    return jsonError(
-      "unauthorized",
-      401,
-      undefined,
-      "Your coderouter session expired or was revoked. Run `cr login` and retry.",
-      false,
-    );
-  }
+  const identity = auth.identity;
   addCoderouterBreadcrumb("auth", "Route token accepted", {
     path: "responses",
+    bound_to_vm: identity.vmId !== null,
   });
 
   const forwardedHeaders = new Headers();
@@ -250,6 +241,7 @@ async function proxyCodexRequestWith(
   }
   if (!upstream) {
     captureRouteHealth({
+      requestId,
       identity,
       request,
       startedAt,
@@ -286,6 +278,7 @@ async function proxyCodexRequestWith(
   responseHeaders.set("cache-control", "no-store");
   const status = upstream.status;
   captureRouteHealth({
+    requestId,
     identity,
     request,
     startedAt,
@@ -295,8 +288,9 @@ async function proxyCodexRequestWith(
     outcome: status >= 200 && status < 300 ? "success" : "upstream_error",
     responseStreamed: upstream.body !== null,
   });
+  const agent = agentFromUserAgent(request.headers.get("user-agent"));
   const observedBody = observeModelUsage(upstream.body, (usage) => {
-    captureModelUsage(identity.teamId, usage);
+    captureModelUsage(identity, usage, { requestId, agent, status });
   });
   return new Response(observedBody, {
     status: upstream.status,
@@ -314,34 +308,18 @@ type CodexModelsDependencies = {
 
 export function createCodexModelsProxy(dependencies: CodexModelsDependencies) {
   return async (request: Request): Promise<Response> => {
-    const token = bearerToken(request);
-    if (!token) {
+    const auth = await authenticateRequestRouteToken(
+      request,
+      dependencies.authenticate,
+    );
+    if (!auth.ok) {
       captureCoderouterEvent({
         event: "coderouter_auth_rejected",
-        properties: { surface: "models", reason: "missing_route_token" },
+        properties: { surface: "models", reason: auth.reason },
       });
-      return jsonError(
-        "unauthorized",
-        401,
-        undefined,
-        "Sign in with `cr login` and retry.",
-        false,
-      );
+      return unauthorizedError(auth.reason);
     }
-    const identity = await dependencies.authenticate(token);
-    if (!identity) {
-      captureCoderouterEvent({
-        event: "coderouter_auth_rejected",
-        properties: { surface: "models", reason: "invalid_route_token" },
-      });
-      return jsonError(
-        "unauthorized",
-        401,
-        undefined,
-        "Your coderouter session expired or was revoked. Run `cr login` and retry.",
-        false,
-      );
-    }
+    const identity = auth.identity;
 
     const attempted: string[] = [];
     let upstream: Response | null = null;
@@ -468,12 +446,28 @@ function rateLimitDelay(headers: Headers): number {
   return 60_000;
 }
 
-function bearerToken(request: Request): string | null {
-  const routed = request.headers.get("x-coderouter-route-token")?.trim();
-  if (routed) return routed;
-  const authorization = request.headers.get("authorization")?.trim() ?? "";
-  const match = /^Bearer[ \t]+(.+)$/i.exec(authorization);
-  return match?.[1]?.trim() || null;
+const AUTH_FAILURE_BREADCRUMBS: Record<RouteTokenAuthFailure, string> = {
+  missing_route_token: "Route token missing",
+  invalid_route_token: "Route token rejected",
+  vm_mismatch: "Route token bound to another machine",
+};
+
+const AUTH_FAILURE_MESSAGES: Record<RouteTokenAuthFailure, string> = {
+  missing_route_token: "Sign in with `cr login` and retry.",
+  invalid_route_token:
+    "Your coderouter session expired or was revoked. Run `cr login` and retry.",
+  vm_mismatch:
+    "This machine's coderouter credential does not match the machine it was issued to.",
+};
+
+function unauthorizedError(reason: RouteTokenAuthFailure): Response {
+  return jsonError(
+    "unauthorized",
+    401,
+    undefined,
+    AUTH_FAILURE_MESSAGES[reason],
+    false,
+  );
 }
 
 function jsonError(
@@ -496,7 +490,8 @@ function jsonError(
 }
 
 function captureRouteHealth(input: {
-  readonly identity?: { readonly teamId: string; readonly stackUserId: string };
+  readonly requestId: string;
+  readonly identity?: Pick<RouteTokenIdentity, "teamId" | "vmId">;
   readonly request: Request;
   readonly startedAt: number;
   readonly status: number;
@@ -530,6 +525,13 @@ function captureRouteHealth(input: {
     },
     input.status >= 500 ? "error" : input.status >= 400 ? "warning" : "info",
   );
+  const failureStage = input.outcome === "success"
+    ? "none"
+    : input.outcome === "unauthorized"
+    ? "auth"
+    : input.outcome === "no_usable_account"
+    ? input.failureStage ?? "account_selection"
+    : "upstream_response";
   // Capture as soon as the terminal route result is known. This is deliberately
   // independent of response consumption and token parsing.
   captureCoderouterEvent({
@@ -539,27 +541,44 @@ function captureRouteHealth(input: {
       provider: "codex",
       agent,
       outcome: input.outcome,
-      failure_stage: input.outcome === "success"
-        ? "none"
-        : input.outcome === "unauthorized"
-        ? "auth"
-        : input.outcome === "no_usable_account"
-        ? input.failureStage ?? "account_selection"
-        : "upstream_response",
+      failure_stage: failureStage,
       status: input.status,
       attempt_count: input.attempted,
       refresh_retry_count: input.refreshRetries,
       duration_ms: durationMs,
       response_streamed: input.responseStreamed,
+      ...vmIdProperty(input.identity?.vmId ?? null),
     },
+  });
+  recordRouteEvent({
+    requestId: input.requestId,
+    teamId: input.identity?.teamId,
+    vmId: input.identity?.vmId ?? null,
+    provider: "codex",
+    agent,
+    outcome: input.outcome,
+    failureStage,
+    status: input.status,
+    attemptCount: input.attempted,
+    refreshRetryCount: input.refreshRetries,
+    durationMs,
+    responseStreamed: input.responseStreamed,
   });
 }
 
-function captureModelUsage(teamId: string, usage: ModelUsage | null): void {
+function captureModelUsage(
+  identity: Pick<RouteTokenIdentity, "teamId" | "stackUserId" | "vmId">,
+  usage: ModelUsage | null,
+  ledger: {
+    readonly requestId: string;
+    readonly agent: string;
+    readonly status: number;
+  },
+): void {
   if (!usage || usage.totalTokens === 0) return;
   captureCoderouterEvent({
     event: "coderouter_model_request_completed",
-    teamId,
+    teamId: identity.teamId,
     properties: {
       provider: "codex",
       model: usage.model ?? "unknown",
@@ -567,8 +586,28 @@ function captureModelUsage(teamId: string, usage: ModelUsage | null): void {
       cached_input_tokens: usage.cachedInputTokens,
       output_tokens: usage.outputTokens,
       total_tokens: usage.totalTokens,
+      ...vmIdProperty(identity.vmId),
     },
   });
+  recordUsageEvent({
+    requestId: ledger.requestId,
+    teamId: identity.teamId,
+    stackUserId: identity.stackUserId,
+    vmId: identity.vmId,
+    provider: "codex",
+    agent: ledger.agent,
+    model: usage.model,
+    inputTokens: usage.inputTokens,
+    cachedInputTokens: usage.cachedInputTokens,
+    outputTokens: usage.outputTokens,
+    totalTokens: usage.totalTokens,
+    status: ledger.status,
+  });
+}
+
+/** Per-VM attribution for bound tokens; omitted for unbound (CLI) tokens. */
+function vmIdProperty(vmId: string | null): { vm_id?: string } {
+  return vmId === null ? {} : { vm_id: vmId };
 }
 
 function agentFromUserAgent(value: string | null): string {

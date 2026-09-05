@@ -5,6 +5,11 @@ rather than the shared mux. It prevents local UI state, host terminal side
 channels, and filesystem access from being mistaken for portable control
 protocol features.
 
+Sidebar, right-panel, Dock, and pane composition follows the cross-frontend
+[presentation system](../../docs/sidebar-system-design.md). The TUI is one
+renderer of that system. It must preserve the semantic identities and action
+receipts even when its terminal chrome differs from macOS or mobile chrome.
+
 ## Entrypoints
 
 The configurable `Action` and context-menu `MenuAction` enums are exhaustively
@@ -18,6 +23,32 @@ navigation do not all have enum variants. They remain frontend-owned unless a
 shared command in [`commands.md`](commands.md) explicitly takes authority.
 Remote automation of frontend-owned behavior uses the proposed adapter in
 [`programmability.md`](programmability.md#frontend-action-adapter).
+
+## Presentation ownership
+
+The TUI owns presentation state for each
+`(frontend_projection_id, window_id, region_id)`. A region is a host slot such
+as the primary left sidebar, secondary right sidebar, Dock, or a pane. It has
+an active layout profile and a layout tree of stable view instance IDs. The
+TUI owns focus path, selection, scroll cursor, filter text, collapse state,
+rail widths, split fractions, profile-strip state, and renderer errors.
+
+The shared mux owns resources, provider descriptors, canonical agent events,
+and mutation receipts. It must not gain a global active profile, global
+frontend focus, or a global sidebar selection. Two TUI windows attached to one
+session may show different profiles without fighting.
+
+The existing `SidebarLayoutNode` geometry solver remains the renderer's layout
+engine. The migration changes durable leaf references to stable instance IDs;
+it does not create a second split implementation. When the solver compacts a
+view, the TUI reports an overflow reason and a restore action. A view that is
+not currently painted is hidden or suspended, not deleted.
+
+The TUI exposes the provider catalog and semantic snapshot to local automation
+only through the versioned frontend adapter proposed in
+[`programmability.md`](programmability.md#presentation-registry-contract).
+Screen coordinates remain useful for pointer input, but they are not the
+agent-facing identity of a row.
 
 The native TUI keeps active workspace, screen, pane, tab, text selection, and
 scroll state in its `App` instance. Tree refreshes preserve those choices by

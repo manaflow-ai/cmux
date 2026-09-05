@@ -486,16 +486,90 @@ fn ensure_built_in_agent_producer(transaction: &Transaction<'_>) -> anyhow::Resu
             i64::try_from(unix_epoch_ms()?)?,
         ],
     )?;
-    let installed = transaction.query_row(
-        "SELECT manifest_json FROM journal_producers WHERE producer_id = ?1",
+    let (installed_namespace, installed_version, installed_json) = transaction.query_row(
+        "SELECT namespace, manifest_version, manifest_json
+         FROM journal_producers
+         WHERE producer_id = ?1",
         [crate::AGENT_HOOK_PRODUCER_ID],
-        |row| row.get::<_, String>(0),
+        |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?, row.get::<_, String>(2)?)),
     )?;
+    let installed = serde_json::from_str::<JournalProducerManifest>(&installed_json)?;
+    let installed_version = u32::try_from(installed_version)
+        .context("reserved cmux agent producer manifest version is invalid")?;
     anyhow::ensure!(
-        serde_json::from_str::<JournalProducerManifest>(&installed)? == manifest,
+        installed.namespace == installed_namespace
+            && installed.manifest_version == installed_version,
+        "reserved cmux agent producer manifest metadata does not match its row"
+    );
+    if installed == manifest {
+        return Ok(());
+    }
+
+    // The reserved producer stayed at manifest version 1 while these two
+    // additive changes shipped. Rewrite only those exact historical shapes.
+    // Unknown changes still fail closed, so a damaged or incompatible session
+    // cannot silently acquire the current producer contract.
+    let known_legacy = legacy_built_in_agent_producer_manifests(&manifest);
+    anyhow::ensure!(
+        known_legacy.iter().any(|legacy| legacy == &installed),
         "reserved cmux agent producer manifest does not match this binary"
     );
+    transaction.execute(
+        "UPDATE journal_producers
+         SET namespace = ?1, manifest_version = ?2, manifest_json = ?3
+         WHERE producer_id = ?4",
+        params![
+            manifest.namespace,
+            i64::from(manifest.manifest_version),
+            manifest_json,
+            manifest.producer_id,
+        ],
+    )?;
     Ok(())
+}
+
+fn legacy_built_in_agent_producer_manifests(
+    current: &JournalProducerManifest,
+) -> Vec<JournalProducerManifest> {
+    // Keep this allowlist tied to the shipped manifest shape. If the current
+    // contract changes again, an explicit migration must be added instead of
+    // deriving acceptance for an unshipped historical shape.
+    const CURRENT_EVENT_KINDS: [&str; 13] = [
+        "agent.session.started",
+        "agent.turn.started",
+        "agent.turn.completed",
+        "agent.child.spawned",
+        "agent.child.completed",
+        "agent.child.failed",
+        "agent.approval.requested",
+        "agent.question.requested",
+        "agent.plan_review.requested",
+        "agent.error.reported",
+        "agent.state.changed",
+        "agent.session.ended",
+        "agent.plugin.exited",
+    ];
+    if current.events.iter().map(|event| event.kind.as_str()).ne(CURRENT_EVENT_KINDS) {
+        return Vec::new();
+    }
+
+    let mut legacy = current.clone();
+    for event in &mut legacy.events {
+        let Some(pattern) = event
+            .payload_schema
+            .get_mut("properties")
+            .and_then(|value| value.get_mut("adapter"))
+            .and_then(|value| value.get_mut("properties"))
+            .and_then(|value| value.get_mut("id"))
+            .and_then(|value| value.get_mut("pattern"))
+        else {
+            return Vec::new();
+        };
+        *pattern = Value::String("^[a-z0-9_-]+$".into());
+    }
+    let with_legacy_pattern = legacy.clone();
+    legacy.events.retain(|event| event.kind != "agent.plugin.exited");
+    vec![legacy, with_legacy_pattern]
 }
 
 fn migrate_journal_receipt_origins(transaction: &Transaction<'_>) -> anyhow::Result<()> {
@@ -714,6 +788,27 @@ pub(crate) fn validate_journal_hook_manifest(manifest: &JournalHookManifest) -> 
 }
 
 impl WorkspaceRegistry {
+    /// Look up an exact ingress receipt before the caller validates against the
+    /// current producer manifest. A retry can carry an older manifest version
+    /// after a producer upgrade, but an ingress that has never committed must
+    /// still pass current admission below.
+    pub(crate) fn replay_journal_ingress(
+        &self,
+        ingress: &JournalIngress,
+        origin: &str,
+        idempotency_key: &str,
+    ) -> anyhow::Result<Option<JournalAppendCommit>> {
+        validate_journal_ingress_shape(ingress, origin, idempotency_key)?;
+        let fingerprint = journal_ingress_fingerprint(ingress)?;
+        ingress_receipt(
+            &self.connection,
+            &ingress.producer_id,
+            origin,
+            idempotency_key,
+            fingerprint.as_slice(),
+        )
+    }
+
     #[cfg(test)]
     pub(crate) fn append_journal_ingress_events(
         &mut self,
@@ -1283,6 +1378,21 @@ impl WorkspaceRegistry {
             .collect()
     }
 
+    /// Return only manifests that a userland producer can register and use.
+    /// The reserved cmux hook manifest remains in the internal table because
+    /// the journal kernel and checkpoint code need it, but it uses the legacy
+    /// `agent` namespace and is not a userland `plugin.<id>` manifest.
+    pub(crate) fn userland_journal_producer_manifests(
+        &self,
+    ) -> anyhow::Result<Vec<JournalProducerManifest>> {
+        self.journal_producer_manifests().map(|manifests| {
+            manifests
+                .into_iter()
+                .filter(|manifest| manifest.producer_id != crate::AGENT_HOOK_PRODUCER_ID)
+                .collect()
+        })
+    }
+
     pub(crate) fn put_journal_producer(
         &mut self,
         manifest: &JournalProducerManifest,
@@ -1414,17 +1524,8 @@ fn append_journal_ingress_transaction(
     origin: &str,
     idempotency_key: &str,
 ) -> anyhow::Result<JournalAppendCommit> {
-    validate_identifier("journal ingress origin", origin)?;
-    validate_identifier("journal ingress idempotency key", idempotency_key)?;
-    validate_plugin_component("producer_id", &ingress.producer_id)?;
-    validate_dotted_kind(&ingress.kind)?;
-    anyhow::ensure!(ingress.schema_version > 0, "schema_version must be positive");
-    anyhow::ensure!(
-        serde_json::to_vec(&ingress.payload)?.len() <= MAX_EVENT_PAYLOAD_BYTES,
-        "journal event payload exceeds {MAX_EVENT_PAYLOAD_BYTES} bytes"
-    );
-    let ingress_value = serde_json::to_value(ingress)?;
-    let fingerprint = Sha256::digest(canonical_json(&ingress_value)?.as_bytes());
+    validate_journal_ingress_shape(ingress, origin, idempotency_key)?;
+    let fingerprint = journal_ingress_fingerprint(ingress)?;
     if let Some(commit) =
         ingress_receipt(tx, &ingress.producer_id, origin, idempotency_key, fingerprint.as_slice())?
     {
@@ -3029,14 +3130,36 @@ fn insert_operation_receipt(
     Ok(())
 }
 
+fn validate_journal_ingress_shape(
+    ingress: &JournalIngress,
+    origin: &str,
+    idempotency_key: &str,
+) -> anyhow::Result<()> {
+    validate_identifier("journal ingress origin", origin)?;
+    validate_identifier("journal ingress idempotency key", idempotency_key)?;
+    validate_plugin_component("producer_id", &ingress.producer_id)?;
+    validate_dotted_kind(&ingress.kind)?;
+    anyhow::ensure!(ingress.schema_version > 0, "schema_version must be positive");
+    anyhow::ensure!(
+        serde_json::to_vec(&ingress.payload)?.len() <= MAX_EVENT_PAYLOAD_BYTES,
+        "journal event payload exceeds {MAX_EVENT_PAYLOAD_BYTES} bytes"
+    );
+    Ok(())
+}
+
+fn journal_ingress_fingerprint(ingress: &JournalIngress) -> anyhow::Result<[u8; 32]> {
+    let ingress_value = serde_json::to_value(ingress)?;
+    Ok(Sha256::digest(canonical_json(&ingress_value)?.as_bytes()).into())
+}
+
 fn ingress_receipt(
-    transaction: &Transaction<'_>,
+    connection: &Connection,
     producer_id: &str,
     origin: &str,
     idempotency_key: &str,
     fingerprint: &[u8],
 ) -> anyhow::Result<Option<JournalAppendCommit>> {
-    let stored = transaction
+    let stored = connection
         .query_row(
             "SELECT fingerprint, event_id, journal_sequence
              FROM journal_ingress_receipts
@@ -3057,10 +3180,11 @@ fn validate_plugin_component(label: &str, value: &str) -> anyhow::Result<()> {
     anyhow::ensure!(
         !value.is_empty()
             && value.len() <= 64
-            && value
-                .bytes()
-                .all(|byte| { byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_' }),
-        "{label} must contain 1 to 64 lowercase ASCII letters, digits, or underscores"
+            && value.as_bytes().first().is_some_and(|byte| byte.is_ascii_alphanumeric())
+            && value.bytes().all(|byte| {
+                byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_' || byte == b'-'
+            }),
+        "{label} must match [a-z0-9][a-z0-9_-]* and contain at most 64 bytes"
     );
     Ok(())
 }
@@ -3071,11 +3195,15 @@ fn validate_dotted_kind(value: &str) -> anyhow::Result<()> {
             && value.len() <= 128
             && value.split('.').all(|component| {
                 !component.is_empty()
+                    && component.as_bytes().first().is_some_and(|byte| byte.is_ascii_alphanumeric())
                     && component.bytes().all(|byte| {
-                        byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_'
+                        byte.is_ascii_lowercase()
+                            || byte.is_ascii_digit()
+                            || byte == b'_'
+                            || byte == b'-'
                     })
             }),
-        "journal event kind must be a dotted lowercase ASCII name"
+        "journal event kind must match dotted [a-z0-9][a-z0-9_-]* components"
     );
     Ok(())
 }
@@ -3125,6 +3253,115 @@ mod tests {
         assert_eq!(states.len(), 1);
         assert_eq!(states[0].manifest.manifest_version, 2);
         assert!(states[0].enabled);
+    }
+
+    #[test]
+    fn userland_producer_list_excludes_reserved_hook_manifest() {
+        let mut registry = WorkspaceRegistry::in_memory("userland-producers").unwrap();
+        let manifest = JournalProducerManifest {
+            producer_id: "screen_detector".into(),
+            namespace: "plugin.screen_detector".into(),
+            manifest_version: 1,
+            max_sensitivity: JournalSensitivity::Metadata,
+            permissions: vec!["journal.append.plugin.screen_detector".into()],
+            events: vec![JournalEventSchema {
+                kind: "plugin.screen_detector.agent.state.changed".into(),
+                schema_version: 1,
+                class: JournalClass::Observation,
+                replay: JournalReplayPolicy::Advisory,
+                sensitivity: JournalSensitivity::Metadata,
+                payload_schema: json!({"type":"object"}),
+            }],
+        };
+        registry.put_journal_producer(&manifest, "client_test", "producer_1").unwrap();
+
+        let all = registry.journal_producer_manifests().unwrap();
+        assert!(all.iter().any(|item| item.producer_id == crate::AGENT_HOOK_PRODUCER_ID));
+        assert!(all.iter().any(|item| item.producer_id == "screen_detector"));
+
+        let userland = registry.userland_journal_producer_manifests().unwrap();
+        assert_eq!(userland.len(), 1);
+        assert_eq!(userland[0], manifest);
+    }
+
+    #[test]
+    fn legacy_built_in_agent_manifest_is_migrated() {
+        let mut registry = WorkspaceRegistry::in_memory("legacy-agent-manifest").unwrap();
+        let current = crate::agent_hooks::built_in_agent_producer_manifest();
+        let mut legacy = current.clone();
+        legacy.events.retain(|event| event.kind != "agent.plugin.exited");
+        for event in &mut legacy.events {
+            event.payload_schema["properties"]["adapter"]["properties"]["id"]["pattern"] =
+                Value::String("^[a-z0-9_-]+$".into());
+        }
+        let legacy_json = canonical_json(&serde_json::to_value(&legacy).unwrap()).unwrap();
+        registry
+            .connection
+            .execute(
+                "UPDATE journal_producers SET manifest_json = ?1 WHERE producer_id = ?2",
+                params![legacy_json, crate::AGENT_HOOK_PRODUCER_ID],
+            )
+            .unwrap();
+
+        let transaction = registry.connection.transaction().unwrap();
+        ensure_built_in_agent_producer(&transaction).unwrap();
+        transaction.commit().unwrap();
+
+        let installed = registry
+            .connection
+            .query_row(
+                "SELECT manifest_json FROM journal_producers WHERE producer_id = ?1",
+                [crate::AGENT_HOOK_PRODUCER_ID],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap();
+        assert_eq!(serde_json::from_str::<JournalProducerManifest>(&installed).unwrap(), current);
+    }
+
+    #[test]
+    fn legacy_agent_manifest_with_plugin_exit_is_migrated() {
+        let mut registry = WorkspaceRegistry::in_memory("legacy-agent-plugin-exit").unwrap();
+        let current = crate::agent_hooks::built_in_agent_producer_manifest();
+        let legacy = legacy_built_in_agent_producer_manifests(&current).into_iter().nth(1).unwrap();
+        let legacy_json = canonical_json(&serde_json::to_value(&legacy).unwrap()).unwrap();
+        registry
+            .connection
+            .execute(
+                "UPDATE journal_producers SET manifest_json = ?1 WHERE producer_id = ?2",
+                params![legacy_json, crate::AGENT_HOOK_PRODUCER_ID],
+            )
+            .unwrap();
+
+        let transaction = registry.connection.transaction().unwrap();
+        ensure_built_in_agent_producer(&transaction).unwrap();
+        transaction.commit().unwrap();
+
+        let installed = registry
+            .journal_producer_manifests()
+            .unwrap()
+            .into_iter()
+            .find(|manifest| manifest.producer_id == crate::AGENT_HOOK_PRODUCER_ID)
+            .unwrap();
+        assert_eq!(installed, current);
+    }
+
+    #[test]
+    fn unknown_built_in_agent_manifest_still_fails_closed() {
+        let mut registry = WorkspaceRegistry::in_memory("unknown-agent-manifest").unwrap();
+        let mut tampered = crate::agent_hooks::built_in_agent_producer_manifest();
+        tampered.events[0].kind = "agent.untrusted".into();
+        let tampered_json = canonical_json(&serde_json::to_value(&tampered).unwrap()).unwrap();
+        registry
+            .connection
+            .execute(
+                "UPDATE journal_producers SET manifest_json = ?1 WHERE producer_id = ?2",
+                params![tampered_json, crate::AGENT_HOOK_PRODUCER_ID],
+            )
+            .unwrap();
+
+        let transaction = registry.connection.transaction().unwrap();
+        let error = ensure_built_in_agent_producer(&transaction).unwrap_err();
+        assert!(error.to_string().contains("does not match this binary"));
     }
 
     #[test]

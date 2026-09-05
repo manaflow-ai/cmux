@@ -15,6 +15,8 @@ public final class ProcessInfoResult implements WireValue {
     private final String cwd;
     /** Working directory of the process group that owns the PTY, read at request time. Null when the lookup fails; absent from daemons that predate the field. Clients treat absence as null. */
     private final Field<String> foregroundCwd;
+    /** Executable path or name of the PTY foreground process-group leader, read at request time. Null when the lookup fails; absent from daemons that predate the field. Clients treat absence as null. */
+    private final Field<String> foregroundExecutable;
     private final Long pid;
 
     private ProcessInfoResult(Builder builder) {
@@ -23,6 +25,7 @@ public final class ProcessInfoResult implements WireValue {
         if (!builder.cwdSet) throw new IllegalArgumentException("cwd is required");
         this.cwd = builder.cwd;
         this.foregroundCwd = builder.foregroundCwd;
+        this.foregroundExecutable = builder.foregroundExecutable;
         if (!builder.pidSet) throw new IllegalArgumentException("pid is required");
         this.pid = builder.pid;
     }
@@ -32,6 +35,7 @@ public final class ProcessInfoResult implements WireValue {
     public String command() { return command; }
     public String cwd() { return cwd; }
     public Field<String> foregroundCwd() { return foregroundCwd; }
+    public Field<String> foregroundExecutable() { return foregroundExecutable; }
     public Long pid() { return pid; }
 
     public static ProcessInfoResult fromWire(Object value) {
@@ -45,6 +49,10 @@ public final class ProcessInfoResult implements WireValue {
         if (!Wire.isMissing(rawForegroundCwd)) {
             builder.foregroundCwd(rawForegroundCwd == null ? null : Wire.string(rawForegroundCwd, "ProcessInfoResult.foreground_cwd"));
         }
+        Object rawForegroundExecutable = Wire.optional(object, "foreground_executable");
+        if (!Wire.isMissing(rawForegroundExecutable)) {
+            builder.foregroundExecutable(rawForegroundExecutable == null ? null : Wire.string(rawForegroundExecutable, "ProcessInfoResult.foreground_executable"));
+        }
         Object rawPid = Wire.required(object, "pid");
         builder.pid(rawPid == null ? null : Wire.uint32(rawPid, "ProcessInfoResult.pid"));
         return builder.build();
@@ -56,6 +64,7 @@ public final class ProcessInfoResult implements WireValue {
         Wire.put(object, "command", command);
         Wire.put(object, "cwd", cwd);
         Wire.put(object, "foreground_cwd", foregroundCwd);
+        Wire.put(object, "foreground_executable", foregroundExecutable);
         Wire.put(object, "pid", pid);
         return Collections.unmodifiableMap(object);
     }
@@ -63,11 +72,11 @@ public final class ProcessInfoResult implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof ProcessInfoResult that)) return false;
-        return Objects.equals(command, that.command) && Objects.equals(cwd, that.cwd) && Objects.equals(foregroundCwd, that.foregroundCwd) && Objects.equals(pid, that.pid);
+        return Objects.equals(command, that.command) && Objects.equals(cwd, that.cwd) && Objects.equals(foregroundCwd, that.foregroundCwd) && Objects.equals(foregroundExecutable, that.foregroundExecutable) && Objects.equals(pid, that.pid);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(command, cwd, foregroundCwd, pid); }
+    public int hashCode() { return Objects.hash(command, cwd, foregroundCwd, foregroundExecutable, pid); }
 
     @Override
     public String toString() { return "ProcessInfoResult" + toWire(); }
@@ -78,6 +87,7 @@ public final class ProcessInfoResult implements WireValue {
         private String cwd;
         private boolean cwdSet;
         private Field<String> foregroundCwd = Field.omitted();
+        private Field<String> foregroundExecutable = Field.omitted();
         private Long pid;
         private boolean pidSet;
 
@@ -93,6 +103,10 @@ public final class ProcessInfoResult implements WireValue {
         }
         public Builder foregroundCwd(String value) {
             this.foregroundCwd = Field.ofNullable(value);
+            return this;
+        }
+        public Builder foregroundExecutable(String value) {
+            this.foregroundExecutable = Field.ofNullable(value);
             return this;
         }
         public Builder pid(Long value) {

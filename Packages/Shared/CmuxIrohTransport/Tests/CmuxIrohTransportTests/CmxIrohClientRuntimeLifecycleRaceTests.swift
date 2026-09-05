@@ -148,7 +148,7 @@ extension CmxIrohClientRuntimeTests {
             discovery: fixture.discovery,
             relay: fixture.relayResponse(),
             discoveryErrorsByCount: [
-                2: CmxIrohTrustBrokerClientError.connectivity,
+                2: CmxIrohTrustBrokerClientError.connectivity(nil),
             ],
             discoveryHook: { count in
                 if count == 2 { await secondDiscovery.waitOnce() }

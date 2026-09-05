@@ -268,8 +268,12 @@ extension TerminalController {
         }
     }
 
-    /// `vm.workspace_open {id, workspace_id}` → the remote workspace's terminals and browsers
-    /// as a new local workspace, every one its own pane (what clicking the row does).
+    /// `vm.workspace_open {id, workspace_id, here?, …dest}` → the remote workspace's terminals
+    /// and browsers. Default: a new local workspace, every one its own pane (what clicking
+    /// the row does). `here: true`: into an existing local workspace the way "Open All Here"
+    /// / "Open All in New Tabs" / a drop onto a pane edge do — one pane at the destination
+    /// (`target_workspace_id`, `pane_id` + `direction`, `placement: split|tab`), the rest as
+    /// tabs in it.
     nonisolated func socketWorkerVMWorkspaceOpenResponse(id: Any?, params: [String: Any]) -> String {
         guard let vmId = Self.surfaceString(params["id"]), !vmId.isEmpty else {
             return v2Error(id: id, code: "invalid_params", message: "vm.workspace_open requires `id`.")
@@ -277,31 +281,56 @@ extension TerminalController {
         guard let remoteWorkspaceID = Self.surfaceString(params["workspace_id"]), !remoteWorkspaceID.isEmpty else {
             return v2Error(id: id, code: "invalid_params", message: "vm.workspace_open requires `workspace_id` (a cmux-tui workspace id from `cmux vm tree`).")
         }
+        let here = Self.surfaceBool(params["here"]) ?? false
+        // `workspace_id` is the REMOTE workspace here; the local target rides as `target_workspace_id`.
+        var destinationParams = params
+        destinationParams["workspace_id"] = params["target_workspace_id"]
+        let localWorkspaceID: UUID? = here ? surfaceTargetWorkspaceID(destinationParams) : nil
+        if here, localWorkspaceID == nil {
+            return v2Error(id: id, code: "invalid_params", message: "vm.workspace_open: no target workspace for `here` (pass `target_workspace_id`, or select one).")
+        }
+        let destination = localWorkspaceID.map { Self.surfaceDestination(surfaceResolvedParams(destinationParams), workspaceID: $0) }
         return v2VmCall(id: id, timeoutSeconds: 240) {
             let machine = SurfaceMachineID.cloud(vmId)
             let catalog = await SurfaceCatalog.shared
-            let resources = await catalog.snapshot.resources(on: machine).filter { $0.remoteWorkspace?.id == remoteWorkspaceID }
-            guard let workspace = resources.first?.remoteWorkspace else {
-                throw SurfaceCatalogError.destinationNotFound("workspace \(remoteWorkspaceID) on \(vmId)")
+            // Resolved exactly like the sidebar row: every view of every resource
+            // counts (a terminal viewed in two workspaces belongs to both), an
+            // existing-but-empty workspace opens nothing (D9) instead of reading
+            // as "not found", and a name works when only one workspace has it.
+            let (workspace, members) = try await Self.resolveRemoteWorkspaceForOpen(remoteWorkspaceID, machine: machine, catalog: catalog)
+            let group = SurfaceResourceGroup(title: workspace.name, resources: members.ids)
+            let focus = Self.surfaceBool(params["focus"]) ?? true
+            let workspaceID: UUID
+            let projections: [SurfaceProjection]
+            if let destination {
+                projections = try await catalog.projectGroup(group.resources, into: destination, focus: focus)
+                workspaceID = destination.workspaceID
+            } else {
+                let opened = try await catalog.projectGroupAsNewLocalWorkspace(
+                    group.resources,
+                    title: CloudTreeNodeActions.localWorkspaceTitle(hostName: CloudTreeNodeActions.resolvedMachineName(machine, snapshot: catalog.snapshot), group: group),
+                    focus: focus,
+                    host: .app
+                )
+                workspaceID = opened.workspaceID
+                projections = opened.projections
             }
-            let group = SurfaceResourceGroup(title: workspace.name, resources: resources.map(\.id))
-            let opened = try await catalog.projectGroupAsNewLocalWorkspace(
-                group.resources,
-                title: CloudTreeNodeActions.localWorkspaceTitle(machine: machine, group: group),
-                focus: Self.surfaceBool(params["focus"]) ?? true,
-                host: .app
-            )
             return [
                 "machine": machine.rawValue,
-                "remote_workspace_id": remoteWorkspaceID,
-                "workspace_id": opened.workspaceID.uuidString,
-                "surface_ids": opened.projections.map { $0.panelID.uuidString },
-                "opened": opened.projections.count,
+                // The resolved `ws_…` id, not the selector as given (which may be a name).
+                "remote_workspace_id": workspace.id,
+                "remote_workspace_name": workspace.name,
+                "workspace_id": workspaceID.uuidString,
+                "surface_ids": projections.map { $0.panelID.uuidString },
+                "opened": projections.count,
+                "here": destination != nil,
             ]
         }
     }
 
-    /// `vm.workspace_close {id, workspace_id}` → closes the cmux-tui workspace and its terminals.
+    /// `vm.workspace_close {id, workspace_id}` → closes the cmux-tui workspace; its
+    /// terminals KEEP RUNNING and detach into the Terminals pool (the sidebar's "Close
+    /// Workspace (Keep Terminals)"). Use `vm.workspace_delete` to also kill them.
     nonisolated func socketWorkerVMWorkspaceCloseResponse(id: Any?, params: [String: Any]) -> String {
         guard let vmId = Self.surfaceString(params["id"]), !vmId.isEmpty,
               let remoteWorkspaceID = Self.surfaceString(params["workspace_id"]), !remoteWorkspaceID.isEmpty else {
@@ -315,6 +344,48 @@ extension TerminalController {
             }
             try await provider.closeRemoteWorkspace(id: remoteWorkspaceID)
             return ["machine": machine.rawValue, "remote_workspace_id": remoteWorkspaceID, "closed": true]
+        }
+    }
+
+    /// `vm.workspace_delete {id, workspace_id}` → kills every terminal viewed in the
+    /// workspace, then closes it — the sidebar's "Delete Workspace and Terminals…",
+    /// over the same `CloudTreeNodeActions.deleteWorkspaceAndTerminals` the row runs.
+    nonisolated func socketWorkerVMWorkspaceDeleteResponse(id: Any?, params: [String: Any]) -> String {
+        guard let vmId = Self.surfaceString(params["id"]), !vmId.isEmpty,
+              let remoteWorkspaceID = Self.surfaceString(params["workspace_id"]), !remoteWorkspaceID.isEmpty else {
+            return v2Error(id: id, code: "invalid_params", message: "vm.workspace_delete requires `id` and `workspace_id`.")
+        }
+        return v2VmCall(id: id, timeoutSeconds: 240) {
+            let machine = SurfaceMachineID.cloud(vmId)
+            let catalog = await SurfaceCatalog.shared
+            guard let provider = try await Self.surfaceProvider(for: machine, catalog: catalog) else {
+                throw SurfaceCatalogError.noProvider(machine)
+            }
+            let closedTerminals = try await CloudTreeNodeActions.deleteWorkspaceAndTerminals(
+                machine: machine, provider: provider, catalog: catalog, workspaceID: remoteWorkspaceID
+            )
+            return ["machine": machine.rawValue, "remote_workspace_id": remoteWorkspaceID, "deleted": true, "terminals_closed": closedTerminals]
+        }
+    }
+
+    /// `vm.workspace_rename {id, workspace_id, name}` → renames the cmux-tui workspace
+    /// (the sidebar's "Rename…", same `provider.renameRemoteWorkspace`).
+    nonisolated func socketWorkerVMWorkspaceRenameResponse(id: Any?, params: [String: Any]) -> String {
+        guard let vmId = Self.surfaceString(params["id"]), !vmId.isEmpty,
+              let remoteWorkspaceID = Self.surfaceString(params["workspace_id"]), !remoteWorkspaceID.isEmpty else {
+            return v2Error(id: id, code: "invalid_params", message: "vm.workspace_rename requires `id` and `workspace_id`.")
+        }
+        guard let name = Self.surfaceString(params["name"])?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty else {
+            return v2Error(id: id, code: "invalid_params", message: "vm.workspace_rename requires a non-empty `name`.")
+        }
+        return v2VmCall(id: id, timeoutSeconds: 120) {
+            let machine = SurfaceMachineID.cloud(vmId)
+            let catalog = await SurfaceCatalog.shared
+            guard let provider = try await Self.surfaceProvider(for: machine, catalog: catalog) else {
+                throw SurfaceCatalogError.noProvider(machine)
+            }
+            try await provider.renameRemoteWorkspace(id: remoteWorkspaceID, name: name)
+            return ["machine": machine.rawValue, "remote_workspace_id": remoteWorkspaceID, "name": name, "renamed": true]
         }
     }
 
@@ -335,6 +406,87 @@ extension TerminalController {
         }
     }
 
+    // MARK: - Headless terminal I/O (agent primitives)
+
+    /// The cmux-tui provider for a cloud machine; the local machine and any provider
+    /// without a remote session have no headless terminal I/O.
+    nonisolated static func cloudTuiProvider(machineID: String, catalog: SurfaceCatalog) async throws -> CmuxTuiSurfaceProvider {
+        let machine = SurfaceMachineID.cloud(machineID)
+        guard let provider = try await Self.surfaceProvider(for: machine, catalog: catalog) as? CmuxTuiSurfaceProvider else {
+            throw SurfaceCatalogError.noProvider(machine)
+        }
+        return provider
+    }
+
+    /// `vm.terminal_write {id, terminal_id, text?, keys?}` → types `text` (as-is, no
+    /// newline) and then presses `keys` (named: enter, escape, tab, up; chords join with
+    /// `+`: ctrl+c — verified live, `ctrl-c` is rejected) in the remote terminal.
+    /// Nothing is attached or focused; the terminal's panes, if any, simply show it.
+    nonisolated func socketWorkerVMTerminalWriteResponse(id: Any?, params: [String: Any]) -> String {
+        guard let vmId = Self.surfaceString(params["id"]), !vmId.isEmpty,
+              let terminalID = Self.surfaceString(params["terminal_id"]), !terminalID.isEmpty else {
+            return v2Error(id: id, code: "invalid_params", message: "vm.terminal_write requires `id` and `terminal_id`.")
+        }
+        // Raw, not `surfaceString`: leading/trailing whitespace and newlines are part of
+        // what the caller wants typed.
+        let text = (params["text"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        let keys = Self.surfaceStringArray(params["keys"]).filter { !$0.isEmpty }
+        guard (text?.isEmpty == false) || !keys.isEmpty else {
+            return v2Error(id: id, code: "invalid_params", message: "vm.terminal_write needs `text` and/or `keys` (e.g. keys: [\"enter\"]).")
+        }
+        return v2VmCall(id: id, timeoutSeconds: 120) {
+            let provider = try await Self.cloudTuiProvider(machineID: vmId, catalog: await SurfaceCatalog.shared)
+            if let text, !text.isEmpty {
+                try await provider.sendText(terminalID: terminalID, text: text)
+            }
+            if !keys.isEmpty {
+                try await provider.sendKeys(terminalID: terminalID, keys: keys)
+            }
+            return ["machine": vmId, "terminal_id": terminalID, "wrote": text?.count ?? 0, "keys": keys]
+        }
+    }
+
+    /// `vm.terminal_read {id, terminal_id}` → the remote terminal's visible screen:
+    /// `{text, rows, cols, cursor_row, cursor_col, cursor_visible}`.
+    nonisolated func socketWorkerVMTerminalReadResponse(id: Any?, params: [String: Any]) -> String {
+        guard let vmId = Self.surfaceString(params["id"]), !vmId.isEmpty,
+              let terminalID = Self.surfaceString(params["terminal_id"]), !terminalID.isEmpty else {
+            return v2Error(id: id, code: "invalid_params", message: "vm.terminal_read requires `id` and `terminal_id`.")
+        }
+        return v2VmCall(id: id, timeoutSeconds: 120) {
+            let provider = try await Self.cloudTuiProvider(machineID: vmId, catalog: await SurfaceCatalog.shared)
+            var screen = try await provider.readScreen(terminalID: terminalID)
+            screen["machine"] = vmId
+            screen["terminal_id"] = terminalID
+            return screen
+        }
+    }
+
+    /// `vm.terminal_wait {id, terminal_id, pattern, timeout_ms?}` → blocks until the
+    /// screen matches the regex (default 30 s): `{matched, text}`.
+    nonisolated func socketWorkerVMTerminalWaitResponse(id: Any?, params: [String: Any]) -> String {
+        guard let vmId = Self.surfaceString(params["id"]), !vmId.isEmpty,
+              let terminalID = Self.surfaceString(params["terminal_id"]), !terminalID.isEmpty else {
+            return v2Error(id: id, code: "invalid_params", message: "vm.terminal_wait requires `id` and `terminal_id`.")
+        }
+        // Raw: whitespace can be significant in a regex.
+        guard let pattern = params["pattern"] as? String, !pattern.isEmpty else {
+            return v2Error(id: id, code: "invalid_params", message: "vm.terminal_wait requires a non-empty `pattern` (a regex matched against the screen text).")
+        }
+        let timeoutMs = CmuxTuiSurfaceProvider.clampedWaitTimeoutMs(
+            (params["timeout_ms"] as? Int) ?? Int(Self.surfaceString(params["timeout_ms"]) ?? "")
+        )
+        let socketTimeout = TimeInterval(max(60, timeoutMs / 1000 + 15))
+        return v2VmCall(id: id, timeoutSeconds: socketTimeout) {
+            let provider = try await Self.cloudTuiProvider(machineID: vmId, catalog: await SurfaceCatalog.shared)
+            var result = try await provider.waitForScreen(terminalID: terminalID, pattern: pattern, timeoutMs: timeoutMs)
+            result["machine"] = vmId
+            result["terminal_id"] = terminalID
+            result["pattern"] = pattern
+            return result
+        }
+    }
+
     // MARK: - Shared pieces
 
     /// The catalog's provider for `machine`; a cloud machine the catalog has not seen yet
@@ -344,6 +496,36 @@ extension TerminalController {
         guard case .cloud(let machineID) = machine else { return nil }
         _ = await CmuxTuiSurfaceProviderRegistry.shared.providerRefreshingIfMissing(machineID: machineID)
         return await catalog.provider(for: machine)
+    }
+
+    /// `vm.workspace_open`'s workspace resolution — the sidebar row's own
+    /// (`CloudTreeNodeBuilder.lookupRemoteWorkspace`), so `cmux vm workspace open`
+    /// and a click on the row open the same set. A `ws_…` id or an unambiguous
+    /// name; an existing workspace with nothing in it is an error that says so
+    /// (the row opens nothing for it either, D9) and names the verb that starts
+    /// a terminal there.
+    nonisolated static func resolveRemoteWorkspaceForOpen(
+        _ selector: String,
+        machine: SurfaceMachineID,
+        catalog: SurfaceCatalog
+    ) async throws -> (SurfaceRemoteWorkspace, CloudTreeRemoteWorkspaceMembers) {
+        let snapshot = await catalog.snapshot
+        let machineID = machine.rawValue
+        switch CloudTreeNodeBuilder.lookupRemoteWorkspace(selector, on: machine, snapshot: snapshot) {
+        case .found(let workspace, let members):
+            guard !members.isEmpty else {
+                throw SurfaceCatalogError.nothingToOpen(
+                    "workspace \(workspace.name) (\(workspace.id)) on \(machineID) is empty; `cmux vm open \(machineID)/\(workspace.id)` starts a terminal there"
+                )
+            }
+            return (workspace, members)
+        case .ambiguous(let matches):
+            throw SurfaceCatalogError.destinationNotFound(
+                "workspace '\(selector)' on \(machineID) is ambiguous (\(matches.map(\.id).joined(separator: ", "))); pass the ws_… id from `cmux vm tree \(machineID)`"
+            )
+        case .notFound:
+            throw SurfaceCatalogError.destinationNotFound("workspace \(selector) on \(machineID) (see `cmux vm tree \(machineID)`)")
+        }
     }
 
     /// Creates a terminal on `machine` through its provider and, when a destination is given,

@@ -37,12 +37,21 @@
 //!         "id": "workspace-agents",
 //!         "levels": ["workspaces", "agents"],
 //!         "actions": ["new-workspace"],
-//!         "width": 28
+//!         "width": 28,
+//!         "row_lines": 1
 //!       }
 //!     ],
 //!     "plugin": {
 //!       "command": ["/path/to/plugin-binary"],
 //!       "cwd": "/optional"
+//!     }
+//!   },
+//!   "agents": {
+//!     "plugin": {
+//!       "id": "example_agent_screen_detection",
+//!       "command": ["/path/to/agent-plugin"],
+//!       "cwd": "/optional",
+//!       "revision": "sha256-..."
 //!     }
 //!   },
 //!   "machine_sidebar": {
@@ -129,7 +138,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs::OpenOptions;
-use std::io::{Read, Write};
+use std::io::{self, Read, Write};
 use std::ops::Deref;
 #[cfg(unix)]
 use std::os::unix::process::CommandExt;
@@ -148,11 +157,16 @@ use cmux_tui_core::{CursorShape, DefaultColors, Rgb};
 use cmux_tui_core::{DEFAULT_SCROLLBACK_LIMIT_BYTES, SurfaceOptions};
 
 const MAX_SCROLLBACK_LIMIT_BYTES: usize = 1_000_000_000;
+/// Bound every JSON config read before parsing it into a dynamic value.
+/// Normal hand-written configs are far smaller, while a damaged or hostile
+/// file must not be allowed to consume unbounded TUI memory.
+pub(crate) const CONFIG_FILE_MAX_BYTES: usize = 4 * 1024 * 1024;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use ratatui::buffer::CellWidth;
 use ratatui::style::Color;
 use serde::{Deserialize, Deserializer};
 use serde_json::{Value, json};
-use unicode_width::UnicodeWidthStr;
+use unicode_segmentation::UnicodeSegmentation;
 use wait_timeout::ChildExt;
 
 use crate::localization::catalog;
@@ -177,6 +191,8 @@ struct RawConfig {
     tabs: RawTabs,
     #[serde(default)]
     sidebar: RawSidebar,
+    #[serde(default)]
+    agents: RawAgents,
     #[serde(default)]
     machine_sidebar: RawMachineSidebar,
     #[serde(default)]
@@ -550,13 +566,37 @@ struct RawSidebarProfile {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawSidebarView {
-    id: String,
-    levels: Vec<String>,
+    id: Option<String>,
+    levels: Option<Vec<String>>,
     actions: Option<Vec<RawSidebarAction>>,
     actions_position: Option<ActionsPosition>,
     width: Option<u16>,
     max_width: Option<u16>,
     collapse_priority: Option<u16>,
+    /// Resource scope for flat tabs/agents views: `"workspace"` (default)
+    /// follows the selected workspace; `"all"` lists every workspace.
+    scope: Option<String>,
+    /// Rows per agent entry: 2 (default for agents views) renders the state
+    /// dot and title above a dim agent-type line; 1 is the compact mode.
+    row_lines: Option<u8>,
+    /// Sort mode for agents views: `"priority"` (default), `"recency"`,
+    /// `"name"`, `"agent"`, or `"state"`. The runtime cycle key starts here.
+    /// Keep the raw value permissive so a wrong JSON type degrades this one
+    /// setting instead of discarding the complete sidebar section.
+    sort: Option<Value>,
+    /// Row filter for agents views: `{"agent": [ids], "state": [states],
+    /// "seen": bool}`. Criteria combine with AND; an active filter is
+    /// disclosed in the view header. The object is validated after the view
+    /// itself has been decoded for the same partial-recovery guarantee.
+    filter: Option<Value>,
+    /// Turns this entry into a split group instead of a leaf view:
+    /// `"vertical"` stacks `panes` top to bottom, `"horizontal"` places them
+    /// side by side. Split groups nest.
+    split: Option<String>,
+    /// Child entries of a split group, each a view or another split.
+    panes: Option<Vec<RawSidebarView>>,
+    /// Relative share of the parent split (default 1).
+    weight: Option<u16>,
 }
 
 /// One pinned action: an action name, or an object that also renames its
@@ -596,7 +636,7 @@ struct RawPlusButton {
 }
 
 /// Where a view's pinned action buttons render.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ActionsPosition {
     Top,
@@ -617,6 +657,22 @@ struct RawSidebarColumn {
 struct RawSidebarPlugin {
     command: Option<Vec<String>>,
     cwd: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawAgents {
+    /// Optional background process that reports generic agent journal events.
+    plugin: Option<RawAgentPlugin>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawAgentPlugin {
+    id: Option<String>,
+    command: Option<Vec<String>>,
+    cwd: Option<String>,
+    revision: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -1001,7 +1057,7 @@ impl Default for Tabs {
 /// Sidebar behavior.
 #[derive(Debug, Clone)]
 pub struct Sidebar {
-    /// Built-in view used when `plugin` is unset. The default is the file browser.
+    /// Built-in view used when `plugin` is unset. The default is Workspaces.
     pub view: SidebarView,
     pub width: u16,
     pub compact_width: u16,
@@ -1014,10 +1070,18 @@ pub struct Sidebar {
     /// list behavior; multiple levels render as one native tree column.
     pub views: Vec<SidebarViewSpec>,
     pub views_explicit: bool,
+    /// Column arrangement over `views`: one node per top-level column, where
+    /// a node is a leaf view or a nested split group.
+    pub layout: Vec<SidebarLayoutNode>,
     /// Named native layouts. `views` is always the currently selected
     /// profile's resolved rail list so older consumers remain compatible.
     pub profiles: Vec<SidebarProfileSpec>,
     pub active_profile: String,
+    /// The raw `sidebar.profile` startup setting, when one was supplied.
+    /// `active_profile` is resolved to a usable profile, so it cannot by
+    /// itself distinguish an explicit invalid setting from an omitted one
+    /// during a live config reload.
+    pub(crate) profile_request: Option<String>,
     pub plugin: Option<SidebarPluginOptions>,
     /// Rows per rail entry: 2 keeps the subtitle line, 1 is name-only.
     pub row_height: u16,
@@ -1029,12 +1093,17 @@ pub struct Sidebar {
     pub workspace_label: String,
 }
 
+/// Background agent integrations. The process is optional and runs outside
+/// the core detector. Its events enter through the journal producer API.
+#[derive(Debug, Clone, Default)]
+pub struct Agents {
+    pub plugin: Option<cmux_tui_core::JournalPluginOptions>,
+}
+
 impl Default for Sidebar {
     fn default() -> Self {
-        let views = vec![
-            SidebarViewSpec::legacy(SidebarColumnKind::Machines, 22, 0),
-            SidebarViewSpec::legacy(SidebarColumnKind::Workspaces, 22, 0),
-        ];
+        let profiles = default_sidebar_profiles(22, 0, 22, 0);
+        let work = &profiles[0];
         Sidebar {
             view: SidebarView::Workspaces,
             width: 22,
@@ -1045,14 +1114,12 @@ impl Default for Sidebar {
                 SidebarColumn { kind: SidebarColumnKind::Workspaces, width: 22, max_width: 0 },
             ],
             columns_explicit: false,
-            views: views.clone(),
+            layout: work.layout.clone(),
+            views: work.views.clone(),
             views_explicit: false,
-            profiles: vec![SidebarProfileSpec {
-                id: "default".to_string(),
-                name: "Default".to_string(),
-                views,
-            }],
-            active_profile: "default".to_string(),
+            profiles,
+            active_profile: "work".to_string(),
+            profile_request: None,
             plugin: None,
             row_height: 2,
             row_gap: 1,
@@ -1062,11 +1129,92 @@ impl Default for Sidebar {
     }
 }
 
+/// Built-in presentation profiles for users who have not supplied a native
+/// sidebar arrangement. Work keeps the workspace navigator and the live
+/// agent roster visible together. Focus gives the full height to Workspaces.
+fn default_sidebar_profiles(
+    machine_width: u16,
+    machine_max_width: u16,
+    workspace_width: u16,
+    workspace_max_width: u16,
+) -> Vec<SidebarProfileSpec> {
+    let machines =
+        SidebarViewSpec::legacy(SidebarColumnKind::Machines, machine_width, machine_max_width);
+    let workspaces = SidebarViewSpec::legacy(
+        SidebarColumnKind::Workspaces,
+        workspace_width,
+        workspace_max_width,
+    );
+    let agents = SidebarViewSpec {
+        id: "agents".to_string(),
+        levels: vec![SidebarResourceKind::Agents],
+        actions: Vec::new(),
+        actions_position: ActionsPosition::Bottom,
+        width: workspace_width,
+        max_width: workspace_max_width,
+        collapse_priority: 20,
+        scope: SidebarViewScope::All,
+        row_lines: 2,
+        sort: AgentSortMode::default(),
+        filter: AgentRowFilter::default(),
+    };
+    let work_views = vec![machines.clone(), workspaces.clone(), agents];
+    let work_layout = vec![
+        SidebarLayoutNode::Leaf(0),
+        SidebarLayoutNode::Split(SidebarSplitSpec {
+            id: "work-stack".to_string(),
+            dir: SidebarSplitDir::Vertical,
+            weights: vec![3, 2],
+            children: vec![SidebarLayoutNode::Leaf(1), SidebarLayoutNode::Leaf(2)],
+            width: workspace_width,
+            max_width: workspace_max_width,
+            collapse_priority: 30,
+        }),
+    ];
+    let focus_views = vec![machines, workspaces];
+    vec![
+        SidebarProfileSpec {
+            id: "work".to_string(),
+            name: "Work".to_string(),
+            views: work_views,
+            layout: work_layout,
+        },
+        SidebarProfileSpec {
+            id: "focus".to_string(),
+            name: "Focus".to_string(),
+            layout: sidebar_layout_of_columns(&focus_views),
+            views: focus_views,
+        },
+    ]
+}
+
+/// Copy one resolved profile into the compatibility fields consumed by the
+/// renderer and older commands. Built-in profiles keep the non-explicit
+/// flags, while custom profiles set those flags at their call site.
+fn select_sidebar_profile(config: &mut Config, profile: &SidebarProfileSpec) {
+    config.sidebar.active_profile = profile.id.clone();
+    config.sidebar.views = profile.views.clone();
+    config.sidebar.layout = profile.layout.clone();
+    config.sidebar.columns = config
+        .sidebar
+        .views
+        .iter()
+        .filter_map(|view| {
+            view.legacy_kind().map(|kind| SidebarColumn {
+                kind,
+                width: view.width,
+                max_width: view.max_width,
+            })
+        })
+        .collect();
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SidebarProfileSpec {
     pub id: String,
     pub name: String,
     pub views: Vec<SidebarViewSpec>,
+    pub layout: Vec<SidebarLayoutNode>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -1092,7 +1240,7 @@ pub enum SidebarResourceKind {
     Agents,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SidebarViewSpec {
     pub id: String,
     pub levels: Vec<SidebarResourceKind>,
@@ -1105,10 +1253,161 @@ pub struct SidebarViewSpec {
     pub max_width: u16,
     /// Lower values collapse first when pane space becomes constrained.
     pub collapse_priority: u16,
+    /// Resource scope for flat tabs/agents views. `All` lists every
+    /// workspace. Agent rows use the configured sort mode.
+    pub scope: SidebarViewScope,
+    /// Rows each agent entry occupies (herdr-style two-line rows by
+    /// default; 1 is the compact mode). Non-agent rows are always one line.
+    pub row_lines: u8,
+    /// Configured sort mode for agents rows. The runtime cycle key starts
+    /// from this value; the runtime choice itself is client-local
+    /// presentation state and is never written back.
+    pub sort: AgentSortMode,
+    /// Row filter for agents rows; inactive when empty. An active filter is
+    /// always disclosed in the view header.
+    pub filter: AgentRowFilter,
+}
+
+/// Sort modes for agents-view rows. `Priority` is herdr's attention order
+/// (blocked > unseen idle > working > seen idle), the default.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum AgentSortMode {
+    #[default]
+    Priority,
+    /// Last state change, newest first.
+    Recency,
+    /// Row name, ascending, case-insensitive; recency breaks ties.
+    Name,
+    /// Adapter id ("claude", "codex", ...), ascending; recency breaks ties.
+    Agent,
+    /// Lifecycle state name, ascending; recency breaks ties.
+    State,
+}
+
+impl AgentSortMode {
+    /// The runtime cycle order. Wraps back to the first mode.
+    pub fn cycle_next(self) -> Self {
+        match self {
+            AgentSortMode::Priority => AgentSortMode::Recency,
+            AgentSortMode::Recency => AgentSortMode::Name,
+            AgentSortMode::Name => AgentSortMode::Agent,
+            AgentSortMode::Agent => AgentSortMode::State,
+            AgentSortMode::State => AgentSortMode::Priority,
+        }
+    }
+}
+
+fn parse_agent_sort_mode(value: &str) -> Result<AgentSortMode, String> {
+    match value {
+        "priority" => Ok(AgentSortMode::Priority),
+        "recency" => Ok(AgentSortMode::Recency),
+        "name" => Ok(AgentSortMode::Name),
+        "agent" => Ok(AgentSortMode::Agent),
+        "state" => Ok(AgentSortMode::State),
+        other => Err(format!(
+            "cmux-tui: unknown agents sort {other:?}; expected priority, recency, name, agent, or state"
+        )),
+    }
+}
+
+/// Resolved agents-row filter. Criteria combine with AND; empty lists and
+/// an absent `seen` are inactive. Semantics derived from herdr
+/// (https://github.com/herdrdev/herdr), Apache-2.0, commit 7b675f42af35
+/// (src/app/agent_view.rs), modified by manaflow: cmux keeps its real
+/// `done` state rather than herdr's unseen-idle-to-done status mapping.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
+pub struct AgentRowFilter {
+    /// Adapter ids to keep; empty keeps every agent type.
+    pub agents: Vec<String>,
+    /// Lifecycle states to keep; empty keeps every state.
+    pub states: Vec<String>,
+    /// Keep only idle rows the user has (true) or has not (false) seen.
+    pub seen: Option<bool>,
+}
+
+impl AgentRowFilter {
+    pub fn is_active(&self) -> bool {
+        !self.agents.is_empty() || !self.states.is_empty() || self.seen.is_some()
+    }
+}
+
+const AGENT_FILTER_STATES: &[&str] = &["idle", "working", "blocked", "done", "unknown"];
+
+/// herdr's agent-view token rule: ascii alphanumerics plus `_`/`-`, at most
+/// 32 characters.
+fn valid_agent_filter_token(token: &str) -> bool {
+    !token.is_empty()
+        && token.len() <= 32
+        && token.chars().all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-'))
+}
+
+/// Which workspaces feed a flat tabs/agents view.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum SidebarViewScope {
+    /// Follow the selected workspace (the historical behavior).
+    #[default]
+    Workspace,
+    /// Every workspace in the session.
+    All,
+}
+
+/// Split orientation for a sidebar split group. `Vertical` stacks children
+/// top to bottom (a vertical arrangement), `Horizontal` places them side by
+/// side, matching tmux's `-v`/`-h` convention.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SidebarSplitDir {
+    Vertical,
+    Horizontal,
+}
+
+/// One top-level sidebar column, or a node inside a split group: either a
+/// leaf view (an index into the resolved flat view list) or a nested split.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SidebarLayoutNode {
+    Leaf(usize),
+    Split(SidebarSplitSpec),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SidebarSplitSpec {
+    pub id: String,
+    pub dir: SidebarSplitDir,
+    /// Relative share per child; same length as `children`.
+    pub weights: Vec<u16>,
+    pub children: Vec<SidebarLayoutNode>,
+    /// Column sizing when this split is a top-level entry.
+    pub width: u16,
+    pub max_width: u16,
+    pub collapse_priority: u16,
+}
+
+impl SidebarLayoutNode {
+    /// Leaf view indices in tree order.
+    pub fn leaves(&self) -> Vec<usize> {
+        let mut leaves = Vec::new();
+        self.collect_leaves(&mut leaves);
+        leaves
+    }
+
+    fn collect_leaves(&self, leaves: &mut Vec<usize>) {
+        match self {
+            SidebarLayoutNode::Leaf(index) => leaves.push(*index),
+            SidebarLayoutNode::Split(split) => {
+                for child in &split.children {
+                    child.collect_leaves(leaves);
+                }
+            }
+        }
+    }
+}
+
+/// The identity layout for a flat view list: one top-level column per view.
+pub fn sidebar_layout_of_columns(views: &[SidebarViewSpec]) -> Vec<SidebarLayoutNode> {
+    (0..views.len()).map(SidebarLayoutNode::Leaf).collect()
 }
 
 /// One pinned sidebar action and its optional label override.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SidebarActionSpec {
     pub action: Action,
     pub label: Option<String>,
@@ -1186,6 +1485,7 @@ impl SidebarViewSpec {
         };
         let levels = vec![level];
         let actions = default_sidebar_actions(&levels);
+        let row_lines = default_sidebar_row_lines(&levels);
         Self {
             id: id.to_string(),
             levels,
@@ -1194,10 +1494,20 @@ impl SidebarViewSpec {
             width,
             max_width,
             collapse_priority,
+            scope: SidebarViewScope::Workspace,
+            row_lines,
+            sort: AgentSortMode::default(),
+            filter: AgentRowFilter::default(),
         }
     }
 
     pub fn legacy_kind(&self) -> Option<SidebarColumnKind> {
+        // An `all`-scoped view never maps to a legacy rail: the legacy
+        // renderers follow the selected workspace, so scope must route
+        // through the projection path.
+        if self.scope != SidebarViewScope::Workspace {
+            return None;
+        }
         match self.levels.as_slice() {
             [SidebarResourceKind::Machines] => Some(SidebarColumnKind::Machines),
             [SidebarResourceKind::Workspaces] => Some(SidebarColumnKind::Workspaces),
@@ -1410,6 +1720,238 @@ fn parse_sidebar_action(value: &str, command_ids: &[String]) -> Result<Action, S
         .ok_or_else(|| format!("cmux-tui: ignoring unknown sidebar action {value:?}"))
 }
 
+/// Flat view list plus the column/split arrangement over it.
+#[derive(Debug, Default)]
+struct ResolvedSidebarViews {
+    views: Vec<SidebarViewSpec>,
+    layout: Vec<SidebarLayoutNode>,
+}
+
+/// The deepest allowed split nesting. Splits inside splits inside splits
+/// cover every practical arrangement; deeper trees are almost certainly a
+/// config mistake and each level costs a validation pass per frame.
+const MAX_SIDEBAR_SPLIT_DEPTH: usize = 3;
+
+fn parse_sidebar_split_dir(value: &str) -> Result<SidebarSplitDir, String> {
+    match value {
+        "vertical" => Ok(SidebarSplitDir::Vertical),
+        "horizontal" => Ok(SidebarSplitDir::Horizontal),
+        _ => Err(format!(
+            "cmux-tui: ignoring unknown sidebar split {value:?}; expected \"vertical\" (top/bottom) or \"horizontal\" (side by side)"
+        )),
+    }
+}
+
+fn parse_sidebar_view_scope(value: &str) -> Result<SidebarViewScope, String> {
+    match value {
+        "workspace" => Ok(SidebarViewScope::Workspace),
+        "all" => Ok(SidebarViewScope::All),
+        _ => Err(format!(
+            "cmux-tui: ignoring unknown sidebar view scope {value:?}; expected \"workspace\" or \"all\""
+        )),
+    }
+}
+
+/// Shared mutable state across one resolution pass: id/legacy dedup and the
+/// flat leaf list the layout tree indexes into.
+struct SidebarViewResolution<'a> {
+    ids: HashSet<String>,
+    /// Explicit IDs in the complete raw tree. Generated split IDs must avoid
+    /// these even when the user entry appears later in configuration order.
+    reserved_ids: HashSet<String>,
+    legacy_kinds: HashSet<SidebarColumnKind>,
+    views: Vec<SidebarViewSpec>,
+    machine_width: u16,
+    machine_max_width: u16,
+    workspace_width: u16,
+    workspace_max_width: u16,
+    owner: &'a str,
+    command_ids: &'a [String],
+}
+
+/// Column sizing of a resolved node, for bottom-up split-group defaults.
+/// A zero maximum means that the node is unbounded.
+fn sidebar_node_metrics(node: &SidebarLayoutNode, views: &[SidebarViewSpec]) -> (u16, u16, u16) {
+    match node {
+        SidebarLayoutNode::Leaf(index) => views
+            .get(*index)
+            .map_or((22, 0, 20), |view| (view.width, view.max_width, view.collapse_priority)),
+        SidebarLayoutNode::Split(split) => (split.width, split.max_width, split.collapse_priority),
+    }
+}
+
+fn resolve_sidebar_view_entry(
+    view: &RawSidebarView,
+    depth: usize,
+    state: &mut SidebarViewResolution<'_>,
+) -> Option<SidebarLayoutNode> {
+    let owner = state.owner;
+    if let Some(split) = view.split.as_deref() {
+        let dir = match parse_sidebar_split_dir(split.trim()) {
+            Ok(dir) => dir,
+            Err(warning) => {
+                crate::client_log::stderr_log!("config", "{warning} in {owner}");
+                return None;
+            }
+        };
+        if view.levels.is_some() {
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring {owner} split group with levels; a split holds panes, not resources"
+            );
+            return None;
+        }
+        if depth >= MAX_SIDEBAR_SPLIT_DEPTH {
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring {owner} split group nested deeper than {MAX_SIDEBAR_SPLIT_DEPTH} levels"
+            );
+            return None;
+        }
+        if view.actions.is_some() || view.actions_position.is_some() || view.scope.is_some() {
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring actions/scope on an {owner} split group; set them on its panes"
+            );
+        }
+        let (id, generated_id) = match view.id.as_deref().map(str::trim) {
+            Some(id) if !id.is_empty() => {
+                if state.ids.contains(id) {
+                    crate::client_log::stderr_log!(
+                        "config",
+                        "cmux-tui: ignoring {owner} split group with a duplicate id"
+                    );
+                    return None;
+                }
+                (id.to_string(), false)
+            }
+            _ => (stable_sidebar_split_id(view), true),
+        };
+        if state.ids.contains(&id) || (generated_id && state.reserved_ids.contains(&id)) {
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring {owner} split group with a generated id collision; set an explicit id"
+            );
+            return None;
+        }
+        let panes = view.panes.as_deref().unwrap_or_default();
+        if panes.is_empty() {
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring {owner} split group without panes"
+            );
+            return None;
+        }
+        state.ids.insert(id.clone());
+        let mut children = Vec::new();
+        let mut weights = Vec::new();
+        for pane in panes {
+            if let Some(child) = resolve_sidebar_view_entry(pane, depth + 1, state) {
+                weights.push(pane.weight.unwrap_or(1).max(1));
+                children.push(child);
+            }
+        }
+        match children.len() {
+            0 => {
+                state.ids.remove(&id);
+                crate::client_log::stderr_log!(
+                    "config",
+                    "cmux-tui: ignoring {owner} split group with no usable panes"
+                );
+                None
+            }
+            1 => {
+                state.ids.remove(&id);
+                crate::client_log::stderr_log!(
+                    "config",
+                    "cmux-tui: {owner} split group has one usable pane; using it directly"
+                );
+                children.pop()
+            }
+            _ => {
+                let mut default_width = 10u16;
+                let mut default_max_width = 0u16;
+                let mut has_unlimited_child = false;
+                let mut default_priority = 0u16;
+                for child in &children {
+                    let (child_width, child_max_width, child_priority) =
+                        sidebar_node_metrics(child, &state.views);
+                    default_width = default_width.max(child_width);
+                    default_priority = default_priority.max(child_priority);
+                    if child_max_width == 0 {
+                        has_unlimited_child = true;
+                    } else {
+                        default_max_width = default_max_width.max(child_max_width);
+                    }
+                }
+                if has_unlimited_child {
+                    default_max_width = 0;
+                }
+                Some(SidebarLayoutNode::Split(SidebarSplitSpec {
+                    id,
+                    dir,
+                    weights,
+                    children,
+                    width: view.width.map_or(default_width, |width| width.clamp(10, 60)),
+                    max_width: view.max_width.unwrap_or(default_max_width),
+                    collapse_priority: view.collapse_priority.unwrap_or(default_priority),
+                }))
+            }
+        }
+    } else {
+        if view.panes.is_some() {
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring {owner} view with panes but no split direction"
+            );
+            return None;
+        }
+        resolve_sidebar_leaf_view(view, state).map(SidebarLayoutNode::Leaf)
+    }
+}
+
+fn collect_sidebar_view_ids(views: &[RawSidebarView], ids: &mut HashSet<String>) {
+    let mut pending = views.iter().map(|view| (view, 0usize)).collect::<Vec<_>>();
+    while let Some((view, depth)) = pending.pop() {
+        if let Some(id) = view.id.as_deref().map(str::trim).filter(|id| !id.is_empty()) {
+            ids.insert(id.to_string());
+        }
+        if depth >= MAX_SIDEBAR_SPLIT_DEPTH {
+            continue;
+        }
+        if let Some(panes) = view.panes.as_deref() {
+            pending.extend(panes.iter().rev().map(|pane| (pane, depth + 1)));
+        }
+    }
+}
+
+/// Derive a repeatable identity for an anonymous split from its semantic
+/// children. Child order is sorted in the signature so moving panes does not
+/// throw away a user's saved divider ratio. Two identical anonymous splits
+/// are intentionally rejected as ambiguous; users can disambiguate them with
+/// explicit ids.
+fn stable_sidebar_split_id(view: &RawSidebarView) -> String {
+    fn signature(view: &RawSidebarView) -> String {
+        if let Some(id) = view.id.as_deref().map(str::trim).filter(|id| !id.is_empty()) {
+            return format!("id:{id}");
+        }
+        if let Some(split) = view.split.as_deref() {
+            let mut children =
+                view.panes.as_deref().unwrap_or_default().iter().map(signature).collect::<Vec<_>>();
+            children.sort();
+            return format!("split:{}:[{}]", split.trim(), children.join(","));
+        }
+        format!("leaf:{}", view.levels.as_deref().unwrap_or_default().join(","))
+    }
+
+    let mut hash = 0xcbf29ce484222325u64;
+    for byte in signature(view).bytes() {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("split-{hash:016x}")
+}
+
 fn resolve_sidebar_view_specs(
     views: &[RawSidebarView],
     machine_width: u16,
@@ -1418,116 +1960,331 @@ fn resolve_sidebar_view_specs(
     workspace_max_width: u16,
     owner: &str,
     command_ids: &[String],
-) -> Vec<SidebarViewSpec> {
-    let mut ids = HashSet::new();
-    let mut legacy_kinds = HashSet::new();
-    let mut resolved = Vec::new();
+) -> ResolvedSidebarViews {
+    let mut reserved_ids = HashSet::new();
+    collect_sidebar_view_ids(views, &mut reserved_ids);
+    let mut state = SidebarViewResolution {
+        ids: HashSet::new(),
+        reserved_ids,
+        legacy_kinds: HashSet::new(),
+        views: Vec::new(),
+        machine_width,
+        machine_max_width,
+        workspace_width,
+        workspace_max_width,
+        owner,
+        command_ids,
+    };
+    let mut layout = Vec::new();
     for view in views {
-        let id = view.id.trim();
-        if id.is_empty() || ids.contains(id) {
+        if view.weight.is_some() {
             crate::client_log::stderr_log!(
                 "config",
-                "cmux-tui: ignoring {owner} view with an empty or duplicate id"
+                "cmux-tui: ignoring weight on a top-level {owner} entry; weights apply inside a split group"
             );
-            continue;
         }
-        let mut levels = Vec::with_capacity(view.levels.len());
-        let mut valid = true;
-        for level in &view.levels {
-            match parse_sidebar_resource_kind(level.trim()) {
-                Ok(level) => levels.push(level),
-                Err(warning) => {
-                    crate::client_log::stderr_log!("config", "{warning}");
-                    valid = false;
-                    break;
-                }
+        if let Some(node) = resolve_sidebar_view_entry(view, 0, &mut state) {
+            layout.push(node);
+        }
+    }
+    ResolvedSidebarViews { views: state.views, layout }
+}
+
+fn resolve_sidebar_leaf_view(
+    view: &RawSidebarView,
+    state: &mut SidebarViewResolution<'_>,
+) -> Option<usize> {
+    let owner = state.owner;
+    let (machine_width, machine_max_width) = (state.machine_width, state.machine_max_width);
+    let (workspace_width, workspace_max_width) = (state.workspace_width, state.workspace_max_width);
+    let command_ids = state.command_ids;
+    let id = view.id.as_deref().map(str::trim).unwrap_or_default();
+    if id.is_empty() || state.ids.contains(id) {
+        crate::client_log::stderr_log!(
+            "config",
+            "cmux-tui: ignoring {owner} view with an empty or duplicate id"
+        );
+        return None;
+    }
+    let Some(raw_levels) = view.levels.as_ref() else {
+        crate::client_log::stderr_log!(
+            "config",
+            "cmux-tui: ignoring {owner} view {id:?} without levels"
+        );
+        return None;
+    };
+    let mut levels = Vec::with_capacity(raw_levels.len());
+    for level in raw_levels {
+        match parse_sidebar_resource_kind(level.trim()) {
+            Ok(level) => levels.push(level),
+            Err(warning) => {
+                crate::client_log::stderr_log!("config", "{warning}");
+                return None;
             }
         }
-        if !valid {
-            continue;
-        }
-        if let Err(reason) = validate_sidebar_levels(&levels) {
-            crate::client_log::stderr_log!(
-                "config",
-                "cmux-tui: ignoring {owner} view {id:?}: {reason}"
-            );
-            continue;
-        }
-        let legacy_kind = SidebarViewSpec {
-            id: id.to_string(),
-            levels: levels.clone(),
-            actions: Vec::new(),
-            actions_position: ActionsPosition::Bottom,
-            width: 0,
-            max_width: 0,
-            collapse_priority: 0,
-        }
-        .legacy_kind();
-        if legacy_kind.is_some_and(|kind| !legacy_kinds.insert(kind)) {
-            crate::client_log::stderr_log!(
-                "config",
-                "cmux-tui: ignoring {owner} view {id:?}: a one-level view for that resource already exists"
-            );
-            continue;
-        }
-        ids.insert(id.to_string());
-        let (default_width, default_max_width) = match legacy_kind {
-            Some(SidebarColumnKind::Machines) => (machine_width, machine_max_width),
-            Some(SidebarColumnKind::Workspaces) => (workspace_width, workspace_max_width),
-            Some(SidebarColumnKind::Tabs) | None => (22, 0),
-        };
-        let actions = if levels == [SidebarResourceKind::Machines]
-            && view.actions.as_ref().is_some_and(|actions| !actions.is_empty())
-        {
-            crate::client_log::stderr_log!(
-                "config",
-                "cmux-tui: ignoring sidebar actions in {owner} machine view {id:?}; machine actions come from provider capabilities"
-            );
-            Vec::new()
-        } else if let Some(raw_actions) = view.actions.as_ref() {
-            let mut seen = HashSet::new();
-            raw_actions
-                .iter()
-                .filter_map(|raw_action| {
-                    match parse_sidebar_action(raw_action.action().trim(), command_ids) {
-                        Ok(action) if seen.insert(action) => Some(SidebarActionSpec {
-                            action,
-                            label: raw_action
-                                .label()
-                                .map(str::trim)
-                                .filter(|label| !label.is_empty())
-                                .map(str::to_string),
-                        }),
-                        Ok(_) => {
-                            crate::client_log::stderr_log!("config",
-                                "cmux-tui: ignoring duplicate sidebar action {:?} in {owner} view {id:?}",
-                                raw_action.action().trim()
-                            );
-                            None
-                        }
-                        Err(warning) => {
-                            crate::client_log::stderr_log!("config", "{warning} in {owner} view {id:?}");
-                            None
-                        }
-                    }
-                })
-                .collect()
-        } else {
-            default_sidebar_actions(&levels)
-        };
-        resolved.push(SidebarViewSpec {
-            id: id.to_string(),
-            collapse_priority: view
-                .collapse_priority
-                .unwrap_or_else(|| default_sidebar_collapse_priority(&levels)),
-            levels,
-            actions,
-            actions_position: view.actions_position.unwrap_or_default(),
-            width: view.width.unwrap_or(default_width).clamp(10, 60),
-            max_width: view.max_width.unwrap_or(default_max_width),
-        });
     }
-    resolved
+    if let Err(reason) = validate_sidebar_levels(&levels) {
+        crate::client_log::stderr_log!(
+            "config",
+            "cmux-tui: ignoring {owner} view {id:?}: {reason}"
+        );
+        return None;
+    }
+    let scope = match view.scope.as_deref().map(str::trim) {
+        None | Some("") => SidebarViewScope::Workspace,
+        Some(value) => match parse_sidebar_view_scope(value) {
+            Ok(SidebarViewScope::All)
+                if levels != [SidebarResourceKind::Tabs]
+                    && levels != [SidebarResourceKind::Agents] =>
+            {
+                crate::client_log::stderr_log!(
+                    "config",
+                    "cmux-tui: ignoring scope \"all\" in {owner} view {id:?}; it applies to one-level tabs or agents views"
+                );
+                SidebarViewScope::Workspace
+            }
+            Ok(scope) => scope,
+            Err(warning) => {
+                crate::client_log::stderr_log!("config", "{warning} in {owner} view {id:?}");
+                SidebarViewScope::Workspace
+            }
+        },
+    };
+    let legacy_kind = SidebarViewSpec {
+        id: id.to_string(),
+        levels: levels.clone(),
+        actions: Vec::new(),
+        actions_position: ActionsPosition::Bottom,
+        width: 0,
+        max_width: 0,
+        collapse_priority: 0,
+        row_lines: 1,
+        scope,
+        sort: AgentSortMode::default(),
+        filter: AgentRowFilter::default(),
+    }
+    .legacy_kind();
+    if legacy_kind.is_some_and(|kind| !state.legacy_kinds.insert(kind)) {
+        crate::client_log::stderr_log!(
+            "config",
+            "cmux-tui: ignoring {owner} view {id:?}: a one-level view for that resource already exists"
+        );
+        return None;
+    }
+    state.ids.insert(id.to_string());
+    let (default_width, default_max_width) = match legacy_kind {
+        Some(SidebarColumnKind::Machines) => (machine_width, machine_max_width),
+        Some(SidebarColumnKind::Workspaces) => (workspace_width, workspace_max_width),
+        Some(SidebarColumnKind::Tabs) | None => (22, 0),
+    };
+    let actions = if levels == [SidebarResourceKind::Machines]
+        && view.actions.as_ref().is_some_and(|actions| !actions.is_empty())
+    {
+        crate::client_log::stderr_log!(
+            "config",
+            "cmux-tui: ignoring sidebar actions in {owner} machine view {id:?}; machine actions come from provider capabilities"
+        );
+        Vec::new()
+    } else if let Some(raw_actions) = view.actions.as_ref() {
+        let mut seen = HashSet::new();
+        raw_actions
+            .iter()
+            .filter_map(|raw_action| {
+                match parse_sidebar_action(raw_action.action().trim(), command_ids) {
+                    Ok(action) if seen.insert(action) => Some(SidebarActionSpec {
+                        action,
+                        label: raw_action
+                            .label()
+                            .map(str::trim)
+                            .filter(|label| !label.is_empty())
+                            .map(str::to_string),
+                    }),
+                    Ok(_) => {
+                        crate::client_log::stderr_log!("config",
+                            "cmux-tui: ignoring duplicate sidebar action {:?} in {owner} view {id:?}",
+                            raw_action.action().trim()
+                        );
+                        None
+                    }
+                    Err(warning) => {
+                        crate::client_log::stderr_log!("config", "{warning} in {owner} view {id:?}");
+                        None
+                    }
+                }
+            })
+            .collect()
+    } else {
+        default_sidebar_actions(&levels)
+    };
+    let row_lines = match view.row_lines {
+        None => default_sidebar_row_lines(&levels),
+        Some(lines @ 1..=2) => lines,
+        Some(lines) => {
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring row_lines {lines} in {owner} view {id:?}; expected 1 or 2"
+            );
+            default_sidebar_row_lines(&levels)
+        }
+    };
+    let is_agents_view = levels.contains(&SidebarResourceKind::Agents);
+    // Unknown sort/filter values warn and fall back (the round-5 policy):
+    // a typo may degrade one view's ordering, never drop the view.
+    let sort = resolve_agent_sort_mode(view.sort.as_ref(), is_agents_view, owner, id);
+    let filter = resolve_agent_row_filter(view.filter.as_ref(), is_agents_view, owner, id);
+    state.views.push(SidebarViewSpec {
+        id: id.to_string(),
+        collapse_priority: view
+            .collapse_priority
+            .unwrap_or_else(|| default_sidebar_collapse_priority(&levels)),
+        levels,
+        actions,
+        actions_position: view.actions_position.unwrap_or_default(),
+        width: view.width.unwrap_or(default_width).clamp(10, 60),
+        max_width: view.max_width.unwrap_or(default_max_width),
+        scope,
+        row_lines,
+        sort,
+        filter,
+    });
+    Some(state.views.len() - 1)
+}
+
+/// At most this many values per filter list, herdr's `MAX_FILTER_VALUES`.
+const MAX_AGENT_FILTER_VALUES: usize = 32;
+
+/// Validate one agents-view filter, warning per rejected value and keeping
+/// everything valid: a bad value must degrade one criterion, never drop the
+/// view or hide the filter silently.
+fn resolve_agent_row_filter(
+    raw: Option<&Value>,
+    is_agents_view: bool,
+    owner: &str,
+    id: &str,
+) -> AgentRowFilter {
+    let Some(raw) = raw else { return AgentRowFilter::default() };
+    if !is_agents_view {
+        crate::client_log::stderr_log!(
+            "config",
+            "cmux-tui: ignoring filter in {owner} view {id:?}; filter applies to agents views"
+        );
+        return AgentRowFilter::default();
+    }
+    let Some(object) = raw.as_object() else {
+        if !raw.is_null() {
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring agents filter {raw:?} in {owner} view {id:?}; expected an object"
+            );
+        }
+        return AgentRowFilter::default();
+    };
+    let mut filter = AgentRowFilter::default();
+    for (name, output) in [("agent", &mut filter.agents), ("state", &mut filter.states)] {
+        let Some(value) = object.get(name) else { continue };
+        let Some(values) = value.as_array() else {
+            if !value.is_null() {
+                crate::client_log::stderr_log!(
+                    "config",
+                    "cmux-tui: ignoring filter {name} {value:?} in {owner} view {id:?}; expected an array"
+                );
+            }
+            continue;
+        };
+        if values.len() > MAX_AGENT_FILTER_VALUES {
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: filter {name} in {owner} view {id:?} keeps the first {MAX_AGENT_FILTER_VALUES} values"
+            );
+        }
+        for raw_value in values.iter().take(MAX_AGENT_FILTER_VALUES) {
+            let Some(value) = raw_value.as_str() else {
+                crate::client_log::stderr_log!(
+                    "config",
+                    "cmux-tui: ignoring filter {name} value {raw_value:?} in {owner} view {id:?}"
+                );
+                continue;
+            };
+            let value = value.trim();
+            let valid = match name {
+                "state" => AGENT_FILTER_STATES.contains(&value),
+                _ => valid_agent_filter_token(value),
+            };
+            if valid {
+                if !output.iter().any(|existing| existing == value) {
+                    output.push(value.to_string());
+                }
+            } else {
+                crate::client_log::stderr_log!(
+                    "config",
+                    "cmux-tui: ignoring filter {name} value {value:?} in {owner} view {id:?}"
+                );
+            }
+        }
+    }
+    match object.get("seen") {
+        None => {}
+        Some(value) if value.is_null() => {}
+        Some(value) => {
+            if let Some(seen) = value.as_bool() {
+                filter.seen = Some(seen);
+            } else {
+                crate::client_log::stderr_log!(
+                    "config",
+                    "cmux-tui: ignoring filter seen value {value:?} in {owner} view {id:?}; expected a boolean"
+                );
+            }
+        }
+    }
+    for key in object.keys().filter(|key| !matches!(key.as_str(), "agent" | "state" | "seen")) {
+        crate::client_log::stderr_log!(
+            "config",
+            "cmux-tui: ignoring unknown filter field {key:?} in {owner} view {id:?}"
+        );
+    }
+    filter
+}
+
+fn resolve_agent_sort_mode(
+    raw: Option<&Value>,
+    is_agents_view: bool,
+    owner: &str,
+    id: &str,
+) -> AgentSortMode {
+    let Some(raw) = raw else { return AgentSortMode::default() };
+    let Some(value) = raw.as_str() else {
+        if !raw.is_null() {
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring agents sort {raw:?} in {owner} view {id:?}; expected a string"
+            );
+        }
+        return AgentSortMode::default();
+    };
+    let value = value.trim();
+    if value.is_empty() {
+        return AgentSortMode::default();
+    }
+    if !is_agents_view {
+        crate::client_log::stderr_log!(
+            "config",
+            "cmux-tui: ignoring sort {value:?} in {owner} view {id:?}; sort applies to agents views"
+        );
+        return AgentSortMode::default();
+    }
+    match parse_agent_sort_mode(value) {
+        Ok(mode) => mode,
+        Err(warning) => {
+            crate::client_log::stderr_log!("config", "{warning} in {owner} view {id:?}");
+            AgentSortMode::default()
+        }
+    }
+}
+
+/// Agent rows default to herdr-style two-line entries (state dot + title
+/// above a dim agent-type line); every other view stays single-line.
+fn default_sidebar_row_lines(levels: &[SidebarResourceKind]) -> u8 {
+    if levels.contains(&SidebarResourceKind::Agents) { 2 } else { 1 }
 }
 
 #[derive(Debug, Clone)]
@@ -1625,6 +2382,8 @@ pub enum Action {
     ToggleSidebar,
     ToggleSidebarCompact,
     ToggleSidebarView,
+    PrevSidebarProfile,
+    NextSidebarProfile,
     FocusSidebar,
     ProviderMenu,
     NewPaneRight,
@@ -1682,6 +2441,8 @@ pub(crate) enum ActionExecution {
     ToggleSidebar,
     ToggleSidebarCompact,
     ToggleSidebarView,
+    PrevSidebarProfile,
+    NextSidebarProfile,
     FocusSidebar,
     ProviderMenu,
     NewPaneRight,
@@ -1907,6 +2668,8 @@ define_named_action_definitions! {
     TOGGLE_SIDEBAR_DEFINITION => (Action::ToggleSidebar, "toggle-sidebar", "Show or hide sidebar", "サイドバーの表示を切り替え");
     TOGGLE_SIDEBAR_COMPACT_DEFINITION => (Action::ToggleSidebarCompact, "toggle-sidebar-compact", "Compact or expand sidebar", "サイドバーの幅を切り替え");
     TOGGLE_SIDEBAR_VIEW_DEFINITION => (Action::ToggleSidebarView, "toggle-sidebar-view", "Switch sidebar view", "サイドバー表示を切り替え");
+    PREV_SIDEBAR_PROFILE_DEFINITION => (Action::PrevSidebarProfile, "prev-sidebar-profile", "Previous sidebar layout", "前のサイドバーレイアウト");
+    NEXT_SIDEBAR_PROFILE_DEFINITION => (Action::NextSidebarProfile, "next-sidebar-profile", "Next sidebar layout", "次のサイドバーレイアウト");
     FOCUS_SIDEBAR_DEFINITION => (Action::FocusSidebar, "focus-sidebar", "Focus sidebar", "サイドバーにフォーカス");
     PROVIDER_MENU_DEFINITION => (Action::ProviderMenu, "provider-menu", "Machine provider menu", "マシンプロバイダーメニュー");
     NEW_PANE_RIGHT_DEFINITION => (Action::NewPaneRight, "new-pane-right", "New column to the right", "右に新しい列");
@@ -2061,7 +2824,7 @@ static SELECT_SCREEN_DEFINITIONS: [ActionDefinition; 10] = [
 /// The canonical action catalog. Presentation surfaces derive their labels
 /// and ordering from these named definitions instead of positional offsets.
 pub fn action_definitions() -> &'static [&'static ActionDefinition] {
-    static DEFINITIONS: [&ActionDefinition; 67] = [
+    static DEFINITIONS: [&ActionDefinition; 69] = [
         &SEND_PREFIX_DEFINITION,
         &NEW_TAB_DEFINITION,
         &NEW_BROWSER_TAB_DEFINITION,
@@ -2106,6 +2869,8 @@ pub fn action_definitions() -> &'static [&'static ActionDefinition] {
         &TOGGLE_SIDEBAR_DEFINITION,
         &TOGGLE_SIDEBAR_COMPACT_DEFINITION,
         &TOGGLE_SIDEBAR_VIEW_DEFINITION,
+        &PREV_SIDEBAR_PROFILE_DEFINITION,
+        &NEXT_SIDEBAR_PROFILE_DEFINITION,
         &FOCUS_SIDEBAR_DEFINITION,
         &PROVIDER_MENU_DEFINITION,
         &NEW_PANE_RIGHT_DEFINITION,
@@ -2313,6 +3078,18 @@ impl Action {
                 "frontend action adapter",
                 ActionExecution::ToggleSidebarView,
             ),
+            Action::PrevSidebarProfile => ActionMetadata::new(
+                "prev-sidebar-profile",
+                ActionClassification::PresentationOnly,
+                "frontend sidebar presentation reducer",
+                ActionExecution::PrevSidebarProfile,
+            ),
+            Action::NextSidebarProfile => ActionMetadata::new(
+                "next-sidebar-profile",
+                ActionClassification::PresentationOnly,
+                "frontend sidebar presentation reducer",
+                ActionExecution::NextSidebarProfile,
+            ),
             Action::FocusSidebar => ActionMetadata::new(
                 "focus-sidebar",
                 ActionClassification::PresentationOnly,
@@ -2490,6 +3267,8 @@ impl Action {
             Action::ToggleSidebar => &TOGGLE_SIDEBAR_DEFINITION,
             Action::ToggleSidebarCompact => &TOGGLE_SIDEBAR_COMPACT_DEFINITION,
             Action::ToggleSidebarView => &TOGGLE_SIDEBAR_VIEW_DEFINITION,
+            Action::PrevSidebarProfile => &PREV_SIDEBAR_PROFILE_DEFINITION,
+            Action::NextSidebarProfile => &NEXT_SIDEBAR_PROFILE_DEFINITION,
             Action::FocusSidebar => &FOCUS_SIDEBAR_DEFINITION,
             Action::ProviderMenu => &PROVIDER_MENU_DEFINITION,
             Action::NewPaneRight => &NEW_PANE_RIGHT_DEFINITION,
@@ -2565,7 +3344,7 @@ impl Action {
 }
 
 /// A key chord: code plus required modifiers.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Chord {
     pub code: KeyCode,
     pub mods: KeyModifiers,
@@ -2593,17 +3372,20 @@ fn normalize_chord(code: KeyCode, mut mods: KeyModifiers) -> (KeyCode, KeyModifi
     }
 }
 
+fn canonical_chord(chord: Chord) -> Chord {
+    const TRACKED: KeyModifiers = KeyModifiers::CONTROL
+        .union(KeyModifiers::ALT)
+        .union(KeyModifiers::SHIFT)
+        .union(KeyModifiers::SUPER)
+        .union(KeyModifiers::HYPER)
+        .union(KeyModifiers::META);
+    let (code, mods) = normalize_chord(chord.code, chord.mods);
+    Chord { code, mods: mods & TRACKED }
+}
+
 impl Chord {
     pub fn matches(&self, key: &KeyEvent) -> bool {
-        const TRACKED: KeyModifiers = KeyModifiers::CONTROL
-            .union(KeyModifiers::ALT)
-            .union(KeyModifiers::SHIFT)
-            .union(KeyModifiers::SUPER)
-            .union(KeyModifiers::HYPER)
-            .union(KeyModifiers::META);
-        let (configured_code, configured_mods) = normalize_chord(self.code, self.mods);
-        let (event_code, event_mods) = normalize_chord(key.code, key.modifiers);
-        configured_code == event_code && configured_mods & TRACKED == event_mods & TRACKED
+        canonical_chord(*self) == canonical_chord(Chord { code: key.code, mods: key.modifiers })
     }
 
     /// Human-readable form used beside context-menu actions. Keep this
@@ -2656,6 +3438,8 @@ pub struct Keys {
     /// macOS Option mode instead of guessing from each event.
     pub macos_option_as_alt: bool,
     bindings: Vec<(Chord, Action)>,
+    action_by_chord: HashMap<Chord, Action>,
+    modeless_action_by_chord: HashMap<Chord, Action>,
     pub(crate) provider_menu_overridden: bool,
 }
 
@@ -2665,7 +3449,7 @@ impl Default for Keys {
         let alt = |code, action| (Chord { code, mods: KeyModifiers::ALT }, action);
         let command = |code, action| (Chord { code, mods: KeyModifiers::SUPER }, action);
         let prefix = Chord { code: KeyCode::Char('b'), mods: KeyModifiers::CONTROL };
-        Keys {
+        let mut keys = Keys {
             prefix,
             macos_option_as_alt: true,
             bindings: vec![
@@ -2708,6 +3492,8 @@ impl Default for Keys {
                 bind(KeyCode::Char('s'), Action::ToggleSidebar),
                 bind(KeyCode::Char('m'), Action::ToggleSidebarCompact),
                 bind(KeyCode::Char('e'), Action::ToggleSidebarView),
+                bind(KeyCode::Char('H'), Action::PrevSidebarProfile),
+                bind(KeyCode::Char('L'), Action::NextSidebarProfile),
                 bind(KeyCode::Char('S'), Action::FocusSidebar),
                 bind(KeyCode::Char('g'), Action::NewPaneRight),
                 bind(KeyCode::Char('U'), Action::UndoLayout),
@@ -2744,12 +3530,30 @@ impl Default for Keys {
                 bind(KeyCode::Char('?'), Action::ShowShortcuts),
                 bind(KeyCode::Char('d'), Action::Detach),
             ],
+            action_by_chord: HashMap::new(),
+            modeless_action_by_chord: HashMap::new(),
             provider_menu_overridden: false,
-        }
+        };
+        keys.rebuild_dispatch_maps();
+        keys
     }
 }
 
 impl Keys {
+    fn rebuild_dispatch_maps(&mut self) {
+        self.action_by_chord.clear();
+        self.modeless_action_by_chord.clear();
+        for &(chord, action) in &self.bindings {
+            let canonical = canonical_chord(chord);
+            // Keep the first binding in canonical order. Config mutation
+            // resolves intentional collisions before this cache is built.
+            self.action_by_chord.entry(canonical).or_insert(action);
+            if self.is_modeless_binding(&chord, action) {
+                self.modeless_action_by_chord.entry(canonical).or_insert(action);
+            }
+        }
+    }
+
     fn is_modeless_binding(&self, chord: &Chord, action: Action) -> bool {
         if action == Action::SendPrefix && *chord == self.prefix {
             return false;
@@ -2769,17 +3573,18 @@ impl Keys {
 
     /// The action bound to a key event (after the prefix).
     pub fn action_for(&self, key: &KeyEvent) -> Option<Action> {
-        self.bindings.iter().find(|(chord, _)| chord.matches(key)).map(|(_, a)| *a)
+        self.action_by_chord
+            .get(&canonical_chord(Chord { code: key.code, mods: key.modifiers }))
+            .copied()
     }
 
     /// The modeless action bound to a key event. Alt- and Super-modified
     /// chords are modeless, as are Control-modified clear-history chords;
     /// other chords remain prefix-only.
     pub fn modeless_action_for(&self, key: &KeyEvent) -> Option<Action> {
-        self.bindings
-            .iter()
-            .find(|(chord, action)| self.is_modeless_binding(chord, *action) && chord.matches(key))
-            .map(|(_, a)| *a)
+        self.modeless_action_by_chord
+            .get(&canonical_chord(Chord { code: key.code, mods: key.modifiers }))
+            .copied()
     }
 
     /// The first configured shortcut for an action, including the prefix
@@ -2956,6 +3761,7 @@ impl Keys {
         }
         let prefix = self.prefix;
         self.bindings.retain(|(chord, action)| *action == Action::SendPrefix || *chord != prefix);
+        self.rebuild_dispatch_maps();
     }
 
     #[cfg(test)]
@@ -3027,6 +3833,7 @@ pub struct Config {
     pub chrome: ChromeMode,
     pub tabs: Tabs,
     pub sidebar: Sidebar,
+    pub agents: Agents,
     pub machine_sidebar: MachineSidebar,
     pub machine_provider: MachineProviderConfig,
     pub machines: Vec<MachineConfig>,
@@ -3141,7 +3948,7 @@ impl StatusBarOptions {
 /// The maximum number of configured segments per status bar side.
 pub const MAX_STATUS_SEGMENTS: usize = 8;
 
-/// The maximum length of one literal status segment, in characters.
+/// The maximum width of one literal status segment, in terminal cells.
 pub const MAX_STATUS_SEGMENT_TEXT: usize = 256;
 
 /// One status bar segment: literal text with `{variable}` interpolation, or
@@ -3179,7 +3986,22 @@ fn resolve_status_segments(raw: Vec<RawStatusSegment>, side: &str) -> Vec<Status
             }
             (Some(text), None) => {
                 // Bound per-draw expansion work on the render path.
-                StatusSegmentContent::Text(text.chars().take(MAX_STATUS_SEGMENT_TEXT).collect())
+                let mut bounded = String::new();
+                let mut width: usize = 0;
+                let mut scalar_count: usize = 0;
+                for grapheme in text.graphemes(true) {
+                    let grapheme_width = usize::from(grapheme.cell_width());
+                    let grapheme_scalars = grapheme.chars().count();
+                    if width.saturating_add(grapheme_width) > MAX_STATUS_SEGMENT_TEXT
+                        || scalar_count.saturating_add(grapheme_scalars) > MAX_STATUS_SEGMENT_TEXT
+                    {
+                        break;
+                    }
+                    bounded.push_str(grapheme);
+                    width += grapheme_width;
+                    scalar_count += grapheme_scalars;
+                }
+                StatusSegmentContent::Text(bounded)
             }
             (None, Some(run)) => {
                 if run.first().is_none_or(|program| program.is_empty()) {
@@ -3264,6 +4086,14 @@ pub struct SidebarPluginConfig {
     pub cwd: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentPluginConfig {
+    pub id: String,
+    pub command: Vec<String>,
+    pub cwd: Option<String>,
+    pub revision: Option<String>,
+}
+
 /// Load the config: defaults, overlaid with the user's Ghostty selection
 /// colors, overlaid with `cmux-tui.json` or legacy `mux.json`.
 pub fn load() -> Config {
@@ -3286,6 +4116,13 @@ pub fn load() -> Config {
     config.cursor_blink = defaults.cursor_blink;
 
     let raw = load_raw_config();
+    config.sidebar.profile_request = raw
+        .sidebar
+        .profile
+        .as_deref()
+        .map(str::trim)
+        .filter(|profile| !profile.is_empty())
+        .map(str::to_owned);
     let t = &raw.theme;
     if let Some(chrome) = t.chrome {
         config.chrome = chrome;
@@ -3381,7 +4218,10 @@ pub fn load() -> Config {
     if let Some(glyph) = raw.sidebar.rail_glyph {
         if glyph.eq_ignore_ascii_case("none") {
             config.sidebar.rail_glyph = String::new();
-        } else if glyph.chars().count() == 1 && glyph.width() == 1 {
+        } else if glyph.chars().count() == 1
+            && glyph.chars().all(|character| !character.is_control())
+            && glyph.cell_width() == 1
+        {
             // The renderer reserves exactly one cell for the glyph.
             config.sidebar.rail_glyph = glyph;
         } else {
@@ -3398,13 +4238,11 @@ pub fn load() -> Config {
         }
     }
     if let Some(plugin) = raw.sidebar.plugin {
-        let command = plugin
-            .command
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|arg| !arg.is_empty())
-            .collect::<Vec<_>>();
-        if command.is_empty() {
+        // Preserve every argument after argv[0]. Empty arguments are valid
+        // process arguments, and filtering them would silently change the
+        // command a user configured. Only the executable slot is required.
+        let command = plugin.command.unwrap_or_default();
+        if command.first().is_none_or(|arg| arg.trim().is_empty()) {
             crate::client_log::stderr_log!(
                 "config",
                 "cmux-tui: ignoring sidebar.plugin with empty command"
@@ -3414,6 +4252,39 @@ pub fn load() -> Config {
                 command,
                 cwd: plugin.cwd.filter(|cwd| !cwd.trim().is_empty()),
             });
+        }
+    }
+    if let Some(plugin) = raw.agents.plugin {
+        if let Some(id) = plugin.id {
+            // Do not filter later argv entries. An empty value can be meaningful
+            // to a plugin, while an empty executable must still disable config.
+            let command = plugin.command.unwrap_or_default();
+            if command.first().is_none_or(|arg| arg.trim().is_empty()) {
+                crate::client_log::stderr_log!(
+                    "config",
+                    "cmux-tui: ignoring agents.plugin with empty command"
+                );
+            } else {
+                let options = cmux_tui_core::JournalPluginOptions {
+                    id,
+                    command,
+                    cwd: plugin.cwd.filter(|cwd| !cwd.trim().is_empty()),
+                    revision: plugin.revision.filter(|revision| !revision.trim().is_empty()),
+                };
+                if let Err(error) = options.validate() {
+                    crate::client_log::stderr_log!(
+                        "config",
+                        "cmux-tui: ignoring invalid agents.plugin: {error}"
+                    );
+                } else {
+                    config.agents.plugin = Some(options);
+                }
+            }
+        } else {
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring agents.plugin without an explicit id"
+            );
         }
     }
     if let Some(enabled) = raw.machine_sidebar.enabled {
@@ -3507,6 +4378,7 @@ pub fn load() -> Config {
         .iter()
         .map(|column| SidebarViewSpec::legacy(column.kind, column.width, column.max_width))
         .collect();
+    config.sidebar.layout = sidebar_layout_of_columns(&config.sidebar.views);
     config.sidebar.views_explicit = config.sidebar.columns_explicit;
     // User commands resolve before sidebar views so pinned buttons can
     // reference them as `command:<id>`; their chords bind after `keys`.
@@ -3534,13 +4406,14 @@ pub fn load() -> Config {
             "sidebar",
             &command_ids,
         );
-        if resolved.is_empty() {
+        if resolved.views.is_empty() {
             crate::client_log::stderr_log!(
                 "config",
                 "cmux-tui: sidebar.views had no usable entries; keeping defaults"
             );
         } else {
             config.sidebar.columns = resolved
+                .views
                 .iter()
                 .filter_map(|view| {
                     view.legacy_kind().map(|kind| SidebarColumn {
@@ -3550,12 +4423,37 @@ pub fn load() -> Config {
                     })
                 })
                 .collect();
-            config.sidebar.views = resolved;
+            config.sidebar.views = resolved.views;
+            config.sidebar.layout = resolved.layout;
             config.sidebar.columns_explicit = false;
             config.sidebar.views_explicit = true;
         }
     }
-    config.sidebar.profiles[0].views.clone_from(&config.sidebar.views);
+    if config.sidebar.views_explicit {
+        // Explicit legacy columns and explicit native views keep their exact
+        // shape. They become one profile, so the built-in Work/Focus choices
+        // never appear to alter an existing user's configuration.
+        config.sidebar.profiles = vec![SidebarProfileSpec {
+            id: "default".to_string(),
+            name: "Default".to_string(),
+            views: config.sidebar.views.clone(),
+            layout: config.sidebar.layout.clone(),
+        }];
+        config.sidebar.active_profile = "default".to_string();
+    } else {
+        // Width settings remain authoritative for the built-in profiles.
+        // Rebuild them after raw settings resolve instead of retaining the
+        // hard-coded widths from `Sidebar::default`.
+        config.sidebar.profiles = default_sidebar_profiles(
+            config.machine_sidebar.width,
+            config.machine_sidebar.max_width,
+            config.sidebar.width,
+            config.sidebar.max_width,
+        );
+        config.sidebar.active_profile = "work".to_string();
+        config.sidebar.views = config.sidebar.profiles[0].views.clone();
+        config.sidebar.layout = config.sidebar.profiles[0].layout.clone();
+    }
     if let Some(raw_profiles) = raw.sidebar.profiles.as_ref() {
         if raw.sidebar.views.is_some() || raw.sidebar.columns.is_some() {
             crate::client_log::stderr_log!(
@@ -3575,7 +4473,7 @@ pub fn load() -> Config {
                 continue;
             }
             let owner = format!("sidebar profile {id:?}");
-            let views = resolve_sidebar_view_specs(
+            let resolved = resolve_sidebar_view_specs(
                 &raw_profile.views,
                 config.machine_sidebar.width,
                 config.machine_sidebar.max_width,
@@ -3584,7 +4482,7 @@ pub fn load() -> Config {
                 &owner,
                 &command_ids,
             );
-            if views.is_empty() {
+            if resolved.views.is_empty() {
                 crate::client_log::stderr_log!(
                     "config",
                     "cmux-tui: ignoring sidebar profile {id:?} with no usable views"
@@ -3598,7 +4496,12 @@ pub fn load() -> Config {
                 .filter(|name| !name.is_empty())
                 .unwrap_or(id)
                 .to_string();
-            profiles.push(SidebarProfileSpec { id: id.to_string(), name, views });
+            profiles.push(SidebarProfileSpec {
+                id: id.to_string(),
+                name,
+                views: resolved.views,
+                layout: resolved.layout,
+            });
         }
         if profiles.is_empty() {
             crate::client_log::stderr_log!(
@@ -3618,29 +4521,26 @@ pub fn load() -> Config {
                     }
                     0
                 });
-            config.sidebar.active_profile = profiles[selected].id.clone();
-            config.sidebar.views = profiles[selected].views.clone();
-            config.sidebar.columns = config
-                .sidebar
-                .views
-                .iter()
-                .filter_map(|view| {
-                    view.legacy_kind().map(|kind| SidebarColumn {
-                        kind,
-                        width: view.width,
-                        max_width: view.max_width,
-                    })
-                })
-                .collect();
+            select_sidebar_profile(&mut config, &profiles[selected]);
             config.sidebar.columns_explicit = false;
             config.sidebar.views_explicit = true;
             config.sidebar.profiles = profiles;
         }
+    } else if let Some(requested) =
+        raw.sidebar.profile.as_deref().map(str::trim).filter(|id| !id.is_empty())
+    {
+        if let Some(profile) =
+            config.sidebar.profiles.iter().find(|profile| profile.id == requested).cloned()
+        {
+            select_sidebar_profile(&mut config, &profile);
+        } else {
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: built-in sidebar.profile {requested:?} was not found; using Work"
+            );
+        }
     } else if raw.sidebar.profile.is_some() {
-        crate::client_log::stderr_log!(
-            "config",
-            "cmux-tui: ignoring sidebar.profile without sidebar.profiles"
-        );
+        crate::client_log::stderr_log!("config", "cmux-tui: ignoring an empty sidebar.profile");
     }
     match raw.machine_provider.command {
         Some(command) if command.first().is_some_and(|program| !program.trim().is_empty()) => {
@@ -3921,6 +4821,7 @@ fn bind_user_command_chords(
             }
         }
     }
+    keys.rebuild_dispatch_maps();
 }
 
 fn normalize_ssh_machine_port(id: &str, port: Option<u16>) -> Option<u16> {
@@ -3979,7 +4880,7 @@ fn agent_in_title(tabs: &Tabs, title: &str) -> Option<String> {
 
 fn load_raw_config() -> RawConfig {
     let Some(path) = platform::config_path() else { return RawConfig::default() };
-    let Ok(text) = std::fs::read_to_string(&path) else { return RawConfig::default() };
+    let Ok(text) = read_config_text(&path) else { return RawConfig::default() };
     let value: Value = match serde_json::from_str(&text) {
         Ok(value) => value,
         Err(e) => {
@@ -4004,6 +4905,7 @@ fn load_raw_config() -> RawConfig {
         "theme",
         "tabs",
         "sidebar",
+        "agents",
         "machine_sidebar",
         "machine_provider",
         "machines",
@@ -4044,6 +4946,7 @@ fn load_raw_config() -> RawConfig {
     section!(theme, "theme");
     section!(tabs, "tabs");
     section!(sidebar, "sidebar");
+    section!(agents, "agents");
     section!(machine_sidebar, "machine_sidebar");
     section!(machine_provider, "machine_provider");
     section!(machines, "machines");
@@ -4071,6 +4974,27 @@ fn config_diagnostic(error: &serde_json::Error) -> String {
 
 pub fn config_path() -> anyhow::Result<PathBuf> {
     platform::config_path().ok_or_else(|| anyhow::anyhow!("could not resolve mux config path"))
+}
+
+/// Read a UTF-8 file with an explicit byte bound. The extra byte distinguishes
+/// an exact-size file from one that exceeds the limit without allocating an
+/// unbounded buffer.
+pub(crate) fn read_bounded_utf8_file(path: &Path, max_bytes: usize) -> io::Result<String> {
+    let file = std::fs::File::open(path)?;
+    let mut text = String::new();
+    file.take(u64::try_from(max_bytes).unwrap_or(u64::MAX).saturating_add(1))
+        .read_to_string(&mut text)?;
+    if text.len() > max_bytes {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("file exceeds {max_bytes}-byte limit"),
+        ));
+    }
+    Ok(text)
+}
+
+pub(crate) fn read_config_text(path: &Path) -> io::Result<String> {
+    read_bounded_utf8_file(path, CONFIG_FILE_MAX_BYTES)
 }
 
 /// The result of replacing the config file. A committed replacement is a
@@ -4139,12 +5063,58 @@ pub(crate) fn write_sidebar_plugin_at_path(
     write_config_value_atomic(path, &root)
 }
 
+/// Writes the userland agent plugin selection to the configured path.
+pub(crate) fn write_agent_plugin(
+    plugin: Option<&AgentPluginConfig>,
+) -> anyhow::Result<ConfigWriteOutcome> {
+    let path = config_path()?;
+    write_agent_plugin_at_path(&path, plugin)
+}
+
+pub(crate) fn write_agent_plugin_at_path(
+    path: &Path,
+    plugin: Option<&AgentPluginConfig>,
+) -> anyhow::Result<ConfigWriteOutcome> {
+    let mut root = read_config_value(path)?;
+    let Some(root_object) = root.as_object_mut() else {
+        anyhow::bail!("{} must contain a JSON object", path.display());
+    };
+    match plugin {
+        Some(plugin) => {
+            let agents = root_object.entry("agents").or_insert_with(|| json!({}));
+            if !agents.is_object() {
+                *agents = json!({});
+            }
+            let agents_object = agents.as_object_mut().expect("agents was just made an object");
+            let mut plugin_value = json!({
+                "id": &plugin.id,
+                "command": &plugin.command,
+            });
+            if let Some(cwd) = &plugin.cwd {
+                plugin_value["cwd"] = json!(cwd);
+            }
+            if let Some(revision) = &plugin.revision {
+                plugin_value["revision"] = json!(revision);
+            }
+            agents_object.insert("plugin".to_string(), plugin_value);
+        }
+        None => {
+            if let Some(agents) = root_object.get_mut("agents")
+                && let Some(agents_object) = agents.as_object_mut()
+            {
+                agents_object.remove("plugin");
+            }
+        }
+    }
+    write_config_value_atomic(path, &root)
+}
+
 fn read_config_value(path: &Path) -> anyhow::Result<Value> {
-    match std::fs::read_to_string(path) {
+    match read_config_text(path) {
         Ok(text) if text.trim().is_empty() => Ok(json!({})),
         Ok(text) => serde_json::from_str(&text)
             .map_err(|err| anyhow::anyhow!("failed to parse {}: {err}", path.display())),
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(json!({})),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(json!({})),
         Err(err) => Err(anyhow::anyhow!("failed to read {}: {err}", path.display())),
     }
 }
@@ -4165,7 +5135,6 @@ fn write_config_value_atomic_with_sync(
     value: &Value,
     sync_parent: &dyn Fn(&Path) -> anyhow::Result<ConfigParentSyncOutcome>,
 ) -> anyhow::Result<ConfigWriteOutcome> {
-    let parent = config_parent_directory(path);
     let file_name = path.file_name().and_then(|name| name.to_str()).unwrap_or("cmux-tui.json");
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos();
     let process_id = std::process::id();
@@ -4210,7 +5179,7 @@ fn write_config_value_atomic_with_sync_and_staging(
                 staged = Some((tmp_path, file));
                 break;
             }
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
             Err(error) => return Err(error.into()),
         }
     }
@@ -4259,7 +5228,7 @@ fn ensure_config_parent_directory(parent: &Path) -> anyhow::Result<Vec<PathBuf>>
         }
         match std::fs::create_dir(&current) {
             Ok(()) => created_directories.push(current.clone()),
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
                 if !std::fs::metadata(&current)?.is_dir() {
                     anyhow::bail!(
                         "config parent component {} is not a directory",
@@ -4283,11 +5252,10 @@ enum ConfigParentSyncOutcome {
 fn sync_config_parent_directory(parent: &Path) -> anyhow::Result<ConfigParentSyncOutcome> {
     let result = std::fs::File::open(parent).and_then(|directory| directory.sync_all());
     #[cfg(target_os = "macos")]
-    if let Err(error) = &result {
-        if matches!(error.raw_os_error(), Some(code) if code == libc::EINVAL || code == libc::ENOTSUP)
-        {
-            return Ok(ConfigParentSyncOutcome::Unsupported);
-        }
+    if let Err(error) = &result
+        && matches!(error.raw_os_error(), Some(code) if code == libc::EINVAL || code == libc::ENOTSUP)
+    {
+        return Ok(ConfigParentSyncOutcome::Unsupported);
     }
     result.map(|()| ConfigParentSyncOutcome::Synced).map_err(Into::into)
 }
@@ -4342,12 +5310,6 @@ fn parse_color(s: &str) -> Option<Color> {
     s.parse::<u8>().ok().map(Color::Indexed)
 }
 
-/// The user's relevant Ghostty settings with non-optional application defaults
-/// resolved for values that the low-level terminal otherwise leaves unset.
-fn ghostty_defaults() -> DefaultColors {
-    ghostty_application_defaults().colors
-}
-
 struct GhosttyApplicationDefaults {
     colors: DefaultColors,
     scrollback_limit_bytes: Option<usize>,
@@ -4385,6 +5347,7 @@ enum GhosttyHelperDefaults {
     TimedOut,
 }
 
+#[cfg(test)]
 fn ghostty_defaults_from_sources(
     config_paths: Vec<PathBuf>,
     theme_dirs: Vec<PathBuf>,
@@ -4401,35 +5364,7 @@ fn ghostty_defaults_from_sources(
     }
 }
 
-/// Read Ghostty's scrollback setting with the same bounded include traversal
-/// used for the other file-based defaults. Ghostty 1.4 renamed the setting to
-/// make the byte unit explicit, so both spellings are accepted.
-fn ghostty_scrollback_limit_bytes() -> Option<usize> {
-    let deadline_at = ghostty_config_deadline_from_now(GHOSTTY_CONFIG_PARSE_DEADLINE);
-    let mut resolved = None;
-    for path in platform::ghostty_config_paths() {
-        if ghostty_config_deadline_expired(Some(deadline_at)) {
-            // A partial traversal is not an authoritative configuration
-            // result. Falling back to the shared default avoids making
-            // startup timing change the selected security and memory limit.
-            return None;
-        }
-        match parse_scrollback_limit_from_root(&path, deadline_at) {
-            ScrollbackConfigOutcome::Missing => {}
-            ScrollbackConfigOutcome::TimedOut => return None,
-            ScrollbackConfigOutcome::Parsed(setting) => {
-                // A file with no setting does not mask another candidate.
-                // An explicit empty setting is represented as Some(None) and
-                // intentionally resets the accumulated value to the default.
-                if let Some(setting) = setting {
-                    resolved = setting;
-                }
-            }
-        }
-    }
-    resolved
-}
-
+#[cfg(test)]
 #[derive(Debug, PartialEq, Eq)]
 enum ScrollbackConfigOutcome {
     Missing,
@@ -4437,6 +5372,7 @@ enum ScrollbackConfigOutcome {
     TimedOut,
 }
 
+#[cfg(test)]
 fn parse_scrollback_limit_from_root(path: &Path, deadline_at: Instant) -> ScrollbackConfigOutcome {
     // Ghostty parses the complete parent file first, then loads its
     // config-file entries in declaration order. Nested entries are appended
@@ -4521,7 +5457,7 @@ fn parse_scrollback_limit_bytes(text: &str) -> Option<Option<usize>> {
             }
             value.replace('_', "").parse::<usize>().ok().map(Some)
         })
-        .last()
+        .next_back()
 }
 
 fn resolve_ghostty_application_defaults(mut defaults: DefaultColors) -> DefaultColors {
@@ -4595,7 +5531,7 @@ pub(crate) fn run_ghostty_config_helper() -> i32 {
 
 #[cfg(not(test))]
 fn ghostty_defaults_from_helper() -> GhosttyHelperDefaults {
-    let Ok(exe) = std::env::current_exe() else {
+    let Ok(exe) = platform::self_exe_for_spawn() else {
         return GhosttyHelperDefaults::Unavailable;
     };
     let mut command = Command::new(exe);
@@ -4835,18 +5771,6 @@ fn scrub_ghostty_helper_secret_environment(command: &mut Command) {
     }
 }
 
-fn parse_ghostty_defaults_from_paths(
-    config_paths: Vec<PathBuf>,
-    theme_dirs: Vec<PathBuf>,
-) -> Option<DefaultColors> {
-    match parse_ghostty_defaults_from_paths_result(config_paths, theme_dirs) {
-        GhosttyConfigParseOutcome::Parsed(defaults) => Some(*defaults),
-        GhosttyConfigParseOutcome::Partial(_)
-        | GhosttyConfigParseOutcome::Missing
-        | GhosttyConfigParseOutcome::TimedOut => None,
-    }
-}
-
 fn parse_ghostty_application_defaults_from_paths(
     config_paths: Vec<PathBuf>,
     theme_dirs: Vec<PathBuf>,
@@ -4926,31 +5850,6 @@ enum GhosttyConfigParseOutcome {
     TimedOut,
 }
 
-fn parse_ghostty_defaults_from_paths_result(
-    config_paths: Vec<PathBuf>,
-    theme_dirs: Vec<PathBuf>,
-) -> GhosttyConfigParseOutcome {
-    let deadline_at = ghostty_config_deadline_from_now(GHOSTTY_CONFIG_PARSE_DEADLINE);
-    parse_ghostty_defaults_from_paths_result_until(config_paths, theme_dirs, Some(deadline_at))
-}
-
-fn parse_ghostty_defaults_from_paths_result_until(
-    config_paths: Vec<PathBuf>,
-    theme_dirs: Vec<PathBuf>,
-    deadline_at: Option<Instant>,
-) -> GhosttyConfigParseOutcome {
-    for path in config_paths {
-        if ghostty_config_deadline_expired(deadline_at) {
-            return GhosttyConfigParseOutcome::TimedOut;
-        }
-        match parse_ghostty_defaults_from_path_result_until(&path, &theme_dirs, deadline_at) {
-            GhosttyConfigParseOutcome::Missing => {}
-            outcome => return outcome,
-        }
-    }
-    GhosttyConfigParseOutcome::Missing
-}
-
 #[cfg(test)]
 fn parse_ghostty_defaults_with_theme_dirs(text: &str, theme_dirs: &[PathBuf]) -> DefaultColors {
     let mut theme_candidates = Vec::new();
@@ -4977,6 +5876,7 @@ fn parse_ghostty_defaults_from_path_result(
     parse_ghostty_defaults_from_path_result_until(path, theme_dirs, Some(deadline_at))
 }
 
+#[cfg(test)]
 fn parse_ghostty_defaults_from_path_result_until(
     path: &Path,
     theme_dirs: &[PathBuf],
@@ -4994,7 +5894,7 @@ fn parse_ghostty_defaults_from_path_result_until_with_scrollback(
     path: &Path,
     theme_dirs: &[PathBuf],
     deadline_at: Option<Instant>,
-    mut scrollback_limit_bytes: Option<&mut Option<Option<usize>>>,
+    scrollback_limit_bytes: Option<&mut Option<Option<usize>>>,
 ) -> GhosttyConfigParseOutcome {
     let mut theme_candidates = Vec::new();
     let overrides = match parse_ghostty_config_file_until_with_scrollback(
@@ -5049,6 +5949,7 @@ fn parse_ghostty_config_file_with_deadline(
     )
 }
 
+#[cfg(test)]
 fn parse_ghostty_config_file_until(
     path: &Path,
     theme_candidates: &mut Vec<GhosttyThemeCandidate>,
@@ -5061,7 +5962,7 @@ fn parse_ghostty_config_file_until_with_scrollback(
     path: &Path,
     theme_candidates: &mut Vec<GhosttyThemeCandidate>,
     deadline_at: Option<Instant>,
-    mut scrollback_limit_bytes: Option<&mut Option<Option<usize>>>,
+    scrollback_limit_bytes: Option<&mut Option<Option<usize>>>,
 ) -> GhosttyConfigParseOutcome {
     let mut stack = vec![PendingGhosttyConfig { path: path.to_path_buf(), depth: 0 }];
     let mut loaded = HashSet::new();
@@ -5135,7 +6036,7 @@ fn parse_ghostty_config_file_until_with_scrollback(
     }
 
     if loaded_root {
-        if let Some(scrollback_limit_bytes) = scrollback_limit_bytes.as_deref_mut() {
+        if let Some(scrollback_limit_bytes) = scrollback_limit_bytes {
             let mut snapshot_by_identity = HashMap::new();
             for (index, (identity, _, _)) in snapshot.iter().enumerate() {
                 snapshot_by_identity.insert(identity, index);
@@ -5911,6 +6812,7 @@ fn overlay_ghostty_defaults(defaults: &mut DefaultColors, overrides: DefaultColo
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ratatui::buffer::CellWidth;
     use std::cell::{Cell, RefCell};
 
     #[test]
@@ -5955,7 +6857,7 @@ mod tests {
                     .join(format!("cmux-tui-config-{label}-{}-{sequence}", std::process::id()));
                 match std::fs::create_dir(&path) {
                     Ok(()) => return Self { path },
-                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                    Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
                     Err(error) => panic!("create config test directory failed: {error}"),
                 }
             }
@@ -7398,18 +8300,14 @@ mod tests {
             let descriptor = unsafe { libc::kqueue() };
             #[cfg(target_os = "linux")]
             if descriptor < 0 {
-                let error = std::io::Error::last_os_error();
+                let error = io::Error::last_os_error();
                 if matches!(error.raw_os_error(), Some(libc::ENOSYS) | Some(libc::EPERM)) {
                     return None;
                 }
                 panic!("observe helper child {pid}: {error}");
             }
             #[cfg(target_vendor = "apple")]
-            assert!(
-                descriptor >= 0,
-                "observe helper child {pid}: {}",
-                std::io::Error::last_os_error()
-            );
+            assert!(descriptor >= 0, "observe helper child {pid}: {}", io::Error::last_os_error());
             // SAFETY: pidfd_open and kqueue return a new owned descriptor.
             let descriptor =
                 unsafe { std::os::fd::OwnedFd::from_raw_fd(descriptor as libc::c_int) };
@@ -7439,7 +8337,7 @@ mod tests {
                 assert!(
                     registered >= 0,
                     "register helper child {pid} exit: {}",
-                    std::io::Error::last_os_error()
+                    io::Error::last_os_error()
                 );
             }
 
@@ -7598,7 +8496,7 @@ mod tests {
             command.arg("5").process_group(0);
             let mut child = command.spawn().unwrap();
             println!("{READY_MARKER}{}", child.id());
-            std::io::stdout().flush().unwrap();
+            io::stdout().flush().unwrap();
             let _ = child.wait();
             return;
         }
@@ -7660,7 +8558,7 @@ mod tests {
         if unsafe { libc::kill(pid, 0) } == 0 {
             return true;
         }
-        std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH)
+        io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH)
     }
 
     #[cfg(all(unix, not(target_os = "macos")))]
@@ -7686,8 +8584,7 @@ mod tests {
         }
         assert!(output.len() > 4 * 1024);
 
-        let reader =
-            read_ghostty_helper_output_async(std::io::Cursor::new(output.clone())).unwrap();
+        let reader = read_ghostty_helper_output_async(io::Cursor::new(output.clone())).unwrap();
 
         assert_eq!(reader.wait(), Some(output));
     }
@@ -7696,7 +8593,7 @@ mod tests {
     fn ghostty_config_helper_output_reader_enforces_byte_limit() {
         let output = "x".repeat(GHOSTTY_HELPER_OUTPUT_MAX_BYTES as usize + 1);
 
-        let reader = read_ghostty_helper_output_async(std::io::Cursor::new(output)).unwrap();
+        let reader = read_ghostty_helper_output_async(io::Cursor::new(output)).unwrap();
 
         assert_eq!(reader.wait(), None);
     }
@@ -7737,11 +8634,13 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let config = dir.join("config");
         std::fs::write(&config, "foreground = #010203\nbackground = #040506\n").unwrap();
-        let helper = DefaultColors {
+        // The helper child serializes application defaults that are already
+        // resolved, so the parent passes them through without resolving again.
+        let helper = resolve_ghostty_application_defaults(DefaultColors {
             fg: Some(Rgb { r: 0xa0, g: 0xa1, b: 0xa2 }),
             bg: Some(Rgb { r: 0xb0, g: 0xb1, b: 0xb2 }),
             ..Default::default()
-        };
+        });
 
         let defaults = ghostty_defaults_from_sources(
             vec![config],
@@ -8125,6 +9024,31 @@ mod tests {
     }
 
     #[test]
+    fn agent_plugin_requires_an_explicit_namespace_id() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let old_cmux_tui_config = std::env::var_os("CMUX_TUI_CONFIG");
+        let old_mux_config = std::env::var_os("CMUX_MUX_CONFIG");
+        let directory = TestDirectory::new("agent-plugin-id-required");
+        let path = directory.path.join("mux.json");
+        std::fs::write(&path, r#"{"agents":{"plugin":{"command":["/tmp/agent-plugin"]}}}"#)
+            .unwrap();
+        // SAFETY: environment mutation is serialized by CONFIG_ENV_LOCK.
+        unsafe {
+            std::env::remove_var("CMUX_TUI_CONFIG");
+            std::env::set_var("CMUX_MUX_CONFIG", &path);
+        }
+
+        let config = load();
+
+        restore_env_var("CMUX_TUI_CONFIG", old_cmux_tui_config);
+        restore_env_var("CMUX_MUX_CONFIG", old_mux_config);
+        assert!(
+            config.agents.plugin.is_none(),
+            "a userland plugin without an explicit producer id must be ignored",
+        );
+    }
+
+    #[test]
     fn zero_static_ssh_port_falls_back_to_the_ssh_default() {
         assert_eq!(normalize_ssh_machine_port("mini", Some(0)), None);
         assert_eq!(normalize_ssh_machine_port("mini", Some(22)), Some(22));
@@ -8198,6 +9122,108 @@ mod tests {
     }
 
     #[test]
+    fn agents_view_sort_and_filter_parse_and_degrade() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let dir =
+            std::env::temp_dir().join(format!("mux-config-sortfilter-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("mux.json");
+        std::fs::write(
+            &path,
+            r##"{
+                "sidebar": {
+                    "views": [
+                        {
+                            "id": "agents",
+                            "levels": ["agents"],
+                            "scope": "all",
+                            "sort": "recency",
+                            "filter": {
+                                "agent": ["claude", "bad token!"],
+                                "state": ["blocked", "working", "bogus"],
+                                "seen": false,
+                                "typo": true
+                            }
+                        },
+                        {"id": "broken-sort", "levels": ["agents"], "sort": "bogus"}
+                    ]
+                }
+            }"##,
+        )
+        .unwrap();
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("CMUX_MUX_CONFIG", &path) };
+        let config = load();
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::remove_var("CMUX_MUX_CONFIG") };
+        let _ = std::fs::remove_file(&path);
+
+        // Valid values resolve; invalid ones degrade per value (the
+        // tolerate-and-warn policy) and never drop the view.
+        assert_eq!(config.sidebar.views.len(), 2);
+        let agents = &config.sidebar.views[0];
+        assert_eq!(agents.sort, AgentSortMode::Recency);
+        assert_eq!(agents.filter.agents, vec!["claude".to_string()]);
+        assert_eq!(agents.filter.states, vec!["blocked".to_string(), "working".to_string()]);
+        assert_eq!(agents.filter.seen, Some(false));
+        assert!(agents.filter.is_active());
+
+        let broken = &config.sidebar.views[1];
+        assert_eq!(broken.sort, AgentSortMode::Priority, "unknown sort falls back");
+        assert!(!broken.filter.is_active());
+    }
+
+    #[test]
+    fn malformed_agents_sort_and_filter_values_keep_the_sidebar_view() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let dir = std::env::temp_dir()
+            .join(format!("mux-config-sortfilter-types-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("mux.json");
+        std::fs::write(
+            &path,
+            r##"{
+                "sidebar": {
+                    "views": [
+                        {
+                            "id": "bad-types",
+                            "levels": ["agents"],
+                            "sort": 7,
+                            "filter": "working"
+                        },
+                        {
+                            "id": "bad-criteria",
+                            "levels": ["agents"],
+                            "sort": "recency",
+                            "filter": {
+                                "agent": ["claude", 3],
+                                "state": "working",
+                                "seen": "yes"
+                            }
+                        }
+                    ]
+                }
+            }"##,
+        )
+        .unwrap();
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("CMUX_MUX_CONFIG", &path) };
+        let config = load();
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::remove_var("CMUX_MUX_CONFIG") };
+        let _ = std::fs::remove_file(&path);
+
+        assert_eq!(config.sidebar.views.len(), 2);
+        assert_eq!(config.sidebar.views[0].sort, AgentSortMode::Priority);
+        assert!(!config.sidebar.views[0].filter.is_active());
+        assert_eq!(config.sidebar.views[1].sort, AgentSortMode::Recency);
+        assert_eq!(config.sidebar.views[1].filter.agents, vec!["claude".to_string()]);
+        assert!(config.sidebar.views[1].filter.is_active());
+        assert!(config.sidebar.views[1].filter.states.is_empty());
+        assert_eq!(config.sidebar.views[1].filter.seen, None);
+    }
+
+    #[test]
     fn config_overrides_defaults() {
         let _guard = CONFIG_ENV_LOCK.lock().unwrap();
         let dir = std::env::temp_dir().join(format!("mux-config-test-{}", std::process::id()));
@@ -8228,6 +9254,14 @@ mod tests {
                     "plugin": {
                         "command": ["/tmp/sidebar-plugin", "--mode", "test"],
                         "cwd": "/tmp"
+                    }
+                },
+                "agents": {
+                    "plugin": {
+                        "id": "screen-detector",
+                        "command": ["/tmp/agent-plugin", "", "--mode", "test"],
+                        "cwd": "/tmp",
+                        "revision": "sha256-test"
                     }
                 },
                 "machine_sidebar": {
@@ -8312,6 +9346,10 @@ mod tests {
                 SidebarViewSpec::legacy(SidebarColumnKind::Tabs, 26, 40),
             ]
         );
+        assert_eq!(config.sidebar.active_profile, "default");
+        assert_eq!(config.sidebar.profiles.len(), 1);
+        assert_eq!(config.sidebar.profiles[0].views, config.sidebar.views);
+        assert_eq!(config.sidebar.profiles[0].layout, config.sidebar.layout);
         assert_eq!(
             config.machine_sidebar,
             MachineSidebar {
@@ -8356,6 +9394,15 @@ mod tests {
         let plugin = config.sidebar.plugin.as_ref().expect("sidebar plugin config");
         assert_eq!(plugin.command, vec!["/tmp/sidebar-plugin", "--mode", "test"]);
         assert_eq!(plugin.cwd.as_deref(), Some("/tmp"));
+        let agent_plugin = config.agents.plugin.as_ref().expect("agent plugin config");
+        assert_eq!(agent_plugin.id, "screen-detector");
+        assert_eq!(
+            agent_plugin.command,
+            vec!["/tmp/agent-plugin", "", "--mode", "test"],
+            "empty arguments after argv[0] must remain part of the command"
+        );
+        assert_eq!(agent_plugin.cwd.as_deref(), Some("/tmp"));
+        assert_eq!(agent_plugin.revision.as_deref(), Some("sha256-test"));
         assert_eq!(config.scrollbar.position, ScrollbarPosition::Border);
         assert_eq!(config.theme.border_style, BorderStyle::Rounded);
         assert_eq!(config.pane.padding, MAX_PANE_PADDING, "padding clamps to the maximum");
@@ -8467,6 +9514,10 @@ mod tests {
             config.sidebar.columns,
             vec![SidebarColumn { kind: SidebarColumnKind::Machines, width: 18, max_width: 0 }]
         );
+        assert_eq!(config.sidebar.active_profile, "default");
+        assert_eq!(config.sidebar.profiles.len(), 1);
+        assert_eq!(config.sidebar.profiles[0].views, config.sidebar.views);
+        assert_eq!(config.sidebar.profiles[0].layout, config.sidebar.layout);
     }
 
     #[test]
@@ -8519,14 +9570,96 @@ mod tests {
             config.sidebar.views.iter().map(|view| view.id.as_str()).collect::<Vec<_>>(),
             vec!["machines", "workspace-tree"]
         );
+        assert_eq!(config.sidebar.active_profile, "focused");
+        assert_eq!(
+            config.sidebar.profiles.iter().map(|profile| profile.id.as_str()).collect::<Vec<_>>(),
+            vec!["full", "focused"]
+        );
         assert!(config.sidebar.views.iter().all(|view| !view.includes(SidebarResourceKind::Tabs)));
     }
 
     #[test]
-    fn sidebar_resources_are_hidden_when_their_view_is_omitted() {
+    fn sidebar_defaults_present_workspaces_and_agents_with_a_focus_alternative() {
         let sidebar = Sidebar::default();
-        assert!(sidebar.views.iter().all(|view| !view.includes(SidebarResourceKind::Agents)));
-        assert_eq!(sidebar.views[1].actions, vec![SidebarActionSpec::plain(Action::NewWorkspace)]);
+        assert_eq!(sidebar.active_profile, "work");
+        assert_eq!(
+            sidebar.profiles.iter().map(|profile| profile.id.as_str()).collect::<Vec<_>>(),
+            vec!["work", "focus"]
+        );
+
+        let work = &sidebar.profiles[0];
+        assert!(work.views.iter().any(|view| view.includes(SidebarResourceKind::Workspaces)));
+        let agents = work
+            .views
+            .iter()
+            .find(|view| view.includes(SidebarResourceKind::Agents))
+            .expect("the default Work profile exposes the agent roster");
+        assert_eq!(agents.id, "agents");
+        assert_eq!(agents.scope, SidebarViewScope::All);
+        assert_eq!(agents.row_lines, 2);
+
+        let focus = &sidebar.profiles[1];
+        assert!(focus.views.iter().any(|view| view.includes(SidebarResourceKind::Workspaces)));
+        assert!(focus.views.iter().all(|view| !view.includes(SidebarResourceKind::Agents)));
+        assert_eq!(
+            work.views
+                .iter()
+                .find(|view| view.includes(SidebarResourceKind::Workspaces))
+                .unwrap()
+                .actions,
+            vec![SidebarActionSpec::plain(Action::NewWorkspace)]
+        );
+    }
+
+    #[test]
+    fn sidebar_view_only_keeps_builtin_profiles_and_changes_content_mode() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let dir =
+            std::env::temp_dir().join(format!("cmux-sidebar-view-only-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("cmux-tui.json");
+        std::fs::write(&path, r#"{"sidebar":{"view":"files"}}"#).unwrap();
+        let old = std::env::var_os("CMUX_MUX_CONFIG");
+        unsafe { std::env::set_var("CMUX_MUX_CONFIG", &path) };
+        let config = load();
+        restore_env_var("CMUX_MUX_CONFIG", old);
+        let _ = std::fs::remove_dir_all(&dir);
+
+        assert_eq!(config.sidebar.view, SidebarView::Files);
+        assert_eq!(config.sidebar.active_profile, "work");
+        assert_eq!(config.sidebar.profiles.len(), 2);
+        assert!(
+            config.sidebar.profiles[0]
+                .views
+                .iter()
+                .any(|view| view.includes(SidebarResourceKind::Agents))
+        );
+    }
+
+    #[test]
+    fn sidebar_profile_request_selects_builtin_focus_layout() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let dir = std::env::temp_dir()
+            .join(format!("cmux-sidebar-builtin-profile-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("cmux-tui.json");
+        std::fs::write(&path, r#"{"sidebar":{"profile":"focus"}}"#).unwrap();
+        let old = std::env::var_os("CMUX_MUX_CONFIG");
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("CMUX_MUX_CONFIG", &path) };
+
+        let config = load();
+
+        restore_env_var("CMUX_MUX_CONFIG", old);
+        let _ = std::fs::remove_dir_all(&dir);
+
+        assert_eq!(config.sidebar.active_profile, "focus");
+        assert_eq!(config.sidebar.profiles.len(), 2);
+        assert!(
+            config.sidebar.views.iter().all(|view| !view.includes(SidebarResourceKind::Agents))
+        );
+        assert_eq!(config.sidebar.views, config.sidebar.profiles[1].views);
+        assert_eq!(config.sidebar.layout, config.sidebar.profiles[1].layout);
     }
 
     #[test]
@@ -8766,6 +9899,39 @@ mod tests {
         assert_eq!(
             keys.action_for(&KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE)),
             Some(Action::NewTab)
+        );
+    }
+
+    #[test]
+    fn key_dispatch_refreshes_after_rebinding_and_keeps_modeless_fallback() {
+        let mut keys = Keys::default();
+        assert_eq!(
+            keys.action_for(&KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE)),
+            Some(Action::NewPaneRight)
+        );
+        assert_eq!(
+            keys.modeless_action_for(&KeyEvent::new(KeyCode::Char('t'), KeyModifiers::ALT)),
+            Some(Action::NewTab)
+        );
+
+        keys.apply(&HashMap::from([
+            ("new-tab".to_string(), Value::String("g".to_string())),
+            ("new-pane-right".to_string(), Value::String("alt+h".to_string())),
+        ]));
+
+        // Rebinding steals the ordinary chord while preserving modeless
+        // fallback lookup for the newly configured Alt chord.
+        assert_eq!(
+            keys.action_for(&KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE)),
+            Some(Action::NewTab)
+        );
+        assert_eq!(
+            keys.modeless_action_for(&KeyEvent::new(KeyCode::Char('h'), KeyModifiers::ALT)),
+            Some(Action::NewPaneRight)
+        );
+        assert_eq!(
+            keys.modeless_action_for(&KeyEvent::new(KeyCode::Char('t'), KeyModifiers::ALT)),
+            None
         );
     }
 
@@ -9106,6 +10272,32 @@ mod tests {
     }
 
     #[test]
+    fn status_text_cap_uses_terminal_cells_without_splitting_graphemes() {
+        let text = format!("{}e\u{301}abc", "界".repeat(130));
+        let raw = vec![RawStatusSegment { text: Some(text), ..RawStatusSegment::default() }];
+        let resolved = resolve_status_segments(raw, "left");
+        let StatusSegmentContent::Text(text) = &resolved[0].content else {
+            panic!("literal status text did not resolve as text");
+        };
+        assert_eq!(usize::from(text.cell_width()), MAX_STATUS_SEGMENT_TEXT);
+        assert_eq!(text, &"界".repeat(MAX_STATUS_SEGMENT_TEXT / 2));
+    }
+
+    #[test]
+    #[allow(clippy::unicode_not_nfc)]
+    fn status_text_cap_uses_terminal_cells_for_halfwidth_dakuten() {
+        let raw = vec![RawStatusSegment {
+            text: Some("界ﾞ".repeat(100)),
+            ..RawStatusSegment::default()
+        }];
+        let resolved = resolve_status_segments(raw, "left");
+        let StatusSegmentContent::Text(text) = &resolved[0].content else {
+            panic!("literal status text did not resolve as text");
+        };
+        assert_eq!(text, &"界ﾞ".repeat(85));
+    }
+
+    #[test]
     fn chip_styles_and_separators_parse() {
         let raw: RawConfig = serde_json::from_value(json!({
             "tabs": {"style": "pill"},
@@ -9127,8 +10319,8 @@ mod tests {
     #[test]
     fn sidebar_buttons_accept_labels_positions_and_command_references() {
         let views = vec![RawSidebarView {
-            id: "ws".to_string(),
-            levels: vec!["workspaces".to_string()],
+            id: Some("ws".to_string()),
+            levels: Some(vec!["workspaces".to_string()]),
             actions: Some(vec![
                 RawSidebarAction::Detailed {
                     action: "new-workspace".to_string(),
@@ -9142,9 +10334,17 @@ mod tests {
             width: None,
             max_width: None,
             collapse_priority: None,
+            scope: None,
+            row_lines: None,
+            sort: None,
+            filter: None,
+            split: None,
+            panes: None,
+            weight: None,
         }];
         let command_ids = vec!["lazygit".to_string()];
-        let resolved = resolve_sidebar_view_specs(&views, 22, 0, 22, 0, "sidebar", &command_ids);
+        let resolved =
+            resolve_sidebar_view_specs(&views, 22, 0, 22, 0, "sidebar", &command_ids).views;
         assert_eq!(resolved.len(), 1);
         assert_eq!(resolved[0].actions_position, ActionsPosition::Top);
         assert_eq!(
@@ -9156,6 +10356,202 @@ mod tests {
             ],
             "unknown command references drop, known ones bind by id"
         );
+    }
+
+    fn raw_leaf(id: &str, levels: &[&str]) -> RawSidebarView {
+        RawSidebarView {
+            id: Some(id.to_string()),
+            levels: Some(levels.iter().map(|level| level.to_string()).collect()),
+            actions: None,
+            actions_position: None,
+            width: None,
+            max_width: None,
+            collapse_priority: None,
+            scope: None,
+            row_lines: None,
+            sort: None,
+            filter: None,
+            split: None,
+            panes: None,
+            weight: None,
+        }
+    }
+
+    #[test]
+    fn sidebar_split_groups_resolve_scope_weights_and_layout() {
+        let mut agents = raw_leaf("all-agents", &["agents"]);
+        agents.scope = Some("all".to_string());
+        agents.weight = Some(2);
+        let mut group = raw_leaf("left", &[]);
+        group.levels = None;
+        group.split = Some("vertical".to_string());
+        group.panes = Some(vec![raw_leaf("ws", &["workspaces"]), agents]);
+        let views = vec![group, raw_leaf("tabs", &["tabs"])];
+        let resolved = resolve_sidebar_view_specs(&views, 22, 0, 22, 0, "sidebar", &[]);
+
+        assert_eq!(resolved.views.len(), 3);
+        assert_eq!(resolved.views[0].id, "ws");
+        assert_eq!(resolved.views[1].id, "all-agents");
+        assert_eq!(resolved.views[1].scope, SidebarViewScope::All);
+        assert_eq!(resolved.views[2].scope, SidebarViewScope::Workspace);
+        assert_eq!(resolved.layout.len(), 2);
+        match &resolved.layout[0] {
+            SidebarLayoutNode::Split(split) => {
+                assert_eq!(split.id, "left");
+                assert_eq!(split.dir, SidebarSplitDir::Vertical);
+                assert_eq!(split.weights, vec![1, 2]);
+                assert_eq!(
+                    split.children,
+                    vec![SidebarLayoutNode::Leaf(0), SidebarLayoutNode::Leaf(1)]
+                );
+                assert_eq!(split.width, 22, "defaults to the widest pane");
+                assert_eq!(split.max_width, 0, "an unbounded pane keeps the group unbounded");
+                assert_eq!(split.collapse_priority, 30, "defaults to the highest pane priority");
+            }
+            node => panic!("expected a split column, got {node:?}"),
+        }
+        assert_eq!(resolved.layout[1], SidebarLayoutNode::Leaf(2));
+    }
+
+    #[test]
+    fn agents_view_priority_rows_default_to_two_lines_with_a_compact_knob() {
+        let raw: RawConfig = serde_json::from_value(json!({
+            "sidebar": {
+                "views": [
+                    {"id": "agents", "levels": ["agents"], "scope": "all"},
+                    {"id": "compact", "levels": ["workspaces", "agents"], "row_lines": 1},
+                    {"id": "tabs", "levels": ["tabs"]},
+                    {"id": "bad", "levels": ["agents"], "row_lines": 7}
+                ]
+            }
+        }))
+        .unwrap();
+        let resolved =
+            resolve_sidebar_view_specs(&raw.sidebar.views.unwrap(), 22, 0, 22, 0, "sidebar", &[])
+                .views;
+        assert_eq!(resolved[0].row_lines, 2, "agents views default to two-line rows");
+        assert_eq!(resolved[1].row_lines, 1, "row_lines: 1 opts into compact rows");
+        assert_eq!(resolved[2].row_lines, 1, "non-agent views stay single-line");
+        assert_eq!(resolved[3].row_lines, 2, "invalid row_lines falls back to the default");
+    }
+
+    #[test]
+    fn sidebar_split_grammar_parses_from_json() {
+        let raw: RawConfig = serde_json::from_value(json!({
+            "sidebar": {
+                "views": [
+                    {"id": "left", "split": "vertical", "panes": [
+                        {"id": "ws", "levels": ["workspaces"]},
+                        {"id": "all-agents", "levels": ["agents"], "scope": "all"}
+                    ]}
+                ]
+            }
+        }))
+        .unwrap();
+        let views = raw.sidebar.views.unwrap();
+        assert_eq!(views.len(), 1);
+        assert_eq!(views[0].split.as_deref(), Some("vertical"));
+        assert_eq!(views[0].panes.as_ref().map(Vec::len), Some(2));
+    }
+
+    #[test]
+    fn anonymous_split_ids_are_stable_when_panes_reorder() {
+        let mut group = raw_leaf("", &[]);
+        group.levels = None;
+        group.split = Some("vertical".to_string());
+        group.panes = Some(vec![raw_leaf("ws", &["workspaces"]), raw_leaf("ag", &["agents"])]);
+        let first =
+            resolve_sidebar_view_specs(std::slice::from_ref(&group), 22, 0, 22, 0, "sidebar", &[]);
+        group.panes.as_mut().unwrap().reverse();
+        let reordered =
+            resolve_sidebar_view_specs(std::slice::from_ref(&group), 22, 0, 22, 0, "sidebar", &[]);
+
+        let split_id = |resolved: &ResolvedSidebarViews| match &resolved.layout[0] {
+            SidebarLayoutNode::Split(split) => split.id.clone(),
+            node => panic!("expected generated split, got {node:?}"),
+        };
+        assert_eq!(split_id(&first), split_id(&reordered));
+        assert!(split_id(&first).starts_with("split-"));
+    }
+
+    #[test]
+    fn sidebar_split_rejects_bad_shapes_and_unwraps_single_panes() {
+        // scope "all" needs a flat tabs/agents view.
+        let mut scoped = raw_leaf("tree", &["workspaces", "agents"]);
+        scoped.scope = Some("all".to_string());
+        let resolved = resolve_sidebar_view_specs(&[scoped], 22, 0, 22, 0, "sidebar", &[]);
+        assert_eq!(resolved.views[0].scope, SidebarViewScope::Workspace);
+
+        // A split with one usable pane flattens to that pane.
+        let mut group = raw_leaf("left", &[]);
+        group.levels = None;
+        group.split = Some("vertical".to_string());
+        group.panes = Some(vec![raw_leaf("ws", &["workspaces"]), raw_leaf("", &["agents"])]);
+        let resolved = resolve_sidebar_view_specs(&[group], 22, 0, 22, 0, "sidebar", &[]);
+        assert_eq!(resolved.views.len(), 1);
+        assert_eq!(resolved.layout, vec![SidebarLayoutNode::Leaf(0)]);
+
+        // An unknown split direction drops the group and its panes.
+        let mut group = raw_leaf("left", &[]);
+        group.levels = None;
+        group.split = Some("diagonal".to_string());
+        group.panes = Some(vec![raw_leaf("ws", &["workspaces"]), raw_leaf("ag", &["agents"])]);
+        let resolved = resolve_sidebar_view_specs(&[group], 22, 0, 22, 0, "sidebar", &[]);
+        assert!(resolved.views.is_empty());
+        assert!(resolved.layout.is_empty());
+
+        // A split group with levels is ambiguous and drops.
+        let mut group = raw_leaf("left", &["workspaces"]);
+        group.split = Some("vertical".to_string());
+        group.panes = Some(vec![raw_leaf("ws", &["workspaces"]), raw_leaf("ag", &["agents"])]);
+        let resolved = resolve_sidebar_view_specs(&[group], 22, 0, 22, 0, "sidebar", &[]);
+        assert!(resolved.views.is_empty());
+    }
+
+    #[test]
+    fn split_group_defaults_max_width_to_largest_finite_child() {
+        let mut narrow = raw_leaf("narrow", &["workspaces"]);
+        narrow.max_width = Some(31);
+        let mut wide = raw_leaf("wide", &["agents"]);
+        wide.max_width = Some(47);
+        let mut group = raw_leaf("group", &[]);
+        group.levels = None;
+        group.split = Some("horizontal".to_string());
+        group.panes = Some(vec![narrow, wide]);
+
+        let resolved = resolve_sidebar_view_specs(&[group], 22, 0, 22, 0, "sidebar", &[]);
+        match &resolved.layout[0] {
+            SidebarLayoutNode::Split(split) => assert_eq!(split.max_width, 47),
+            node => panic!("expected a split column, got {node:?}"),
+        }
+    }
+
+    #[test]
+    fn sidebar_view_id_prepass_stops_at_the_split_depth_limit() {
+        let mut nested = raw_leaf("leaf-too-deep", &["tabs"]);
+        for depth in (0..=MAX_SIDEBAR_SPLIT_DEPTH).rev() {
+            let mut group = raw_leaf(&format!("split-{depth}"), &[]);
+            group.levels = None;
+            group.split = Some("vertical".to_string());
+            group.panes = Some(vec![nested]);
+            nested = group;
+        }
+
+        let mut ids = HashSet::new();
+        collect_sidebar_view_ids(&[nested], &mut ids);
+        for depth in 0..=MAX_SIDEBAR_SPLIT_DEPTH {
+            assert!(ids.contains(&format!("split-{depth}")));
+        }
+        assert!(!ids.contains("leaf-too-deep"));
+    }
+
+    #[test]
+    fn all_scoped_tabs_view_never_maps_to_the_legacy_tabs_rail() {
+        let mut tabs = raw_leaf("tabs-everywhere", &["tabs"]);
+        tabs.scope = Some("all".to_string());
+        let resolved = resolve_sidebar_view_specs(&[tabs], 22, 0, 22, 0, "sidebar", &[]);
+        assert_eq!(resolved.views[0].scope, SidebarViewScope::All);
+        assert_eq!(resolved.views[0].legacy_kind(), None);
     }
 
     #[test]
@@ -9173,6 +10569,34 @@ mod tests {
         assert_eq!(raw.sidebar.row_gap, Some(0));
         assert_eq!(raw.sidebar.rail_glyph.as_deref(), Some("none"));
         assert_eq!(raw.sidebar.workspace_label.as_deref(), Some("{index} · {name}"));
+    }
+
+    #[test]
+    #[allow(clippy::unicode_not_nfc)]
+    fn rail_glyph_accepts_standalone_halfwidth_sound_marks() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let old_cmux_tui_config = std::env::var_os("CMUX_TUI_CONFIG");
+        let dir = TestDirectory::new("rail-glyph-halfwidth-sound-marks");
+        let path = dir.path.join("cmux-tui.json");
+        for glyph in ["\u{ff9e}", "\u{ff9f}"] {
+            std::fs::write(&path, format!(r#"{{"sidebar":{{"rail_glyph":"{glyph}"}}}}"#)).unwrap();
+            // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+            unsafe { std::env::set_var("CMUX_TUI_CONFIG", &path) };
+
+            let config = load();
+            restore_env_var("CMUX_TUI_CONFIG", old_cmux_tui_config.clone());
+
+            assert_eq!(config.sidebar.rail_glyph, glyph);
+        }
+
+        std::fs::write(&path, r#"{"sidebar":{"rail_glyph":"\n"}}"#).unwrap();
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("CMUX_TUI_CONFIG", &path) };
+
+        let config = load();
+        restore_env_var("CMUX_TUI_CONFIG", old_cmux_tui_config);
+
+        assert_eq!(config.sidebar.rail_glyph, Config::default().sidebar.rail_glyph);
     }
 
     #[test]

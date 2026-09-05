@@ -8,7 +8,7 @@ import SwiftUI
 /// Default Search Engine, conditional Custom Search Engine fields,
 /// Show Search Suggestions, Browser Theme, Browser Memory Saver +
 /// Memory Saver Delay, Open Terminal Links / Intercept open,
-/// conditional Hosts / External Patterns text editors, HTTP Hosts
+/// conditional Hosts editor and the External Patterns text editor, HTTP Hosts
 /// Allowed in Embedded Browser editor, URL Allowlist editor, Import Browser Data
 /// subsection, React Grab Version, Browsing History.
 @MainActor
@@ -323,7 +323,7 @@ public struct BrowserSection: View {
                     .controlSize(.small)
             }
 
-            // Hosts + External Patterns (only when relevant)
+            // Hosts (only when terminal routing is enabled)
             if openTermLinks.current || interceptOpen.current {
                 SettingsCardDivider()
                 hostnameEditor(
@@ -332,14 +332,14 @@ public struct BrowserSection: View {
                     json: "browser.hostsToOpenInEmbeddedBrowser",
                     model: hosts
                 )
-                SettingsCardDivider()
-                hostnameEditor(
-                    title: String(localized: "settings.browser.externalPatterns", defaultValue: "URLs to Always Open Externally"),
-                    subtitle: String(localized: "settings.browser.externalPatterns.subtitle", defaultValue: "Applies to terminal link clicks and intercepted `open https://...` calls. One rule per line. Plain text matches any URL substring, or prefix with `re:` for regex (for example: openai.com/usage, re:^https?://[^/]*\\.example\\.com/(billing|usage))."),
-                    json: "browser.urlsToAlwaysOpenExternally",
-                    model: external
-                )
             }
+            SettingsCardDivider()
+            hostnameEditor(
+                title: String(localized: "settings.browser.externalPatterns", defaultValue: "URLs to Always Open Externally"),
+                subtitle: String(localized: "settings.browser.externalPatterns.subtitle", defaultValue: "Applies to browser-page link clicks, terminal link clicks, and intercepted `open https://...` calls. One rule per line. Plain text matches any URL substring; `*`/`?` are wildcards, and regex rules containing them must use the `re:` prefix (legacy `.*`/`.+` rules remain supported) (for example: example.com, *example.com*, .*example\\.com.*, re:^https?://[^/]*\\.example\\.com/(billing|usage))."),
+                json: "browser.urlsToAlwaysOpenExternally",
+                model: external
+            )
             SettingsCardDivider()
 
             // HTTP Hosts Allowed in Embedded Browser

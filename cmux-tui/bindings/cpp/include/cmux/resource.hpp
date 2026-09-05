@@ -50,6 +50,9 @@ enum class Operation {
     session_creation_resolve,
     session_events,
     session_journal_subscribe,
+    session_journal_producer_list,
+    session_journal_producer_put,
+    session_journal_append,
     session_ping,
     session_shutdown,
     session_reload_config,
@@ -533,6 +536,69 @@ struct SessionJournalRecord {
     std::optional<std::uint64_t> previous_resource_revision;
 };
 
+// Generic journal producer contracts. Agent plugins use these records from
+// userland; the daemon does not need a plugin-specific core type.
+struct JournalEventSchema {
+    std::string kind;
+    std::uint32_t schema_version = 0;
+    JournalClass class_ = JournalClass::state;
+    JournalReplayPolicy replay = JournalReplayPolicy::required;
+    JournalSensitivity sensitivity = JournalSensitivity::sensitive;
+    Json payload_schema;
+};
+
+struct JournalProducerManifest {
+    std::string producer_id;
+    std::string namespace_;
+    std::uint32_t manifest_version = 0;
+    JournalSensitivity max_sensitivity = JournalSensitivity::sensitive;
+    std::vector<std::string> permissions;
+    std::vector<JournalEventSchema> events;
+
+    [[nodiscard]] Result<Json> to_json() const;
+};
+
+struct JournalIngress {
+    std::string producer_id;
+    std::uint32_t manifest_version = 0;
+    std::string kind;
+    std::uint32_t schema_version = 0;
+    std::optional<std::uint64_t> occurred_at_ms;
+    std::vector<JournalSubject> subjects;
+    std::optional<JournalSensitivity> sensitivity;
+    Json payload;
+    std::optional<std::string> causation_id;
+    std::optional<std::string> correlation_id;
+
+    [[nodiscard]] Result<Json> to_json() const;
+};
+
+struct JournalProducerPutResult {
+    std::string producer_id;
+    std::uint32_t manifest_version = 0;
+    std::string namespace_;
+    std::uint64_t sequence = 0;
+    std::string event_id;
+};
+
+struct JournalProducerListResult {
+    std::vector<JournalProducerManifest> producers;
+};
+
+struct JournalAppendResult {
+    std::string producer_id;
+    std::uint64_t sequence = 0;
+    std::string event_id;
+};
+
+// Compatibility aliases from the first agent-plugin preview.
+using AgentPluginEventSchema = JournalEventSchema;
+using AgentPluginManifest = JournalProducerManifest;
+using AgentPluginSubject = JournalSubject;
+using AgentPluginIngress = JournalIngress;
+using AgentPluginListResult = JournalProducerListResult;
+using JournalEventSubject = JournalSubject;
+
 struct ConfirmationRequiredDetails {
     std::string confirmation_token;
     std::uint64_t revision = 0;
@@ -889,6 +955,7 @@ enum class AgentSource {
     hook,
     socket,
     detected,
+    plugin,
 };
 
 enum class AgentReportSource {
@@ -919,6 +986,7 @@ struct AgentSnapshot {
     TerminalId terminal_id;
     AgentState state = AgentState::unknown;
     AgentSource source = AgentSource::detected;
+    std::optional<std::string> agent;
     std::uint64_t updated_at_ms = 0;
     std::optional<std::string> source_session;
     Json::Object extra;
@@ -1165,6 +1233,49 @@ struct TerminalScreenResult {
     std::uint16_t cursor_col = 0;
     bool cursor_visible = false;
     Json::Object extra;
+    // Keep new metadata after the legacy aggregate fields. Existing callers
+    // can continue to initialize the original seven fields positionally via
+    // the compatibility constructor below.
+    std::optional<std::uint64_t> revision;
+    std::optional<std::string> osc_progress;
+
+    TerminalScreenResult() = default;
+
+    TerminalScreenResult(
+        std::string text_value,
+        std::uint16_t cols_value,
+        std::uint16_t rows_value,
+        std::uint16_t cursor_row_value,
+        std::uint16_t cursor_col_value,
+        bool cursor_visible_value,
+        Json::Object extra_value = {})
+        : text(std::move(text_value)),
+          cols(cols_value),
+          rows(rows_value),
+          cursor_row(cursor_row_value),
+          cursor_col(cursor_col_value),
+          cursor_visible(cursor_visible_value),
+          extra(std::move(extra_value)) {}
+
+    TerminalScreenResult(
+        std::string text_value,
+        std::uint16_t cols_value,
+        std::uint16_t rows_value,
+        std::uint16_t cursor_row_value,
+        std::uint16_t cursor_col_value,
+        bool cursor_visible_value,
+        Json::Object extra_value,
+        std::optional<std::uint64_t> revision_value,
+        std::optional<std::string> osc_progress_value)
+        : text(std::move(text_value)),
+          cols(cols_value),
+          rows(rows_value),
+          cursor_row(cursor_row_value),
+          cursor_col(cursor_col_value),
+          cursor_visible(cursor_visible_value),
+          extra(std::move(extra_value)),
+          revision(std::move(revision_value)),
+          osc_progress(std::move(osc_progress_value)) {}
 };
 
 struct TerminalStateResult {
@@ -1205,6 +1316,8 @@ struct ProcessInfoResult {
     // omits the field.
     std::optional<std::string> foreground_cwd;
     std::vector<std::uint32_t> children;
+    // Executable path or name of the PTY foreground process-group leader.
+    std::optional<std::string> foreground_executable;
 };
 
 struct CellPixelsResult {
@@ -1333,6 +1446,10 @@ CMUX_DECLARE_TYPED_DECODER(TerminalDefaultsSnapshot);
 CMUX_DECLARE_TYPED_DECODER(PairingResolutionResult);
 CMUX_DECLARE_TYPED_DECODER(PaneNeighborResult);
 CMUX_DECLARE_TYPED_DECODER(TerminalScreenResult);
+CMUX_DECLARE_TYPED_DECODER(JournalProducerManifest);
+CMUX_DECLARE_TYPED_DECODER(JournalProducerListResult);
+CMUX_DECLARE_TYPED_DECODER(JournalProducerPutResult);
+CMUX_DECLARE_TYPED_DECODER(JournalAppendResult);
 CMUX_DECLARE_TYPED_DECODER(TerminalStateResult);
 CMUX_DECLARE_TYPED_DECODER(TerminalHistoryResult);
 CMUX_DECLARE_TYPED_DECODER(TerminalWaitResult);
@@ -1933,6 +2050,24 @@ public:
     [[nodiscard]] Result<SessionJournalStream> journal(
         SessionJournalOptions options = {},
         CallOptions call = {}) const;
+    [[nodiscard]] Result<JournalProducerListResult> journal_producers() const;
+    [[nodiscard]] Result<std::vector<JournalProducerManifest>>
+    list_journal_producers() const;
+    [[nodiscard]] Result<MutationResult<JournalProducerPutResult>>
+    put_journal_producer(
+        JournalProducerManifest manifest,
+        MutationOptions mutation = MutationOptions::unique()) const;
+    [[nodiscard]] Result<MutationResult<JournalProducerPutResult>>
+    put_journal_producer_manifest(
+        JournalProducerManifest manifest,
+        MutationOptions mutation = MutationOptions::unique()) const;
+    [[nodiscard]] Result<MutationResult<JournalAppendResult>> append_journal(
+        JournalIngress event,
+        MutationOptions mutation = MutationOptions::unique()) const;
+    [[nodiscard]] Result<MutationResult<JournalAppendResult>>
+    append_journal_event(
+        JournalIngress event,
+        MutationOptions mutation = MutationOptions::unique()) const;
     [[nodiscard]] Result<MutationResult<ShutdownResult>> shutdown(
         MutationOptions options = MutationOptions::unique()) const;
     [[nodiscard]] Result<MutationResult<ReloadConfigResult>> reload_config(

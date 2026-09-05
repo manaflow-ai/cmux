@@ -48,6 +48,11 @@ pub const FLAG_SMART_RENDERER: u32 = 1 << 2;
 /// Protocol-v4 HostHello flag. The authenticated launch-owner connection must
 /// send `Activate` after its daemon has durably committed public topology.
 pub const FLAG_LAUNCH_ACTIVATION_REQUIRED: u32 = 1 << 3;
+/// ClientHello opt-in and HostHello acknowledgement for the optional
+/// generic terminal metadata tail in a Snapshot payload. The bit is separate
+/// from the protocol version so older persistent hosts and renderers can keep
+/// using the exact v4 snapshot layout.
+pub const FLAG_TERMINAL_METADATA: u32 = 1 << 4;
 /// ResizeAck payload flag: this request changed the canonical grid and its
 /// sequenced Resized+Colors transition was enqueued immediately before the
 /// targeted acknowledgement.
@@ -149,28 +154,43 @@ impl TerminalExit {
 ///
 /// cmux-pty's Unix backend returns `std::process::Child`, so failure to downcast
 /// is an alternate backend and becomes an explicit unknown outcome.
+#[cfg(test)]
 pub(crate) fn wait_for_native_child_status(
     child: &mut (dyn cmux_pty::Child + Send + Sync),
 ) -> TerminalExit {
+    wait_for_native_child_status_with_reap_result(child).0
+}
+
+/// Wait for a PTY child and report whether the wait reaped it successfully.
+///
+/// Callers that retain an owning guard can use the boolean to avoid issuing a
+/// second kill against a PID that may already have been reused after a
+/// successful wait.
+pub(crate) fn wait_for_native_child_status_with_reap_result(
+    child: &mut (dyn cmux_pty::Child + Send + Sync),
+) -> (TerminalExit, bool) {
     let child: &mut dyn cmux_pty::Child = child;
     if let Some(child) = child.downcast_mut::<std::process::Child>() {
         return match child.wait() {
-            Ok(status) => TerminalExit::from_exit_status(&status),
-            Err(error) => TerminalExit::unknown(format!("wait failed: {error}")),
+            Ok(status) => (TerminalExit::from_exit_status(&status), true),
+            Err(error) => (TerminalExit::unknown(format!("wait failed: {error}")), false),
         };
     }
     match child.wait() {
         Ok(status) if status.signal().is_some() => {
-            TerminalExit::unknown(format!("numeric signal status unavailable: {status}"))
+            (TerminalExit::unknown(format!("numeric signal status unavailable: {status}")), true)
         }
         Ok(status) => match i32::try_from(status.exit_code()) {
-            Ok(code) => TerminalExit::now(TerminalExitOutcome::Exit { code }),
-            Err(_) => TerminalExit::unknown(format!(
-                "portable exit code exceeds signed 32-bit range: {}",
-                status.exit_code()
-            )),
+            Ok(code) => (TerminalExit::now(TerminalExitOutcome::Exit { code }), true),
+            Err(_) => (
+                TerminalExit::unknown(format!(
+                    "portable exit code exceeds signed 32-bit range: {}",
+                    status.exit_code()
+                )),
+                true,
+            ),
         },
-        Err(error) => TerminalExit::unknown(format!("wait failed: {error}")),
+        Err(error) => (TerminalExit::unknown(format!("wait failed: {error}")), false),
     }
 }
 

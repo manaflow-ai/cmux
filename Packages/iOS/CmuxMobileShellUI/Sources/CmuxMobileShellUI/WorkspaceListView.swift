@@ -666,12 +666,20 @@ struct WorkspaceListView: View {
         }
         .sheet(isPresented: settingsPresentation.isPresented, onDismiss: {
             settingsPresentation.didDismiss()
-            settingsPairingScannerHandoff.settingsDidDismiss(startScanner: showPairingScanner)
+            settingsPairingScannerHandoff.settingsDidDismiss(
+                startScanner: showPairingScanner,
+                showComputers: presentComputers
+            )
         }) {
             MobileSettingsView(
                 connectedHostName: host,
                 startPairingScanner: {
                     settingsPairingScannerHandoff.requestScannerAfterDismiss(
+                        isSettingsPresented: settingsPresentation.isPresented
+                    )
+                },
+                showComputers: {
+                    settingsPairingScannerHandoff.requestComputersAfterDismiss(
                         isSettingsPresented: settingsPresentation.isPresented
                     )
                 },
@@ -946,13 +954,19 @@ struct WorkspaceListView: View {
     }
 
     #if os(iOS)
+    /// One Computers entry path for the toolbar button and the Settings
+    /// handoff: the root owner when provided, the local sheet otherwise.
+    private func presentComputers() {
+        if let showComputers {
+            showComputers()
+        } else {
+            deviceTreePresentation.present()
+        }
+    }
+
     var devicesButton: some View {
         Button {
-            if let showComputers {
-                showComputers()
-            } else {
-                deviceTreePresentation.present()
-            }
+            presentComputers()
         } label: {
             Image(systemName: "desktopcomputer")
         }

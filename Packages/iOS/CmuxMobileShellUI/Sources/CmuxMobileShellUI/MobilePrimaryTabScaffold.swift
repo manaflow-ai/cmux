@@ -109,9 +109,15 @@ struct MobilePrimaryTabScaffold<
         Binding(
             get: { selection },
             set: { newValue in
-                if (selection == .search || searchCoordinator.isPresented),
-                   newValue.searchScope != nil {
-                    searchCoordinator.deactivateCurrentSearch()
+                if newValue.searchScope != nil {
+                    if searchCoordinator.isPresented {
+                        // The round X returns selection to the previous tab
+                        // while search is still presented; it cancels the
+                        // query rather than committing it as a filter.
+                        searchCoordinator.cancelPresentedSearch()
+                    } else if selection == .search {
+                        searchCoordinator.deactivateCurrentSearch()
+                    }
                 }
                 selection = newValue
             }

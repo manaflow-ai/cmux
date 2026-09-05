@@ -348,7 +348,7 @@ GET /api/v1/events
 Optional query parameters mirror proposed `subscribe` filters:
 
 ```text
-GET /api/v1/events?events=bell,agent-state-changed&surfaces=1,a8f3k2
+GET /api/v1/events?events=bell,agent-changed&surfaces=1,a8f3k2
 ```
 
 Each event is sent as:

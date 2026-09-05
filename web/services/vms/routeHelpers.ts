@@ -1,5 +1,14 @@
 import type { Span } from "@opentelemetry/api";
-import { recordSpanError, withApiRouteSpan, type MaybeAttributes } from "../telemetry";
+import { trace } from "@opentelemetry/api";
+import { after } from "next/server";
+import {
+  activeTraceIds,
+  forceFlushTraces,
+  recordSpanError,
+  spanTraceIds,
+  withApiRouteSpan,
+  type MaybeAttributes,
+} from "../telemetry";
 import {
   parseNativeStackTokens,
   unauthorized,
@@ -9,7 +18,7 @@ import {
 import {
   isPaidVmPlan,
   isVmBillingTeamResolutionError,
-  maxActiveVmsForPlan,
+  isVmProGateBlocked,
   resolveVmEntitlements,
   type VmEntitlements,
 } from "./entitlements";
@@ -24,14 +33,31 @@ import {
   isVmDatabaseError,
   isVmFreeAccessExpiredError,
   isVmLimitExceededError,
+  isVmModelPlaneError,
   isVmNotFoundError,
+  isVmOperationUnsupportedError,
+  isVmPrivateNetworkUnavailableError,
   isVmProviderOperationError,
   isVmSnapshotNotFoundError,
+  isVmTunnelNotFoundError,
   vmWorkflowErrorCause,
+  type VmModelPlaneError,
+  type VmOperationUnsupportedError,
 } from "./errors";
 import { recordSpanTiming } from "./timings";
 import { authProviderErrorResponse } from "./authErrors";
-import { reportVmErrorResponse, VM_ERROR_CODE_HEADER } from "./observability";
+import {
+  captureVmRequestOutcome,
+  reportVmErrorResponse,
+  VM_ERROR_CODE_HEADER,
+} from "./observability";
+import {
+  runWithVmRequestContext,
+  vmClientIdentityFromRequest,
+  type VmRequestContext,
+} from "./requestContext";
+import { vmRequestLocale, vmRequiresProCopy, vmUnsupportedCopy } from "./vmErrorMessages";
+import type { Locale } from "../../i18n/routing";
 
 /** Bearer + refresh token pair the mac app stashes in keychain. */
 export type StackBearer = { accessToken: string; refreshToken: string };
@@ -55,28 +81,62 @@ export async function withAuthedVmApiRoute(
   failureLog: string,
   handler: (context: AuthedVmRouteContext) => Promise<Response>,
 ): Promise<Response> {
-  return withApiRouteSpan(
+  const operation = typeof attributes["cmux.vm.operation"] === "string"
+    ? attributes["cmux.vm.operation"]
+    : "unknown";
+  const requestContext: VmRequestContext = {
+    route,
+    method: request.method,
+    operation,
+    startedAtMs: performance.now(),
+    client: vmClientIdentityFromRequest(request),
+    vercelRequestId: request.headers.get("x-vercel-id")?.slice(0, 120) ?? undefined,
+  };
+  return runWithVmRequestContext(requestContext, () => withApiRouteSpan(
     request,
     route,
     { "cmux.subsystem": "vm-cloud", ...attributes },
     async (span) => {
+      const ids = spanTraceIds(span);
+      if (ids) {
+        requestContext.traceId = ids.traceId;
+        requestContext.spanId = ids.spanId;
+      }
       let responseFinalizer: ((response: Response) => void) | null = null;
       const setResponseFinalizer = (finalizer: ((response: Response) => void) | null) => {
         responseFinalizer = finalizer;
       };
       const finalize = (response: Response): Response => {
-        if (!responseFinalizer) return response;
+        if (responseFinalizer) {
+          try {
+            responseFinalizer(response);
+          } catch (err) {
+            recordSpanError(span, err);
+            console.error(`${failureLog}: response finalizer failed`, err);
+          }
+        }
+        // Every VM response, every route: outcome + latency to the span and
+        // PostHog, then a bounded span flush so an error-heavy instance cannot
+        // lose the trace the PostHog row points at.
         try {
-          responseFinalizer(response);
+          captureVmRequestOutcome({
+            context: requestContext,
+            response,
+            span,
+            durationMs: performance.now() - requestContext.startedAtMs,
+          });
         } catch (err) {
           recordSpanError(span, err);
-          console.error(`${failureLog}: response finalizer failed`, err);
+          console.error(`${failureLog}: outcome capture failed`, err);
+        }
+        if (response.status >= 400 || !isPolledVmOperation(operation)) {
+          scheduleTraceFlush();
         }
         return response;
       };
 
       try {
-        const routeStartedAtMs = performance.now();
+        const routeStartedAtMs = requestContext.startedAtMs;
         const bearer = parseBearer(request);
         const authStart = performance.now();
         let user: AuthedUser | null;
@@ -87,14 +147,15 @@ export async function withAuthedVmApiRoute(
         }
         const authDurationMs = performance.now() - authStart;
         recordSpanTiming(span, "auth", authDurationMs);
-        if (!user) return unauthorized();
+        if (!user) return finalize(unauthorized());
+        requestContext.userId = user.id;
         const mutationForbidden = enforceBrowserMutationProtection(request, bearer);
-        if (mutationForbidden) return mutationForbidden;
+        if (mutationForbidden) return finalize(mutationForbidden);
         return finalize(await handler({ user, span, authDurationMs, routeStartedAtMs, setResponseFinalizer }));
       } catch (err) {
         recordSpanError(span, err);
         console.error(failureLog, err);
-        const workflowError = vmWorkflowErrorResponse(err);
+        const workflowError = await vmWorkflowErrorResponse(err, { locale: vmRequestLocale(request) });
         if (workflowError) return finalize(workflowError);
         return finalize(vmErrorResponse({
           error: "vm_internal_error",
@@ -105,7 +166,25 @@ export async function withAuthedVmApiRoute(
         }));
       }
     },
-  );
+  ));
+}
+
+const POLLED_OPERATIONS: ReadonlySet<string> = new Set(["list", "status", "stats", "list_sessions", "get_tunnel"]);
+
+function isPolledVmOperation(operation: string): boolean {
+  return POLLED_OPERATIONS.has(operation);
+}
+
+function scheduleTraceFlush(): void {
+  const flush = () => forceFlushTraces();
+  try {
+    // Past the response, inside the request lifecycle (Vercel keeps the
+    // function alive for `after` callbacks). Outside a request scope `after`
+    // throws; there is no batch exporter to flush there.
+    after(flush);
+  } catch {
+    // Not in a request scope (tests, scripts).
+  }
 }
 
 /**
@@ -113,10 +192,14 @@ export async function withAuthedVmApiRoute(
  * promise settles but turbopack reports "No response is returned from route handler").
  * Use `new Response(JSON.stringify(...), { ... })` explicitly instead.
  */
-export function jsonResponse(data: unknown, status = 200): Response {
+export function jsonResponse(
+  data: unknown,
+  status = 200,
+  headers: Readonly<Record<string, string>> = {},
+): Response {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...headers },
   });
 }
 
@@ -166,6 +249,7 @@ export type VmLifecyclePhase =
   | "resume"
   | "attach"
   | "ssh"
+  | "network"
   | "exec"
   | "destroy"
   | "status"
@@ -174,6 +258,10 @@ export type VmLifecyclePhase =
 
 export function vmErrorResponse(input: VmErrorResponseInput): Response {
   const retryAfterSeconds = normalizedRetryAfterSeconds(input.retryAfterSeconds);
+  // The trace id is the support reference: a user pastes it, an operator opens
+  // the exact Axiom trace, PostHog row and Sentry event. Safe to expose (random
+  // 128-bit id, no meaning outside our telemetry).
+  const traceId = activeTraceIds()?.traceId;
   const payload = {
     ...(input.extra ?? {}),
     ...(input.details ? { details: {
@@ -192,11 +280,13 @@ export function vmErrorResponse(input: VmErrorResponseInput): Response {
       severity: input.severity ?? (input.status >= 500 ? "warning" : "error"),
       retryable: input.retryable ?? false,
       ...(retryAfterSeconds !== undefined ? { retryAfterSeconds } : {}),
+      ...(traceId ? { traceId } : {}),
     },
     error: input.error,
     message: input.message,
     reason: input.reason ?? input.message,
     action: input.action,
+    ...(traceId ? { traceId } : {}),
   };
   const headers: Record<string, string> = {};
   if (retryAfterSeconds !== undefined) {
@@ -267,19 +357,51 @@ export type VmRouteAccountScope =
     readonly response: Response;
   };
 
+type VmProvisioningScopeOptions = {
+  readonly requestedBillingTeamId?: string | null;
+};
+
+/**
+ * Resolve the account scope for a route that can allocate a new machine.
+ *
+ * Provisioning routes must use this helper instead of resolving entitlements
+ * and checking the Pro gate independently. Keeping the account lookup and
+ * policy decision together makes a newly added provisioning route fail closed
+ * by construction while management routes can continue to use
+ * `resolveVmRouteAccountScope` without a paywall.
+ */
+export async function resolveVmProvisioningAccountScope(
+  user: AuthedUser,
+  request: Request,
+  options: VmProvisioningScopeOptions = {},
+): Promise<VmRouteAccountScope> {
+  const scope = resolveVmAccountScope(user, request, options);
+  if (!scope.ok) return scope;
+  if (isVmProGateBlocked(scope.entitlements)) {
+    return { ok: false, response: await vmRequiresProResponse(vmRequestLocale(request)) };
+  }
+  return scope;
+}
+
 export function resolveVmRouteAccountScope(
   user: AuthedUser,
   request: Request,
-  options: { readonly requireTeam?: boolean } = {},
 ): VmRouteAccountScope {
-  const requestedBillingTeamId = requestedVmTeamIdFromRequest(request);
+  return resolveVmAccountScope(user, request);
+}
+
+function resolveVmAccountScope(
+  user: AuthedUser,
+  request: Request,
+  options: VmProvisioningScopeOptions = {},
+): VmRouteAccountScope {
+  const requestedBillingTeamId = options.requestedBillingTeamId ?? requestedVmTeamIdFromRequest(request);
   try {
     return {
       ok: true,
       requestedBillingTeamId,
       entitlements: resolveVmEntitlements(user, process.env, {
         requestedBillingTeamId,
-        requireTeam: options.requireTeam ?? false,
       }),
     };
   } catch (err) {
@@ -304,20 +426,27 @@ export function vmBillingTeamErrorResponse(err: {
     action: err.code === "vm_billing_team_not_found"
       ? "Switch to a team you belong to, or run `cmux auth login` again and retry with the correct team id."
       : "Select a team in cmux, or pass the team id with `X-Cmux-Team-Id`.",
-    reason: err.message,
-  });
-}
-
-export function vmRequiresProResponse(): Response {
-  return vmErrorResponse({
-    error: "vm_requires_pro",
-    status: 402,
-    message: "Cloud VMs require a cmux Pro plan.",
-    action: "Upgrade to cmux Pro at https://cmux.com/pricing to create Cloud VMs.",
   });
 }
 
 const VM_UPGRADE_URL = "https://cmux.com/pricing";
+
+/**
+ * The paid-plan gate response. Copy comes from the `vmErrors.requiresPro`
+ * catalog so non-English clients get a translated upgrade instruction; the
+ * machine-readable `upgradeUrl`/`upgradeRequired` fields stay locale-free.
+ */
+export async function vmRequiresProResponse(locale: Locale = "en"): Promise<Response> {
+  const copy = await vmRequiresProCopy(locale, { upgradeUrl: VM_UPGRADE_URL });
+  return vmErrorResponse({
+    error: "vm_requires_pro",
+    status: 402,
+    message: copy.message,
+    action: copy.action,
+    displayTitle: copy.title,
+    extra: { upgradeRequired: true, upgradeUrl: VM_UPGRADE_URL },
+  });
+}
 
 /**
  * One response for every provisioning verb that hits the active-VM limit. On a free plan the
@@ -347,12 +476,11 @@ export function vmActiveLimitExceededResponse(input: {
   if (input.limit <= 0) {
     // Free plans have no allowance at all: this is the subscribe gate, not a
     // "free a slot" situation.
-    const proLimit = maxActiveVmsForPlan("pro");
     return vmErrorResponse({
       error: "vm_active_limit_exceeded",
       status: 402,
       message: "Cloud VMs require a cmux Pro subscription.",
-      action: `Subscribe to cmux Pro at ${VM_UPGRADE_URL} to get access to Cloud VMs (up to ${proLimit} active machines).`,
+      action: `Subscribe to cmux Pro at ${VM_UPGRADE_URL} to get access to Cloud VMs.`,
       extra: { limit: input.limit, upgradeRequired: true, upgradeUrl: VM_UPGRADE_URL },
       details: { limit: input.limit, upgradeRequired: true },
       ...(input.phase ? { phase: input.phase } : {}),
@@ -362,7 +490,7 @@ export function vmActiveLimitExceededResponse(input: {
     error: "vm_active_limit_exceeded",
     status: 402,
     message: `The free plan includes ${input.limit} Cloud VM${plural}.`,
-    action: `Upgrade to cmux Pro at ${VM_UPGRADE_URL} for more VMs with usage-based billing, ` +
+    action: `Upgrade to cmux Pro at ${VM_UPGRADE_URL} for more active machines, ` +
       "or free a slot with `cmux vm rm <id>`.",
     extra: { limit: input.limit, upgradeRequired: true, upgradeUrl: VM_UPGRADE_URL },
     details: { limit: input.limit, upgradeRequired: true },
@@ -429,11 +557,51 @@ export function vmCreateLikeErrorResponse(
       details: { amount: err.amount },
     });
   }
+  if (isVmModelPlaneError(err)) {
+    return vmModelPlaneErrorResponse(err, input.operation);
+  }
   return null;
 }
 
-export function vmWorkflowErrorResponse(err: unknown): Response | null {
+/**
+ * The machine could not be wired to coderouter, so no provider machine was
+ * created. Every model-plane failure is a coderouter outage (retry); there
+ * is no plan gate on the model plane.
+ */
+export function vmModelPlaneErrorResponse(
+  _err: VmModelPlaneError,
+  phase: "create" | VmCreateLikeOperation = "create",
+): Response {
+  return vmErrorResponse({
+    error: "vm_model_plane_unavailable",
+    status: 503,
+    message: "cmux could not connect this Cloud VM to coderouter, so no machine was created.",
+    reason: "coderouter is unavailable.",
+    action: "coderouter is unavailable; retry in a minute. If it keeps failing, contact support.",
+    phase,
+    retryable: true,
+    retryAfterSeconds: 30,
+    displayTitle: "coderouter is unavailable",
+    displayMessage: "Retrying is safe. cmux could not mint this machine's coderouter access.",
+    details: { retryable: true },
+  });
+}
+
+/** Translate a normalized workflow failure into the public VM error contract. */
+export async function vmWorkflowErrorResponse(
+  err: unknown,
+  options: { readonly locale?: Locale } = {},
+): Promise<Response | null> {
   const workflowError = vmWorkflowErrorCause(err) ?? err;
+  const operationUnsupported = isVmOperationUnsupportedError(workflowError)
+    ? workflowError
+    : isVmProviderOperationError(workflowError)
+      ? vmWorkflowErrorCause(workflowError.cause)
+      : null;
+  if (isVmOperationUnsupportedError(operationUnsupported)) {
+    return vmUnsupportedOperationResponse(operationUnsupported, options.locale ?? "en");
+  }
+
   if (isVmAccountDeletionInProgressError(workflowError)) {
     return vmErrorResponse({
       error: "account_deletion_in_progress",
@@ -463,6 +631,39 @@ export function vmWorkflowErrorResponse(err: unknown): Response | null {
     });
   }
 
+  if (isVmModelPlaneError(workflowError)) {
+    return vmModelPlaneErrorResponse(workflowError);
+  }
+
+  if (isVmPrivateNetworkUnavailableError(workflowError)) {
+    return vmErrorResponse({
+      error: "vm_private_network_unavailable",
+      status: 409,
+      message: "Cloud VM private networking is not available in this environment.",
+      action:
+        "Machines in this environment are reached at their public address, so no tunnel is needed. " +
+        "Stop offering to set one up; retrying will not change this.",
+      reason: workflowError.reason,
+      phase: "network",
+      // Not retryable on purpose: this is how the deployment is configured, so
+      // a client that backs off and retries would loop forever.
+      retryable: false,
+      details: { provider: workflowError.provider },
+    });
+  }
+
+  if (isVmTunnelNotFoundError(workflowError)) {
+    return vmErrorResponse({
+      error: "vm_tunnel_not_found",
+      status: 404,
+      message: "This computer is not enrolled on your Cloud VM network.",
+      action: "Enroll it with POST /api/vm/tunnel, then bring the WireGuard tunnel up.",
+      phase: "network",
+      retryable: false,
+      details: { deviceFingerprint: workflowError.deviceFingerprint },
+    });
+  }
+
   if (isVmCreateDisabledError(workflowError)) {
     return vmErrorResponse({
       error: "vm_create_disabled",
@@ -479,7 +680,7 @@ export function vmWorkflowErrorResponse(err: unknown): Response | null {
     const providerCause = providerCauseSummary(workflowError.cause);
     const phase = vmPhaseForOperation(workflowError.operation);
     if (providerImageNotFound(workflowError.cause)) {
-      // The provider rejected the resolved image (e.g. Blaxel IMAGE_NOT_FOUND):
+      // The provider rejected the resolved image (e.g. a provider IMAGE_NOT_FOUND):
       // nothing was created and retrying cannot help until an operator
       // publishes the image, so this is configuration, not availability.
       console.error(
@@ -570,6 +771,35 @@ export function vmWorkflowErrorResponse(err: unknown): Response | null {
   return null;
 }
 
+async function vmUnsupportedOperationResponse(
+  error: VmOperationUnsupportedError,
+  locale: Locale,
+): Promise<Response> {
+  const phase = vmPhaseForOperation(error.operation);
+  const copy = await vmUnsupportedCopy(
+    phase === "snapshot" || phase === "restore" || phase === "fork" ? phase : "default",
+    locale,
+  );
+  return vmErrorResponse({
+    error: "vm_operation_unsupported",
+    status: 501,
+    message: copy.message,
+    reason: copy.reason,
+    action: copy.action,
+    phase,
+    retryable: false,
+    displayTitle: copy.title,
+    displayMessage: copy.message,
+    severity: "error",
+    diagnostics: { provider: error.provider },
+    details: {
+      operation: error.operation,
+      retryable: false,
+      providerCode: "provider_operation_unsupported",
+    },
+  });
+}
+
 /** True when the provider reported that the requested image/template does not exist. */
 function providerImageNotFound(cause: unknown): boolean {
   let current: unknown = cause;
@@ -577,8 +807,10 @@ function providerImageNotFound(cause: unknown): boolean {
     const record = current as { body?: { code?: unknown }; cause?: unknown; message?: unknown };
     const code = typeof record.body?.code === "string" ? record.body.code : "";
     const message = typeof record.message === "string" ? record.message : "";
-    if (/IMAGE_NOT_FOUND|TEMPLATE_NOT_FOUND/i.test(code)) return true;
-    if (/IMAGE_NOT_FOUND|TEMPLATE_NOT_FOUND|(image|template)\s+'[^']*'\s+not found|(image|template) not found/i.test(message)) {
+    // Freestyle resolves an image to a SNAPSHOT id, so its missing-image
+    // answer is a snapshot 404, not an IMAGE_NOT_FOUND code.
+    if (/IMAGE_NOT_FOUND|TEMPLATE_NOT_FOUND|SNAPSHOT_NOT_FOUND/i.test(code)) return true;
+    if (/IMAGE_NOT_FOUND|TEMPLATE_NOT_FOUND|SNAPSHOT_NOT_FOUND|(image|template|snapshot)\s+'[^']*'\s+not found|(image|template|snapshot) not found/i.test(message)) {
       return true;
     }
     current = record.cause;
@@ -631,6 +863,12 @@ function cloudServiceAction(operation: string, retryAfterSeconds: number | undef
 }
 
 function defaultVmDisplayTitle(input: VmErrorResponseInput): string {
+  // Billing-team resolution shares the 409/403 statuses with unrelated
+  // failures; title it as the team problem it is instead of the generic
+  // "operation already running" that pure-status mapping would produce.
+  if (input.error === "vm_billing_team_required" || input.error === "vm_billing_team_not_found") {
+    return "Cloud VM team required";
+  }
   if (input.status === 409) return "Cloud VM operation already running";
   if (input.status === 404) return "Cloud VM not found";
   if (input.status === 401 || input.status === 403) return "Cloud VM authentication required";
@@ -647,6 +885,10 @@ function normalizedRetryAfterSeconds(value: number | undefined): number | undefi
 function vmPhaseForOperation(operation: string): VmLifecyclePhase {
   if (operation.includes("openAttach")) return "attach";
   if (operation.includes("openSSH")) return "ssh";
+  // Before the "create" check: createTunnel/createNetwork are network setup,
+  // not machine creation, and a client that read them as "create" would show
+  // machine-provisioning errors for a tunnel problem.
+  if (operation.includes("Network") || operation.includes("Tunnel")) return "network";
   if (operation.includes("create")) return "create";
   if (operation.includes("restore")) return "restore";
   if (operation.includes("fork")) return "fork";
@@ -729,7 +971,6 @@ function sanitizedProviderMessage(message: string): string {
   if (/not found|deleted/i.test(normalized)) return "VM not found";
   return normalized
     .replace(/freestyle/gi, "Cloud VM")
-    .replace(/e2b/gi, "Cloud VM")
     .slice(0, 240);
 }
 
@@ -823,4 +1064,26 @@ function allowedBrowserOrigins(): Set<string> {
 function normalizedOptionalString(value: string | null | undefined): string | null {
   const normalized = value?.trim();
   return normalized ? normalized : null;
+}
+
+/**
+ * Run best-effort work once the response has been sent. Vercel keeps the
+ * function alive for `after` callbacks; outside a request scope (tests, a
+ * plain Node server) `after` throws, and the work runs detached instead.
+ * Failures are logged, never surfaced to the response that already left.
+ */
+export function runAfterResponse(work: () => Promise<void>): void {
+  const guarded = () => work().catch((err) => console.error("[VM] deferred work failed", err));
+  let mode: "after" | "detached" = "after";
+  try {
+    after(guarded);
+  } catch (err) {
+    // Next throws E91 when the platform gave it no `waitUntil`. Detached work
+    // then dies the moment the function is frozen, so say so where it can be
+    // seen: a log line before the response and an attribute on the request span.
+    mode = "detached";
+    console.warn(`[VM] after() unavailable, running deferred work detached: ${err instanceof Error ? err.message : String(err)}`);
+    void guarded();
+  }
+  trace.getActiveSpan()?.setAttribute("cmux.after_response.mode", mode);
 }

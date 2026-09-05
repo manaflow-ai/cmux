@@ -62,6 +62,7 @@ pub(super) struct PluginPlan {
     pub name: Option<String>,
     pub force: bool,
     pub builtin: bool,
+    pub kind: crate::plugin_manager::PluginKind,
 }
 
 #[derive(Clone, Debug)]
@@ -180,6 +181,7 @@ pub(super) fn parse(args: &[String]) -> Result<CommandPlan, UsageError> {
 fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
     let action = match strs(words).as_slice() {
         ["status"] => super::lifecycle::ServerAction::Status,
+        ["stats"] => super::lifecycle::ServerAction::Stats,
         ["ensure"] => super::lifecycle::ServerAction::Ensure,
         ["stop"] => super::lifecycle::ServerAction::Stop { force: flags.boolean("force") },
         ["reload-config"] => super::lifecycle::ServerAction::ReloadConfig,
@@ -192,7 +194,10 @@ fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
             let messages = &crate::localization::catalog().local_server;
             return Err(UsageError::new(messages.unknown_server_action(
                 action,
-                super::suggestion(action, &["start", "ensure", "status", "stop", "reload-config"]),
+                super::suggestion(
+                    action,
+                    &["stats", "start", "ensure", "status", "stop", "reload-config"],
+                ),
             )));
         }
         _ => {
@@ -1335,6 +1340,9 @@ fn parse_notification(words: &[String], flags: &mut Flags) -> Result<CommandPlan
 fn parse_agent(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
     let selectors = Selectors::default();
     match strs(words).as_slice() {
+        ["plugin", tail @ ..] => {
+            parse_plugin(tail, flags, crate::plugin_manager::PluginKind::Agent)
+        }
         ["hook", action @ ("install" | "uninstall" | "status"), providers @ ..] => {
             let action = match *action {
                 "install" => crate::agent_hook_install::Action::Install,
@@ -1505,12 +1513,18 @@ fn parse_sidebar(
             insert_selector_or_current(selectors, flags, "view", "sidebar_view", "sidebar_view")?;
             request(ResourceOperation::SidebarViewReload, selectors, flags, Map::new())
         }
-        ["plugin", tail @ ..] => parse_plugin(tail, flags),
+        ["plugin", tail @ ..] => {
+            parse_plugin(tail, flags, crate::plugin_manager::PluginKind::Sidebar)
+        }
         _ => usage("sidebar action"),
     }
 }
 
-fn parse_plugin(words: &[&str], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
+fn parse_plugin(
+    words: &[&str],
+    flags: &mut Flags,
+    kind: crate::plugin_manager::PluginKind,
+) -> Result<CommandPlan, UsageError> {
     let mut positionals = vec![];
     let mut builtin = false;
     match words {
@@ -1535,13 +1549,14 @@ fn parse_plugin(words: &[&str], flags: &mut Flags) -> Result<CommandPlan, UsageE
             positionals.push("remove".into());
             positionals.push((*name).into());
         }
-        _ => return usage("sidebar plugin action"),
+        _ => return usage("plugin action"),
     }
     let plan = PluginPlan {
         positionals,
         name: flags.take("name"),
         force: flags.boolean("force"),
         builtin,
+        kind,
     };
     Ok(CommandPlan::Plugin(plan))
 }
@@ -2636,6 +2651,7 @@ pub(super) fn run_plugin(global: GlobalArgs, plan: PluginPlan) -> i32 {
             force: plan.force,
             builtin: plan.builtin,
         },
+        plan.kind,
     ) {
         Ok(result) => super::wire::print_local_success(&result, global.output),
         Err(error) => {
@@ -2941,6 +2957,15 @@ mod tests {
         let tokens = tokenize(&strings(&["workspace", "create", "--name", "value"]))
             .expect("value flag must tokenize");
         assert_eq!(tokens.flags.values.get("name"), Some(&Some("value".to_string())));
+    }
+
+    #[test]
+    fn server_stats_typo_suggests_stats_action() {
+        let error = match parse(&strings(&["server", "stat"])) {
+            Err(error) => error,
+            Ok(_) => panic!("unknown server action must be rejected"),
+        };
+        assert!(error.0.contains("Did you mean `stats`?"), "{error}");
     }
 
     #[test]
@@ -3855,6 +3880,25 @@ mod tests {
             .map(String::as_str)
             .collect::<std::collections::BTreeSet<_>>();
         assert_eq!(seen, expected);
+    }
+
+    #[test]
+    fn agent_plugin_management_stays_local_and_can_be_disabled() {
+        let cases = [
+            (vec!["agent", "plugin", "list"], false),
+            (vec!["agent", "plugin", "install", "https://example.com/plugin.git"], false),
+            (vec!["agent", "plugin", "use", "screen-detector"], false),
+            (vec!["agent", "plugin", "update", "screen-detector"], false),
+            (vec!["agent", "plugin", "remove", "screen-detector"], false),
+            (vec!["agent", "plugin", "use", "--builtin"], true),
+        ];
+        for (args, builtin) in cases {
+            let CommandPlan::Plugin(plan) = parse(&strings(&args)).unwrap() else {
+                panic!("agent plugin command did not stay local: {args:?}");
+            };
+            assert_eq!(plan.kind, crate::plugin_manager::PluginKind::Agent);
+            assert_eq!(plan.builtin, builtin);
+        }
     }
 
     #[test]

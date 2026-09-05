@@ -146,6 +146,7 @@ extension MobileShellComposite {
             )
         foregroundMacDeviceID = macDeviceID
         supportedHostCapabilities = subscription.supportedHostCapabilities
+        adoptSecondaryCaffeineStatusForPromotedForeground(ownerKey: ownerKey)
         terminalOutputTransport = Self.resolvedTerminalOutputTransport(
             capabilities: subscription.supportedHostCapabilities,
             terminalFidelity: nil

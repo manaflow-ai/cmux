@@ -135,17 +135,28 @@ enum SurfacePaneFactory {
         guard let workspace = workspace(id: workspaceID) else { throw FactoryError.workspaceNotFound(workspaceID) }
         let controller = TerminalController.shared
         let routing = routing(workspaceID: workspaceID)
-        switch destination {
-        case .tab(_, let paneID, _):
-            guard let requestedPane = UUID(uuidString: paneID) else { throw FactoryError.paneNotFound(paneID) }
-            return try tab(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, workingDirectory: workingDirectory, requestedPane: requestedPane, focus: focus)
-        case .workspace(_, .tab):
-            return try tab(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, workingDirectory: workingDirectory, requestedPane: nil, focus: focus)
-        case .split(_, let paneID, let direction):
-            let anchor = try anchorSurface(paneID: paneID, in: workspace)
-            return try split(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, workingDirectory: workingDirectory, direction: direction, anchor: anchor, focus: focus)
-        case .workspace(_, .split):
-            return try split(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, workingDirectory: workingDirectory, direction: .right, anchor: nil, focus: focus)
+        // The create/split handlers honor a focus request only inside a socket command
+        // whose policy allows focus (`v2FocusAllowed`); with no command active the
+        // stack is empty and the request is dropped, so a Cmd+T / Cmd+D / sidebar
+        // gesture would add the tab without selecting it. `focus` is the caller's
+        // already-decided intent, so run the handler under a frame carrying it. A
+        // frame already on the stack is a socket command's policy and still wins: a
+        // command that may not move focus cannot regain it through the factory.
+        // Activation stays suppressed either way (`shouldSuppressSocketCommandActivation`).
+        let outerAllowsFocus = TerminalController.currentSocketCommandFocusAllowanceStack().last ?? true
+        return try TerminalController.withSocketCommandPolicyStack([focus && outerAllowsFocus]) {
+            switch destination {
+            case .tab(_, let paneID, _):
+                guard let requestedPane = UUID(uuidString: paneID) else { throw FactoryError.paneNotFound(paneID) }
+                return try tab(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, workingDirectory: workingDirectory, requestedPane: requestedPane, focus: focus)
+            case .workspace(_, .tab):
+                return try tab(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, workingDirectory: workingDirectory, requestedPane: nil, focus: focus)
+            case .split(_, let paneID, let direction):
+                let anchor = try anchorSurface(paneID: paneID, in: workspace)
+                return try split(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, workingDirectory: workingDirectory, direction: direction, anchor: anchor, focus: focus)
+            case .workspace(_, .split):
+                return try split(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, workingDirectory: workingDirectory, direction: .right, anchor: nil, focus: focus)
+            }
         }
     }
 
@@ -269,6 +280,15 @@ enum SurfaceBrowserPlaceholder {
                 .joined()
         } ?? ""
         let spinnerHTML = spinner ? "<div class=\"spinner\" role=\"progressbar\"></div>" : ""
+        // The spinner's stylesheet ships only with a spinner: the failed page
+        // must carry no trace of one (the tests assert on the whole document).
+        let spinnerCSS = spinner ? """
+
+          .spinner { width: 22px; height: 22px; margin: 0 auto 14px; border-radius: 50%;
+                     border: 2px solid rgba(216,222,233,0.25); border-top-color: #d8dee9;
+                     animation: spin 0.9s linear infinite; }
+          @keyframes spin { to { transform: rotate(360deg); } }
+        """ : ""
         return """
         <!doctype html>
         <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -279,11 +299,7 @@ enum SurfaceBrowserPlaceholder {
                  font: 14px -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif; }
           main { text-align: center; max-width: 36em; padding: 0 1.5em; }
           h1 { font-size: 15px; font-weight: 500; margin: 0 0 0.6em; }
-          p { margin: 0.3em 0; opacity: 0.8; word-break: break-word; }
-          .spinner { width: 22px; height: 22px; margin: 0 auto 14px; border-radius: 50%;
-                     border: 2px solid rgba(216,222,233,0.25); border-top-color: #d8dee9;
-                     animation: spin 0.9s linear infinite; }
-          @keyframes spin { to { transform: rotate(360deg); } }
+          p { margin: 0.3em 0; opacity: 0.8; word-break: break-word; }\(spinnerCSS)
         </style></head>
         <body><main>\(spinnerHTML)<h1>\(escape(title))</h1>\(detailHTML)</main></body></html>
         """

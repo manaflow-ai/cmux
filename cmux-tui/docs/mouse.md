@@ -1,8 +1,14 @@
 # Mouse
 
+Sidebar behavior follows the shared
+[presentation system](../../docs/sidebar-system-design.md). A split shows
+views together, a profile strip changes the arrangement, and context menus
+manage mounts. All three use the same semantic actions as keyboard, palette,
+CLI, and agent control.
+
 ## Click Targets
 
-The files sidebar view (`sidebar.view = "files"`) shows the focused pane's cwd, one row per directory/file, and a count or filter footer. A single click selects a file row. Crossterm's mouse events do not expose an existing double-click concept here, so clicks do not open or descend; use Enter or Right while the sidebar is focused. Toggle to the workspaces view with focused-sidebar `Tab` or the `toggle-sidebar-view` action.
+The files sidebar view (`sidebar.view = "files"`) shows the focused pane's cwd, one row per directory/file, and a count or filter footer. A single click selects a file row. Configured workspace-host actions remain clickable in their configured top or bottom section and use the same action reducer as keyboard commands. Wheel input over files moves the file viewport by three rows. Wheel input over a clipped action section moves its profile-local viewport by one row. Both keep the selected activation target unchanged. The footer shows the hidden action count, and the file body shows a scrollbar when file rows are hidden. Keyboard movement, a row click, filtering, directory reload, and resize reveal the selected row again. Crossterm's mouse events do not expose an existing double-click concept here, so clicks do not open or descend; use Enter or Right while the sidebar is focused. Toggle to the workspaces view with focused-sidebar `Tab` or the `toggle-sidebar-view` action.
 
 The workspaces view shows two rows per workspace and `+ new workspace`, with no header row. Click either row of a workspace to select it. Click `+ new workspace` to create one. Its terminal-style scrollbar appears one column inside the resize divider only when workspace rows overflow. Wheel over the rail, click the scrollbar's invisible track, or drag its thumb to scroll the workspace list. Drag the sidebar's right border in either built-in view to set a session-local width override. Configured `sidebar.max_width` limits the drag width when it is greater than zero, and the TUI still leaves at least 40 columns for panes.
 
@@ -51,6 +57,19 @@ Right-click a pane for rename tab, close tab, new pane, new tab, new browser tab
 
 Right-click anywhere inside the sidebar, including its top pad, empty space, file rows, projected tree rows, and divider, for show/hide, compact/full, and focus actions. Workspace rows also include rename, close, and copy-ID actions. Tab and agent rows rename the exact surface represented by that row. Switching between files and workspaces remains a keyboard action (`Ctrl-b e` by default) and is not in the context menu. Right-click a status-bar screen for its screen actions plus Show/Hide Sidebar.
 
+In the native sidebar region, click a profile name in the strip to select that
+layout. This works while the workspace rail shows Files or Workspaces. A click
+from a pane keeps keyboard focus in the pane, so profile discovery cannot steal
+typing. A click from any sidebar rail keeps sidebar focus and restores the same
+semantic rail when the target profile has it, or chooses its first eligible rail
+when it does not. A missing Agents rail prefers a Workspaces rail because it
+preserves the workflow's semantic parent before using a generic fallback. Click
+its ellipsis, or right-click anywhere in the sidebar, to open layout controls. The menu can
+select a profile, hide a visible view, restore a hidden view, or allow a
+restored view to auto-hide again. Hidden entries state whether width, height,
+or an explicit choice hid them. Menu resources capture stable profile and view
+IDs, so a config reorder cannot retarget an open action.
+
 Each context menu includes Keyboard shortcuts, which opens the same modal as `Ctrl-b ?`. The modal has a visible `[Esc close]` button and a terminal-style scrollbar when its rows overflow, with wheel, track-click, and thumb-drag control. Every menu action with a configured key shows the resolved shortcut on the right. Remapped prefix and action keys appear immediately, and unbound actions omit the shortcut.
 
 Menus draw bordered overlays. Divider rows collapse as needed to keep every action visible when the flat menu would fit. When rows overflow, the menu draws the shared native scrollbar and supports wheel, track click, and thumb drag. Up and Down move the selected row, Home and End jump to the first and last action, Enter activates it, and Esc closes the menu. A right press, drag to a row, and release activates that row. A plain right-click opens the menu and leaves it open.
@@ -60,6 +79,8 @@ Menus draw bordered overlays. Divider rows collapse as needed to keep every acti
 Clicks, releases, and motion inside a PTY pane are forwarded when the inner app enables terminal mouse tracking. cmux uses Ghostty's encoder so X10, UTF-8, SGR, URxvt, and SGR pixel modes follow the app's terminal state. Hold Shift to bypass mouse reporting and use cmux text selection.
 
 Drag inside a PTY pane to select text when mouse tracking is disabled or Shift is held. Releasing copies non-empty selected text to the host clipboard with OSC 52. The selection stores absolute scrollback rows, so it remains stable while the viewport scrolls.
+
+Double-click a terminal word, or its surrounding whitespace run, to select the complete Ghostty-defined word. Keep the button down after the second press and drag to extend the selection by complete words in either direction. A third nearby click selects the complete logical line and line drag extends it. A click that is too slow, too far away, on another screen, or on another UI target starts a new selection gesture.
 
 Holding a selection drag at the top or bottom content edge auto-scrolls and extends the selection. Typing clears the selection. If the selected surface exits, the selection is cleared.
 

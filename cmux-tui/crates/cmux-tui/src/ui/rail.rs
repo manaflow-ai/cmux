@@ -1,8 +1,14 @@
 //! Shared visual primitives for the machine and workspace rails.
+//!
+//! The agent-row geometry used by the agents rail follows herdr's panel
+//! layout in `src/app/agent_view.rs` at commit
+//! `7b675f42af35508eab66ac42fe1598628597a893` (Apache-2.0), modified by
+//! manaflow for cmux's shared rail metrics and narrow terminals.
 
 use cmux_tui_core::Rect;
 use ratatui::Frame;
 use ratatui::style::{Color, Modifier, Style};
+use unicode_width::UnicodeWidthStr;
 
 use super::truncate;
 use crate::app::App;
@@ -190,6 +196,22 @@ pub fn prepare(frame: &mut Frame, area: Rect, palette: RailPalette) {
     }
 }
 
+/// Draw a compact informational readout on the rail's top pad row, right
+/// aligned and dimmed so it reads as chrome rather than as a selectable
+/// entry. Skipped entirely when the rail is too narrow to show it whole.
+pub fn header_readout(frame: &mut Frame, area: Rect, text: &str, palette: RailPalette) {
+    if area.width < 3 || area.height == 0 {
+        return;
+    }
+    let content_width = usize::from(area.width.saturating_sub(1));
+    let width = UnicodeWidthStr::width(text);
+    if width == 0 || width + 2 > content_width {
+        return;
+    }
+    let x = area.x + (content_width - width - 1) as u16;
+    frame.buffer_mut().set_stringn(x, area.y, text, width, palette.dim);
+}
+
 pub struct Entry<'a> {
     pub name: &'a str,
     pub subtitle: &'a str,
@@ -315,53 +337,193 @@ pub fn button(
 /// Dense one-line row used by configurable resource trees. The returned
 /// rectangle is the disclosure target when the row has children.
 #[allow(clippy::too_many_arguments)]
+/// Status glyph painted in the disclosure slot of a leaf tree row: a bold
+/// colored dot for states that need attention, a dim open circle for an
+/// at-rest state (herdr's idle marker).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TreeRowIndicator {
+    Dot(Color),
+    Circle,
+}
+
+/// One projected tree row. `second_line` renders dim under the name and
+/// makes the row two terminal lines tall (herdr-style agent rows).
+pub struct TreeRow<'a> {
+    pub depth: u16,
+    pub name: &'a str,
+    pub detail: &'a str,
+    pub second_line: Option<&'a str>,
+    pub branch: Option<bool>,
+    pub indicator: Option<TreeRowIndicator>,
+    pub highlighted: bool,
+    pub active: bool,
+}
+
 pub fn tree_row(
     frame: &mut Frame,
     area: Rect,
     y: u16,
-    depth: u16,
-    name: &str,
-    detail: &str,
-    branch: Option<bool>,
-    highlighted: bool,
-    active: bool,
+    row: TreeRow<'_>,
     palette: RailPalette,
 ) -> Option<Rect> {
     if y >= area.y.saturating_add(area.height) || area.width < 3 {
         return None;
     }
+    let rows =
+        if row.second_line.is_some() && y.saturating_add(1) < area.y.saturating_add(area.height) {
+            2u16
+        } else {
+            1u16
+        };
     let content_width = area.width.saturating_sub(1);
-    let style = if highlighted { palette.active } else { palette.base };
+    let style = if row.highlighted { palette.active } else { palette.base };
     let detail_style =
-        if highlighted { palette.active.add_modifier(Modifier::DIM) } else { palette.dim };
+        if row.highlighted { palette.active.add_modifier(Modifier::DIM) } else { palette.dim };
     let buf = frame.buffer_mut();
-    if highlighted {
-        for x in area.x..area.x.saturating_add(content_width) {
-            buf[(x, y)].set_symbol(" ").set_style(style);
+    if row.highlighted {
+        for line in 0..rows {
+            for x in area.x..area.x.saturating_add(content_width) {
+                buf[(x, y + line)].set_symbol(" ").set_style(style);
+            }
         }
     }
-    if active && let Some(glyph) = palette.rail_glyph {
+    if row.active
+        && let Some(glyph) = palette.rail_glyph
+    {
         let mut encoded = [0u8; 4];
-        buf[(area.x, y)]
-            .set_symbol(glyph.encode_utf8(&mut encoded))
-            .set_style(style.fg(palette.rail));
+        let symbol: &str = glyph.encode_utf8(&mut encoded);
+        for line in 0..rows {
+            buf[(area.x, y + line)].set_symbol(symbol).set_style(style.fg(palette.rail));
+        }
     }
     let disclosure_x = area
         .x
         .saturating_add(1)
-        .saturating_add(depth.saturating_mul(2))
+        .saturating_add(row.depth.saturating_mul(2))
         .min(area.x.saturating_add(content_width.saturating_sub(1)));
-    let disclosure = branch.map(|expanded| {
+    let disclosure = row.branch.map(|expanded| {
         buf[(disclosure_x, y)].set_symbol(if expanded { "▾" } else { "▸" }).set_style(detail_style);
         Rect { x: disclosure_x, y, width: 1, height: 1 }
     });
+    // Leaf rows reuse the disclosure slot for the state glyph.
+    if disclosure.is_none() {
+        match row.indicator {
+            Some(TreeRowIndicator::Dot(color)) => {
+                buf[(disclosure_x, y)]
+                    .set_symbol("●")
+                    .set_style(style.fg(color).add_modifier(Modifier::BOLD));
+            }
+            Some(TreeRowIndicator::Circle) => {
+                buf[(disclosure_x, y)].set_symbol("○").set_style(detail_style);
+            }
+            None => {}
+        }
+    }
     let name_x = disclosure_x.saturating_add(2);
     let available = area.x.saturating_add(content_width).saturating_sub(name_x) as usize;
     if available > 0 {
-        let label = if detail.is_empty() { name.to_string() } else { format!("{name}  {detail}") };
+        let label = if row.detail.is_empty() {
+            row.name.to_string()
+        } else {
+            format!("{}  {}", row.name, row.detail)
+        };
         buf.set_stringn(name_x, y, truncate(&label, available), available, style);
+        if rows == 2
+            && let Some(second_line) = row.second_line
+        {
+            buf.set_stringn(
+                name_x,
+                y + 1,
+                truncate(second_line, available),
+                available,
+                detail_style,
+            );
+        }
     }
     disclosure
+}
+
+/// One-line view header with an optional filter disclosure. The full marker
+/// text is preferred, but a compact bullet remains visible when a narrow rail
+/// cannot fit both the title and the localized marker.
+pub fn view_header_with_filter(
+    frame: &mut Frame,
+    area: Rect,
+    y: u16,
+    title: &str,
+    mode: &str,
+    filter_marker: Option<&str>,
+    palette: RailPalette,
+) {
+    if y >= area.y.saturating_add(area.height) || area.width < 3 {
+        return;
+    }
+    let content_width = area.width.saturating_sub(1);
+    let buf = frame.buffer_mut();
+    let title_style = palette.base.add_modifier(Modifier::BOLD);
+    let available = content_width.saturating_sub(1) as usize;
+    if available == 0 {
+        return;
+    }
+
+    let left_x = area.x.saturating_add(1);
+    let right_x = area.x.saturating_add(content_width);
+    let title_width = title.width();
+    let full_mode = filter_marker.map(|marker| format!("{marker} · {mode}"));
+    let full_mode = full_mode.as_deref().unwrap_or(mode);
+    let full_mode_width = full_mode.width();
+    let title_mode_gap = 2usize;
+
+    // Keep the complete localized marker whenever the title and label fit.
+    if title_width.saturating_add(title_mode_gap).saturating_add(full_mode_width) <= available {
+        buf.set_stringn(left_x, y, title, title_width, title_style);
+        let mode_x = right_x.saturating_sub(full_mode_width as u16);
+        buf.set_stringn(mode_x, y, full_mode, full_mode_width, palette.dim);
+        return;
+    }
+
+    // Preserve the old title/mode layout for an unfiltered header. A long
+    // title may force the mode to disappear, but there is no disclosure cell
+    // to reserve in that case.
+    let Some(_filter_marker) = filter_marker else {
+        let title_rendered = truncate(title, available);
+        let title_rendered_width = title_rendered.width();
+        buf.set_stringn(left_x, y, &title_rendered, title_rendered_width, title_style);
+        let mode_budget = available.saturating_sub(title_rendered_width.saturating_add(2));
+        let mode = truncate(mode, mode_budget);
+        let mode_width = mode.width() as u16;
+        if mode_width > 0 {
+            let mode_x = right_x.saturating_sub(mode_width);
+            buf.set_stringn(mode_x, y, &mode, mode_width as usize, palette.dim);
+        }
+        return;
+    };
+
+    // A filter must remain discoverable even at the minimum rail width. Keep
+    // one cell for a compact marker and use any space between it and the title
+    // for the current sort mode.
+    let compact_marker = "•";
+    let marker_width = compact_marker.width();
+    let title_budget = available.saturating_sub(marker_width.saturating_add(1));
+    let title_rendered = truncate(title, title_budget);
+    let title_rendered_width = title_rendered.width();
+    buf.set_stringn(left_x, y, &title_rendered, title_rendered_width, title_style);
+
+    let marker_x = right_x.saturating_sub(marker_width as u16);
+    buf.set_stringn(marker_x, y, compact_marker, marker_width, palette.dim);
+
+    let title_gap = usize::from(title_rendered_width > 0);
+    let mode_budget = usize::from(marker_x.saturating_sub(left_x))
+        .saturating_sub(title_rendered_width)
+        .saturating_sub(title_gap);
+    if mode_budget > 0 {
+        let mode = truncate(mode, mode_budget);
+        let mode_width = mode.width() as u16;
+        if mode_width > 0 {
+            let mode_x = marker_x.saturating_sub(mode_width);
+            buf.set_stringn(mode_x, y, &mode, mode_width as usize, palette.dim);
+        }
+    }
 }
 
 pub fn row(area: Rect, y: u16) -> Rect {
@@ -416,6 +578,41 @@ mod tests {
         assert_eq!(buffer[(1, 0)].symbol(), "•");
         assert_eq!(buffer[(3, 0)].symbol(), "m");
         assert_eq!(buffer[(1, 1)].symbol(), "r");
+    }
+
+    #[test]
+    fn filtered_agents_view_header_keeps_a_marker_at_minimum_width() {
+        let area = Rect { x: 0, y: 0, width: 10, height: 1 };
+        let mut terminal = Terminal::new(TestBackend::new(10, 1)).unwrap();
+        let palette = RailPalette {
+            base: Style::default(),
+            dim: Style::default(),
+            active: Style::default(),
+            border: Style::default(),
+            border_symbol: "│",
+            rail: Color::Cyan,
+            rail_glyph: None,
+        };
+        terminal
+            .draw(|frame| {
+                prepare(frame, area, palette);
+                view_header_with_filter(
+                    frame,
+                    area,
+                    0,
+                    "agents",
+                    "priority",
+                    Some("filtered"),
+                    palette,
+                );
+            })
+            .unwrap();
+
+        let buffer = terminal.backend().buffer();
+        assert_eq!(buffer[(1, 0)].symbol(), "a");
+        assert_eq!(buffer[(6, 0)].symbol(), "s");
+        assert_eq!(buffer[(8, 0)].symbol(), "•");
+        assert_eq!(buffer[(9, 0)].symbol(), "│");
     }
 
     #[test]

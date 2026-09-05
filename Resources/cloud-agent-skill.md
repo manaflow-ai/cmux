@@ -9,6 +9,7 @@ You are helping the user work with cmux Cloud machines through the `cmux` CLI. T
 - New machines boot a desktop image (xfce + noVNC) plus a shell, with a persistent per-machine home. `--base` gives a shell-only machine.
 - Base is a separate single per-user persistent slot, pinned to the top of the sidebar. `cmux vm new` mints fresh machines; `cmux vm base` always reopens the same one.
 - Terminals on a machine live in its cmux-tui session (workspaces `ws_…`, terminals `term_…`). They keep running detached. `cmux vm tree` catalogs every surface, and every line is an address `cmux vm open` (machine targets) or `cmux surface open` (any entry, including This Mac) accepts: `brave-otter/main/term_2f9c…`, `brave-otter:desktop`, `brave-otter:port/3000`.
+- One machine hosts many workspaces. Make a workspace per task *inside* the machine (`cmux vm workspace new <id> --name <task>`, the machine's ⌘N) rather than a machine per task; the Cloud sidebar groups them under the machine's Workspaces group. `cmux vm open <machine>/<ws>` takes the `ws_…` id, or the workspace name only when exactly one workspace has it (colliding names need the id), and starts a shell in an empty one.
 - Pool machines (labeled `agent-pool` in `cmux vm ls`) are provisioned by the `vm run`/`vm agent` router and reused for routed work. The router never drafts machines a person made by hand.
 - Plans cap active machine count and memory. `cmux vm ls` prints the meter and, on free plans, when free cloud access expires.
 
@@ -53,6 +54,27 @@ cmux vm open <machine>:desktop
 cmux vm open <machine> <port> [--print]  # private tokened URL for an HTTP port
 cmux vm ssh <id>                         # SSH fallback; unavailable on some providers/images
 ```
+
+Machine workspaces, terminals, and panes (everything the Cloud sidebar does):
+
+```
+cmux vm workspace new <id> [--name <n>]     # create a workspace on the machine (its ⌘N) and open it here
+cmux vm workspace open <id> <ws> [--here|--tabs|--pane <p> --left|--right|--up|--down]
+cmux vm workspace rename <id> <ws> <name>
+cmux vm workspace rm <id> <ws>              # close the workspace AND kill every terminal in it (the sidebar's Close Workspace…)
+cmux vm workspace close <id> <ws>           # CLI-only: close the workspace but keep its terminals running in the Terminals pool
+cmux vm terminal close <id> <term>          # end one terminal (the process and its tab)
+cmux vm terminal send <id> <term> 'bun test' --keys enter   # type into a terminal headlessly, then press keys (no pane, no focus)
+cmux vm terminal wait <id> <term> --pattern 'pass|fail' [--timeout 120]   # block until the screen matches; exit 1 on timeout
+cmux vm terminal read <id> <term>           # the terminal's visible screen (what a person would see)
+cmux surface ls [--json]                    # every surface (This Mac + machines) and which panes show it
+cmux surface open <machine>/<kind>/<key> [--new] [--pane <p> --left|--right|--up|--down|--tab]
+cmux surface new-terminal --machine <id> [--remote-workspace <ws>] [--cwd <dir>] [-- <cmd...>]
+```
+
+A pane showing a machine surface is an ordinary local cmux pane: move, split, reorder, or close it with the local workspace/pane commands (`cmux --help`), and closing a pane never kills the machine's terminal. Workspace (`ws_…`) and terminal (`term_…`) ids come from `cmux vm tree`.
+
+`terminal send/wait/read` is how you drive an interactive program on a machine (a REPL, a TUI, a long test run, another agent's session) without attaching a pane or taking the user's focus: start it with `surface new-terminal --machine <id> --no-open -- <cmd>`, then send input, wait for the prompt or result pattern, and read the screen. Open a pane for the person only when there is something to show.
 
 Run commands:
 

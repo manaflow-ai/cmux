@@ -60,9 +60,11 @@ pub(crate) use journal_extensions::{
 pub use public_projection_store::RegistryPublicProjections;
 #[cfg(test)]
 pub use public_projection_store::{RegistryAgentProjection, RegistryNotificationProjection};
+#[cfg(test)]
+pub(crate) use resource_store::AGENT_HOOK_MAX_ATTEMPTS;
 pub(crate) use resource_store::validate_registry_screen_projection;
 pub(crate) use resource_store::{
-    AGENT_HOOK_MAX_ATTEMPTS, AGENT_HOOK_MAX_RETRY_PAGES_PER_WAKE, AgentHookProjectionState,
+    AGENT_HOOK_MAX_RETRY_PAGES_PER_WAKE, AgentHookPendingFailure, AgentHookProjectionState,
     AgentHookRetryClass,
 };
 #[allow(unused_imports)]
@@ -97,7 +99,8 @@ pub(crate) use session_journal::{SessionJournalReader, unix_epoch_ms};
 // one branch. Version 12 scopes receipts by origin. Version 13 adds immutable
 // binary content to journal rows. Version 14 gives resource API frontend
 // projections one owned envelope instead of storing anonymous projection JSON.
-const SCHEMA_VERSION: i64 = 14;
+// Version 15 normalizes legacy terminal exits to the exact public receipt shape.
+const SCHEMA_VERSION: i64 = 15;
 pub(crate) const RESOURCE_API_FRONTEND_PROJECTION_SCHEMA_VERSION: u32 = 2;
 const RESOURCE_EFFECT_PEPPER_SCHEMA_VERSION: i64 = 7;
 const MAX_ID_LEN: usize = 128;
@@ -121,6 +124,7 @@ const RESOURCE_EFFECT_PEPPER_FILE: &str = "resource-effect-pepper";
 const RESOURCE_EFFECT_PEPPER_LOCK_FILE: &str = "resource-effect-pepper.lock";
 const RESOURCE_EFFECT_PEPPER_META_KEY: &str = "resource_effect_pepper_id";
 const RESOURCE_EFFECT_PEPPER_CLEANUP_META_KEY: &str = "resource_effect_pepper_cleanup_pending";
+const JOURNAL_PLUGIN_GENERATION_META_KEY: &str = "journal_plugin_generation";
 const RESOURCE_EFFECT_PEPPER_ID_DOMAIN: &[u8] = b"cmux.resource-effect-pepper-id.v1";
 const RESOURCE_INPUT_RECEIPT_DOMAIN: &[u8] = b"cmux.resource-input-receipt.v2";
 const WORKSPACE_REGISTRY_FILE: &str = "workspace-registry.sqlite3";
@@ -2412,13 +2416,14 @@ impl WorkspaceRegistry {
                 require_resource_effect_pepper_id(&tx, &resource_effect_pepper_id)?;
                 tx.commit()?;
             }
-            Some(9..=13) => {
+            Some(9..=14) => {
                 let tx = connection.unchecked_transaction()?;
                 create_workspace_schema(&tx)?;
                 create_terminal_schema(&tx)?;
                 create_resource_schema(&tx)?;
                 create_resource_effect_schema(&tx)?;
                 normalize_journal_multiview_schema(&tx)?;
+                terminal_exit_store::migrate_legacy_terminal_exit_receipts(&tx)?;
                 tx.execute(
                     "UPDATE meta SET value = ?1 WHERE key = 'schema_version'",
                     [SCHEMA_VERSION.to_string()],
@@ -2443,6 +2448,7 @@ impl WorkspaceRegistry {
                 backfill_workspace_public_ids(&tx)?;
                 migrate_resource_agent_projections(&tx)?;
                 normalize_journal_multiview_schema(&tx)?;
+                terminal_exit_store::migrate_legacy_terminal_exit_receipts(&tx)?;
                 require_resource_effect_pepper_id(&tx, &resource_effect_pepper_id)?;
                 tx.execute(
                     "UPDATE meta SET value = ?1 WHERE key = 'schema_version'",
@@ -2468,6 +2474,7 @@ impl WorkspaceRegistry {
                 backfill_workspace_public_ids(&tx)?;
                 migrate_resource_agent_projections(&tx)?;
                 normalize_journal_multiview_schema(&tx)?;
+                terminal_exit_store::migrate_legacy_terminal_exit_receipts(&tx)?;
                 migrate_resource_effect_pepper(&tx, &resource_effect_pepper_id)?;
                 tx.commit()?;
             }
@@ -2489,6 +2496,7 @@ impl WorkspaceRegistry {
                 backfill_workspace_public_ids(&tx)?;
                 migrate_resource_agent_projections(&tx)?;
                 normalize_journal_multiview_schema(&tx)?;
+                terminal_exit_store::migrate_legacy_terminal_exit_receipts(&tx)?;
                 require_resource_effect_pepper_id(&tx, &resource_effect_pepper_id)?;
                 tx.execute(
                     "UPDATE meta SET value = ?1 WHERE key = 'schema_version'",
@@ -2505,6 +2513,7 @@ impl WorkspaceRegistry {
                 ensure_session_public_id(&tx)?;
                 migrate_resource_agent_projections(&tx)?;
                 normalize_journal_multiview_schema(&tx)?;
+                terminal_exit_store::migrate_legacy_terminal_exit_receipts(&tx)?;
                 migrate_resource_effect_pepper(&tx, &resource_effect_pepper_id)?;
                 tx.commit()?;
             }
@@ -2518,6 +2527,7 @@ impl WorkspaceRegistry {
                 ensure_session_public_id(&tx)?;
                 migrate_resource_agent_projections(&tx)?;
                 normalize_journal_multiview_schema(&tx)?;
+                terminal_exit_store::migrate_legacy_terminal_exit_receipts(&tx)?;
                 migrate_resource_effect_pepper(&tx, &resource_effect_pepper_id)?;
                 tx.commit()?;
             }
@@ -2532,6 +2542,7 @@ impl WorkspaceRegistry {
                 ensure_session_public_id(&tx)?;
                 migrate_resource_agent_projections(&tx)?;
                 normalize_journal_multiview_schema(&tx)?;
+                terminal_exit_store::migrate_legacy_terminal_exit_receipts(&tx)?;
                 migrate_resource_effect_pepper(&tx, &resource_effect_pepper_id)?;
                 tx.commit()?;
             }
@@ -2554,6 +2565,7 @@ impl WorkspaceRegistry {
                 backfill_workspace_public_ids(&tx)?;
                 migrate_resource_agent_projections(&tx)?;
                 normalize_journal_multiview_schema(&tx)?;
+                terminal_exit_store::migrate_legacy_terminal_exit_receipts(&tx)?;
                 migrate_resource_effect_pepper(&tx, &resource_effect_pepper_id)?;
                 tx.commit()?;
             }
@@ -4696,7 +4708,10 @@ fn validate_terminal(terminal: &RegistryTerminal) -> anyhow::Result<()> {
         }
         _ => {}
     }
-    if terminal.lifecycle != TerminalLifecycle::Exited && terminal.exit.is_some() {
+    if terminal.lifecycle == TerminalLifecycle::Exited {
+        let exit = terminal.exit.as_ref().context("exited terminal requires exit metadata")?;
+        terminal_exit_store::validate_terminal_exit_receipt(exit)?;
+    } else if terminal.exit.is_some() {
         anyhow::bail!("only an exited terminal can carry exit metadata");
     }
     Ok(())

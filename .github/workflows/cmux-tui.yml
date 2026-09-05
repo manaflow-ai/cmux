@@ -111,7 +111,12 @@ jobs:
 
       - name: cargo check with MSRV
         working-directory: cmux-tui
-        run: cargo +1.91.0 check --workspace --locked
+        run: |
+          cargo +1.91.0 check --workspace --locked
+          CARGO_TARGET_DIR=target-msrv-agent-plugin \
+            cargo +1.91.0 check \
+              --manifest-path bindings/examples/rust-agent-screen-detection/Cargo.toml \
+              --locked
 
   web-frontend:
     needs: validate-inputs
@@ -152,17 +157,13 @@ jobs:
           npm test
 
   valgrind-leak-check-shard:
-    name: valgrind-leak-check (${{ matrix.shard }})
+    name: valgrind-leak-check (startup)
     needs: validate-inputs
     if: inputs.mode == 'full'
     runs-on: blacksmith-4vcpu-ubuntu-2404
     # Full behavior stays in the normal macOS and Linux suites. Valgrind owns
     # the bounded startup parsers and terminal replay state only.
     timeout-minutes: 40
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [startup]
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -195,10 +196,17 @@ jobs:
           # SIMD codegen stays within what valgrind's instruction emulation
           # supports (see crates/ghostty-vt-sys/build.rs).
           CMUX_GHOSTTY_VT_ZIG_CPU: baseline
-          VALGRIND_SHARD: ${{ matrix.shard }}
+          VALGRIND_SHARD: startup
         run: |
           mkdir -p target
-          cargo test --workspace --locked --no-run --message-format=json > target/cargo-test-binaries.jsonl
+          # Cargo target selectors keep this startup shard from compiling the
+          # unrelated workspace test harnesses. The selected targets map to
+          # the cmux_tui-* and terminal-* binaries checked below.
+          cargo test \
+            -p cmux-tui --bin cmux-tui \
+            -p ghostty-vt --test terminal \
+            --locked --no-run --message-format=json \
+            > target/cargo-test-binaries.jsonl
           python3 <<'PY'
           import json
           import os
@@ -249,7 +257,6 @@ jobs:
           PY
 
       - name: Verify baseline terminal replay behavior
-        if: matrix.shard == 'startup'
         working-directory: cmux-tui
         run: |
           matches=0
@@ -396,10 +403,29 @@ jobs:
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
 
+      - name: Test isolated TUI test-runner policy
+        run: python3 .github/scripts/test_run_cmux_tui_core_tests_isolated.py
+
       - name: cargo fmt
         id: rustfmt-check
         working-directory: cmux-tui
         run: cargo fmt --check
+
+      - name: userland agent plugin package tests
+        working-directory: cmux-tui
+        # The reference plugin is an independent Cargo workspace, so the
+        # daemon workspace test does not compile it. Keep this explicit check
+        # in both hosted OS lanes.
+        run: cargo test --manifest-path bindings/examples/rust-agent-screen-detection/Cargo.toml --locked
+
+      - name: userland agent plugin rustfmt
+        working-directory: cmux-tui
+        run: cargo fmt --manifest-path bindings/examples/rust-agent-screen-detection/Cargo.toml --check
+
+      - name: userland agent plugin clippy
+        if: inputs.mode == 'full'
+        working-directory: cmux-tui
+        run: cargo clippy --manifest-path bindings/examples/rust-agent-screen-detection/Cargo.toml --all-targets --locked -- -D warnings
 
       - name: Prepare hosted rustfmt patch
         if: ${{ failure() && steps.rustfmt-check.outcome == 'failure' }}
@@ -418,13 +444,14 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+      # Lint in every hosted mode. When this ran only in full mode, warnings
+      # accumulated on main unnoticed because the full lane was rarely used.
       - name: cargo clippy
-        if: inputs.mode == 'full'
         working-directory: cmux-tui
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
       - name: focused Linux journal process-fence test
-        if: runner.os == 'Linux'
+        if: inputs.mode == 'focused' && runner.os == 'Linux'
         working-directory: cmux-tui
         run: >-
           cargo test -p cmux-tui-core --lib
@@ -432,11 +459,12 @@ jobs:
           -- --exact
 
       - name: focused macOS journal process-fence tests
-        if: runner.os == 'macOS'
+        if: inputs.mode == 'focused' && runner.os == 'macOS'
         working-directory: cmux-tui
         run: cargo test -p cmux-tui-core --lib unix_process_scope::tests::mac_process_scope_
 
       - name: focused journal writer shutdown test
+        if: inputs.mode == 'focused'
         working-directory: cmux-tui
         run: >-
           cargo test -p cmux-tui-core --lib
@@ -444,6 +472,7 @@ jobs:
           -- --exact
 
       - name: focused final journal ownership tests
+        if: inputs.mode == 'focused'
         working-directory: cmux-tui
         run: |
           cargo test -p cmux-tui-core --lib \
@@ -483,7 +512,19 @@ jobs:
           fi
           cargo test --workspace --locked "$TEST_FILTER" -- --list \
             | tee "$RUNNER_TEMP/cmux-tui-focused-tests.txt"
-          if ! grep -Eq ': test$' "$RUNNER_TEMP/cmux-tui-focused-tests.txt"; then
+          normal_names="$RUNNER_TEMP/cmux-tui-focused-normal.txt"
+          grep -E ': test$' "$RUNNER_TEMP/cmux-tui-focused-tests.txt" | sort > "$normal_names" || true
+          ignored_names="$RUNNER_TEMP/cmux-tui-focused-ignored.txt"
+          ignored_listing="$RUNNER_TEMP/cmux-tui-focused-ignored-list.txt"
+          cargo test --workspace --locked "$TEST_FILTER" -- --list --ignored > "$ignored_listing"
+          grep -E ': test$' "$ignored_listing" | sort > "$ignored_names" || [[ "$?" -eq 1 ]]
+          runnable_names="$RUNNER_TEMP/cmux-tui-focused-runnable.txt"
+          comm -23 "$normal_names" "$ignored_names" > "$runnable_names" || true
+          if [[ ! -s "$runnable_names" && -s "$ignored_names" ]]; then
+            echo "::error::test_filter '$TEST_FILTER' matches only ignored tests" >&2
+            exit 1
+          fi
+          if [[ ! -s "$normal_names" ]]; then
             echo "::error::test_filter '$TEST_FILTER' selected no Rust tests" >&2
             exit 1
           fi
@@ -508,6 +549,84 @@ jobs:
         if: inputs.mode == 'full'
         working-directory: cmux-tui
         run: python3 scripts/smoke-attach.py
+
+  cdp-browser-smoke:
+    name: CDP browser smoke (${{ matrix.os }})
+    needs: validate-inputs
+    if: inputs.mode == 'full'
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos
+            runner: blacksmith-6vcpu-macos-15
+          - os: linux
+            runner: blacksmith-4vcpu-ubuntu-2404
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.commit }}
+
+      - name: Require exact checkout
+        env:
+          EXACT_COMMIT: ${{ inputs.commit }}
+        run: test "$(git rev-parse HEAD)" = "$EXACT_COMMIT"
+
+      - name: Set up pinned Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.3.14"
+
+      - name: Install pinned Playwright dependencies
+        working-directory: web
+        run: bun install --frozen-lockfile
+
+      - name: Install pinned Playwright Chromium (Linux)
+        if: runner.os == 'Linux'
+        working-directory: web
+        run: bunx playwright install --with-deps chromium
+
+      - name: Install pinned Playwright Chromium (macOS)
+        if: runner.os == 'macOS'
+        working-directory: web
+        run: bunx playwright install chromium
+
+      - name: Resolve Playwright Chromium executable
+        id: chromium
+        working-directory: web
+        shell: bash
+        run: |
+          set -euo pipefail
+          path="$(bun -e 'const { chromium } = require("@playwright/test"); process.stdout.write(chromium.executablePath())')"
+          test -n "$path"
+          test -x "$path"
+          printf 'path=%s\n' "$path" >> "$GITHUB_OUTPUT"
+          echo "Using Playwright Chromium at $path"
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Run configured Chrome CDP smoke
+        working-directory: cmux-tui
+        env:
+          CMUX_MUX_BROWSER_TEST: "1"
+          CMUX_MUX_BROWSER_TEST_CHROME: ${{ steps.chromium.outputs.path }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test -p cmux-tui-cdp --test chrome_smoke --locked -- \
+            --ignored --exact chrome_smoke_requires_configured_browser --list \
+            | tee "$RUNNER_TEMP/cdp-smoke-tests.txt"
+          grep -Eq '^chrome_smoke_requires_configured_browser: test$' \
+            "$RUNNER_TEMP/cdp-smoke-tests.txt" || {
+            echo "::error::chrome_smoke_requires_configured_browser selected no exact test" >&2
+            exit 1
+          }
+          cargo test -p cmux-tui-cdp --test chrome_smoke --locked -- \
+            --ignored --exact chrome_smoke_requires_configured_browser
 
   bindings-e2e:
     needs: validate-inputs
@@ -611,6 +730,9 @@ jobs:
       package_pypi: ${{ inputs.mode == 'full' }}
       include_windows: ${{ inputs.mode == 'full' }}
       target_set: ${{ inputs.mode == 'full' && 'all' || 'macos-arm64' }}
+      # The short hosted handoff launcher needs the reference plugin beside
+      # the exact-head TUI artifact. Release package lanes leave this opt-in.
+      build_agent_plugin: true
       build_cloudflare_relay: false
       verify_linux_arm64: ${{ inputs.mode == 'full' }}
       macos_runner: blacksmith-6vcpu-macos-15
@@ -627,6 +749,7 @@ jobs:
       - web-frontend
       - valgrind-leak-check
       - test
+      - cdp-browser-smoke
       - bindings-e2e
       - build-artifacts
     runs-on: blacksmith-4vcpu-ubuntu-2404
@@ -638,6 +761,7 @@ jobs:
       WEB_RESULT: ${{ needs.web-frontend.result }}
       VALGRIND_RESULT: ${{ needs.valgrind-leak-check.result }}
       TEST_RESULT: ${{ needs.test.result }}
+      CDP_BROWSER_RESULT: ${{ needs.cdp-browser-smoke.result }}
       BINDINGS_RESULT: ${{ needs.bindings-e2e.result }}
       ARTIFACT_RESULT: ${{ needs.build-artifacts.result }}
     steps:
@@ -660,5 +784,6 @@ jobs:
           if [[ "$MODE" == "full" ]]; then
             require_success "web frontend" "$WEB_RESULT"
             require_success "Valgrind" "$VALGRIND_RESULT"
+            require_success "Chrome CDP smoke" "$CDP_BROWSER_RESULT"
             require_success "binding end-to-end tests" "$BINDINGS_RESULT"
           fi

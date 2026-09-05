@@ -2,6 +2,13 @@
 
 cmux uses agent hooks to show running state, Feed approvals, notifications, and to restore agent sessions after a normal app relaunch.
 
+Hook records are one input to the canonical agent resource used by the
+[presentation system](sidebar-system-design.md). TUI, macOS, Dock, and mobile
+views must consume that resource instead of maintaining separate row stores.
+Each projection should retain the source, timestamp, evidence, and stable
+agent ID so a user or coding agent can distinguish fresh state from an
+unobserved or stale session.
+
 Claude Code is handled by the cmux Claude wrapper when Claude Code integration is enabled in Settings. Other agents are installed with:
 
 ```bash

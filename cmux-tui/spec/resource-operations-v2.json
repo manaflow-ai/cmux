@@ -461,7 +461,7 @@
       },
       "extra": false,
       "constraints": [
-        "namespace must equal plugin.<producer_id>.",
+        "namespace must equal plugin.<producer_id>",
         "Manifest versions increase monotonically.",
         "Storage v1 rejects secret producer authority until encrypted retention is implemented."
       ]
@@ -557,6 +557,8 @@
       },
       "extra": false,
       "constraints": [
+        "producer_id must be a valid plugin component and kind must start with plugin.<producer_id>.",
+        "The event kind must be declared by the installed producer manifest.",
         "The installed producer manifest determines class, replay policy, and default sensitivity.",
         "The payload must validate against the declared JSON Schema."
       ]
@@ -2109,6 +2111,14 @@
             "name": "TerminalLifecycle"
           }
         },
+        "stream_revision": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "Coalesced PTY output revision. It is absent when no live PTY is available and may be absent from older servers."
+        },
         "exit": {
           "required": false,
           "type": {
@@ -2505,9 +2515,21 @@
             "values": [
               "hook",
               "socket",
-              "detected"
+              "detected",
+              "plugin"
             ]
           }
+        },
+        "agent": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "Adapter identity such as claude or codex when the producer knows it. Null means the producer did not provide an adapter identity."
         },
         "updated_at_ms": {
           "required": true,
@@ -3628,6 +3650,28 @@
             "name": "string"
           }
         },
+        "revision": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "decimal"
+            }
+          },
+          "description": "Coalesced PTY output revision. Older servers may omit this field or send null when unavailable."
+        },
+        "osc_progress": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "Latest bounded OSC 9 progress payload. The daemon exposes terminal metadata only; plugins decide how to interpret it. Older servers may omit this field or send null when unavailable."
+        },
         "cols": {
           "required": true,
           "type": {
@@ -3976,6 +4020,17 @@
             }
           },
           "description": "Working directory of the process group that owns the PTY, read at request time. Null when the lookup fails. All current servers emit this field. Protocol 2 SDK decoders accept it being absent from older servers and treat absence as null."
+        },
+        "foreground_executable": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "Executable path or name of the PTY foreground process-group leader. Null when the lookup fails. Older servers may omit this field."
         },
         "children": {
           "required": true,

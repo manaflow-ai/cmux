@@ -8,12 +8,23 @@
 cmux auth status                       # signed in?
 cmux vm ls                             # NAME / LABEL / STATE / PROVIDER / IMAGE + plan meter (+ free-window countdown)
 cmux vm ls --json                      # {vms: [{id, status, image, createdAt, freeAccessExpiresAt}], limits: {maxActiveVms, planId, freeAccessWindowDays, freeAccessExpiresAt}}
+cmux vpn status                        # this build's WireGuard tunnel to its private machine network (machines open no public port): up, down, or up for another enrollment (stale)
+cmux vpn up                            # enroll this Mac and bring the tunnel up (sudo); a stale tunnel (rotated keys) is replaced. One tunnel per deployment (`cmux` for production, `cmux-staging`/`cmux-dev` for dev builds), so a dev build and the production app can both be up
+cmux vpn down                          # take this build's tunnel down (sudo)
 cmux vm tree                           # the surface catalog: This Mac (terminals by workspace, browsers), then every machine → workspaces/ → terminals, desktop, ports/
 cmux vm tree <id> --refresh            # one machine (`local` for This Mac), re-synced first
 cmux vm workspace new <id> [--name n]  # a new cmux-tui workspace on the machine (⌘N there), opened as a new local workspace
-cmux vm workspace open <id> <ws-id>    # open a machine workspace here: one pane per terminal (same as clicking its sidebar row)
-cmux vm workspace close <id> <ws-id>   # close that workspace and its terminals on the machine
-cmux vm terminal close <id> <term-id>  # end one terminal on the machine (the sidebar's ×)
+cmux vm workspace open <id> <ws-id>    # open a machine workspace as a NEW local workspace: one pane per terminal/browser (clicking its row)
+cmux vm workspace open <id> <ws-id> --here [--workspace <local>]      # into the current local workspace: one pane + the rest as tabs (drop a workspace row onto a pane)
+cmux vm workspace open <id> <ws-id> --tabs [--pane <p>]                # all as tabs of the focused/--pane pane (CLI placement)
+cmux vm workspace open <id> <ws-id> --pane <p> --left|--right|--up|--down   # what dropping the row on that pane edge does
+cmux vm workspace rename <id> <ws-id> <name>   # rename that workspace (the row's "Rename…")
+cmux vm workspace close <id> <ws-id>   # CLI-only: close that workspace but keep its terminals running in the Terminals pool
+cmux vm workspace rm <id> <ws-id>      # close that workspace AND kill every terminal in it (the row's "Close Workspace…" / hover ×). Permanent.
+cmux vm terminal close <id> <term-id>  # end one terminal on the machine (the sidebar's ×); its local panes close too
+cmux vm terminal send <id> <term-id> [text] [--keys enter,ctrl+c,…]   # type into the terminal headlessly (as-is, no newline), then press named keys (chords join with +); no pane, no focus
+cmux vm terminal read <id> <term-id>   # the visible screen as text (--json: + rows, cols, cursor)
+cmux vm terminal wait <id> <term-id> --pattern <regex> [--timeout <s>]   # block until the screen matches (default 30 s); exit 1 on timeout
 cmux vm tree --json                    # {machines: [{id, local, name, status, link_state, …}], resources: [{id, machine, kind, key, title, detail, lifecycle, agent, remote_workspace, port, url, open, open_surface_ids}], projections: […]}
 cmux surface ls [--json]               # same catalog; `surface open <resource>` / `surface new-terminal --machine <m>` are the generic verbs
 cmux vm status <id>                    # provider, status, image
@@ -27,21 +38,26 @@ Tree line shapes:
 
 ```
 vivid-newt  running  · 24 GB · 16 GB disk · link connected
-  workspaces/
+  workspaces/                                  ← one machine, many workspaces: what you open and drag
     main  ws_3c1…  *  (cmux vm open vivid-newt/ws_3c1…)
-      ● term_2f9…  bun test  /root/work/app  [agent claude running]  (open: surface:4)
+      ● term_2f9…  bun test  ~/work/app  [agent claude running]  (open: surface:4)
       ○ term_88a…  bash                                  ← exited
-  desktop  (cmux vm open vivid-newt:desktop)
+    tests  ws_9ab…  (cmux vm open vivid-newt/ws_9ab…)   ← a second workspace on the same machine
+    (detached — no tab on the machine shows these)      ← terminals in no workspace (the CLI lists them here; the sidebar shows them as the machine's own Terminals pool)
+      ● term_c04…  sleep 1000
+  desktop  (cmux vm open vivid-newt:desktop)   ← the display pool
   ports/
     3000  http  (cmux vm open vivid-newt:port/3000)
 ```
+
+The sidebar shows the same tree in the same order: the machine's **Workspaces** group first (always its own row, with a ＋ that is `vm workspace new`), then **Terminals** (only the detached ones, as a machine-level group beside Workspaces), **Displays**, **Ports**, **Browsers**. Every sidebar verb has a CLI verb — see [sidebar-parity.md](sidebar-parity.md). `<machine>/<workspace>` addresses take the `ws_…` id, or the workspace name only when exactly one workspace has it (colliding names need the id); an empty workspace still resolves, and `vm open` starts a shell in it.
 
 ## Surfaces: one open path for terminals, screens and browsers
 
 ```bash
 cmux surface open vivid-newt/terminal/term_2f9c…                 # reuse the pane showing it, else open beside you
 cmux surface open vivid-newt/terminal/term_2f9c… --new           # a second pane on the same terminal
-cmux surface open vivid-newt/screen/display:1 --pane pane:3 --left   # the VNC screen, split left of pane 3
+cmux surface open vivid-newt/display/display:1 --pane pane:3 --left   # the VNC screen, split left of pane 3
 cmux surface open local/terminal/<uuid> --workspace workspace:2  # move a local terminal into another workspace
 cmux surface new-terminal --machine vivid-newt --remote-workspace ws_3c1… --name "tests" -- bun test
 cmux surface new-terminal --machine local --cwd ~/src/app        # a new local shell

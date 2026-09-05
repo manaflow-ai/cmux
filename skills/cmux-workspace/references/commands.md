@@ -84,9 +84,11 @@ cmux sidebar-state --workspace "$CMUX_WORKSPACE_ID" --json
 ## Notifications and Attention
 
 ```bash
-cmux notify --title "Done" --body "Task complete"
+notification_id="$(cmux notify --title "Done" --body "Task complete" --id-format uuids | awk '$1 == "OK" {print $2}')"
+cmux dismiss-notification --id "$notification_id"
+cmux notify --clear
 cmux list-notifications --json
-cmux clear-notifications
+cmux clear-notifications --workspace "$CMUX_WORKSPACE_ID" --surface "$CMUX_SURFACE_ID"
 cmux trigger-flash --workspace "$CMUX_WORKSPACE_ID" --surface "$CMUX_SURFACE_ID"
 cmux surface-health --workspace "$CMUX_WORKSPACE_ID" --json
 ```

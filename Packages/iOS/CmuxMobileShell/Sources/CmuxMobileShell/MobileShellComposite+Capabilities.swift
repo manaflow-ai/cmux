@@ -140,7 +140,11 @@ extension MobileShellComposite {
             }
             sawConnectedMac = true
         }
-        return !sawConnectedMac
+        // With no connected Mac the composer normally gets the benefit of the
+        // doubt (offline Macs may support tasks once they come up) — but not
+        // when the only listed computer is the demonstration Mac, which can
+        // never run a real task.
+        return !sawConnectedMac && !pairedMacsAreDemonstrationOnly
     }
 
     /// True while at least one Mac session is live: the foreground connection

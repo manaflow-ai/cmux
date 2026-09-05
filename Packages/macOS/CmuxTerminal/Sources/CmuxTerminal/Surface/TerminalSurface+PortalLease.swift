@@ -35,6 +35,16 @@ extension TerminalSurface {
         portalLifecycleGeneration
     }
 
+    /// Returns whether this host and incarnation currently own the portal
+    /// lease, including while the host is detached from its window.
+    public func ownsPortalHost(
+        hostId: ObjectIdentifier,
+        instanceSerial: UInt64
+    ) -> Bool {
+        guard let lease = activePortalHostLease else { return false }
+        return lease.hostId == hostId && lease.instanceSerial == instanceSerial
+    }
+
     /// Keeps retired representable hosts from reclaiming the surface after a
     /// newer host has taken authority. The model epoch supersedes host creation
     /// order so a legitimate rollback can still return to an older host.

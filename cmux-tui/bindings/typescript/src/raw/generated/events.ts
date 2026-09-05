@@ -1,11 +1,13 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 65aa592727bc414fe3e66ac125c9b8541a1926bbe9eaa572acc66b4681bf6589. */
+/* cmux-tui mux protocol 12, IR edceee440fd303762bb21fb494c9289aff3066695780b87b9f613d59a41daf9c. */
 
 
 import type * as T from "./types.js";
 
 /** Protocol v11; emission: emitted; streams: subscribe. */
 export type AgentChangedEvent = { event: "agent-changed" } & {
+  /** Adapter identity when the producer knows it; absent from protocol-11 event senders and null when no adapter was identified. */
+  "agent"?: (string) | null;
   "session": (string) | null;
   "source": T.AgentSource;
   "state": T.AgentState;
@@ -116,6 +118,11 @@ export type GraphicsStatusEvent = { event: "graphics-status" } & {
 /** Protocol v6; emission: emitted; streams: subscribe. */
 export type LayoutChangedEvent = { event: "layout-changed" } & {
   "screen": T.Id;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type MachineUsageChangedEvent = { event: "machine-usage-changed" } & {
+  "usage": (T.MachineUsage) | null;
 };
 
 /** Protocol v6; emission: emitted; streams: subscribe, attach-byte, attach-browser. */
@@ -407,6 +414,7 @@ export type KnownCmuxEvent =
   | FrontendProjectionChangedEvent
   | GraphicsStatusEvent
   | LayoutChangedEvent
+  | MachineUsageChangedEvent
   | NotificationEvent
   | OutputEvent
   | OverflowEvent
@@ -455,6 +463,7 @@ export type KnownSubscribeEvent =
   | FrontendProjectionChangedEvent
   | GraphicsStatusEvent
   | LayoutChangedEvent
+  | MachineUsageChangedEvent
   | NotificationEvent
   | OverflowEvent
   | PairingRequestedEvent

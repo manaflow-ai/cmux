@@ -7,9 +7,12 @@ use crate::workspace_registry::RegistryPublicProjections;
 pub(super) struct RestoredPublicProjections {
     pub(super) default_colors: DefaultColors,
     pub(super) has_terminal_defaults: bool,
+    /// True when the registry contains any agent projection, including a
+    /// completed lifecycle that the live roster intentionally omits.
+    pub(super) has_agent_history: bool,
     pub(super) next_notification_id: u64,
     pub(super) agent_records: HashMap<TerminalPublicId, TerminalAgentRecord>,
-    pub(super) agent_hook_fences: HashMap<TerminalPublicId, super::HookFence>,
+    pub(super) agent_hook_fences: HashMap<TerminalPublicId, HookFence>,
     pub(super) terminal_notifications: HashMap<TerminalPublicId, SurfaceNotification>,
     pub(super) notification_ledger: VecDeque<ResourceNotification>,
 }
@@ -19,6 +22,7 @@ pub(super) fn restore_public_projections(
     projections: RegistryPublicProjections,
 ) -> anyhow::Result<RestoredPublicProjections> {
     let has_terminal_defaults = projections.terminal_defaults.is_some();
+    let has_agent_history = !projections.agents.is_empty();
     let default_colors = projections.terminal_defaults.unwrap_or_default();
     let mut notification_ledger = VecDeque::with_capacity(projections.notifications.len());
     let mut terminal_notifications = HashMap::new();
@@ -64,7 +68,7 @@ pub(super) fn restore_public_projections(
     for hook_state in projections.agent_hook_states {
         agent_hook_fences.insert(
             hook_state.terminal_id,
-            super::HookFence {
+            HookFence {
                 session_id: hook_state.agent_session_id,
                 sequence: hook_state.applied_sequence,
                 ended: hook_state.ended,
@@ -84,8 +88,8 @@ pub(super) fn restore_public_projections(
                 // marker sequence as their legacy generation token so a
                 // session-less event continues the same lifecycle after a
                 // restart without reusing a terminal-wide identity.
-                agent_hook_fences.entry(agent.terminal_id.clone()).or_insert(super::HookFence {
-                    session_id: super::legacy_hook_session_id(&agent.terminal_id, value),
+                agent_hook_fences.entry(agent.terminal_id.clone()).or_insert(HookFence {
+                    session_id: legacy_hook_session_id(&agent.terminal_id, value),
                     sequence: value,
                     ended: ended.is_some(),
                 });
@@ -97,8 +101,8 @@ pub(super) fn restore_public_projections(
             // cannot resurrect the completed session. Sequence zero is the
             // one-release compatibility generation for records without a
             // marker.
-            agent_hook_fences.entry(agent.terminal_id.clone()).or_insert(super::HookFence {
-                session_id: super::legacy_hook_session_id(&agent.terminal_id, 0),
+            agent_hook_fences.entry(agent.terminal_id.clone()).or_insert(HookFence {
+                session_id: legacy_hook_session_id(&agent.terminal_id, 0),
                 sequence: 0,
                 ended: true,
             });
@@ -110,6 +114,7 @@ pub(super) fn restore_public_projections(
                 state,
                 source: agent_source(&agent.source)?,
                 session: (!internal_marker).then_some(agent.source_session).flatten(),
+                agent: agent.agent,
                 updated_at_ms: agent.updated_at_ms,
             },
         );
@@ -123,6 +128,7 @@ pub(super) fn restore_public_projections(
     Ok(RestoredPublicProjections {
         default_colors,
         has_terminal_defaults,
+        has_agent_history,
         next_notification_id,
         agent_records,
         agent_hook_fences,
@@ -153,6 +159,7 @@ fn agent_state(value: &str) -> anyhow::Result<AgentState> {
 
 fn agent_source(value: &str) -> anyhow::Result<AgentSource> {
     match value {
+        "plugin" => Ok(AgentSource::Plugin),
         "detected" => Ok(AgentSource::Detected),
         "socket" => Ok(AgentSource::Socket),
         "hook" => Ok(AgentSource::Hook),
@@ -223,6 +230,7 @@ mod tests {
                 terminal_id: terminal.clone(),
                 state: "working".into(),
                 source: "hook".into(),
+                agent: None,
                 updated_at_ms: 1,
                 source_session: None,
             }],
@@ -301,6 +309,7 @@ mod tests {
                 terminal_id: terminal.clone(),
                 state: "done".into(),
                 source: "hook".into(),
+                agent: None,
                 updated_at_ms: 1,
                 source_session: None,
             }],
@@ -323,6 +332,7 @@ mod tests {
                 terminal_id: terminal.clone(),
                 state: "working".into(),
                 source: "hook".into(),
+                agent: None,
                 updated_at_ms: 1,
                 source_session: Some("cmux-hook-sequence:12".into()),
             }],
@@ -345,6 +355,7 @@ mod tests {
                 terminal_id: terminal.clone(),
                 state: "done".into(),
                 source: "socket".into(),
+                agent: None,
                 updated_at_ms: 3,
                 source_session: Some("socket-session".into()),
             }],

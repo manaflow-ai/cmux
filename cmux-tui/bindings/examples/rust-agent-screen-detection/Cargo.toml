@@ -1,0 +1,25 @@
+[package]
+name = "cmux-agent-screen-detection"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+# The package contains manaflow code under MIT and detector material adapted
+# from herdr under Apache-2.0. Keep both obligations visible to packagers;
+# license texts are LICENSE-MIT and manifests/LICENSE.
+license = "MIT AND Apache-2.0"
+publish = false
+
+[dependencies]
+cmux-sdk = { version = "=1.0.0", path = "../../rust" }
+libc = "0.2"
+regex = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+toml = "0.8"
+
+# This reference package is intentionally independent from the cmux-tui
+# workspace. The version is the public SDK contract. The path resolves the
+# unreleased SDK in this source tree; a standalone checkout must keep a matching
+# SDK checkout at this path or remove `path` after the SDK release.
+[workspace]

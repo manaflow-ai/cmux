@@ -1,4 +1,6 @@
 use super::*;
+use crate::JournalIngress;
+use crate::resource::TerminalPublicId;
 
 /// Completed pure mutations keep a finite exactly-once replay window. Pruning
 /// runs in batches, so a live registry may temporarily retain the interval as
@@ -19,6 +21,21 @@ pub(crate) enum AgentHookRetryClass {
     Transient,
     Permanent,
 }
+
+/// Why a durable hook projection stays pending, bounded by the retry budget
+/// that `retry_class` selects.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct AgentHookPendingFailure<'a> {
+    pub error: &'a str,
+    pub retry_class: AgentHookRetryClass,
+}
+
+/// `(producer_id, origin, idempotency_key, event_sequence, ingress)` of one
+/// pending hook projection row.
+pub(crate) type PendingAgentHookProjection = (String, String, String, u64, JournalIngress);
+
+/// `(event_sequence, idempotency_key, rowid)` resume cursor for paged reads.
+pub(crate) type PendingAgentHookCursor = (u64, String, i64);
 
 pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     transaction.execute_batch(
@@ -551,7 +568,7 @@ impl WorkspaceRegistry {
         origin: &str,
         idempotency_key: &str,
         sequence: u64,
-        ingress: &crate::JournalIngress,
+        ingress: &JournalIngress,
     ) -> anyhow::Result<()> {
         let ingress_json = serde_json::to_string(ingress)?;
         let terminal_id = ingress
@@ -572,17 +589,20 @@ impl WorkspaceRegistry {
         Ok(())
     }
 
-    pub fn enqueue_agent_hook_pending(
+    // These fields mirror the durable retry key and payload columns. Keep the
+    // storage boundary explicit so callers cannot accidentally omit a field.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn enqueue_agent_hook_pending(
         &mut self,
         producer_id: &str,
         origin: &str,
         idempotency_key: &str,
         sequence: u64,
-        ingress: &crate::JournalIngress,
-        error: &str,
-        retry_class: AgentHookRetryClass,
+        ingress: &JournalIngress,
+        failure: AgentHookPendingFailure<'_>,
     ) -> anyhow::Result<()> {
         const MAX_ERROR_CHARS: usize = 1_024;
+        let AgentHookPendingFailure { error, retry_class } = failure;
         let ingress_json = serde_json::to_string(ingress)?;
         let terminal_id = ingress
             .subjects
@@ -645,7 +665,7 @@ impl WorkspaceRegistry {
 
     pub(crate) fn purge_agent_hook_pending_for_terminal(
         &mut self,
-        terminal_id: &crate::resource::TerminalPublicId,
+        terminal_id: &TerminalPublicId,
     ) -> anyhow::Result<()> {
         self.connection.execute(
             "DELETE FROM resource_agent_hook_pending WHERE terminal_id = ?1",
@@ -690,9 +710,10 @@ impl WorkspaceRegistry {
         Ok(())
     }
 
-    pub fn pending_agent_hook_projections(
+    #[cfg(test)]
+    pub(crate) fn pending_agent_hook_projections(
         &self,
-    ) -> anyhow::Result<Vec<(String, String, String, u64, crate::JournalIngress)>> {
+    ) -> anyhow::Result<Vec<PendingAgentHookProjection>> {
         let mut statement = self.connection.prepare(
             "SELECT producer_id, origin, idempotency_key, event_sequence, ingress_json
              FROM resource_agent_hook_pending ORDER BY event_sequence ASC, idempotency_key ASC",
@@ -720,10 +741,10 @@ impl WorkspaceRegistry {
             .collect()
     }
 
-    pub fn pending_agent_hook_projections_for_terminal(
+    pub(crate) fn pending_agent_hook_projections_for_terminal(
         &self,
-        terminal_id: &crate::resource::TerminalPublicId,
-    ) -> anyhow::Result<Vec<(String, String, String, u64, crate::JournalIngress)>> {
+        terminal_id: &TerminalPublicId,
+    ) -> anyhow::Result<Vec<PendingAgentHookProjection>> {
         let mut statement = self.connection.prepare(
             "SELECT producer_id, origin, idempotency_key, event_sequence, ingress_json
              FROM resource_agent_hook_pending
@@ -766,13 +787,10 @@ impl WorkspaceRegistry {
         Ok(pending)
     }
 
-    pub fn pending_agent_hook_projections_page(
+    pub(crate) fn pending_agent_hook_projections_page(
         &self,
-        after: Option<(u64, String, i64)>,
-    ) -> anyhow::Result<(
-        Vec<(String, String, String, u64, crate::JournalIngress)>,
-        Option<(u64, String, i64)>,
-    )> {
+        after: Option<PendingAgentHookCursor>,
+    ) -> anyhow::Result<(Vec<PendingAgentHookProjection>, Option<PendingAgentHookCursor>)> {
         let (after_sequence, after_key, after_rowid) = after.unwrap_or((0, String::new(), 0));
         let mut statement = self.connection.prepare(
             "SELECT rowid, producer_id, origin, idempotency_key, event_sequence, ingress_json
@@ -823,51 +841,6 @@ impl WorkspaceRegistry {
         Ok((pending, next_cursor))
     }
 
-    pub fn commit_agent_projection_with_hook_state(
-        &mut self,
-        mutation: &WorkspaceMutation,
-        fingerprint: &Value,
-        expected_revision: Option<u64>,
-        terminal_id: &TerminalPublicId,
-        result: &Value,
-        deltas: &Value,
-        hook_state: Option<&AgentHookProjectionState>,
-    ) -> anyhow::Result<ResourcePatchCommit> {
-        self.commit_agent_projection_inner(
-            mutation,
-            fingerprint,
-            expected_revision,
-            terminal_id,
-            result,
-            deltas,
-            hook_state,
-            None,
-        )
-    }
-
-    pub fn commit_agent_projection_with_hook_state_and_sequence(
-        &mut self,
-        mutation: &WorkspaceMutation,
-        fingerprint: &Value,
-        expected_revision: Option<u64>,
-        terminal_id: &TerminalPublicId,
-        result: &Value,
-        deltas: &Value,
-        hook_state: Option<&AgentHookProjectionState>,
-        journal_sequence: u64,
-    ) -> anyhow::Result<ResourcePatchCommit> {
-        self.commit_agent_projection_inner(
-            mutation,
-            fingerprint,
-            expected_revision,
-            terminal_id,
-            result,
-            deltas,
-            hook_state,
-            Some(journal_sequence),
-        )
-    }
-
     pub fn replay_resource_patch(
         &self,
         mutation: &WorkspaceMutation,
@@ -881,7 +854,8 @@ impl WorkspaceRegistry {
         resource_patch_replay(&self.connection, mutation, operation, &fingerprint)
     }
 
-    pub fn commit_agent_projection(
+    #[cfg(test)]
+    pub(crate) fn commit_agent_projection(
         &mut self,
         mutation: &WorkspaceMutation,
         fingerprint: &Value,
@@ -890,7 +864,7 @@ impl WorkspaceRegistry {
         result: &Value,
         deltas: &Value,
     ) -> anyhow::Result<ResourcePatchCommit> {
-        self.commit_agent_projection_inner(
+        self.commit_agent_projection_with_hook_state(
             mutation,
             fingerprint,
             expected_revision,
@@ -903,7 +877,7 @@ impl WorkspaceRegistry {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn commit_agent_projection_inner(
+    pub(crate) fn commit_agent_projection_with_hook_state(
         &mut self,
         mutation: &WorkspaceMutation,
         fingerprint: &Value,
@@ -921,6 +895,7 @@ impl WorkspaceRegistry {
             result.get("terminal_id").and_then(Value::as_str) == Some(terminal_id.as_str()),
             "agent projection terminal does not match {terminal_id}"
         );
+        let socket_report = fingerprint.get("source").and_then(Value::as_str) == Some("socket");
         let fingerprint = canonical_json(fingerprint)?;
         let result_json = canonical_json(result)?;
         let tx = self.connection.transaction()?;
@@ -948,6 +923,51 @@ impl WorkspaceRegistry {
             anyhow::bail!(
                 "resource revision conflict: expected {expected}, current {previous_revision}"
             );
+        }
+        // Socket reporters are observers, not a freshness clock. A second
+        // client can report the same effective state while the first report
+        // is still current. Record the new mutation key at the existing
+        // revision, then return it as a replay-equivalent no-op so this path
+        // does not churn resource events or roster recency. Hook and plugin
+        // projections keep their timestamp semantics for arbitration.
+        if socket_report && hook_state.is_none() && journal_sequence.is_none() {
+            let existing = tx
+                .query_row(
+                    "SELECT result_json FROM resource_agent_projections
+                     WHERE terminal_id = ?1",
+                    [terminal_id.as_str()],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()?;
+            if let Some(existing_json) = existing {
+                let existing_value: Value = serde_json::from_str(&existing_json)
+                    .context("stored agent projection is not valid JSON")?;
+                if same_agent_projection_ignoring_timestamp(&existing_value, result)? {
+                    let stored_result_json = canonical_json(&existing_value)?;
+                    tx.execute(
+                        "INSERT INTO resource_mutations(
+                           origin, idempotency_key, operation, fingerprint, result_json,
+                           committed_revision
+                         ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
+                        params![
+                            mutation.origin,
+                            mutation.id,
+                            OPERATION,
+                            fingerprint,
+                            stored_result_json,
+                            i64::try_from(previous_revision)
+                                .context("resource revision exceeds SQLite range")?,
+                        ],
+                    )?;
+                    prune_resource_mutations(&tx)?;
+                    tx.commit()?;
+                    return Ok(ResourcePatchCommit {
+                        revision: previous_revision,
+                        result: existing_value,
+                        replayed: true,
+                    });
+                }
+            }
         }
         let revision = previous_revision
             .checked_add(1)
@@ -1385,7 +1405,7 @@ impl WorkspaceRegistry {
         // patch's own upserts inside this same transaction.
         let workspace_revision = workspace_ledger
             .map(|ledger| {
-                super::commit_workspace_registry_in_transaction(
+                commit_workspace_registry_in_transaction(
                     &tx,
                     mutation,
                     &fingerprint,
@@ -1561,6 +1581,7 @@ impl WorkspaceRegistry {
             self.connection.execute_batch(
                 "CREATE TEMP TRIGGER cmux_test_fail_resource_patch
                  BEFORE INSERT ON session_journal
+                 WHEN NEW.resource_revision IS NOT NULL
                  BEGIN SELECT RAISE(ABORT, 'forced resource patch failure'); END;",
             )?;
         } else {
@@ -1590,18 +1611,6 @@ impl WorkspaceRegistry {
     }
 
     #[cfg(test)]
-    pub(crate) fn delete_agent_hook_state_for_test(
-        &mut self,
-        terminal_id: &crate::resource::TerminalPublicId,
-    ) -> anyhow::Result<()> {
-        self.connection.execute(
-            "DELETE FROM resource_agent_hook_state WHERE terminal_id = ?1",
-            [terminal_id.as_str()],
-        )?;
-        Ok(())
-    }
-
-    #[cfg(test)]
     pub(crate) fn agent_hook_pending_retry_state_for_test(
         &self,
         producer_id: &str,
@@ -1619,6 +1628,26 @@ impl WorkspaceRegistry {
             .optional()
             .map_err(Into::into)
     }
+}
+
+/// Compare two agent projections while ignoring the local observation clock.
+/// The caller has already restricted this to a socket report, so a matching
+/// semantic value is safe to acknowledge without another resource revision.
+fn same_agent_projection_ignoring_timestamp(
+    existing: &Value,
+    incoming: &Value,
+) -> anyhow::Result<bool> {
+    let mut existing = existing.clone();
+    let mut incoming = incoming.clone();
+    let Some(existing_object) = existing.as_object_mut() else {
+        return Ok(false);
+    };
+    let Some(incoming_object) = incoming.as_object_mut() else {
+        return Ok(false);
+    };
+    existing_object.remove("updated_at_ms");
+    incoming_object.remove("updated_at_ms");
+    Ok(canonical_json(&existing)? == canonical_json(&incoming)?)
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

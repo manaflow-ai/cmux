@@ -11,11 +11,13 @@
 mod agent_hooks;
 mod browser;
 mod browser_provider;
+pub mod diagnostics;
 mod event_bus;
 mod journal_checkpoint;
 mod journal_hooks;
 mod journal_ingress;
 mod journal_kernel;
+mod journal_plugin;
 mod journal_reducers;
 mod model;
 mod mux;
@@ -26,10 +28,10 @@ mod resource_api;
 mod resource_mutation;
 mod resource_router;
 mod resource_selector;
-mod screen_detect;
 mod short_id;
 mod sidebar_resource;
 mod surface;
+mod terminal_metadata;
 mod workspace_registry;
 
 pub mod layout;
@@ -47,6 +49,7 @@ pub use agent_hooks::{
 pub use browser::{BrowserFailure, TRANSPORT_SAFE_CAPTURE_MEGAPIXELS, normalize_url};
 pub use event_bus::{MuxEventBroadcaster, MuxEventReceiver};
 pub use journal_ingress::{FrontendFocusTarget, FrontendJournalEvent};
+pub use journal_plugin::{JournalPluginOptions, JournalPluginRuntime};
 pub use layout::{
     DEFAULT_VIEWPORT_PANE_WIDTH, ExactSplitResize, ExactViewportSplitResize, LayoutResult,
     MAX_VIEWPORT_PANE_WIDTH, MIN_VIEWPORT_PANE_WIDTH, Rect, SplitEdge, SplitResize,
@@ -58,8 +61,8 @@ pub use model::{Node, Pane, Screen, State, ViewportColumn, Workspace};
 pub use mux::{
     AgentRecord, AgentSource, AgentState, AppliedLayout, AppliedPane, CellPixelUpdate,
     CellPixelUpdateFailure, ConfigReloadError, DiagnosticReporter, Direction, GraphicsStatus,
-    LayoutLeafSpec, LayoutRatioError, LayoutSpec, LayoutUndoError, LayoutUndoResult, Mux, MuxEvent,
-    NotificationEvent, NotificationLevel, ProviderWorkspaceAuthority,
+    LayoutLeafSpec, LayoutRatioError, LayoutSpec, LayoutUndoError, LayoutUndoResult, MachineUsage,
+    Mux, MuxEvent, NotificationEvent, NotificationLevel, ProviderWorkspaceAuthority,
     ProviderWorkspaceAuthorityStatus, ProviderWorkspaceAuthorityUpdateError, ResourceNotification,
     RunPlacement, SidebarPluginOptions, SidebarPluginStatus, SurfaceNotification,
     SurfaceResizeReporter, TreeDelta, TreeDeltaKind, ViewportWidthError, WorkspaceMutationResult,

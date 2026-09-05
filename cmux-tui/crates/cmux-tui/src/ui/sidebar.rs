@@ -2,28 +2,46 @@
 //! external plugin PTY. Owns its full column including the status-bar row
 //! (the status bar starts after the sidebar) and rebuilds the click hit map
 //! as it draws.
+//!
+//! The agents-view two-line row and attention presentation are adapted from
+//! herdr's agent panel design in `src/app/agent_view.rs` at commit
+//! `7b675f42af35508eab66ac42fe1598628597a893` (Apache-2.0), modified by
+//! manaflow for cmux localization and configurable sidebar resources.
 
 use cmux_tui_core::Rect;
 use ratatui::Frame;
 use ratatui::style::{Color, Modifier, Style};
 use std::borrow::Cow;
+use unicode_width::UnicodeWidthStr;
 
 use super::{
     ScrollbarState, ScrollbarStyle, middle_truncate, rail, truncate, viewport_thumb_geometry,
 };
-use crate::app::{App, Hit, RailKind, WorkspaceRailSelection};
+use crate::app::{
+    App, FilesRailSelection, Hit, RailKind, SidebarHiddenReason, WorkspaceRailSelection,
+    sidebar_file_token, sidebar_profile_token, sidebar_split_divider_token, sidebar_view_token,
+};
 use crate::config::{SidebarResourceKind, SidebarView};
 use crate::localization;
 use crate::machine::{MachineRailSelection, MachineStatus};
 
-fn projection_empty_label(resource: SidebarResourceKind) -> &'static str {
+fn projection_empty_label(app: &App, spec: &crate::config::SidebarViewSpec) -> &'static str {
     let messages = &localization::catalog().sidebar;
+    let resource = spec.levels.last().copied().unwrap_or(SidebarResourceKind::Workspaces);
     match resource {
         SidebarResourceKind::Machines => messages.no_machines,
         SidebarResourceKind::Workspaces => messages.no_workspaces,
         SidebarResourceKind::Panes => messages.no_panes,
         SidebarResourceKind::Tabs => messages.no_tabs,
-        SidebarResourceKind::Agents => messages.no_agents,
+        SidebarResourceKind::Agents => {
+            if spec.filter.is_active() {
+                messages.no_matching_agents
+            } else if !app.has_agent_records() {
+                messages.no_agents
+            } else {
+                messages.no_active_agents
+            }
+        }
     }
 }
 
@@ -37,10 +55,237 @@ fn projection_detail<'a>(row: &'a crate::sidebar_projection::ProjectionRow) -> C
         "done" => messages.done,
         _ => messages.unknown,
     };
-    if row.subtitle.is_empty() {
-        Cow::Borrowed(state)
+    // Lead with the agent type when the row name is the tab title, so
+    // "which agent is this" never depends on the title alone. Skip it when
+    // the name already IS the agent type (untitled tab fallback).
+    let mut detail = match row.agent_label.as_deref() {
+        Some(agent) if row.name != agent => format!("{agent} · {state}"),
+        _ if row.subtitle.is_empty() => return Cow::Borrowed(state),
+        _ => state.to_string(),
+    };
+    if !row.subtitle.is_empty() {
+        detail = format!("{detail} · {}", row.subtitle);
+    }
+    Cow::Owned(detail)
+}
+
+type ProfileLabel = (usize, String);
+type PresentationCandidate = (Vec<ProfileLabel>, Vec<String>, bool);
+
+/// Draw the shared profile strip above all native sidebar rails. Profile
+/// names stay in stable configuration order when they fit. At narrow widths
+/// the active profile remains visible and the overflow count opens the same
+/// management menu as the final ellipsis.
+pub fn draw_presentation(app: &mut App, frame: &mut Frame) {
+    let Some(area) = app.sidebar_layout.presentation else { return };
+    if area.width < 2 || area.height == 0 {
+        return;
+    }
+    let palette = rail::RailPalette::for_app(app, app.sidebar_rail_focused());
+    rail::prepare(frame, area, palette);
+    let content_width = usize::from(area.width.saturating_sub(1));
+    if content_width == 0 {
+        return;
+    }
+
+    let hidden_count = app.sidebar_layout.hidden_views.len();
+    let manage = "⋯";
+    let attention = app.agent_attention_summary();
+    let hidden_reason = app.sidebar_layout.hidden_views.first().map(|hidden| hidden.reason);
+    let hidden_reasons_match = hidden_reason.is_some_and(|reason| {
+        app.sidebar_layout.hidden_views.iter().all(|hidden| hidden.reason == reason)
+    });
+    let hidden_marker = match hidden_reason.filter(|_| hidden_reasons_match) {
+        Some(SidebarHiddenReason::Explicit) => "×",
+        Some(SidebarHiddenReason::Width) => "↔",
+        Some(SidebarHiddenReason::Height) => "↕",
+        None => "!",
+    };
+    let hidden = (hidden_count > 0).then(|| format!("+{hidden_count}{hidden_marker}"));
+    let active_index = app
+        .config
+        .sidebar
+        .profiles
+        .iter()
+        .position(|profile| profile.id == app.config.sidebar.active_profile)
+        .unwrap_or_default();
+    let labels = app
+        .config
+        .sidebar
+        .profiles
+        .iter()
+        .enumerate()
+        .map(|(index, profile)| (index, app.sidebar_profile_display_name(profile)))
+        .collect::<Vec<_>>();
+    // Measure the complete strip, including the manage control and every
+    // separator. The old calculation omitted those cells, so a profile could
+    // be silently dropped at an exact width boundary without an overflow
+    // marker. Choose a complete, self-consistent representation first, then
+    // truncate only the active label as the final fallback.
+    let joined_width = |parts: &[String]| {
+        parts
+            .iter()
+            .map(|part| UnicodeWidthStr::width(part.as_str()))
+            .sum::<usize>()
+            .saturating_add(parts.len().saturating_sub(1))
+    };
+    let profile_token_width =
+        |(_, label): &(usize, String)| UnicodeWidthStr::width(label.as_str()).saturating_add(2);
+    let profiles_width = |profiles: &[ProfileLabel]| {
+        profiles
+            .iter()
+            .map(profile_token_width)
+            .sum::<usize>()
+            .saturating_add(profiles.len().saturating_sub(1))
+    };
+    let active = labels
+        .iter()
+        .find(|(index, _)| *index == active_index)
+        .cloned()
+        .into_iter()
+        .collect::<Vec<_>>();
+    let profile_overflow = labels.len().saturating_sub(active.len());
+    let profile_overflow = (profile_overflow > 0).then(|| format!("+{profile_overflow}"));
+    // Candidate order is deliberate. Keep all configured tabs when they fit;
+    // otherwise keep the active tab, disclose omitted profiles, and retain the
+    // hidden-view diagnostic when the strip has room for it. The manage control
+    // is present in every candidate and is never lost to truncation. Build one
+    // candidate at a time so the fallback path does not clone labels that are
+    // never rendered.
+    let mut chosen: Option<PresentationCandidate> = None;
+    let mut try_candidate = |profiles: &[ProfileLabel],
+                             tail: Vec<String>,
+                             allow_active_truncation: bool| {
+        if chosen.is_none() {
+            let profile_width = profiles_width(profiles);
+            let tail_width = joined_width(&tail);
+            let available = content_width
+                .saturating_sub(tail_width)
+                .saturating_sub(usize::from(profile_width > 0 && tail_width > 0));
+            let profiles_fit = profile_width <= available;
+            if profiles_fit || (allow_active_truncation && profiles.len() == 1 && available > 0) {
+                chosen = Some((profiles.to_vec(), tail, profiles_fit));
+            }
+        }
+    };
+    let tail_for =
+        |include_overflow: bool, include_attention: bool, include_hidden: bool| -> Vec<String> {
+            let mut tail = Vec::new();
+            if include_overflow && let Some(overflow) = profile_overflow.as_ref() {
+                tail.push(overflow.clone());
+            }
+            if include_attention && let Some(attention) = attention.as_ref() {
+                tail.push(attention.clone());
+            }
+            if include_hidden && let Some(hidden) = hidden.as_ref() {
+                tail.push(hidden.clone());
+            }
+            tail.push(manage.to_string());
+            tail
+        };
+    // A hidden-view marker is a safety disclosure. Once a view is hidden,
+    // never make it disappear just to preserve a longer profile label. Drop
+    // the optional attention and profile-overflow labels first, then shorten
+    // the active profile name. Without hidden views, keep the normal order
+    // that favors the complete profile strip.
+    if hidden.is_some() {
+        try_candidate(&labels, tail_for(false, true, true), false);
+        try_candidate(&labels, tail_for(false, false, true), false);
+        try_candidate(&active, tail_for(true, true, true), true);
+        try_candidate(&active, tail_for(true, false, true), true);
+        try_candidate(&active, tail_for(false, true, true), true);
+        try_candidate(&active, tail_for(false, false, true), true);
     } else {
-        Cow::Owned(format!("{state} · {}", row.subtitle))
+        try_candidate(&labels, tail_for(false, true, false), false);
+        try_candidate(&labels, tail_for(false, false, false), false);
+        try_candidate(&active, tail_for(true, true, false), true);
+        try_candidate(&active, tail_for(true, false, false), true);
+        try_candidate(&active, tail_for(false, true, false), true);
+        try_candidate(&active, tail_for(false, false, false), true);
+    }
+    try_candidate(&active, vec![manage.to_string()], true);
+    let (shown, tail_parts, profiles_fit) = chosen.unwrap_or_else(|| {
+        // A name can be wider than the entire strip. Preserve at least one
+        // visible cell of the active identity, and keep the menu affordance
+        // whenever a separator plus one profile cell fits.
+        if !active.is_empty() {
+            if content_width >= 3 {
+                let tail = hidden
+                    .as_ref()
+                    .map(|hidden| vec![hidden.clone(), manage.to_string()])
+                    .unwrap_or_else(|| vec![manage.to_string()]);
+                (active.clone(), tail, false)
+            } else {
+                (active.clone(), Vec::new(), false)
+            }
+        } else {
+            let tail = hidden
+                .as_ref()
+                .map(|hidden| vec![hidden.clone(), manage.to_string()])
+                .unwrap_or_else(|| vec![manage.to_string()]);
+            (Vec::new(), tail, false)
+        }
+    });
+
+    let tail = tail_parts.join(" ");
+    let tail_width = UnicodeWidthStr::width(tail.as_str()).min(content_width);
+    let profile_limit =
+        content_width.saturating_sub(tail_width).saturating_sub(usize::from(tail_width > 0));
+    let active_name_width = labels
+        .iter()
+        .find(|(index, _)| *index == active_index)
+        .map_or(0, |(_, name)| UnicodeWidthStr::width(name.as_str()));
+    let mut x = area.x;
+    let mut used = 0usize;
+    for (index, label) in &shown {
+        let selectable = labels.len() > 1;
+        let available = profile_limit.saturating_sub(2);
+        let fitted =
+            if profiles_fit || (*index == active_index && active_name_width <= profile_limit) {
+                label.clone()
+            } else if available > 0 {
+                truncate(label, available)
+            } else if profile_limit > 0 {
+                truncate(label, profile_limit)
+            } else {
+                String::new()
+            };
+        let fitted_width = UnicodeWidthStr::width(fitted.as_str());
+        let padded = if profiles_fit || profile_limit >= fitted_width.saturating_add(2) {
+            format!(" {fitted} ")
+        } else {
+            fitted
+        };
+        let width = UnicodeWidthStr::width(padded.as_str());
+        if width == 0 || used.saturating_add(width) > profile_limit {
+            continue;
+        }
+        let style = if selectable && *index == active_index { palette.active } else { palette.dim };
+        if selectable && *index == active_index {
+            for column in x..x.saturating_add(width as u16) {
+                frame.buffer_mut()[(column, area.y)].set_symbol(" ").set_style(style);
+            }
+        }
+        frame.buffer_mut().set_stringn(x, area.y, &padded, width, style);
+        if selectable {
+            app.hits.push((
+                Rect { x, y: area.y, width: width as u16, height: 1 },
+                Hit::SidebarProfile {
+                    index: *index,
+                    token: sidebar_profile_token(&app.config.sidebar.profiles[*index].id),
+                },
+            ));
+        }
+        x = x.saturating_add(width as u16);
+        used = used.saturating_add(width);
+    }
+    if tail_width > 0 {
+        let tail_x = area.x.saturating_add((content_width - tail_width) as u16);
+        frame.buffer_mut().set_stringn(tail_x, area.y, &tail, tail_width, palette.dim);
+        app.hits.push((
+            Rect { x: tail_x, y: area.y, width: tail_width as u16, height: 1 },
+            Hit::SidebarPresentationMenu,
+        ));
     }
 }
 
@@ -84,11 +329,17 @@ pub fn draw_machines(app: &mut App, frame: &mut Frame) {
     let Some(area) = app.machine_sidebar_area(frame.area().height) else { return };
     let Some(machine_ui) = app.machine_ui.as_ref() else { return };
     let machines = machine_ui.snapshot.machines.clone();
+    let connection_phases =
+        machines.iter().map(|machine| machine_ui.connection_phase(machine.key)).collect::<Vec<_>>();
     let active = app.selected_machine();
     let capabilities = machine_ui.snapshot.capabilities;
     let selection = machine_ui.selection;
     let managed_machines = machine_ui.managed_machines().to_vec();
     let rail_selection = machine_ui.rail_selection;
+    let view_token = app
+        .view_index_for_rail(RailKind::Machine)
+        .and_then(|index| app.config.sidebar.views.get(index))
+        .map(sidebar_view_token);
     let palette = rail::RailPalette::for_app(app, app.machine_sidebar_focused());
     let metrics = rail::RailMetrics::for_app(app);
     let messages = &localization::catalog().sidebar;
@@ -126,15 +377,18 @@ pub fn draw_machines(app: &mut App, frame: &mut Frame) {
     } else {
         None
     };
-    let viewport = rail::viewport(
-        area,
-        body_rows,
-        footer_rows,
-        &mut app.machine_rail_scroll,
-        &mut app.machine_footer_scroll,
-        selected_body,
-        selected_footer,
-    );
+    let viewport = {
+        let scroll = app.active_sidebar_rail_scroll_mut();
+        rail::viewport(
+            area,
+            body_rows,
+            footer_rows,
+            &mut scroll.machine_rail_scroll,
+            &mut scroll.machine_footer_scroll,
+            selected_body,
+            selected_footer,
+        )
+    };
 
     let mut hits = Vec::new();
     if machines.is_empty()
@@ -159,7 +413,7 @@ pub fn draw_machines(app: &mut App, frame: &mut Frame) {
         let recoverable = managed.is_some_and(|managed| {
             managed.status == crate::machine::ManagedMachineStatus::Recoverable
         });
-        let connection_phase = machine_ui.connection_phase(machine.key);
+        let connection_phase = connection_phases[index];
         let status = match connection_phase {
             crate::machine::MachineConnectionPhase::Connecting => messages.connecting,
             crate::machine::MachineConnectionPhase::Failed => messages.unavailable,
@@ -246,7 +500,7 @@ pub fn draw_machines(app: &mut App, frame: &mut Frame) {
         hits.push((rail::row(area, y), Hit::ConnectMachine));
     }
     hits.push((rail::row(area, area.y), Hit::RailPad(RailKind::Machine)));
-    hits.push((rail::divider(area), Hit::RailResize(RailKind::Machine)));
+    hits.push((rail::divider(area), Hit::RailResize { kind: RailKind::Machine, view_token }));
     app.hits.extend(hits);
 }
 
@@ -257,6 +511,10 @@ pub fn draw_tabs(app: &mut App, frame: &mut Frame) {
     app.tabs_rail_selection = app.tabs_rail_selection.min(targets.len().saturating_sub(1));
     let palette = rail::RailPalette::for_app(app, app.tabs_sidebar_focused());
     let metrics = rail::RailMetrics::for_app(app);
+    let view_token = app
+        .view_index_for_rail(RailKind::Tabs)
+        .and_then(|index| app.config.sidebar.views.get(index))
+        .map(sidebar_view_token);
     let messages = &localization::catalog().sidebar;
     rail::prepare(frame, area, palette);
 
@@ -265,15 +523,18 @@ pub fn draw_tabs(app: &mut App, frame: &mut Frame) {
         && app.tabs_sidebar_focused()
         && app.tabs_rail_follow_selection)
         .then_some(rail::RowSpan::new(app.tabs_rail_selection * metrics.stride, metrics.height));
-    let viewport = rail::viewport(
-        area,
-        body_rows,
-        0,
-        &mut app.tabs_rail_scroll,
-        &mut app.tabs_footer_scroll,
-        selected,
-        None,
-    );
+    let viewport = {
+        let scroll = app.active_sidebar_rail_scroll_mut();
+        rail::viewport(
+            area,
+            body_rows,
+            0,
+            &mut scroll.tabs_rail_scroll,
+            &mut scroll.tabs_footer_scroll,
+            selected,
+            None,
+        )
+    };
 
     if targets.is_empty() {
         if let Some(y) = viewport.body_y(rail::RowSpan::new(0, 1)) {
@@ -315,18 +576,52 @@ pub fn draw_tabs(app: &mut App, frame: &mut Frame) {
         }
     }
     app.hits.push((rail::row(area, area.y), Hit::RailPad(RailKind::Tabs)));
-    app.hits.push((rail::divider(area), Hit::RailResize(RailKind::Tabs)));
+    app.hits.push((rail::divider(area), Hit::RailResize { kind: RailKind::Tabs, view_token }));
 }
 
 /// Render one configurable resource path as a dense native tree column.
 pub fn draw_projection(app: &mut App, frame: &mut Frame, view_index: usize) {
-    let Some(area) = app.projection_sidebar_area(view_index) else { return };
+    let Some(mut area) = app.projection_sidebar_area(view_index) else { return };
+    let rail_area = area;
     let Some(spec) = app.config.sidebar.views.get(view_index).cloned() else { return };
     let rows = app.projection_rows(view_index);
     let actions = app.sidebar_action_rows(view_index);
     let focused = app.projection_sidebar_focused(view_index);
     let palette = rail::RailPalette::for_app(app, focused);
     rail::prepare(frame, area, palette);
+
+    // Agents views carry a herdr-style header: the view title left, the
+    // ACTIVE sort mode right (the cycle key steps it), with a marker when a
+    // config filter hides rows. It consumes the top line of the rail.
+    let messages = &localization::catalog().sidebar;
+    if spec.includes(SidebarResourceKind::Agents) && area.height > 1 {
+        let mode = match app.effective_agent_sort(&spec) {
+            crate::config::AgentSortMode::Priority => messages.sort_priority,
+            crate::config::AgentSortMode::Recency => messages.sort_recency,
+            crate::config::AgentSortMode::Name => messages.sort_name,
+            crate::config::AgentSortMode::Agent => messages.sort_agent,
+            crate::config::AgentSortMode::State => messages.sort_state,
+        };
+        // An active filter is always disclosed: rows silently missing from
+        // an agents board would read as lost agents. The rail primitive keeps
+        // a compact marker visible when the full localized label is too wide.
+        let filter_marker = spec.filter.is_active().then_some(messages.sort_filtered);
+        rail::view_header_with_filter(
+            frame,
+            area,
+            area.y,
+            messages.agents,
+            mode,
+            filter_marker,
+            palette,
+        );
+        area = Rect { y: area.y + 1, height: area.height - 1, ..area };
+    }
+
+    // Agent rows can span two terminal lines; every row's span is derived
+    // from the same height table so scrolling and hits stay aligned.
+    let metrics = rail::RailMetrics::for_app(app);
+    let (row_spans, body_rows) = crate::app::projection_row_spans(&rows, &spec, metrics);
 
     let selectable_rows = rows.len().saturating_add(actions.len());
     let (selected, viewport) = {
@@ -344,51 +639,109 @@ pub fn draw_projection(app: &mut App, frame: &mut Frame, view_index: usize) {
             && state.follow_selection
             && state.selected_action.is_none()
             && !rows.is_empty())
-        .then(|| rail::RowSpan::new(state.selected, 1));
+        .then(|| row_spans.get(state.selected).copied())
+        .flatten();
         let selected_footer = (focused && state.follow_selection)
             .then_some(state.selected_action)
             .flatten()
             .map(|index| rail::RowSpan::new(index, 1));
-        let viewport = rail::viewport(
+        let viewport = rail::viewport_positioned(
             area,
-            rows.len().max(usize::from(rows.is_empty())),
+            body_rows.max(usize::from(rows.is_empty())),
             actions.len(),
             &mut state.scroll,
             &mut state.footer_scroll,
             selected_body,
             selected_footer,
+            spec.actions_position,
         );
         (selected, viewport)
     };
     if rows.is_empty()
         && let Some(y) = viewport.body_y(rail::RowSpan::new(0, 1))
     {
-        let resource = spec.levels.last().copied().unwrap_or(SidebarResourceKind::Workspaces);
-        rail::button(frame, area, y, projection_empty_label(resource), false, palette);
+        rail::button(frame, area, y, projection_empty_label(app, &spec), false, palette);
     }
     for (row_index, row) in rows.iter().enumerate() {
-        let Some(y) = viewport.body_y(rail::RowSpan::new(row_index, 1)) else { continue };
+        let span = row_spans[row_index];
+        let Some(y) = viewport.body_y(span) else { continue };
         let highlighted = row.active || (focused && selected == row_index);
-        let detail = projection_detail(row);
+        let two_line = span.height >= 2 && row.agent_state.is_some();
+        // Two-line agent rows read like herdr: the state glyph plus the
+        // context line (tab title, else the session/workspace subtitle),
+        // then the agent type dim underneath. Single-line rows keep the
+        // combined detail text.
+        let detail = if two_line { Cow::Borrowed("") } else { projection_detail(row) };
+        let title = if two_line && row.agent_label.as_deref() == Some(row.name.as_str()) {
+            row.subtitle.as_str()
+        } else {
+            row.name.as_str()
+        };
+        // The dim second line is the agent type; an agent the roster cannot
+        // name yet (bare socket reports) falls back to its localized state.
+        let second_line = row.agent_label.clone().or_else(|| {
+            row.agent_state.as_deref().map(|state| {
+                match state {
+                    "working" => messages.working,
+                    "blocked" => messages.blocked,
+                    "idle" => messages.idle,
+                    "done" => messages.done,
+                    _ => messages.unknown,
+                }
+                .to_string()
+            })
+        });
+        let indicator = row.agent_state.as_deref().and_then(|state| match state {
+            "blocked" => Some(rail::TreeRowIndicator::Dot(app.config.theme.notification_error)),
+            "working" => Some(rail::TreeRowIndicator::Dot(app.config.theme.notification_info)),
+            "idle" => Some(rail::TreeRowIndicator::Circle),
+            _ => None,
+        });
+        let projection_second_line = if span.height >= 2 {
+            if two_line {
+                Some(second_line.as_deref().unwrap_or(""))
+            } else {
+                Some(row.subtitle.as_str())
+            }
+        } else {
+            None
+        };
         let disclosure = rail::tree_row(
             frame,
             area,
             y,
-            row.depth,
-            &row.name,
-            &detail,
-            row.branch.map(|_| row.expanded),
-            highlighted,
-            row.active,
+            rail::TreeRow {
+                depth: row.depth,
+                name: title,
+                detail: &detail,
+                second_line: projection_second_line,
+                branch: row.branch.map(|_| row.expanded),
+                indicator,
+                highlighted,
+                active: row.active,
+            },
             palette,
         );
         if let (Some(rect), Some(branch)) = (disclosure, row.branch) {
-            app.hits.push((rect, Hit::ProjectionToggle { view: view_index, branch }));
+            app.hits.push((
+                rect,
+                Hit::ProjectionToggle {
+                    view: view_index,
+                    view_token: sidebar_view_token(&spec),
+                    branch,
+                },
+            ));
         }
-        app.hits.push((
-            rail::row(area, y),
-            Hit::ProjectionRow { view: view_index, row: row_index, target: row.target },
-        ));
+        let hit = Hit::ProjectionRow {
+            view: view_index,
+            view_token: sidebar_view_token(&spec),
+            row: row_index,
+            target: row.target,
+        };
+        app.hits.push((rail::row(area, y), hit));
+        if two_line && y + 1 < area.y.saturating_add(area.height) {
+            app.hits.push((rail::row(area, y + 1), hit));
+        }
     }
     for (action_index, action) in actions.iter().enumerate() {
         let Some(y) = viewport.footer_y(rail::RowSpan::new(action_index, 1)) else { continue };
@@ -402,11 +755,64 @@ pub fn draw_projection(app: &mut App, frame: &mut Frame, view_index: usize) {
         );
         app.hits.push((
             rail::row(area, y),
-            Hit::SidebarAction { view: view_index, action: action.target },
+            Hit::SidebarAction {
+                view: view_index,
+                view_token: sidebar_view_token(&spec),
+                action: action.target,
+            },
         ));
     }
-    app.hits.push((rail::row(area, area.y), Hit::RailPad(RailKind::Projection(view_index))));
-    app.hits.push((rail::divider(area), Hit::RailResize(RailKind::Projection(view_index))));
+    app.hits
+        .push((rail::row(rail_area, rail_area.y), Hit::RailPad(RailKind::Projection(view_index))));
+    app.hits.push((
+        rail::divider(rail_area),
+        Hit::RailResize {
+            kind: RailKind::Projection(view_index),
+            view_token: Some(sidebar_view_token(&spec)),
+        },
+    ));
+}
+
+/// Draw the horizontal rule of every vertical split divider and register
+/// an explicit semantic drag handle for both split directions. A horizontal
+/// handle reuses the left child's border column, but it still owns its own
+/// route so a later topology cannot turn it into a column resize.
+pub fn draw_split_dividers(app: &mut App, frame: &mut Frame) {
+    if app.sidebar_layout.dividers.is_empty() {
+        return;
+    }
+    let palette = rail::RailPalette::for_app(app, false);
+    for divider in app.sidebar_layout.dividers.clone() {
+        if divider.rect.width == 0 || divider.rect.height == 0 {
+            continue;
+        }
+        if divider.dir == crate::config::SidebarSplitDir::Vertical {
+            let buf = frame.buffer_mut();
+            let y = divider.rect.y;
+            let last = divider.rect.x + divider.rect.width - 1;
+            for x in divider.rect.x..last {
+                buf[(x, y)].set_symbol("─").set_style(palette.border);
+            }
+            // The rail border column stays continuous through the divider.
+            buf[(last, y)].set_symbol(palette.border_symbol).set_style(palette.border);
+        }
+        if let Some(group) = app.sidebar_layout.split_groups.get(divider.group)
+            && let (Some(first), Some(second)) =
+                (group.child_keys.get(divider.index), group.child_keys.get(divider.index + 1))
+        {
+            app.hits.push((
+                divider.rect,
+                Hit::SidebarSplitDivider {
+                    group: divider.group,
+                    index: divider.index,
+                    divider_token: sidebar_split_divider_token(group, divider.index, divider.rect),
+                    group_token: sidebar_profile_token(&group.id),
+                    first_token: sidebar_profile_token(first),
+                    second_token: sidebar_profile_token(second),
+                },
+            ));
+        }
+    }
 }
 
 fn draw_plugin(app: &mut App, frame: &mut Frame) {
@@ -428,7 +834,10 @@ fn draw_plugin(app: &mut App, frame: &mut Frame) {
     // The divider column is a drag handle exactly like the built-in sidebar's;
     // without this hit zone, drag-resize is dead whenever a plugin owns the
     // sidebar (the plugin rect stops one column short of the divider).
-    app.hits.push((rail::divider(area), Hit::RailResize(RailKind::Workspace)));
+    app.hits.push((
+        rail::divider(area),
+        Hit::RailResize { kind: RailKind::Workspace, view_token: None },
+    ));
     if let Some(surface_id) = app.sidebar_plugin_surface {
         let Some(surface) = app.session.surface(surface_id) else { return };
         surface.take_dirty();
@@ -486,16 +895,19 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
 
     let actions = app.workspace_sidebar_action_rows();
     let view_index = app.view_index_for_rail(RailKind::Workspace);
+    let view_token = view_index
+        .and_then(|index| app.config.sidebar.views.get(index))
+        .map_or(0, sidebar_view_token);
     let recoverable = app
         .machine_ui
         .as_ref()
         .map(|ui| ui.recoverable_workspaces().into_iter().cloned().collect::<Vec<_>>())
         .unwrap_or_default();
-    let body_rows = (app.tree.workspaces.len() + recoverable.len()) * metrics.stride;
+    let body_rows = (app.tree.workspaces().len() + recoverable.len()) * metrics.stride;
     let selected_body = (app.workspace_sidebar_focused() && app.workspace_rail_follow_selection)
         .then(|| match app.workspace_rail_selection {
             WorkspaceRailSelection::Workspace
-                if app.sidebar_workspace_selection < app.tree.workspaces.len() =>
+                if app.sidebar_workspace_selection < app.tree.workspaces().len() =>
             {
                 Some(rail::RowSpan::new(
                     app.sidebar_workspace_selection * metrics.stride,
@@ -506,7 +918,7 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
                 if app.sidebar_recoverable_workspace_selection < recoverable.len() =>
             {
                 Some(rail::RowSpan::new(
-                    (app.tree.workspaces.len() + app.sidebar_recoverable_workspace_selection)
+                    (app.tree.workspaces().len() + app.sidebar_recoverable_workspace_selection)
                         * metrics.stride,
                     metrics.height,
                 ))
@@ -524,16 +936,23 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
         None
     };
     let actions_position = app.workspace_actions_position();
-    let viewport = rail::viewport_positioned(
-        area,
-        body_rows,
-        actions.len(),
-        &mut app.workspace_rail_scroll,
-        &mut app.workspace_footer_scroll,
-        selected_body,
-        selected_footer,
-        actions_position,
-    );
+    let viewport = {
+        let scroll = app.active_sidebar_rail_scroll_mut();
+        rail::viewport_positioned(
+            area,
+            body_rows,
+            actions.len(),
+            &mut scroll.workspace_rail_scroll,
+            &mut scroll.workspace_footer_scroll,
+            selected_body,
+            selected_footer,
+            actions_position,
+        )
+    };
+    if let Some(usage) = app.machine_usage.as_ref() {
+        let readout = messages.machine_usage_readout(usage.api_equivalent_usd, usage.period_days);
+        rail::header_readout(frame, area, &readout, palette);
+    }
     let mut hits = Vec::new();
     let scrollbar_track = if viewport.body.height > 0 && body_rows > viewport.body.height as usize {
         Rect {
@@ -555,7 +974,7 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
             },
         ));
     }
-    for (i, ws) in app.tree.workspaces.iter().enumerate() {
+    for (i, ws) in app.tree.workspaces().iter().enumerate() {
         let span = rail::RowSpan::new(i * metrics.stride, metrics.height);
         let Some(y) = viewport.body_y(span) else { continue };
         let active = i == app.tree.active_workspace;
@@ -595,7 +1014,7 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
     }
 
     for (index, workspace) in recoverable.iter().enumerate() {
-        let row = app.tree.workspaces.len() + index;
+        let row = app.tree.workspaces().len() + index;
         let span = rail::RowSpan::new(row * metrics.stride, metrics.height);
         let Some(y) = viewport.body_y(span) else { continue };
         let selected = app.workspace_sidebar_focused()
@@ -620,9 +1039,15 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
             palette,
             metrics,
         );
-        hits.push((rail::row(area, y), Hit::RecoverableWorkspace { index }));
+        hits.push((
+            rail::row(area, y),
+            Hit::RecoverableWorkspace { index, token: sidebar_profile_token(&workspace.id) },
+        ));
         if metrics.height >= 2 {
-            hits.push((rail::row(area, y + 1), Hit::RecoverableWorkspace { index }));
+            hits.push((
+                rail::row(area, y + 1),
+                Hit::RecoverableWorkspace { index, token: sidebar_profile_token(&workspace.id) },
+            ));
         }
     }
 
@@ -651,13 +1076,13 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
         );
         match action.target {
             crate::app::SidebarActionTarget::CreateWorkspace(mode) => {
-                hits.push((rail::row(area, y), Hit::CreateWorkspace { mode }));
+                hits.push((rail::row(area, y), Hit::CreateWorkspace { mode, view_token }));
             }
             crate::app::SidebarActionTarget::Run(_) => {
                 if let Some(view) = view_index {
                     hits.push((
                         rail::row(area, y),
-                        Hit::SidebarAction { view, action: action.target },
+                        Hit::SidebarAction { view, view_token, action: action.target },
                     ));
                 }
             }
@@ -688,7 +1113,10 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
         );
     }
     hits.push((rail::row(area, area.y), Hit::RailPad(RailKind::Workspace)));
-    hits.push((rail::divider(area), Hit::RailResize(RailKind::Workspace)));
+    hits.push((
+        rail::divider(area),
+        Hit::RailResize { kind: RailKind::Workspace, view_token: Some(view_token) },
+    ));
     app.hits.extend(hits);
 }
 
@@ -714,6 +1142,23 @@ fn draw_files(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
         .fg(chrome.sidebar_selected_fg)
         .add_modifier(Modifier::BOLD);
     let focused = app.workspace_sidebar_focused();
+    app.reconcile_files_rail_selection();
+    app.reveal_files_action_selection();
+    let actions = app.workspace_sidebar_action_rows();
+    let view_index = app.view_index_for_rail(RailKind::Workspace);
+    let view_token = view_index
+        .and_then(|index| app.config.sidebar.views.get(index))
+        .map_or(0, sidebar_view_token);
+    let actions_position = app.workspace_actions_position();
+    let geometry = app.files_layout_geometry(area);
+    let body = geometry.body;
+    let body_height = usize::from(body.height);
+    let top_action_rows = geometry.top_action_rows;
+    let bottom_action_rows = geometry.bottom_action_rows;
+    let visible_action_rows = top_action_rows + bottom_action_rows;
+    let hidden_action_rows = actions.len().saturating_sub(visible_action_rows);
+    let action_offset = geometry.action_offset;
+    app.sidebar_files.set_viewport_height(body_height);
     let border = base
         .fg(if focused { app.config.theme.border_active } else { chrome.sidebar_border })
         .add_modifier(if focused { Modifier::BOLD } else { Modifier::empty() });
@@ -730,7 +1175,7 @@ fn draw_files(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
     let entries = app
         .sidebar_files
         .visible_entries()
-        .map(|entry| (entry.name.clone(), entry.is_dir()))
+        .map(|entry| (entry.name.clone(), entry.is_dir(), sidebar_file_token(&entry.path)))
         .collect::<Vec<_>>();
     let selected = app.sidebar_files.selected();
     let current_dir = app.sidebar_files.current_dir().to_string_lossy().into_owned();
@@ -776,9 +1221,14 @@ fn draw_files(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
         );
     }
 
-    let body_start = area.y + 1;
-    let body_height = height.saturating_sub(2) as usize;
+    let body_start = body.y;
+    let status_y = geometry.footer_y;
+    let scroll_offset = app.sidebar_files.scroll_offset();
     let mut hits = Vec::new();
+    // Files is the workspace host in the native profile layout. Its header
+    // and blank/error body must therefore participate in the same focus
+    // contract as the Workspaces renderer, even when no file row exists.
+    hits.push((rail::row(area, area.y), Hit::RailPad(RailKind::Workspace)));
     if let Some(error) = listing_error {
         if body_height > 0 {
             buf.set_stringn(area.x, body_start, truncate(&error, content_w), content_w, dim);
@@ -788,12 +1238,15 @@ fn draw_files(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
             buf.set_stringn(area.x, body_start, " No files", content_w, dim);
         }
     } else {
-        let offset = file_scroll_offset(selected, body_height, entries.len());
-        for (line, (name, is_dir)) in entries.iter().skip(offset).take(body_height).enumerate() {
+        for (line, (name, is_dir, token)) in
+            entries.iter().skip(scroll_offset).take(body_height).enumerate()
+        {
             let y = body_start + line as u16;
-            let row_index = offset + line;
-            let style = if row_index == selected { selected_style } else { base };
-            if row_index == selected {
+            let row_index = scroll_offset + line;
+            let file_selected =
+                app.files_rail_selection == FilesRailSelection::File && row_index == selected;
+            let style = if file_selected { selected_style } else { base };
+            if file_selected {
                 for x in area.x..area.x + content_width {
                     buf[(x, y)].set_style(style);
                 }
@@ -804,38 +1257,150 @@ fn draw_files(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
             buf.set_stringn(area.x + 2, y, truncate(name, name_width), name_width, style);
             hits.push((
                 Rect { x: area.x, y, width: content_width, height: 1 },
-                Hit::SidebarFile { index: row_index },
+                Hit::SidebarFile { index: row_index, token: *token },
             ));
         }
     }
 
+    if body_height > 0 && entries.len() > body_height {
+        let track =
+            Rect { x: area.x + width - 1, y: body_start, width: 1, height: body_height as u16 };
+        let thumb =
+            viewport_thumb_geometry(entries.len(), body_height, scroll_offset, track.height);
+        let state = if focused {
+            if app.dragging_files_scrollbar() {
+                ScrollbarState::Expanded
+            } else {
+                ScrollbarState::Highlighted
+            }
+        } else {
+            ScrollbarState::Idle
+        };
+        ScrollbarStyle::from_chrome(app.chrome).draw_thumb(
+            buf,
+            track,
+            thumb,
+            Style::default(),
+            state,
+        );
+        hits.push((
+            track,
+            Hit::FilesScrollbar { track, total_rows: entries.len(), visible_rows: body_height },
+        ));
+    }
+
+    if body_height > 0 {
+        hits.push((
+            Rect { x: area.x, y: body_start, width: content_width, height: body_height as u16 },
+            Hit::RailPad(RailKind::Workspace),
+        ));
+    }
+
     let mut input_cursor = None;
-    if height > 1 {
-        let footer_y = area.y + height - 1;
+    if let Some(footer_y) = status_y {
         if let Some((shown, cursor_col)) = filter_input {
             let input_width = content_width.saturating_sub(1);
             buf.set_stringn(area.x, footer_y, "/", 1, dim);
             buf.set_stringn(area.x + 1, footer_y, &shown, input_width as usize, dim);
-            let input_rect = Rect { x: area.x + 1, y: footer_y, width: input_width, height: 1 };
+            // Include the visible slash prefix in the hit region. The cursor
+            // still starts after the prefix, but the whole control owns the
+            // click so the pane never receives an edge click by accident.
+            let input_rect = Rect { x: area.x, y: footer_y, width: content_width, height: 1 };
             hits.push((input_rect, Hit::SidebarFilterInput));
             if app.workspace_sidebar_focused() {
-                input_cursor = Some((input_rect.x + cursor_col as u16, footer_y));
+                input_cursor = Some((area.x + 1 + cursor_col as u16, footer_y));
             }
         } else {
             let footer = if let Some(message) = message {
                 message
             } else {
-                format!(
+                let status = format!(
                     "{}/{}  .:{}  / filter",
                     entries.len(),
                     total,
                     if show_hidden { "on" } else { "off" }
-                )
+                );
+                if hidden_action_rows > 0 {
+                    format!(
+                        "+{hidden_action_rows} {} · {status}",
+                        localization::catalog().sidebar.provider_actions
+                    )
+                } else {
+                    status
+                }
             };
             buf.set_stringn(area.x, footer_y, truncate(&footer, content_w), content_w, dim);
         }
+        // The footer is part of the Files host, even when it only shows a
+        // count or an error. Consume clicks there so they cannot fall through
+        // to the pane and keep the host's focus contract complete.
+        hits.push((
+            Rect { x: area.x, y: footer_y, width: content_width, height: 1 },
+            Hit::RailPad(RailKind::Workspace),
+        ));
     }
-    hits.push((rail::divider(area), Hit::RailResize(RailKind::Workspace)));
+    let visible_action_rows = match actions_position {
+        crate::config::ActionsPosition::Top => top_action_rows,
+        crate::config::ActionsPosition::Bottom => bottom_action_rows,
+    };
+    let hidden_actions_before = action_offset;
+    let hidden_actions_after =
+        actions.len().saturating_sub(action_offset.saturating_add(visible_action_rows));
+    for (row, action) in actions.iter().enumerate().skip(action_offset).take(visible_action_rows) {
+        let visible_row = row.saturating_sub(action_offset);
+        let y = match actions_position {
+            crate::config::ActionsPosition::Top => area.y + 1 + visible_row as u16,
+            crate::config::ActionsPosition::Bottom => {
+                let Some(status_y) = status_y else { continue };
+                status_y
+                    .saturating_sub(u16::try_from(bottom_action_rows).unwrap_or(u16::MAX))
+                    .saturating_add(visible_row as u16)
+            }
+        };
+        if y >= area.y.saturating_add(height) {
+            continue;
+        }
+        // Keep the action viewport discoverable even when a transient footer
+        // message replaces the numeric overflow summary. The marker is part
+        // of the row label, so it cannot consume a separate selectable row.
+        let label = match (
+            visible_row == 0 && hidden_actions_before > 0,
+            visible_row.saturating_add(1) == visible_action_rows && hidden_actions_after > 0,
+        ) {
+            (true, true) => format!("↑ {} ↓", action.label),
+            (true, false) => format!("↑ {}", action.label),
+            (false, true) => format!("{} ↓", action.label),
+            (false, false) => action.label.clone(),
+        };
+        rail::action(
+            frame,
+            area,
+            y,
+            &label,
+            app.workspace_sidebar_focused()
+                && app.files_rail_selection == FilesRailSelection::Action(action.target),
+            rail::RailPalette::for_app(app, app.workspace_sidebar_focused()),
+        );
+        match action.target {
+            crate::app::SidebarActionTarget::CreateWorkspace(mode) => {
+                hits.push((rail::row(area, y), Hit::CreateWorkspace { mode, view_token }));
+            }
+            crate::app::SidebarActionTarget::Run(_) => {
+                if let Some(view) = app.view_index_for_rail(RailKind::Workspace) {
+                    let view_token =
+                        app.config.sidebar.views.get(view).map_or(0, sidebar_view_token);
+                    hits.push((
+                        rail::row(area, y),
+                        Hit::SidebarAction { view, view_token, action: action.target },
+                    ));
+                }
+            }
+        }
+    }
+    hits.push((
+        rail::divider(area),
+        Hit::RailResize { kind: RailKind::Workspace, view_token: Some(view_token) },
+    ));
     app.hits.extend(hits);
     input_cursor
 }
@@ -845,7 +1410,7 @@ fn unread_summary(app: &App) -> Option<(usize, Color)> {
     let mut highest = None;
     for notification in app
         .tree
-        .workspaces
+        .workspaces()
         .iter()
         .flat_map(|workspace| workspace.screens.iter())
         .flat_map(|screen| screen.panes.iter())
@@ -863,11 +1428,4 @@ fn unread_summary(app: &App) -> Option<(usize, Color)> {
         }
     }
     highest.map(|(_, color)| (count, color))
-}
-
-fn file_scroll_offset(selected: usize, visible_height: usize, total: usize) -> usize {
-    if visible_height == 0 || total <= visible_height || selected < visible_height {
-        return 0;
-    }
-    (selected + 1).saturating_sub(visible_height).min(total - visible_height)
 }

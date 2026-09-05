@@ -2,10 +2,11 @@
 name = "agent-screen-detection"
 kind = "agent"
 version = "0.1.0"
-description = "Herdr-compatible terminal screen detection for cmux agents"
+description = "Screen-based lifecycle detection for terminal coding agents"
+platforms = ["macos", "linux"]
 
 [run]
 command = ["target/release/cmux-agent-screen-detection"]
 
 [build]
-command = ["cargo", "build", "--release"]
+command = ["cargo", "build", "--release", "--locked"]

@@ -12,6 +12,7 @@ import cmux
 import cmux._protocol as resource_protocol
 import cmux.aio
 import cmux.raw
+from cmux.resources import _journal_record
 from cmux import (
     AgentId,
     BrowserId,
@@ -106,6 +107,39 @@ def canceled_end(connection, stream_id, **fields):
 
 
 class ResourceApiTests(unittest.TestCase):
+    def test_public_models_export_journal_append_result(self) -> None:
+        self.assertIn("JournalAppendResult", cmux.__all__)
+
+    def test_journal_record_subjects_use_the_declared_wire_grammar(self) -> None:
+        record = {
+            "sequence": "1",
+            "event_id": "event-1",
+            "schema_version": 1,
+            "kind": "plugin.screen-detector.agent.state.changed",
+            "class": "state",
+            "replay": "required",
+            "occurred_at_ms": "1",
+            "committed_at_ms": "2",
+            "producer": {"kind": "plugin", "id": "screen-detector"},
+            "authority": None,
+            "causation_id": None,
+            "correlation_id": None,
+            "causation_depth": 0,
+            "subjects": [],
+            "sensitivity": "metadata",
+            "payload": {},
+            "resource_revision": None,
+            "previous_resource_revision": None,
+        }
+        for subject in (
+            {"kind": "Agent", "id": "agent-1"},
+            {"kind": "agent", "id": ""},
+            {"kind": "agent", "id": "agent-1", "extra": True},
+        ):
+            with self.subTest(subject=subject):
+                with self.assertRaises(cmux.ProtocolError):
+                    _journal_record({**record, "subjects": [subject]})
+
     def test_root_is_resource_api_and_legacy_is_raw_only(self) -> None:
         self.assertIs(cmux.Client, Client)
         self.assertFalse(hasattr(cmux, "CmuxClient"))
@@ -453,6 +487,7 @@ class ResourceApiTests(unittest.TestCase):
                                 "terminal_id": str(TERMINAL),
                                 "state": "working",
                                 "source": "socket",
+                                "agent": "codex",
                                 "source_session": "codex-1",
                                 "updated_at_ms": "10",
                             },
@@ -591,6 +626,293 @@ class ResourceApiTests(unittest.TestCase):
             },
         )
         self.assertNotIn("agent", by_operation["agent.report"]["params"])
+
+    def test_userland_agent_plugins_use_generic_journal_contract(self) -> None:
+        manifest = cmux.JournalProducerManifest(
+            producer_id="screen-detector",
+            namespace="plugin.screen-detector",
+            manifest_version=1,
+            max_sensitivity="metadata",
+            permissions=("journal.append.plugin.screen-detector",),
+            events=(
+                cmux.JournalEventSchema(
+                    kind="plugin.screen-detector.agent.state.changed",
+                    schema_version=1,
+                    class_="state",
+                    replay="required",
+                    sensitivity="metadata",
+                    payload_schema={"type": "object"},
+                ),
+            ),
+        )
+        observed = []
+
+        def handler(connection, _index):
+            for request in frames(connection):
+                observed.append(request)
+                operation = request["operation"]
+                if operation == "agent.list":
+                    ok(
+                        connection,
+                        request,
+                        [
+                            {
+                                "id": str(AGENT),
+                                "session_id": str(SESSION),
+                                "terminal_id": str(TERMINAL),
+                                "state": "working",
+                                "source": "plugin",
+                                "agent": "codex",
+                                "updated_at_ms": "10",
+                                "source_session": "pid:42",
+                            }
+                        ],
+                    )
+                elif operation == "terminal.screen.read":
+                    ok(
+                        connection,
+                        request,
+                        {
+                            "text": "working",
+                            "revision": "42",
+                            "osc_progress": "4;1;50",
+                            "cols": 80,
+                            "rows": 24,
+                            "cursor_row": 0,
+                            "cursor_col": 7,
+                            "cursor_visible": True,
+                        },
+                    )
+                elif operation == "session.journal.producer.list":
+                    ok(
+                        connection,
+                        request,
+                        {
+                            "producers": [
+                                {
+                                    "producer_id": manifest.producer_id,
+                                    "namespace": manifest.namespace,
+                                    "manifest_version": 1,
+                                    "max_sensitivity": "metadata",
+                                    "permissions": list(manifest.permissions),
+                                    "events": [
+                                        {
+                                            "kind": manifest.events[0].kind,
+                                            "schema_version": 1,
+                                            "class": "state",
+                                            "replay": "required",
+                                            "sensitivity": "metadata",
+                                            "payload_schema": {"type": "object"},
+                                        }
+                                    ],
+                                }
+                            ]
+                        },
+                    )
+                elif operation == "session.journal.producer.put":
+                    ok(
+                        connection,
+                        request,
+                        {
+                            "value": {
+                                "producer_id": "screen-detector",
+                                "manifest_version": 1,
+                                "namespace": "plugin.screen-detector",
+                                "sequence": "11",
+                                "event_id": "event-11",
+                            },
+                            "generation": "generation-a",
+                            "revision": "12",
+                            "replayed": False,
+                        },
+                    )
+                elif operation == "session.journal.append":
+                    ok(
+                        connection,
+                        request,
+                        {
+                            "value": {
+                                "producer_id": "screen-detector",
+                                "sequence": "13",
+                                "event_id": "event-13",
+                            },
+                            "generation": "generation-a",
+                            "revision": "14",
+                            "replayed": False,
+                        },
+                    )
+                else:
+                    raise AssertionError(f"unexpected operation {operation}")
+
+        with UnixJsonServer(handler) as server:
+            with Client(server.path) as client:
+                session = client.session(SESSION)
+                terminal = session.terminal(TERMINAL)
+                self.assertEqual(session.list_agents()[0].snapshot.source, "plugin")
+                self.assertEqual(terminal.read_screen().revision, "42")
+                self.assertEqual(terminal.read_screen().osc_progress, "4;1;50")
+                listed = session.list_journal_producers()
+                self.assertEqual(listed[0].producer_id, "screen-detector")
+                put = session.put_journal_producer(
+                    manifest,
+                    idempotency_key="producer-put",
+                )
+                self.assertEqual(put.value.sequence, "11")
+                appended = session.append_journal(
+                    cmux.JournalIngress(
+                        producer_id="screen-detector",
+                        manifest_version=1,
+                        kind="plugin.screen-detector.agent.state.changed",
+                        schema_version=1,
+                        payload={"state": "working"},
+                        occurred_at_ms="10",
+                        subjects=(
+                            cmux.JournalSubject(kind="agent", id=str(AGENT)),
+                        ),
+                    ),
+                    idempotency_key="event-append",
+                )
+                self.assertEqual(appended.value.event_id, "event-13")
+                with self.assertRaises(ValueError):
+                    session.append_journal(
+                        cmux.JournalIngress(
+                            producer_id="screen-detector",
+                            manifest_version=1,
+                            kind="agent.state.changed",
+                            schema_version=1,
+                            payload={"state": "working"},
+                        )
+                    )
+
+        by_operation = {item["operation"]: item for item in observed}
+        self.assertEqual(
+            by_operation["session.journal.producer.put"]["params"]["manifest"],
+            {
+                "producer_id": "screen-detector",
+                "namespace": "plugin.screen-detector",
+                "manifest_version": 1,
+                "max_sensitivity": "metadata",
+                "permissions": ["journal.append.plugin.screen-detector"],
+                "events": [
+                    {
+                        "kind": "plugin.screen-detector.agent.state.changed",
+                        "schema_version": 1,
+                        "class": "state",
+                        "replay": "required",
+                        "sensitivity": "metadata",
+                        "payload_schema": {"type": "object"},
+                    }
+                ],
+            },
+        )
+        self.assertEqual(
+            by_operation["session.journal.append"]["params"]["event"],
+            {
+                "producer_id": "screen-detector",
+                "manifest_version": 1,
+                "kind": "plugin.screen-detector.agent.state.changed",
+                "schema_version": 1,
+                "occurred_at_ms": "10",
+                "subjects": [{"kind": "agent", "id": str(AGENT)}],
+                "payload": {"state": "working"},
+            },
+        )
+
+    def test_terminal_screen_metadata_accepts_null_from_older_servers(self) -> None:
+        def handler(connection, _index):
+            request = next(frames(connection))
+            ok(
+                connection,
+                request,
+                {
+                    "text": "unavailable",
+                    "revision": None,
+                    "osc_progress": None,
+                    "cols": 80,
+                    "rows": 24,
+                    "cursor_row": 0,
+                    "cursor_col": 0,
+                    "cursor_visible": True,
+                },
+            )
+
+        with UnixJsonServer(handler) as server:
+            with Client(server.path) as client:
+                result = client.session(SESSION).terminal(TERMINAL).read_screen()
+                self.assertIsNone(result.revision)
+                self.assertIsNone(result.osc_progress)
+
+    def test_journal_result_decoders_reject_invalid_identity(self) -> None:
+        def put_handler(connection, _index):
+            request = next(frames(connection))
+            ok(
+                connection,
+                request,
+                {
+                    "value": {
+                        "producer_id": "screen!detector",
+                        "manifest_version": 1,
+                        "namespace": "plugin.screen!detector",
+                        "sequence": "1",
+                        "event_id": "event-1",
+                    },
+                    "generation": "generation-a",
+                    "revision": "1",
+                    "replayed": False,
+                },
+            )
+
+        with UnixJsonServer(put_handler) as server:
+            with Client(server.path) as client:
+                manifest = cmux.JournalProducerManifest(
+                    producer_id="screen-detector",
+                    namespace="plugin.screen-detector",
+                    manifest_version=1,
+                    max_sensitivity="metadata",
+                    permissions=("journal.append.plugin.screen-detector",),
+                    events=(
+                        cmux.JournalEventSchema(
+                            kind="plugin.screen-detector.state.changed",
+                            schema_version=1,
+                            class_="state",
+                            replay="required",
+                            sensitivity="metadata",
+                            payload_schema={"type": "object"},
+                        ),
+                    ),
+                )
+                with self.assertRaises(cmux.ProtocolError):
+                    client.session(SESSION).put_journal_producer(manifest)
+
+        def append_handler(connection, _index):
+            request = next(frames(connection))
+            ok(
+                connection,
+                request,
+                {
+                    "value": {
+                        "producer_id": "screen!detector",
+                        "sequence": "1",
+                        "event_id": "event-1",
+                    },
+                    "generation": "generation-a",
+                    "revision": "1",
+                    "replayed": False,
+                },
+            )
+
+        with UnixJsonServer(append_handler) as server:
+            with Client(server.path) as client:
+                with self.assertRaises(cmux.ProtocolError):
+                    client.session(SESSION).append_journal(
+                        cmux.JournalIngress(
+                            producer_id="screen-detector",
+                            manifest_version=1,
+                            kind="plugin.screen-detector.state.changed",
+                            schema_version=1,
+                            payload={"state": "working"},
+                        )
+                    )
 
     def test_browser_pointer_frame_tokens_are_exact_decimal_strings(self) -> None:
         observed = []
@@ -878,6 +1200,7 @@ class ResourceApiTests(unittest.TestCase):
                 "executable": "/bin/zsh",
                 "argv": ["/bin/zsh", "-l"],
                 "cwd": "/tmp",
+                "foreground_executable": "/usr/bin/codex",
                 "children": [43],
             },
             "terminal.viewer.resize": {
@@ -965,6 +1288,7 @@ class ResourceApiTests(unittest.TestCase):
                 self.assertEqual(process.children, (43,))
                 # Older servers omit foreground_cwd; decoders treat it as null.
                 self.assertIsNone(process.foreground_cwd)
+                self.assertEqual(process.foreground_executable, "/usr/bin/codex")
                 self.assertEqual(
                     terminal.resize_viewer(
                         "terminal-lease",

@@ -43,6 +43,9 @@ pub const Operation = enum {
     session_creation_resolve,
     session_events,
     session_journal_subscribe,
+    session_journal_producer_list,
+    session_journal_producer_put,
+    session_journal_append,
     session_ping,
     session_shutdown,
     session_reload_config,
@@ -160,6 +163,9 @@ pub const Operation = enum {
             .session_creation_resolve => "session.creation.resolve",
             .session_events => "session.events",
             .session_journal_subscribe => "session.journal.subscribe",
+            .session_journal_producer_list => "session.journal.producer.list",
+            .session_journal_producer_put => "session.journal.producer.put",
+            .session_journal_append => "session.journal.append",
             .session_ping => "session.ping",
             .session_shutdown => "session.shutdown",
             .session_reload_config => "session.reload_config",
@@ -298,6 +304,7 @@ pub const Operation = enum {
             .session_snapshot,
             .session_creation_resolve,
             .session_ping,
+            .session_journal_producer_list,
             .client_list,
             .client_get,
             .pairing_request_list,
@@ -367,6 +374,9 @@ pub const Operation = enum {
             .session_creation_resolve => .{ .owner = .session, .method = "resolveCreation" },
             .session_events => .{ .owner = .session, .method = "eventsFrom" },
             .session_journal_subscribe => .{ .owner = .session, .method = "journal" },
+            .session_journal_producer_list => .{ .owner = .session, .method = "journalProducers" },
+            .session_journal_producer_put => .{ .owner = .session, .method = "putJournalProducer" },
+            .session_journal_append => .{ .owner = .session, .method = "appendJournal" },
             .session_ping => .{ .owner = .session, .method = "ping" },
             .session_shutdown => .{ .owner = .session, .method = "shutdown" },
             .session_reload_config => .{ .owner = .session, .method = "reloadConfig" },
@@ -836,6 +846,10 @@ pub const JournalReplayPolicy = enum {
     required,
     advisory,
     never,
+
+    pub fn wireName(self: JournalReplayPolicy) []const u8 {
+        return @tagName(self);
+    }
 };
 
 pub const JournalSensitivity = enum {
@@ -899,6 +913,378 @@ pub const JournalSubject = struct {
     kind: []const u8,
     id: []const u8,
 };
+
+const max_journal_component_bytes: usize = 64;
+const max_journal_kind_bytes: usize = 128;
+const max_journal_manifest_bytes: usize = 1024 * 1024;
+
+fn validJournalComponent(value: []const u8) bool {
+    if (value.len == 0 or value.len > max_journal_component_bytes) {
+        return false;
+    }
+    for (value, 0..) |byte, index| {
+        if (index == 0) {
+            if (!((byte >= 'a' and byte <= 'z') or
+                (byte >= '0' and byte <= '9')))
+            {
+                return false;
+            }
+        } else if (!((byte >= 'a' and byte <= 'z') or
+            (byte >= '0' and byte <= '9') or byte == '_' or byte == '-'))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+fn validJournalKind(value: []const u8) bool {
+    if (value.len == 0 or value.len > max_journal_kind_bytes) {
+        return false;
+    }
+    var parts = std.mem.splitScalar(u8, value, '.');
+    var count: usize = 0;
+    while (parts.next()) |part| {
+        if (!validJournalComponent(part)) return false;
+        count += 1;
+    }
+    return count > 0;
+}
+
+fn journalSensitivityRank(value: JournalSensitivity) u8 {
+    return switch (value) {
+        .public => 0,
+        .metadata => 1,
+        .sensitive => 2,
+        .secret => 3,
+    };
+}
+
+/// One event schema declared by a generic userland journal producer.
+pub const JournalEventSchema = struct {
+    kind: []const u8,
+    schema_version: u32,
+    /// `class` is reserved by Zig, so the public field is `journal_class`.
+    journal_class: JournalClass,
+    replay: JournalReplayPolicy,
+    sensitivity: JournalSensitivity,
+    payload_schema: raw.wire.Value,
+
+    /// Encodes the stable wire names, including the reserved `class` key.
+    pub fn toValue(
+        self: JournalEventSchema,
+        allocator: std.mem.Allocator,
+    ) !raw.wire.Value {
+        var object = raw.wire.Object.init(allocator);
+        try object.put("kind", .{ .string = try allocator.dupe(u8, self.kind) });
+        try object.put(
+            "schema_version",
+            .{ .integer = self.schema_version },
+        );
+        try object.put(
+            "class",
+            .{ .string = self.journal_class.wireName() },
+        );
+        try object.put(
+            "replay",
+            .{ .string = self.replay.wireName() },
+        );
+        try object.put(
+            "sensitivity",
+            .{ .string = self.sensitivity.wireName() },
+        );
+        try object.put(
+            "payload_schema",
+            try raw.wire.cloneValue(allocator, self.payload_schema),
+        );
+        return .{ .object = object };
+    }
+};
+
+/// Manifest installed by a generic userland journal producer.
+pub const JournalProducerManifest = struct {
+    producer_id: []const u8,
+    /// The wire namespace. It must equal `plugin.<producer_id>`.
+    namespace_: []const u8,
+    manifest_version: u32,
+    max_sensitivity: JournalSensitivity,
+    permissions: []const []const u8 = &.{},
+    events: []const JournalEventSchema,
+
+    /// Checks local shape and authority constraints. JSON Schema compilation
+    /// remains a daemon responsibility because the daemon is authoritative.
+    pub fn validate(self: JournalProducerManifest) !void {
+        if (!validJournalComponent(self.producer_id)) {
+            return error.InvalidJournalProducerId;
+        }
+        const prefix = "plugin.";
+        if (self.namespace_.len != prefix.len + self.producer_id.len or
+            !std.mem.startsWith(u8, self.namespace_, prefix) or
+            !std.mem.eql(u8, self.namespace_[prefix.len..], self.producer_id))
+        {
+            return error.InvalidJournalProducerNamespace;
+        }
+        if (self.manifest_version == 0) {
+            return error.InvalidJournalManifestVersion;
+        }
+        if (self.max_sensitivity == .secret) {
+            return error.InvalidJournalSensitivity;
+        }
+        if (self.permissions.len == 0 or self.permissions.len > 32) {
+            return error.InvalidJournalPermissions;
+        }
+        const required_permission_prefix = "journal.append.";
+        var has_required_permission = false;
+        for (self.permissions) |permission| {
+            if (permission.len == 0 or permission.len > 128 or
+                !std.unicode.utf8ValidateSlice(permission))
+            {
+                return error.InvalidJournalPermission;
+            }
+            if (std.mem.startsWith(u8, permission, required_permission_prefix) and
+                std.mem.eql(
+                    u8,
+                    permission[required_permission_prefix.len..],
+                    self.namespace_,
+                ))
+            {
+                has_required_permission = true;
+            }
+        }
+        if (!has_required_permission) {
+            return error.MissingJournalAppendPermission;
+        }
+        if (self.events.len == 0 or self.events.len > 64) {
+            return error.InvalidJournalEvents;
+        }
+        for (self.events, 0..) |event, index| {
+            if (!validJournalKind(event.kind) or
+                event.kind.len <= self.namespace_.len or
+                !std.mem.startsWith(u8, event.kind, self.namespace_) or
+                event.kind[self.namespace_.len] != '.')
+            {
+                return error.InvalidJournalEventKind;
+            }
+            if (event.schema_version == 0) {
+                return error.InvalidJournalSchemaVersion;
+            }
+            if (event.sensitivity == .secret or
+                journalSensitivityRank(event.sensitivity) >
+                    journalSensitivityRank(self.max_sensitivity))
+            {
+                return error.InvalidJournalEventSensitivity;
+            }
+            for (self.events[0..index]) |previous| {
+                if (previous.schema_version == event.schema_version and
+                    std.mem.eql(u8, previous.kind, event.kind))
+                {
+                    return error.DuplicateJournalEventSchema;
+                }
+            }
+        }
+    }
+
+    /// Encodes a validated manifest into a caller-owned JSON value.
+    pub fn toValue(
+        self: JournalProducerManifest,
+        allocator: std.mem.Allocator,
+    ) !raw.wire.Value {
+        try self.validate();
+        // Build and size-check in an arena first. This matters for callers
+        // that use a general-purpose allocator: an oversized manifest must
+        // not leave all of its partially-built strings and arrays behind.
+        var build_arena = std.heap.ArenaAllocator.init(allocator);
+        defer build_arena.deinit();
+        const build_allocator = build_arena.allocator();
+        var object = raw.wire.Object.init(build_allocator);
+        try object.put(
+            "producer_id",
+            .{ .string = try build_allocator.dupe(u8, self.producer_id) },
+        );
+        try object.put(
+            "namespace",
+            .{ .string = try build_allocator.dupe(u8, self.namespace_) },
+        );
+        try object.put(
+            "manifest_version",
+            .{ .integer = self.manifest_version },
+        );
+        try object.put(
+            "max_sensitivity",
+            .{ .string = self.max_sensitivity.wireName() },
+        );
+        var permissions = std.json.Array.init(build_allocator);
+        for (self.permissions) |permission| {
+            try permissions.append(.{
+                .string = try build_allocator.dupe(u8, permission),
+            });
+        }
+        try object.put("permissions", .{ .array = permissions });
+        var events = std.json.Array.init(build_allocator);
+        for (self.events) |event| {
+            try events.append(try event.toValue(build_allocator));
+        }
+        try object.put("events", .{ .array = events });
+        const value = raw.wire.Value{ .object = object };
+        const encoded = try raw.wire.stringifyAlloc(build_allocator, value);
+        if (encoded.len > max_journal_manifest_bytes) {
+            return error.InvalidJournalManifestSize;
+        }
+        // The result is independent of the short-lived build arena. The
+        // caller owns the returned tree and must release it with its normal
+        // allocator or arena policy.
+        return raw.wire.cloneValue(allocator, value);
+    }
+};
+
+/// Generic journal ingress envelope emitted by a userland producer.
+pub const JournalIngress = struct {
+    producer_id: []const u8,
+    manifest_version: u32,
+    kind: []const u8,
+    schema_version: u32,
+    occurred_at_ms: ?u64 = null,
+    subjects: []const JournalSubject = &.{},
+    sensitivity: ?JournalSensitivity = null,
+    payload: raw.wire.Value,
+    causation_id: ?[]const u8 = null,
+    correlation_id: ?[]const u8 = null,
+
+    pub fn validate(self: JournalIngress) !void {
+        if (!validJournalComponent(self.producer_id) or
+            self.manifest_version == 0 or self.schema_version == 0 or
+            !validJournalKind(self.kind))
+        {
+            return error.InvalidJournalIngress;
+        }
+        const namespace_prefix = "plugin.";
+        const producer_start = namespace_prefix.len;
+        const producer_end = producer_start + self.producer_id.len;
+        if (!std.mem.startsWith(u8, self.kind, namespace_prefix) or
+            self.kind.len <= producer_end or self.kind[producer_end] != '.' or
+            !std.mem.eql(u8, self.kind[producer_start..producer_end], self.producer_id))
+        {
+            return error.InvalidJournalIngress;
+        }
+        if (self.subjects.len > 64) return error.TooManyJournalSubjects;
+        for (self.subjects) |subject| {
+            if (!validJournalComponent(subject.kind) or subject.id.len == 0 or
+                subject.id.len > 512 or !std.unicode.utf8ValidateSlice(subject.id))
+            {
+                return error.InvalidJournalSubject;
+            }
+        }
+        if (self.sensitivity) |sensitivity| {
+            if (sensitivity == .secret) return error.InvalidJournalSensitivity;
+        }
+        for ([_]?[]const u8{ self.causation_id, self.correlation_id }) |id| {
+            if (id) |value| {
+                if (value.len == 0 or value.len > 128 or
+                    !std.unicode.utf8ValidateSlice(value))
+                {
+                    return error.InvalidJournalCorrelationId;
+                }
+            }
+        }
+    }
+
+    pub fn toValue(
+        self: JournalIngress,
+        allocator: std.mem.Allocator,
+    ) !raw.wire.Value {
+        try self.validate();
+        var object = raw.wire.Object.init(allocator);
+        try object.put(
+            "producer_id",
+            .{ .string = try allocator.dupe(u8, self.producer_id) },
+        );
+        try object.put(
+            "manifest_version",
+            .{ .integer = self.manifest_version },
+        );
+        try object.put("kind", .{ .string = try allocator.dupe(u8, self.kind) });
+        try object.put(
+            "schema_version",
+            .{ .integer = self.schema_version },
+        );
+        if (self.occurred_at_ms) |occurred_at_ms| {
+            try object.put(
+                "occurred_at_ms",
+                .{ .string = try std.fmt.allocPrint(
+                    allocator,
+                    "{d}",
+                    .{occurred_at_ms},
+                ) },
+            );
+        }
+        if (self.subjects.len > 0) {
+            var subjects = std.json.Array.init(allocator);
+            for (self.subjects) |subject| {
+                var encoded = raw.wire.Object.init(allocator);
+                try encoded.put(
+                    "kind",
+                    .{ .string = try allocator.dupe(u8, subject.kind) },
+                );
+                try encoded.put(
+                    "id",
+                    .{ .string = try allocator.dupe(u8, subject.id) },
+                );
+                try subjects.append(.{ .object = encoded });
+            }
+            try object.put("subjects", .{ .array = subjects });
+        }
+        if (self.sensitivity) |sensitivity| {
+            try object.put(
+                "sensitivity",
+                .{ .string = sensitivity.wireName() },
+            );
+        }
+        try object.put(
+            "payload",
+            try raw.wire.cloneValue(allocator, self.payload),
+        );
+        if (self.causation_id) |id| {
+            try object.put(
+                "causation_id",
+                .{ .string = try allocator.dupe(u8, id) },
+            );
+        }
+        if (self.correlation_id) |id| {
+            try object.put(
+                "correlation_id",
+                .{ .string = try allocator.dupe(u8, id) },
+            );
+        }
+        return .{ .object = object };
+    }
+};
+
+pub const JournalProducerPutResult = struct {
+    producer_id: []const u8,
+    manifest_version: u32,
+    namespace_: []const u8,
+    sequence: []const u8,
+    event_id: []const u8,
+};
+
+pub const JournalProducerListResult = struct {
+    producers: []const JournalProducerManifest,
+};
+
+pub const JournalAppendResult = struct {
+    producer_id: []const u8,
+    sequence: []const u8,
+    event_id: []const u8,
+};
+
+// Compatibility names from the first agent-plugin preview. The wire remains
+// generic, so adding a detector does not require a core type.
+pub const AgentPluginEventSchema = JournalEventSchema;
+pub const AgentPluginManifest = JournalProducerManifest;
+pub const AgentPluginSubject = JournalSubject;
+pub const AgentPluginIngress = JournalIngress;
+pub const AgentPluginListResult = JournalProducerListResult;
+pub const JournalEventSubject = JournalSubject;
 
 pub const SessionJournalRecord = struct {
     sequence: u64,
@@ -5721,10 +6107,22 @@ pub const AgentListOptions = struct {
     state: ?AgentState = null,
 };
 
+/// Sources accepted by the legacy `agent.report` operation. This is kept
+/// separate from `AgentSource`, which also describes plugin and detected
+/// observations in returned snapshots.
+pub const AgentReportSource = enum {
+    hook,
+    socket,
+
+    pub fn wireName(self: AgentReportSource) []const u8 {
+        return @tagName(self);
+    }
+};
+
 pub const AgentReportOptions = struct {
     terminal_id: TerminalId,
     state: AgentState,
-    source: AgentSource,
+    source: AgentReportSource,
     source_session: ?[]const u8 = null,
 };
 
@@ -6589,11 +6987,12 @@ pub const AgentSource = union(enum) {
     hook,
     socket,
     detected,
+    plugin,
     unknown: []const u8,
 
     pub fn wireName(self: AgentSource) []const u8 {
         return switch (self) {
-            inline .hook, .socket, .detected => |_, tag| @tagName(tag),
+            inline .hook, .socket, .detected, .plugin => |_, tag| @tagName(tag),
             .unknown => |value| value,
         };
     }
@@ -6605,6 +7004,7 @@ pub const AgentSnapshot = struct {
     terminal_id: TerminalId,
     state: AgentState,
     source: AgentSource,
+    agent: ?[]const u8,
     updated_at_ms: u64,
     source_session: ?[]const u8,
     extra: ?raw.wire.Object,
@@ -6722,7 +7122,7 @@ pub const CreationResolution = struct {
     idempotency_key: ?[]const u8,
     created_path: ?CreatedPath,
     generation: ?[]const u8,
-    revision: ?u64,
+    revision: ?u64 = null,
 };
 
 pub const ClientTransport = union(enum) {
@@ -7004,6 +7404,10 @@ pub const TerminalScreenResult = struct {
     cursor_row: u16,
     cursor_col: u16,
     cursor_visible: bool,
+    /// Coalesced PTY output revision. Null means unavailable.
+    revision: ?u64 = null,
+    /// Bounded OSC 9 progress payload. Null means unavailable.
+    osc_progress: ?[]const u8 = null,
     /// Catalog-defined forward-compatible fields.
     extra: ?raw.wire.Object,
 };
@@ -7252,6 +7656,8 @@ pub const OwnedTabSnapshot = OwnedValue(TabSnapshot);
 pub const OwnedPingResult = OwnedValue(PingResult);
 pub const OwnedEmptyResult = OwnedValue(EmptyResult);
 pub const OwnedTerminalScreenResult = OwnedValue(TerminalScreenResult);
+pub const OwnedJournalProducerListResult =
+    OwnedDecodedValue(JournalProducerListResult);
 pub const OwnedTerminalStateResult =
     OwnedDecodedValue(TerminalStateResult);
 pub const OwnedTerminalHistoryResult =
@@ -7300,6 +7706,10 @@ pub const TabMutationResult = TypedMutationResult(TabSnapshot);
 pub const NotificationMutationResult =
     TypedMutationResult(NotificationSnapshot);
 pub const AgentMutationResult = TypedMutationResult(AgentSnapshot);
+pub const JournalProducerPutMutationResult =
+    TypedMutationResult(JournalProducerPutResult);
+pub const JournalAppendMutationResult =
+    TypedMutationResult(JournalAppendResult);
 pub const PairingResolutionMutationResult =
     TypedMutationResult(PairingResolutionResult);
 pub const FrontendProjectionMutationResult =
@@ -7464,6 +7874,17 @@ fn requiredNullableDecimalU64(
     };
 }
 
+fn optionalNullableDecimalU64(
+    object: raw.wire.Object,
+    name: []const u8,
+) !?u64 {
+    const value = object.get(name) orelse return null;
+    return switch (value) {
+        .null => null,
+        else => try decimalU64(value),
+    };
+}
+
 fn strictOptionalId(
     comptime Id: type,
     object: raw.wire.Object,
@@ -7561,6 +7982,7 @@ fn parseAgentSource(value: []const u8) AgentSource {
     if (std.mem.eql(u8, value, "hook")) return .hook;
     if (std.mem.eql(u8, value, "socket")) return .socket;
     if (std.mem.eql(u8, value, "detected")) return .detected;
+    if (std.mem.eql(u8, value, "plugin")) return .plugin;
     return .{ .unknown = value };
 }
 
@@ -8231,6 +8653,8 @@ fn decodeTerminalScreenResult(
             "cursor_row",
             "cursor_col",
             "cursor_visible",
+            "revision",
+            "osc_progress",
             "extra",
         },
     );
@@ -8251,6 +8675,8 @@ fn decodeTerminalScreenResult(
             0,
         ),
         .cursor_visible = try objectBool(object, "cursor_visible"),
+        .revision = try optionalNullableDecimalU64(object, "revision"),
+        .osc_progress = try optionalNullableString(object, "osc_progress"),
         .extra = try optionalExtra(object),
     };
 }
@@ -8892,6 +9318,7 @@ fn decodeAgentSnapshot(value: raw.wire.Value) !AgentSnapshot {
             "terminal_id",
             "state",
             "source",
+            "agent",
             "updated_at_ms",
             "source_session",
             "extra",
@@ -8911,6 +9338,7 @@ fn decodeAgentSnapshot(value: raw.wire.Value) !AgentSnapshot {
         ),
         .state = parseAgentState(try objectString(object, "state")),
         .source = parseAgentSource(try objectString(object, "source")),
+        .agent = try requiredNullableString(object, "agent"),
         .updated_at_ms = try decimalU64(
             object.get("updated_at_ms") orelse return error.MissingField,
         ),
@@ -8919,6 +9347,181 @@ fn decodeAgentSnapshot(value: raw.wire.Value) !AgentSnapshot {
             "source_session",
         ),
         .extra = try optionalExtra(object),
+    };
+}
+
+fn decodeJournalEventSchema(value: raw.wire.Value) !JournalEventSchema {
+    const object = try detailObject(value);
+    try ensureOnlyFields(
+        object,
+        &.{
+            "kind",
+            "schema_version",
+            "class",
+            "replay",
+            "sensitivity",
+            "payload_schema",
+        },
+    );
+    return .{
+        .kind = try journalBoundedString(object, "kind", max_journal_kind_bytes),
+        .schema_version = try objectUnsigned(u32, object, "schema_version", 1),
+        .journal_class = try decodeJournalClass(
+            try objectString(object, "class"),
+        ),
+        .replay = try decodeJournalReplayPolicy(
+            try objectString(object, "replay"),
+        ),
+        .sensitivity = try decodeJournalSensitivity(
+            try objectString(object, "sensitivity"),
+        ),
+        .payload_schema = object.get("payload_schema") orelse
+            return error.MissingField,
+    };
+}
+
+fn decodeJournalProducerManifest(
+    allocator: std.mem.Allocator,
+    value: raw.wire.Value,
+) !JournalProducerManifest {
+    const object = try detailObject(value);
+    try ensureOnlyFields(
+        object,
+        &.{
+            "producer_id",
+            "namespace",
+            "manifest_version",
+            "max_sensitivity",
+            "permissions",
+            "events",
+        },
+    );
+    const raw_permissions = switch (object.get("permissions") orelse
+        return error.MissingField) {
+        .array => |items| items.items,
+        else => return error.ExpectedArray,
+    };
+    if (raw_permissions.len == 0 or raw_permissions.len > 32) {
+        return error.InvalidJournalPermissions;
+    }
+    const permissions = try allocator.alloc([]const u8, raw_permissions.len);
+    for (raw_permissions, 0..) |permission, index| {
+        const text = switch (permission) {
+            .string => |item| item,
+            else => return error.ExpectedString,
+        };
+        if (text.len == 0 or text.len > 128 or
+            !std.unicode.utf8ValidateSlice(text))
+        {
+            return error.InvalidJournalPermission;
+        }
+        permissions[index] = text;
+    }
+    const raw_events = switch (object.get("events") orelse
+        return error.MissingField) {
+        .array => |items| items.items,
+        else => return error.ExpectedArray,
+    };
+    if (raw_events.len == 0 or raw_events.len > 64) {
+        return error.InvalidJournalEvents;
+    }
+    const events = try allocator.alloc(JournalEventSchema, raw_events.len);
+    for (raw_events, 0..) |event, index| {
+        events[index] = try decodeJournalEventSchema(event);
+    }
+    const manifest = JournalProducerManifest{
+        .producer_id = try journalBoundedString(object, "producer_id", max_journal_component_bytes),
+        .namespace_ = try journalBoundedString(object, "namespace", 72),
+        .manifest_version = try objectUnsigned(u32, object, "manifest_version", 1),
+        .max_sensitivity = try decodeJournalSensitivity(
+            try objectString(object, "max_sensitivity"),
+        ),
+        .permissions = permissions,
+        .events = events,
+    };
+    try manifest.validate();
+    return manifest;
+}
+
+fn journalDecimalString(
+    object: raw.wire.Object,
+    name: []const u8,
+) ![]const u8 {
+    const text = try journalBoundedString(object, name, 128);
+    _ = try decimalU64(.{ .string = text });
+    return text;
+}
+
+fn decodeJournalProducerPutResult(
+    value: raw.wire.Value,
+) !JournalProducerPutResult {
+    const object = try detailObject(value);
+    try ensureOnlyFields(
+        object,
+        &.{
+            "producer_id",
+            "manifest_version",
+            "namespace",
+            "sequence",
+            "event_id",
+        },
+    );
+    const producer_id = try journalBoundedString(
+        object,
+        "producer_id",
+        max_journal_component_bytes,
+    );
+    const namespace_ = try journalBoundedString(object, "namespace", 128);
+    const namespace_prefix = "plugin.";
+    if (namespace_.len != namespace_prefix.len + producer_id.len or
+        !std.mem.startsWith(u8, namespace_, namespace_prefix) or
+        !std.mem.eql(u8, namespace_[namespace_prefix.len..], producer_id))
+    {
+        return error.InvalidJournalProducerNamespace;
+    }
+    return .{
+        .producer_id = producer_id,
+        .manifest_version = try objectUnsigned(u32, object, "manifest_version", 1),
+        .namespace_ = namespace_,
+        .sequence = try journalDecimalString(object, "sequence"),
+        .event_id = try journalBoundedString(object, "event_id", 128),
+    };
+}
+
+fn decodeJournalProducerListResult(
+    allocator: std.mem.Allocator,
+    value: raw.wire.Value,
+) !JournalProducerListResult {
+    const object = try detailObject(value);
+    try ensureOnlyFields(object, &.{"producers"});
+    const raw_producers = switch (object.get("producers") orelse
+        return error.MissingField) {
+        .array => |items| items.items,
+        else => return error.ExpectedArray,
+    };
+    if (raw_producers.len > 1024) return error.TooManyJournalProducers;
+    const producers = try allocator.alloc(
+        JournalProducerManifest,
+        raw_producers.len,
+    );
+    for (raw_producers, 0..) |producer, index| {
+        producers[index] = try decodeJournalProducerManifest(
+            allocator,
+            producer,
+        );
+    }
+    return .{ .producers = producers };
+}
+
+fn decodeJournalAppendResult(
+    value: raw.wire.Value,
+) !JournalAppendResult {
+    const object = try detailObject(value);
+    try ensureOnlyFields(object, &.{ "producer_id", "sequence", "event_id" });
+    return .{
+        .producer_id = try journalBoundedString(object, "producer_id", max_journal_component_bytes),
+        .sequence = try journalDecimalString(object, "sequence"),
+        .event_id = try journalBoundedString(object, "event_id", 128),
     };
 }
 
@@ -9497,6 +10100,11 @@ fn decodeOwnedAllocatedResult(
             decoded_arena.allocator(),
             owned_result.value,
         )
+    else if (comptime Result == JournalProducerListResult)
+        try decodeJournalProducerListResult(
+            decoded_arena.allocator(),
+            owned_result.value,
+        )
     else
         @compileError("unsupported allocated result");
     const decoded = OwnedDecodedValue(Result){
@@ -9537,6 +10145,10 @@ fn decodeTypedMutation(
         try decodeTerminalDefaultsSnapshot(raw_result.value)
     else if (comptime Value == PairingResolutionResult)
         try decodePairingResolutionResult(raw_result.value)
+    else if (comptime Value == JournalProducerPutResult)
+        try decodeJournalProducerPutResult(raw_result.value)
+    else if (comptime Value == JournalAppendResult)
+        try decodeJournalAppendResult(raw_result.value)
     else
         try decodeTypedSnapshot(Value, raw_result.value);
     const typed = TypedMutationResult(Value){
@@ -10188,6 +10800,117 @@ fn HandleImpl(
             );
         }
 
+        /// Lists generic journal producer manifests installed in this
+        /// session. The returned value owns its decoded arrays and wire
+        /// storage until `deinit`.
+        pub fn journalProducers(
+            self: Self,
+        ) !OwnedJournalProducerListResult {
+            if (comptime !std.mem.eql(u8, scope, "session")) {
+                return error.UnsupportedHandleOperation;
+            }
+            var params = try Params(Id).init(
+                self.client.allocator,
+                scope,
+                &self.target,
+                null,
+            );
+            defer params.deinit();
+            return decodeOwnedAllocatedResult(
+                JournalProducerListResult,
+                self.client.allocator,
+                try self.client.read(
+                    .session_journal_producer_list,
+                    params.asValue(),
+                ),
+            );
+        }
+
+        /// Slice-oriented alias for `journalProducers`.
+        pub fn listJournalProducers(
+            self: Self,
+        ) !OwnedJournalProducerListResult {
+            return self.journalProducers();
+        }
+
+        /// Installs or replaces a generic userland journal producer.
+        pub fn putJournalProducer(
+            self: Self,
+            manifest: JournalProducerManifest,
+            mutation: MutationOptions,
+        ) !JournalProducerPutMutationResult {
+            if (comptime !std.mem.eql(u8, scope, "session")) {
+                return error.UnsupportedHandleOperation;
+            }
+            var params = try Params(Id).init(
+                self.client.allocator,
+                scope,
+                &self.target,
+                null,
+            );
+            defer params.deinit();
+            try params.putValue(
+                "manifest",
+                try manifest.toValue(params.arena.allocator()),
+            );
+            return decodeTypedMutation(
+                JournalProducerPutResult,
+                try self.client.mutate(
+                    .session_journal_producer_put,
+                    params.asValue(),
+                    mutation,
+                ),
+            );
+        }
+
+        /// Compatibility alias for the first agent-plugin SDK preview.
+        pub fn putJournalProducerManifest(
+            self: Self,
+            manifest: JournalProducerManifest,
+            mutation: MutationOptions,
+        ) !JournalProducerPutMutationResult {
+            return self.putJournalProducer(manifest, mutation);
+        }
+
+        /// Appends one event from a registered userland producer.
+        pub fn appendJournal(
+            self: Self,
+            event: JournalIngress,
+            mutation: MutationOptions,
+        ) !JournalAppendMutationResult {
+            if (comptime !std.mem.eql(u8, scope, "session")) {
+                return error.UnsupportedHandleOperation;
+            }
+            var params = try Params(Id).init(
+                self.client.allocator,
+                scope,
+                &self.target,
+                null,
+            );
+            defer params.deinit();
+            try params.putValue(
+                "event",
+                try event.toValue(params.arena.allocator()),
+            );
+            return decodeTypedMutation(
+                JournalAppendResult,
+                try self.client.mutate(
+                    .session_journal_append,
+                    params.asValue(),
+                    mutation,
+                ),
+            );
+        }
+
+        /// Compatibility alias for the first agent-plugin SDK preview.
+        pub fn appendJournalEvent(
+            self: Self,
+            event: JournalIngress,
+            mutation: MutationOptions,
+        ) !JournalAppendMutationResult {
+            return self.appendJournal(event, mutation);
+        }
+
         pub fn createNotification(
             self: Self,
             notification_options: NotificationCreateOptions,
@@ -10232,12 +10955,6 @@ fn HandleImpl(
         ) !AgentMutationResult {
             if (comptime !std.mem.eql(u8, scope, "session")) {
                 return error.UnsupportedHandleOperation;
-            }
-            switch (report.source) {
-                .hook, .socket => {},
-                .detected, .unknown => {
-                    return error.InvalidReportAgentSource;
-                },
             }
             var params = try Params(Id).init(
                 self.client.allocator,
@@ -12665,6 +13382,50 @@ pub const Session = struct {
         return self.impl().listAgents(options);
     }
 
+    pub fn journalProducers(
+        self: Self,
+    ) !OwnedJournalProducerListResult {
+        return self.impl().journalProducers();
+    }
+
+    pub fn listJournalProducers(
+        self: Self,
+    ) !OwnedJournalProducerListResult {
+        return self.impl().listJournalProducers();
+    }
+
+    pub fn putJournalProducer(
+        self: Self,
+        manifest: JournalProducerManifest,
+        mutation: MutationOptions,
+    ) !JournalProducerPutMutationResult {
+        return self.impl().putJournalProducer(manifest, mutation);
+    }
+
+    pub fn putJournalProducerManifest(
+        self: Self,
+        manifest: JournalProducerManifest,
+        mutation: MutationOptions,
+    ) !JournalProducerPutMutationResult {
+        return self.impl().putJournalProducerManifest(manifest, mutation);
+    }
+
+    pub fn appendJournal(
+        self: Self,
+        event: JournalIngress,
+        mutation: MutationOptions,
+    ) !JournalAppendMutationResult {
+        return self.impl().appendJournal(event, mutation);
+    }
+
+    pub fn appendJournalEvent(
+        self: Self,
+        event: JournalIngress,
+        mutation: MutationOptions,
+    ) !JournalAppendMutationResult {
+        return self.impl().appendJournalEvent(event, mutation);
+    }
+
     pub fn createNotification(
         self: Self,
         options: NotificationCreateOptions,
@@ -14062,7 +14823,7 @@ const fake_agent_snapshot_json =
     "{\"id\":\"agent_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"," ++
     "\"session_id\":\"session_22222222222222222222222222222222\"," ++
     "\"terminal_id\":\"term_0123456789abcdef0123456789abcdef\"," ++
-    "\"state\":\"working\",\"source\":\"hook\"," ++
+    "\"state\":\"working\",\"source\":\"hook\",\"agent\":\"codex\"," ++
     "\"updated_at_ms\":\"18446744073709551614\"," ++
     "\"source_session\":null,\"extra\":{\"agent_future\":true}}";
 
@@ -15891,7 +16652,7 @@ test "layout undo requires and forwards confirmation capability" {
 test "every catalog operation reaches a typed public facade" {
     @setEvalBranchQuota(20_000);
     const operation_fields = std.meta.fields(Operation);
-    try std.testing.expectEqual(@as(usize, 114), operation_fields.len);
+    try std.testing.expectEqual(@as(usize, 117), operation_fields.len);
     inline for (operation_fields, 0..) |field, index| {
         const operation: Operation = @enumFromInt(field.value);
         const binding = comptime operation.facadeBinding();
@@ -15936,6 +16697,9 @@ test "public facades expose only valid resource and stream capabilities" {
         "listPairingRequests",
         "listNotifications",
         "listAgents",
+        "journalProducers",
+        "putJournalProducer",
+        "appendJournal",
         "createNotification",
         "reportAgent",
         "ensureSidebarView",
@@ -17700,6 +18464,143 @@ test "typed terminal decoders reject malformed and retain future enums" {
         ),
         else => return error.ExpectedUnknownCopyMode,
     }
+}
+
+test "generic journal producer values preserve the userland wire contract" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    var schema = try raw.wire.parse(
+        std.testing.allocator,
+        "{\"type\":\"object\"}",
+        .{},
+    );
+    defer schema.deinit();
+    const manifest = JournalProducerManifest{
+        .producer_id = "screen-detector",
+        .namespace_ = "plugin.screen-detector",
+        .manifest_version = 1,
+        .max_sensitivity = .sensitive,
+        .permissions = &.{"journal.append.plugin.screen-detector"},
+        .events = &.{.{
+            .kind = "plugin.screen-detector.state.changed",
+            .schema_version = 1,
+            .journal_class = .state,
+            .replay = .required,
+            .sensitivity = .sensitive,
+            .payload_schema = schema.value,
+        }},
+    };
+    try manifest.validate();
+    const invalid_ingress = JournalIngress{
+        .producer_id = "screen-detector",
+        .manifest_version = 1,
+        .kind = "agent.state.changed",
+        .schema_version = 1,
+        .payload = schema.value,
+    };
+    try std.testing.expectError(
+        error.InvalidJournalIngress,
+        invalid_ingress.validate(),
+    );
+    const encoded_manifest = try manifest.toValue(arena.allocator());
+    const manifest_object = try detailObject(encoded_manifest);
+    try std.testing.expectEqualStrings(
+        "plugin.screen-detector",
+        try objectString(manifest_object, "namespace"),
+    );
+    try std.testing.expect(manifest_object.get("namespace_") == null);
+    const encoded_event = switch (manifest_object.get("events") orelse return error.MissingField) {
+        .array => |items| items.items[0],
+        else => return error.ExpectedArray,
+    };
+    try std.testing.expectEqualStrings(
+        "state",
+        try objectString(
+            try detailObject(encoded_event),
+            "class",
+        ),
+    );
+
+    var list = try raw.wire.parse(
+        std.testing.allocator,
+        "{\"producers\":[{\"producer_id\":\"screen-detector\",\"namespace\":\"plugin.screen-detector\",\"manifest_version\":1,\"max_sensitivity\":\"sensitive\",\"permissions\":[\"journal.append.plugin.screen-detector\"],\"events\":[{\"kind\":\"plugin.screen-detector.state.changed\",\"schema_version\":1,\"class\":\"state\",\"replay\":\"required\",\"sensitivity\":\"sensitive\",\"payload_schema\":{\"type\":\"object\"}}]}]}",
+        .{},
+    );
+    defer list.deinit();
+    const decoded_list = try decodeJournalProducerListResult(
+        arena.allocator(),
+        list.value,
+    );
+    try std.testing.expectEqual(@as(usize, 1), decoded_list.producers.len);
+    try std.testing.expectEqualStrings(
+        "plugin.screen-detector.state.changed",
+        decoded_list.producers[0].events[0].kind,
+    );
+
+    var malformed_put = try raw.wire.parse(
+        std.testing.allocator,
+        "{\"producer_id\":\"screen-detector\",\"manifest_version\":1," ++
+            "\"namespace\":\"plugin.other\",\"sequence\":\"1\",\"event_id\":\"event-1\"}",
+        .{},
+    );
+    defer malformed_put.deinit();
+    try std.testing.expectError(
+        error.InvalidJournalProducerNamespace,
+        decodeJournalProducerPutResult(malformed_put.value),
+    );
+
+    var agent = try raw.wire.parse(
+        std.testing.allocator,
+        "{\"id\":\"agent_11111111111111111111111111111111\",\"session_id\":\"session_22222222222222222222222222222222\",\"terminal_id\":\"term_33333333333333333333333333333333\",\"state\":\"working\",\"source\":\"plugin\",\"agent\":\"codex\",\"updated_at_ms\":\"9\",\"source_session\":null}",
+        .{},
+    );
+    defer agent.deinit();
+    try std.testing.expectEqual(
+        AgentSource.plugin,
+        (try decodeAgentSnapshot(agent.value)).source,
+    );
+    try std.testing.expectEqualStrings(
+        "codex",
+        (try decodeAgentSnapshot(agent.value)).agent orelse return error.MissingField,
+    );
+
+    var screen = try raw.wire.parse(
+        std.testing.allocator,
+        "{\"text\":\"ready\",\"revision\":\"12\",\"osc_progress\":\"4;1;50\",\"cols\":80,\"rows\":24,\"cursor_row\":1,\"cursor_col\":2,\"cursor_visible\":true}",
+        .{},
+    );
+    defer screen.deinit();
+    const decoded_screen = try decodeTerminalScreenResult(screen.value);
+    try std.testing.expectEqual(@as(?u64, 12), decoded_screen.revision);
+    try std.testing.expectEqualStrings(
+        "4;1;50",
+        decoded_screen.osc_progress orelse return error.MissingField,
+    );
+
+    var invalid = manifest;
+    invalid.events = &.{.{
+        .kind = "plugin.screen-detector.state.changed",
+        .schema_version = 1,
+        .journal_class = .state,
+        .replay = .required,
+        .sensitivity = .secret,
+        .payload_schema = schema.value,
+    }};
+    try std.testing.expectError(
+        error.InvalidJournalEventSensitivity,
+        invalid.validate(),
+    );
+
+    const legacy_screen = TerminalScreenResult{
+        .text = "legacy",
+        .cols = 80,
+        .rows = 24,
+        .cursor_row = 0,
+        .cursor_col = 0,
+        .cursor_visible = true,
+        .extra = null,
+    };
+    try std.testing.expect(legacy_screen.revision == null);
 }
 
 test "terminal lifecycle and durable exit constraints are strict" {

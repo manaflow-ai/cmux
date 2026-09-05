@@ -60,12 +60,13 @@ use crate::terminal_host_runtime::TerminalHostIdentity;
 #[cfg(unix)]
 use crate::terminal_host_runtime::TerminalHostLiveness;
 use crate::workspace_registry::{
-    FrontendProjection, ProjectionCommit, RESOURCE_API_FRONTEND_PROJECTION_SCHEMA_VERSION,
-    RegistryBrowser, RegistryBrowserReconnect, RegistryCommit, RegistryLayoutNode,
-    RegistrySnapshot, RegistryTab, RegistryTerminal, RegistryViewport, RegistryWorkspace,
-    ResourceChange, ResourceEffectOutcome, ResourceEffectPreparation, ResourcePatch,
-    ResourcePatchCommit, ResourceTopologySnapshot, ResourceWorkspaceLedger, TerminalLifecycle,
-    TerminalOnExit, TerminalRegistrySnapshot, WorkspaceMutation, WorkspaceRegistry,
+    AgentHookPendingFailure, FrontendProjection, ProjectionCommit,
+    RESOURCE_API_FRONTEND_PROJECTION_SCHEMA_VERSION, RegistryBrowser, RegistryBrowserReconnect,
+    RegistryCommit, RegistryLayoutNode, RegistryPane, RegistrySnapshot, RegistryTab,
+    RegistryTerminal, RegistryViewport, RegistryWorkspace, ResourceChange, ResourceEffectOutcome,
+    ResourceEffectPreparation, ResourcePatch, ResourcePatchCommit, ResourceTopologySnapshot,
+    ResourceWorkspaceLedger, TerminalLifecycle, TerminalOnExit, TerminalRegistrySnapshot,
+    WorkspaceMutation, WorkspaceRegistry,
 };
 use crate::{
     PairingChallenge, PairingDecision, PairingError, PaneId, ScreenId, SplitDir, SplitId,
@@ -85,48 +86,92 @@ struct SignaledMutex<T> {
     value: Mutex<T>,
     release_epoch: Mutex<u64>,
     released: Condvar,
+    /// Contention record with `#[track_caller]` attribution, reported by
+    /// `server-stats` so lock convoys are visible without external sampling.
+    stats: crate::diagnostics::LockStats,
 }
 
 impl<T> SignaledMutex<T> {
     fn new(value: T) -> Self {
-        Self { value: Mutex::new(value), release_epoch: Mutex::new(0), released: Condvar::new() }
-    }
-
-    fn lock(&self) -> LockResult<SignaledMutexGuard<'_, T>> {
-        match self.value.lock() {
-            Ok(value) => Ok(SignaledMutexGuard { value: Some(value), owner: self }),
-            Err(error) => Err(PoisonError::new(SignaledMutexGuard {
-                value: Some(error.into_inner()),
-                owner: self,
-            })),
+        Self {
+            value: Mutex::new(value),
+            release_epoch: Mutex::new(0),
+            released: Condvar::new(),
+            stats: crate::diagnostics::LockStats::new(),
         }
     }
 
-    fn try_lock(&self) -> TryLockResult<SignaledMutexGuard<'_, T>> {
-        match self.value.try_lock() {
-            Ok(value) => Ok(SignaledMutexGuard { value: Some(value), owner: self }),
-            Err(TryLockError::WouldBlock) => Err(TryLockError::WouldBlock),
-            Err(TryLockError::Poisoned(error)) => {
-                Err(TryLockError::Poisoned(PoisonError::new(SignaledMutexGuard {
-                    value: Some(error.into_inner()),
-                    owner: self,
-                })))
+    fn stats(&self) -> &crate::diagnostics::LockStats {
+        &self.stats
+    }
+
+    fn guard<'a>(
+        &'a self,
+        value: MutexGuard<'a, T>,
+        site: crate::diagnostics::LockSite,
+        waited_from: Instant,
+        blocker: Option<crate::diagnostics::LockSite>,
+    ) -> SignaledMutexGuard<'a, T> {
+        self.stats.acquired(site, waited_from.elapsed(), blocker);
+        SignaledMutexGuard { value: Some(value), owner: self, site, acquired_at: Instant::now() }
+    }
+
+    #[track_caller]
+    fn lock(&self) -> LockResult<SignaledMutexGuard<'_, T>> {
+        let site = std::panic::Location::caller();
+        let waited_from = Instant::now();
+        let blocker = self.stats.wait_started();
+        match self.value.lock() {
+            Ok(value) => Ok(self.guard(value, site, waited_from, blocker)),
+            Err(error) => {
+                Err(PoisonError::new(self.guard(error.into_inner(), site, waited_from, blocker)))
             }
         }
     }
 
+    #[cfg(test)]
+    #[track_caller]
+    fn try_lock(&self) -> TryLockResult<SignaledMutexGuard<'_, T>> {
+        self.try_lock_at(std::panic::Location::caller(), Instant::now(), None)
+    }
+
+    fn try_lock_at(
+        &self,
+        site: crate::diagnostics::LockSite,
+        waited_from: Instant,
+        blocker: Option<crate::diagnostics::LockSite>,
+    ) -> TryLockResult<SignaledMutexGuard<'_, T>> {
+        match self.value.try_lock() {
+            Ok(value) => Ok(self.guard(value, site, waited_from, blocker)),
+            Err(TryLockError::WouldBlock) => Err(TryLockError::WouldBlock),
+            Err(TryLockError::Poisoned(error)) => Err(TryLockError::Poisoned(PoisonError::new(
+                self.guard(error.into_inner(), site, waited_from, blocker),
+            ))),
+        }
+    }
+
+    #[track_caller]
     fn lock_until(&self, deadline: Instant) -> anyhow::Result<SignaledMutexGuard<'_, T>> {
+        let site = std::panic::Location::caller();
+        let waited_from = Instant::now();
+        let blocker = self.stats.wait_started();
         loop {
-            match self.try_lock() {
+            match self.try_lock_at(site, waited_from, blocker) {
                 Ok(value) => return Ok(value),
-                Err(TryLockError::Poisoned(_)) => anyhow::bail!("mutex is poisoned"),
+                Err(TryLockError::Poisoned(_)) => {
+                    self.stats.wait_failed(site, waited_from.elapsed(), blocker);
+                    anyhow::bail!("mutex is poisoned")
+                }
                 Err(TryLockError::WouldBlock) => {}
             }
 
             let observed = *self.release_epoch.lock().unwrap();
-            match self.try_lock() {
+            match self.try_lock_at(site, waited_from, blocker) {
                 Ok(value) => return Ok(value),
-                Err(TryLockError::Poisoned(_)) => anyhow::bail!("mutex is poisoned"),
+                Err(TryLockError::Poisoned(_)) => {
+                    self.stats.wait_failed(site, waited_from.elapsed(), blocker);
+                    anyhow::bail!("mutex is poisoned")
+                }
                 Err(TryLockError::WouldBlock) => {}
             }
 
@@ -136,11 +181,13 @@ impl<T> SignaledMutex<T> {
             }
             let remaining = deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() {
+                self.stats.wait_failed(site, waited_from.elapsed(), blocker);
                 anyhow::bail!("mutex deadline expired");
             }
             let (next, result) = self.released.wait_timeout(epoch, remaining).unwrap();
             epoch = next;
             if result.timed_out() && *epoch == observed {
+                self.stats.wait_failed(site, waited_from.elapsed(), blocker);
                 anyhow::bail!("mutex deadline expired");
             }
         }
@@ -150,6 +197,8 @@ impl<T> SignaledMutex<T> {
 struct SignaledMutexGuard<'a, T> {
     value: Option<MutexGuard<'a, T>>,
     owner: &'a SignaledMutex<T>,
+    site: crate::diagnostics::LockSite,
+    acquired_at: Instant,
 }
 
 impl<T> Deref for SignaledMutexGuard<'_, T> {
@@ -168,6 +217,10 @@ impl<T> DerefMut for SignaledMutexGuard<'_, T> {
 
 impl<T> Drop for SignaledMutexGuard<'_, T> {
     fn drop(&mut self) {
+        // Clear holder attribution before the inner mutex is released, so a
+        // waiter that acquires next can never have its holder record erased
+        // by this older unlock.
+        self.owner.stats.released(self.site, self.acquired_at.elapsed());
         drop(self.value.take());
         let mut epoch = self.owner.release_epoch.lock().unwrap();
         *epoch = epoch.wrapping_add(1);
@@ -920,8 +973,24 @@ pub enum MuxEvent {
     PairingResolved {
         request: u64,
     },
+    /// The daemon's machine-level model spend readout changed. `None` means
+    /// the readout is unavailable and frontends must hide it.
+    MachineUsageChanged(Option<MachineUsage>),
     /// Every workspace is gone.
     Empty,
+}
+
+/// Machine-level model spend for the machine hosting this daemon, as
+/// reported by coderouter for the trailing `period_days` window. Frontends
+/// show it as an informational readout beside the machine identity.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MachineUsage {
+    pub vm_id: String,
+    pub period_days: u32,
+    pub total_tokens: u64,
+    pub api_equivalent_usd: f64,
+    /// Server-side timestamp of the snapshot, when known.
+    pub as_of: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1072,6 +1141,11 @@ impl Direction {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AgentSource {
+    /// An installed userland agent plugin wrote the observation.
+    Plugin,
+    /// Legacy source value emitted by pre-userland screen detection. Current
+    /// core code never emits it; the reducer keeps it so old journals replay
+    /// after screen detection moves to a userland plugin.
     Detected,
     Socket,
     Hook,
@@ -1080,6 +1154,7 @@ pub enum AgentSource {
 impl AgentSource {
     pub fn as_str(self) -> &'static str {
         match self {
+            AgentSource::Plugin => "plugin",
             AgentSource::Detected => "detected",
             AgentSource::Socket => "socket",
             AgentSource::Hook => "hook",
@@ -1138,12 +1213,30 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
     use crate::journal_reducers::{
         AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION, AgentRoster, RosterEvent,
     };
-    let mut host = match registry.journal_reducer_state(AGENT_ROSTER_REDUCER_ID)? {
-        Some((version, cursor, snapshot)) if version == AGENT_ROSTER_REDUCER_VERSION => {
-            AgentRosterHost { roster: AgentRoster::restore(&snapshot).unwrap_or_default(), cursor }
+    let (mut host, mut needs_repair) =
+        match registry.journal_reducer_state(AGENT_ROSTER_REDUCER_ID)? {
+            Some((version, cursor, snapshot)) if version == AGENT_ROSTER_REDUCER_VERSION => {
+                match AgentRoster::restore(&snapshot) {
+                    Some(roster) => (AgentRosterHost { roster, cursor }, false),
+                    // The cursor is meaningful only with the snapshot that was
+                    // captured at the same fold boundary. Replaying from zero
+                    // is the safe recovery path for malformed persisted state.
+                    None => (AgentRosterHost::default(), true),
+                }
+            }
+            Some(_) => (AgentRosterHost::default(), true),
+            None => (AgentRosterHost::default(), false),
+        };
+    // A cursor beyond the current journal head cannot describe a retained
+    // snapshot boundary. Treat it like any other rejected checkpoint so a
+    // metadata write or journal repair cannot make startup fail permanently.
+    if host.cursor > 0 {
+        let journal_head = registry.session_journal_head()?;
+        if host.cursor > journal_head {
+            host = AgentRosterHost::default();
+            needs_repair = true;
         }
-        _ => AgentRosterHost::default(),
-    };
+    }
     let started_at = host.cursor;
     loop {
         let page = registry.session_journal_after(host.cursor, 512)?;
@@ -1155,7 +1248,7 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
             host.cursor = host.cursor.max(record.sequence);
         }
     }
-    if host.cursor != started_at {
+    if needs_repair || host.cursor != started_at {
         registry.put_journal_reducer_state(
             AGENT_ROSTER_REDUCER_ID,
             AGENT_ROSTER_REDUCER_VERSION,
@@ -1248,6 +1341,7 @@ struct TerminalAgentRecord {
     state: AgentState,
     source: AgentSource,
     session: Option<String>,
+    agent: Option<String>,
     updated_at_ms: u64,
 }
 
@@ -1781,6 +1875,8 @@ type KittyImageBudgetOperationHook =
     Arc<dyn Fn(&Arc<Surface>, KittyGraphicsLimits, Instant) -> anyhow::Result<()> + Send + Sync>;
 #[cfg(test)]
 type TerminalSpawnAfterCellPixelSnapshotHook = Arc<dyn Fn(bool) + Send + Sync>;
+#[cfg(test)]
+type TerminalSpawnBeforeCellPixelReconcileHook = Arc<dyn Fn(&Arc<Surface>) + Send + Sync>;
 
 type CellPixelSurfaceResult = (SurfaceId, (u16, u16), anyhow::Result<Option<u64>>, bool);
 
@@ -2073,6 +2169,10 @@ pub struct Mux {
     /// registry, then state.
     workspace_registry: SignaledMutex<WorkspaceRegistry>,
     session_public_id: SessionPublicId,
+    machine_public_id: crate::resource::MachinePublicId,
+    /// Control-socket admission counters, shared with the accept loop.
+    connection_stats: Arc<crate::diagnostics::ConnectionStats>,
+    started_at: Instant,
     state: Mutex<State>,
     subscribers: MuxEventBroadcaster,
     config_reload: Mutex<ConfigReloadState>,
@@ -2124,6 +2224,9 @@ pub struct Mux {
     terminal_spawn_after_cell_pixel_snapshot:
         Mutex<Option<TerminalSpawnAfterCellPixelSnapshotHook>>,
     #[cfg(test)]
+    terminal_spawn_before_cell_pixel_reconcile:
+        Mutex<Option<TerminalSpawnBeforeCellPixelReconcileHook>>,
+    #[cfg(test)]
     terminal_create_after_terminal_reservation: Mutex<Option<TerminalReservationHook>>,
     pending_terminal_hosts: Mutex<HashMap<SurfaceId, TerminalHostIdentity>>,
     reserved_in_process_terminals: Mutex<HashMap<SurfaceId, TerminalHostIdentity>>,
@@ -2162,7 +2265,13 @@ pub struct Mux {
     cell_pixel_fanout_timeout: Mutex<Option<Duration>>,
     default_colors: Mutex<DefaultColors>,
     durable_terminal_defaults: AtomicBool,
+    /// A durable/session-local receipt that at least one agent has existed.
+    /// The live roster removes completed agents, but the sidebar still needs
+    /// to distinguish an empty session from a session with only history.
+    agent_history: AtomicBool,
     sidebar_plugin: Mutex<SidebarPluginRuntime>,
+    journal_plugin: crate::journal_plugin::JournalPluginRuntime,
+    machine_usage: Mutex<Option<MachineUsage>>,
     agent_records: Mutex<HashMap<TerminalPublicId, TerminalAgentRecord>>,
     agent_hook_fences: Mutex<HashMap<TerminalPublicId, HookFence>>,
     agent_roster: Mutex<AgentRosterHost>,
@@ -2201,6 +2310,9 @@ pub struct Mux {
     /// Keeps a close from removing a just-created surface before legacy
     /// callers have resolved the committed public result back to its runtime.
     resource_creation_handoff: Mutex<()>,
+    /// Serializes the check-and-create sequence used when an attached local
+    /// frontend bootstraps an otherwise empty session.
+    initial_bootstrap: Mutex<()>,
     resource_creation_execution: Mutex<()>,
     resource_creation_active: AtomicBool,
     terminal_adoptions: Mutex<HashSet<String>>,
@@ -2249,14 +2361,16 @@ impl Mux {
         target: crate::ResourceTarget,
         selectors: &crate::ResourceSelectors,
     ) -> Result<crate::ResolvedResourcePath, ResourceError> {
-        let registry = self.workspace_registry.lock().unwrap();
+        // Session and machine identity never change for the life of a mux, so
+        // selector resolution must not queue behind the registry mutex, which
+        // the journal writer holds across every fsync.
         let state = self.state.lock().unwrap();
         resolve_resource_selectors(
             &state,
             ResourceSelectorContext {
-                machine_id: registry.machine_id(),
+                machine_id: &self.machine_public_id,
                 machine_name: None,
-                session_id: registry.session_id(),
+                session_id: &self.session_public_id,
                 session_name: &self.session,
             },
             target,
@@ -2432,6 +2546,7 @@ impl Mux {
         let RestoredPublicProjections {
             default_colors,
             has_terminal_defaults,
+            has_agent_history,
             next_notification_id,
             agent_records,
             agent_hook_fences,
@@ -2441,6 +2556,7 @@ impl Mux {
         let agent_roster = restore_agent_roster(&registry)?;
         let journal_producers = registry.journal_producer_manifests()?;
         let session_public_id = registry.session_id().clone();
+        let machine_public_id = registry.machine_id().clone();
         let journal_kernel = crate::journal_kernel::JournalKernel::new(
             registry.session_journal_database_path(),
             &journal_producers,
@@ -2454,6 +2570,9 @@ impl Mux {
         let mux = Arc::new(Mux {
             workspace_registry: SignaledMutex::new(registry),
             session_public_id,
+            machine_public_id,
+            connection_stats: Arc::default(),
+            started_at: Instant::now(),
             state: Mutex::new(state),
             subscribers: MuxEventBroadcaster::default(),
             config_reload: Mutex::new(ConfigReloadState::default()),
@@ -2494,6 +2613,8 @@ impl Mux {
             terminal_create_after_workspace_reservation: Mutex::new(None),
             #[cfg(test)]
             terminal_spawn_after_cell_pixel_snapshot: Mutex::new(None),
+            #[cfg(test)]
+            terminal_spawn_before_cell_pixel_reconcile: Mutex::new(None),
             #[cfg(test)]
             terminal_create_after_terminal_reservation: Mutex::new(None),
             pending_terminal_hosts: Mutex::new(HashMap::new()),
@@ -2543,7 +2664,10 @@ impl Mux {
             cell_pixel_fanout_timeout: Mutex::new(None),
             default_colors: Mutex::new(default_colors),
             durable_terminal_defaults: AtomicBool::new(has_terminal_defaults),
+            agent_history: AtomicBool::new(has_agent_history),
             sidebar_plugin: Mutex::new(SidebarPluginRuntime::default()),
+            journal_plugin: crate::journal_plugin::JournalPluginRuntime::default(),
+            machine_usage: Mutex::new(None),
             agent_records: Mutex::new(agent_records),
             agent_hook_fences: Mutex::new(agent_hook_fences),
             agent_roster: Mutex::new(agent_roster),
@@ -2566,6 +2690,7 @@ impl Mux {
             #[cfg(test)]
             terminal_exit_state_queries: AtomicU64::new(0),
             resource_creation_handoff: Mutex::new(()),
+            initial_bootstrap: Mutex::new(()),
             resource_creation_execution: Mutex::new(()),
             resource_creation_active: AtomicBool::new(false),
             terminal_adoptions: Mutex::new(HashSet::new()),
@@ -2587,6 +2712,13 @@ impl Mux {
             test_surface_runtime,
             session,
         });
+        let weak_mux = Arc::downgrade(&mux);
+        mux.journal_plugin.set_exit_handler(Some(Arc::new(move |plugin_id, generation| {
+            let Some(mux) = weak_mux.upgrade() else { return };
+            // Do not drop a late exit callback here. The reducer uses the
+            // child generation to fence a replacement process.
+            mux.record_journal_plugin_exit(plugin_id, generation);
+        })));
         crate::journal_ingress::start(&mux, journal_ingress_receiver)?;
         mux.materialize_interrupted_resource_workspaces()?;
         mux.materialize_restored_browsers(&contents)?;
@@ -2601,6 +2733,12 @@ impl Mux {
                 }
             }
         }
+        // The roster reducer and the public projection are durable in
+        // separate transactions. A crash can therefore leave a plugin row in
+        // the roster while dropping the projection side effect. Reconcile
+        // after restored surfaces exist, and repeat at the end of asynchronous
+        // terminal adoption for hosts that were not available yet.
+        mux.reconcile_agent_roster_projections();
         let recovery_deadline = Instant::now() + Duration::from_secs(15);
         while mux.reconcile_interrupted_resource_creations()? {
             if Instant::now() >= recovery_deadline {
@@ -2611,8 +2749,11 @@ impl Mux {
         }
         mux.retry_pending_agent_hooks()?;
         crate::journal_hooks::start(&mux)?;
-        crate::screen_detect::scanner::start(&mux);
         Ok(mux)
+    }
+
+    pub fn lock_initial_bootstrap(&self) -> MutexGuard<'_, ()> {
+        self.initial_bootstrap.lock().unwrap()
     }
 
     fn retry_pending_agent_hooks(&self) -> anyhow::Result<()> {
@@ -2699,8 +2840,10 @@ impl Mux {
                             &key,
                             sequence,
                             &ingress,
-                            AGENT_HOOK_RETRY_ERROR,
-                            agent_hook_retry_class(&error),
+                            AgentHookPendingFailure {
+                                error: AGENT_HOOK_RETRY_ERROR,
+                                retry_class: agent_hook_retry_class(&error),
+                            },
                         )
                         .is_err()
                     {
@@ -3009,7 +3152,6 @@ impl Mux {
                 &terminal_id,
                 TerminalLifecycle::Adopting,
                 Some(&record.incarnation),
-                None,
             ) {
                 let current =
                     self.workspace_registry.lock().unwrap().terminal_record(&terminal_id)?;
@@ -3299,6 +3441,7 @@ impl Mux {
         // only hooks scoped to this terminal, not the entire pending table.
         if let Ok(terminal_id) = TerminalPublicId::parse(terminal_id) {
             let _ = self.retry_pending_agent_hooks_for_terminal(&terminal_id);
+            self.reconcile_agent_roster_projections_for_terminal(&terminal_id);
         }
         Ok(())
     }
@@ -3409,7 +3552,6 @@ impl Mux {
                                 &terminal_id,
                                 TerminalLifecycle::Adopting,
                                 Some(&record.incarnation),
-                                None,
                             )
                             .is_err()
                         {
@@ -4045,7 +4187,7 @@ impl Mux {
                     id: workspace.id,
                     public_id: public_id.clone(),
                     key: key.clone(),
-                    name: name.clone(),
+                    name,
                     group_key: self.session.clone(),
                 };
                 let mut desired = self.registry_projection(state);
@@ -5324,20 +5466,60 @@ impl Mux {
     where
         F: FnOnce() -> anyhow::Result<()>,
     {
-        let mut registry = self
+        let stats = self.journal_ingress.stats();
+        stats.set_phase(crate::diagnostics::WriterPhase::WaitingLock);
+        let lock_wait_from = Instant::now();
+        let lock_result = self
             .workspace_registry
             .lock_until(deadline)
-            .context("waiting for the workspace registry journal writer")?;
+            .context("waiting for the workspace registry journal writer");
+        let lock_wait = lock_wait_from.elapsed();
+        let mut registry = match lock_result {
+            Ok(registry) => registry,
+            Err(error) => {
+                stats.commit_finished(lock_wait, Duration::ZERO);
+                stats.set_phase(crate::diagnostics::WriterPhase::Idle);
+                return Err(error);
+            }
+        };
+        stats.set_phase(crate::diagnostics::WriterPhase::Committing);
+        let commit_from = Instant::now();
         let remaining = deadline.saturating_duration_since(Instant::now());
-        anyhow::ensure!(!remaining.is_zero(), "session journal commit deadline expired");
-        let commits = registry.append_journal_ingress_events_with_deadline(
-            events,
-            deadline,
-            remaining.min(sqlite_wait_cap),
-            admit_commit,
-        )?;
+        let commits = if remaining.is_zero() {
+            Err(anyhow::anyhow!("session journal commit deadline expired"))
+        } else {
+            registry.append_journal_ingress_events_with_deadline(
+                events,
+                deadline,
+                remaining.min(sqlite_wait_cap),
+                admit_commit,
+            )
+        };
+        drop(registry);
+        stats.commit_finished(lock_wait, commit_from.elapsed());
+        stats.set_phase(crate::diagnostics::WriterPhase::Idle);
+        let commits = commits?;
         self.publish_journal_event();
         Ok(commits)
+    }
+
+    /// Registry mutex contention, see [`crate::diagnostics::LockStats`].
+    pub fn registry_lock_stats(&self) -> crate::diagnostics::LockStatsSnapshot {
+        self.workspace_registry.stats().snapshot()
+    }
+
+    /// Journal writer metrics, `None` for ephemeral sessions without a
+    /// durable journal.
+    pub fn journal_writer_stats(&self) -> Option<crate::diagnostics::JournalWriterSnapshot> {
+        self.journal_ingress.enabled().then(|| self.journal_ingress.stats().snapshot())
+    }
+
+    pub(crate) fn connection_stats(&self) -> &Arc<crate::diagnostics::ConnectionStats> {
+        &self.connection_stats
+    }
+
+    pub fn uptime(&self) -> Duration {
+        self.started_at.elapsed()
     }
 
     #[cfg(test)]
@@ -5451,6 +5633,12 @@ impl Mux {
         self.workspace_registry.lock().unwrap().journal_producer_manifests()
     }
 
+    pub(crate) fn userland_journal_producer_manifests(
+        &self,
+    ) -> anyhow::Result<Vec<crate::JournalProducerManifest>> {
+        self.workspace_registry.lock().unwrap().userland_journal_producer_manifests()
+    }
+
     pub(crate) fn put_journal_producer(
         &self,
         manifest: &crate::JournalProducerManifest,
@@ -5478,7 +5666,22 @@ impl Mux {
         origin: &str,
         idempotency_key: &str,
     ) -> anyhow::Result<crate::JournalAppendCommit> {
-        let validated = self.journal_kernel.validate_ingress(ingress)?;
+        let validated = match self.journal_kernel.validate_ingress(ingress) {
+            Ok(validated) => validated,
+            Err(validation_error) => {
+                // A receipt is authoritative for an exact retry. Its ingress
+                // may name a superseded manifest after a producer upgrade,
+                // while a new ingress must still pass current validation.
+                let replay = {
+                    let registry = self.workspace_registry.lock().unwrap();
+                    registry.replay_journal_ingress(ingress, origin, idempotency_key)?
+                };
+                if let Some(commit) = replay {
+                    return self.finish_journal_ingress(ingress, origin, idempotency_key, commit);
+                }
+                return Err(validation_error);
+            }
+        };
         let commit = if self.journal_ingress.enabled() {
             self.journal_ingress.send_producer(
                 ingress.clone(),
@@ -5498,6 +5701,16 @@ impl Mux {
             }
             commit
         };
+        self.finish_journal_ingress(ingress, origin, idempotency_key, commit)
+    }
+
+    fn finish_journal_ingress(
+        &self,
+        ingress: &crate::JournalIngress,
+        origin: &str,
+        idempotency_key: &str,
+        commit: crate::JournalAppendCommit,
+    ) -> anyhow::Result<crate::JournalAppendCommit> {
         // Replayed journal commits still need projection reconciliation. A
         // process can crash after the durable journal commit and before the
         // in-memory/resource projection update. The sequence guard makes this
@@ -5520,8 +5733,10 @@ impl Mux {
                         idempotency_key,
                         commit.sequence,
                         ingress,
-                        AGENT_HOOK_RETRY_ERROR,
-                        agent_hook_retry_class(&error),
+                        AgentHookPendingFailure {
+                            error: AGENT_HOOK_RETRY_ERROR,
+                            retry_class: agent_hook_retry_class(&error),
+                        },
                     )
                 {
                     self.report_internal_diagnostic(
@@ -5539,7 +5754,21 @@ impl Mux {
                 "agent hook projection applied; retry bookkeeping cleanup deferred",
             );
         }
-        if !commit.replayed {
+        // A replayed plugin event can repair a projection after a process
+        // crash between the durable journal commit and the in-memory fold.
+        // Hook replay remains owned by its durable retry projector, while the
+        // generic plugin envelope is safe to fold repeatedly because the
+        // reducer fences by journal sequence and observed timestamp.
+        let is_plugin_event = ingress.payload.get("format").and_then(Value::as_str)
+            == Some(crate::journal_reducers::AGENT_PLUGIN_FORMAT);
+        // A replay can follow a crash before either projection or reducer
+        // side effects. The reducer cursor makes folding an already-applied
+        // sequence a no-op, so replay every agent event and repair a missing
+        // roster fold without duplicating live deltas.
+        if !commit.replayed
+            || is_plugin_event
+            || ingress.producer_id == crate::agent_hooks::AGENT_HOOK_PRODUCER_ID
+        {
             self.fold_agent_roster(ingress, &commit);
         }
         Ok(commit)
@@ -5566,7 +5795,7 @@ impl Mux {
         // detected process exit would create a Hook `Done` fence and could
         // suppress a later real hook lifecycle.
         if ingress.payload.get("native_event").and_then(Value::as_str)
-            == Some(crate::screen_detect::SCREEN_DETECT_NATIVE_EVENT)
+            == Some(crate::journal_reducers::LEGACY_SCREEN_DETECT_NATIVE_EVENT)
         {
             return Ok(());
         }
@@ -5623,7 +5852,6 @@ impl Mux {
         // fence for a start would let a delayed, session-less start mutate a
         // newer lifecycle.
         let agent_session_id = explicit_session_id
-            .clone()
             .or_else(|| {
                 (!is_session_start)
                     .then(|| previous_fence.as_ref().filter(|fence| !fence.ended))
@@ -5659,6 +5887,12 @@ impl Mux {
             applied_sequence: sequence,
             ended: state == AgentState::Done,
         };
+        let agent_adapter = ingress
+            .payload
+            .get("adapter")
+            .and_then(|adapter| adapter.get("id"))
+            .and_then(Value::as_str)
+            .map(str::to_owned);
         self.report_agent_with_sequence_lock(
             surface,
             state,
@@ -5668,6 +5902,7 @@ impl Mux {
             Some(hook_state),
             Some(sequence),
             AgentReportOrigin::RosterFold,
+            agent_adapter,
         )?;
         fences.insert(
             terminal_id.clone(),
@@ -5706,7 +5941,10 @@ impl Mux {
             AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION, RosterEvent,
             SOCKET_REPORT_ADAPTER,
         };
-        if ingress.producer_id != crate::agent_hooks::AGENT_HOOK_PRODUCER_ID {
+        if ingress.producer_id != crate::agent_hooks::AGENT_HOOK_PRODUCER_ID
+            && ingress.payload.get("format").and_then(Value::as_str)
+                != Some(crate::journal_reducers::AGENT_PLUGIN_FORMAT)
+        {
             return;
         }
         // Fold the record as the journal stored it, not the ingress the
@@ -5759,23 +5997,95 @@ impl Mux {
         if echo {
             return;
         }
-        let screen_detect = record.payload.get("native_event").and_then(Value::as_str)
-            == Some(crate::screen_detect::SCREEN_DETECT_NATIVE_EVENT);
         for delta in deltas {
-            self.apply_roster_delta(delta, &ingress.kind, screen_detect);
+            self.apply_roster_delta(delta, &ingress.kind);
         }
+    }
+
+    /// Repair public projections whose plugin roster event was folded before
+    /// the daemon stopped. The roster is the canonical live view; the
+    /// projection is a separately committed compatibility view for clients.
+    /// Compare durable values first so a healthy restart emits no mutations.
+    fn reconcile_agent_roster_projections(&self) {
+        let entries = self
+            .agent_roster
+            .lock()
+            .unwrap()
+            .roster
+            .entries
+            .iter()
+            .filter(|(_, entry)| entry.agent_source() == AgentSource::Plugin)
+            .map(|(terminal_id, entry)| (terminal_id.clone(), entry.clone()))
+            .collect::<Vec<_>>();
+        for (terminal_id, entry) in entries {
+            let Ok(terminal_id) = TerminalPublicId::parse(&terminal_id) else { continue };
+            self.reconcile_agent_roster_projection_for_entry(&terminal_id, entry);
+        }
+    }
+
+    fn reconcile_agent_roster_projections_for_terminal(&self, terminal_id: &TerminalPublicId) {
+        let entry = self
+            .agent_roster
+            .lock()
+            .unwrap()
+            .roster
+            .entries
+            .get(terminal_id.as_str())
+            .filter(|entry| entry.agent_source() == AgentSource::Plugin)
+            .cloned();
+        if let Some(entry) = entry {
+            self.reconcile_agent_roster_projection_for_entry(terminal_id, entry);
+        }
+    }
+
+    fn reconcile_agent_roster_projection_for_entry(
+        &self,
+        terminal_id: &TerminalPublicId,
+        entry: crate::journal_reducers::RosterEntry,
+    ) {
+        let registry = match self.workspace_registry.lock() {
+            Ok(registry) => registry,
+            Err(_) => {
+                eprintln!(
+                    "cmux-tui: could not inspect agent projection for {terminal_id} during startup reconciliation: workspace registry mutex is poisoned"
+                );
+                return;
+            }
+        };
+        let projection = match registry.public_agent_projections(Some(terminal_id), None) {
+            Ok(projections) => projections.into_iter().next(),
+            Err(error) => {
+                eprintln!(
+                    "cmux-tui: could not inspect agent projection for {terminal_id} during startup reconciliation: {error}"
+                );
+                return;
+            }
+        };
+        drop(registry);
+        let matches = projection.as_ref().is_some_and(|projection| {
+            projection.state == entry.state
+                && projection.source == entry.source
+                && projection.agent == entry.agent
+                && projection.source_session == entry.session
+                && projection.updated_at_ms == entry.updated_at_ms
+        });
+        if matches {
+            return;
+        }
+        self.apply_roster_delta(
+            crate::journal_reducers::RosterDelta::Upsert {
+                terminal_id: terminal_id.to_string(),
+                entry,
+            },
+            "startup-reconcile",
+        );
     }
 
     /// Apply one roster delta's side effects: the durable agent projection
     /// commit and the agent-changed broadcast remote frontends converge on.
     /// A removal commits the done state (history keeps the exit; the roster
     /// already dropped the live entry).
-    fn apply_roster_delta(
-        &self,
-        delta: crate::journal_reducers::RosterDelta,
-        kind: &str,
-        screen_detect: bool,
-    ) {
+    fn apply_roster_delta(&self, delta: crate::journal_reducers::RosterDelta, kind: &str) {
         use crate::journal_reducers::RosterDelta;
         let (terminal_id, state, source, session, agent_adapter) = match delta {
             RosterDelta::Upsert { terminal_id, entry } => (
@@ -5785,9 +6095,8 @@ impl Mux {
                 entry.session.clone(),
                 entry.agent,
             ),
-            RosterDelta::Remove { terminal_id } => {
-                let source = if screen_detect { AgentSource::Detected } else { AgentSource::Hook };
-                (terminal_id, AgentState::Done, source, None, None)
+            RosterDelta::Remove { terminal_id, source, agent } => {
+                (terminal_id, AgentState::Done, source, None, agent)
             }
         };
         let Ok(terminal_id) = TerminalPublicId::parse(&terminal_id) else { return };
@@ -5804,6 +6113,7 @@ impl Mux {
             "surface":surface,
             "state":state.as_str(),
             "source":source.as_str(),
+            "agent":agent_adapter,
             "source_session":session,
         });
         if let Err(error) = self.commit_agent_report(
@@ -5873,61 +6183,6 @@ impl Mux {
         if let Err(error) = self.append_journal_ingress(&ingress, "agent-report", &idempotency_key)
         {
             eprintln!("cmux-tui: journaling an agent report for {terminal_id} failed: {error}");
-        }
-    }
-
-    /// Snapshot of live terminals for the screen-detection scanner.
-    pub(crate) fn screen_detect_terminals(&self) -> Vec<(TerminalPublicId, Arc<Surface>)> {
-        self.state
-            .lock()
-            .unwrap()
-            .terminal_catalog
-            .iter()
-            .map(|(terminal_id, surface)| (terminal_id.clone(), surface.clone()))
-            .collect()
-    }
-
-    /// Journal one screen-detected agent state transition. The payload
-    /// wears the agent-hook shape with the manifest id as the adapter and
-    /// `native_event = "ScreenDetect"`; the roster fold reads the explicit
-    /// state exactly like the socket echo, but with source `detected`.
-    pub(crate) fn append_screen_detect_event(
-        &self,
-        emission: &crate::screen_detect::ScreenDetectEmission,
-    ) {
-        let kind = if emission.state == AgentState::Done {
-            "agent.session.ended"
-        } else {
-            "agent.state.changed"
-        };
-        let ingress = crate::JournalIngress {
-            producer_id: crate::agent_hooks::AGENT_HOOK_PRODUCER_ID.into(),
-            manifest_version: crate::agent_hooks::AGENT_HOOK_MANIFEST_VERSION,
-            kind: kind.into(),
-            schema_version: 1,
-            occurred_at_ms: None,
-            subjects: vec![crate::JournalSubject {
-                kind: "terminal".into(),
-                id: emission.terminal_id.clone(),
-            }],
-            sensitivity: Some(crate::JournalSensitivity::Sensitive),
-            payload: serde_json::json!({
-                "format": crate::agent_hooks::AGENT_HOOK_FORMAT,
-                "adapter": {"id": emission.agent, "version": 1},
-                "native_event": crate::screen_detect::SCREEN_DETECT_NATIVE_EVENT,
-                "normalized": {"state": emission.state.as_str()},
-                "native": {},
-            }),
-            causation_id: None,
-            correlation_id: None,
-        };
-        let idempotency_key = format!("screen-detect-{}", crate::workspace_registry::new_uuid_v4());
-        if let Err(error) = self.append_journal_ingress(&ingress, "screen-detect", &idempotency_key)
-        {
-            eprintln!(
-                "cmux-tui: journaling a screen-detected state for {} failed: {error}",
-                emission.terminal_id
-            );
         }
     }
 
@@ -6121,6 +6376,26 @@ impl Mux {
             .journal_checkpoint(selector)?
             .with_context(|| format!("journal checkpoint {selector:?} does not exist"))?;
         let mut reducer = crate::journal_checkpoint::RestoreReducer::new(&checkpoint)?;
+
+        let database_path = self.workspace_registry.lock().unwrap().session_journal_database_path();
+        if let Some(database_path) = database_path {
+            let reader = crate::workspace_registry::SessionJournalReader::open(&database_path)?;
+            let mut cursor = reader.restore_cursor(checkpoint.source_sequence)?;
+            let head_sequence = loop {
+                let page = cursor.next_page(1024)?;
+                let head = page.head_sequence;
+                let empty = page.records.is_empty();
+                for record in page.records {
+                    reducer.apply(&record)?;
+                }
+                if empty {
+                    break head;
+                }
+            };
+            cursor.finish()?;
+            return reducer.finish(head_sequence);
+        }
+
         let mut sequence = checkpoint.source_sequence;
         let mut target_head = None;
         let head_sequence = loop {
@@ -6628,7 +6903,6 @@ impl Mux {
         terminal_id: &str,
         lifecycle: TerminalLifecycle,
         incarnation: Option<&str>,
-        exit: Option<Value>,
     ) -> anyhow::Result<(RegistryTerminal, u64)> {
         anyhow::ensure!(
             lifecycle != TerminalLifecycle::Exited,
@@ -6642,7 +6916,7 @@ impl Mux {
             terminal_id,
             lifecycle,
             incarnation,
-            exit,
+            None,
         )?;
         self.emit_terminal_registry_changed(&registry, result.1);
         Ok(result)
@@ -7036,6 +7310,27 @@ impl Mux {
         self.spawn_surface_with(cwd, command, size, Some(workspace_key), Some(reservation))
     }
 
+    fn persist_terminal_cell_pixel_reconcile_failure(
+        &self,
+        terminal_id: &str,
+        incarnation: Option<&str>,
+        error: &anyhow::Error,
+    ) -> anyhow::Result<()> {
+        let detail = format!("{error:#}");
+        eprintln!(
+            "cmux-tui: terminal {terminal_id} cell-pixel reconciliation failed before \
+             publication: {}",
+            detail.escape_debug()
+        );
+        self.persist_terminal_exit(
+            terminal_id,
+            incarnation,
+            &TerminalExit::unknown("cell-pixel-reconcile-failed"),
+        )
+        .context("could not persist terminal exit after cell-pixel reconciliation failed")?;
+        Ok(())
+    }
+
     fn spawn_surface_with(
         self: &Arc<Self>,
         cwd: Option<String>,
@@ -7166,7 +7461,7 @@ impl Mux {
                 surface.kill();
                 anyhow::bail!("terminal host changed registry-reserved identity");
             }
-            let ready_revision = {
+            {
                 let mut registry = self.workspace_registry.lock().unwrap();
                 let ready = commit_terminal_lifecycle(
                     &mut registry,
@@ -7185,25 +7480,18 @@ impl Mux {
                     }
                 };
                 self.emit_terminal_registry_changed(&registry, ready_revision);
-                ready_revision
-            };
+            }
             let cell_pixel_lifecycle =
                 match self.reconcile_surface_cell_pixels_for_publish(&surface) {
                     Ok(lifecycle) => lifecycle,
                     Err(error) => {
-                        let _ = self.transition_terminal_lifecycle(
-                            "terminal-exited",
-                            "terminal-cell-pixel-reconcile-failed",
+                        let persistence = self.persist_terminal_cell_pixel_reconcile_failure(
                             &terminal_hex,
-                            TerminalLifecycle::Exited,
                             Some(&identity.incarnation),
-                            Some(serde_json::json!({
-                                "reason":"cell-pixel-reconcile-failed",
-                                "error":error.to_string(),
-                                "ready_revision":ready_revision,
-                            })),
+                            &error,
                         );
                         surface.kill();
+                        persistence?;
                         return Err(error);
                     }
                 };
@@ -7305,16 +7593,23 @@ impl Mux {
                 };
                 self.emit_terminal_registry_changed(&registry, revision);
             }
+            #[cfg(test)]
+            if let Some(hook) =
+                self.terminal_spawn_before_cell_pixel_reconcile.lock().unwrap().clone()
+            {
+                hook(&surface);
+            }
             let cell_pixel_lifecycle =
                 match self.reconcile_surface_cell_pixels_for_publish(&surface) {
                     Ok(lifecycle) => lifecycle,
                     Err(error) => {
-                        let _ = self.persist_terminal_exit(
+                        let persistence = self.persist_terminal_cell_pixel_reconcile_failure(
                             &terminal_hex,
                             Some(&incarnation),
-                            &TerminalExit::unknown(format!("cell-pixel-reconcile-failed: {error}")),
+                            &error,
                         );
                         surface.kill();
+                        persistence?;
                         return Err(error);
                     }
                 };
@@ -8339,7 +8634,6 @@ impl Mux {
 
     pub fn control_clients_json(&self, requesting_client: u64) -> Value {
         let mut clients = self.control_clients.list_json(requesting_client);
-        let sizing = self.client_sizing.lock().unwrap();
         if let Some(clients) = clients.as_array_mut() {
             for info in clients {
                 let id = info.get("client").and_then(Value::as_u64).unwrap_or_default();
@@ -8348,11 +8642,12 @@ impl Mux {
                         let surface =
                             size.get("surface").and_then(Value::as_u64).unwrap_or_default();
                         size["size_participating"] =
-                            serde_json::json!(sizing.report_participates(surface, id));
+                            serde_json::json!(self.client_size_participates(surface, id));
                     }
                 }
             }
         }
+        let sizing = self.client_sizing.lock().unwrap();
         let local_sizes = sizing
             .surfaces
             .iter()
@@ -9288,9 +9583,14 @@ impl Mux {
             None,
             None,
             AgentReportOrigin::Direct,
+            None,
         )
     }
 
+    // Keep the sequence lock, hook fence, and origin explicit at this
+    // internal transaction boundary. Grouping them into a bag would hide the
+    // lock-order contract that protects journal replay.
+    #[allow(clippy::too_many_arguments)]
     fn report_agent_with_sequence_lock(
         &self,
         surface: SurfaceId,
@@ -9301,6 +9601,7 @@ impl Mux {
         hook_state: Option<crate::workspace_registry::AgentHookProjectionState>,
         journal_sequence: Option<u64>,
         origin: AgentReportOrigin,
+        agent_adapter: Option<String>,
     ) -> anyhow::Result<AgentRecord> {
         let mutation = WorkspaceMutation::new(
             format!("raw-agent-{}", crate::workspace_registry::new_uuid_v4()),
@@ -9311,6 +9612,7 @@ impl Mux {
             "surface":surface,
             "state":state.as_str(),
             "source":source.as_str(),
+            "agent":agent_adapter,
             "source_session":session,
         });
         let (_, record) = self.commit_agent_report(
@@ -9325,7 +9627,7 @@ impl Mux {
             hook_state.as_ref(),
             journal_sequence,
             origin,
-            None,
+            agent_adapter,
         )?;
         let record = record.context("fresh raw agent report unexpectedly replayed")?;
         if source != AgentSource::Hook {
@@ -9513,41 +9815,54 @@ impl Mux {
             !value.starts_with("cmux-hook-sequence:") && !value.starts_with("cmux-hook-ended:")
         });
         let now = now_ms();
-        let mut records = self.agent_records.lock().unwrap();
-        // Hook and screen-detected state are stronger agent truth than a
-        // direct socket report. Check the durable projection as well as the
+        let records = self.agent_records.lock().unwrap();
+        // Hook and plugin observations are stronger agent truth than a direct
+        // socket report. Check the durable projection as well as the
         // in-memory cache so arbitration survives a restart.
         let durable_stronger =
             registry.public_agent_projections(Some(&terminal_id), None)?.into_iter().next().filter(
                 |projection| {
                     (projection.source == AgentSource::Hook.as_str()
+                        || projection.source == AgentSource::Plugin.as_str()
                         || projection.source == AgentSource::Detected.as_str())
                         && projection.state != AgentState::Done.as_str()
                         && source == AgentSource::Socket
                 },
             );
+        // Adapter identity is part of the effective projection, not only of
+        // the incoming observation. Preserve it when a legacy event omits the
+        // adapter or when a restart reconstructs the stronger durable row.
+        let effective_agent = agent_adapter
+            .or_else(|| records.get(&terminal_id).and_then(|record| record.agent.clone()))
+            .or_else(|| durable_stronger.as_ref().and_then(|projection| projection.agent.clone()));
         let socket_report_ignored = source == AgentSource::Socket
             && !effective_hook_state.is_some_and(|state| state.ended)
             && (records.get(&terminal_id).is_some_and(|existing| {
-                existing.source == AgentSource::Hook || existing.source == AgentSource::Detected
+                existing.source == AgentSource::Hook
+                    || existing.source == AgentSource::Detected
+                    || existing.source == AgentSource::Plugin
             }) || durable_stronger.is_some());
         let record = match records.get(&terminal_id) {
             Some(existing) if socket_report_ignored => existing.clone(),
             None if socket_report_ignored => match durable_stronger {
                 Some(existing) => TerminalAgentRecord {
                     state: parse_projection_agent_state(&existing.state),
-                    source: if existing.source == AgentSource::Detected.as_str() {
+                    source: if existing.source == AgentSource::Plugin.as_str() {
+                        AgentSource::Plugin
+                    } else if existing.source == AgentSource::Detected.as_str() {
                         AgentSource::Detected
                     } else {
                         AgentSource::Hook
                     },
                     session: existing.source_session,
+                    agent: existing.agent,
                     updated_at_ms: existing.updated_at_ms,
                 },
                 None => TerminalAgentRecord {
                     state: agent_state,
                     source,
                     session: source_session,
+                    agent: effective_agent,
                     updated_at_ms: now,
                 },
             },
@@ -9555,6 +9870,7 @@ impl Mux {
                 state: agent_state,
                 source,
                 session: source_session,
+                agent: effective_agent,
                 updated_at_ms: now,
             },
         };
@@ -9574,11 +9890,12 @@ impl Mux {
             "terminal_id":terminal_id,
             "state":record.state.as_str(),
             "source":record.source.as_str(),
+            "agent":record.agent,
             "updated_at_ms":record.updated_at_ms.to_string(),
-            "source_session":persisted_source_session.clone().or(record.session.clone()),
+            "source_session":persisted_source_session.as_deref().or(record.session.as_deref()),
         });
         let mut public_value = value.clone();
-        public_value["source_session"] = serde_json::json!(record.session.clone());
+        public_value["source_session"] = serde_json::json!(record.session.as_deref());
         let deltas = if effective_hook_state.is_some_and(|state| state.ended) {
             serde_json::json!([{
                 "kind":"delete",
@@ -9595,40 +9912,32 @@ impl Mux {
                 "value":public_value,
             }])
         };
-        let commit = match journal_sequence {
-            Some(sequence) => registry.commit_agent_projection_with_hook_state_and_sequence(
-                mutation,
-                fingerprint,
-                expected_revision,
-                &terminal_id,
-                &value,
-                &deltas,
-                effective_hook_state,
-                sequence,
-            )?,
-            None => registry.commit_agent_projection_with_hook_state(
-                mutation,
-                fingerprint,
-                expected_revision,
-                &terminal_id,
-                &value,
-                &deltas,
-                effective_hook_state,
-            )?,
-        };
-        if !commit.replayed {
-            if let (Some(direct_state), Some(sequence_guard)) =
+        let commit = registry.commit_agent_projection_with_hook_state(
+            mutation,
+            fingerprint,
+            expected_revision,
+            &terminal_id,
+            &value,
+            &deltas,
+            effective_hook_state,
+            journal_sequence,
+        )?;
+        // The live roster intentionally drops completed lifecycles. Keep a
+        // session-local receipt so a frontend can explain an empty active
+        // queue as "no active agents" instead of "no agent history".
+        self.agent_history.store(true, Ordering::Release);
+        if !commit.replayed
+            && let (Some(direct_state), Some(sequence_guard)) =
                 (direct_hook_state.as_ref(), sequence_guard.as_mut())
-            {
-                sequence_guard.insert(
-                    terminal_id.clone(),
-                    HookFence {
-                        session_id: direct_state.agent_session_id.clone(),
-                        sequence: direct_state.applied_sequence,
-                        ended: false,
-                    },
-                );
-            }
+        {
+            sequence_guard.insert(
+                terminal_id.clone(),
+                HookFence {
+                    session_id: direct_state.agent_session_id.clone(),
+                    sequence: direct_state.applied_sequence,
+                    ended: false,
+                },
+            );
         }
         state.resource_revision = commit.revision;
         drop(state);
@@ -9639,7 +9948,7 @@ impl Mux {
             state: record.state,
             source: record.source,
             session: record.session,
-            agent: agent_adapter,
+            agent: record.agent,
             updated_at_ms: record.updated_at_ms,
         };
         if !commit.replayed {
@@ -9785,9 +10094,87 @@ impl Mux {
             .collect()
     }
 
+    /// Return durable agent projections for an explicit lifecycle query. The
+    /// normal roster is a live queue and removes ended hook sessions; a view
+    /// with a state filter must still be able to inspect those historical
+    /// projections while their terminal remains present in the tree.
+    pub fn list_agent_history(
+        &self,
+        surface: Option<SurfaceId>,
+        state: Option<AgentState>,
+    ) -> Vec<AgentRecord> {
+        let result = self.with_resource_projection(|registry, state_snapshot| {
+            let requested_terminal = surface.and_then(|surface| {
+                state_snapshot
+                    .surfaces
+                    .get(&surface)
+                    .or_else(|| state_snapshot.terminal_runtime_by_id(surface))
+                    .and_then(|surface| surface.terminal_public_id().cloned())
+            });
+            let mut records = registry
+                .public_projections()?
+                .agents
+                .into_iter()
+                .filter_map(|projection| {
+                    let agent_state = parse_projection_agent_state(&projection.state);
+                    if !state.is_none_or(|wanted| wanted == agent_state) {
+                        return None;
+                    }
+                    let terminal_id = projection.terminal_id;
+                    if requested_terminal.as_ref().is_some_and(|wanted| wanted != &terminal_id) {
+                        return None;
+                    }
+                    let representative = state_snapshot
+                        .placements_of_content(&ContentPublicId::Terminal(terminal_id.clone()))
+                        .first()
+                        .copied()
+                        .or_else(|| {
+                            state_snapshot
+                                .terminal_catalog
+                                .get(&terminal_id)
+                                .map(|surface| surface.id)
+                        })?;
+                    let source = match projection.source.as_str() {
+                        "plugin" => AgentSource::Plugin,
+                        "detected" => AgentSource::Detected,
+                        "socket" => AgentSource::Socket,
+                        "hook" => AgentSource::Hook,
+                        _ => return None,
+                    };
+                    let session = projection.source_session.filter(|value| {
+                        !value.starts_with("cmux-hook-sequence:")
+                            && !value.starts_with("cmux-hook-ended:")
+                    });
+                    Some(AgentRecord {
+                        surface: representative,
+                        terminal_id,
+                        state: agent_state,
+                        source,
+                        session,
+                        agent: projection.agent,
+                        updated_at_ms: projection.updated_at_ms,
+                    })
+                })
+                .collect::<Vec<_>>();
+            records
+                .sort_by(|left, right| left.terminal_id.as_str().cmp(right.terminal_id.as_str()));
+            Ok(records)
+        });
+        result.unwrap_or_default()
+    }
+
+    /// Whether this session has ever committed an agent projection. Completed
+    /// hook lifecycles leave the live roster, so callers that render an empty
+    /// state must not infer that the feature has never been used from
+    /// `list_agents` alone.
+    pub fn has_agent_history(&self) -> bool {
+        self.agent_history.load(Ordering::Acquire)
+    }
+
     pub fn shutdown(&self) {
         self.shutting_down.store(true, Ordering::Release);
         self.config_reload_changed.notify_all();
+        self.journal_plugin.shutdown();
         self.journal_kernel.wake_waiters();
         let hook_deadline = Instant::now() + crate::journal_hooks::SHUTDOWN_WAIT;
         if !self.journal_hook_runtime.shutdown_until(hook_deadline) {
@@ -9921,6 +10308,25 @@ impl Mux {
         options.browser_session_name = self.session.clone();
     }
 
+    /// The latest machine-level model spend readout, or `None` when the
+    /// daemon has no usable readout.
+    pub fn machine_usage(&self) -> Option<MachineUsage> {
+        self.machine_usage.lock().unwrap().clone()
+    }
+
+    /// Replace the machine-level spend readout. Subscribers are told only
+    /// when the readout actually changed, so a steady poll stays silent.
+    pub fn set_machine_usage(&self, usage: Option<MachineUsage>) {
+        {
+            let mut current = self.machine_usage.lock().unwrap();
+            if *current == usage {
+                return;
+            }
+            *current = usage.clone();
+        }
+        self.emit(MuxEvent::MachineUsageChanged(usage));
+    }
+
     pub fn configure_sidebar_plugin(&self, options: Option<SidebarPluginOptions>) {
         let old_surface = {
             let mut runtime = self.sidebar_plugin.lock().unwrap();
@@ -9938,6 +10344,50 @@ impl Mux {
         {
             surface.kill();
             self.emit(MuxEvent::SurfaceExited(surface.id));
+        }
+    }
+
+    /// Configure the optional userland agent plugin. The process starts only
+    /// after the local resource socket has been bound.
+    pub fn configure_journal_plugin(&self, options: Option<crate::JournalPluginOptions>) {
+        self.journal_plugin.configure(options);
+    }
+
+    /// Start the configured journal plugin against the bound local socket.
+    pub fn start_journal_plugin(&self, socket: std::path::PathBuf) {
+        let generation = match self.workspace_registry.lock() {
+            Ok(registry) => registry.reserve_journal_plugin_generation(),
+            Err(_) => Err(anyhow::anyhow!("workspace registry mutex is poisoned")),
+        };
+        match generation {
+            Ok(generation) => self.journal_plugin.start_with_generation_seed(
+                socket,
+                self.session.clone(),
+                generation,
+            ),
+            Err(error) => eprintln!(
+                "cmux-tui: journal plugin not started because its generation could not be reserved: {error}"
+            ),
+        }
+    }
+
+    /// Journal a supervisor-observed plugin exit. The roster reducer removes
+    /// only entries owned by this producer, so a crash cannot leave stale
+    /// rows until the next terminal scan and the cleanup remains replayable.
+    fn record_journal_plugin_exit(&self, plugin_id: &str, generation: u64) {
+        let ingress =
+            match crate::agent_hooks::journal_plugin_exit_journal_ingress(plugin_id, generation) {
+                Ok(ingress) => ingress,
+                Err(error) => {
+                    eprintln!("cmux-tui: invalid journal plugin exit id {plugin_id:?}: {error}");
+                    return;
+                }
+            };
+        let key =
+            format!("journal-plugin-exit-{plugin_id}-{}", crate::workspace_registry::new_uuid_v4());
+        if let Err(error) = self.append_journal_ingress(&ingress, "journal-plugin-supervisor", &key)
+        {
+            eprintln!("cmux-tui: journal plugin exit cleanup could not be journaled: {error}");
         }
     }
 
@@ -16786,6 +17236,7 @@ fn sidebar_retry_delay(failures: u32) -> Duration {
 
 impl Drop for Mux {
     fn drop(&mut self) {
+        self.journal_plugin.shutdown();
         self.finalize_terminal_journal("mux drop");
         self.journal_kernel.shutdown();
         if let Ok(runtime) = self.browser_runtime.get_mut()
@@ -16794,6 +17245,16 @@ impl Drop for Mux {
             runtime.shutdown();
         }
     }
+}
+
+fn expected_panes_by_screen(
+    panes: &[RegistryPane],
+) -> HashMap<ScreenPublicId, HashSet<PanePublicId>> {
+    let mut panes_by_screen: HashMap<ScreenPublicId, HashSet<PanePublicId>> = HashMap::new();
+    for pane in panes {
+        panes_by_screen.entry(pane.screen_id.clone()).or_default().insert(pane.public_id.clone());
+    }
+    panes_by_screen
 }
 
 fn restore_resource_state(
@@ -16968,14 +17429,12 @@ fn restore_resource_state(
 
     let mut split_slots = HashMap::<SplitPublicId, SplitId>::new();
     let mut screens_by_workspace = HashMap::<WorkspacePublicId, Vec<(usize, Screen)>>::new();
+    let panes_by_screen = expected_panes_by_screen(&topology.panes);
+    let empty_expected_panes = HashSet::new();
     for screen in &topology.screens {
-        let expected_panes = topology
-            .panes
-            .iter()
-            .filter(|pane| pane.screen_id == screen.public_id)
-            .map(|pane| pane.public_id.clone())
-            .collect::<HashSet<_>>();
-        crate::workspace_registry::validate_registry_screen_projection(screen, &expected_panes)?;
+        let expected_panes =
+            panes_by_screen.get(&screen.public_id).unwrap_or(&empty_expected_panes);
+        crate::workspace_registry::validate_registry_screen_projection(screen, expected_panes)?;
         let id = screen_slots[&screen.public_id];
         let root =
             restore_layout_node(&screen.layout, &pane_slots, &mut split_slots, &mut allocate)?;
@@ -17875,6 +18334,78 @@ mod tests {
     use crate::workspace_registry::{
         RegistryPane, RegistryScreen, RegistryViewportColumn, ResourceChange, ResourcePatch,
     };
+
+    #[test]
+    fn signaled_mutex_records_holder_site_wait_and_hold() {
+        let mutex = SignaledMutex::new(0u32);
+        assert!(mutex.stats().snapshot().holder.is_none());
+        {
+            let lock_line = line!() + 1;
+            let mut guard = mutex.lock().unwrap();
+            *guard += 1;
+            let snapshot = mutex.stats().snapshot();
+            let holder = snapshot.holder.expect("held lock reports its holder");
+            assert!(holder.site.ends_with(&format!("mux.rs:{lock_line}")), "{}", holder.site);
+        }
+        let snapshot = mutex.stats().snapshot();
+        assert!(snapshot.holder.is_none());
+        assert_eq!(snapshot.hold_us.count, 1);
+        assert_eq!(snapshot.wait_us.count, 1);
+        assert_eq!(snapshot.top_sites.len(), 1);
+        assert_eq!(snapshot.top_sites[0].acquisitions, 1);
+
+        // A waiter that outlasts the stall threshold names the site that
+        // held the lock when its wait began.
+        let mutex = Arc::new(SignaledMutex::new(0u32));
+        let held = mutex.clone();
+        let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+        let (held_tx, held_rx) = std::sync::mpsc::channel::<()>();
+        let holder = std::thread::spawn(move || {
+            let _guard = held.lock().unwrap();
+            held_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+        });
+        held_rx.recv().unwrap();
+        let waiter = mutex.clone();
+        let waiting = std::thread::spawn(move || {
+            let _guard = waiter.lock_until(Instant::now() + Duration::from_secs(5)).unwrap();
+        });
+        std::thread::sleep(crate::diagnostics::LOCK_STALL_THRESHOLD + Duration::from_millis(20));
+        release_tx.send(()).unwrap();
+        holder.join().unwrap();
+        waiting.join().unwrap();
+        let snapshot = mutex.stats().snapshot();
+        assert_eq!(snapshot.stalls, 1, "{snapshot:?}");
+        let stall = snapshot.last_stall.expect("stall recorded");
+        assert!(stall.blocker.as_deref().is_some_and(|site| site.contains("mux.rs:")), "{stall:?}");
+        assert!(stall.waited_us >= 100_000);
+    }
+
+    #[test]
+    fn signaled_mutex_records_failed_wait_telemetry() {
+        let mutex = Arc::new(SignaledMutex::new(0u32));
+        let held = mutex.clone();
+        let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+        let (held_tx, held_rx) = std::sync::mpsc::channel::<()>();
+        let holder = std::thread::spawn(move || {
+            let _guard = held.lock().unwrap();
+            held_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+        });
+        held_rx.recv().unwrap();
+
+        let deadline =
+            Instant::now() + crate::diagnostics::LOCK_STALL_THRESHOLD + Duration::from_millis(20);
+        assert!(mutex.lock_until(deadline).is_err());
+        release_tx.send(()).unwrap();
+        holder.join().unwrap();
+
+        let snapshot = mutex.stats().snapshot();
+        assert_eq!(snapshot.wait_us.count, 2, "failed wait must enter wait histogram");
+        assert_eq!(snapshot.hold_us.count, 1, "failed wait must not report a hold");
+        assert_eq!(snapshot.stalls, 1, "failed stall must be visible");
+        assert!(snapshot.last_stall.is_some());
+    }
 
     fn test_mux() -> Arc<Mux> {
         Mux::new_for_test("test", SurfaceOptions::default())
@@ -19574,6 +20105,30 @@ mod tests {
         );
     }
 
+    #[test]
+    fn restore_screen_pane_index_preserves_validation_inputs() {
+        let (snapshot, topology) = resource_restore_fixture();
+        let first_screen = restore_screen_id(1);
+        let second_screen = restore_screen_id(2);
+
+        let mut duplicate_panes = topology.panes.clone();
+        duplicate_panes.push(duplicate_panes[0].clone());
+        let expected = expected_panes_by_screen(&duplicate_panes);
+        assert_eq!(expected.get(&first_screen).map(|panes| panes.len()), Some(4));
+        assert_eq!(expected.get(&second_screen).map(|panes| panes.len()), Some(1));
+        assert!(!expected.contains_key(&restore_screen_id(999)));
+
+        let mut mismatched = topology;
+        mismatched.panes[3].screen_id = second_screen.clone();
+        let expected = expected_panes_by_screen(&mismatched.panes);
+        assert_eq!(expected.get(&first_screen).map(|panes| panes.len()), Some(3));
+        assert_eq!(expected.get(&second_screen).map(|panes| panes.len()), Some(2));
+        assert_eq!(
+            restore_resource_state(snapshot, mismatched).err().unwrap().to_string(),
+            format!("screen {first_screen} layout does not cover its panes exactly once")
+        );
+    }
+
     fn resource_restore_patch(
         snapshot: &RegistrySnapshot,
         topology: &ResourceTopologySnapshot,
@@ -20438,6 +20993,93 @@ mod tests {
         assert_eq!(*observed_unlocked.lock().unwrap(), vec![true]);
         assert_eq!(mux.cell_pixel_size(), (9, 18));
         assert_eq!(surface.test_cell_pixel_size(), (9, 18));
+    }
+
+    fn spawn_terminal_with_cell_pixel_failure(
+        mux: &Arc<Mux>,
+        fail_exit_persistence: bool,
+    ) -> (String, anyhow::Result<Arc<Surface>>) {
+        *mux.terminal_spawn_after_cell_pixel_snapshot.lock().unwrap() = Some(Arc::new({
+            let mux = Arc::downgrade(mux);
+            move |unlocked| {
+                assert!(unlocked, "terminal spawn retained the cell-pixel lifecycle lock");
+                mux.upgrade().unwrap().set_cell_pixel_size(9, 18);
+            }
+        }));
+        *mux.terminal_spawn_before_cell_pixel_reconcile.lock().unwrap() = Some(Arc::new({
+            let mux = Arc::downgrade(mux);
+            move |surface| {
+                surface.fail_next_test_master_resize();
+                if fail_exit_persistence {
+                    mux.upgrade()
+                        .unwrap()
+                        .workspace_registry
+                        .lock()
+                        .unwrap()
+                        .set_terminal_exit_failure(true)
+                        .unwrap();
+                }
+            }
+        }));
+        let workspace =
+            mux.create_empty_workspace(Some("cell-pixel-failure".into()), None, None).unwrap();
+        let terminal_id = TerminalId::random().unwrap();
+        let terminal_hex = terminal_id.to_hex();
+        let reservation = TerminalReservationRequest {
+            terminal_id,
+            mutation: WorkspaceMutation::new("cell-pixel-failure", "test").unwrap(),
+            fingerprint: serde_json::json!({"test":"cell-pixel-failure"}),
+            expected_generation: None,
+            expected_revision: None,
+            on_exit: TerminalOnExit::Close,
+        };
+        let result = mux.spawn_surface_in_workspace_reserved(
+            &workspace.key,
+            None,
+            Some((80, 24)),
+            None,
+            reservation,
+        );
+        (terminal_hex, result)
+    }
+
+    #[test]
+    fn terminal_spawn_cell_pixel_failure_uses_stable_exit_reason() {
+        let mux = test_mux();
+        let (terminal_id, result) = spawn_terminal_with_cell_pixel_failure(&mux, false);
+
+        let error = result.expect_err("injected cell-pixel failure must abort terminal creation");
+        assert!(format!("{error:#}").contains("injected PTY master resize failure"));
+        let exited = mux
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .terminal_record(&terminal_id)
+            .unwrap()
+            .unwrap()
+            .exit
+            .unwrap();
+        assert_eq!(
+            exited["outcome"],
+            serde_json::json!({
+                "kind":"unknown",
+                "reason":"cell-pixel-reconcile-failed",
+            })
+        );
+        assert!(!exited.to_string().contains("injected PTY master resize failure"));
+    }
+
+    #[test]
+    fn terminal_spawn_cell_pixel_failure_propagates_exit_persistence_error() {
+        let mux = test_mux();
+        let (_, result) = spawn_terminal_with_cell_pixel_failure(&mux, true);
+
+        let error = result.expect_err("injected persistence failure must abort terminal creation");
+        assert!(
+            format!("{error:#}")
+                .contains("could not persist terminal exit after cell-pixel reconciliation failed"),
+            "unexpected terminal creation error: {error:#}"
+        );
     }
 
     #[test]
@@ -22273,19 +22915,20 @@ mod tests {
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].session.as_deref(), Some("hook-session"));
         assert!(mux.list_agents(Some(surface.id), Some(AgentState::Done)).is_empty());
-        assert_eq!(mux.with_state(|state| state.resource_revision), initial_revision + 3);
+        // The late socket report is a replay-equivalent no-op because the
+        // hook projection already owns this terminal.
+        assert_eq!(mux.with_state(|state| state.resource_revision), initial_revision + 2);
         // Each fresh direct report publishes twice on the shared change
         // epoch: its resource commit and its journal echo.
-        assert_eq!(mux.resource_event_epoch(), initial_epoch + 6);
+        assert_eq!(mux.resource_event_epoch(), initial_epoch + 4);
         assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 1);
         let resource_events = mux.resource_events_after(initial_revision).unwrap();
-        assert_eq!(resource_events.batches.len(), 3);
+        assert_eq!(resource_events.batches.len(), 2);
         assert_eq!(resource_events.batches[0].changes[0]["value"]["source"], "socket");
         assert_eq!(resource_events.batches[1].changes[0]["value"]["source"], "hook");
-        assert_eq!(resource_events.batches[2].changes[0]["value"]["source"], "hook");
-        assert_eq!(resource_events.batches[2].changes[0]["value"]["state"], "blocked");
+        assert_eq!(resource_events.batches[1].changes[0]["value"]["state"], "blocked");
         assert_eq!(
-            resource_events.batches[2].changes[0]["value"]["source_session"],
+            resource_events.batches[1].changes[0]["value"]["source_session"],
             "hook-session"
         );
         assert!(matches!(
@@ -22379,21 +23022,22 @@ mod tests {
         assert_eq!(ignored.state, AgentState::Blocked);
         assert_eq!(ignored.source, AgentSource::Hook);
         assert_eq!(ignored.session.as_deref(), Some("hook-session"));
-        assert_eq!(mux.with_state(|state| state.resource_revision), created_revision + 3);
+        // The late socket report is a replay-equivalent no-op because the
+        // hook projection already owns this terminal.
+        assert_eq!(mux.with_state(|state| state.resource_revision), created_revision + 2);
         // Each fresh direct report publishes twice on the shared change
         // epoch: its resource commit and its journal echo.
-        assert_eq!(mux.resource_event_epoch(), initial_epoch + 6);
+        assert_eq!(mux.resource_event_epoch(), initial_epoch + 4);
         assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 1);
 
         let batches = mux.resource_events_after(created_revision).unwrap().batches;
         assert_eq!(
             batches.iter().map(|batch| batch.revision).collect::<Vec<_>>(),
-            vec![created_revision + 1, created_revision + 2, created_revision + 3]
+            vec![created_revision + 1, created_revision + 2]
         );
         assert_eq!(batches[0].changes[0]["value"]["source"], "socket");
         assert_eq!(batches[0].changes[0]["value"]["source_session"], "raw-session");
         assert_eq!(batches[1].changes[0]["value"], hook["result"]["value"]);
-        assert_eq!(batches[2].changes[0]["value"], hook["result"]["value"]);
         assert_eq!(
             crate::resource_api::public_session_snapshot(&mux).unwrap()["agents"],
             serde_json::json!([hook["result"]["value"].clone()])
@@ -22660,6 +23304,147 @@ mod tests {
     }
 
     #[test]
+    fn replay_of_an_old_plugin_receipt_survives_manifest_upgrade() {
+        let mux = test_mux();
+        let manifest = |manifest_version| crate::JournalProducerManifest {
+            producer_id: "screen_test".into(),
+            namespace: "plugin.screen_test".into(),
+            manifest_version,
+            max_sensitivity: crate::JournalSensitivity::Metadata,
+            permissions: vec!["journal.append.plugin.screen_test".into()],
+            events: vec![crate::JournalEventSchema {
+                kind: "plugin.screen_test.observation".into(),
+                schema_version: 1,
+                class: crate::JournalClass::Observation,
+                replay: crate::JournalReplayPolicy::Advisory,
+                sensitivity: crate::JournalSensitivity::Metadata,
+                payload_schema: serde_json::json!({"type":"object"}),
+            }],
+        };
+        mux.put_journal_producer(&manifest(1), "test", "producer-v1").unwrap();
+        let ingress = crate::JournalIngress {
+            producer_id: "screen_test".into(),
+            manifest_version: 1,
+            kind: "plugin.screen_test.observation".into(),
+            schema_version: 1,
+            occurred_at_ms: None,
+            subjects: Vec::new(),
+            sensitivity: None,
+            payload: serde_json::json!({"state":"idle"}),
+            causation_id: None,
+            correlation_id: None,
+        };
+        let first = mux.append_journal_ingress(&ingress, "screen", "observation-1").unwrap();
+        assert!(!first.replayed);
+
+        mux.put_journal_producer(&manifest(2), "test", "producer-v2").unwrap();
+
+        let replay = mux.append_journal_ingress(&ingress, "screen", "observation-1");
+        assert!(replay.is_ok(), "an old receipt must remain replayable: {replay:?}");
+        assert!(replay.unwrap().replayed);
+    }
+
+    #[test]
+    fn startup_repairs_a_plugin_projection_lost_after_journal_commit() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-agent-plugin-reconcile-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        let session = "plugin-reconcile";
+        let terminal_id;
+        {
+            let registry = WorkspaceRegistry::open(&root, session).unwrap();
+            let mux = Mux::from_workspace_registry(
+                session.into(),
+                SurfaceOptions::default(),
+                registry,
+                ProviderWorkspaceState::default(),
+                true,
+            )
+            .unwrap();
+            let surface = mux.new_workspace(None, None).unwrap();
+            terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+            let manifest = crate::JournalProducerManifest {
+                producer_id: "screen_test".into(),
+                namespace: "plugin.screen_test".into(),
+                manifest_version: 1,
+                max_sensitivity: crate::JournalSensitivity::Metadata,
+                permissions: vec!["journal.append.plugin.screen_test".into()],
+                events: vec![crate::JournalEventSchema {
+                    kind: "plugin.screen_test.agent.state.changed".into(),
+                    schema_version: 1,
+                    class: crate::JournalClass::State,
+                    replay: crate::JournalReplayPolicy::Advisory,
+                    sensitivity: crate::JournalSensitivity::Metadata,
+                    payload_schema: serde_json::json!({"type":"object"}),
+                }],
+            };
+            mux.put_journal_producer(&manifest, "test", "plugin-reconcile-manifest").unwrap();
+            let ingress = crate::JournalIngress {
+                producer_id: "screen_test".into(),
+                manifest_version: 1,
+                kind: "plugin.screen_test.agent.state.changed".into(),
+                schema_version: 1,
+                occurred_at_ms: None,
+                subjects: vec![crate::JournalSubject {
+                    kind: "terminal".into(),
+                    id: terminal_id.to_string(),
+                }],
+                sensitivity: None,
+                payload: serde_json::json!({
+                    "format": crate::journal_reducers::AGENT_PLUGIN_FORMAT,
+                    "plugin": {"id":"screen_test", "version":1},
+                    "adapter": {"id":"codex", "version":1},
+                    "event": "state.changed",
+                    "normalized": {
+                        "state":"working",
+                        "source_session":"pid:42",
+                        "observed_at_ms":"100"
+                    }
+                }),
+                causation_id: None,
+                correlation_id: None,
+            };
+            let validated = mux.journal_kernel.validate_ingress(&ingress).unwrap();
+            let commit = mux
+                .workspace_registry
+                .lock()
+                .unwrap()
+                .append_journal_ingress(&ingress, &validated, "test", "plugin-reconcile-event")
+                .unwrap();
+
+            // The journal transaction has committed. Fail only the following
+            // projection transaction to model a daemon crash in that window.
+            mux.workspace_registry.lock().unwrap().set_resource_patch_failure(true).unwrap();
+            mux.fold_agent_roster(&ingress, &commit);
+            assert_eq!(mux.list_agents(Some(surface.id), None).len(), 1);
+            assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 0);
+            mux.workspace_registry.lock().unwrap().set_resource_patch_failure(false).unwrap();
+            mux.shutdown();
+        }
+
+        let registry = WorkspaceRegistry::open(&root, session).unwrap();
+        let reopened = Mux::from_workspace_registry(
+            session.into(),
+            SurfaceOptions::default(),
+            registry,
+            ProviderWorkspaceState::default(),
+            true,
+        )
+        .unwrap();
+        let repaired = reopened.list_agents(None, None);
+        assert_eq!(repaired.len(), 1);
+        assert_eq!(repaired[0].state, AgentState::Working);
+        assert_eq!(repaired[0].source, AgentSource::Plugin);
+        assert_eq!(repaired[0].agent.as_deref(), Some("codex"));
+        assert_eq!(repaired[0].session.as_deref(), Some("pid:42"));
+        assert_eq!(reopened.resource_agent_projection_count_for_test().unwrap(), 1);
+        reopened.shutdown();
+        drop(reopened);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn failed_agent_hook_projection_does_not_consume_sequence() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, None).unwrap();
@@ -22880,6 +23665,10 @@ mod tests {
             |surface: &Surface| surface.terminal_public_id().cloned().expect("workspace terminal");
         let first_terminal = terminal_id(&first);
         let second_terminal = terminal_id(&second);
+        // Drive these rows through the Mux ingress path. A direct registry
+        // append bypasses the roster fold and cannot model a real pending
+        // hook, because the roster is derived only from committed ingress.
+        mux.workspace_registry.lock().unwrap().set_resource_patch_failure(true).unwrap();
         let hook = |terminal_id: &TerminalPublicId, key: &str| {
             let ingress = crate::agent_hooks::agent_hook_journal_ingress(
                 "claude",
@@ -22888,16 +23677,12 @@ mod tests {
                 serde_json::json!({}),
             )
             .unwrap();
-            let validated = mux.journal_kernel.validate_ingress(&ingress).unwrap();
-            mux.workspace_registry
-                .lock()
-                .unwrap()
-                .append_journal_ingress(&ingress, &validated, "test", key)
-                .unwrap();
+            mux.append_journal_ingress(&ingress, "test", key).unwrap();
         };
 
         hook(&first_terminal, "first-pending");
         hook(&second_terminal, "second-pending");
+        mux.workspace_registry.lock().unwrap().set_resource_patch_failure(false).unwrap();
 
         mux.report_agent(first.id, AgentState::Working, AgentSource::Socket, None).unwrap();
         let pending =
@@ -22922,7 +23707,10 @@ mod tests {
             1
         );
         assert_eq!(mux.list_agents(Some(first.id), None)[0].source, AgentSource::Hook);
-        assert!(mux.list_agents(Some(second.id), None).is_empty());
+        // The roster is journal-derived and folds the second hook even while
+        // its public resource projection waits in the retry queue. The
+        // terminal-scoped retry must still leave that second hook pending.
+        assert_eq!(mux.list_agents(Some(second.id), None)[0].source, AgentSource::Hook);
 
         mux.report_agent(second.id, AgentState::Working, AgentSource::Socket, None).unwrap();
         assert!(
@@ -23168,6 +23956,58 @@ mod tests {
             "new-socket-session"
         );
         reopened.shutdown();
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn agent_adapter_identity_survives_durable_history_and_reopen() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-agent-adapter-history-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        let mux = Mux::open_persistent("agent-adapter-history", SurfaceOptions::default(), &root)
+            .unwrap();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+        let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+            "codex",
+            "SessionStart",
+            Some(&terminal_id.to_string()),
+            serde_json::json!({"session_id":"codex-history"}),
+        )
+        .unwrap();
+
+        mux.append_journal_ingress(&ingress, "test", "agent-adapter-history").unwrap();
+        assert_eq!(mux.list_agents(Some(surface.id), None)[0].agent.as_deref(), Some("codex"));
+        assert_eq!(
+            mux.list_agent_history(Some(surface.id), None)[0].agent.as_deref(),
+            Some("codex")
+        );
+        assert_eq!(
+            crate::resource_api::public_session_snapshot(&mux).unwrap()["agents"][0]["agent"],
+            "codex"
+        );
+
+        mux.shutdown();
+        drop(mux);
+        let reopened =
+            Mux::open_persistent("agent-adapter-history", SurfaceOptions::default(), &root)
+                .unwrap();
+        let reopened_surface = reopened.resource_surface_for_terminal(&terminal_id).unwrap();
+        assert_eq!(
+            reopened.list_agent_history(Some(reopened_surface), None)[0].agent.as_deref(),
+            Some("codex")
+        );
+        assert_eq!(
+            reopened.list_agents(Some(reopened_surface), None)[0].agent.as_deref(),
+            Some("codex")
+        );
+        assert_eq!(
+            crate::resource_api::public_session_snapshot(&reopened).unwrap()["agents"][0]["agent"],
+            "codex"
+        );
+        reopened.shutdown();
+        drop(reopened);
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -23564,8 +24404,10 @@ mod tests {
                 "pending-before-close",
                 1,
                 &ingress,
-                AGENT_HOOK_RETRY_ERROR,
-                crate::workspace_registry::AgentHookRetryClass::Transient,
+                AgentHookPendingFailure {
+                    error: AGENT_HOOK_RETRY_ERROR,
+                    retry_class: crate::workspace_registry::AgentHookRetryClass::Transient,
+                },
             )
             .unwrap();
         mux.purge_terminal_side_tables(&terminal_id);
@@ -23608,124 +24450,6 @@ mod tests {
             .filter(|record| record.kind == "agent.state.changed")
             .count();
         assert_eq!(echoes, 1);
-    }
-
-    #[test]
-    fn screen_detect_scan_drives_the_roster_through_journal_events() {
-        use crate::screen_detect::manifest::ManifestSet;
-        use crate::screen_detect::{ScreenDetectTracker, scanner};
-
-        let mux = test_mux();
-        let surface = mux.new_workspace(None, None).unwrap();
-        let surface_id = surface.id;
-        let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
-        let mut tracker = ScreenDetectTracker::default();
-        let manifests = ManifestSet::bundled();
-        let t0 = Instant::now();
-        let step = |milliseconds: u64| t0 + Duration::from_millis(milliseconds);
-        let shell = |_: &Surface| Some("zsh".to_string());
-        let codex = |_: &Surface| Some("codex".to_string());
-        let gone = |_: &Surface| None;
-
-        // A shell pane never enters the roster, quiesced or not.
-        scanner::scan(&mux, &mut tracker, manifests, step(0), &shell);
-        scanner::scan(&mux, &mut tracker, manifests, step(400), &shell);
-        assert!(mux.list_agents(Some(surface_id), None).is_empty());
-
-        // codex launches: the identity edge emits immediately, without
-        // waiting for output quiescence.
-        scanner::scan(&mux, &mut tracker, manifests, step(500), &codex);
-        let records = mux.list_agents(Some(surface_id), None);
-        assert_eq!(records.len(), 1);
-        assert_eq!(records[0].state, AgentState::Idle);
-        assert_eq!(records[0].source, AgentSource::Detected);
-        assert_eq!(records[0].agent.as_deref(), Some("codex"));
-
-        // New output re-arms the debounce; the blocked screen lands after
-        // quiescence.
-        surface.apply_stream_output_for_test(b"$ rm -rf build\r\nAllow command?\r\n").unwrap();
-        scanner::scan(&mux, &mut tracker, manifests, step(600), &codex);
-        assert_eq!(mux.list_agents(Some(surface_id), None)[0].state, AgentState::Idle);
-        scanner::scan(&mux, &mut tracker, manifests, step(1_000), &codex);
-        let records = mux.list_agents(Some(surface_id), None);
-        assert_eq!(records[0].state, AgentState::Blocked);
-        assert_eq!(records[0].source, AgentSource::Detected);
-
-        // Steady state re-scans journal nothing (edge-triggered).
-        let journal_len = |mux: &Mux| {
-            mux.workspace_registry
-                .lock()
-                .unwrap()
-                .session_journal_after(0, 512)
-                .unwrap()
-                .records
-                .len()
-        };
-        let before = journal_len(&mux);
-        scanner::scan(&mux, &mut tracker, manifests, step(1_100), &codex);
-        scanner::scan(&mux, &mut tracker, manifests, step(1_500), &codex);
-        assert_eq!(journal_len(&mux), before);
-
-        // Replaying the committed journal reproduces the live roster.
-        let records = mux.workspace_registry.lock().unwrap().session_journal_after(0, 512).unwrap();
-        let mut replayed = crate::journal_reducers::AgentRoster::default();
-        for record in &records.records {
-            replayed.apply(&crate::journal_reducers::RosterEvent::from_record(record));
-        }
-        assert_eq!(replayed.entries, mux.agent_roster.lock().unwrap().roster.entries);
-
-        // The codex process leaves the pane: session-ended-equivalent
-        // removal, immediately (exit is an identity edge).
-        scanner::scan(&mux, &mut tracker, manifests, step(1_600), &gone);
-        assert!(mux.list_agents(Some(surface_id), None).is_empty());
-        assert!(mux.agent_hook_fences.lock().unwrap().is_empty());
-        let projection = mux
-            .workspace_registry
-            .lock()
-            .unwrap()
-            .public_agent_projections(Some(&terminal_id), None)
-            .unwrap();
-        assert_eq!(projection.len(), 1);
-        assert_eq!(projection[0].source, "detected");
-        assert_eq!(projection[0].state, "done");
-    }
-
-    #[test]
-    fn screen_detect_events_lose_to_live_hooks_end_to_end() {
-        use crate::screen_detect::manifest::ManifestSet;
-        use crate::screen_detect::{ScreenDetectTracker, scanner};
-
-        let mux = test_mux();
-        let surface = mux.new_workspace(None, None).unwrap();
-        let surface_id = surface.id;
-        let terminal_id = mux.with_state(|state| {
-            match state.resource_indexes.content_ids.get(&surface_id).unwrap() {
-                ContentPublicId::Terminal(terminal_id) => terminal_id.clone(),
-                ContentPublicId::Browser(_) => panic!("workspace opened a browser"),
-            }
-        });
-        // A live claude hook owns the terminal.
-        let ingress = crate::agent_hooks::agent_hook_journal_ingress(
-            "claude",
-            "UserPromptSubmit",
-            Some(&terminal_id.to_string()),
-            serde_json::json!({"session_id":"native-1"}),
-        )
-        .unwrap();
-        mux.append_journal_ingress(&ingress, "test", "hook-vs-screen").unwrap();
-
-        // Screen detection sees claude too; its state must not flap the
-        // fresh hook entry.
-        let mut tracker = ScreenDetectTracker::default();
-        let manifests = ManifestSet::bundled();
-        let t0 = Instant::now();
-        let claude = |_: &Surface| Some("claude".to_string());
-        scanner::scan(&mux, &mut tracker, manifests, t0, &claude);
-        scanner::scan(&mux, &mut tracker, manifests, t0 + Duration::from_millis(400), &claude);
-        let records = mux.list_agents(Some(surface_id), None);
-        assert_eq!(records.len(), 1);
-        assert_eq!(records[0].source, AgentSource::Hook);
-        assert_eq!(records[0].state, AgentState::Working);
     }
 
     #[test]
@@ -23812,6 +24536,217 @@ mod tests {
         assert!(final_mux.agent_roster.lock().unwrap().roster.entries.is_empty());
         final_mux.shutdown();
         drop(final_mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn invalid_agent_roster_snapshot_replays_from_the_journal_head() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-roster-invalid-snapshot-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        let session = "roster-invalid-snapshot";
+        let (terminal_id, cursor) = {
+            let registry = WorkspaceRegistry::open(&root, session).unwrap();
+            let mux = Mux::from_workspace_registry(
+                session.into(),
+                SurfaceOptions::default(),
+                registry,
+                ProviderWorkspaceState::default(),
+                true,
+            )
+            .unwrap();
+            let surface = mux.new_workspace(None, None).unwrap();
+            let terminal_id = mux.with_state(|state| {
+                match state.resource_indexes.content_ids.get(&surface.id).unwrap() {
+                    ContentPublicId::Terminal(terminal_id) => terminal_id.clone(),
+                    ContentPublicId::Browser(_) => panic!("workspace opened a browser"),
+                }
+            });
+            let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+                "claude",
+                "UserPromptSubmit",
+                Some(terminal_id.as_str()),
+                serde_json::json!({"session_id":"native-1"}),
+            )
+            .unwrap();
+            mux.append_journal_ingress(&ingress, "test", "invalid-snapshot-1").unwrap();
+            let cursor = mux.agent_roster.lock().unwrap().cursor;
+            assert_eq!(
+                mux.agent_roster.lock().unwrap().roster.entries[terminal_id.as_str()].state,
+                "working"
+            );
+            mux.shutdown();
+            drop(mux);
+            (terminal_id, cursor)
+        };
+
+        let registry = WorkspaceRegistry::open(&root, session).unwrap();
+        registry
+            .put_journal_reducer_state(
+                crate::journal_reducers::AGENT_ROSTER_REDUCER_ID,
+                crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION,
+                cursor,
+                "not-json",
+            )
+            .unwrap();
+        drop(registry);
+
+        let registry = WorkspaceRegistry::open(&root, session).unwrap();
+        let reopened = Mux::from_workspace_registry(
+            session.into(),
+            SurfaceOptions::default(),
+            registry,
+            ProviderWorkspaceState::default(),
+            true,
+        )
+        .unwrap();
+        let entry = reopened
+            .agent_roster
+            .lock()
+            .unwrap()
+            .roster
+            .entries
+            .get(terminal_id.as_str())
+            .cloned()
+            .expect("invalid snapshots must replay the retained journal");
+        assert_eq!(entry.state, "working");
+        assert_eq!(entry.source, "hook");
+        reopened.shutdown();
+        drop(reopened);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn invalid_empty_agent_roster_snapshot_is_repaired_on_restart() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-roster-invalid-empty-snapshot-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        let session = "roster-invalid-empty-snapshot";
+        let registry = WorkspaceRegistry::open(&root, session).unwrap();
+        registry
+            .put_journal_reducer_state(
+                crate::journal_reducers::AGENT_ROSTER_REDUCER_ID,
+                crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION,
+                0,
+                "not-json",
+            )
+            .unwrap();
+        drop(registry);
+
+        let registry = WorkspaceRegistry::open(&root, session).unwrap();
+        let mux = Mux::from_workspace_registry(
+            session.into(),
+            SurfaceOptions::default(),
+            registry,
+            ProviderWorkspaceState::default(),
+            true,
+        )
+        .unwrap();
+        assert!(mux.agent_roster.lock().unwrap().roster.entries.is_empty());
+        mux.shutdown();
+        drop(mux);
+
+        let registry = WorkspaceRegistry::open(&root, session).unwrap();
+        let (version, cursor, snapshot) = registry
+            .journal_reducer_state(crate::journal_reducers::AGENT_ROSTER_REDUCER_ID)
+            .unwrap()
+            .expect("startup must replace a rejected empty snapshot");
+        assert_eq!(version, crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION);
+        assert_eq!(cursor, 0);
+        assert!(crate::journal_reducers::AgentRoster::restore(&snapshot).is_some());
+        drop(registry);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn agent_roster_replays_when_persisted_cursor_is_ahead_of_journal() {
+        let root = std::env::temp_dir()
+            .join(format!("cmux-roster-ahead-cursor-{}", crate::workspace_registry::new_uuid_v4()));
+        let session = "roster-ahead-cursor";
+        let terminal_id = {
+            let registry = WorkspaceRegistry::open(&root, session).unwrap();
+            let mux = Mux::from_workspace_registry(
+                session.into(),
+                SurfaceOptions::default(),
+                registry,
+                ProviderWorkspaceState::default(),
+                true,
+            )
+            .unwrap();
+            let surface = mux.new_workspace(None, None).unwrap();
+            let terminal_id = mux.with_state(|state| {
+                match state.resource_indexes.content_ids.get(&surface.id).unwrap() {
+                    ContentPublicId::Terminal(terminal_id) => terminal_id.clone(),
+                    ContentPublicId::Browser(_) => panic!("workspace opened a browser"),
+                }
+            });
+            let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+                "claude",
+                "UserPromptSubmit",
+                Some(terminal_id.as_str()),
+                serde_json::json!({"session_id":"native-1"}),
+            )
+            .unwrap();
+            mux.append_journal_ingress(&ingress, "test", "ahead-cursor-1").unwrap();
+            mux.shutdown();
+            drop(mux);
+            terminal_id
+        };
+
+        let registry = WorkspaceRegistry::open(&root, session).unwrap();
+        let journal_head = registry.session_journal_head().unwrap();
+        assert!(journal_head > 0);
+        // Keep a valid snapshot, but move its cursor beyond the retained
+        // journal. Startup must reject that checkpoint and replay the journal
+        // instead of returning a cursor.invalid error.
+        registry
+            .put_journal_reducer_state(
+                crate::journal_reducers::AGENT_ROSTER_REDUCER_ID,
+                crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION,
+                journal_head.checked_add(1).expect("test journal head must not overflow"),
+                &crate::journal_reducers::AgentRoster::default().snapshot().to_string(),
+            )
+            .unwrap();
+        drop(registry);
+
+        let registry = WorkspaceRegistry::open(&root, session).unwrap();
+        let reopened = Mux::from_workspace_registry(
+            session.into(),
+            SurfaceOptions::default(),
+            registry,
+            ProviderWorkspaceState::default(),
+            true,
+        )
+        .unwrap();
+        let entry = reopened
+            .agent_roster
+            .lock()
+            .unwrap()
+            .roster
+            .entries
+            .get(terminal_id.as_str())
+            .cloned()
+            .expect("an ahead cursor must replay the retained journal");
+        assert_eq!(entry.state, "working");
+        assert_eq!(entry.source, "hook");
+        let (live_head, cursor, snapshot) = {
+            let registry = reopened.workspace_registry.lock().unwrap();
+            let (_, cursor, snapshot) = registry
+                .journal_reducer_state(crate::journal_reducers::AGENT_ROSTER_REDUCER_ID)
+                .unwrap()
+                .expect("startup must repair the rejected cursor");
+            (registry.session_journal_head().unwrap(), cursor, snapshot)
+        };
+        // Mux startup can append unrelated lifecycle records after the roster
+        // checkpoint is repaired. The durable cursor must reach the journal
+        // head that existed at reopen, while the live head may have advanced.
+        assert_eq!(cursor, journal_head);
+        assert!(live_head >= cursor);
+        assert!(crate::journal_reducers::AgentRoster::restore(&snapshot).is_some());
+        reopened.shutdown();
+        drop(reopened);
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -28331,7 +29266,6 @@ mod tests {
             TERMINAL,
             TerminalLifecycle::Adopting,
             Some(INCARNATION),
-            None,
         )
         .unwrap();
         assert!(mux.terminal_host_connection_lost(PENDING_SURFACE, &identity));
@@ -28432,7 +29366,6 @@ mod tests {
             TERMINAL,
             TerminalLifecycle::Running,
             Some(INCARNATION),
-            None,
         )
         .unwrap();
 
@@ -29730,4 +30663,41 @@ mod tests {
         mux.authorize_provider_workspace_authority(AUTHORITY_TWO).unwrap();
         *mux.workspace_close_after_selector_resolution.lock().unwrap() = None;
     }
+}
+#[test]
+fn initial_bootstrap_lock_serializes_concurrent_callers() {
+    use std::sync::{Arc, Barrier, mpsc};
+    use std::thread;
+
+    let mux = Mux::new("bootstrap-lock-test", SurfaceOptions::default());
+    let barrier = Arc::new(Barrier::new(2));
+    let (event_tx, event_rx) = mpsc::sync_channel(0);
+    let (release_tx, release_rx) = mpsc::sync_channel(0);
+    thread::scope(|scope| {
+        let first_barrier = barrier.clone();
+        let first_mux = mux.clone();
+        let first_event_tx = event_tx.clone();
+        scope.spawn(move || {
+            let _guard = first_mux.lock_initial_bootstrap();
+            first_event_tx.send(()).unwrap();
+            first_barrier.wait();
+            release_rx.recv().unwrap();
+        });
+
+        let second_barrier = barrier.clone();
+        let second_mux = mux.clone();
+        scope.spawn(move || {
+            second_barrier.wait();
+            let _guard = second_mux.lock_initial_bootstrap();
+            event_tx.send(()).unwrap();
+        });
+
+        // The first caller holds the lock while the second caller attempts to
+        // acquire it. The second event must therefore remain blocked until
+        // the first caller is released.
+        event_rx.recv().unwrap();
+        assert!(event_rx.try_recv().is_err());
+        release_tx.send(()).unwrap();
+        event_rx.recv().unwrap();
+    });
 }

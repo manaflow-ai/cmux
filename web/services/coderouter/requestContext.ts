@@ -39,7 +39,7 @@ export async function resolveCoderouterUsageTeam(
       return { ok: true, teamId: routed.teamId, stackUserId: routed.stackUserId };
     }
   }
-  const resolved = await resolveCodeRouterRequestContext(request, "use-or-manage");
+  const resolved = await resolveCodeRouterRequestContext(request);
   return resolved.ok
     ? {
       ok: true,
@@ -51,7 +51,6 @@ export async function resolveCoderouterUsageTeam(
 
 export async function resolveCodeRouterRequestContext(
   request: Request,
-  permission: "use" | "manage" | "use-or-manage" = "use",
 ): Promise<
   | { readonly ok: true; readonly value: CodeRouterRequestContext }
   | { readonly ok: false; readonly response: Response }
@@ -72,16 +71,10 @@ export async function resolveCodeRouterRequestContext(
       return { ok: false, response: jsonResponse({ error: "forbidden" }, 403) };
     }
 
-    const team = await resolveTeam(request, user);
+    // Membership is the only requirement; resolveTeam already rejected
+    // non-members with team_not_found.
+    const team = resolveTeam(request, user);
     if (!team.ok) return team;
-    const permitted = permission === "manage"
-      ? team.manageAccounts
-      : permission === "use-or-manage"
-      ? team.use || team.manageAccounts
-      : team.use;
-    if (!permitted) {
-      return { ok: false, response: jsonResponse({ error: "forbidden" }, 403) };
-    }
 
     // Parse native tokens so malformed mixed auth never falls through as a
     // browser-cookie request. Verification above remains authoritative.

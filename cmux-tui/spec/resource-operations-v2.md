@@ -6,13 +6,13 @@ selectors, fields, results, errors, constraints, or stream types.
 
 ## Transported operations
 
-`cmux.protocol/2` transports 124 operations for exactly one local mux
+`cmux.protocol/2` transports 125 operations for exactly one local mux
 session. Cross-machine aggregation and provider lifecycle require a later
 broker protocol.
 
 | Class | Count | Semantics |
 | --- | ---: | --- |
-| `read` | 40 | Reads state and forbids an idempotency key |
+| `read` | 41 | Reads state and forbids an idempotency key |
 | `mutation` | 67 | Requires an idempotency key and returns a mutation result |
 | `stream_open` | 5 | Opens a connection-owned typed stream |
 | `connection_control` | 12 | Changes only connection-local state |
@@ -59,6 +59,12 @@ never use a protocol envelope:
 
 High-level transported SDKs expose sidebar views, not plugin resource handles.
 The noun-first CLI exposes the local operations under `sidebar plugin`.
+
+The noun-first CLI also exposes `agent plugin install|list|use|update|remove`.
+Those commands clone, build, replace, and configure an executable on the
+caller filesystem, so they stay outside this transport catalog by design.
+The agent-plugin lifecycle and its generic journal contract are specified in
+[`plugins.md`](plugins.md).
 
 Browser attachment frames carry a required nullable `pointer_frame_seq`.
 Mouse and wheel mutations require the exact non-null decimal token from the

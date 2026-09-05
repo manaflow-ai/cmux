@@ -6,10 +6,13 @@
 //! snapshots, prefix arming, the current layout, hit map, selection, and
 //! menu/prompt overlays).
 
+#[cfg(test)]
+use std::cell::Cell;
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::hash::{Hash, Hasher};
 use std::io::Write;
 use std::panic::AssertUnwindSafe;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{RecvTimeoutError, TrySendError as StdTrySendError};
 use std::sync::{Arc, Condvar, Mutex};
@@ -18,16 +21,20 @@ use std::time::{Duration, Instant};
 
 use base64::Engine;
 use cmux_tui_cdp::CDP_CONNECTION_UNAVAILABLE_MESSAGE;
-use cmux_tui_core::resource::FrontendProjectionPublicId;
+use cmux_tui_core::resource::{
+    ContentPublicId, FrontendProjectionPublicId, PanePublicId, ScreenPublicId, TabPublicId,
+    TerminalPublicId, WorkspacePublicId,
+};
 use cmux_tui_core::{
     BrowserFrame, BrowserSource, BrowserStatus, ClearHistoryDelivery, ClearHistoryFailure,
     DEFAULT_VIEWPORT_PANE_WIDTH, Direction, FrontendFocusTarget, FrontendJournalEvent,
     GraphicsStatus, GuardedMouseEncode, LayoutUndoError, LayoutUndoResult, MAX_VIEWPORT_PANE_WIDTH,
-    MIN_VIEWPORT_PANE_WIDTH, Mux, MuxEvent, Node, PairingChallenge, PaneId, PointerSemanticProbe,
-    PointerSnapshotProbe, Rect, ScreenId, SplitDir, SplitEdge, SplitId, SurfaceId, SurfaceKind,
-    TerminalPointerSnapshot, ViewportColumn, ViewportLayoutResult, VirtualRect, WorkspaceId,
-    ZoomMode, exact_split_for_pane_edge, exact_split_for_pane_edge_with_viewport, layout_screen,
-    layout_screen_with_viewport, split_sides, zellij_default_pane_layout,
+    MIN_VIEWPORT_PANE_WIDTH, MachineUsage, Mux, MuxEvent, Node, PairingChallenge, PaneId,
+    PointerSemanticProbe, PointerSnapshotProbe, Rect, ScreenId, SplitDir, SplitEdge, SplitId,
+    SurfaceId, SurfaceKind, TerminalPointerSnapshot, ViewportColumn, ViewportLayoutResult,
+    VirtualRect, WorkspaceId, ZoomMode, exact_split_for_pane_edge,
+    exact_split_for_pane_edge_with_viewport, layout_screen, layout_screen_with_viewport,
+    split_sides, zellij_default_pane_layout,
 };
 use crossbeam_channel::{Sender as SyncSender, TrySendError, bounded as sync_channel};
 use crossterm::ExecutableCommand;
@@ -44,7 +51,7 @@ use crossterm::terminal::{
 use ghostty_vt::{
     CursorShape, KeyEncoder, KeyInput, KittyGraphicsSnapshot, Mods, MouseAction,
     MouseButton as GhosttyMouseButton, MouseInput, RenderState, Rgb, Screen, Scrollbar,
-    TerminalPointerSemanticSnapshot,
+    SelectionPoint, SelectionRange, TerminalPointerSemanticSnapshot, TrackedScreenPoint,
 };
 use ratatui::Terminal as RatatuiTerminal;
 use ratatui::backend::{Backend, CrosstermBackend};
@@ -56,8 +63,9 @@ use crate::browser_input::{
     BrowserInputDispatcher, BrowserInputEvent, BrowserInputKind, BrowserKey, BrowserResizeFailure,
 };
 use crate::config::{
-    Action, ChromeTheme, Config, ScrollbarPosition, SidebarColumn, SidebarColumnKind,
-    SidebarResourceKind, SidebarView,
+    Action, AgentRowFilter, AgentSortMode, ChromeTheme, Config, ScrollbarPosition, SidebarColumn,
+    SidebarColumnKind, SidebarLayoutNode, SidebarResourceKind, SidebarView, SidebarViewScope,
+    SidebarViewSpec,
 };
 use crate::keys;
 use crate::localization;
@@ -76,7 +84,7 @@ use crate::pty_input::{
     PtyInputEvent, PtyInputKind, PtyInputSender, PtyOperationDelivery, PtyOperationFailure,
     TERMINAL_EXITED_LABEL, mark_operation_known_not_delivered,
 };
-use crate::session::tree::{PaneView, ScreenView};
+use crate::session::tree::{PaneView, ScreenView, TabView, WorkspaceView};
 use crate::session::{
     AgentInfo, AmbiguousCreation, CLEAR_HISTORY_UNSUPPORTED_ERROR, ClientInfo, CreationReceipt,
     Session, SidebarPluginSurface, SurfaceAttach, SurfaceHandle, TreeView,
@@ -85,6 +93,7 @@ use crate::session::{
 use crate::sidebar_files::{FileBrowser, FileCommand, file_url, shell_single_quote};
 use crate::sidebar_projection::{
     ProjectionBranch, ProjectionRailState, ProjectionRow, ProjectionTarget,
+    selected_workspace_cache_key,
 };
 use crate::ui::graphics::{
     GraphicPlacement, GraphicSourceRect, kitty_graphic_image, kitty_graphic_placement,
@@ -99,22 +108,997 @@ use crate::ui::{
     thumb_geometry, viewport_drag_offset, viewport_jump_offset, viewport_thumb_geometry,
 };
 
+#[cfg(test)]
+thread_local! {
+    static GRAPHICS_ROUTE_COMPARISONS: Cell<usize> = const { Cell::new(0) };
+}
+
 const DEFERRED_INPUT_CAPACITY: usize = 512;
+const CROSSTERM_POLL_INTERVAL: Duration = Duration::from_millis(100);
+const MAX_PROJECTION_ROWS_CACHE_ENTRIES: usize = 8;
+
+/// Session-local divider shares, keyed by split group and stable child id.
+/// Child ids keep a drag ratio attached to its rail when visibility pruning
+/// or layout reordering changes the current child vector.
+type SidebarSplitFractions = HashMap<String, HashMap<String, f32>>;
+
+// Collapse ranks are ordered so a mode-required host survives a constrained
+// frame before a user-pinned rail. The ordinary configured priority remains
+// the final policy for every other rail.
+const REQUIRED_SIDEBAR_COLLAPSE_PRIORITY: u32 = u32::MAX;
+const PINNED_SIDEBAR_COLLAPSE_PRIORITY: u32 = u32::MAX - 1;
+
+/// Compact semantic token carried by a Copy hit route. It lets a delayed
+/// profile click fail closed if profile order changes before dispatch.
+pub(crate) fn sidebar_profile_token(id: &str) -> u64 {
+    let mut hash = 0xcbf29ce484222325u64;
+    for byte in id.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
+}
+
+/// Stable receipt for a rendered Files row. The row index is only a visual
+/// position, so dispatch resolves this token against the refreshed listing.
+pub(crate) fn sidebar_file_token(path: &Path) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    path.hash(&mut hasher);
+    hasher.finish()
+}
+
+/// Semantic receipt for one rendered sidebar view. Unlike the profile token,
+/// this covers every field that can change the view's rows, actions, or
+/// geometry. A delayed click therefore cannot cross a same-id config reload.
+pub(crate) fn sidebar_view_token(view: &SidebarViewSpec) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    view.hash(&mut hasher);
+    hasher.finish()
+}
+
+/// All mutable frontend state owned by one named sidebar profile. Stable
+/// profile, view, and split ids keep state attached to its semantic owner
+/// when configuration order changes.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct SidebarRailScrollState {
+    pub(crate) machine_rail_scroll: usize,
+    pub(crate) machine_footer_scroll: usize,
+    pub(crate) workspace_rail_scroll: usize,
+    pub(crate) workspace_footer_scroll: usize,
+    pub(crate) tabs_rail_scroll: usize,
+    pub(crate) tabs_footer_scroll: usize,
+}
+
+#[derive(Debug, Clone)]
+struct SidebarProfilePresentationState {
+    projection_rails: HashMap<String, ProjectionRailState>,
+    /// Last resolved identity for each projection rail. A stable id can be
+    /// reused by a config edit, so its cursor and collapse state are valid
+    /// only while this semantic identity remains equal.
+    projection_identities: HashMap<String, SidebarViewIdentity>,
+    agent_sort_overrides: HashMap<String, AgentSortMode>,
+    /// The complete semantic identity of the last focused view. A profile
+    /// may reuse an id for a different scope, filter, or sort, so an id alone
+    /// cannot restore focus safely.
+    focused_view: Option<SidebarViewIdentity>,
+    workspace_width: Option<u16>,
+    machine_width: Option<u16>,
+    tabs_width: Option<u16>,
+    column_widths: HashMap<String, u16>,
+    split_fractions: SidebarSplitFractions,
+    hidden_views: HashSet<String>,
+    pinned_views: HashSet<String>,
+    /// Last requested content mode for this profile's workspace host. The
+    /// runtime can temporarily fall back to Workspaces when the host is
+    /// unavailable, while retaining the user's Files intent for a return.
+    content_mode: Option<SidebarView>,
+    /// Preserve the user's Files intent while its workspace host is hidden.
+    files_restore_pending: bool,
+    /// Stable host identity attached to a pending Files restore. A config
+    /// reload that removes or replaces that host must invalidate the intent.
+    files_restore_host: Option<String>,
+    /// Scroll offset for configured action rows while the workspace host is
+    /// in Files mode. This is separate from the Workspaces rail footer and
+    /// follows the active profile when profiles are switched.
+    files_action_scroll: usize,
+    /// Whether keyboard or mouse selection should keep the selected Files
+    /// action in view. A wheel over the action section turns this off so the
+    /// user can inspect hidden actions without changing the activation target.
+    files_action_follow_selection: bool,
+    /// Scroll offsets for the native legacy rails. These belong to the
+    /// profile, rather than the App, so switching between layouts never moves
+    /// a rail to the offset last used by another layout.
+    rail_scroll: SidebarRailScrollState,
+}
+
+impl Default for SidebarProfilePresentationState {
+    fn default() -> Self {
+        Self {
+            projection_rails: HashMap::new(),
+            projection_identities: HashMap::new(),
+            agent_sort_overrides: HashMap::new(),
+            focused_view: None,
+            workspace_width: None,
+            machine_width: None,
+            tabs_width: None,
+            column_widths: HashMap::new(),
+            split_fractions: SidebarSplitFractions::default(),
+            hidden_views: HashSet::new(),
+            pinned_views: HashSet::new(),
+            content_mode: None,
+            files_restore_pending: false,
+            files_restore_host: None,
+            files_action_scroll: 0,
+            files_action_follow_selection: true,
+            rail_scroll: SidebarRailScrollState::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+struct SidebarPresentationState {
+    profiles: HashMap<String, SidebarProfilePresentationState>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum SidebarPresentationCommand {
+    ActivateProfile { profile: String },
+    SetViewVisible { profile: String, view: String, visible: bool },
+    SetViewPinned { profile: String, view: String, pinned: bool },
+}
+
+/// Stable identity for one configured view instance. Geometry and pinned
+/// actions do not change which resource the view represents, but its path,
+/// scope, filter, and ordering do. Keep those fields in the focus receipt so
+/// profile switches never restore a cursor into a look-alike rail.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SidebarViewIdentity {
+    id: String,
+    levels: Vec<SidebarResourceKind>,
+    scope: SidebarViewScope,
+    sort: AgentSortMode,
+    filter: AgentRowFilter,
+}
+
+impl SidebarViewIdentity {
+    fn from_spec(view: &SidebarViewSpec) -> Self {
+        Self {
+            id: view.id.clone(),
+            levels: view.levels.clone(),
+            scope: view.scope,
+            sort: view.sort,
+            filter: view.filter.clone(),
+        }
+    }
+}
+
+fn remembered_focus_matches(
+    remembered: Option<&SidebarViewIdentity>,
+    view: &SidebarViewSpec,
+) -> bool {
+    remembered.is_some_and(|identity| identity == &SidebarViewIdentity::from_spec(view))
+}
+
+fn sidebar_view_after_config_reload(
+    previous_configured: SidebarView,
+    runtime: SidebarView,
+    loaded_configured: SidebarView,
+) -> SidebarView {
+    if loaded_configured != previous_configured { loaded_configured } else { runtime }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct ProjectionFocusKey {
+    workspace_id: Option<WorkspaceId>,
+    screen_id: Option<ScreenId>,
+    pane_id: Option<PaneId>,
+    tab_index: Option<usize>,
+    surface_id: Option<SurfaceId>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ProjectionSurfaceChange {
+    Agent,
+    Title,
+}
+
+/// The part of the sidebar configuration that changes the meaning of cached
+/// projection rows. Keep this identity separate from the full config so a
+/// profile switch cannot reuse rows for a view with the same id but a new
+/// level or action definition.
+#[derive(Clone, PartialEq, Eq)]
+struct SidebarProjectionSpec {
+    profile_id: String,
+    views: Vec<SidebarViewSpec>,
+    layout: Vec<SidebarLayoutNode>,
+}
+
+impl SidebarProjectionSpec {
+    fn from_config(config: &Config) -> Self {
+        Self {
+            profile_id: config.sidebar.active_profile.clone(),
+            views: config.sidebar.views.clone(),
+            layout: config.sidebar.layout.clone(),
+        }
+    }
+}
+
+/// Inputs that determine whether the previous packed layout is a valid
+/// hysteresis baseline. Presentation mutations must not inherit a baseline
+/// built from a different set of visible or pinned rails.
+#[derive(Clone, PartialEq, Eq)]
+struct SidebarLayoutReuseSpec {
+    projection: SidebarProjectionSpec,
+    hidden_views: Vec<String>,
+    pinned_views: Vec<String>,
+    required_views: Vec<String>,
+    machine_visible: bool,
+}
+
+impl SidebarLayoutReuseSpec {
+    fn new(
+        projection: SidebarProjectionSpec,
+        hidden_views: &HashSet<String>,
+        pinned_views: &HashSet<String>,
+        required_views: &HashSet<String>,
+        machine_visible: bool,
+    ) -> Self {
+        fn sorted_ids(ids: &HashSet<String>) -> Vec<String> {
+            let mut ids = ids.iter().cloned().collect::<Vec<_>>();
+            ids.sort_unstable();
+            ids
+        }
+
+        Self {
+            projection,
+            hidden_views: sorted_ids(hidden_views),
+            pinned_views: sorted_ids(pinned_views),
+            required_views: sorted_ids(required_views),
+            machine_visible,
+        }
+    }
+}
+
+#[derive(Clone)]
+struct ProjectionRowsCache {
+    view_id: String,
+    workspace_revision: u64,
+    pane_revision: Option<u64>,
+    invalidation_revision: u64,
+    selected_workspace: Option<usize>,
+    focus: ProjectionFocusKey,
+    /// The effective sort the rows were built with; a runtime cycle must
+    /// miss this cache.
+    sort: AgentSortMode,
+    /// All surfaces that can contribute an agent row to this snapshot. This
+    /// includes currently hidden/filtered rows so an agent state transition
+    /// cannot leave an old empty snapshot cached.
+    agent_surfaces: Arc<HashSet<SurfaceId>>,
+    /// Surfaces whose title can affect a visible row in this snapshot.
+    title_surfaces: Arc<HashSet<SurfaceId>>,
+    rows: Arc<[ProjectionRow]>,
+}
+
+/// A lossless identity for the tree frame that was used to admit a pointer
+/// event. Display text and status fields are deliberately excluded. They
+/// repaint in place, while row order, active targets, pane geometry, and
+/// viewport state require an old pointer capture to be dropped.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct SidebarTreePointerTopology {
+    workspace_revision: u64,
+    pane_revision: Option<u64>,
+    active_workspace: usize,
+    active_workspace_id: Option<WorkspaceId>,
+    active_workspace_resource_id: Option<WorkspacePublicId>,
+    active_surface: Option<SurfaceId>,
+    active_surface_resource_id: Option<TabPublicId>,
+    active_surface_kind: Option<SurfaceKind>,
+    active_surface_content_id: Option<ContentPublicId>,
+    active_surface_terminal_id: Option<TerminalPublicId>,
+    workspace_ids: Vec<WorkspaceId>,
+    workspace_keys: Vec<Option<String>>,
+    workspace_resource_ids: Vec<Option<WorkspacePublicId>>,
+    active_screen_ids: Vec<Option<ScreenId>>,
+    screen_ids: Vec<ScreenId>,
+    screen_resource_ids: Vec<Option<ScreenPublicId>>,
+    pane_ids: Vec<PaneId>,
+    pane_resource_ids: Vec<Option<PanePublicId>>,
+    surface_ids: Vec<SurfaceId>,
+    surface_resource_ids: Vec<Option<TabPublicId>>,
+    surface_kinds: Vec<SurfaceKind>,
+    surface_content_ids: Vec<Option<ContentPublicId>>,
+    screens: Vec<ScreenPointerTopology>,
+}
+
+/// Geometry and active-tab state for one screen. A revision counter is not
+/// sufficient here: focus, zoom, viewport widths, and split ratios can change
+/// without changing pane membership.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ScreenPointerTopology {
+    workspace_id: WorkspaceId,
+    workspace_resource_id: Option<WorkspacePublicId>,
+    id: ScreenId,
+    resource_id: Option<ScreenPublicId>,
+    active_pane: PaneId,
+    zoomed_pane: Option<PaneId>,
+    viewport_base_width: Option<u32>,
+    viewport_splits: Vec<(SplitId, u32)>,
+    viewport_pane_widths: Vec<(PaneId, u32)>,
+    layout: PointerLayoutNode,
+    /// Tab membership is nested by pane. Flat surface vectors cannot detect
+    /// an inactive tab moving between panes when the global order is stable,
+    /// but that move changes tab-bar hit rectangles and tab locations.
+    panes: Vec<PanePointerTopology>,
+    active_surfaces: Vec<Option<SurfaceId>>,
+    active_surface_resource_ids: Vec<Option<TabPublicId>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct PanePointerTopology {
+    id: PaneId,
+    resource_id: Option<PanePublicId>,
+    active_tab: usize,
+    tabs: Vec<TabPointerTopology>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct TabPointerTopology {
+    surface: SurfaceId,
+    public_id: Option<TabPublicId>,
+    content_id: Option<ContentPublicId>,
+    terminal_id: Option<TerminalPublicId>,
+    kind: SurfaceKind,
+}
+
+impl TabPointerTopology {
+    fn identity_eq(&self, other: &Self) -> bool {
+        self.surface == other.surface
+            && strict_identity_matches(self.public_id.as_ref(), other.public_id.as_ref())
+            && strict_identity_matches(self.content_id.as_ref(), other.content_id.as_ref())
+            && strict_identity_matches(self.terminal_id.as_ref(), other.terminal_id.as_ref())
+            && self.kind == other.kind
+    }
+}
+
+impl PanePointerTopology {
+    fn identity_eq(&self, other: &Self) -> bool {
+        self.id == other.id
+            && strict_identity_matches(self.resource_id.as_ref(), other.resource_id.as_ref())
+            && self.active_tab == other.active_tab
+            && self.tabs.len() == other.tabs.len()
+            && self.tabs.iter().zip(&other.tabs).all(|(previous, next)| previous.identity_eq(next))
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct ScreenGeometryChange {
+    screen: ScreenId,
+    split_ratios: Vec<(SplitId, u32, u32)>,
+    viewport_base_changed: bool,
+    viewport_base_width: Option<u32>,
+    viewport_split_values_changed: bool,
+    viewport_widths: Vec<(PaneId, u32, u32)>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum PointerLayoutNode {
+    Leaf(PaneId),
+    Split { id: SplitId, dir: SplitDir, ratio: u32, a: Box<Self>, b: Box<Self> },
+    Stack { panes: Vec<PaneId>, expanded: PaneId },
+}
+
+fn pointer_layout_node(node: &Node) -> PointerLayoutNode {
+    match node {
+        Node::Leaf(pane) => PointerLayoutNode::Leaf(*pane),
+        Node::Split { id, dir, ratio, a, b } => PointerLayoutNode::Split {
+            id: *id,
+            dir: *dir,
+            ratio: ratio.to_bits(),
+            a: Box::new(pointer_layout_node(a)),
+            b: Box::new(pointer_layout_node(b)),
+        },
+        Node::Stack { panes, expanded } => {
+            PointerLayoutNode::Stack { panes: panes.iter().copied().collect(), expanded: *expanded }
+        }
+    }
+}
+
+fn pointer_layout_split_ratios(node: &PointerLayoutNode, output: &mut Vec<(SplitId, u32)>) {
+    match node {
+        PointerLayoutNode::Split { id, ratio, a, b, .. } => {
+            output.push((*id, *ratio));
+            pointer_layout_split_ratios(a, output);
+            pointer_layout_split_ratios(b, output);
+        }
+        PointerLayoutNode::Leaf(_) | PointerLayoutNode::Stack { .. } => {}
+    }
+}
+
+fn node_split_ratio(node: &Node, split: SplitId) -> Option<f32> {
+    match node {
+        Node::Split { id, ratio, a, b, .. } => (*id == split)
+            .then_some(*ratio)
+            .or_else(|| node_split_ratio(a, split).or_else(|| node_split_ratio(b, split))),
+        Node::Leaf(_) | Node::Stack { .. } => None,
+    }
+}
+
+impl PointerLayoutNode {
+    /// Compare the pane ownership and divider identity while ignoring the
+    /// current ratios. A ratio is geometry; a leaf or split replacement is a
+    /// new pointer target.
+    fn structure_eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Leaf(left), Self::Leaf(right)) => left == right,
+            (
+                Self::Split { id: left_id, dir: left_dir, a: left_a, b: left_b, .. },
+                Self::Split { id: right_id, dir: right_dir, a: right_a, b: right_b, .. },
+            ) => {
+                left_id == right_id
+                    && left_dir == right_dir
+                    && left_a.structure_eq(right_a)
+                    && left_b.structure_eq(right_b)
+            }
+            (
+                Self::Stack { panes: left_panes, expanded: left_expanded },
+                Self::Stack { panes: right_panes, expanded: right_expanded },
+            ) => left_panes == right_panes && left_expanded == right_expanded,
+            _ => false,
+        }
+    }
+}
+
+/// Pointer topology uses a fail-closed identity policy. A missing public id is
+/// not evidence that two rows are the same row, because a reconnect can omit
+/// the id for one frame while reusing a runtime id for a different resource.
+fn strict_identity_matches<T: PartialEq>(previous: Option<&T>, next: Option<&T>) -> bool {
+    match (previous, next) {
+        (Some(previous), Some(next)) => previous == next,
+        (None, None) => true,
+        _ => false,
+    }
+}
+
+impl ScreenPointerTopology {
+    fn identity_eq(&self, other: &Self) -> bool {
+        self.id == other.id
+            && self.workspace_id == other.workspace_id
+            && strict_identity_matches(
+                self.workspace_resource_id.as_ref(),
+                other.workspace_resource_id.as_ref(),
+            )
+            && strict_identity_matches(self.resource_id.as_ref(), other.resource_id.as_ref())
+            && self.active_pane == other.active_pane
+            && self.zoomed_pane == other.zoomed_pane
+            && self.layout.structure_eq(&other.layout)
+            && self.panes.len() == other.panes.len()
+            && self
+                .panes
+                .iter()
+                .zip(&other.panes)
+                .all(|(previous, next)| previous.identity_eq(next))
+            && self.active_surfaces == other.active_surfaces
+            && self
+                .active_surface_resource_ids
+                .iter()
+                .zip(&other.active_surface_resource_ids)
+                .all(|(previous, next)| strict_identity_matches(previous.as_ref(), next.as_ref()))
+            && self
+                .viewport_splits
+                .iter()
+                .map(|(split, _)| split)
+                .eq(other.viewport_splits.iter().map(|(split, _)| split))
+            && self
+                .viewport_pane_widths
+                .iter()
+                .map(|(pane, _)| pane)
+                .eq(other.viewport_pane_widths.iter().map(|(pane, _)| pane))
+    }
+
+    fn geometry_eq(&self, other: &Self) -> bool {
+        self.viewport_base_width == other.viewport_base_width
+            && self.viewport_splits == other.viewport_splits
+            && self.viewport_pane_widths == other.viewport_pane_widths
+            && self.layout == other.layout
+    }
+}
+
+fn sidebar_tree_pointer_topology(tree: &TreeView) -> SidebarTreePointerTopology {
+    let active_tab = tree.active_screen().and_then(|screen| {
+        screen
+            .panes
+            .iter()
+            .find(|pane| pane.id == screen.active_pane)
+            .and_then(|pane| pane.tabs.get(pane.active_tab))
+    });
+    let active_surface = active_tab.map(|tab| tab.surface);
+    let active_surface_resource_id = active_tab.and_then(|tab| tab.public_id.clone());
+    let active_surface_kind = active_tab.map(|tab| tab.kind);
+    let active_surface_content_id = active_tab.and_then(|tab| tab.content_id.clone());
+    let active_surface_terminal_id = active_tab.and_then(|tab| tab.terminal_id.clone());
+    let mut topology = SidebarTreePointerTopology {
+        workspace_revision: tree.workspace_revision,
+        pane_revision: tree.pane_revision,
+        active_workspace: tree.active_workspace,
+        active_workspace_id: tree.active_workspace().map(|workspace| workspace.id),
+        active_workspace_resource_id: tree
+            .active_workspace()
+            .and_then(|workspace| workspace.resource_id.clone()),
+        active_surface,
+        active_surface_resource_id,
+        active_surface_kind,
+        active_surface_content_id,
+        active_surface_terminal_id,
+        workspace_ids: Vec::new(),
+        workspace_keys: Vec::new(),
+        workspace_resource_ids: Vec::new(),
+        active_screen_ids: Vec::new(),
+        screen_ids: Vec::new(),
+        screen_resource_ids: Vec::new(),
+        pane_ids: Vec::new(),
+        pane_resource_ids: Vec::new(),
+        surface_ids: Vec::new(),
+        surface_resource_ids: Vec::new(),
+        surface_kinds: Vec::new(),
+        surface_content_ids: Vec::new(),
+        screens: Vec::new(),
+    };
+    for workspace in tree.workspaces() {
+        topology
+            .active_screen_ids
+            .push(workspace.screens.get(workspace.active_screen).map(|screen| screen.id));
+        topology.workspace_ids.push(workspace.id);
+        topology.workspace_keys.push((!workspace.key.is_empty()).then(|| workspace.key.clone()));
+        topology.workspace_resource_ids.push(workspace.resource_id.clone());
+        for screen in &workspace.screens {
+            topology.screen_ids.push(screen.id);
+            topology.screen_resource_ids.push(screen.resource_id.clone());
+            topology.screens.push(ScreenPointerTopology {
+                workspace_id: workspace.id,
+                workspace_resource_id: workspace.resource_id.clone(),
+                id: screen.id,
+                resource_id: screen.resource_id.clone(),
+                active_pane: screen.active_pane,
+                zoomed_pane: screen.zoomed_pane,
+                viewport_base_width: screen.viewport_base_width.map(f32::to_bits),
+                viewport_splits: screen
+                    .viewport_splits
+                    .iter()
+                    .map(|(split, ratio)| (*split, ratio.to_bits()))
+                    .collect(),
+                viewport_pane_widths: screen
+                    .panes
+                    .iter()
+                    .filter_map(|pane| {
+                        let owner = screen
+                            .layout
+                            .viewport_column_owner(pane.id, &screen.viewport_splits)?;
+                        let width = match owner {
+                            ViewportColumn::Base => screen.viewport_base_width?,
+                            ViewportColumn::Split(split) => *screen.viewport_splits.get(&split)?,
+                        };
+                        Some((pane.id, width.to_bits()))
+                    })
+                    .collect(),
+                layout: pointer_layout_node(&screen.layout),
+                panes: screen
+                    .panes
+                    .iter()
+                    .map(|pane| PanePointerTopology {
+                        id: pane.id,
+                        resource_id: pane.resource_id.clone(),
+                        active_tab: pane.active_tab,
+                        tabs: pane
+                            .tabs
+                            .iter()
+                            .map(|tab| TabPointerTopology {
+                                surface: tab.surface,
+                                public_id: tab.public_id.clone(),
+                                content_id: tab.content_id.clone(),
+                                terminal_id: tab.terminal_id.clone(),
+                                kind: tab.kind,
+                            })
+                            .collect(),
+                    })
+                    .collect(),
+                active_surfaces: screen
+                    .panes
+                    .iter()
+                    .map(|pane| pane.tabs.get(pane.active_tab).map(|tab| tab.surface))
+                    .collect(),
+                active_surface_resource_ids: screen
+                    .panes
+                    .iter()
+                    .map(|pane| {
+                        pane.tabs.get(pane.active_tab).and_then(|tab| tab.public_id.clone())
+                    })
+                    .collect(),
+            });
+            for pane in &screen.panes {
+                topology.pane_ids.push(pane.id);
+                topology.pane_resource_ids.push(pane.resource_id.clone());
+                topology
+                    .surface_resource_ids
+                    .extend(pane.tabs.iter().map(|tab| tab.public_id.clone()));
+                topology.surface_kinds.extend(pane.tabs.iter().map(|tab| tab.kind));
+                topology
+                    .surface_content_ids
+                    .extend(pane.tabs.iter().map(|tab| tab.content_id.clone()));
+                topology.surface_ids.extend(pane.tabs.iter().map(|tab| tab.surface));
+            }
+        }
+    }
+    topology
+}
+
+impl SidebarTreePointerTopology {
+    fn surface_identity(&self, surface: SurfaceId) -> Option<&TabPointerTopology> {
+        self.screens
+            .iter()
+            .flat_map(|screen| screen.panes.iter())
+            .flat_map(|pane| pane.tabs.iter())
+            .find(|tab| tab.surface == surface)
+    }
+
+    fn surface_identity_eq(&self, other: &Self, surface: SurfaceId) -> bool {
+        match (self.surface_identity(surface), other.surface_identity(surface)) {
+            (Some(previous), Some(next)) => previous.identity_eq(next),
+            _ => false,
+        }
+    }
+
+    /// Compare only the resources and geometry that can move a rendered hit
+    /// target. The backend revisions are cache invalidation metadata, not
+    /// pointer identity: a workspace rename, or a pane registry update in an
+    /// unrelated workspace, must not interrupt an active drag whose target is
+    /// unchanged.
+    fn structural_identity_eq(&self, other: &Self) -> bool {
+        self.active_workspace == other.active_workspace
+            && self.active_workspace_id == other.active_workspace_id
+            && strict_identity_matches(
+                self.active_workspace_resource_id.as_ref(),
+                other.active_workspace_resource_id.as_ref(),
+            )
+            && self.active_surface == other.active_surface
+            && strict_identity_matches(
+                self.active_surface_resource_id.as_ref(),
+                other.active_surface_resource_id.as_ref(),
+            )
+            && self.workspace_ids == other.workspace_ids
+            && self.workspace_keys.len() == other.workspace_keys.len()
+            && self
+                .workspace_keys
+                .iter()
+                .zip(&other.workspace_keys)
+                .all(|(previous, next)| strict_identity_matches(previous.as_ref(), next.as_ref()))
+            && self
+                .workspace_resource_ids
+                .iter()
+                .zip(&other.workspace_resource_ids)
+                .all(|(previous, next)| strict_identity_matches(previous.as_ref(), next.as_ref()))
+            && self.active_screen_ids == other.active_screen_ids
+            && self.screen_ids == other.screen_ids
+            && self
+                .screen_resource_ids
+                .iter()
+                .zip(&other.screen_resource_ids)
+                .all(|(previous, next)| strict_identity_matches(previous.as_ref(), next.as_ref()))
+            && self.pane_ids == other.pane_ids
+            && self
+                .pane_resource_ids
+                .iter()
+                .zip(&other.pane_resource_ids)
+                .all(|(previous, next)| strict_identity_matches(previous.as_ref(), next.as_ref()))
+            && self.surface_ids == other.surface_ids
+            && self
+                .surface_resource_ids
+                .iter()
+                .zip(&other.surface_resource_ids)
+                .all(|(previous, next)| strict_identity_matches(previous.as_ref(), next.as_ref()))
+            && self.surface_kinds == other.surface_kinds
+            && self
+                .surface_content_ids
+                .iter()
+                .zip(&other.surface_content_ids)
+                .all(|(previous, next)| strict_identity_matches(previous.as_ref(), next.as_ref()))
+            && self.screens.len() == other.screens.len()
+            && self
+                .screens
+                .iter()
+                .zip(&other.screens)
+                .all(|(previous, next)| previous.identity_eq(next))
+    }
+
+    fn identity_eq(&self, other: &Self) -> bool {
+        self.structural_identity_eq(other)
+    }
+
+    fn active_surface_identity_eq(&self, other: &Self) -> bool {
+        self.active_surface == other.active_surface
+            && strict_identity_matches(
+                self.active_surface_resource_id.as_ref(),
+                other.active_surface_resource_id.as_ref(),
+            )
+            && self.active_surface_kind == other.active_surface_kind
+            && strict_identity_matches(
+                self.active_surface_content_id.as_ref(),
+                other.active_surface_content_id.as_ref(),
+            )
+            && strict_identity_matches(
+                self.active_surface_terminal_id.as_ref(),
+                other.active_surface_terminal_id.as_ref(),
+            )
+    }
+
+    fn geometry_changes(&self, other: &Self) -> Vec<ScreenGeometryChange> {
+        let mut changed = Vec::new();
+        for (previous, next) in self.screens.iter().zip(&other.screens) {
+            if previous.id == next.id
+                && strict_identity_matches(previous.resource_id.as_ref(), next.resource_id.as_ref())
+                && previous.identity_eq(next)
+                && !previous.geometry_eq(next)
+            {
+                let mut change = ScreenGeometryChange { screen: next.id, ..Default::default() };
+                let mut previous_layout_ratios = Vec::new();
+                let mut next_layout_ratios = Vec::new();
+                pointer_layout_split_ratios(&previous.layout, &mut previous_layout_ratios);
+                pointer_layout_split_ratios(&next.layout, &mut next_layout_ratios);
+                for (split, previous_ratio) in &previous_layout_ratios {
+                    // Viewport columns maintain a compatibility split in the
+                    // ordinary tree. Its derived ratio changes whenever a
+                    // column width changes, so it belongs to the Viewport
+                    // expectation below, not to an ordinary split capture.
+                    if previous.viewport_splits.iter().any(|(candidate, _)| candidate == split)
+                        || next.viewport_splits.iter().any(|(candidate, _)| candidate == split)
+                    {
+                        continue;
+                    }
+                    if let Some(next_ratio) = next_layout_ratios
+                        .iter()
+                        .find_map(|(candidate, ratio)| (*candidate == *split).then_some(*ratio))
+                        .filter(|next_ratio| *next_ratio != *previous_ratio)
+                    {
+                        change.split_ratios.push((*split, *previous_ratio, next_ratio));
+                    }
+                }
+                if previous.viewport_base_width != next.viewport_base_width {
+                    change.viewport_base_changed = true;
+                    change.viewport_base_width = next.viewport_base_width;
+                }
+                if previous.viewport_splits != next.viewport_splits {
+                    change.viewport_split_values_changed = true;
+                }
+                let mut panes =
+                    previous.viewport_pane_widths.iter().copied().collect::<HashMap<_, _>>();
+                for (pane, next_width) in &next.viewport_pane_widths {
+                    let previous_width = panes.remove(pane);
+                    if previous_width != Some(*next_width) {
+                        change.viewport_widths.push((
+                            *pane,
+                            previous_width.unwrap_or_default(),
+                            *next_width,
+                        ));
+                    }
+                }
+                for (pane, previous_width) in panes {
+                    change.viewport_widths.push((pane, previous_width, 0));
+                }
+                changed.push(change);
+            }
+        }
+        changed
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct MachineSidebarPointerTopology {
+    present: bool,
+    machine_keys: Vec<MachineKey>,
+    active_machine: Option<MachineKey>,
+    create: bool,
+    connect: bool,
+    recoverable_workspace_ids: Vec<String>,
+    workspace_creation_policy: Option<WorkspaceCreationPolicy>,
+}
+
+/// The global agent status that the persistent profile strip displays. This
+/// receipt is separate from projection-row dependencies because the strip can
+/// remain visible when every Agents row is hidden or not yet in the tree.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct AgentAttentionReceipt {
+    attention: usize,
+    working: usize,
+}
+
+/// A data owner for a native sidebar row map. Pointer capture is cancelled
+/// only when the owner that produced the captured rows changes. Layout
+/// changes use the existing global pointer-topology boundary.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SidebarPointerDomain {
+    Workspace,
+    Files,
+    Tabs,
+    Projection,
+}
+
+/// Semantic owner of a focused surface. Runtime ids are included so a stale
+/// pointer capture fails closed after a reconnect, while public ids, when
+/// present, detect a resource replacement that reuses the runtime id.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ActiveSurfaceOwner {
+    surface: SurfaceId,
+    public_id: Option<TabPublicId>,
+    kind: SurfaceKind,
+    content_id: Option<ContentPublicId>,
+    terminal_id: Option<TerminalPublicId>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct FilesPointerOwner {
+    active: Option<ActiveSurfaceOwner>,
+    pinned: bool,
+    topology_revision: u64,
+}
+
+fn machine_sidebar_pointer_topology(ui: Option<&MachineUiState>) -> MachineSidebarPointerTopology {
+    let Some(ui) = ui else {
+        return MachineSidebarPointerTopology {
+            present: false,
+            machine_keys: Vec::new(),
+            active_machine: None,
+            create: false,
+            connect: false,
+            recoverable_workspace_ids: Vec::new(),
+            workspace_creation_policy: None,
+        };
+    };
+    MachineSidebarPointerTopology {
+        present: true,
+        machine_keys: ui.snapshot.machines.iter().map(|machine| machine.key).collect(),
+        active_machine: ui.snapshot.active,
+        create: ui.snapshot.capabilities.create,
+        connect: ui.snapshot.capabilities.connect,
+        recoverable_workspace_ids: ui
+            .recoverable_workspaces()
+            .into_iter()
+            .map(|workspace| workspace.id.clone())
+            .collect(),
+        workspace_creation_policy: ui.workspace_creation_policy(),
+    }
+}
+
+fn projection_focus_key(tree: &TreeView) -> ProjectionFocusKey {
+    let Some(workspace) = tree.active_workspace() else { return ProjectionFocusKey::default() };
+    let Some(screen) = workspace.active_screen_ref() else {
+        return ProjectionFocusKey {
+            workspace_id: Some(workspace.id),
+            ..ProjectionFocusKey::default()
+        };
+    };
+    let pane = screen.pane(screen.active_pane);
+    ProjectionFocusKey {
+        workspace_id: Some(workspace.id),
+        screen_id: Some(screen.id),
+        pane_id: Some(screen.active_pane),
+        tab_index: pane.map(|pane| pane.active_tab),
+        surface_id: pane.and_then(|pane| pane.active_surface()),
+    }
+}
+
+fn projection_cache_dependencies(
+    spec: &SidebarViewSpec,
+    tree: &TreeView,
+    rows: &[ProjectionRow],
+    selected_workspace: usize,
+) -> (HashSet<SurfaceId>, HashSet<SurfaceId>) {
+    let selected_workspace = selected_workspace.min(tree.workspaces().len().saturating_sub(1));
+    let mut agent_surfaces = HashSet::new();
+    if spec.includes(SidebarResourceKind::Agents) {
+        // A nested agent level below Workspaces contributes rows from every
+        // workspace. A flat workspace-scoped level follows the selected one.
+        let agent_depth = spec.levels.iter().position(|kind| *kind == SidebarResourceKind::Agents);
+        let all_workspaces = spec.scope == SidebarViewScope::All
+            || agent_depth.is_some_and(|depth| {
+                spec.levels[..depth].contains(&SidebarResourceKind::Workspaces)
+            });
+        for (workspace_index, workspace) in tree.workspaces().iter().enumerate() {
+            if !all_workspaces && workspace_index != selected_workspace {
+                continue;
+            }
+            for screen in &workspace.screens {
+                for pane in &screen.panes {
+                    agent_surfaces.extend(pane.tabs.iter().map(|tab| tab.surface));
+                }
+            }
+        }
+    }
+
+    let active_surfaces_by_pane = if spec.includes(SidebarResourceKind::Panes) {
+        tree.workspaces()
+            .iter()
+            .flat_map(|workspace| workspace.screens.iter())
+            .flat_map(|screen| screen.panes.iter())
+            .filter_map(|pane| pane.active_surface().map(|surface| (pane.id, surface)))
+            .collect::<HashMap<_, _>>()
+    } else {
+        HashMap::new()
+    };
+    let mut title_surfaces = HashSet::new();
+    for row in rows {
+        match (row.resource, row.target) {
+            (
+                SidebarResourceKind::Tabs | SidebarResourceKind::Agents,
+                ProjectionTarget::Surface { surface, .. },
+            ) => {
+                title_surfaces.insert(surface);
+            }
+            (SidebarResourceKind::Panes, ProjectionTarget::Pane { pane, .. }) => {
+                if let Some(surface) = active_surfaces_by_pane.get(&pane) {
+                    title_surfaces.insert(*surface);
+                }
+            }
+            _ => {}
+        }
+    }
+    (agent_surfaces, title_surfaces)
+}
+
+// Projection rows are a render snapshot. Keep only the most recently used
+// view snapshots so a large all-workspaces projection cannot retain unbounded
+// memory when configuration contains many views.
 
 fn read_crossterm_event(
     timeout: Option<Duration>,
+    poll: impl FnMut(Duration) -> std::io::Result<bool>,
+    read: impl FnMut() -> std::io::Result<Event>,
+) -> std::io::Result<Option<Event>> {
+    read_crossterm_event_with_clock(timeout, poll, read, Instant::now)
+}
+
+fn read_crossterm_event_with_clock(
+    timeout: Option<Duration>,
     mut poll: impl FnMut(Duration) -> std::io::Result<bool>,
     mut read: impl FnMut() -> std::io::Result<Event>,
+    mut now: impl FnMut() -> Instant,
 ) -> std::io::Result<Option<Event>> {
-    if let Some(timeout) = timeout.map(|timeout| timeout.min(Duration::from_millis(100)))
-        && !poll(timeout)?
-    {
-        return Ok(None);
+    // Keep the input thread interruptible even when no graphics response is
+    // pending. A single normalized poll avoids separate timed and untimed
+    // branches drifting apart as the reader evolves.
+    const MAX_INTERRUPTED_RETRIES: u8 = 8;
+    let poll_timeout =
+        timeout.map_or(CROSSTERM_POLL_INTERVAL, |timeout| timeout.min(CROSSTERM_POLL_INTERVAL));
+    let deadline = now() + poll_timeout;
+    let mut interrupted: u8 = 0;
+    loop {
+        let remaining = deadline.saturating_duration_since(now());
+        match poll(remaining) {
+            Ok(false) => return Ok(None),
+            Ok(true) => break,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {
+                if remaining.is_zero() {
+                    return Ok(None);
+                }
+                interrupted = interrupted.saturating_add(1);
+                if interrupted >= MAX_INTERRUPTED_RETRIES {
+                    return Err(error);
+                }
+            }
+            Err(error) => return Err(error),
+        }
     }
-    if timeout.is_none() && !poll(Duration::from_millis(100))? {
-        return Ok(None);
+    interrupted = 0;
+    loop {
+        match read() {
+            Ok(event) => return Ok(Some(event)),
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {
+                interrupted = interrupted.saturating_add(1);
+                if interrupted >= MAX_INTERRUPTED_RETRIES {
+                    return Err(error);
+                }
+            }
+            Err(error) => return Err(error),
+        }
     }
-    read().map(Some)
 }
 
 const DEFERRED_INPUT_FIXED_BYTES: usize = 64;
@@ -400,6 +1384,7 @@ fn send_bounded_cancelable<T>(
 struct SessionEventWorker {
     cancellation: EventCancellation,
     start: Arc<AtomicBool>,
+    stop: Arc<Mutex<Option<cmux_tui_core::MuxEventReceiver>>>,
     mux: Option<JoinHandle<()>>,
 }
 
@@ -411,6 +1396,11 @@ impl SessionEventWorker {
     fn stop_and_join(&mut self) {
         self.cancellation.cancel();
         self.activate();
+        // Closing the receiver wakes a worker blocked in recv(). This avoids
+        // polling the session event mailbox on a fixed 100 ms timer.
+        if let Some(stop) = self.stop.lock().unwrap().take() {
+            stop.close();
+        }
         if let Some(mux) = self.mux.take() {
             let _ = mux.join();
         }
@@ -640,6 +1630,7 @@ struct MuxTitleIngress {
 fn forward_mux_events(
     event_source: Session,
     mut session_events: cmux_tui_core::MuxEventReceiver,
+    stop_receiver: Arc<Mutex<Option<cmux_tui_core::MuxEventReceiver>>>,
     destination_mutation_committed: Arc<AtomicU64>,
     mux_recovery_generation: Arc<AtomicU64>,
     tx: SessionEventSender,
@@ -647,15 +1638,14 @@ fn forward_mux_events(
 ) {
     let mut next_recovery_generation = 0_u64;
     while !tx.cancellation.stop.load(Ordering::Acquire) {
-        let needs_recovery = match session_events.recv_timeout(Duration::from_millis(100)) {
+        let needs_recovery = match session_events.recv() {
             Ok(event) => {
                 if matches!(forward_mux_event(event, &tx, &mux_titles), ForwardMuxOutcome::Stop) {
                     return;
                 }
                 false
             }
-            Err(RecvTimeoutError::Timeout) => continue,
-            Err(RecvTimeoutError::Disconnected) => {
+            Err(_) => {
                 if session_events.overflowed() {
                     true
                 } else {
@@ -673,7 +1663,16 @@ fn forward_mux_events(
         mux_recovery_generation.store(recovery_generation, Ordering::Release);
         // Subscribe before draining the closed mailbox so new events are
         // retained while every event accepted before overflow is delivered.
-        let overflowed_events = std::mem::replace(&mut session_events, event_source.events());
+        let next_session_events = event_source.events();
+        {
+            let mut stop = stop_receiver.lock().unwrap();
+            if tx.cancellation.stop.load(Ordering::Acquire) {
+                next_session_events.close();
+                return;
+            }
+            *stop = Some(next_session_events.clone());
+        }
+        let overflowed_events = std::mem::replace(&mut session_events, next_session_events);
         for event in overflowed_events.try_iter() {
             if tx.cancellation.stop.load(Ordering::Acquire) {
                 return;
@@ -812,11 +1811,13 @@ fn start_ordered_session_inner(
     let mux_recovery_generation = Arc::new(AtomicU64::new(0));
     let event_source = session.inner.clone();
     let session_events = event_source.events();
+    let stop = Arc::new(Mutex::new(Some(session_events.clone())));
     let destination_mutation_committed = session.destination_mutation_committed.clone();
     let mux_recovery_sequence = mux_recovery_generation.clone();
     let worker_events = events;
     let worker_titles = mux_titles.clone();
     let worker_start = start.clone();
+    let worker_stop = stop.clone();
     let mux =
         std::thread::Builder::new().name(format!("mux-events-{generation}")).spawn(move || {
             while !worker_start.load(Ordering::Acquire)
@@ -830,6 +1831,7 @@ fn start_ordered_session_inner(
             forward_mux_events(
                 event_source,
                 session_events,
+                worker_stop,
                 destination_mutation_committed,
                 mux_recovery_sequence,
                 worker_events,
@@ -838,7 +1840,7 @@ fn start_ordered_session_inner(
         })?;
     Ok((
         session,
-        SessionEventWorker { cancellation, start, mux: Some(mux) },
+        SessionEventWorker { cancellation, start, stop, mux: Some(mux) },
         mux_titles,
         mux_recovery_generation,
     ))
@@ -1094,11 +2096,15 @@ impl HostInputIngress {
 
 struct HostInputRuntime {
     ingress: Arc<HostInputIngress>,
+    reader: Arc<HostInputReaderControl>,
 }
 
 impl HostInputRuntime {
     fn new() -> Self {
-        Self { ingress: Arc::new(HostInputIngress::default()) }
+        Self {
+            ingress: Arc::new(HostInputIngress::default()),
+            reader: Arc::new(HostInputReaderControl::default()),
+        }
     }
 
     fn producer(&self, events: SyncSender<AppEvent>) -> HostInputProducer {
@@ -1108,12 +2114,84 @@ impl HostInputRuntime {
     fn pop_if(&self, accept: impl FnOnce(&HostInputMessage) -> bool) -> Option<HostInputMessage> {
         self.ingress.pop_if(accept)
     }
+
+    fn attach_reader(&self, reader: JoinHandle<()>) {
+        let mut state = self.reader.state.lock().unwrap();
+        assert!(!state.shutting_down, "host input reader cannot attach during shutdown");
+        assert!(state.reader.is_none(), "host input reader can only be attached once");
+        state.reader_thread = Some(reader.thread().id());
+        state.reader = Some(reader);
+    }
+
+    fn shutdown_control(&self) -> HostInputShutdown {
+        HostInputShutdown { ingress: self.ingress.clone(), reader: self.reader.clone() }
+    }
+
+    fn shutdown(&self) {
+        self.shutdown_control().shutdown();
+    }
 }
 
 impl Drop for HostInputRuntime {
     fn drop(&mut self) {
-        self.ingress.close();
+        self.shutdown();
     }
+}
+
+#[derive(Clone)]
+struct HostInputShutdown {
+    ingress: Arc<HostInputIngress>,
+    reader: Arc<HostInputReaderControl>,
+}
+
+impl HostInputShutdown {
+    fn shutdown(&self) {
+        self.ingress.close();
+        // The reader checks the closed ingress before each read. The
+        // crossterm wrapper caps every poll at CROSSTERM_POLL_INTERVAL and
+        // only calls read after poll reports a ready event, so joining here
+        // cannot wait on an idle terminal read.
+        let current_thread = std::thread::current().id();
+        let reader = {
+            let mut state = self.reader.state.lock().unwrap();
+            if state.complete {
+                return;
+            }
+            if state.shutting_down {
+                if state.reader_thread == Some(current_thread) {
+                    return;
+                }
+                while !state.complete {
+                    state = self.reader.complete.wait(state).unwrap();
+                }
+                return;
+            }
+            state.shutting_down = true;
+            state.reader.take()
+        };
+        if let Some(reader) = reader
+            && reader.thread().id() != current_thread
+        {
+            let _ = reader.join();
+        }
+        let mut state = self.reader.state.lock().unwrap();
+        state.complete = true;
+        self.reader.complete.notify_all();
+    }
+}
+
+#[derive(Default)]
+struct HostInputReaderControl {
+    state: Mutex<HostInputReaderState>,
+    complete: Condvar,
+}
+
+#[derive(Default)]
+struct HostInputReaderState {
+    reader: Option<JoinHandle<()>>,
+    reader_thread: Option<std::thread::ThreadId>,
+    shutting_down: bool,
+    complete: bool,
 }
 
 struct HostInputProducer {
@@ -1135,8 +2213,16 @@ impl HostInputProducer {
         if !wake {
             return true;
         }
+        // This is only a wake hint. Keep it nonblocking so shutdown can join
+        // the reader even when the app event channel is full.
         match self.events.try_send(AppEvent::HostInputReady) {
-            Ok(()) | Err(TrySendError::Full(AppEvent::HostInputReady)) => true,
+            Ok(()) => true,
+            Err(TrySendError::Full(AppEvent::HostInputReady)) => {
+                // A full channel already has queued work. The event loop
+                // drains retained host input before each wait and after every
+                // queued event, so this wake hint is redundant.
+                true
+            }
             Err(TrySendError::Disconnected(AppEvent::HostInputReady)) => {
                 self.ingress.close();
                 false
@@ -1977,6 +3063,10 @@ pub struct OrderedSession {
     retired_surfaces: Arc<Mutex<HashSet<SurfaceId>>>,
     layout_resize_owner: u64,
     layout_resize_transaction: Arc<AtomicU64>,
+    /// Generation of the currently admissible pane-layout pointer capture.
+    /// Deferred resize operations carry the generation they were admitted
+    /// under and become no-ops after a topology boundary.
+    layout_resize_generation: Arc<AtomicU64>,
     ambiguous_creations: Arc<Mutex<VecDeque<PendingAmbiguousCreation>>>,
     #[cfg(test)]
     surface_attach_after_obsolete_check: SurfaceAttachAfterObsoleteCheckHook,
@@ -2035,6 +3125,7 @@ impl OrderedSession {
             retired_surfaces: Arc::new(Mutex::new(HashSet::new())),
             layout_resize_owner,
             layout_resize_transaction: Arc::new(AtomicU64::new(1)),
+            layout_resize_generation: Arc::new(AtomicU64::new(1)),
             ambiguous_creations: Arc::new(Mutex::new(VecDeque::new())),
             #[cfg(test)]
             surface_attach_after_obsolete_check: Arc::new(Mutex::new(None)),
@@ -2097,8 +3188,40 @@ impl OrderedSession {
         self.inner.agents()
     }
 
+    fn agent_history(&self) -> Vec<AgentInfo> {
+        self.inner.agent_history()
+    }
+
+    fn has_agent_history(&self) -> bool {
+        self.inner.has_agent_history()
+    }
+
     fn respond_pairing(&self, request: u64, approve: bool) -> anyhow::Result<()> {
         self.inner.respond_pairing(request, approve)
+    }
+
+    /// Fetch the daemon's machine spend readout off the UI thread and feed
+    /// it back as a `MachineUsageChanged` event. The event is scoped to this
+    /// session generation, so a late answer from a replaced session is
+    /// dropped. A failed read is silent: the readout is informational and
+    /// the next `machine-usage-changed` event corrects it.
+    fn refresh_machine_usage_background(&self) {
+        let session = self.inner.clone();
+        let events = self.events.clone();
+        let spawn =
+            std::thread::Builder::new().name("machine-usage-refresh".into()).spawn(move || {
+                match session.machine_usage() {
+                    Ok(usage) => {
+                        let _ = events.send(AppEvent::Mux(MuxEvent::MachineUsageChanged(usage)));
+                    }
+                    Err(error) => {
+                        crate::client_log::log("DEBUG", "machine-usage", &error.to_string());
+                    }
+                }
+            });
+        if let Err(error) = spawn {
+            crate::client_log::log("DEBUG", "machine-usage", &error.to_string());
+        }
     }
 
     fn refresh_clients_background(&self) {
@@ -2506,7 +3629,7 @@ impl OrderedSession {
             return;
         }
         self.retired_surfaces.lock().unwrap().retain(|surface| {
-            tree.workspaces
+            tree.workspaces()
                 .iter()
                 .flat_map(|workspace| workspace.screens.iter())
                 .flat_map(|screen| screen.panes.iter())
@@ -3555,6 +4678,8 @@ impl OrderedSession {
     }
 
     fn set_split_ratio_deferred(&self, split: SplitId, ratio: f32) {
+        let resize_generation = self.layout_resize_generation.load(Ordering::Acquire);
+        let resize_generation_state = self.layout_resize_generation.clone();
         self.enqueue_coalescing_pointer_mutation(
             localization::catalog().layout.resize_exact_split_operation,
             (localization::catalog().layout.split_id_subject, split),
@@ -3562,6 +4687,13 @@ impl OrderedSession {
                 let owner = self.layout_resize_owner;
                 let transaction = self.layout_resize_transaction.load(Ordering::Acquire);
                 move |session| {
+                    // The operation may sit behind another ordered mutation.
+                    // A topology boundary invalidates its capture while it is
+                    // queued, so do not apply the old ratio to a replacement
+                    // tree that happens to reuse the split id.
+                    if resize_generation_state.load(Ordering::Acquire) != resize_generation {
+                        return Ok(());
+                    }
                     session.set_split_ratio_in_transaction(split, ratio, owner, transaction)
                 }
             },
@@ -3571,10 +4703,15 @@ impl OrderedSession {
     fn set_viewport_pane_width_deferred(&self, pane: PaneId, width: f32) {
         let owner = self.layout_resize_owner;
         let transaction = self.layout_resize_transaction.load(Ordering::Acquire);
+        let resize_generation = self.layout_resize_generation.load(Ordering::Acquire);
+        let resize_generation_state = self.layout_resize_generation.clone();
         self.enqueue_coalescing_pointer_mutation(
             localization::catalog().layout.resize_viewport_pane_operation,
             (localization::catalog().layout.viewport_pane_subject, pane),
             move |session| {
+                if resize_generation_state.load(Ordering::Acquire) != resize_generation {
+                    return Ok(());
+                }
                 session.set_viewport_pane_width_in_transaction(pane, width, owner, transaction)
             },
         );
@@ -3587,6 +4724,18 @@ impl OrderedSession {
             |transaction| Some(transaction.wrapping_add(1).max(1)),
         );
         self.enqueue_pointer_mutation("settle split resize", |_| Ok(()));
+    }
+
+    /// Retire deferred pane-layout mutations that were admitted under an old
+    /// pointer topology. The queue still drains them in order, but their
+    /// generation check turns them into no-ops instead of applying stale
+    /// geometry after a tree, screen, sidebar, or configuration boundary.
+    fn invalidate_layout_resize_captures(&self) {
+        let _ = self.layout_resize_generation.fetch_update(
+            Ordering::AcqRel,
+            Ordering::Acquire,
+            |generation| Some(generation.wrapping_add(1).max(1)),
+        );
     }
 
     pub fn close_surface(&self, surface: SurfaceId) {
@@ -3802,6 +4951,17 @@ impl WorkspaceRailSelection {
     }
 }
 
+/// Selection inside the Files content mode of the workspace host. Keep this
+/// separate from workspace rows so a profile or mode change cannot make a
+/// stale workspace selection invoke a file action, or a file selection invoke
+/// a pinned workspace action.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum FilesRailSelection {
+    #[default]
+    File,
+    Action(SidebarActionTarget),
+}
+
 fn workspace_creation_selection(mode: Option<WorkspaceCreationMode>) -> WorkspaceRailSelection {
     WorkspaceRailSelection::Action(SidebarActionTarget::CreateWorkspace(mode))
 }
@@ -3813,8 +4973,105 @@ enum WorkspaceRailTarget {
     Action(SidebarActionTarget),
 }
 
-fn rail_page_size(area: Option<Rect>) -> usize {
-    area.map_or(1, |area| usize::from(area.height.saturating_sub(1)).saturating_div(3).max(1))
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FilesRailTarget {
+    File(usize),
+    Action(SidebarActionTarget),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProjectionNavigationTarget {
+    Row(usize),
+    Action(usize),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ProjectionNavigationItem {
+    target: ProjectionNavigationTarget,
+    span: crate::ui::rail::RowSpan,
+}
+
+/// Build the projection row spans used by rendering, wheel admission, and
+/// keyboard paging. One table prevents a two-line agent or a configured row
+/// gap from being counted differently by those paths.
+pub(crate) fn projection_row_spans(
+    rows: &[ProjectionRow],
+    spec: &SidebarViewSpec,
+    metrics: crate::ui::rail::RailMetrics,
+) -> (Vec<crate::ui::rail::RowSpan>, usize) {
+    let gap = metrics.stride.saturating_sub(metrics.height);
+    let mut spans = Vec::with_capacity(rows.len());
+    let mut total = 0usize;
+    for (index, row) in rows.iter().enumerate() {
+        // Projection trees stay dense by design. Agent rows opt into their
+        // herdr-style second line through `row_lines`; other resource rows
+        // remain one line even when the built-in rail height is two.
+        let height =
+            row.agent_state.as_ref().map_or(1, |_| usize::from(spec.row_lines.clamp(1, 2)));
+        let current_is_two_line_agent = row.agent_state.is_some() && height >= 2;
+        spans.push(crate::ui::rail::RowSpan::new(total, height));
+        total = total.saturating_add(height);
+        if index + 1 < rows.len() {
+            // A two-line agent entry is already a complete visual block.
+            // Keep consecutive agent blocks dense so the state line does not
+            // create an unexplained third-row gap. Configured gaps continue
+            // to separate agent blocks from ordinary resource rows.
+            let next_is_two_line_agent =
+                rows[index + 1].agent_state.is_some() && spec.row_lines.clamp(1, 2) >= 2;
+            let block_gap =
+                if current_is_two_line_agent && next_is_two_line_agent { 0 } else { gap };
+            total = total.saturating_add(block_gap);
+        }
+    }
+    (spans, total)
+}
+
+fn projection_navigation_index(
+    key: &KeyEvent,
+    current: usize,
+    items: &[ProjectionNavigationItem],
+    page_cells: usize,
+) -> Option<usize> {
+    if items.is_empty() {
+        return None;
+    }
+    match key.code {
+        KeyCode::Up | KeyCode::Char('k') => Some(current.saturating_sub(1)),
+        KeyCode::Down | KeyCode::Char('j') => Some((current + 1).min(items.len() - 1)),
+        KeyCode::Home => Some(0),
+        KeyCode::End => Some(items.len() - 1),
+        KeyCode::PageUp => {
+            let target = items[current].span.start.saturating_sub(page_cells.max(1));
+            Some(
+                items
+                    .iter()
+                    .enumerate()
+                    .take(current + 1)
+                    .filter(|(_, item)| item.span.start <= target)
+                    .map(|(index, _)| index)
+                    .next_back()
+                    .unwrap_or(0),
+            )
+        }
+        KeyCode::PageDown => {
+            let target = items[current].span.start.saturating_add(page_cells.max(1));
+            Some(
+                items
+                    .iter()
+                    .enumerate()
+                    .skip(current + 1)
+                    .find(|(_, item)| item.span.start >= target)
+                    .map_or(items.len() - 1, |(index, _)| index),
+            )
+        }
+        _ => None,
+    }
+}
+
+fn rail_page_size(area: Option<Rect>, metrics: crate::ui::rail::RailMetrics) -> usize {
+    area.map_or(1, |area| {
+        usize::from(area.height.saturating_sub(1)).saturating_div(metrics.stride.max(1)).max(1)
+    })
 }
 
 fn rail_navigation_index(key: &KeyEvent, current: usize, len: usize, page: usize) -> Option<usize> {
@@ -3830,6 +5087,34 @@ fn rail_navigation_index(key: &KeyEvent, current: usize, len: usize, page: usize
         KeyCode::PageDown => Some(current.saturating_add(page).min(len - 1)),
         _ => None,
     }
+}
+
+fn is_vertical_rail_navigation_key(key: &KeyEvent) -> bool {
+    matches!(key.code, KeyCode::Up | KeyCode::Down | KeyCode::Char('j' | 'k'))
+}
+
+fn alt_vertical_rail_direction(key: &KeyEvent) -> Option<Direction> {
+    if !key.modifiers.contains(KeyModifiers::ALT) {
+        return None;
+    }
+    match key.code {
+        KeyCode::Up | KeyCode::Char('k') => Some(Direction::Up),
+        KeyCode::Down | KeyCode::Char('j') => Some(Direction::Down),
+        _ => None,
+    }
+}
+
+fn files_navigation_key(key: &KeyEvent) -> bool {
+    matches!(
+        key.code,
+        KeyCode::Up
+            | KeyCode::Down
+            | KeyCode::Home
+            | KeyCode::End
+            | KeyCode::PageUp
+            | KeyCode::PageDown
+    ) || key.modifiers.contains(KeyModifiers::CONTROL)
+        && matches!(key.code, KeyCode::Char('j' | 'k'))
 }
 
 impl RenderAction {
@@ -3849,6 +5134,13 @@ impl RenderAction {
 /// menu where one exists (sidebar rows and divider, screens, panes).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Hit {
+    /// A named sidebar presentation profile shown in the profile strip.
+    SidebarProfile {
+        index: usize,
+        token: u64,
+    },
+    /// The profile strip's overflow and management entrypoint.
+    SidebarPresentationMenu,
     Machine {
         index: usize,
         key: MachineKey,
@@ -3871,26 +5163,32 @@ pub enum Hit {
     /// A row in a configurable multi-level native projection.
     ProjectionRow {
         view: usize,
+        view_token: u64,
         row: usize,
         target: ProjectionTarget,
     },
     ProjectionToggle {
         view: usize,
+        view_token: u64,
         branch: ProjectionBranch,
     },
     SidebarAction {
         view: usize,
+        view_token: u64,
         action: SidebarActionTarget,
     },
     RecoverableWorkspace {
         index: usize,
+        token: u64,
     },
     CreateWorkspace {
         mode: Option<WorkspaceCreationMode>,
+        view_token: u64,
     },
     /// A visible row in the built-in file browser.
     SidebarFile {
         index: usize,
+        token: u64,
     },
     /// The active filter editor in the built-in files sidebar footer.
     SidebarFilterInput,
@@ -3931,11 +5229,29 @@ pub enum Hit {
         total_rows: usize,
         visible_rows: usize,
     },
+    /// The Files host's independent list viewport scrollbar.
+    FilesScrollbar {
+        track: Rect,
+        total_rows: usize,
+        visible_rows: usize,
+    },
     /// The one-row top pad of a rail: the pointer entrypoint for focusing
     /// the rail without activating one of its rows.
     RailPad(RailKind),
     /// A rail's right border.
-    RailResize(RailKind),
+    RailResize {
+        kind: RailKind,
+        view_token: Option<u64>,
+    },
+    /// A draggable divider between two panes of a sidebar split group.
+    SidebarSplitDivider {
+        group: usize,
+        index: usize,
+        divider_token: u64,
+        group_token: u64,
+        first_token: u64,
+        second_token: u64,
+    },
     /// Pane border resize handle.
     PaneResize {
         horizontal: Option<(PaneId, PaneEdge)>,
@@ -3993,11 +5309,11 @@ pub enum FocusTarget {
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct FrontendFocusSnapshot {
     target: FrontendFocusTarget,
-    workspace_id: Option<cmux_tui_core::resource::WorkspacePublicId>,
-    screen_id: Option<cmux_tui_core::resource::ScreenPublicId>,
-    pane_id: Option<cmux_tui_core::resource::PanePublicId>,
-    tab_id: Option<cmux_tui_core::resource::TabPublicId>,
-    content_id: Option<cmux_tui_core::resource::ContentPublicId>,
+    workspace_id: Option<WorkspacePublicId>,
+    screen_id: Option<ScreenPublicId>,
+    pane_id: Option<PanePublicId>,
+    tab_id: Option<TabPublicId>,
+    content_id: Option<ContentPublicId>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -4010,7 +5326,7 @@ struct FrontendResizeSnapshot {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct FrontendViewportSnapshot {
-    screen_id: Option<cmux_tui_core::resource::ScreenPublicId>,
+    screen_id: Option<ScreenPublicId>,
     offset: u64,
     target: u64,
     settled: bool,
@@ -4034,18 +5350,128 @@ pub struct RailPlacement {
     pub rect: Rect,
 }
 
+/// One top-level sidebar column. A column holds one rail, or a split group
+/// of rails; width drag and the packing solver operate on columns.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SidebarColumnPlacement {
+    /// Width-override key: the leaf view id, or the split group id.
+    pub key: String,
+    pub rect: Rect,
+    pub max_width: u16,
+    /// Rails inside this column, tree order.
+    pub rails: Vec<RailKind>,
+}
+
+/// A rendered split group: the region its children partition. Divider drags
+/// convert pointer positions into new child fractions through this record.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SidebarSplitGroupPlacement {
+    pub id: String,
+    pub dir: crate::config::SidebarSplitDir,
+    pub children: Vec<Rect>,
+    /// Stable child ids in the same order as `children`. Drag state uses
+    /// these ids so a layout refresh cannot retarget a divider by index.
+    pub child_keys: Vec<String>,
+}
+
+/// A draggable boundary between two children of a split group. A vertical
+/// split renders its divider as a dedicated row; a horizontal split reuses
+/// the left child's border column.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SidebarDividerPlacement {
+    /// Index into `SidebarLayout::split_groups`.
+    pub group: usize,
+    /// The divider sits between child `index` and child `index + 1`.
+    pub index: usize,
+    pub rect: Rect,
+    pub dir: crate::config::SidebarSplitDir,
+}
+
+/// Receipt for one rendered split handle. It includes topology, orientation,
+/// and geometry, so a delayed mouse event cannot resize a different divider
+/// after a layout refresh.
+pub(crate) fn sidebar_split_divider_token(
+    group: &SidebarSplitGroupPlacement,
+    index: usize,
+    rect: Rect,
+) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    group.id.hash(&mut hasher);
+    match group.dir {
+        crate::config::SidebarSplitDir::Vertical => 0u8.hash(&mut hasher),
+        crate::config::SidebarSplitDir::Horizontal => 1u8.hash(&mut hasher),
+    }
+    group.child_keys.hash(&mut hasher);
+    index.hash(&mut hasher);
+    rect.x.hash(&mut hasher);
+    rect.y.hash(&mut hasher);
+    rect.width.hash(&mut hasher);
+    rect.height.hash(&mut hasher);
+    hasher.finish()
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SidebarHiddenReason {
+    Explicit,
+    Width,
+    Height,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SidebarHiddenView {
+    pub view_index: usize,
+    pub id: String,
+    pub reason: SidebarHiddenReason,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SidebarLayout {
     pub machine: Option<Rect>,
     pub workspace: Option<Rect>,
     pub tabs: Option<Rect>,
     pub ordered: Vec<RailPlacement>,
+    pub columns: Vec<SidebarColumnPlacement>,
+    pub split_groups: Vec<SidebarSplitGroupPlacement>,
+    pub dividers: Vec<SidebarDividerPlacement>,
+    /// One shared row above native rails for profile switching and overflow.
+    pub presentation: Option<Rect>,
+    /// Every configured view omitted from this frame, with the cause.
+    pub hidden_views: Vec<SidebarHiddenView>,
     pub content: Rect,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct FilesLayoutGeometry {
+    pub body: Rect,
+    pub footer_y: Option<u16>,
+    pub top_action_rows: usize,
+    pub bottom_action_rows: usize,
+    pub action_offset: usize,
+}
+
+/// Move one rail viewport while keeping its offset inside the rendered
+/// content range. Wheel routing calls this only after it has identified the
+/// body or action rectangle, so a header or empty boundary never changes a
+/// different viewport by accident.
+fn scroll_rail_offset(
+    offset: &mut usize,
+    total_rows: usize,
+    visible_rows: usize,
+    delta: isize,
+) -> bool {
+    let before = *offset;
+    let maximum = total_rows.saturating_sub(visible_rows);
+    *offset = offset.saturating_add_signed(delta).min(maximum);
+    *offset != before
 }
 
 impl SidebarLayout {
     pub fn total_width(&self) -> u16 {
         self.content.x
+    }
+
+    fn has_column(&self, key: &str) -> bool {
+        self.columns.iter().any(|column| column.key == key)
     }
 
     pub fn rail(&self, kind: RailKind) -> Option<Rect> {
@@ -4107,6 +5533,14 @@ struct PaneSizeLease {
     pane: PaneId,
     surface: SurfaceId,
     content_size: (u16, u16),
+}
+
+fn first_pane_by_id(panes: &[PaneView]) -> HashMap<PaneId, &PaneView> {
+    let mut index = HashMap::with_capacity(panes.len());
+    for pane in panes {
+        index.entry(pane.id).or_insert(pane);
+    }
+    index
 }
 
 impl PaneArea {
@@ -4223,6 +5657,10 @@ pub enum MenuAction {
         view: usize,
         visible: bool,
     },
+    SetSidebarViewPinned {
+        view: usize,
+        pinned: bool,
+    },
     ShowShortcuts,
     SetClientSizing {
         surface: SurfaceId,
@@ -4323,6 +5761,10 @@ impl MenuAction {
             MenuAction::ActivateSidebarProfile(_) => menu.sidebar_profiles,
             MenuAction::SetSidebarViewVisible { visible: true, .. } => menu.show_sidebar_view,
             MenuAction::SetSidebarViewVisible { visible: false, .. } => menu.hide_sidebar_view,
+            MenuAction::SetSidebarViewPinned { pinned: true, .. } => menu.keep_sidebar_view_visible,
+            MenuAction::SetSidebarViewPinned { pinned: false, .. } => {
+                menu.allow_sidebar_view_auto_hide
+            }
             MenuAction::ShowShortcuts => {
                 localization::catalog().action_label(Action::ShowShortcuts)
             }
@@ -5129,6 +6571,16 @@ pub enum PromptTarget {
     ConfirmLayoutUndo { pane: PaneId, revision: u64 },
 }
 
+/// Exact provider resource captured when a destructive workspace prompt is
+/// opened. The visible index is only a display coordinate and may change
+/// while the user types CONFIRM.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ManagedWorkspacePurgeReceipt {
+    machine: MachineKey,
+    workspace_id: String,
+    expected_version: u64,
+}
+
 /// Centered rename dialog: a text input with OK/Cancel buttons. The
 /// renderer writes the final geometry back so mouse hit-testing (buttons,
 /// dismiss-outside) matches what is drawn.
@@ -5143,6 +6595,7 @@ pub struct Prompt {
     pub clear: Rect,
     pub ok: Rect,
     pub cancel: Rect,
+    managed_workspace_purge: Option<ManagedWorkspacePurgeReceipt>,
 }
 
 pub struct PairingDialog {
@@ -5188,11 +6641,20 @@ pub struct ShortcutHelp {
 
 impl ShortcutHelp {
     fn resolved_rows(config: &Config, surface_only: bool) -> Vec<(Action, String)> {
+        let profile_actions_available =
+            config.sidebar.plugin.is_none() && config.sidebar.profiles.len() > 1;
         let mut rows: Vec<(Action, String)> = config
             .keys
             .resolved_shortcuts()
             .into_iter()
-            .filter(|(definition, _)| action_available_in_mode(definition.action, surface_only))
+            .filter(|(definition, _)| {
+                action_available_in_mode(definition.action, surface_only)
+                    && (profile_actions_available
+                        || !matches!(
+                            definition.action,
+                            Action::PrevSidebarProfile | Action::NextSidebarProfile
+                        ))
+            })
             .map(|(definition, shortcuts)| (definition.action, shortcuts.join(", ")))
             .collect();
         // The default provider-menu chord is contextual to the machine rail,
@@ -5313,6 +6775,7 @@ impl Prompt {
             clear: Rect::default(),
             ok: Rect::default(),
             cancel: Rect::default(),
+            managed_workspace_purge: None,
         }
     }
 }
@@ -5326,6 +6789,51 @@ pub struct Selection {
     pub anchor: (u16, u64),
     pub head: (u16, u64),
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum SelectionMode {
+    #[default]
+    Cell,
+    Word,
+    Line,
+}
+
+/// State shared by the press and drag halves of one terminal selection
+/// gesture. Crossterm reports individual presses, so the TUI owns the small
+/// amount of timing and distance state needed to recognize repeats.
+struct SelectionClickSequence {
+    surface: SurfaceId,
+    screen: Option<Screen>,
+    position: (u16, u16),
+    modifiers: KeyModifiers,
+    time: Instant,
+    count: u8,
+    mode: SelectionMode,
+    anchor: (u16, u64),
+    dragged: bool,
+    tracked_anchor: Option<TrackedScreenPoint>,
+    /// A failed semantic press keeps `tracked_anchor` alive for a same-press
+    /// cell drag, but it must not keep the repeat count alive for the next
+    /// press.
+    repeatable: bool,
+}
+
+/// The most recent semantic drag result. Pointer reports often repeat the
+/// same terminal cell while the mouse moves between cell boundaries. Keep
+/// one bounded result and tie it to the terminal content generation so live
+/// output or scrolling always forces a fresh Ghostty lookup.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct SemanticSelectionCache {
+    surface: SurfaceId,
+    mode: SelectionMode,
+    anchor: SelectionPoint,
+    current: SelectionPoint,
+    content_generation: u64,
+    range: Option<SelectionRange>,
+}
+
+const SELECTION_REPEAT_INTERVAL: Duration = Duration::from_millis(500);
+const SELECTION_REPEAT_DISTANCE_SQUARED: u32 = 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct VisibleInputState {
@@ -5442,6 +6950,15 @@ enum PaneResizeDragTarget {
     },
 }
 
+/// The local client may emit a `LayoutChanged` event for each sample of an
+/// active divider drag. Keep the expected mutation separate from the tree
+/// snapshot so that this self-generated event does not cancel its own drag.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LayoutResizeExpectation {
+    Split { screen: ScreenId, split: SplitId, ratio: u32 },
+    Viewport { screen: ScreenId, pane: PaneId, width: u32 },
+}
+
 /// Mouse drag in progress.
 enum Drag {
     /// Left press on a tab chip; becomes `Tab` after moving cells.
@@ -5479,8 +6996,10 @@ enum Drag {
         position_y: u16,
         scrollbar: Scrollbar,
     },
-    /// Horizontal pane-column scrollbar drag.
-    HorizontalScrollbar { track: Rect, anchor_x: u16, anchor_offset: u64 },
+    /// Horizontal pane-column scrollbar drag. The screen id makes the
+    /// capture fail closed when a remote layout update changes the active
+    /// screen before the physical release arrives.
+    HorizontalScrollbar { screen: ScreenId, track: Rect, anchor_x: u16, anchor_offset: u64 },
     /// Workspace viewport scrollbar thumb drag.
     WorkspaceScrollbar {
         track: Rect,
@@ -5489,10 +7008,26 @@ enum Drag {
         anchor_y: u16,
         anchor_offset: usize,
     },
+    /// Files list viewport scrollbar thumb drag.
+    FilesScrollbar {
+        track: Rect,
+        total_rows: usize,
+        visible_rows: usize,
+        anchor_y: u16,
+        anchor_offset: usize,
+    },
     /// Independent rail width override drag.
     RailResize(RailKind),
-    /// Pane split resize drag.
-    ResizeSplit { horizontal: Option<PaneResizeDragTarget>, vertical: Option<PaneResizeDragTarget> },
+    /// Sidebar split-group divider drag: re-shares the group's children.
+    /// Stable group and child ids survive layout pruning and reordering.
+    SidebarSplit { group: String, first_child: String, second_child: String },
+    /// Pane split resize drag. Targets are frozen against one screen's
+    /// geometry and must not cross a remote layout boundary.
+    ResizeSplit {
+        screen: ScreenId,
+        horizontal: Option<PaneResizeDragTarget>,
+        vertical: Option<PaneResizeDragTarget>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -5600,6 +7135,77 @@ impl GraphicIdentity {
             && self.surface == other.surface
             && self.rect == other.rect
     }
+
+    fn layout_key(self) -> GraphicLayoutKey {
+        GraphicLayoutKey {
+            session_generation: self.session_generation,
+            surface: self.surface,
+            x: self.rect.x,
+            y: self.rect.y,
+            width: self.rect.width,
+            height: self.rect.height,
+        }
+    }
+
+    fn route_key(self) -> GraphicRouteKey {
+        GraphicRouteKey { layout: self.layout_key(), pointer_frame_seq: self.pointer_frame_seq }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct GraphicLayoutKey {
+    session_generation: u64,
+    surface: SurfaceId,
+    x: u16,
+    y: u16,
+    width: u16,
+    height: u16,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct GraphicRouteKey {
+    layout: GraphicLayoutKey,
+    pointer_frame_seq: Option<u64>,
+}
+
+struct GraphicRouteIndex {
+    routes: HashMap<GraphicRouteKey, bool>,
+    routed_layouts: HashSet<GraphicLayoutKey>,
+}
+
+const GRAPHICS_ROUTE_INDEX_FAST_PATH_LIMIT: usize = 8;
+
+impl GraphicRouteIndex {
+    fn build(app: &App, graphics: &[GraphicIdentity]) -> Self {
+        let mut routes = HashMap::with_capacity(graphics.len());
+        let mut routed_layouts = HashSet::with_capacity(graphics.len());
+        for &graphic in graphics {
+            let route_key = graphic.route_key();
+            let route_valid = graphic.pointer_frame_seq.is_some_and(|frame_seq| {
+                app.session.surface(graphic.surface).is_some_and(|surface| {
+                    surface.browser_pointer_frame_is_in_current_route(frame_seq)
+                })
+            });
+            routes
+                .entry(route_key)
+                .and_modify(|existing| *existing |= route_valid)
+                .or_insert(route_valid);
+            if route_valid {
+                routed_layouts.insert(route_key.layout);
+            }
+        }
+        Self { routes, routed_layouts }
+    }
+
+    fn has_match(&self, graphic: GraphicIdentity, other: &Self) -> bool {
+        let route_key = graphic.route_key();
+        if other.routes.contains_key(&route_key) {
+            return true;
+        }
+        graphic.pointer_frame_seq.is_some()
+            && self.routes.get(&route_key).copied().unwrap_or(false)
+            && other.routed_layouts.contains(&route_key.layout)
+    }
 }
 
 fn bounding_rect(first: Rect, second: Rect) -> Rect {
@@ -5653,8 +7259,11 @@ struct MachinePointerTarget {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum PointerHitIdentity {
+    SidebarProfile(String),
+    SidebarPresentation(String),
     MachineContext(Arc<MachinePointerContext>),
     Machine(MachinePointerTarget),
+    Workspace(WorkspaceId),
     RecoverableWorkspace(String),
     SidebarFile(PathBuf),
     SidebarFilter(PathBuf),
@@ -5768,26 +7377,6 @@ impl PointerRouteIdentity {
             _ => None,
         }
     }
-
-    /// A press that opens the cmux-owned context menu never enters the pane's
-    /// application, so the surface's content generation and encoder semantics
-    /// are not part of that press's route identity. Only the geometry (which
-    /// pane, which region) decides where the menu opens.
-    fn normalized_for_cmux_menu(mut self) -> Self {
-        if let Self::Pane { region, .. } = &mut self {
-            match region {
-                PanePointerRegion::TerminalCell { semantics, content_generation, .. } => {
-                    *semantics = None;
-                    *content_generation = None;
-                }
-                PanePointerRegion::BrowserCell { content_generation, .. } => {
-                    *content_generation = None;
-                }
-                PanePointerRegion::ContentPadding | PanePointerRegion::Chrome => {}
-            }
-        }
-        self
-    }
 }
 
 #[derive(Clone, Default)]
@@ -5894,7 +7483,18 @@ impl RenderedPointerFrame {
                 row: y.saturating_sub(rect.y),
             };
         }
-        if let Some(route) = self.hits.iter().find(|route| route.rect.contains(x, y)) {
+        // Split dividers are explicit semantic handles. They are drawn after
+        // rail borders, so prefer their receipt before the generic border hit
+        // can classify the same cell as a rail-width resize.
+        let hit_route = self
+            .hits
+            .iter()
+            .rev()
+            .find(|route| {
+                matches!(route.hit, Hit::SidebarSplitDivider { .. }) && route.rect.contains(x, y)
+            })
+            .or_else(|| self.hits.iter().find(|route| route.rect.contains(x, y)));
+        if let Some(route) = hit_route {
             return PointerRouteIdentity::Hit {
                 rect: route.rect,
                 hit: route.hit,
@@ -5919,15 +7519,14 @@ impl RenderedPointerFrame {
         }
         if let Some((kind, rect)) =
             self.projection_rails.iter().copied().find(|(_, rect)| rect.contains(x, y))
+            && !self.panes.iter().any(|pane| pane.content.contains(x, y))
         {
-            if !self.panes.iter().any(|pane| pane.content.contains(x, y)) {
-                return PointerRouteIdentity::Rail {
-                    kind,
-                    rect,
-                    column: x.saturating_sub(rect.x),
-                    row: y.saturating_sub(rect.y),
-                };
-            }
+            return PointerRouteIdentity::Rail {
+                kind,
+                rect,
+                column: x.saturating_sub(rect.x),
+                row: y.saturating_sub(rect.y),
+            };
         }
         if let Some(pane) = self.panes.iter().find(|pane| pane.rect.contains(x, y)) {
             let region = if pane.content.contains(x, y) {
@@ -6163,9 +7762,7 @@ const VIEWPORT_ANIMATION_SYNC_OPERATION_BUDGET: usize = PTY_OPERATION_QUEUE_CAPA
 
 #[cfg(test)]
 thread_local! {
-    static PANE_AREA_PROJECTION_WORK: std::cell::Cell<usize> = const {
-        std::cell::Cell::new(0)
-    };
+    static PANE_AREA_PROJECTION_WORK: Cell<usize> = const { Cell::new(0) };
 }
 
 #[cfg(test)]
@@ -6710,7 +8307,7 @@ impl PaneFocusHistory {
 
     fn reconcile_membership(&mut self, tree: &TreeView) {
         let live = tree
-            .workspaces
+            .workspaces()
             .iter()
             .flat_map(|workspace| workspace.screens.iter())
             .flat_map(|screen| screen.panes.iter())
@@ -6719,7 +8316,7 @@ impl PaneFocusHistory {
         self.recency.retain(|pane, _| live.contains(pane));
         self.baseline.retain(|pane, _| live.contains(pane));
         for pane in tree
-            .workspaces
+            .workspaces()
             .iter()
             .flat_map(|workspace| workspace.screens.iter())
             .flat_map(|screen| screen.panes.iter())
@@ -6791,6 +8388,9 @@ impl GraphicsSceneCache {
     }
 }
 
+#[cfg(test)]
+type TimeoutDrainHook = Box<dyn FnOnce(&mut App) + Send>;
+
 pub struct App {
     pub session: OrderedSession,
     /// The local mux owned by this process. Unlike `session`, this does not
@@ -6830,6 +8430,16 @@ pub struct App {
     durable_notice_ack_failures: u8,
     durable_notice_ack_retry_at: Option<Instant>,
     pub config: Config,
+    /// The profile selected by the last loaded configuration. Runtime profile
+    /// switches do not rewrite the config file, so reloads can distinguish an
+    /// actual setting change from an unrelated reload and preserve the user's
+    /// active profile when its stable id still exists.
+    configured_sidebar_profile: String,
+    /// Preserve the raw startup request separately from its resolved profile
+    /// id. An invalid request resolves to the first profile, so comparing only
+    /// `active_profile` would incorrectly preserve a runtime switch after the
+    /// user edits `sidebar.profile`.
+    configured_sidebar_profile_request: Option<String>,
     #[cfg(test)]
     config_reload_applications: usize,
     pub chrome: ChromeTheme,
@@ -6837,6 +8447,10 @@ pub struct App {
     tab_locations: HashMap<SurfaceId, [usize; 4]>,
     pub render_states: HashMap<SurfaceId, RenderState>,
     pub(crate) chrome_row_scratch: ReusableRowBuffer,
+    /// Reusable storage for the ordered sidebar kind snapshot taken during a
+    /// frame. The draw loop takes this out while dispatching so mutable rail
+    /// renderers do not borrow the layout across calls.
+    pub(crate) sidebar_kind_scratch: Vec<RailKind>,
     /// Terminal grid dimensions from the frame actually drawn for each
     /// surface. Pointer routing uses this snapshot so resize transitions do
     /// not target blank pane margins or wait on the PTY's terminal lock.
@@ -6898,6 +8512,9 @@ pub struct App {
     geometry_authority_surface: Option<SurfaceId>,
     pub prefix_armed: bool,
     pub session_label: String,
+    /// Machine-level model spend readout from the session's daemon; `None`
+    /// hides the sidebar readout.
+    pub machine_usage: Option<MachineUsage>,
     /// When set, render only this PTY surface without session chrome.
     surface_only: Option<SurfaceId>,
     pub sidebar_visible: bool,
@@ -6908,36 +8525,59 @@ pub struct App {
     machine_pointer_context_cache: Option<Arc<MachinePointerContext>>,
     pub sidebar_view: SidebarView,
     pub sidebar_files: FileBrowser,
+    pub(crate) files_rail_selection: FilesRailSelection,
     pub sidebar_workspace_selection: usize,
     pub(crate) sidebar_recoverable_workspace_selection: usize,
     pub(crate) workspace_rail_selection: WorkspaceRailSelection,
-    pub(crate) machine_rail_scroll: usize,
-    pub(crate) machine_footer_scroll: usize,
-    pub(crate) workspace_rail_scroll: usize,
-    pub(crate) workspace_footer_scroll: usize,
     pub(crate) tabs_rail_selection: usize,
-    pub(crate) tabs_rail_scroll: usize,
-    pub(crate) tabs_footer_scroll: usize,
-    projection_rails: HashMap<String, ProjectionRailState>,
+    sidebar_presentation: SidebarPresentationState,
+    projection_rows_cache: VecDeque<ProjectionRowsCache>,
+    projection_rows_revision: u64,
+    /// Client-local focus stamps for the agents-view seen bit: surface to
+    /// the last epoch ms this client had it focused. Presentation state,
+    /// never journaled or shared: two attached clients keep separate stamps
+    /// and may rank the same idle agent differently, deliberately.
+    agent_focus_stamps: HashMap<SurfaceId, u64>,
+    /// The agent status receipt from the last successfully drawn profile
+    /// strip. It is independent of row dependencies, because the strip is
+    /// global even when an Agents rail is hidden or has not adopted a new
+    /// surface yet.
+    rendered_agent_attention: Option<AgentAttentionReceipt>,
+    /// Coalesce global profile-strip paints until the next successful frame.
+    agent_attention_paint_pending: bool,
+    /// Projection surfaces seen by the most recent rendered snapshots. These
+    /// sets cover caches evicted by the bounded LRU, so an update still wakes
+    /// a visible rail even when its snapshot is not retained. They are pruned
+    /// against the current tab locations after every cache/index update, so a
+    /// retired surface cannot accumulate or trigger future fanout.
+    projection_agent_surfaces: HashSet<SurfaceId>,
+    projection_title_surfaces: HashSet<SurfaceId>,
+    /// Dependencies are retained per active view, not only in a global union.
+    /// This lets hidden views be removed without losing dependencies for a
+    /// visible view whose bounded row snapshot was evicted.
+    projection_agent_surfaces_by_view: HashMap<String, Arc<HashSet<SurfaceId>>>,
+    projection_title_surfaces_by_view: HashMap<String, Arc<HashSet<SurfaceId>>>,
+    /// Coalesce surface updates until the next successful rendered frame.
+    projection_paint_pending: bool,
     pub(crate) machine_rail_follow_selection: bool,
     pub(crate) workspace_rail_follow_selection: bool,
     pub(crate) tabs_rail_follow_selection: bool,
-    sidebar_followed_surface: Option<SurfaceId>,
+    /// Semantic owner of the unpinned Files view. Runtime surface ids can be
+    /// recycled after a reconnect, so retain the public tab identity too.
+    sidebar_followed_surface: Option<ActiveSurfaceOwner>,
     /// Width of the sidebar in the current frame (0 when hidden).
     pub sidebar_width: u16,
     pub machine_sidebar_width: u16,
     pub tabs_sidebar_width: u16,
     pub sidebar_layout: SidebarLayout,
+    /// Inputs that produced the committed sidebar layout. The hysteresis
+    /// solver may reuse a prior layout only when its full presentation
+    /// topology and machine availability are unchanged.
+    sidebar_layout_reuse_spec: Option<SidebarLayoutReuseSpec>,
     pub sidebar_plugin_surface: Option<SurfaceId>,
     pub sidebar_plugin_error: Option<String>,
     pub sidebar_plugin_retry_after_ms: Option<u64>,
     sidebar_plugin_retry_at: Option<Instant>,
-    sidebar_width_override: Option<u16>,
-    machine_sidebar_width_override: Option<u16>,
-    tabs_sidebar_width_override: Option<u16>,
-    projection_sidebar_width_overrides: HashMap<String, u16>,
-    /// Session-local visibility overrides, keyed by profile and stable view id.
-    hidden_sidebar_views: HashMap<String, HashSet<String>>,
     /// Pane region of the current frame (screen minus sidebar/status).
     pub content_area: Rect,
     /// Clickable regions of the current frame, rebuilt by the renderers.
@@ -6963,6 +8603,10 @@ pub struct App {
     pub(crate) shake_frames: u8,
     pub selection: Option<Selection>,
     selection_generation: u64,
+    selection_mode: SelectionMode,
+    selection_mode_surface: Option<SurfaceId>,
+    selection_click_sequence: Option<SelectionClickSequence>,
+    semantic_selection_cache: Option<SemanticSelectionCache>,
     status_selection: Option<StatusMessageSelection>,
     rendered_status_message: Option<RenderedStatusMessage>,
     /// The last status message written to the client log, so a message that
@@ -7003,10 +8647,27 @@ pub struct App {
     pty_failures: Arc<PtyFailureIngress>,
     mux_recovery_generation: Arc<AtomicU64>,
     drag: Option<Drag>,
+    /// Owner token captured when the Files scrollbar press was admitted.
+    /// This is separate from `Drag` so legacy synthetic tests can construct
+    /// drag variants directly while real input still receives an owner fence.
+    files_pointer_owner: Option<FilesPointerOwner>,
+    layout_resize_expectations: [Option<LayoutResizeExpectation>; 2],
     active_pointer_buttons: HashSet<MouseButton>,
-    ignored_pty_mouse_buttons: HashSet<MouseButton>,
+    /// Surface targeted by each admitted physical button press, when the
+    /// press landed in a pane. This lets topology removal fence a plain
+    /// click that never became a native drag.
+    pointer_button_surfaces: HashMap<MouseButton, SurfaceId>,
+    /// Pointer buttons pressed while another button already owned the
+    /// interaction. Their drag and release samples are ignored until the
+    /// physical button is released, so one gesture cannot be split between
+    /// two owners.
+    ignored_pointer_buttons: HashSet<MouseButton>,
+    /// Buttons whose owner was canceled by a topology or modal boundary.
+    /// Keep a tombstone until the physical release arrives so that release
+    /// cannot be interpreted as a new click in the replacement surface.
+    canceled_pointer_buttons: HashSet<MouseButton>,
     #[cfg(test)]
-    timeout_drain_hook: Option<Box<dyn FnOnce(&mut Self) + Send>>,
+    timeout_drain_hook: Option<TimeoutDrainHook>,
     encoder: KeyEncoder,
     encode_buf: Vec<u8>,
     quit: bool,
@@ -7065,82 +8726,187 @@ fn client_focus_identity() -> Option<String> {
     Some(id)
 }
 
+/// Restore client-local selection across a daemon snapshot. Public resource
+/// ids are semantic identity and therefore win over reallocated runtime ids.
+/// Runtime ids are used only for legacy snapshots that have no public ids on
+/// either side. A partial public-id pair fails closed.
+fn preserve_identity_matches<R: PartialEq, P: PartialEq>(
+    previous_runtime: &R,
+    next_runtime: &R,
+    previous_public: Option<&P>,
+    next_public: Option<&P>,
+) -> bool {
+    match (previous_public, next_public) {
+        (Some(previous), Some(next)) => previous == next,
+        (None, None) => previous_runtime == next_runtime,
+        _ => false,
+    }
+}
+
+fn preserve_workspace_matches(previous: &WorkspaceView, next: &WorkspaceView) -> bool {
+    if let (Some(previous), Some(next)) = (previous.resource_id.as_ref(), next.resource_id.as_ref())
+    {
+        return previous == next;
+    }
+    // Workspace keys are the stable registry identity in snapshots that are
+    // crossing a capability boundary. Prefer them when both frames provide
+    // one, even if only one frame has a public resource id.
+    if !previous.key.is_empty() && !next.key.is_empty() {
+        return previous.key == next.key;
+    }
+    // Runtime ids are a legacy fallback only when neither semantic identity
+    // is present. A mixed key/public-id frame fails closed rather than
+    // retargeting a client to an ambiguous workspace.
+    previous.resource_id.is_none()
+        && next.resource_id.is_none()
+        && previous.key.is_empty()
+        && next.key.is_empty()
+        && previous.id == next.id
+}
+
+fn matching_workspace_index(next: &TreeView, previous: &WorkspaceView) -> Option<usize> {
+    next.workspaces().iter().enumerate().find_map(|(index, candidate)| {
+        preserve_workspace_matches(previous, candidate).then_some(index)
+    })
+}
+
+fn matching_screen_index(next: &WorkspaceView, previous: &ScreenView) -> Option<usize> {
+    next.screens.iter().enumerate().find_map(|(index, candidate)| {
+        preserve_identity_matches(
+            &previous.id,
+            &candidate.id,
+            previous.resource_id.as_ref(),
+            candidate.resource_id.as_ref(),
+        )
+        .then_some(index)
+    })
+}
+
+fn matching_pane_index(next: &ScreenView, previous: &PaneView) -> Option<usize> {
+    next.panes.iter().enumerate().find_map(|(index, candidate)| {
+        preserve_identity_matches(
+            &previous.id,
+            &candidate.id,
+            previous.resource_id.as_ref(),
+            candidate.resource_id.as_ref(),
+        )
+        .then_some(index)
+    })
+}
+
+fn matching_tab_index(next: &PaneView, previous: &TabView) -> Option<usize> {
+    next.tabs.iter().enumerate().find_map(|(index, candidate)| {
+        preserve_identity_matches(
+            &previous.surface,
+            &candidate.surface,
+            previous.public_id.as_ref(),
+            candidate.public_id.as_ref(),
+        )
+        .then_some(index)
+    })
+}
+
 fn preserve_client_view(previous: &TreeView, next: &mut TreeView) {
-    let workspace_indices = next
-        .workspaces
-        .iter()
-        .enumerate()
-        .map(|(index, workspace)| (workspace.id, index))
-        .collect::<HashMap<_, _>>();
-    if let Some(active) = previous.active_workspace().map(|workspace| workspace.id)
-        && let Some(index) = workspace_indices.get(&active).copied()
+    if let Some(previous_active) = previous.active_workspace()
+        && let Some(index) = matching_workspace_index(next, previous_active)
     {
         next.active_workspace = index;
     }
 
-    for previous_workspace in &previous.workspaces {
-        let Some(next_workspace_index) = workspace_indices.get(&previous_workspace.id).copied()
-        else {
+    let mut screen_updates = Vec::new();
+    let mut pane_updates = Vec::new();
+    let mut zoom_updates = Vec::new();
+    let mut tab_updates = Vec::new();
+    for previous_workspace in previous.workspaces() {
+        let Some(next_workspace_index) = matching_workspace_index(next, previous_workspace) else {
             continue;
         };
-        let next_workspace = &mut next.workspaces[next_workspace_index];
-        let screen_indices = next_workspace
-            .screens
-            .iter()
-            .enumerate()
-            .map(|(index, screen)| (screen.id, index))
-            .collect::<HashMap<_, _>>();
-        if let Some(active) =
-            previous_workspace.screens.get(previous_workspace.active_screen).map(|screen| screen.id)
-            && let Some(index) = screen_indices.get(&active).copied()
+        let Some(next_workspace) = next.workspaces().get(next_workspace_index) else {
+            continue;
+        };
+        if let Some(previous_active_screen) =
+            previous_workspace.screens.get(previous_workspace.active_screen)
+            && let Some(index) = matching_screen_index(next_workspace, previous_active_screen)
         {
-            next_workspace.active_screen = index;
+            screen_updates.push((next_workspace_index, index));
         }
 
         for previous_screen in &previous_workspace.screens {
-            let Some(next_screen_index) = screen_indices.get(&previous_screen.id).copied() else {
+            let Some(next_screen_index) = matching_screen_index(next_workspace, previous_screen)
+            else {
                 continue;
             };
-            let next_screen = &mut next_workspace.screens[next_screen_index];
-            let pane_indices = next_screen
-                .panes
-                .iter()
-                .enumerate()
-                .map(|(index, pane)| (pane.id, index))
-                .collect::<HashMap<_, _>>();
-            if let Some(zoomed_pane) =
-                next_screen.zoomed_pane.filter(|zoomed| pane_indices.contains_key(zoomed))
+            let Some(next_screen) = next_workspace.screens.get(next_screen_index) else {
+                continue;
+            };
+            // Zoom is a screen-wide layout state, so keep it paired with the
+            // active pane. An incoming valid zoom wins because it is
+            // authoritative layout state. When the incoming frame is
+            // unzoomed, restore this client's previous active pane instead.
+            // This prevents the impossible state of an active pane outside a
+            // zoomed screen while still preserving local focus on ordinary
+            // remote refreshes.
+            let incoming_zoomed = next_screen
+                .zoomed_pane
+                .filter(|pane_id| next_screen.panes.iter().any(|pane| pane.id == *pane_id));
+            zoom_updates.push((next_workspace_index, next_screen_index, incoming_zoomed));
+            if let Some(pane_id) = incoming_zoomed {
+                pane_updates.push((next_workspace_index, next_screen_index, pane_id));
+            } else if let Some(previous_pane) =
+                previous_screen.panes.iter().find(|pane| pane.id == previous_screen.active_pane)
+                && let Some(index) = matching_pane_index(next_screen, previous_pane)
+                && let Some(next_pane) = next_screen.panes.get(index)
             {
-                next_screen.active_pane = zoomed_pane;
-            } else if next_screen.zoomed_pane.is_none()
-                && pane_indices.contains_key(&previous_screen.active_pane)
-            {
-                next_screen.active_pane = previous_screen.active_pane;
+                pane_updates.push((next_workspace_index, next_screen_index, next_pane.id));
             }
 
             for previous_pane in &previous_screen.panes {
-                let Some(next_pane_index) = pane_indices.get(&previous_pane.id).copied() else {
+                let Some(next_pane_index) = matching_pane_index(next_screen, previous_pane) else {
                     continue;
                 };
-                let next_pane = &mut next_screen.panes[next_pane_index];
-                let tab_indices = next_pane
-                    .tabs
-                    .iter()
-                    .enumerate()
-                    .map(|(index, tab)| (tab.surface, index))
-                    .collect::<HashMap<_, _>>();
-                if let Some(active) = previous_pane.active_surface()
-                    && let Some(index) = tab_indices.get(&active).copied()
+                let Some(next_pane) = next_screen.panes.get(next_pane_index) else {
+                    continue;
+                };
+                if let Some(active_surface) = previous_pane.active_surface()
+                    && let Some(previous_tab) =
+                        previous_pane.tabs.iter().find(|tab| tab.surface == active_surface)
+                    && let Some(index) = matching_tab_index(next_pane, previous_tab)
                 {
-                    next_pane.active_tab = index;
+                    tab_updates.push((
+                        next_workspace_index,
+                        next_screen_index,
+                        next_pane.id,
+                        index,
+                    ));
                 }
             }
         }
+    }
+    for (workspace_index, screen_index) in screen_updates {
+        next.set_active_screen(workspace_index, screen_index);
+    }
+    for (workspace_index, screen_index, pane_id) in pane_updates {
+        next.set_active_pane(workspace_index, screen_index, pane_id);
+    }
+    for (workspace_index, screen_index, zoomed_pane) in zoom_updates {
+        if let Some(screen) = next
+            .workspaces_mut()
+            .get_mut(workspace_index)
+            .and_then(|workspace| workspace.screens.get_mut(screen_index))
+        {
+            screen.zoomed_pane = zoomed_pane;
+        }
+    }
+    for (workspace_index, screen_index, pane_id, tab_index) in tab_updates {
+        next.set_active_tab(workspace_index, screen_index, pane_id, tab_index);
     }
 }
 
 const MIN_RAIL_WIDTH: u16 = 10;
 const MIN_CONTENT_WIDTH: u16 = 40;
+/// Minimum rows for a rail stacked inside a vertical sidebar split: the top
+/// pad, one full entry, and a row of slack so the list stays usable.
+const MIN_SPLIT_RAIL_HEIGHT: u16 = 4;
 const MIN_TABBED_PANE_HEIGHT: u16 = 3;
 const RAIL_REVEAL_HYSTERESIS: u16 = 4;
 
@@ -7812,9 +9578,338 @@ fn sidebar_layout_for(
         overrides.machine,
         overrides.tabs,
         &HashMap::new(),
+        &HashMap::new(),
         &HashSet::new(),
         None,
     )
+}
+
+/// One top-level sidebar column after visibility pruning: hidden views and
+/// an absent machine provider drop leaves, empty splits collapse away.
+#[derive(Clone)]
+enum SidebarColumnNode {
+    Leaf {
+        view_index: usize,
+        kind: RailKind,
+        key: String,
+        priority: u32,
+    },
+    Split {
+        id: String,
+        dir: crate::config::SidebarSplitDir,
+        priority: u32,
+        children: Vec<(u16, SidebarColumnNode)>,
+    },
+}
+
+impl SidebarColumnNode {
+    fn key(&self) -> &str {
+        match self {
+            SidebarColumnNode::Leaf { key, .. } | SidebarColumnNode::Split { id: key, .. } => key,
+        }
+    }
+
+    fn priority(&self) -> u32 {
+        match self {
+            SidebarColumnNode::Leaf { priority, .. }
+            | SidebarColumnNode::Split { priority, .. } => *priority,
+        }
+    }
+
+    fn collect_rails(&self, rails: &mut Vec<RailKind>) {
+        match self {
+            SidebarColumnNode::Leaf { kind, .. } => rails.push(*kind),
+            SidebarColumnNode::Split { children, .. } => {
+                for (_, child) in children {
+                    child.collect_rails(rails);
+                }
+            }
+        }
+    }
+
+    fn collect_view_indexes(&self, indexes: &mut Vec<usize>) {
+        match self {
+            SidebarColumnNode::Leaf { view_index, .. } => indexes.push(*view_index),
+            SidebarColumnNode::Split { children, .. } => {
+                for (_, child) in children {
+                    child.collect_view_indexes(indexes);
+                }
+            }
+        }
+    }
+}
+
+fn prune_sidebar_layout_node(
+    node: &SidebarLayoutNode,
+    views: &[SidebarViewSpec],
+    hidden_views: &HashSet<String>,
+    pinned_views: &HashSet<String>,
+    required_views: &HashSet<String>,
+    machine_visible: bool,
+) -> Option<SidebarColumnNode> {
+    use crate::config::SidebarLayoutNode;
+    match node {
+        SidebarLayoutNode::Leaf(view_index) => {
+            let view = views.get(*view_index)?;
+            if hidden_views.contains(&view.id) {
+                return None;
+            }
+            if view.includes(SidebarResourceKind::Machines) && !machine_visible {
+                return None;
+            }
+            let kind = match view.legacy_kind() {
+                Some(SidebarColumnKind::Machines) => RailKind::Machine,
+                Some(SidebarColumnKind::Workspaces) => RailKind::Workspace,
+                Some(SidebarColumnKind::Tabs) => RailKind::Tabs,
+                None => RailKind::Projection(*view_index),
+            };
+            Some(SidebarColumnNode::Leaf {
+                view_index: *view_index,
+                kind,
+                key: view.id.clone(),
+                priority: if required_views.contains(&view.id) {
+                    REQUIRED_SIDEBAR_COLLAPSE_PRIORITY
+                } else if pinned_views.contains(&view.id) {
+                    PINNED_SIDEBAR_COLLAPSE_PRIORITY
+                } else {
+                    u32::from(view.collapse_priority)
+                },
+            })
+        }
+        SidebarLayoutNode::Split(split) => {
+            let children: Vec<(u16, SidebarColumnNode)> = split
+                .children
+                .iter()
+                .enumerate()
+                .filter_map(|(index, child)| {
+                    prune_sidebar_layout_node(
+                        child,
+                        views,
+                        hidden_views,
+                        pinned_views,
+                        required_views,
+                        machine_visible,
+                    )
+                    .map(|node| (split.weights.get(index).copied().unwrap_or(1).max(1), node))
+                })
+                .collect();
+            match children.len() {
+                0 => None,
+                1 => children.into_iter().next().map(|(_, child)| child),
+                _ => Some(SidebarColumnNode::Split {
+                    id: split.id.clone(),
+                    dir: split.dir,
+                    priority: if children
+                        .iter()
+                        .any(|(_, child)| child.priority() == REQUIRED_SIDEBAR_COLLAPSE_PRIORITY)
+                    {
+                        REQUIRED_SIDEBAR_COLLAPSE_PRIORITY
+                    } else if children
+                        .iter()
+                        .any(|(_, child)| child.priority() == PINNED_SIDEBAR_COLLAPSE_PRIORITY)
+                    {
+                        PINNED_SIDEBAR_COLLAPSE_PRIORITY
+                    } else {
+                        u32::from(split.collapse_priority)
+                    },
+                    children,
+                }),
+            }
+        }
+    }
+}
+
+/// Lay out one pruned column node inside `rect`, appending rail placements,
+/// split-group records, and divider handles. Children that no longer fit at
+/// their minimum size collapse away lowest-priority-first, exactly like
+/// columns do when the terminal narrows.
+fn place_sidebar_column_node(
+    node: &SidebarColumnNode,
+    rect: Rect,
+    layout: &mut SidebarLayout,
+    views: &[SidebarViewSpec],
+    split_fractions: &SidebarSplitFractions,
+) {
+    use crate::config::SidebarSplitDir;
+    if rect.width == 0 || rect.height == 0 {
+        return;
+    }
+    match node {
+        SidebarColumnNode::Leaf { view_index, kind, .. } => {
+            match kind {
+                RailKind::Machine => layout.machine = Some(rect),
+                RailKind::Workspace => layout.workspace = Some(rect),
+                RailKind::Tabs => layout.tabs = Some(rect),
+                RailKind::Projection(_) => {}
+            }
+            layout.ordered.push(RailPlacement { kind: *kind, view_index: *view_index, rect });
+        }
+        SidebarColumnNode::Split { id, dir, children, .. } => {
+            let (total, min_each, divider_size) = match dir {
+                SidebarSplitDir::Vertical => (rect.height, MIN_SPLIT_RAIL_HEIGHT, 1u16),
+                SidebarSplitDir::Horizontal => (rect.width, MIN_RAIL_WIDTH, 0u16),
+            };
+            let mut kept: Vec<&(u16, SidebarColumnNode)> = children.iter().collect();
+            while kept.len() > 1 {
+                let dividers = divider_size.saturating_mul(kept.len().saturating_sub(1) as u16);
+                let needed = min_each.saturating_mul(kept.len() as u16).saturating_add(dividers);
+                if total >= needed {
+                    break;
+                }
+                let Some((drop_index, _)) =
+                    kept.iter().enumerate().min_by_key(|(_, (_, child))| child.priority())
+                else {
+                    break;
+                };
+                let (_, dropped) = kept.remove(drop_index);
+                record_hidden_sidebar_node(
+                    dropped,
+                    views,
+                    match dir {
+                        SidebarSplitDir::Vertical => SidebarHiddenReason::Height,
+                        SidebarSplitDir::Horizontal => SidebarHiddenReason::Width,
+                    },
+                    &mut layout.hidden_views,
+                );
+            }
+            if kept.len() == 1 {
+                place_sidebar_column_node(&kept[0].1, rect, layout, views, split_fractions);
+                return;
+            }
+            let dividers = divider_size.saturating_mul(kept.len().saturating_sub(1) as u16);
+            let available = total.saturating_sub(dividers);
+            if available < min_each.saturating_mul(kept.len() as u16) {
+                for (_, dropped) in kept.iter().skip(1) {
+                    record_hidden_sidebar_node(
+                        dropped,
+                        views,
+                        match dir {
+                            SidebarSplitDir::Vertical => SidebarHiddenReason::Height,
+                            SidebarSplitDir::Horizontal => SidebarHiddenReason::Width,
+                        },
+                        &mut layout.hidden_views,
+                    );
+                }
+                place_sidebar_column_node(&kept[0].1, rect, layout, views, split_fractions);
+                return;
+            }
+            // A committed divider drag overrides the configured weights while
+            // each child keeps its own stable share. A newly visible child
+            // falls back to its configured weight, while a hidden child does
+            // not force every surviving ratio back to defaults.
+            let child_keys =
+                kept.iter().map(|(_, child)| child.key().to_owned()).collect::<Vec<_>>();
+            let shares: Vec<f32> = kept
+                .iter()
+                .map(|(weight, child)| {
+                    split_fractions
+                        .get(id)
+                        .and_then(|fractions| fractions.get(child.key()).copied())
+                        .filter(|value| value.is_finite() && *value > 0.0)
+                        .unwrap_or_else(|| f32::from(*weight))
+                })
+                .collect();
+            let sum: f32 = shares.iter().sum();
+            let mut sizes: Vec<u16> = shares
+                .iter()
+                .map(|share| {
+                    (((share / sum) * f32::from(available)) as u16).clamp(min_each, available)
+                })
+                .collect();
+            let mut used: u16 = sizes.iter().fold(0, |sum, size| sum.saturating_add(*size));
+            while used > available {
+                let Some((largest, _)) = sizes
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, size)| **size > min_each)
+                    .max_by_key(|(_, size)| **size)
+                else {
+                    break;
+                };
+                sizes[largest] -= 1;
+                used -= 1;
+            }
+            let mut round_robin = 0usize;
+            let share_count = sizes.len();
+            while used < available {
+                sizes[round_robin % share_count] += 1;
+                used += 1;
+                round_robin += 1;
+            }
+            let group_index = layout.split_groups.len();
+            layout.split_groups.push(SidebarSplitGroupPlacement {
+                id: id.clone(),
+                dir: *dir,
+                children: Vec::new(),
+                child_keys,
+            });
+            let mut offset = 0u16;
+            for (child_index, (_, child)) in kept.iter().enumerate() {
+                let child_rect = match dir {
+                    SidebarSplitDir::Vertical => Rect {
+                        x: rect.x,
+                        y: rect.y + offset,
+                        width: rect.width,
+                        height: sizes[child_index],
+                    },
+                    SidebarSplitDir::Horizontal => Rect {
+                        x: rect.x + offset,
+                        y: rect.y,
+                        width: sizes[child_index],
+                        height: rect.height,
+                    },
+                };
+                layout.split_groups[group_index].children.push(child_rect);
+                place_sidebar_column_node(child, child_rect, layout, views, split_fractions);
+                offset = offset.saturating_add(sizes[child_index]);
+                if child_index + 1 < kept.len() {
+                    let divider_rect = match dir {
+                        SidebarSplitDir::Vertical => {
+                            let divider = Rect {
+                                x: rect.x,
+                                y: rect.y + offset,
+                                width: rect.width,
+                                height: 1,
+                            };
+                            offset = offset.saturating_add(1);
+                            divider
+                        }
+                        // The horizontal handle overlays the left child's
+                        // border column; no extra cell is carved out.
+                        SidebarSplitDir::Horizontal => Rect {
+                            x: (rect.x + offset).saturating_sub(1),
+                            y: rect.y,
+                            width: 1,
+                            height: rect.height,
+                        },
+                    };
+                    layout.dividers.push(SidebarDividerPlacement {
+                        group: group_index,
+                        index: child_index,
+                        rect: divider_rect,
+                        dir: *dir,
+                    });
+                }
+            }
+        }
+    }
+}
+
+fn record_hidden_sidebar_node(
+    node: &SidebarColumnNode,
+    views: &[SidebarViewSpec],
+    reason: SidebarHiddenReason,
+    hidden: &mut Vec<SidebarHiddenView>,
+) {
+    let mut indexes = Vec::new();
+    node.collect_view_indexes(&mut indexes);
+    for view_index in indexes {
+        let Some(view) = views.get(view_index) else { continue };
+        if hidden.iter().any(|candidate| candidate.id == view.id) {
+            continue;
+        }
+        hidden.push(SidebarHiddenView { view_index, id: view.id.clone(), reason });
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -7828,7 +9923,80 @@ fn sidebar_layout_for_state(
     machine_override: Option<u16>,
     tabs_override: Option<u16>,
     projection_overrides: &HashMap<String, u16>,
+    split_fractions: &SidebarSplitFractions,
     hidden_views: &HashSet<String>,
+    previous: Option<&SidebarLayout>,
+) -> SidebarLayout {
+    sidebar_layout_for_presentation_state(
+        config,
+        visible,
+        compact,
+        machine_visible,
+        size,
+        workspace_override,
+        machine_override,
+        tabs_override,
+        projection_overrides,
+        split_fractions,
+        hidden_views,
+        &HashSet::new(),
+        false,
+        previous,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn sidebar_layout_for_presentation_state(
+    config: &Config,
+    visible: bool,
+    compact: bool,
+    machine_visible: bool,
+    size: (u16, u16),
+    workspace_override: Option<u16>,
+    machine_override: Option<u16>,
+    tabs_override: Option<u16>,
+    projection_overrides: &HashMap<String, u16>,
+    split_fractions: &SidebarSplitFractions,
+    hidden_views: &HashSet<String>,
+    pinned_views: &HashSet<String>,
+    presentation_visible: bool,
+    previous: Option<&SidebarLayout>,
+) -> SidebarLayout {
+    sidebar_layout_for_presentation_state_with_requirements(
+        config,
+        visible,
+        compact,
+        machine_visible,
+        size,
+        workspace_override,
+        machine_override,
+        tabs_override,
+        projection_overrides,
+        split_fractions,
+        hidden_views,
+        pinned_views,
+        &HashSet::new(),
+        presentation_visible,
+        previous,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn sidebar_layout_for_presentation_state_with_requirements(
+    config: &Config,
+    visible: bool,
+    compact: bool,
+    machine_visible: bool,
+    size: (u16, u16),
+    workspace_override: Option<u16>,
+    machine_override: Option<u16>,
+    tabs_override: Option<u16>,
+    projection_overrides: &HashMap<String, u16>,
+    split_fractions: &SidebarSplitFractions,
+    hidden_views: &HashSet<String>,
+    pinned_views: &HashSet<String>,
+    required_views: &HashSet<String>,
+    presentation_visible: bool,
     previous: Option<&SidebarLayout>,
 ) -> SidebarLayout {
     let (width, height) = size;
@@ -7842,63 +10010,114 @@ fn sidebar_layout_for_state(
         };
     }
 
-    #[derive(Clone, Copy)]
     struct Spec {
-        kind: RailKind,
-        view_index: usize,
+        node: SidebarColumnNode,
+        key: String,
         desired: u16,
         max_width: u16,
-        priority: u16,
+        priority: u32,
     }
 
-    let mut specs = config
-        .sidebar
-        .views
+    let views = &config.sidebar.views;
+    // The resolved layout always covers every view exactly once. Anything
+    // else means `views` was replaced without its layout (tests and older
+    // call sites do this), so fall back to one column per view.
+    let identity: Vec<SidebarLayoutNode>;
+    let layout_nodes: &[SidebarLayoutNode] = {
+        let mut leaves: Vec<usize> =
+            config.sidebar.layout.iter().flat_map(|node| node.leaves()).collect();
+        leaves.sort_unstable();
+        if leaves == (0..views.len()).collect::<Vec<_>>() {
+            &config.sidebar.layout
+        } else {
+            identity = crate::config::sidebar_layout_of_columns(views);
+            &identity
+        }
+    };
+    let mut frame_hidden = views
         .iter()
         .enumerate()
-        .filter_map(|(view_index, view)| {
-            if hidden_views.contains(&view.id) {
-                return None;
-            }
-            if view.includes(SidebarResourceKind::Machines) && !machine_visible {
-                return None;
-            }
-            let kind = match view.legacy_kind() {
-                Some(SidebarColumnKind::Machines) => RailKind::Machine,
-                Some(SidebarColumnKind::Workspaces) => RailKind::Workspace,
-                Some(SidebarColumnKind::Tabs) => RailKind::Tabs,
-                None => RailKind::Projection(view_index),
-            };
-            let width_override = match kind {
-                RailKind::Machine => machine_override,
-                RailKind::Workspace => workspace_override,
-                RailKind::Tabs => tabs_override,
-                RailKind::Projection(_) => projection_overrides.get(&view.id).copied(),
-            };
-            let legacy_width = match kind {
-                RailKind::Machine => config.machine_sidebar.width,
-                RailKind::Workspace => config.sidebar.width,
-                RailKind::Tabs | RailKind::Projection(_) => view.width,
-            };
-            let desired = if compact && kind == RailKind::Workspace {
-                config.sidebar.compact_width
-            } else {
-                width_override.unwrap_or(if config.sidebar.views_explicit {
-                    view.width
-                } else {
-                    legacy_width
-                })
-            };
-            let max_width = if config.sidebar.views_explicit {
-                view.max_width
-            } else {
-                match kind {
-                    RailKind::Machine => config.machine_sidebar.max_width,
-                    RailKind::Workspace => config.sidebar.max_width,
-                    RailKind::Tabs | RailKind::Projection(_) => view.max_width,
+        .filter(|(_, view)| hidden_views.contains(&view.id))
+        .map(|(view_index, view)| SidebarHiddenView {
+            view_index,
+            id: view.id.clone(),
+            reason: SidebarHiddenReason::Explicit,
+        })
+        .collect::<Vec<_>>();
+    let mut specs = layout_nodes
+        .iter()
+        .filter_map(|layout_node| {
+            let node = prune_sidebar_layout_node(
+                layout_node,
+                views,
+                hidden_views,
+                pinned_views,
+                required_views,
+                machine_visible,
+            )?;
+            let (key, desired, max_width, priority) = match &node {
+                SidebarColumnNode::Leaf { view_index, kind, priority, .. } => {
+                    let view = views.get(*view_index)?;
+                    let width_override = match kind {
+                        RailKind::Machine => machine_override,
+                        RailKind::Workspace => workspace_override,
+                        RailKind::Tabs => tabs_override,
+                        RailKind::Projection(_) => projection_overrides.get(&view.id).copied(),
+                    };
+                    let legacy_width = match kind {
+                        RailKind::Machine => config.machine_sidebar.width,
+                        RailKind::Workspace => config.sidebar.width,
+                        RailKind::Tabs | RailKind::Projection(_) => view.width,
+                    };
+                    let desired = if compact && *kind == RailKind::Workspace {
+                        config.sidebar.compact_width
+                    } else {
+                        width_override.unwrap_or(if config.sidebar.views_explicit {
+                            view.width
+                        } else {
+                            legacy_width
+                        })
+                    };
+                    let max_width = if config.sidebar.views_explicit {
+                        view.max_width
+                    } else {
+                        match kind {
+                            RailKind::Machine => config.machine_sidebar.max_width,
+                            RailKind::Workspace => config.sidebar.max_width,
+                            RailKind::Tabs | RailKind::Projection(_) => view.max_width,
+                        }
+                    };
+                    (view.id.clone(), desired, max_width, *priority)
+                }
+                SidebarColumnNode::Split { id, priority, .. } => {
+                    // A pruned single-child split resolves as a leaf above,
+                    // so this arm always covers a real multi-pane column.
+                    let split = sidebar_split_spec(&config.sidebar.layout, id);
+                    // The built-in Work stack replaces the legacy workspace
+                    // column, so the established width and compact-width
+                    // settings remain authoritative. Explicit layouts own
+                    // their split dimensions without this compatibility rule.
+                    let built_in_work_stack = !config.sidebar.views_explicit && id == "work-stack";
+                    let desired = projection_overrides.get(id).copied().unwrap_or_else(|| {
+                        if built_in_work_stack {
+                            if compact {
+                                config.sidebar.compact_width
+                            } else {
+                                workspace_override.unwrap_or(config.sidebar.width)
+                            }
+                        } else {
+                            split.map_or(22, |split| split.width)
+                        }
+                    });
+                    let max_width = if built_in_work_stack {
+                        config.sidebar.max_width
+                    } else {
+                        split.map_or(0, |split| split.max_width)
+                    };
+                    (id.clone(), desired, max_width, *priority)
                 }
             };
-            Some(Spec { kind, view_index, desired, max_width, priority: view.collapse_priority })
+            Some(Spec { node, key, desired, max_width, priority })
         })
         .collect::<Vec<_>>();
 
@@ -7909,11 +10128,17 @@ fn sidebar_layout_for_state(
         else {
             break;
         };
-        specs.remove(index);
+        let dropped = specs.remove(index);
+        record_hidden_sidebar_node(
+            &dropped.node,
+            views,
+            SidebarHiddenReason::Width,
+            &mut frame_hidden,
+        );
     }
 
     if let Some(previous) = previous {
-        while specs.iter().any(|spec| previous.rail(spec.kind).is_none())
+        while specs.iter().any(|spec| !previous.has_column(&spec.key))
             && width
                 < MIN_CONTENT_WIDTH
                     .saturating_add(MIN_RAIL_WIDTH.saturating_mul(specs.len() as u16))
@@ -7922,16 +10147,37 @@ fn sidebar_layout_for_state(
             let Some((index, _)) = specs
                 .iter()
                 .enumerate()
-                .filter(|(_, spec)| previous.rail(spec.kind).is_none())
+                .filter(|(_, spec)| !previous.has_column(&spec.key))
                 .min_by_key(|(_, spec)| spec.priority)
             else {
                 break;
             };
-            specs.remove(index);
+            let dropped = specs.remove(index);
+            record_hidden_sidebar_node(
+                &dropped.node,
+                views,
+                SidebarHiddenReason::Width,
+                &mut frame_hidden,
+            );
         }
     }
 
-    let mut layout = SidebarLayout::default();
+    let rail_y = u16::from(presentation_visible);
+    let rail_height = height.saturating_sub(rail_y);
+    let mut layout = SidebarLayout { hidden_views: frame_hidden, ..SidebarLayout::default() };
+    if rail_height == 0 {
+        for spec in &specs {
+            record_hidden_sidebar_node(
+                &spec.node,
+                views,
+                SidebarHiddenReason::Height,
+                &mut layout.hidden_views,
+            );
+        }
+        layout.hidden_views.sort_by_key(|hidden| hidden.view_index);
+        layout.content = Rect { x: 0, y: 0, width, height: content_height };
+        return layout;
+    }
     let mut x = 0u16;
     for (index, spec) in specs.iter().enumerate() {
         let remaining = specs.len().saturating_sub(index + 1) as u16;
@@ -7940,45 +10186,106 @@ fn sidebar_layout_for_state(
             .saturating_sub(x)
             .saturating_sub(MIN_RAIL_WIDTH.saturating_mul(remaining));
         let Some(rail_width) = clamp_rail_width(spec.desired, spec.max_width, available) else {
+            record_hidden_sidebar_node(
+                &spec.node,
+                views,
+                SidebarHiddenReason::Width,
+                &mut layout.hidden_views,
+            );
             continue;
         };
-        let rect = Rect { x, y: 0, width: rail_width, height };
-        match spec.kind {
-            RailKind::Machine => layout.machine = Some(rect),
-            RailKind::Workspace => layout.workspace = Some(rect),
-            RailKind::Tabs => layout.tabs = Some(rect),
-            RailKind::Projection(_) => {}
-        }
-        layout.ordered.push(RailPlacement { kind: spec.kind, view_index: spec.view_index, rect });
+        let rect = Rect { x, y: rail_y, width: rail_width, height: rail_height };
+        let mut rails = Vec::new();
+        spec.node.collect_rails(&mut rails);
+        layout.columns.push(SidebarColumnPlacement {
+            key: spec.key.clone(),
+            rect,
+            max_width: spec.max_width,
+            rails,
+        });
+        place_sidebar_column_node(&spec.node, rect, &mut layout, views, split_fractions);
         x = x.saturating_add(rail_width);
     }
+    if presentation_visible && x == 0 && !views.is_empty() {
+        let available = width.saturating_sub(MIN_CONTENT_WIDTH);
+        if available >= MIN_RAIL_WIDTH {
+            x = config.sidebar.width.clamp(MIN_RAIL_WIDTH, available);
+        }
+    }
+    if presentation_visible && x > 0 {
+        layout.presentation = Some(Rect { x: 0, y: 0, width: x, height: 1 });
+    }
+    layout.hidden_views.sort_by_key(|hidden| hidden.view_index);
     layout.content = Rect { x, y: 0, width: width.saturating_sub(x), height: content_height };
     layout
 }
 
+/// Ids of every split group in the layout forest, depth first.
+fn collect_sidebar_split_ids(nodes: &[SidebarLayoutNode], ids: &mut Vec<String>) {
+    use crate::config::SidebarLayoutNode;
+    for node in nodes {
+        if let SidebarLayoutNode::Split(split) = node {
+            ids.push(split.id.clone());
+            collect_sidebar_split_ids(&split.children, ids);
+        }
+    }
+}
+
+/// Find a split group's config spec by id anywhere in the layout forest.
+fn sidebar_split_spec<'a>(
+    nodes: &'a [SidebarLayoutNode],
+    id: &str,
+) -> Option<&'a crate::config::SidebarSplitSpec> {
+    use crate::config::SidebarLayoutNode;
+    for node in nodes {
+        if let SidebarLayoutNode::Split(split) = node {
+            if split.id == id {
+                return Some(split);
+            }
+            if let Some(found) = sidebar_split_spec(&split.children, id) {
+                return Some(found);
+            }
+        }
+    }
+    None
+}
+
+/// A rail's width drag resizes its whole column: stacked rails share their
+/// column's width, so the drag target is the column, not the one rail.
 fn rail_drag_width(config: &Config, layout: &SidebarLayout, kind: RailKind, x: u16) -> Option<u16> {
-    let rail = layout.rail(kind)?;
+    let column_index = sidebar_column_for_rail(layout, kind)?;
+    let column = &layout.columns[column_index];
     let terminal_width = layout.content.x.saturating_add(layout.content.width);
     let other_width = layout
-        .ordered
+        .columns
         .iter()
-        .filter(|placement| placement.kind != kind)
-        .map(|placement| placement.rect.width)
+        .enumerate()
+        .filter(|(index, _)| *index != column_index)
+        .map(|(_, column)| column.rect.width)
         .fold(0u16, u16::saturating_add);
     let available = terminal_width.saturating_sub(MIN_CONTENT_WIDTH).saturating_sub(other_width);
-    let view_index = layout.ordered.iter().find(|placement| placement.kind == kind)?.view_index;
-    let view = config.sidebar.views.get(view_index)?;
-    let configured_max = if config.sidebar.views_explicit {
-        view.max_width
+    let configured_max = if column.rails.len() > 1 {
+        column.max_width
     } else {
-        match kind {
-            RailKind::Machine => config.machine_sidebar.max_width,
-            RailKind::Workspace => config.sidebar.max_width,
-            RailKind::Tabs | RailKind::Projection(_) => view.max_width,
+        let view_index = layout.ordered.iter().find(|placement| placement.kind == kind)?.view_index;
+        let view = config.sidebar.views.get(view_index)?;
+        if config.sidebar.views_explicit {
+            view.max_width
+        } else {
+            match kind {
+                RailKind::Machine => config.machine_sidebar.max_width,
+                RailKind::Workspace => config.sidebar.max_width,
+                RailKind::Tabs | RailKind::Projection(_) => view.max_width,
+            }
         }
     };
-    let desired = x.saturating_sub(rail.x).saturating_add(1);
+    let desired = x.saturating_sub(column.rect.x).saturating_add(1);
     clamp_rail_width(desired, configured_max, available)
+}
+
+/// The index of the column holding `kind`, in `layout.columns`.
+fn sidebar_column_for_rail(layout: &SidebarLayout, kind: RailKind) -> Option<usize> {
+    layout.columns.iter().position(|column| column.rails.contains(&kind))
 }
 
 fn content_size_for_rect(
@@ -8174,6 +10481,7 @@ pub enum RunOutcome {
 
 struct MachineUpdatePump {
     stop: Arc<AtomicBool>,
+    cancellation: EventCancellation,
     provider: Option<JoinHandle<()>>,
     forwarder: Option<JoinHandle<()>>,
 }
@@ -8242,6 +10550,7 @@ pub(crate) enum MachineControllerCompletion {
 struct MachineActionWorker {
     sender: Option<std::sync::mpsc::SyncSender<MachineControllerCommand>>,
     stop: Arc<AtomicBool>,
+    cancellation: EventCancellation,
     worker: Option<JoinHandle<()>>,
 }
 
@@ -8259,6 +10568,8 @@ impl MachineActionWorker {
         let (sender, receiver) = std::sync::mpsc::sync_channel(1);
         let stop = Arc::new(AtomicBool::new(false));
         let worker_stop = stop.clone();
+        let cancellation = EventCancellation::new();
+        let worker_cancellation = cancellation.clone();
         let worker =
             std::thread::Builder::new().name("machine-actions".into()).spawn(move || {
                 let mut next_action_id = 1_u64;
@@ -8414,7 +10725,11 @@ impl MachineActionWorker {
                             }
                         }
                     };
-                    if !send_machine_controller_completion(&app_events, completion, &worker_stop) {
+                    if !send_machine_controller_completion(
+                        &app_events,
+                        completion,
+                        &worker_cancellation,
+                    ) {
                         break;
                     }
                 }
@@ -8423,7 +10738,7 @@ impl MachineActionWorker {
                 }
                 controller.close();
             })?;
-        Ok(Self { sender: Some(sender), stop, worker: Some(worker) })
+        Ok(Self { sender: Some(sender), stop, cancellation, worker: Some(worker) })
     }
 
     fn perform(
@@ -8513,6 +10828,7 @@ impl MachineActionWorker {
 
     fn shutdown(&mut self) {
         self.stop.store(true, Ordering::Release);
+        self.cancellation.cancel();
         self.sender.take();
         if self.worker.as_ref().is_some_and(JoinHandle::is_finished)
             && let Some(worker) = self.worker.take()
@@ -8571,25 +10887,15 @@ fn prepare_machine_session(
 
 fn send_machine_controller_completion(
     app_events: &SyncSender<AppEvent>,
-    mut completion: MachineControllerCompletion,
-    stop: &AtomicBool,
+    completion: MachineControllerCompletion,
+    cancellation: &EventCancellation,
 ) -> bool {
-    loop {
-        match app_events.try_send(AppEvent::MachineControllerCompleted(Box::new(completion))) {
-            Ok(()) => return true,
-            Err(TrySendError::Full(AppEvent::MachineControllerCompleted(returned))) => {
-                completion = *returned;
-                if stop.load(Ordering::Acquire) {
-                    return false;
-                }
-                std::thread::park_timeout(Duration::from_millis(1));
-            }
-            Err(TrySendError::Full(_)) => {
-                unreachable!("machine completion sender returned a different event")
-            }
-            Err(TrySendError::Disconnected(_)) => return false,
-        }
-    }
+    send_bounded_cancelable(
+        app_events,
+        AppEvent::MachineControllerCompleted(Box::new(completion)),
+        cancellation,
+    )
+    .is_ok()
 }
 
 impl MachineUpdatePump {
@@ -8601,38 +10907,25 @@ impl MachineUpdatePump {
         let stop = updates.stop_handle();
         let (updates, _, provider) = updates.into_parts();
         let forwarder_stop = stop.clone();
+        let cancellation = EventCancellation::new();
+        let forwarder_cancellation = cancellation.clone();
         let forwarder = match std::thread::Builder::new()
             .name("machine-provider-events".into())
             .spawn(move || {
                 while !forwarder_stop.load(Ordering::Acquire) {
                     match updates.recv_timeout(Duration::from_millis(250)) {
                         Ok(update) => {
-                            let mut update = Box::new(update);
-                            loop {
-                                match app_events.try_send(AppEvent::MachineUpdatedForGeneration {
+                            if send_bounded_cancelable(
+                                &app_events,
+                                AppEvent::MachineUpdatedForGeneration {
                                     generation,
-                                    update,
-                                }) {
-                                    Ok(()) => break,
-                                    Err(TrySendError::Full(
-                                        AppEvent::MachineUpdatedForGeneration {
-                                            update: returned,
-                                            ..
-                                        },
-                                    )) => {
-                                        update = returned;
-                                        if forwarder_stop.load(Ordering::Acquire) {
-                                            return;
-                                        }
-                                        std::thread::park_timeout(Duration::from_millis(1));
-                                    }
-                                    Err(TrySendError::Full(_)) => {
-                                        unreachable!(
-                                            "machine update sender returned a different event"
-                                        )
-                                    }
-                                    Err(TrySendError::Disconnected(_)) => return,
-                                }
+                                    update: Box::new(update),
+                                },
+                                &forwarder_cancellation,
+                            )
+                            .is_err()
+                            {
+                                return;
                             }
                         }
                         Err(RecvTimeoutError::Timeout) => {}
@@ -8647,11 +10940,12 @@ impl MachineUpdatePump {
                 return Err(error.into());
             }
         };
-        Ok(Self { stop, provider: Some(provider), forwarder: Some(forwarder) })
+        Ok(Self { stop, cancellation, provider: Some(provider), forwarder: Some(forwarder) })
     }
 
     fn stop_and_join(&mut self) {
         self.stop.store(true, Ordering::Release);
+        self.cancellation.cancel();
         if let Some(forwarder) = self.forwarder.take() {
             let _ = forwarder.join();
         }
@@ -8735,16 +11029,19 @@ fn ensure_managed_workspace_guard(
     Ok(())
 }
 
-pub fn run_with_machine_updates(
-    session: Session,
-    session_label: String,
-    default_colors: cmux_tui_core::DefaultColors,
-    surface_only: Option<SurfaceId>,
-    owner_mux: Option<Arc<Mux>>,
-    machine_ui: Option<MachineUiState>,
-    machine_controller: Option<Box<dyn MachineController>>,
-    startup_config: crate::config::StartupConfigSnapshot,
-) -> anyhow::Result<RunOutcome> {
+/// Everything one interactive TUI run receives from the launcher.
+pub struct RunRequest {
+    pub session: Session,
+    pub session_label: String,
+    pub default_colors: cmux_tui_core::DefaultColors,
+    pub surface_only: Option<SurfaceId>,
+    pub owner_mux: Option<Arc<Mux>>,
+    pub machine_ui: Option<MachineUiState>,
+    pub machine_controller: Option<Box<dyn MachineController>>,
+    pub startup_config: crate::config::StartupConfigSnapshot,
+}
+
+pub fn run_with_machine_updates(request: RunRequest) -> anyhow::Result<RunOutcome> {
     type PanicHook = dyn for<'a> Fn(&std::panic::PanicHookInfo<'a>) + Send + Sync + 'static;
     let previous_panic_hook: Arc<PanicHook> = Arc::from(std::panic::take_hook());
     let previous_panic_hook_for_threads = previous_panic_hook.clone();
@@ -8758,18 +11055,8 @@ pub fn run_with_machine_updates(
             previous_panic_hook_for_threads(info);
         }
     }));
-    let result = std::panic::catch_unwind(AssertUnwindSafe(|| {
-        run_with_machine_updates_inner(
-            session,
-            session_label,
-            default_colors,
-            surface_only,
-            owner_mux,
-            machine_ui,
-            machine_controller,
-            startup_config,
-        )
-    }));
+    let result =
+        std::panic::catch_unwind(AssertUnwindSafe(|| run_with_machine_updates_inner(request)));
     let _ = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| previous_panic_hook(info)));
 
@@ -8784,16 +11071,17 @@ pub fn run_with_machine_updates(
     }
 }
 
-fn run_with_machine_updates_inner(
-    session: Session,
-    session_label: String,
-    default_colors: cmux_tui_core::DefaultColors,
-    surface_only: Option<SurfaceId>,
-    owner_mux: Option<Arc<Mux>>,
-    machine_ui: Option<MachineUiState>,
-    machine_controller: Option<Box<dyn MachineController>>,
-    startup_config: crate::config::StartupConfigSnapshot,
-) -> anyhow::Result<RunOutcome> {
+fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Result<RunOutcome> {
+    let RunRequest {
+        session,
+        session_label,
+        default_colors,
+        surface_only,
+        owner_mux,
+        machine_ui,
+        machine_controller,
+        startup_config,
+    } = request;
     if let Session::Local(mux) = &session {
         install_mux_diagnostic_logger(mux);
     }
@@ -8893,6 +11181,7 @@ fn run_with_machine_updates_inner(
     // would corrupt the raw-mode screen, so route fd 2 into the client log.
     crate::client_log::redirect_stderr_into_log();
     let mut terminal_restore = TerminalRestoreGuard::new(stdout_lock.clone());
+    terminal_restore.set_host_input_shutdown(host_input.shutdown_control());
     if let Err(e) = (|| -> anyhow::Result<()> {
         let _guard = stdout_lock.lock();
         stdout_lock.recover_stream_locked()?;
@@ -8933,7 +11222,7 @@ fn run_with_machine_updates_inner(
     // startup terminal probes so their replies cannot be consumed as key
     // input. Backpressure here must never block mutation completions.
     let input = host_input.producer(tx.clone());
-    if let Err(error) = std::thread::Builder::new().name("input".into()).spawn(move || {
+    let input_reader = match std::thread::Builder::new().name("input".into()).spawn(move || {
         for event in crate::ui::graphics::finish_startup_input(pending_input) {
             if !input.send(event) {
                 return;
@@ -8963,8 +11252,10 @@ fn run_with_machine_updates_inner(
             }
         }
     }) {
-        return Err(terminal_restore.restore_after_error(error.into()));
-    }
+        Ok(reader) => reader,
+        Err(error) => return Err(terminal_restore.restore_after_error(error.into())),
+    };
+    host_input.attach_reader(input_reader);
 
     let graphics_writer = if graphics_supported {
         let graphics_ready = tx.clone();
@@ -8986,8 +11277,10 @@ fn run_with_machine_updates_inner(
     let default_hook = std::panic::take_hook();
     let restore_lock = stdout_lock.clone();
     let panic_keyboard_protocol = terminal_restore.host_keyboard_protocol().clone();
+    let panic_host_input_shutdown = host_input.shutdown_control();
     let panic_graphics_shutdown = graphics_shutdown;
     std::panic::set_hook(Box::new(move |info| {
+        panic_host_input_shutdown.shutdown();
         if let Some(graphics_shutdown) = &panic_graphics_shutdown {
             graphics_shutdown.cancel_for_panic_hook();
         }
@@ -9005,6 +11298,8 @@ fn run_with_machine_updates_inner(
         }
     };
     let sidebar_view = config.sidebar.view;
+    let configured_sidebar_profile = config.sidebar.active_profile.clone();
+    let configured_sidebar_profile_request = config.sidebar.profile_request.clone();
     let fallback_cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let initial_machine_notice = initial_workspace_error
         .or_else(|| machine_ui.as_ref().and_then(|machine| machine.notice.clone()));
@@ -9057,6 +11352,8 @@ fn run_with_machine_updates_inner(
         durable_notice_ack_failures: 0,
         durable_notice_ack_retry_at: None,
         config,
+        configured_sidebar_profile,
+        configured_sidebar_profile_request,
         #[cfg(test)]
         config_reload_applications: 0,
         chrome,
@@ -9064,6 +11361,7 @@ fn run_with_machine_updates_inner(
         tab_locations: HashMap::new(),
         render_states: HashMap::new(),
         chrome_row_scratch: ReusableRowBuffer::default(),
+        sidebar_kind_scratch: Vec::new(),
         rendered_terminal_sizes: HashMap::new(),
         rendered_terminal_pointer_semantics: HashMap::new(),
         rendered_pane_content_generations: HashMap::new(),
@@ -9107,17 +11405,22 @@ fn run_with_machine_updates_inner(
         machine_pointer_context_cache: None,
         sidebar_view,
         sidebar_files: FileBrowser::new(fallback_cwd),
+        files_rail_selection: FilesRailSelection::default(),
         sidebar_workspace_selection: 0,
         sidebar_recoverable_workspace_selection: 0,
         workspace_rail_selection: WorkspaceRailSelection::default(),
-        machine_rail_scroll: 0,
-        machine_footer_scroll: 0,
-        workspace_rail_scroll: 0,
-        workspace_footer_scroll: 0,
         tabs_rail_selection: 0,
-        tabs_rail_scroll: 0,
-        tabs_footer_scroll: 0,
-        projection_rails: HashMap::new(),
+        sidebar_presentation: SidebarPresentationState::default(),
+        projection_rows_cache: VecDeque::new(),
+        projection_rows_revision: 0,
+        agent_focus_stamps: HashMap::new(),
+        rendered_agent_attention: None,
+        agent_attention_paint_pending: false,
+        projection_agent_surfaces: HashSet::new(),
+        projection_title_surfaces: HashSet::new(),
+        projection_agent_surfaces_by_view: HashMap::new(),
+        projection_title_surfaces_by_view: HashMap::new(),
+        projection_paint_pending: false,
         machine_rail_follow_selection: true,
         workspace_rail_follow_selection: true,
         tabs_rail_follow_selection: true,
@@ -9126,15 +11429,11 @@ fn run_with_machine_updates_inner(
         machine_sidebar_width: 0,
         tabs_sidebar_width: 0,
         sidebar_layout: SidebarLayout::default(),
+        sidebar_layout_reuse_spec: None,
         sidebar_plugin_surface: None,
         sidebar_plugin_error: None,
         sidebar_plugin_retry_after_ms: None,
         sidebar_plugin_retry_at: None,
-        sidebar_width_override: None,
-        machine_sidebar_width_override: None,
-        tabs_sidebar_width_override: None,
-        projection_sidebar_width_overrides: HashMap::new(),
-        hidden_sidebar_views: HashMap::new(),
         content_area: Rect::default(),
         hits: Vec::new(),
         tab_scroll: HashMap::new(),
@@ -9154,6 +11453,10 @@ fn run_with_machine_updates_inner(
         shake_frames: 0,
         selection: None,
         selection_generation: 0,
+        selection_mode: SelectionMode::Cell,
+        selection_mode_surface: None,
+        selection_click_sequence: None,
+        semantic_selection_cache: None,
         status_selection: None,
         rendered_status_message: None,
         logged_status_message: None,
@@ -9184,8 +11487,12 @@ fn run_with_machine_updates_inner(
         pty_failures,
         mux_recovery_generation,
         drag: None,
+        files_pointer_owner: None,
+        layout_resize_expectations: [None, None],
         active_pointer_buttons: HashSet::new(),
-        ignored_pty_mouse_buttons: HashSet::new(),
+        pointer_button_surfaces: HashMap::new(),
+        ignored_pointer_buttons: HashSet::new(),
+        canceled_pointer_buttons: HashSet::new(),
         #[cfg(test)]
         timeout_drain_hook: None,
         encoder,
@@ -9198,10 +11505,13 @@ fn run_with_machine_updates_inner(
         retiring_status_workers: Vec::new(),
         status_outputs_generation: Arc::new(AtomicU64::new(0)),
         status_segments_cache: None,
+        machine_usage: None,
     };
+    app.ensure_files_mode_supported();
     app.ensure_status_command_worker();
     if app.session_available() {
         app.session.refresh_clients_background();
+        app.session.refresh_machine_usage_background();
     }
 
     if let Err(error) = app.restart_machine_updates() {
@@ -9265,6 +11575,7 @@ fn report_after_unwind<T>(
 struct TerminalRestoreGuard {
     stdout_lock: Arc<StdoutLock>,
     host_keyboard_protocol: HostKeyboardProtocolOwnership,
+    host_input_shutdown: Option<HostInputShutdown>,
     graphics_shutdown: Option<GraphicsWriterShutdown>,
     armed: bool,
 }
@@ -9274,6 +11585,7 @@ impl TerminalRestoreGuard {
         Self {
             stdout_lock,
             host_keyboard_protocol: HostKeyboardProtocolOwnership::default(),
+            host_input_shutdown: None,
             graphics_shutdown: None,
             armed: true,
         }
@@ -9291,11 +11603,18 @@ impl TerminalRestoreGuard {
         self.graphics_shutdown = graphics_shutdown;
     }
 
+    fn set_host_input_shutdown(&mut self, host_input_shutdown: HostInputShutdown) {
+        self.host_input_shutdown = Some(host_input_shutdown);
+    }
+
     fn restore(&mut self) -> anyhow::Result<()> {
         if !self.armed {
             return Ok(());
         }
         self.armed = false;
+        if let Some(host_input_shutdown) = &self.host_input_shutdown {
+            host_input_shutdown.shutdown();
+        }
         if let Some(graphics_shutdown) = &self.graphics_shutdown {
             graphics_shutdown.cancel_and_wait();
         }
@@ -9327,6 +11646,9 @@ impl Drop for TerminalRestoreGuard {
     fn drop(&mut self) {
         if self.armed {
             self.armed = false;
+            if let Some(host_input_shutdown) = &self.host_input_shutdown {
+                host_input_shutdown.shutdown();
+            }
             if let Some(graphics_shutdown) = &self.graphics_shutdown {
                 graphics_shutdown.cancel_and_wait();
             }
@@ -9782,7 +12104,7 @@ impl App {
         self.focus == FocusTarget::TabsRail
     }
 
-    fn sidebar_rail_focused(&self) -> bool {
+    pub(crate) fn sidebar_rail_focused(&self) -> bool {
         matches!(
             self.focus,
             FocusTarget::MachineRail
@@ -9802,14 +12124,21 @@ impl App {
         }
     }
 
-    fn focused_sidebar_view_id(&self) -> Option<String> {
+    fn focused_sidebar_view_identity(&self) -> Option<SidebarViewIdentity> {
         let rail = self.focused_rail_kind()?;
         self.view_index_for_rail(rail)
             .and_then(|index| self.config.sidebar.views.get(index))
-            .map(|view| view.id.clone())
+            .map(SidebarViewIdentity::from_spec)
+    }
+
+    fn focused_sidebar_view_id(&self) -> Option<String> {
+        self.focused_sidebar_view_identity().map(|identity| identity.id)
     }
 
     fn fallback_sidebar_area(&self, kind: RailKind, height: u16) -> Option<Rect> {
+        if !self.sidebar_visible || self.surface_only.is_some() {
+            return None;
+        }
         let width_for = |candidate| match candidate {
             RailKind::Machine => self.machine_sidebar_width,
             RailKind::Workspace => self.sidebar_width,
@@ -9836,19 +12165,33 @@ impl App {
     }
 
     pub fn machine_sidebar_area(&self, height: u16) -> Option<Rect> {
-        self.sidebar_layout
-            .machine
-            .or_else(|| self.fallback_sidebar_area(RailKind::Machine, height))
+        self.sidebar_layout.machine.or_else(|| {
+            self.sidebar_layout
+                .ordered
+                .is_empty()
+                .then(|| self.fallback_sidebar_area(RailKind::Machine, height))
+                .flatten()
+        })
     }
 
     pub fn workspace_sidebar_area(&self, height: u16) -> Option<Rect> {
-        self.sidebar_layout
-            .workspace
-            .or_else(|| self.fallback_sidebar_area(RailKind::Workspace, height))
+        self.sidebar_layout.workspace.or_else(|| {
+            self.sidebar_layout
+                .ordered
+                .is_empty()
+                .then(|| self.fallback_sidebar_area(RailKind::Workspace, height))
+                .flatten()
+        })
     }
 
     pub fn tabs_sidebar_area(&self, height: u16) -> Option<Rect> {
-        self.sidebar_layout.tabs.or_else(|| self.fallback_sidebar_area(RailKind::Tabs, height))
+        self.sidebar_layout.tabs.or_else(|| {
+            self.sidebar_layout
+                .ordered
+                .is_empty()
+                .then(|| self.fallback_sidebar_area(RailKind::Tabs, height))
+                .flatten()
+        })
     }
 
     pub(crate) fn projection_sidebar_area(&self, index: usize) -> Option<Rect> {
@@ -9859,32 +12202,646 @@ impl App {
         self.focus == FocusTarget::ProjectionRail(index)
     }
 
-    pub(crate) fn projection_rows(&self, index: usize) -> Vec<ProjectionRow> {
-        let Some(spec) = self.config.sidebar.views.get(index) else { return Vec::new() };
-        let empty_collapsed = HashSet::new();
-        let collapsed = self
-            .projection_rails
-            .get(&spec.id)
-            .map(|state| &state.collapsed)
-            .unwrap_or(&empty_collapsed);
-        let agents = if spec.includes(SidebarResourceKind::Agents) {
-            // Finished reports are historical records, not active agents.
-            // Otherwise detached "surface..." rows remain forever after exit.
-            self.session
-                .agents()
-                .into_iter()
-                .filter(|agent| !matches!(agent.state.as_str(), "done" | "unknown"))
-                .collect::<Vec<_>>()
+    fn sidebar_profile_state(&self, profile: &str) -> Option<&SidebarProfilePresentationState> {
+        self.sidebar_presentation.profiles.get(profile)
+    }
+
+    fn active_sidebar_profile_state(&self) -> Option<&SidebarProfilePresentationState> {
+        self.sidebar_profile_state(&self.config.sidebar.active_profile)
+    }
+
+    fn active_sidebar_profile_state_mut(&mut self) -> &mut SidebarProfilePresentationState {
+        let profile = self.config.sidebar.active_profile.clone();
+        self.sidebar_presentation.profiles.entry(profile).or_default()
+    }
+
+    pub(crate) fn active_sidebar_rail_scroll(&self) -> SidebarRailScrollState {
+        self.active_sidebar_profile_state().map(|state| state.rail_scroll).unwrap_or_default()
+    }
+
+    pub(crate) fn active_sidebar_rail_scroll_mut(&mut self) -> &mut SidebarRailScrollState {
+        &mut self.active_sidebar_profile_state_mut().rail_scroll
+    }
+
+    fn remember_active_projection_identities(&mut self) {
+        let profile = self.config.sidebar.active_profile.clone();
+        let views = self.config.sidebar.views.clone();
+        let state = self.sidebar_presentation.profiles.entry(profile).or_default();
+        let valid = views.iter().map(|view| view.id.clone()).collect::<HashSet<_>>();
+        for view in views {
+            let identity = SidebarViewIdentity::from_spec(&view);
+            let changed = state
+                .projection_identities
+                .get(&view.id)
+                .is_some_and(|previous| previous != &identity)
+                || state
+                    .focused_view
+                    .as_ref()
+                    .is_some_and(|previous| previous.id == view.id && previous != &identity);
+            if changed {
+                state.projection_rails.remove(&view.id);
+                state.agent_sort_overrides.remove(&view.id);
+            }
+            state.projection_identities.insert(view.id, identity);
+        }
+        state.projection_identities.retain(|id, _| valid.contains(id));
+    }
+
+    fn remember_active_sidebar_content_mode(&mut self) {
+        let mode = self.sidebar_view;
+        self.active_sidebar_profile_state_mut().content_mode = Some(mode);
+    }
+
+    fn sidebar_content_mode_for_profile(&self, profile: &str) -> Option<SidebarView> {
+        self.sidebar_profile_state(profile).and_then(|state| state.content_mode)
+    }
+
+    fn native_sidebar_presentation_available(&self) -> bool {
+        if self.config.sidebar.plugin.is_some() {
+            return false;
+        }
+        let Some(active) = self
+            .config
+            .sidebar
+            .profiles
+            .iter()
+            .find(|profile| profile.id == self.config.sidebar.active_profile)
+        else {
+            return false;
+        };
+        if active.views != self.config.sidebar.views || active.layout != self.config.sidebar.layout
+        {
+            return false;
+        }
+        true
+    }
+
+    /// Files is a content mode of the legacy Workspaces host rail. A custom
+    /// profile without that host cannot render Files, so switch to the
+    /// visible Workspaces mode instead of leaving an empty, non-interactive
+    /// sidebar behind.
+    fn active_files_host_id(&self) -> Option<String> {
+        self.config
+            .sidebar
+            .views
+            .iter()
+            .find(|view| {
+                view.legacy_kind().is_some_and(|kind| kind == SidebarColumnKind::Workspaces)
+            })
+            .map(|view| view.id.clone())
+    }
+
+    fn ensure_files_mode_supported(&mut self) {
+        if self.surface_only.is_some()
+            || self.sidebar_view != SidebarView::Files
+            || !self.sidebar_visible
+            || self.config.sidebar.plugin.is_some()
+        {
+            return;
+        }
+        let host_id = self.active_files_host_id();
+        let supported = host_id.as_ref().is_some_and(|host_id| {
+            self.active_sidebar_profile_state()
+                .is_none_or(|state| !state.hidden_views.contains(host_id))
+        });
+        if supported {
+            return;
+        }
+        self.active_sidebar_profile_state_mut().content_mode = Some(SidebarView::Files);
+        let state = self.active_sidebar_profile_state_mut();
+        if let Some(host_id) = host_id {
+            state.files_restore_pending = true;
+            state.files_restore_host = Some(host_id);
+        } else {
+            // There is no semantic host to restore. Keeping a pending bit
+            // here would make a future, unrelated Workspaces view reopen
+            // Files without a user action.
+            state.files_restore_pending = false;
+            state.files_restore_host = None;
+            state.content_mode = Some(SidebarView::Workspaces);
+        }
+        self.sidebar_view = SidebarView::Workspaces;
+        self.sidebar_followed_surface = None;
+        self.status_message =
+            Some(localization::catalog().sidebar.files_requires_workspace_profile.to_string());
+    }
+
+    fn native_sidebar_presentation_visible(&self) -> bool {
+        self.native_sidebar_presentation_available()
+            && (self.config.sidebar.profiles.len() > 1
+                || self
+                    .active_sidebar_profile_state()
+                    .is_some_and(|state| !state.hidden_views.is_empty()))
+    }
+
+    /// The sort mode an agents view renders with: the client-local runtime
+    /// override (the `s` cycle key) over the configured starting mode.
+    pub(crate) fn effective_agent_sort(&self, spec: &SidebarViewSpec) -> AgentSortMode {
+        self.active_sidebar_profile_state()
+            .and_then(|state| state.agent_sort_overrides.get(&spec.id))
+            .copied()
+            .unwrap_or(spec.sort)
+    }
+
+    /// Whether the canonical session has any agent records. The renderer uses
+    /// this only to distinguish an empty queue from a history-only queue.
+    pub(crate) fn has_agent_records(&self) -> bool {
+        self.session.has_agent_history()
+    }
+
+    /// Return the compact profile-strip attention receipt. `!N` counts
+    /// blocked or unseen-idle agents. `~N` counts agents that are working.
+    /// The counts are global to the attached session so a hidden or collapsed
+    /// view cannot make active work disappear from the only persistent status
+    /// strip. The row itself remains the source of the detailed reason.
+    pub(crate) fn agent_attention_summary(&mut self) -> Option<String> {
+        let agents = self.session.agents();
+        if self.refresh_agent_focus_stamp(&agents) {
+            self.invalidate_projection_rows_cache();
+        }
+        let receipt = self.agent_attention_receipt(&agents);
+        self.rendered_agent_attention = Some(receipt.clone());
+        self.agent_attention_paint_pending = false;
+        let attention = receipt.attention;
+        let working = receipt.working;
+        if attention == 0 && working == 0 {
+            return None;
+        }
+        let mut summary = String::new();
+        if attention > 0 {
+            summary.push_str(&format!("!{attention}"));
+        }
+        if working > 0 {
+            if !summary.is_empty() {
+                summary.push(' ');
+            }
+            summary.push_str(&format!("~{working}"));
+        }
+        Some(summary)
+    }
+
+    fn agent_attention_receipt(&self, agents: &[AgentInfo]) -> AgentAttentionReceipt {
+        let attention = agents
+            .iter()
+            .filter(|agent| {
+                agent.state == "blocked"
+                    || agent.state == "idle"
+                        && self
+                            .agent_focus_stamps
+                            .get(&agent.surface)
+                            .is_none_or(|stamp| *stamp < agent.updated_at_ms)
+            })
+            .count();
+        let working = agents.iter().filter(|agent| agent.state == "working").count();
+        AgentAttentionReceipt { attention, working }
+    }
+
+    /// Schedule a profile-strip paint when the global receipt changed. This
+    /// path is deliberately separate from projection row dependencies: an
+    /// AgentChanged event can arrive before a new surface is in the tree, or
+    /// while every Agents view is hidden, while the strip remains visible.
+    fn schedule_agent_attention_paint(&mut self) -> bool {
+        if !self.native_sidebar_presentation_visible() || self.agent_attention_paint_pending {
+            return false;
+        }
+        let Some(rendered) = self.rendered_agent_attention.as_ref() else {
+            return false;
+        };
+        let agents = self.session.agents();
+        if *rendered == self.agent_attention_receipt(&agents) {
+            return false;
+        }
+        self.agent_attention_paint_pending = true;
+        true
+    }
+
+    fn clear_pending_agent_attention_paint(&mut self) {
+        self.agent_attention_paint_pending = false;
+    }
+
+    pub(crate) fn projection_rows(&mut self, index: usize) -> Arc<[ProjectionRow]> {
+        let Some(spec) = self.config.sidebar.views.get(index).cloned() else {
+            return Arc::<[ProjectionRow]>::from(Vec::new());
+        };
+        let live_agents = if spec.includes(SidebarResourceKind::Agents) {
+            self.session.agents()
         } else {
             Vec::new()
         };
-        crate::sidebar_projection::rows(
-            spec,
-            &self.tree,
-            &agents,
-            self.sidebar_workspace_selection,
-            collapsed,
-        )
+        // Refresh the client-local seen stamp before consulting the LRU. A
+        // projection can be requested before the profile strip is drawn, and
+        // a cache hit must not reuse the pre-seen ordering from that frame.
+        if !live_agents.is_empty() && self.refresh_agent_focus_stamp(&live_agents) {
+            self.invalidate_projection_rows_cache();
+        }
+        let collapsed = self
+            .active_sidebar_profile_state()
+            .and_then(|state| state.projection_rails.get(&spec.id))
+            .map(|state| state.collapsed.clone())
+            .unwrap_or_default();
+        let selected_workspace = self.sidebar_workspace_selection;
+        let selected_workspace_key = selected_workspace_cache_key(&spec, selected_workspace)
+            .map(|selected| selected.min(self.tree.workspaces().len().saturating_sub(1)));
+        let workspace_revision = self.tree.workspace_revision;
+        let pane_revision = self.tree.pane_revision;
+        let invalidation_revision = self.projection_rows_revision;
+        let focus = projection_focus_key(&self.tree);
+        let sort = self.effective_agent_sort(&spec);
+        let cache_index = self.projection_rows_cache.iter().position(|cache| {
+            cache.view_id == spec.id
+                && cache.sort == sort
+                && cache.workspace_revision == workspace_revision
+                && cache.pane_revision == pane_revision
+                && cache.invalidation_revision == invalidation_revision
+                && cache.selected_workspace == selected_workspace_key
+                && cache.focus == focus
+        });
+        let rows = if let Some(cache_index) = cache_index {
+            let cache = self
+                .projection_rows_cache
+                .remove(cache_index)
+                .expect("projection cache index came from the cache");
+            self.set_projection_surface_dependencies(
+                &cache.view_id,
+                cache.agent_surfaces.clone(),
+                cache.title_surfaces.clone(),
+            );
+            let rows = cache.rows.clone();
+            self.projection_rows_cache.push_front(cache);
+            rows
+        } else {
+            let agents = if spec.filter.states.is_empty() {
+                live_agents
+            } else {
+                let mut agents = self.session.agent_history();
+                // The durable projection is the source for explicit lifecycle
+                // filters. Overlay the live roster so a terminal that starts
+                // a new lifecycle after a completed one cannot render the
+                // stale historical state.
+                for live in live_agents {
+                    if let Some(existing) =
+                        agents.iter_mut().find(|agent| agent.surface == live.surface)
+                    {
+                        *existing = live;
+                    } else {
+                        agents.push(live);
+                    }
+                }
+                agents
+            };
+            let seen_idle = self.seen_idle_agent_surfaces(&agents);
+            let rows = crate::sidebar_projection::rows(
+                &spec,
+                sort,
+                &self.tree,
+                &agents,
+                &seen_idle,
+                selected_workspace,
+                &collapsed,
+            );
+            let (agent_surfaces, title_surfaces) =
+                projection_cache_dependencies(&spec, &self.tree, &rows, selected_workspace);
+            let agent_surfaces = Arc::new(agent_surfaces);
+            let title_surfaces = Arc::new(title_surfaces);
+            let rows: Arc<[ProjectionRow]> = Arc::from(rows);
+            self.projection_rows_cache.push_front(ProjectionRowsCache {
+                view_id: spec.id.clone(),
+                workspace_revision,
+                pane_revision,
+                invalidation_revision,
+                selected_workspace: selected_workspace_key,
+                focus,
+                sort,
+                agent_surfaces: agent_surfaces.clone(),
+                title_surfaces: title_surfaces.clone(),
+                rows: rows.clone(),
+            });
+            self.projection_rows_cache.truncate(MAX_PROJECTION_ROWS_CACHE_ENTRIES);
+            self.set_projection_surface_dependencies(&spec.id, agent_surfaces, title_surfaces);
+            rows
+        };
+        self.projection_rail_state_mut(index).reconcile_selection(&rows);
+        rows
+    }
+
+    /// Refresh the focused surface's local seen stamp. Return true only when
+    /// an idle agent changes from unseen to seen, because that is the only
+    /// transition that changes a cached projection's ordering or filter.
+    /// Stamps remain client-local, so attached clients can rank the same idle
+    /// agent differently by design.
+    fn refresh_agent_focus_stamp(&mut self, agents: &[AgentInfo]) -> bool {
+        let Some(surface) = self.tree.active_surface() else { return false };
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|elapsed| elapsed.as_millis() as u64)
+            .unwrap_or(0);
+        let previous = self.agent_focus_stamps.get(&surface).copied();
+        let newly_seen = agents.iter().any(|agent| {
+            agent.surface == surface
+                && agent.state == "idle"
+                && previous.is_none_or(|stamp| stamp < agent.updated_at_ms)
+                && now_ms >= agent.updated_at_ms
+        });
+        self.agent_focus_stamps.insert(surface, now_ms);
+        newly_seen
+    }
+
+    /// Derive which idle agents this client has seen: the surface was focused
+    /// at or after its idle transition. The caller refreshes the active stamp
+    /// before consulting the projection cache.
+    fn seen_idle_agent_surfaces(
+        &mut self,
+        agents: &[AgentInfo],
+    ) -> crate::sidebar_projection::SeenIdleSurfaces {
+        // Closed tabs leave stale stamps behind; bound the map instead of
+        // walking the tree every render.
+        if self.agent_focus_stamps.len() > 4_096 {
+            let live: HashSet<SurfaceId> = agents.iter().map(|agent| agent.surface).collect();
+            self.agent_focus_stamps.retain(|surface, _| live.contains(surface));
+        }
+        agents
+            .iter()
+            .filter(|agent| agent.state == "idle")
+            .filter(|agent| {
+                self.agent_focus_stamps
+                    .get(&agent.surface)
+                    .is_some_and(|stamp| *stamp >= agent.updated_at_ms)
+            })
+            .map(|agent| agent.surface)
+            .collect()
+    }
+
+    fn invalidate_projection_rows_cache(&mut self) {
+        self.projection_rows_revision = self.projection_rows_revision.wrapping_add(1);
+        self.projection_rows_cache.clear();
+        self.projection_agent_surfaces.clear();
+        self.projection_title_surfaces.clear();
+        self.projection_agent_surfaces_by_view.clear();
+        self.projection_title_surfaces_by_view.clear();
+        self.projection_paint_pending = false;
+    }
+
+    fn projection_view_is_visible(&self, view_id: &str) -> bool {
+        if !self.sidebar_visible || self.surface_only.is_some() {
+            return false;
+        }
+        if self
+            .active_sidebar_profile_state()
+            .is_some_and(|state| state.hidden_views.contains(view_id))
+        {
+            return false;
+        }
+        // Before the first frame there is no layout yet, but direct input and
+        // tests may still build a projection snapshot. Treat active views as
+        // visible until the first concrete layout is available.
+        if self.outer_size == (0, 0) {
+            return self.config.sidebar.views.iter().any(|view| view.id == view_id);
+        }
+        let Some(index) = self.config.sidebar.views.iter().position(|view| view.id == view_id)
+        else {
+            return false;
+        };
+        self.sidebar_layout
+            .ordered
+            .iter()
+            .any(|placement| placement.kind == RailKind::Projection(index))
+    }
+
+    /// Replace one view's dependency snapshot and rebuild the global wake
+    /// union only when that snapshot changes. Per-view storage prevents a
+    /// hidden view from keeping a retired dependency alive while retaining
+    /// wake coverage for visible views whose LRU row snapshot was evicted.
+    fn set_projection_surface_dependencies(
+        &mut self,
+        view_id: &str,
+        agent_surfaces: Arc<HashSet<SurfaceId>>,
+        title_surfaces: Arc<HashSet<SurfaceId>>,
+    ) {
+        if !self.projection_view_is_visible(view_id) {
+            return;
+        }
+        let agent_changed = self
+            .projection_agent_surfaces_by_view
+            .get(view_id)
+            .is_none_or(|previous| !Arc::ptr_eq(previous, &agent_surfaces));
+        let title_changed = self
+            .projection_title_surfaces_by_view
+            .get(view_id)
+            .is_none_or(|previous| !Arc::ptr_eq(previous, &title_surfaces));
+        self.projection_agent_surfaces_by_view.insert(view_id.to_owned(), agent_surfaces);
+        self.projection_title_surfaces_by_view.insert(view_id.to_owned(), title_surfaces);
+        if agent_changed || title_changed {
+            self.rebuild_projection_surface_indexes();
+        }
+    }
+
+    /// Keep wake indexes bounded to active, visible view ids and live tab
+    /// surfaces. The operation touches only the small per-view dependency
+    /// maps, never the workspace tree.
+    fn rebuild_projection_surface_indexes(&mut self) {
+        let visible_view_ids = self
+            .config
+            .sidebar
+            .views
+            .iter()
+            .map(|view| view.id.clone())
+            .filter(|view_id| self.projection_view_is_visible(view_id))
+            .collect::<HashSet<_>>();
+        self.projection_agent_surfaces_by_view
+            .retain(|view_id, _| visible_view_ids.contains(view_id));
+        self.projection_title_surfaces_by_view
+            .retain(|view_id, _| visible_view_ids.contains(view_id));
+
+        let live_surfaces = &self.tab_locations;
+        self.projection_agent_surfaces = self
+            .projection_agent_surfaces_by_view
+            .values()
+            .flat_map(|dependencies| {
+                dependencies.iter().filter(|surface| live_surfaces.contains_key(surface)).copied()
+            })
+            .collect();
+        self.projection_title_surfaces = self
+            .projection_title_surfaces_by_view
+            .values()
+            .flat_map(|dependencies| {
+                dependencies.iter().filter(|surface| live_surfaces.contains_key(surface)).copied()
+            })
+            .collect();
+    }
+
+    fn prune_projection_surface_indexes(&mut self) {
+        {
+            let live_surfaces = &self.tab_locations;
+            for cache in &mut self.projection_rows_cache {
+                Arc::make_mut(&mut cache.agent_surfaces)
+                    .retain(|surface| live_surfaces.contains_key(surface));
+                Arc::make_mut(&mut cache.title_surfaces)
+                    .retain(|surface| live_surfaces.contains_key(surface));
+            }
+            for dependencies in self.projection_agent_surfaces_by_view.values_mut() {
+                let filtered = dependencies
+                    .iter()
+                    .filter(|surface| live_surfaces.contains_key(surface))
+                    .copied()
+                    .collect::<HashSet<_>>();
+                if filtered.len() != dependencies.len() {
+                    *dependencies = Arc::new(filtered);
+                }
+            }
+            for dependencies in self.projection_title_surfaces_by_view.values_mut() {
+                let filtered = dependencies
+                    .iter()
+                    .filter(|surface| live_surfaces.contains_key(surface))
+                    .copied()
+                    .collect::<HashSet<_>>();
+                if filtered.len() != dependencies.len() {
+                    *dependencies = Arc::new(filtered);
+                }
+            }
+        }
+        self.rebuild_projection_surface_indexes();
+    }
+
+    fn invalidate_projection_rows_if_sidebar_spec_changed(
+        &mut self,
+        previous: SidebarProjectionSpec,
+    ) {
+        if previous != SidebarProjectionSpec::from_config(&self.config) {
+            self.invalidate_projection_rows_cache();
+            self.cancel_sidebar_layout_drag();
+        }
+    }
+
+    fn cancel_sidebar_layout_drag(&mut self) {
+        let should_cancel = self.drag.as_ref().is_some_and(|drag| {
+            matches!(
+                drag,
+                Drag::TabArm { .. }
+                    | Drag::Tab { .. }
+                    | Drag::WorkspaceArm { .. }
+                    | Drag::Workspace { .. }
+                    | Drag::WorkspaceScrollbar { .. }
+                    | Drag::FilesScrollbar { .. }
+                    | Drag::HorizontalScrollbar { .. }
+                    | Drag::RailResize(_)
+                    | Drag::SidebarSplit { .. }
+                    | Drag::ResizeSplit { .. }
+            )
+        });
+        if should_cancel {
+            // A sidebar profile or visibility change replaces the coordinate
+            // frame. Fence the physical release and discard frozen geometry,
+            // including pane captures that were shifted by the new width.
+            self.cancel_pointer_interaction_with_split_settle(false);
+        }
+    }
+
+    /// Replace the active profile's projection specification and invalidate
+    /// snapshots in one place. View ids are profile-local, so a reused id may
+    /// describe a different resource tree after the replacement.
+    fn replace_sidebar_projection(
+        &mut self,
+        profile_id: String,
+        views: Vec<SidebarViewSpec>,
+        layout: Vec<SidebarLayoutNode>,
+    ) {
+        let previous = SidebarProjectionSpec::from_config(&self.config);
+        let profile_changed = self.config.sidebar.active_profile != profile_id;
+        self.config.sidebar.active_profile = profile_id;
+        self.config.sidebar.views = views;
+        self.config.sidebar.layout = layout;
+        self.remember_active_projection_identities();
+        if profile_changed {
+            self.invalidate_projection_rows_cache();
+            self.cancel_sidebar_layout_drag();
+        } else {
+            self.invalidate_projection_rows_if_sidebar_spec_changed(previous);
+        }
+    }
+
+    /// Drop only snapshots that depend on the changed surface. The event
+    /// stream can deliver several updates before the next frame, so return
+    /// whether this surface needs to schedule the first paint boundary.
+    fn invalidate_projection_rows_for_surface(
+        &mut self,
+        surface: SurfaceId,
+        change: ProjectionSurfaceChange,
+    ) -> bool {
+        // An agent update can create the first row in a view, so an empty
+        // cache has no dependency id to wake from. Use the current tree and
+        // the view's semantic scope as a bounded fallback. A surface that is
+        // not in this client's tree remains unrelated, preserving the cheap
+        // no-paint path for foreign workspace updates.
+        let agent_surface_workspace = (change == ProjectionSurfaceChange::Agent)
+            .then(|| self.tab_locations.get(&surface).map(|location| location[0]))
+            .flatten();
+        let agent_scope_views = agent_surface_workspace.map_or_else(HashSet::new, |workspace| {
+            self.config
+                .sidebar
+                .views
+                .iter()
+                .filter(|spec| {
+                    spec.includes(SidebarResourceKind::Agents)
+                        && self.projection_view_is_visible(&spec.id)
+                        && (spec.scope == SidebarViewScope::All
+                            || spec.levels.first() != Some(&SidebarResourceKind::Agents)
+                            || workspace == self.sidebar_workspace_selection)
+                })
+                .map(|spec| spec.id.clone())
+                .collect()
+        });
+        let was_affected = self.projection_rows_cache.iter().any(|cache| {
+            self.projection_view_is_visible(&cache.view_id)
+                && match change {
+                    ProjectionSurfaceChange::Agent => {
+                        cache.agent_surfaces.contains(&surface)
+                            || agent_scope_views.contains(&cache.view_id)
+                    }
+                    ProjectionSurfaceChange::Title => cache.title_surfaces.contains(&surface),
+                }
+        });
+        self.projection_rows_cache.retain(|cache| match change {
+            ProjectionSurfaceChange::Agent => {
+                !cache.agent_surfaces.contains(&surface)
+                    && !agent_scope_views.contains(&cache.view_id)
+            }
+            ProjectionSurfaceChange::Title => !cache.title_surfaces.contains(&surface),
+        });
+        let visible = match change {
+            ProjectionSurfaceChange::Agent => {
+                self.projection_agent_surfaces.contains(&surface) || !agent_scope_views.is_empty()
+            }
+            ProjectionSurfaceChange::Title => self.projection_title_surfaces.contains(&surface),
+        };
+        if !(was_affected || visible) || self.projection_paint_pending {
+            return false;
+        }
+        self.projection_paint_pending = true;
+        true
+    }
+
+    fn schedule_projection_paint(&mut self) -> bool {
+        if self.projection_paint_pending {
+            return false;
+        }
+        self.projection_paint_pending = true;
+        true
+    }
+
+    fn clear_pending_projection_paint(&mut self) {
+        self.projection_paint_pending = false;
+    }
+
+    fn invalidate_projection_rows_for_surfaces(
+        &mut self,
+        surfaces: impl IntoIterator<Item = SurfaceId>,
+        change: ProjectionSurfaceChange,
+    ) -> bool {
+        let mut paint_requested = false;
+        for surface in surfaces {
+            paint_requested |= self.invalidate_projection_rows_for_surface(surface, change);
+        }
+        paint_requested
     }
 
     pub(crate) fn sidebar_action_rows(&self, index: usize) -> Vec<SidebarActionRow> {
@@ -9953,9 +12910,278 @@ impl App {
     /// Where the workspace rail's pinned action buttons render.
     pub(crate) fn workspace_actions_position(&self) -> crate::config::ActionsPosition {
         self.view_index_for_rail(RailKind::Workspace)
-            .and_then(|index| self.config.sidebar.views.get(index))
-            .map(|spec| spec.actions_position)
+            .map(|index| self.sidebar_actions_position_for_view(index))
             .unwrap_or_default()
+    }
+
+    fn sidebar_actions_position_for_view(&self, index: usize) -> crate::config::ActionsPosition {
+        self.config.sidebar.views.get(index).map(|spec| spec.actions_position).unwrap_or_default()
+    }
+
+    fn files_rail_target_at(
+        &self,
+        index: usize,
+        actions: &[SidebarActionRow],
+    ) -> Option<FilesRailTarget> {
+        let file_count = self.sidebar_files.visible_len();
+        match self.workspace_actions_position() {
+            crate::config::ActionsPosition::Top => {
+                if index < actions.len() {
+                    actions.get(index).map(|action| FilesRailTarget::Action(action.target))
+                } else {
+                    (index - actions.len() < file_count)
+                        .then_some(FilesRailTarget::File(index - actions.len()))
+                }
+            }
+            crate::config::ActionsPosition::Bottom => {
+                if index < file_count {
+                    Some(FilesRailTarget::File(index))
+                } else {
+                    actions
+                        .get(index - file_count)
+                        .map(|action| FilesRailTarget::Action(action.target))
+                }
+            }
+        }
+    }
+
+    fn files_rail_target_index(
+        &self,
+        target: FilesRailTarget,
+        actions: &[SidebarActionRow],
+    ) -> Option<usize> {
+        let file_count = self.sidebar_files.visible_len();
+        match target {
+            FilesRailTarget::File(index) if index < file_count => {
+                Some(match self.workspace_actions_position() {
+                    crate::config::ActionsPosition::Top => actions.len().saturating_add(index),
+                    crate::config::ActionsPosition::Bottom => index,
+                })
+            }
+            FilesRailTarget::Action(target) => actions
+                .iter()
+                .position(|action| action.target == target)
+                .map(|index| match self.workspace_actions_position() {
+                    crate::config::ActionsPosition::Top => index,
+                    crate::config::ActionsPosition::Bottom => file_count.saturating_add(index),
+                }),
+            FilesRailTarget::File(_) => None,
+        }
+    }
+
+    fn files_page_size(&self) -> usize {
+        self.sidebar_layout.workspace.map_or(1, |area| {
+            let geometry = self.files_layout_geometry(area);
+            usize::from(geometry.body.height)
+                .saturating_add(geometry.top_action_rows)
+                .saturating_add(geometry.bottom_action_rows)
+                .max(1)
+        })
+    }
+
+    fn files_visible_target_count(&self) -> usize {
+        self.sidebar_layout.workspace.map_or(0, |area| {
+            let geometry = self.files_layout_geometry(area);
+            usize::from(geometry.body.height)
+                .saturating_add(geometry.top_action_rows)
+                .saturating_add(geometry.bottom_action_rows)
+        })
+    }
+
+    fn selected_files_rail_target(&self, actions: &[SidebarActionRow]) -> Option<FilesRailTarget> {
+        match self.files_rail_selection {
+            FilesRailSelection::File => (self.sidebar_files.visible_len() > 0)
+                .then_some(FilesRailTarget::File(self.sidebar_files.selected()))
+                .and_then(|target| {
+                    self.files_rail_target_index(target, actions)
+                        .and_then(|index| self.files_rail_target_at(index, actions))
+                }),
+            FilesRailSelection::Action(target) => actions
+                .iter()
+                .any(|action| action.target == target)
+                .then_some(FilesRailTarget::Action(target)),
+        }
+    }
+
+    pub(crate) fn reconcile_files_rail_selection(&mut self) {
+        if let FilesRailSelection::Action(target) = self.files_rail_selection
+            && !self.workspace_sidebar_action_rows().iter().any(|action| action.target == target)
+        {
+            self.set_files_rail_selection(FilesRailSelection::File);
+        }
+    }
+
+    fn set_files_rail_selection(&mut self, selection: FilesRailSelection) {
+        self.files_rail_selection = selection;
+        self.active_sidebar_profile_state_mut().files_action_follow_selection = true;
+    }
+
+    fn reset_files_action_position(&mut self) {
+        self.files_rail_selection = FilesRailSelection::File;
+        let state = self.active_sidebar_profile_state_mut();
+        state.files_action_scroll = 0;
+        state.files_action_follow_selection = true;
+    }
+
+    /// Clear action selections at a configuration boundary. `Action::UserCommand`
+    /// stores a validated index into the loaded command list, so retaining a
+    /// selection across a reload could run a different command after an edit
+    /// reorders that list. The next frame selects the resource domain again and
+    /// rebuilds its hit map from the new configuration.
+    fn invalidate_sidebar_action_targets(&mut self) {
+        if matches!(self.workspace_rail_selection, WorkspaceRailSelection::Action(_)) {
+            self.workspace_rail_selection = WorkspaceRailSelection::Workspace;
+        }
+        if matches!(self.files_rail_selection, FilesRailSelection::Action(_)) {
+            self.files_rail_selection = FilesRailSelection::File;
+        }
+        for state in self.sidebar_presentation.profiles.values_mut() {
+            state.files_action_follow_selection = true;
+            state.files_action_scroll = 0;
+            for rail in state.projection_rails.values_mut() {
+                rail.selected_action = None;
+            }
+        }
+        // A context menu can contain configured command actions too. Close it
+        // before the new config is exposed so Enter cannot dispatch an old
+        // positional command through the menu.
+        self.menu = None;
+        self.hits.clear();
+        // A rendered mouse route can be replayed after a config reload. Drop
+        // retained mouse input and advance its generation so a route that
+        // happens to have the same rectangle and command index cannot cross
+        // the configuration boundary.
+        self.advance_pointer_focus_generation();
+    }
+
+    pub(crate) fn reveal_files_action_selection(&mut self) {
+        self.reconcile_files_rail_selection();
+        let FilesRailSelection::Action(target) = self.files_rail_selection else { return };
+        if self
+            .active_sidebar_profile_state()
+            .is_some_and(|state| !state.files_action_follow_selection)
+        {
+            return;
+        }
+        let Some(area) = self.sidebar_layout.workspace else { return };
+        let actions = self.workspace_sidebar_action_rows();
+        let action_count = actions.len();
+        let Some(index) = actions.iter().position(|action| action.target == target) else {
+            return;
+        };
+        let geometry = self.files_layout_geometry(area);
+        let visible = geometry.top_action_rows + geometry.bottom_action_rows;
+        if visible == 0 || action_count == 0 {
+            self.active_sidebar_profile_state_mut().files_action_scroll = 0;
+            return;
+        }
+        let max_offset = action_count.saturating_sub(visible);
+        let current =
+            self.active_sidebar_profile_state().map_or(0, |state| state.files_action_scroll);
+        let mut offset = current.min(max_offset);
+        if index < offset {
+            offset = index;
+        } else if index >= offset.saturating_add(visible) {
+            offset = index.saturating_add(1).saturating_sub(visible);
+        }
+        self.active_sidebar_profile_state_mut().files_action_scroll = offset.min(max_offset);
+    }
+
+    fn reconcile_files_action_scroll(&mut self) {
+        let Some(area) = self.sidebar_layout.workspace else { return };
+        let action_count = self.workspace_sidebar_action_rows().len();
+        let geometry = self.files_layout_geometry(area);
+        let visible = geometry.top_action_rows + geometry.bottom_action_rows;
+        let max_offset = action_count.saturating_sub(visible);
+        let state = self.active_sidebar_profile_state_mut();
+        state.files_action_scroll = state.files_action_scroll.min(max_offset);
+        if visible == 0 {
+            state.files_action_follow_selection = true;
+        }
+    }
+
+    /// Compute the Files host's header, body, footer, and action geometry.
+    /// The footer is always the final row when it fits. Action rows occupy the
+    /// content rows immediately below the header or immediately above the
+    /// footer, so every hit region has one unambiguous owner.
+    pub(crate) fn files_layout_geometry(&self, area: Rect) -> FilesLayoutGeometry {
+        self.files_layout_geometry_with_actions(
+            area,
+            self.workspace_sidebar_action_rows().len(),
+            self.workspace_actions_position(),
+        )
+    }
+
+    fn files_layout_geometry_with_actions(
+        &self,
+        area: Rect,
+        action_count: usize,
+        actions_position: crate::config::ActionsPosition,
+    ) -> FilesLayoutGeometry {
+        let footer_y = (area.height > 1).then(|| area.y.saturating_add(area.height - 1));
+        let content_rows =
+            usize::from(area.height.saturating_sub(if footer_y.is_some() { 2 } else { 1 }));
+        // Always keep one body row for a file, an empty-state label, or a
+        // listing error. Without this budget, a long configured action list
+        // can erase the Files browser until the user edits the config.
+        // Half-height allocation gives both domains a useful viewport.
+        let action_budget = content_rows.saturating_sub(1).min(content_rows.saturating_add(1) / 2);
+        let (top_action_rows, bottom_action_rows) = match actions_position {
+            crate::config::ActionsPosition::Top => (action_count.min(action_budget), 0),
+            crate::config::ActionsPosition::Bottom => (0, action_count.min(action_budget)),
+        };
+        let action_rows = top_action_rows + bottom_action_rows;
+        let action_offset = self
+            .active_sidebar_profile_state()
+            .map_or(0, |state| state.files_action_scroll)
+            .min(action_count.saturating_sub(action_rows));
+        let body_height = content_rows.saturating_sub(top_action_rows + bottom_action_rows);
+        let body_y = area
+            .y
+            .saturating_add(1)
+            .saturating_add(u16::try_from(top_action_rows).unwrap_or(u16::MAX));
+        FilesLayoutGeometry {
+            body: Rect {
+                x: area.x,
+                y: body_y,
+                width: area.width.saturating_sub(1),
+                height: u16::try_from(body_height).unwrap_or(u16::MAX),
+            },
+            footer_y,
+            top_action_rows,
+            bottom_action_rows,
+            action_offset,
+        }
+    }
+
+    /// Body rectangle shared by Files rendering and wheel admission. The
+    /// header, configured action rows, and footer are outside this rectangle
+    /// and therefore never consume file viewport input.
+    #[cfg(test)]
+    pub(crate) fn files_body_rect(&self, area: Rect) -> Rect {
+        self.files_layout_geometry(area).body
+    }
+
+    /// Return the visible action section of a Files host, when it has rows.
+    /// The section is a separate wheel viewport from the file body.
+    fn files_action_rect(&self, area: Rect) -> Option<Rect> {
+        let geometry = self.files_layout_geometry(area);
+        let rows = geometry.top_action_rows + geometry.bottom_action_rows;
+        if rows == 0 {
+            return None;
+        }
+        let y = match self.workspace_actions_position() {
+            crate::config::ActionsPosition::Top => area.y.saturating_add(1),
+            crate::config::ActionsPosition::Bottom => {
+                geometry.footer_y?.saturating_sub(u16::try_from(rows).unwrap_or(u16::MAX))
+            }
+        };
+        Some(Rect {
+            x: area.x,
+            y,
+            width: area.width.saturating_sub(1),
+            height: u16::try_from(rows).unwrap_or(u16::MAX),
+        })
     }
 
     /// Expand the configured workspace row label template. The default
@@ -9982,7 +13208,7 @@ impl App {
             .get(index)
             .map(|view| view.id.clone())
             .unwrap_or_else(|| format!("missing-{index}"));
-        self.projection_rails.entry(id).or_default()
+        self.active_sidebar_profile_state_mut().projection_rails.entry(id).or_default()
     }
 
     fn invoke_sidebar_action(
@@ -10003,8 +13229,8 @@ impl App {
             return Vec::new();
         }
         let workspace_index =
-            self.sidebar_workspace_selection.min(self.tree.workspaces.len().saturating_sub(1));
-        let Some(workspace) = self.tree.workspaces.get(workspace_index) else {
+            self.sidebar_workspace_selection.min(self.tree.workspaces().len().saturating_sub(1));
+        let Some(workspace) = self.tree.workspaces().get(workspace_index) else {
             return Vec::new();
         };
         workspace
@@ -10046,59 +13272,103 @@ impl App {
             .collect()
     }
 
-    fn activate_sidebar_tab(&mut self, target: &SidebarTabTarget) -> anyhow::Result<()> {
+    fn activate_sidebar_tab(&mut self, target: &SidebarTabTarget) -> anyhow::Result<bool> {
         if !self.prepare_pty_input_before_mutation() {
-            return Ok(());
+            return Ok(false);
         }
         if !self.tree.select_surface(target.surface) {
-            return Ok(());
+            return Ok(false);
         }
-        self.follow_sidebar_workspace(target.workspace);
-        self.pane_focus_history.record(target.pane);
+        let Some((workspace, pane)) =
+            self.tree.workspaces().iter().enumerate().find_map(|(workspace_index, workspace)| {
+                workspace.screens.iter().find_map(|screen| {
+                    screen.panes.iter().find_map(|pane| {
+                        pane.tabs
+                            .iter()
+                            .any(|tab| tab.surface == target.surface)
+                            .then_some((workspace_index, pane.id))
+                    })
+                })
+            })
+        else {
+            return Ok(false);
+        };
+        self.follow_sidebar_workspace(workspace);
+        self.pane_focus_history.record(pane);
         self.claim_active_terminal_geometry(true);
-        Ok(())
+        Ok(true)
     }
 
     fn follow_sidebar_workspace(&mut self, index: usize) {
         if self.sidebar_workspace_selection != index {
             self.tabs_rail_selection = 0;
-            self.tabs_rail_scroll = 0;
+            self.active_sidebar_rail_scroll_mut().tabs_rail_scroll = 0;
         }
         self.sidebar_workspace_selection = index;
         self.workspace_rail_selection = WorkspaceRailSelection::Workspace;
     }
 
-    fn activate_workspace(&mut self, index: usize) {
-        if index >= self.tree.workspaces.len() || !self.prepare_pty_input_before_mutation() {
-            return;
+    fn activate_workspace(&mut self, index: usize) -> bool {
+        if index >= self.tree.workspaces().len() || !self.prepare_pty_input_before_mutation() {
+            return false;
         }
         self.follow_sidebar_workspace(index);
         self.tree.active_workspace = index;
         self.select_workspace_for_client(Some(index), None);
+        true
     }
 
-    fn activate_projection_target(&mut self, target: ProjectionTarget) -> anyhow::Result<()> {
+    fn activate_projection_target(&mut self, target: ProjectionTarget) -> anyhow::Result<bool> {
         match target {
-            ProjectionTarget::Workspace { index, .. } => {
-                self.activate_workspace(index);
+            ProjectionTarget::Workspace { id, .. } => {
+                // The hit map can outlive a tree snapshot while a remote
+                // reorder is queued. Resolve the stable workspace identity
+                // again instead of applying a stale row index.
+                let Some(index) =
+                    self.tree.workspaces().iter().position(|workspace| workspace.id == id)
+                else {
+                    return Ok(false);
+                };
+                Ok(self.activate_workspace(index))
             }
-            ProjectionTarget::Pane { workspace, screen, pane } => {
+            ProjectionTarget::Pane { workspace_id, screen_id, pane, .. } => {
                 if !self.prepare_pty_input_before_mutation() {
-                    return Ok(());
+                    return Ok(false);
                 }
+                let Some((workspace, screen)) = self.tree.workspaces().iter().enumerate().find_map(
+                    |(workspace_index, candidate)| {
+                        (candidate.id == workspace_id)
+                            .then(|| {
+                                candidate
+                                    .screens
+                                    .iter()
+                                    .position(|screen| {
+                                        screen.id == screen_id
+                                            && screen
+                                                .panes
+                                                .iter()
+                                                .any(|candidate| candidate.id == pane)
+                                    })
+                                    .map(|screen_index| (workspace_index, screen_index))
+                            })
+                            .flatten()
+                    },
+                ) else {
+                    // A reorder, close, or reload made the rendered target
+                    // stale. Treat it as a no-op instead of selecting a
+                    // different pane at the old numeric coordinates.
+                    return Ok(false);
+                };
                 self.follow_sidebar_workspace(workspace);
                 self.tree.active_workspace = workspace;
-                if let Some(workspace_view) = self.tree.workspaces.get_mut(workspace) {
-                    workspace_view.active_screen = screen;
-                    if let Some(screen_view) = workspace_view.screens.get_mut(screen) {
-                        screen_view.active_pane = pane;
-                    }
-                }
+                self.tree.set_active_screen(workspace, screen);
+                self.tree.set_active_pane(workspace, screen, pane);
                 self.pane_focus_history.record(pane);
                 self.claim_active_terminal_geometry(true);
+                Ok(true)
             }
-            ProjectionTarget::Surface { workspace, screen, pane, index, surface, .. } => {
-                self.activate_sidebar_tab(&SidebarTabTarget {
+            ProjectionTarget::Surface { workspace, screen, pane, index, surface, .. } => self
+                .activate_sidebar_tab(&SidebarTabTarget {
                     workspace,
                     screen,
                     pane,
@@ -10107,10 +13377,8 @@ impl App {
                     name: String::new(),
                     subtitle: String::new(),
                     active: false,
-                })?;
-            }
+                }),
         }
-        Ok(())
     }
 
     pub fn total_sidebar_width(&self) -> u16 {
@@ -10140,22 +13408,20 @@ impl App {
         if size.0 == 0 || size.1 == 0 {
             return Vec::new();
         }
-        let hidden_views = self
-            .hidden_sidebar_views
-            .get(&self.config.sidebar.active_profile)
-            .cloned()
-            .unwrap_or_default();
+        let fallback = SidebarProfilePresentationState::default();
+        let presentation = self.active_sidebar_profile_state().unwrap_or(&fallback);
         sidebar_layout_for_state(
             &self.config,
             true,
             self.sidebar_compact,
             self.machine_ui.is_some(),
             size,
-            self.sidebar_width_override,
-            self.machine_sidebar_width_override,
-            self.tabs_sidebar_width_override,
-            &self.projection_sidebar_width_overrides,
-            &hidden_views,
+            presentation.workspace_width,
+            presentation.machine_width,
+            presentation.tabs_width,
+            &presentation.column_widths,
+            &presentation.split_fractions,
+            &presentation.hidden_views,
             None,
         )
         .ordered
@@ -10188,6 +13454,50 @@ impl App {
             })
     }
 
+    fn sidebar_view_token_matches(&self, index: usize, token: u64) -> bool {
+        let Some(view) = self.config.sidebar.views.get(index) else { return false };
+        if sidebar_view_token(view) != token || !self.sidebar_visible || self.surface_only.is_some()
+        {
+            return false;
+        }
+        if self.sidebar_layout.ordered.is_empty() {
+            // Startup and isolated renderer tests can draw through the legacy
+            // width fallback before the first layout. A committed empty
+            // layout means the solver mounted no view, so an old hit is stale.
+            return self.outer_size == (0, 0);
+        }
+        self.sidebar_layout.ordered.iter().any(|placement| placement.view_index == index)
+    }
+
+    fn projection_sidebar_page_cells(
+        &self,
+        view_index: usize,
+        spec: &SidebarViewSpec,
+        body_rows: usize,
+        footer_rows: usize,
+    ) -> usize {
+        let Some(mut area) = self.projection_sidebar_area(view_index) else { return 1 };
+        if spec.includes(SidebarResourceKind::Agents) && area.height > 1 {
+            area = Rect { y: area.y + 1, height: area.height - 1, ..area };
+        }
+        let (mut body_offset, mut footer_offset) = self
+            .active_sidebar_profile_state()
+            .and_then(|state| state.projection_rails.get(&spec.id))
+            .map(|state| (state.scroll, state.footer_scroll))
+            .unwrap_or_default();
+        let viewport = crate::ui::rail::viewport_positioned(
+            area,
+            body_rows.max(1),
+            footer_rows,
+            &mut body_offset,
+            &mut footer_offset,
+            None,
+            None,
+            spec.actions_position,
+        );
+        usize::from(viewport.body.height).saturating_add(usize::from(viewport.footer.height)).max(1)
+    }
+
     pub(crate) fn workspace_sidebar_action_rows(&self) -> Vec<SidebarActionRow> {
         self.view_index_for_rail(RailKind::Workspace)
             .map(|index| self.sidebar_action_rows(index))
@@ -10201,19 +13511,109 @@ impl App {
             RailKind::Tabs => FocusTarget::TabsRail,
             RailKind::Projection(index) => FocusTarget::ProjectionRail(index),
         };
+        let focused_view = self
+            .view_index_for_rail(kind)
+            .and_then(|index| self.config.sidebar.views.get(index))
+            .map(SidebarViewIdentity::from_spec);
+        if let Some(focused_view) = focused_view {
+            let state = self.active_sidebar_profile_state_mut();
+            state.focused_view = Some(focused_view);
+        }
+        if kind == RailKind::Workspace
+            && self.sidebar_view == SidebarView::Files
+            && matches!(self.files_rail_selection, FilesRailSelection::Action(_))
+        {
+            self.active_sidebar_profile_state_mut().files_action_follow_selection = true;
+            self.reveal_files_action_selection();
+        }
+    }
+
+    /// Pick a mounted rail when the previously focused projection was
+    /// compacted out of the current frame. Prefer the same workspace-oriented
+    /// semantic family, then the same top-level resource, then the first
+    /// mounted rail. This keeps focus useful across constrained resizes.
+    fn fallback_visible_rail_kind(&self, hidden_index: usize) -> Option<RailKind> {
+        let source = self.config.sidebar.views.get(hidden_index);
+        let prefers_workspace =
+            source.is_some_and(|view| view.includes(SidebarResourceKind::Workspaces));
+        if prefers_workspace
+            && let Some(kind) = self.sidebar_layout.ordered.iter().find_map(|placement| {
+                let view = self.config.sidebar.views.get(placement.view_index)?;
+                view.includes(SidebarResourceKind::Workspaces).then_some(placement.kind)
+            })
+        {
+            return Some(kind);
+        }
+        let source_level = source.and_then(|view| view.levels.first()).copied();
+        if let Some(source_level) = source_level
+            && let Some(kind) = self.sidebar_layout.ordered.iter().find_map(|placement| {
+                let view = self.config.sidebar.views.get(placement.view_index)?;
+                (view.levels.first() == Some(&source_level)).then_some(placement.kind)
+            })
+        {
+            return Some(kind);
+        }
+        self.sidebar_layout.ordered.first().map(|placement| placement.kind)
     }
 
     fn focus_adjacent_rail(&mut self, kind: RailKind, delta: isize) -> bool {
-        let order = self.visible_rail_order();
-        let Some(index) = order.iter().position(|candidate| *candidate == kind) else {
+        let direction = if delta < 0 { Direction::Left } else { Direction::Right };
+        let Some(next) = self.adjacent_rail(kind, direction) else {
             return false;
         };
-        let next = index as isize + delta;
-        let Some(next) = usize::try_from(next).ok().filter(|next| *next < order.len()) else {
-            return false;
-        };
-        self.focus_rail(order[next]);
+        self.focus_rail(next);
         true
+    }
+
+    /// The rail geometrically next to `kind`. With stacked rails, left and
+    /// right mean the neighboring column (preferring the vertically closest
+    /// rail there), and up and down move within the column.
+    fn adjacent_rail(&self, kind: RailKind, direction: Direction) -> Option<RailKind> {
+        let placements = &self.sidebar_layout.ordered;
+        let rect = placements.iter().find(|placement| placement.kind == kind)?.rect;
+        let overlap = |low_a: u16, len_a: u16, low_b: u16, len_b: u16| -> u16 {
+            let high = (low_a.saturating_add(len_a)).min(low_b.saturating_add(len_b));
+            let low = low_a.max(low_b);
+            high.saturating_sub(low)
+        };
+        placements
+            .iter()
+            .filter(|placement| placement.kind != kind)
+            .filter_map(|placement| {
+                let candidate = placement.rect;
+                let (distance, alignment) = match direction {
+                    Direction::Left if candidate.x.saturating_add(candidate.width) <= rect.x => (
+                        rect.x - candidate.x.saturating_add(candidate.width),
+                        overlap(rect.y, rect.height, candidate.y, candidate.height),
+                    ),
+                    Direction::Right if candidate.x >= rect.x.saturating_add(rect.width) => (
+                        candidate.x - rect.x.saturating_add(rect.width),
+                        overlap(rect.y, rect.height, candidate.y, candidate.height),
+                    ),
+                    Direction::Up
+                        if candidate.y.saturating_add(candidate.height) <= rect.y
+                            && overlap(rect.x, rect.width, candidate.x, candidate.width) > 0 =>
+                    {
+                        (
+                            rect.y - candidate.y.saturating_add(candidate.height),
+                            overlap(rect.x, rect.width, candidate.x, candidate.width),
+                        )
+                    }
+                    Direction::Down
+                        if candidate.y >= rect.y.saturating_add(rect.height)
+                            && overlap(rect.x, rect.width, candidate.x, candidate.width) > 0 =>
+                    {
+                        (
+                            candidate.y - rect.y.saturating_add(rect.height),
+                            overlap(rect.x, rect.width, candidate.x, candidate.width),
+                        )
+                    }
+                    _ => return None,
+                };
+                Some((distance, std::cmp::Reverse(alignment), placement.kind))
+            })
+            .min_by_key(|(distance, alignment, _)| (*distance, *alignment))
+            .map(|(_, _, kind)| kind)
     }
 
     fn move_focus_between_sidebar_rails(&mut self, direction: Direction) -> bool {
@@ -10229,8 +13629,28 @@ impl App {
                 }
                 true
             }
-            Direction::Up | Direction::Down => false,
+            Direction::Up | Direction::Down => {
+                if let Some(next) = self.adjacent_rail(kind, direction) {
+                    self.focus_rail(next);
+                    true
+                } else {
+                    false
+                }
+            }
         }
+    }
+
+    /// At a rail's first or last row, Up/Down continues into the stacked
+    /// neighbor rail. Returns whether focus moved.
+    fn continue_past_rail_boundary(&mut self, kind: RailKind, key: &KeyEvent) -> bool {
+        let direction = match key.code {
+            KeyCode::Up | KeyCode::Char('k') => Direction::Up,
+            KeyCode::Down | KeyCode::Char('j') => Direction::Down,
+            _ => return false,
+        };
+        let Some(next) = self.adjacent_rail(kind, direction) else { return false };
+        self.focus_rail(next);
+        true
     }
 
     fn focus_rightmost_sidebar_rail(&mut self) -> bool {
@@ -10418,7 +13838,6 @@ impl App {
             if self.quit {
                 break;
             }
-            // Keep a toast reintroduced by the timeout drain hook alive for one iteration.
             if !toast_expired_on_timeout && self.expire_toast() {
                 action = action.merge(RenderAction::Draw);
             }
@@ -10520,6 +13939,7 @@ impl App {
     }
 
     fn shutdown_runtime_components(&mut self) {
+        self.host_input.shutdown();
         self.shutdown_background_workers();
         self.cancel_pointer_interaction();
         self.session.begin_shutdown();
@@ -10529,7 +13949,6 @@ impl App {
         }
         let _ = std::panic::take_hook();
     }
-
     fn process_machine_requests(&mut self) -> RenderAction {
         self.submit_pending_durable_notice_ack();
         if self.machine_action_in_flight {
@@ -10717,6 +14136,7 @@ impl App {
             .as_ref()
             .is_some_and(|prompt| matches!(prompt.target, PromptTarget::ConnectMachine(_)))
         {
+            self.cancel_pointer_before_modal();
             self.prompt = None;
         }
     }
@@ -11082,7 +14502,7 @@ impl App {
         };
         let Some(workspace_id) = self
             .tree
-            .workspaces
+            .workspaces()
             .iter()
             .find(|workspace| workspace.key == workspace_key)
             .map(|workspace| workspace.id)
@@ -11101,6 +14521,7 @@ impl App {
     }
 
     fn apply_machine_ui_update(&mut self, mut update: MachineUiState) -> RenderAction {
+        let previous_machine_topology = machine_sidebar_pointer_topology(self.machine_ui.as_ref());
         if self.machine_ui.is_none()
             && self.machine_selection_intent.is_none()
             && self.machine_presented.is_none()
@@ -11287,6 +14708,7 @@ impl App {
                 != update.managed_machines();
         if provider_changed {
             if self.menu.as_ref().is_some_and(ContextMenu::targets_provider_state) {
+                self.cancel_pointer_before_modal();
                 self.menu = None;
             }
             if self.prompt.as_ref().is_some_and(|prompt| {
@@ -11301,6 +14723,7 @@ impl App {
                         | PromptTarget::ConfirmPurgeManagedMachine(_)
                 )
             }) {
+                self.cancel_pointer_before_modal();
                 self.prompt = None;
                 self.pending_provider_action = None;
             }
@@ -11327,6 +14750,39 @@ impl App {
         }
         let notice = update.notice.clone();
         self.machine_ui = Some(update);
+        let next_machine_topology = machine_sidebar_pointer_topology(self.machine_ui.as_ref());
+        let machine_topology_changed = previous_machine_topology != next_machine_topology;
+        let recoverable_workspaces_changed = previous_machine_topology.recoverable_workspace_ids
+            != next_machine_topology.recoverable_workspace_ids;
+        let workspace_creation_policy_changed = previous_machine_topology.workspace_creation_policy
+            != next_machine_topology.workspace_creation_policy;
+        if machine_topology_changed {
+            // Machine presence, ordering, and action rows participate in the
+            // shared sidebar solver. A snapshot can arrive while any rail or
+            // pane divider is held, so retire frozen layout captures before
+            // the next frame repacks the columns.
+            self.invalidate_sidebar_layout_captures();
+            if previous_machine_topology.present != next_machine_topology.present {
+                // Adding or removing the machine column can also change the
+                // host column's width in an explicit stacked layout. Files'
+                // scrollbar rows are otherwise independent of a catalog
+                // refresh, so fence them only for this real mount change.
+                self.invalidate_sidebar_pointer_domains(&[SidebarPointerDomain::Files]);
+            }
+        }
+        if workspace_creation_policy_changed {
+            // Files and Workspaces share one host. Provider creation modes
+            // change the action footer and therefore the Files body and
+            // scrollbar coordinates too.
+            self.invalidate_sidebar_pointer_domains(&[
+                SidebarPointerDomain::Workspace,
+                SidebarPointerDomain::Files,
+            ]);
+        } else if recoverable_workspaces_changed {
+            // Machine rows have no drag capture. Only the provider-owned
+            // workspace rows can change a native target in this rail update.
+            self.invalidate_sidebar_pointer_domains(&[SidebarPointerDomain::Workspace]);
+        }
         self.machine_pointer_context_cache = None;
         self.reconcile_workspace_rail_selection();
         if let Some(error) = guard_error {
@@ -11505,6 +14961,7 @@ impl App {
             }
             self.session.apply_config(self.config.clone());
             self.session.refresh_clients_background();
+            self.session.refresh_machine_usage_background();
         }
 
         if let Some(mut previous_worker) = previous_worker {
@@ -11516,10 +14973,24 @@ impl App {
     }
 
     fn reset_session_presentation(&mut self, tree: TreeView) {
+        // A replacement session invalidates every rendered coordinate and
+        // surface handle. Fence pointer ownership before clearing the old
+        // presentation, including a plain press with no drag variant.
+        self.invalidate_pointer_topology_without_split_settle();
         for surface in self.tab_locations.keys().copied().collect::<Vec<_>>() {
             self.browser_input.forget_surface(surface);
         }
         self.tree = tree;
+        // The readout belongs to the previous daemon; the replacement's own
+        // value arrives from its background refresh.
+        self.machine_usage = None;
+        self.invalidate_projection_rows_cache();
+        // Surface IDs are only unique within one attached session. Do not
+        // carry client-local seen stamps or the profile-strip receipt into a
+        // replacement machine where the same numeric IDs may be reused.
+        self.agent_focus_stamps.clear();
+        self.rendered_agent_attention = None;
+        self.agent_attention_paint_pending = false;
         self.tab_locations.clear();
         self.rebuild_tab_locations();
         self.render_states.clear();
@@ -11551,11 +15022,11 @@ impl App {
         self.sidebar_files =
             FileBrowser::new(std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
         self.sidebar_workspace_selection =
-            self.tree.active_workspace.min(self.tree.workspaces.len().saturating_sub(1));
+            self.tree.active_workspace.min(self.tree.workspaces().len().saturating_sub(1));
         self.sidebar_recoverable_workspace_selection = 0;
         self.workspace_rail_selection = WorkspaceRailSelection::Workspace;
         self.tabs_rail_selection = 0;
-        self.tabs_rail_scroll = 0;
+        self.active_sidebar_rail_scroll_mut().tabs_rail_scroll = 0;
         self.tabs_rail_follow_selection = true;
         self.sidebar_followed_surface = None;
         self.sidebar_plugin_surface = None;
@@ -11575,6 +15046,7 @@ impl App {
         self.toast = None;
         self.shake_frames = 0;
         self.replace_selection(None);
+        self.reset_selection_click_sequence();
         self.last_browser_hover = None;
         self.deferred_input.clear();
         self.pending_pointer_motion = None;
@@ -11591,8 +15063,10 @@ impl App {
         self.applied_destination_generation = 0;
         self.pending_session_completions.clear();
         self.drag = None;
+        self.files_pointer_owner = None;
         self.active_pointer_buttons.clear();
-        self.ignored_pty_mouse_buttons.clear();
+        self.pointer_button_surfaces.clear();
+        self.ignored_pointer_buttons.clear();
         self.encode_buf.clear();
     }
 
@@ -11879,6 +15353,16 @@ impl App {
         machine_context: Option<&Arc<MachinePointerContext>>,
     ) -> Option<PointerHitIdentity> {
         match hit {
+            Hit::SidebarProfile { token, .. } => self
+                .config
+                .sidebar
+                .profiles
+                .iter()
+                .find(|profile| sidebar_profile_token(&profile.id) == token)
+                .map(|profile| PointerHitIdentity::SidebarProfile(profile.id.clone())),
+            Hit::SidebarPresentationMenu => Some(PointerHitIdentity::SidebarPresentation(
+                self.config.sidebar.active_profile.clone(),
+            )),
             Hit::NewVm
             | Hit::ConnectMachine
             | Hit::CreateWorkspace { .. }
@@ -11896,12 +15380,12 @@ impl App {
                         .cloned(),
                 })
             }),
-            Hit::RecoverableWorkspace { index } => self
+            Hit::RecoverableWorkspace { index, .. } => self
                 .machine_ui
                 .as_ref()
                 .and_then(|ui| ui.recoverable_workspaces().get(index).copied())
                 .map(|workspace| PointerHitIdentity::RecoverableWorkspace(workspace.id.clone())),
-            Hit::SidebarFile { index } => self
+            Hit::SidebarFile { index, .. } => self
                 .sidebar_files
                 .visible_entry(index)
                 .map(|entry| PointerHitIdentity::SidebarFile(entry.path.clone())),
@@ -11921,8 +15405,8 @@ impl App {
             Hit::ProjectionRow { target: ProjectionTarget::Surface { surface, .. }, .. } => {
                 Some(PointerHitIdentity::Tab(surface))
             }
-            Hit::Workspace { .. }
-            | Hit::ProjectionRow { .. }
+            Hit::Workspace { id, .. } => Some(PointerHitIdentity::Workspace(id)),
+            Hit::ProjectionRow { .. }
             | Hit::ProjectionToggle { .. }
             | Hit::RailPad(_)
             | Hit::SidebarAction { .. }
@@ -11934,7 +15418,9 @@ impl App {
             | Hit::Scrollbar { .. }
             | Hit::HorizontalScrollbar { .. }
             | Hit::WorkspaceScrollbar { .. }
-            | Hit::RailResize(_)
+            | Hit::FilesScrollbar { .. }
+            | Hit::RailResize { .. }
+            | Hit::SidebarSplitDivider { .. }
             | Hit::PaneResize { .. }
             | Hit::TabScroll { .. } => None,
         }
@@ -12005,7 +15491,8 @@ impl App {
                 .profiles
                 .get(index)
                 .map(|profile| MenuActionResource::SidebarProfile(profile.id.clone())),
-            MenuAction::SetSidebarViewVisible { view, .. } => {
+            MenuAction::SetSidebarViewVisible { view, .. }
+            | MenuAction::SetSidebarViewPinned { view, .. } => {
                 self.config.sidebar.views.get(view).map(|view| MenuActionResource::SidebarView {
                     profile: self.config.sidebar.active_profile.clone(),
                     view: view.id.clone(),
@@ -12431,12 +15918,6 @@ impl App {
         if self.pointer_route_is_globally_stale() {
             return true;
         }
-        if Self::mouse_opens_cmux_context_menu(mouse) {
-            // The menu is owned by cmux rather than the browser bitmap or a
-            // graphics scene. Keep global and layout barriers above, but do
-            // not wait for content admission this press never enters.
-            return false;
-        }
         if self.pending_graphics_changes_cell(mouse.column, mouse.row) {
             return true;
         }
@@ -12444,6 +15925,12 @@ impl App {
             self.pointer_route_phase,
             PointerRoutePhase::GraphicsRenderPending | PointerRoutePhase::GraphicsProcessingPending
         ) {
+            return false;
+        }
+        if Self::mouse_opens_cmux_context_menu(mouse) {
+            // The menu is owned by cmux rather than the browser bitmap. Keep
+            // geometry barriers above, but do not wait for browser content
+            // admission that this press never enters.
             return false;
         }
         let route = self.rendered_pointer_frame.route_for_mouse(mouse);
@@ -12463,6 +15950,8 @@ impl App {
         processed: GraphicIdentity,
         pending: GraphicIdentity,
     ) -> bool {
+        #[cfg(test)]
+        GRAPHICS_ROUTE_COMPARISONS.with(|count| count.set(count.get().saturating_add(1)));
         if !processed.same_pointer_layout(pending) {
             return false;
         }
@@ -12485,20 +15974,38 @@ impl App {
         previous: &[GraphicIdentity],
         next: &[GraphicIdentity],
     ) -> Option<Rect> {
-        previous
-            .iter()
-            .filter(|graphic| {
-                !next
-                    .iter()
-                    .any(|candidate| self.graphics_share_pointer_route(**graphic, *candidate))
-            })
-            .chain(next.iter().filter(|graphic| {
-                !previous
-                    .iter()
-                    .any(|candidate| self.graphics_share_pointer_route(**graphic, *candidate))
-            }))
-            .map(|graphic| graphic.rect)
-            .reduce(bounding_rect)
+        if previous.len().saturating_add(next.len()) <= GRAPHICS_ROUTE_INDEX_FAST_PATH_LIMIT {
+            return previous
+                .iter()
+                .filter(|graphic| {
+                    !next
+                        .iter()
+                        .any(|candidate| self.graphics_share_pointer_route(**graphic, *candidate))
+                })
+                .chain(next.iter().filter(|graphic| {
+                    !previous
+                        .iter()
+                        .any(|candidate| self.graphics_share_pointer_route(**graphic, *candidate))
+                }))
+                .map(|graphic| graphic.rect)
+                .reduce(bounding_rect);
+        }
+        let previous_index = GraphicRouteIndex::build(self, previous);
+        let next_index = GraphicRouteIndex::build(self, next);
+        let mut changed = None;
+        for &graphic in previous {
+            if !previous_index.has_match(graphic, &next_index) {
+                changed =
+                    Some(changed.map_or(graphic.rect, |bound| bounding_rect(bound, graphic.rect)));
+            }
+        }
+        for &graphic in next {
+            if !next_index.has_match(graphic, &previous_index) {
+                changed =
+                    Some(changed.map_or(graphic.rect, |bound| bounding_rect(bound, graphic.rect)));
+            }
+        }
+        changed
     }
 
     fn pending_graphics_changes_cell(&self, x: u16, y: u16) -> bool {
@@ -12560,7 +16067,7 @@ impl App {
                     .get(&surface)
                     .and_then(|[workspace, screen, pane, _]| {
                         self.tree
-                            .workspaces
+                            .workspaces()
                             .get(*workspace)
                             .and_then(|workspace| workspace.screens.get(*screen))
                             .and_then(|screen| screen.panes.get(*pane))
@@ -12578,7 +16085,7 @@ impl App {
                 }
             }
             SessionCompletionAction::LayoutUndoConfirmation { pane, revision, closes_panes } => {
-                self.cancel_pty_mouse_drag();
+                self.cancel_pointer_before_modal();
                 let label = self.layout_undo_confirmation_label(&closes_panes);
                 self.prompt = Some(Prompt::new(
                     label,
@@ -12641,14 +16148,30 @@ impl App {
         else {
             return;
         };
+        let Some(pane_id) = self
+            .tree
+            .workspaces()
+            .get(workspace_index)
+            .and_then(|workspace| workspace.screens.get(screen_index))
+            .and_then(|screen| screen.panes.get(pane_index))
+            .map(|pane| pane.id)
+        else {
+            return;
+        };
+        if self.tree.active_surface() != Some(surface) {
+            // Creation completions select a target in the client-owned tree
+            // after the authoritative snapshot has been adopted. That local
+            // focus mutation changes pane and tab hit frames without another
+            // tree replacement, so retire any old pointer owner first. Do
+            // not settle a split against the pre-focus frame.
+            self.cancel_pointer_before_tree_focus_change();
+        }
         self.tree.active_workspace = workspace_index;
-        let Some(workspace) = self.tree.workspaces.get_mut(workspace_index) else { return };
-        workspace.active_screen = screen_index;
-        let Some(screen) = workspace.screens.get_mut(screen_index) else { return };
-        let Some(pane_id) = screen.panes.get(pane_index).map(|pane| pane.id) else { return };
-        screen.active_pane = pane_id;
-        if let Some(pane) = screen.panes.get_mut(pane_index) {
-            pane.active_tab = tab_index;
+        if !self.tree.set_active_screen(workspace_index, screen_index)
+            || !self.tree.set_active_pane(workspace_index, screen_index, pane_id)
+            || !self.tree.set_active_tab(workspace_index, screen_index, pane_id, tab_index)
+        {
+            return;
         }
         self.pane_focus_history.record(pane_id);
         self.claim_active_terminal_geometry(true);
@@ -12724,51 +16247,52 @@ impl App {
         RenderAction::Draw
     }
 
-    fn apply_mux_titles(&mut self) -> bool {
+    fn apply_mux_titles(&mut self) -> (bool, bool) {
         let titles = self.mux_titles.take_dirty();
-        self.apply_mux_title_snapshot(titles)
+        let changed = self.apply_mux_title_snapshot(titles);
+        let changed_any = !changed.is_empty();
+        let projection_paint_requested =
+            self.invalidate_projection_rows_for_surfaces(changed, ProjectionSurfaceChange::Title);
+        (changed_any, projection_paint_requested)
     }
 
-    fn reapply_mux_titles(&mut self) -> bool {
+    fn reapply_mux_titles(&mut self) -> (bool, bool) {
         let titles = self.mux_titles.snapshot();
-        self.apply_mux_title_snapshot(titles)
+        let changed = self.apply_mux_title_snapshot(titles);
+        let changed_any = !changed.is_empty();
+        let projection_paint_requested =
+            self.invalidate_projection_rows_for_surfaces(changed, ProjectionSurfaceChange::Title);
+        (changed_any, projection_paint_requested)
     }
 
-    fn apply_mux_title_snapshot(&mut self, titles: HashMap<SurfaceId, Arc<str>>) -> bool {
-        if titles.is_empty() {
-            return false;
-        }
-        let mut changed = false;
+    fn apply_mux_title_snapshot(
+        &mut self,
+        titles: HashMap<SurfaceId, Arc<str>>,
+    ) -> HashSet<SurfaceId> {
+        let mut changed = HashSet::new();
         for (surface, title) in titles {
             let Some([workspace, screen, pane, tab]) = self.tab_locations.get(&surface).copied()
             else {
                 continue;
             };
-            let Some(tab) = self
+            if self
                 .tree
-                .workspaces
-                .get_mut(workspace)
-                .and_then(|workspace| workspace.screens.get_mut(screen))
-                .and_then(|screen| screen.panes.get_mut(pane))
-                .and_then(|pane| pane.tabs.get_mut(tab))
-            else {
-                continue;
-            };
-            if tab.title.as_str() != title.as_ref() {
-                tab.title = title.to_string();
-                changed = true;
+                .update_surface_title_at(surface, [workspace, screen, pane, tab], title.as_ref())
+                .is_some_and(|changed| changed)
+            {
+                changed.insert(surface);
             }
         }
         changed
     }
 
     fn replace_tree(&mut self, mut tree: TreeView) {
+        let previous_pointer_topology = self
+            .pointer_topology_capture_active()
+            .then(|| sidebar_tree_pointer_topology(&self.tree));
         let previous_active = self.active_pane();
-        let selected_workspace = self
-            .tree
-            .workspaces
-            .get(self.sidebar_workspace_selection)
-            .map(|workspace| workspace.id);
+        let selected_workspace =
+            self.tree.workspaces().get(self.sidebar_workspace_selection).cloned();
         preserve_client_view(&self.tree, &mut tree);
         let first_adoption = self.reported_focus.is_none();
         if first_adoption {
@@ -12784,8 +16308,17 @@ impl App {
             tree = TreeView::default();
             self.quit = true;
         }
+        // `TreeChanged` and direct authoritative refreshes can reuse every
+        // stable id while changing split ratios, active targets, or viewport
+        // widths. Compare the complete input-bearing frame only while a
+        // pointer owner exists. Ordinary title/status refreshes therefore do
+        // not allocate a second full-tree fingerprint on every draw.
+        if let Some(previous) = previous_pointer_topology {
+            let next = sidebar_tree_pointer_topology(&tree);
+            self.handle_tree_pointer_topology_change(&previous, &next);
+        }
         let live_browsers = tree
-            .workspaces
+            .workspaces()
             .iter()
             .flat_map(|workspace| workspace.screens.iter())
             .flat_map(|screen| screen.panes.iter())
@@ -12795,7 +16328,7 @@ impl App {
             .collect::<HashSet<_>>();
         let removed_browsers = self
             .tree
-            .workspaces
+            .workspaces()
             .iter()
             .flat_map(|workspace| workspace.screens.iter())
             .flat_map(|screen| screen.panes.iter())
@@ -12808,7 +16341,7 @@ impl App {
             self.browser_input.forget_surface(surface);
         }
         let live_screens = tree
-            .workspaces
+            .workspaces()
             .iter()
             .flat_map(|workspace| workspace.screens.iter())
             .map(|screen| screen.id)
@@ -12816,12 +16349,16 @@ impl App {
         self.viewport_states.retain(|screen, _| live_screens.contains(screen));
         self.pane_focus_history.sync_membership(&tree);
         self.tree = tree;
+        self.invalidate_projection_rows_cache();
         self.sidebar_workspace_selection = selected_workspace
             .and_then(|selected| {
-                self.tree.workspaces.iter().position(|workspace| workspace.id == selected)
+                self.tree
+                    .workspaces()
+                    .iter()
+                    .position(|workspace| preserve_workspace_matches(&selected, workspace))
             })
             .unwrap_or_else(|| {
-                self.sidebar_workspace_selection.min(self.tree.workspaces.len().saturating_sub(1))
+                self.sidebar_workspace_selection.min(self.tree.workspaces().len().saturating_sub(1))
             });
         if self.active_pane() != previous_active
             && let Some(active) = self.active_pane()
@@ -12842,7 +16379,7 @@ impl App {
             self.pane_focus_history.sync_membership(&tree);
         }
         let live_surfaces = tree
-            .workspaces
+            .workspaces()
             .iter()
             .flat_map(|workspace| workspace.screens.iter())
             .flat_map(|screen| screen.panes.iter())
@@ -12866,6 +16403,53 @@ impl App {
     }
 
     fn retire_surface_state(&mut self, surface: SurfaceId) {
+        // Surface removal is a pointer-topology boundary for any gesture
+        // whose target was this surface. Cancel it before clearing selection
+        // metadata or the surface handle, so browser/PTY releases can still
+        // be attempted and the physical button release remains fenced.
+        // Synthetic tests and a direct SurfaceExited event can reach this
+        // path before the normal Files mouse-down helper has materialized its
+        // owner token. Freeze that owner against the pre-exit frame first.
+        self.ensure_files_pointer_owner();
+        let topology_capture = self.drag.as_ref().is_some_and(|drag| {
+            matches!(
+                drag,
+                Drag::TabArm { .. }
+                    | Drag::Tab { .. }
+                    | Drag::WorkspaceArm { .. }
+                    | Drag::Workspace { .. }
+                    | Drag::WorkspaceScrollbar { .. }
+                    | Drag::HorizontalScrollbar { .. }
+                    | Drag::RailResize(_)
+                    | Drag::SidebarSplit { .. }
+                    | Drag::ResizeSplit { .. }
+            )
+        });
+        if topology_capture {
+            // A surface exit can collapse a pane, change the active screen,
+            // or repack the sidebar. These captures store frozen geometry,
+            // so cancel them even when the removed surface was not their
+            // explicit leaf target. Never settle a split against the retired
+            // tree.
+            self.invalidate_pointer_topology_without_split_settle();
+        } else if self.surface_owns_pointer_interaction(surface) {
+            self.cancel_pointer_interaction();
+        }
+        if self.prompt.as_ref().is_some_and(
+            |prompt| matches!(prompt.target, PromptTarget::Surface(target) if target == surface),
+        ) {
+            // A rename dialog targeting an exited surface cannot be committed
+            // safely. Close it while the target is still identifiable, rather
+            // than leaving a dialog whose RPC silently targets nothing.
+            self.close_prompt();
+        }
+        if self
+            .selection_click_sequence
+            .as_ref()
+            .is_some_and(|sequence| sequence.surface == surface)
+        {
+            self.reset_selection_click_sequence();
+        }
         if matches!(&self.drag, Some(Drag::PtyMouse { surface: active, .. }) if *active == surface)
         {
             self.cancel_pty_release_reservation();
@@ -12897,6 +16481,7 @@ impl App {
             self.replace_selection(None);
         }
         if self.omnibar.as_ref().is_some_and(|state| state.surface == surface) {
+            self.cancel_pointer_before_modal();
             self.omnibar = None;
         }
         if self.last_browser_hover.is_some_and(|(hovered, _, _, _)| hovered == surface) {
@@ -12905,9 +16490,54 @@ impl App {
         self.browser_input.forget_surface(surface);
     }
 
+    /// Return whether the current pointer capture or selection state names a
+    /// surface that is about to leave the cached tree. Most native drags keep
+    /// their target explicitly; selection keeps it in the click sequence or
+    /// mode state, so include those fields as well.
+    fn surface_owns_pointer_interaction(&self, surface: SurfaceId) -> bool {
+        let drag_owns_surface = match self.drag.as_ref() {
+            Some(
+                Drag::TabArm { surface: active, .. }
+                | Drag::Tab { surface: active, .. }
+                | Drag::Browser { surface: active, .. }
+                | Drag::PtyMouse { surface: active, .. }
+                | Drag::Scrollbar { surface: active, .. },
+            ) => *active == surface,
+            Some(Drag::FilesScrollbar { .. }) => {
+                // An unpinned Files rail follows the focused terminal. Its
+                // scrollbar capture therefore belongs to the owner token,
+                // not to the row's absent surface field. A pinned rail has a
+                // stable file-browser owner and must survive terminal exit.
+                !self.sidebar_files.is_pinned()
+                    && self
+                        .files_pointer_owner
+                        .as_ref()
+                        .and_then(|owner| owner.active.as_ref())
+                        .is_some_and(|owner| owner.surface == surface)
+            }
+            Some(Drag::Select { .. }) => {
+                self.selection_mode_surface == Some(surface)
+                    || self
+                        .selection_click_sequence
+                        .as_ref()
+                        .is_some_and(|sequence| sequence.surface == surface)
+                    || self.selection.as_ref().is_some_and(|selection| selection.surface == surface)
+            }
+            _ => false,
+        };
+        drag_owns_surface
+            || self.pointer_button_surfaces.values().any(|candidate| *candidate == surface)
+            || self
+                .selection_click_sequence
+                .as_ref()
+                .is_some_and(|sequence| sequence.surface == surface)
+            || self.selection_mode_surface == Some(surface)
+            || self.selection.as_ref().is_some_and(|selection| selection.surface == surface)
+    }
+
     fn rebuild_tab_locations(&mut self) {
         self.tab_locations.clear();
-        for (workspace_index, workspace) in self.tree.workspaces.iter().enumerate() {
+        for (workspace_index, workspace) in self.tree.workspaces().iter().enumerate() {
             for (screen_index, screen) in workspace.screens.iter().enumerate() {
                 for (pane_index, pane) in screen.panes.iter().enumerate() {
                     for (tab_index, tab) in pane.tabs.iter().enumerate() {
@@ -12919,12 +16549,14 @@ impl App {
                 }
             }
         }
+        self.prune_projection_surface_indexes();
     }
 
     /// Remove a retired view from the client cache before the authoritative
     /// topology refresh arrives. The backend projection still owns parent
     /// pane, screen, and workspace collapse.
     fn remove_surface_from_cached_tree(&mut self, surface: SurfaceId) {
+        self.tree.invalidate_location_index();
         let Some([workspace_index, screen_index, pane_index, tab_index]) =
             self.tab_locations.get(&surface).copied()
         else {
@@ -12934,7 +16566,7 @@ impl App {
 
         let location_is_current = self
             .tree
-            .workspaces
+            .workspaces()
             .get(workspace_index)
             .and_then(|workspace| workspace.screens.get(screen_index))
             .and_then(|screen| screen.panes.get(pane_index))
@@ -12946,8 +16578,8 @@ impl App {
         }
 
         let shifted_tabs = {
-            let pane =
-                &mut self.tree.workspaces[workspace_index].screens[screen_index].panes[pane_index];
+            let pane = &mut self.tree.workspaces_mut()[workspace_index].screens[screen_index].panes
+                [pane_index];
             pane.tabs.remove(tab_index);
             adjust_active_tab_after_removal(pane, tab_index);
             pane.tabs
@@ -12965,13 +16597,14 @@ impl App {
                 [workspace_index, screen_index, pane_index, shifted_index],
             );
         }
+        self.prune_projection_surface_indexes();
     }
 
     /// Repair the cache from the tree and rebuild `tab_locations` if the index was missing or stale.
     /// This path is defensive only. Normal surface exits use the indexed path
     /// above and touch one pane instead of scanning the entire topology.
     fn remove_surface_from_cached_tree_scan_and_rebuild_locations(&mut self, surface: SurfaceId) {
-        for workspace in &mut self.tree.workspaces {
+        for workspace in self.tree.workspaces_mut() {
             for screen in &mut workspace.screens {
                 for pane in &mut screen.panes {
                     let Some(index) = pane.tabs.iter().position(|tab| tab.surface == surface)
@@ -12979,7 +16612,11 @@ impl App {
                         continue;
                     };
                     pane.tabs.remove(index);
-                    adjust_active_tab_after_removal(pane, index);
+                    if pane.active_tab > index {
+                        pane.active_tab -= 1;
+                    } else if pane.active_tab >= pane.tabs.len() {
+                        pane.active_tab = pane.tabs.len().saturating_sub(1);
+                    }
                 }
             }
         }
@@ -13070,6 +16707,9 @@ impl App {
                 crate::ui::draw(self, frame);
             })
         })??;
+        self.sync_text_input_viewports();
+        self.clear_pending_projection_paint();
+        self.clear_pending_agent_attention_paint();
         if self.graphics_host_scene_reset_pending {
             if let Some(writer) = &self.graphics_writer {
                 writer.invalidate_host_scene();
@@ -13098,6 +16738,54 @@ impl App {
             self.host_mouse_capture_applied = Some(desired_mouse_capture);
         }
         Ok(())
+    }
+
+    /// Persist the viewport derived by the immutable text-input renderers
+    /// after a successful frame, so the next input event starts from the
+    /// window the user actually saw.
+    fn sync_text_input_viewports(&mut self) {
+        if let Some(prompt) = self.prompt.as_mut() {
+            let width = prompt.input_rect.width as usize;
+            prompt.input.sync_viewport(width);
+        }
+
+        let omnibar_width = self.omnibar.as_ref().and_then(|state| {
+            self.pane_areas
+                .iter()
+                .find(|area| area.pane == state.pane && area.surface == state.surface)
+                .and_then(|area| area.omnibar)
+                .map(|rect| rect.width as usize)
+        });
+        if let Some(state) = self.omnibar.as_mut() {
+            state.input.sync_viewport(omnibar_width.unwrap_or_default());
+        }
+
+        let menu_search_width = self.menu.as_ref().and_then(|menu| {
+            let search = menu.search.as_ref()?;
+            let level = menu.levels.first()?;
+            let title_width = level.rect.width.saturating_sub(4) as usize;
+            // The literal spaces around the label keep the three segments
+            // separate, so their display widths add without constructing a
+            // temporary prefix string on every frame.
+            let prefix_width = " "
+                .width()
+                .saturating_add(search.label.width())
+                .saturating_add(" · ".width())
+                .min(title_width);
+            Some(title_width.saturating_sub(prefix_width).saturating_sub(1))
+        });
+        if let Some(menu) = self.menu.as_mut()
+            && let Some(search) = menu.search.as_mut()
+        {
+            search.input.sync_viewport(menu_search_width.unwrap_or_default());
+        }
+
+        if self.sidebar_files.filter_mode() {
+            let width = self
+                .workspace_sidebar_area(self.outer_size.1)
+                .map_or(0, |area| area.width.saturating_sub(2) as usize);
+            self.sidebar_files.sync_filter_viewport(width);
+        }
     }
 
     /// Full-TUI clients always capture host mouse input. A scoped attach
@@ -13185,7 +16873,13 @@ impl App {
     }
 
     fn clear_empty_frame_geometry(&mut self) {
+        // A zero-sized frame removes every hit rectangle. Any capture still
+        // points at the previous frame, so fence it before dropping the
+        // geometry. Do not settle a split against a frame that no longer
+        // exists.
+        self.invalidate_pointer_topology_without_split_settle();
         self.sidebar_layout = SidebarLayout::default();
+        self.sidebar_layout_reuse_spec = None;
         self.sidebar_width = 0;
         self.machine_sidebar_width = 0;
         self.tabs_sidebar_width = 0;
@@ -13333,20 +17027,21 @@ impl App {
         }
         let dirty_surfaces = std::mem::take(&mut self.graphics_dirty_surfaces);
         let occluders = self.graphic_occlusion_rects();
-        let context = GraphicsSceneContextKey {
-            session_generation: self.session_generation,
-            cell_pixels: self.cell_pixels,
-            occluders: occluders.clone(),
-        };
-        let context_changed = self.graphics_scene_cache.context.as_ref() != Some(&context);
+        let context_changed = self.graphics_scene_cache.context.as_ref().is_none_or(|cached| {
+            cached.session_generation != self.session_generation
+                || cached.cell_pixels != self.cell_pixels
+                || cached.occluders.as_slice() != occluders.as_slice()
+        });
         let full_scan = !dirty_only || context_changed;
         self.mark_graphics_clean((!full_scan).then_some(&dirty_surfaces));
+        let areas = self
+            .pane_areas
+            .iter()
+            .copied()
+            .filter(|area| full_scan || dirty_surfaces.contains(&area.surface))
+            .collect::<Vec<_>>();
         let mut updates = Vec::new();
-        for index in 0..self.pane_areas.len() {
-            let area = self.pane_areas[index];
-            if !full_scan && !dirty_surfaces.contains(&area.surface) {
-                continue;
-            }
+        for area in areas {
             let surface = self.session.surface(area.surface);
             let key = self.graphics_pane_scene_key(area, surface.as_ref());
             let unchanged = !context_changed
@@ -13371,7 +17066,11 @@ impl App {
         });
         let projection_changed = !updates.is_empty();
         if context_changed {
-            self.graphics_scene_cache.context = Some(context);
+            self.graphics_scene_cache.context = Some(GraphicsSceneContextKey {
+                session_generation: self.session_generation,
+                cell_pixels: self.cell_pixels,
+                occluders,
+            });
             self.graphics_scene_cache.projections.clear();
         }
         if let Some(visible) = &visible {
@@ -13664,18 +17363,86 @@ impl App {
         }
     }
 
+    /// Re-apply a client-local profile choice after loading configuration.
+    /// `sidebar.profile` is a startup setting, while the active profile is
+    /// runtime state. The loaded startup id becomes the next comparison
+    /// baseline; an unavailable runtime id falls back to the loaded profile.
+    fn restore_runtime_sidebar_profile(
+        config: &mut Config,
+        previous_configured_profile: &str,
+        runtime_profile: &str,
+    ) -> String {
+        let loaded_configured_profile = config.sidebar.active_profile.clone();
+        if loaded_configured_profile == previous_configured_profile
+            && let Some(profile) = config
+                .sidebar
+                .profiles
+                .iter()
+                .find(|profile| profile.id == runtime_profile)
+                .cloned()
+        {
+            config.sidebar.active_profile = profile.id;
+            config.sidebar.views = profile.views.clone();
+            config.sidebar.layout = profile.layout.clone();
+            config.sidebar.columns = profile
+                .views
+                .iter()
+                .filter_map(|view| {
+                    view.legacy_kind().map(|kind| SidebarColumn {
+                        kind,
+                        width: view.width,
+                        max_width: view.max_width,
+                    })
+                })
+                .collect();
+        }
+        loaded_configured_profile
+    }
+
     fn reload_config(&mut self) {
         #[cfg(test)]
         {
             self.config_reload_applications += 1;
         }
-        let focused_projection_id = match self.focus {
+        // Configuration can change every input-bearing layout field, not
+        // only the sidebar profile identity. Treat the reload as one
+        // topology boundary so row height, gaps, pane padding, plugin state,
+        // and future layout options cannot reuse a frozen capture.
+        self.invalidate_pointer_topology_without_split_settle();
+        // `sidebar.view` is the startup/configured mode. Runtime toggles are
+        // frontend state, so a reload caused by an unrelated config change
+        // must not silently move an open Files mount back to Workspaces. An
+        // actual edit to that setting still wins on the next reload.
+        let previous_configured_sidebar_view = self.config.sidebar.view;
+        let runtime_sidebar_view = self.sidebar_view;
+        let previous_configured_sidebar_profile = self.configured_sidebar_profile.clone();
+        let previous_configured_sidebar_profile_request =
+            self.configured_sidebar_profile_request.clone();
+        let runtime_sidebar_profile = self.config.sidebar.active_profile.clone();
+        let previous_projection = SidebarProjectionSpec::from_config(&self.config);
+        let focused_projection = match self.focus {
             FocusTarget::ProjectionRail(index) => {
-                self.config.sidebar.views.get(index).map(|view| view.id.clone())
+                self.config.sidebar.views.get(index).map(SidebarViewIdentity::from_spec)
             }
             _ => None,
         };
         let mut config = crate::config::load();
+        let loaded_profile_request = config.sidebar.profile_request.clone();
+        self.configured_sidebar_profile =
+            if loaded_profile_request == previous_configured_sidebar_profile_request {
+                Self::restore_runtime_sidebar_profile(
+                    &mut config,
+                    &previous_configured_sidebar_profile,
+                    &runtime_sidebar_profile,
+                )
+            } else {
+                // The raw startup request changed, including the case where a new
+                // invalid id resolves to the same first profile. Let the loaded
+                // configuration win instead of carrying a runtime-only profile
+                // choice across an explicit setting edit.
+                config.sidebar.active_profile.clone()
+            };
+        self.configured_sidebar_profile_request = loaded_profile_request;
         config.apply_chrome_defaults(self.chrome);
         let shortcut_rows = self
             .shortcut_help
@@ -13685,23 +17452,59 @@ impl App {
         self.sidebar_plugin_retry_after_ms = None;
         self.sidebar_plugin_retry_at = None;
         self.session.apply_config(config.clone());
-        self.sidebar_view = config.sidebar.view;
         self.config = config;
-        let valid_view_ids =
-            self.config.sidebar.views.iter().map(|view| view.id.clone()).collect::<HashSet<_>>();
-        self.projection_rails.retain(|id, _| valid_view_ids.contains(id));
-        self.projection_sidebar_width_overrides.retain(|id, _| valid_view_ids.contains(id));
-        if let Some(id) = focused_projection_id {
-            if let Some((index, view)) =
-                self.config.sidebar.views.iter().enumerate().find(|(_, view)| view.id == id)
-            {
-                let kind =
-                    view.legacy_kind().map_or(RailKind::Projection(index), |kind| match kind {
-                        SidebarColumnKind::Machines => RailKind::Machine,
-                        SidebarColumnKind::Workspaces => RailKind::Workspace,
-                        SidebarColumnKind::Tabs => RailKind::Tabs,
-                    });
-                self.focus_rail(kind);
+        self.invalidate_sidebar_action_targets();
+        let configured_sidebar_view_changed =
+            self.config.sidebar.view != previous_configured_sidebar_view;
+        self.sidebar_view = if configured_sidebar_view_changed {
+            sidebar_view_after_config_reload(
+                previous_configured_sidebar_view,
+                runtime_sidebar_view,
+                self.config.sidebar.view,
+            )
+        } else {
+            self.sidebar_content_mode_for_profile(&self.config.sidebar.active_profile)
+                .unwrap_or(runtime_sidebar_view)
+        };
+        self.remember_active_sidebar_content_mode();
+        self.ensure_files_mode_supported();
+        self.invalidate_projection_rows_if_sidebar_spec_changed(previous_projection);
+        self.reconcile_sidebar_presentation();
+        if let Some(identity) = focused_projection {
+            let target_index =
+                self.config
+                    .sidebar
+                    .views
+                    .iter()
+                    .enumerate()
+                    .find(|(_, view)| remembered_focus_matches(Some(&identity), view))
+                    .or_else(|| {
+                        // A changed view definition no longer owns the old
+                        // projection cursor. Keep the semantic workspace parent
+                        // when possible, then the same first resource level.
+                        identity
+                            .levels
+                            .contains(&SidebarResourceKind::Workspaces)
+                            .then(|| {
+                                self.config.sidebar.views.iter().enumerate().find(|(_, view)| {
+                                    view.includes(SidebarResourceKind::Workspaces)
+                                })
+                            })
+                            .flatten()
+                    })
+                    .or_else(|| {
+                        identity.levels.first().and_then(|kind| {
+                            self.config
+                                .sidebar
+                                .views
+                                .iter()
+                                .enumerate()
+                                .find(|(_, view)| view.levels.first() == Some(kind))
+                        })
+                    })
+                    .map(|(index, _)| index);
+            if let Some(index) = target_index {
+                self.focus_rail(self.rail_kind_for_view(index));
             } else {
                 self.focus = FocusTarget::Pane;
             }
@@ -13712,6 +17515,81 @@ impl App {
         }
         self.sidebar_followed_surface = None;
         self.ensure_status_command_worker();
+    }
+
+    fn reconcile_sidebar_presentation(&mut self) {
+        let valid_profiles = self
+            .config
+            .sidebar
+            .profiles
+            .iter()
+            .map(|profile| profile.id.clone())
+            .collect::<HashSet<_>>();
+        self.sidebar_presentation.profiles.retain(|profile, _| valid_profiles.contains(profile));
+        for profile in &self.config.sidebar.profiles {
+            let Some(state) = self.sidebar_presentation.profiles.get_mut(&profile.id) else {
+                continue;
+            };
+            let files_host_id = profile
+                .views
+                .iter()
+                .find(|view| {
+                    view.legacy_kind().is_some_and(|kind| kind == SidebarColumnKind::Workspaces)
+                })
+                .map(|view| view.id.clone());
+            if state.files_restore_pending
+                && state.files_restore_host.as_deref() != files_host_id.as_deref()
+            {
+                // Files restoration is an intent for one exact host. If a
+                // reload removes or replaces that host, discard the intent
+                // instead of reopening Files on an unrelated future view.
+                state.files_restore_pending = false;
+                state.files_restore_host = None;
+                state.content_mode = Some(SidebarView::Workspaces);
+            } else if !state.files_restore_pending {
+                state.files_restore_host = None;
+            }
+            if files_host_id.is_none() && state.content_mode == Some(SidebarView::Files) {
+                state.content_mode = Some(SidebarView::Workspaces);
+            }
+            let mut valid_keys =
+                profile.views.iter().map(|view| view.id.clone()).collect::<HashSet<_>>();
+            for view in &profile.views {
+                let identity = SidebarViewIdentity::from_spec(view);
+                let changed = state
+                    .projection_identities
+                    .get(&view.id)
+                    .is_some_and(|previous| previous != &identity)
+                    || state
+                        .focused_view
+                        .as_ref()
+                        .is_some_and(|previous| previous.id == view.id && previous != &identity);
+                if changed {
+                    state.projection_rails.remove(&view.id);
+                    state.agent_sort_overrides.remove(&view.id);
+                }
+                state.projection_identities.insert(view.id.clone(), identity);
+            }
+            if state.focused_view.as_ref().is_some_and(|identity| {
+                profile
+                    .views
+                    .iter()
+                    .find(|view| view.id == identity.id)
+                    .is_none_or(|view| &SidebarViewIdentity::from_spec(view) != identity)
+            }) {
+                state.focused_view = None;
+            }
+            state.projection_rails.retain(|id, _| valid_keys.contains(id));
+            state.projection_identities.retain(|id, _| valid_keys.contains(id));
+            state.agent_sort_overrides.retain(|id, _| valid_keys.contains(id));
+            state.hidden_views.retain(|id| valid_keys.contains(id));
+            state.pinned_views.retain(|id| valid_keys.contains(id));
+            let mut groups = Vec::new();
+            collect_sidebar_split_ids(&profile.layout, &mut groups);
+            state.split_fractions.retain(|id, _| groups.contains(id));
+            valid_keys.extend(groups);
+            state.column_widths.retain(|id, _| valid_keys.contains(id));
+        }
     }
 
     /// Stop any running status command worker and start a new one when the
@@ -13907,6 +17785,45 @@ impl App {
         self.session.surface_cwd(surface).map(PathBuf::from)
     }
 
+    fn focused_surface_owner(&self) -> Option<ActiveSurfaceOwner> {
+        let screen = self.tree.active_screen()?;
+        let pane = screen.panes.iter().find(|pane| pane.id == screen.active_pane)?;
+        let tab = pane.tabs.get(pane.active_tab)?;
+        Some(ActiveSurfaceOwner {
+            surface: tab.surface,
+            public_id: tab.public_id.clone(),
+            kind: tab.kind,
+            content_id: tab.content_id.clone(),
+            terminal_id: tab.terminal_id.clone(),
+        })
+    }
+
+    fn current_files_pointer_owner(&self) -> FilesPointerOwner {
+        let pinned = self.sidebar_files.is_pinned();
+        FilesPointerOwner {
+            // A pinned Files view is deliberately independent of focus. Its
+            // owner is the mounted file browser, not the active terminal.
+            active: if pinned { None } else { self.focused_surface_owner() },
+            pinned,
+            topology_revision: self.sidebar_files_pointer_topology(),
+        }
+    }
+
+    /// Synthetic tests and older callers can construct a Files drag directly.
+    /// Admit such a drag against the current frame before the first motion or
+    /// release. Normal mouse-down paths always set this token eagerly.
+    fn ensure_files_pointer_owner(&mut self) {
+        if matches!(self.drag, Some(Drag::FilesScrollbar { .. }))
+            && self.files_pointer_owner.is_none()
+        {
+            self.files_pointer_owner = Some(self.current_files_pointer_owner());
+        }
+    }
+
+    fn files_pointer_capture_is_current(&self) -> bool {
+        self.files_pointer_owner.as_ref() == Some(&self.current_files_pointer_owner())
+    }
+
     fn sync_sidebar_files_to_focus(&mut self, force: bool) -> bool {
         if self.config.sidebar.plugin.is_some()
             || self.sidebar_view != SidebarView::Files
@@ -13914,13 +17831,75 @@ impl App {
         {
             return false;
         }
-        let focused = self.tree.active_surface();
+        let focused = self.focused_surface_owner();
         if !force && focused == self.sidebar_followed_surface {
             return false;
         }
+        let owner_changed = focused != self.sidebar_followed_surface;
+        if owner_changed {
+            // Provider actions are contextual to the focused surface. A
+            // surface switch must not leave Enter armed for an old action or
+            // reopen its old action viewport after the cwd follows.
+            self.invalidate_sidebar_pointer_domains(&[SidebarPointerDomain::Files]);
+            self.reset_files_action_position();
+        }
+        let Some(cwd) = self.focused_surface_cwd() else {
+            // Keep the old owner from suppressing a retry. Remote surfaces
+            // can become focusable before their cwd metadata arrives.
+            if owner_changed {
+                self.sidebar_followed_surface = None;
+            }
+            return false;
+        };
         self.sidebar_followed_surface = focused;
-        let Some(cwd) = self.focused_surface_cwd() else { return false };
-        self.sidebar_files.follow_focused_cwd(&cwd)
+        let before = self.sidebar_files_pointer_topology();
+        let changed = self.sidebar_files.follow_focused_cwd(&cwd);
+        if changed && before != self.sidebar_files_pointer_topology() {
+            self.invalidate_sidebar_pointer_domains(&[SidebarPointerDomain::Files]);
+        }
+        changed
+    }
+
+    fn sidebar_files_pointer_topology(&self) -> u64 {
+        self.sidebar_files.pointer_topology_revision()
+    }
+
+    /// Apply text to the Files filter and retire the old row capture when the
+    /// filter changes the visible topology. Paste and keyboard input must use
+    /// the same boundary, otherwise a paste can leave a scrollbar attached to
+    /// rows that no longer exist.
+    fn insert_sidebar_files_filter_text(&mut self, text: &str) -> bool {
+        let before = self.sidebar_files_pointer_topology();
+        let changed = self.sidebar_files.insert_filter_text(text);
+        if before != self.sidebar_files_pointer_topology() {
+            self.invalidate_sidebar_pointer_domains(&[SidebarPointerDomain::Files]);
+        }
+        changed
+    }
+
+    fn refresh_sidebar_files(&mut self) {
+        let before = self.sidebar_files_pointer_topology();
+        self.sidebar_files.refresh();
+        if before != self.sidebar_files_pointer_topology() {
+            self.invalidate_sidebar_pointer_domains(&[SidebarPointerDomain::Files]);
+        }
+    }
+
+    fn reroot_sidebar_files(&mut self, directory: PathBuf) {
+        let before = self.sidebar_files_pointer_topology();
+        self.sidebar_files.reroot(directory);
+        if before != self.sidebar_files_pointer_topology() {
+            self.invalidate_sidebar_pointer_domains(&[SidebarPointerDomain::Files]);
+        }
+    }
+
+    fn handle_sidebar_files_key(&mut self, key: &KeyEvent) -> Option<FileCommand> {
+        let before = self.sidebar_files_pointer_topology();
+        let command = self.sidebar_files.handle_key(key);
+        if before != self.sidebar_files_pointer_topology() {
+            self.invalidate_sidebar_pointer_domains(&[SidebarPointerDomain::Files]);
+        }
+        command
     }
 
     fn tick_sidebar_files(&mut self) -> bool {
@@ -13934,6 +17913,7 @@ impl App {
         // sessions; the event loop ticks up to ~33x/sec, so gate it behind the
         // same 2s refresh cadence as the directory reload.
         let now = Instant::now();
+        let before = self.sidebar_files_pointer_topology();
         let mut changed = false;
         if self.sidebar_files.refresh_due(now)
             && !self.sidebar_files.is_pinned()
@@ -13941,7 +17921,11 @@ impl App {
         {
             changed |= self.sidebar_files.follow_focused_cwd(&cwd);
         }
-        changed | self.sidebar_files.tick(now)
+        changed |= self.sidebar_files.tick(now);
+        if before != self.sidebar_files_pointer_topology() {
+            self.invalidate_sidebar_pointer_domains(&[SidebarPointerDomain::Files]);
+        }
+        changed
     }
 
     fn write_window_title(&self, title: &str) -> anyhow::Result<()> {
@@ -14070,34 +18054,159 @@ impl App {
     fn sync_layout(&mut self, size: (u16, u16)) {
         let (width, height) = size;
         self.outer_size = size;
+        self.ensure_files_mode_supported();
+        let current_sidebar_projection = SidebarProjectionSpec::from_config(&self.config);
+        let mut next_sidebar_layout_reuse_spec = None;
         let sidebar_layout = if self.surface_only.is_some() {
             SidebarLayout {
                 content: Rect { x: 0, y: 0, width, height },
                 ..SidebarLayout::default()
             }
         } else {
-            let hidden_views = self
-                .hidden_sidebar_views
-                .get(&self.config.sidebar.active_profile)
-                .cloned()
-                .unwrap_or_default();
-            let previous =
-                (!self.sidebar_layout.ordered.is_empty()).then_some(&self.sidebar_layout);
-            sidebar_layout_for_state(
+            let presentation = self.active_sidebar_profile_state().cloned().unwrap_or_default();
+            let presentation_available = self.native_sidebar_presentation_available();
+            let show_presentation = self.native_sidebar_presentation_visible();
+            let pinned_views = presentation.pinned_views.clone();
+            let files_host_id = self.active_files_host_id();
+            let mut required_views = HashSet::new();
+            // Files requires its workspace host to remain mounted while this
+            // content mode is active. Other rails may collapse around it, but
+            // the host itself must not disappear at a height/width boundary.
+            if self.sidebar_visible
+                && self.sidebar_view == SidebarView::Files
+                && let Some(host_id) = files_host_id.clone()
+            {
+                required_views.insert(host_id);
+            }
+            let current_sidebar_layout_reuse_spec = SidebarLayoutReuseSpec::new(
+                current_sidebar_projection,
+                &presentation.hidden_views,
+                &pinned_views,
+                &required_views,
+                self.machine_ui.is_some(),
+            );
+            next_sidebar_layout_reuse_spec = Some(current_sidebar_layout_reuse_spec.clone());
+            let previous = if !self.sidebar_layout.ordered.is_empty()
+                && self.sidebar_layout_reuse_spec.as_ref()
+                    == Some(&current_sidebar_layout_reuse_spec)
+            {
+                Some(&self.sidebar_layout)
+            } else {
+                None
+            };
+            let mut layout = sidebar_layout_for_presentation_state_with_requirements(
                 &self.config,
                 self.sidebar_visible,
                 self.sidebar_compact,
                 self.machine_ui.is_some(),
                 size,
-                self.sidebar_width_override,
-                self.machine_sidebar_width_override,
-                self.tabs_sidebar_width_override,
-                &self.projection_sidebar_width_overrides,
-                &hidden_views,
+                presentation.workspace_width,
+                presentation.machine_width,
+                presentation.tabs_width,
+                &presentation.column_widths,
+                &presentation.split_fractions,
+                &presentation.hidden_views,
+                &pinned_views,
+                &required_views,
+                show_presentation,
                 previous,
-            )
+            );
+            // A singleton explicit layout keeps its old geometry while every
+            // view fits. If packing hides a view, recompute once with the
+            // status row so the loss and Restore path become visible.
+            if presentation_available && !show_presentation && !layout.hidden_views.is_empty() {
+                layout = sidebar_layout_for_presentation_state_with_requirements(
+                    &self.config,
+                    self.sidebar_visible,
+                    self.sidebar_compact,
+                    self.machine_ui.is_some(),
+                    size,
+                    presentation.workspace_width,
+                    presentation.machine_width,
+                    presentation.tabs_width,
+                    &presentation.column_widths,
+                    &presentation.split_fractions,
+                    &presentation.hidden_views,
+                    &pinned_views,
+                    &required_views,
+                    true,
+                    previous,
+                );
+            }
+            let host_mounted = files_host_id.as_ref().is_some_and(|host_id| {
+                layout.ordered.iter().any(|placement| {
+                    self.config
+                        .sidebar
+                        .views
+                        .get(placement.view_index)
+                        .is_some_and(|view| view.id == *host_id)
+                })
+            });
+            // A mounted one-cell host has no body region. Keep Files intent
+            // pending until the host has at least one usable browser row, so
+            // the mode never appears selected while it cannot accept input.
+            let host_usable = host_mounted
+                && files_host_id.as_ref().is_some_and(|host_id| {
+                    let host_index =
+                        self.config.sidebar.views.iter().position(|view| view.id == *host_id);
+                    let action_count =
+                        host_index.map_or(0, |index| self.sidebar_action_rows(index).len());
+                    layout.workspace.is_some_and(|area| {
+                        self.files_layout_geometry_with_actions(
+                            area,
+                            action_count,
+                            host_index
+                                .map(|index| self.sidebar_actions_position_for_view(index))
+                                .unwrap_or_default(),
+                        )
+                        .body
+                        .height
+                            > 0
+                    })
+                });
+            if self.sidebar_view != SidebarView::Files
+                && presentation.files_restore_pending
+                && presentation.files_restore_host.as_deref() == files_host_id.as_deref()
+                && host_usable
+            {
+                // A constrained frame may have forced a temporary
+                // Workspaces fallback. Restore Files as soon as its host is
+                // mounted again, without waiting for another user action.
+                self.sidebar_view = SidebarView::Files;
+                let state = self.active_sidebar_profile_state_mut();
+                state.files_restore_pending = false;
+                state.files_restore_host = None;
+                self.remember_active_sidebar_content_mode();
+                next_sidebar_layout_reuse_spec = None;
+            } else if self.sidebar_visible
+                && self.sidebar_view == SidebarView::Files
+                && !required_views.is_empty()
+                && !host_usable
+            {
+                // Files is a host-backed mode. Never leave it selected while
+                // the solver has no mounted workspace host, even at an
+                // impossible terminal width or height. Preserve the intent
+                // for the first frame where the host can fit again.
+                let state = self.active_sidebar_profile_state_mut();
+                state.content_mode = Some(SidebarView::Files);
+                state.files_restore_pending = true;
+                state.files_restore_host = files_host_id;
+                self.sidebar_view = SidebarView::Workspaces;
+                self.sidebar_followed_surface = None;
+                self.status_message = Some(
+                    localization::catalog().sidebar.files_requires_workspace_profile.to_string(),
+                );
+                next_sidebar_layout_reuse_spec = None;
+            }
+            layout
         };
         self.sidebar_layout = sidebar_layout;
+        self.sidebar_layout_reuse_spec = next_sidebar_layout_reuse_spec;
+        // The solver is the authority for mounted views. Rebuild wake
+        // dependencies at the same boundary, so a rail hidden by a resize or
+        // sidebar toggle cannot keep AgentChanged/TitleChanged repainting it.
+        self.rebuild_projection_surface_indexes();
+        self.reconcile_files_action_scroll();
         self.sidebar_width = self.sidebar_layout.workspace.map_or(0, |rect| rect.width);
         self.machine_sidebar_width = self.sidebar_layout.machine.map_or(0, |rect| rect.width);
         self.tabs_sidebar_width = self.sidebar_layout.tabs.map_or(0, |rect| rect.width);
@@ -14113,7 +18222,11 @@ impl App {
         if let FocusTarget::ProjectionRail(index) = self.focus
             && self.sidebar_layout.rail(RailKind::Projection(index)).is_none()
         {
-            self.focus = FocusTarget::Pane;
+            if let Some(kind) = self.fallback_visible_rail_kind(index) {
+                self.focus_rail(kind);
+            } else {
+                self.focus = FocusTarget::Pane;
+            }
         }
         let area = self.sidebar_layout.content;
         self.content_area = area;
@@ -14123,8 +18236,9 @@ impl App {
         self.replace_tree(self.session.tree());
         self.claim_active_terminal_geometry(false);
         if self.surface_only.is_none() {
-            self.sidebar_workspace_selection =
-                self.sidebar_workspace_selection.min(self.tree.workspaces.len().saturating_sub(1));
+            self.sidebar_workspace_selection = self
+                .sidebar_workspace_selection
+                .min(self.tree.workspaces().len().saturating_sub(1));
             self.sync_sidebar_files_to_focus(false);
         }
         self.pane_areas.clear();
@@ -14270,8 +18384,13 @@ impl App {
         // Keep inactive tabs attached for instant rendering, but give only
         // active tabs in the swept viewport a sizing lease. The settling draw
         // releases panes outside the final viewport.
+        // `ScreenView::pane` performs a linear scan. Build an index once for
+        // this active screen so one lease per pane does not turn this loop
+        // into quadratic work. `or_insert` preserves `pane`'s first-match
+        // behavior if malformed input contains duplicate pane IDs.
+        let panes_by_id = first_pane_by_id(&screen.panes);
         for lease in size_leases {
-            let Some(pane) = screen.pane(lease.pane) else { continue };
+            let Some(pane) = panes_by_id.get(&lease.pane).copied() else { continue };
             let content_size = lease.content_size;
             for tab in &pane.tabs {
                 if self.surface_only.is_some_and(|surface| surface != tab.surface) {
@@ -14340,6 +18459,9 @@ impl App {
 
     fn sync_sidebar_plugin(&mut self, relaunch: bool) -> bool {
         if self.config.sidebar.plugin.is_none() {
+            if self.sidebar_plugin_surface.is_some() {
+                self.invalidate_pointer_topology_without_split_settle();
+            }
             self.session.invalidate_sidebar_plugin_sync();
             self.sidebar_plugin_surface = None;
             self.sidebar_plugin_error = None;
@@ -14349,6 +18471,9 @@ impl App {
             return false;
         }
         if self.sidebar_width < 3 || !self.sidebar_visible {
+            if self.sidebar_plugin_surface.is_some() {
+                self.invalidate_pointer_topology_without_split_settle();
+            }
             self.session.invalidate_sidebar_plugin_sync();
             self.sidebar_plugin_surface = None;
             self.sidebar_plugin_error = None;
@@ -14391,6 +18516,9 @@ impl App {
 
     fn apply_sidebar_plugin_status(&mut self, status: SidebarPluginSurface, relaunch: bool) {
         if self.config.sidebar.plugin.is_none() {
+            if self.sidebar_plugin_surface.is_some() {
+                self.invalidate_pointer_topology_without_split_settle();
+            }
             self.session.invalidate_sidebar_plugin_sync();
             self.sidebar_plugin_surface = None;
             self.sidebar_plugin_error = None;
@@ -14400,6 +18528,9 @@ impl App {
             return;
         }
         if !self.sidebar_visible {
+            if self.sidebar_plugin_surface.is_some() {
+                self.invalidate_pointer_topology_without_split_settle();
+            }
             self.session.invalidate_sidebar_plugin_sync();
             self.sidebar_plugin_surface = None;
             self.sidebar_plugin_error = None;
@@ -14409,19 +18540,26 @@ impl App {
             self.sidebar_focus_pending = false;
             return;
         }
-        let had_surface = self.sidebar_plugin_surface.is_some();
+        let previous_surface = self.sidebar_plugin_surface;
+        if previous_surface != status.surface_id {
+            // The plugin surface is a terminal-backed hit-test owner. A
+            // replacement or first successful surface changes that route,
+            // so a release from the old frame must be consumed.
+            self.invalidate_pointer_topology_without_split_settle();
+        }
         self.sidebar_plugin_surface = status.surface_id;
         self.sidebar_plugin_error = status.error;
         self.sidebar_plugin_retry_after_ms = status.retry_after_ms;
         self.sidebar_plugin_retry_at =
             status.retry_after_ms.map(|delay_ms| Instant::now() + Duration::from_millis(delay_ms));
-        if had_surface && self.sidebar_plugin_surface.is_none() {
+        if previous_surface.is_some() && self.sidebar_plugin_surface.is_none() {
             self.session.invalidate_sidebar_plugin_sync();
         }
         if self.sidebar_focus_pending && (self.sidebar_plugin_surface.is_some() || relaunch) {
             self.sidebar_focus_pending = false;
             if self.sidebar_plugin_surface.is_some() {
                 self.focus = FocusTarget::WorkspaceRail;
+                self.cancel_pointer_before_modal();
                 self.menu = None;
                 self.prompt = None;
                 self.omnibar = None;
@@ -14532,13 +18670,28 @@ impl App {
             }
         }
         match &event {
-            AppEvent::Mux(MuxEvent::LayoutChanged(_)) => {
+            AppEvent::Mux(MuxEvent::LayoutChanged(screen)) => {
+                if !self.layout_resize_event_is_expected(*screen) {
+                    self.invalidate_pane_layout_capture(*screen);
+                }
                 self.session.refresh_remote_tree_if_stale();
             }
             AppEvent::NormalizedInput(input) if input.is_routable() => {
                 self.session.refresh_remote_tree_if_stale();
             }
             AppEvent::Mux(MuxEvent::TreeChanged) => {
+                // Older transports can report a layout change without a
+                // screen id as TreeChanged. The tree may retain the same
+                // resource ids while its split geometry changes, so the
+                // identity comparison in replace_tree is not sufficient.
+                // Fence only geometry captures here; Files row ownership is
+                // independent and remains usable through a catalog refresh.
+                let expected_resize = self
+                    .active_screen_id()
+                    .is_some_and(|screen| self.layout_resize_event_is_expected(screen));
+                if !expected_resize {
+                    self.invalidate_sidebar_layout_captures();
+                }
                 if self.session.remote_tree_is_stale() {
                     self.session.refresh_remote_tree_if_stale();
                 } else {
@@ -14628,7 +18781,7 @@ impl App {
             if let TerminalInput::Mouse(mouse) = input
                 && !pointer_has_capture
             {
-                let rendered_route = self.rendered_pointer_route_for_mouse(mouse);
+                let rendered_route = self.rendered_pointer_frame.route_for_mouse(mouse);
                 let replayed_route_changed = replay_context
                     .as_ref()
                     .and_then(|context| context.pointer.as_ref())
@@ -14810,7 +18963,16 @@ impl App {
             AppEvent::HostInputReady => Ok(RenderAction::None),
             AppEvent::GraphicsWriterReady => Ok(self.apply_graphics_completion()),
             AppEvent::MuxTitlesReady => {
-                Ok(if self.apply_mux_titles() { RenderAction::Paint } else { RenderAction::None })
+                let (changed_any, projection_paint_requested) = self.apply_mux_titles();
+                Ok(
+                    if changed_any
+                        && (projection_paint_requested || self.schedule_projection_paint())
+                    {
+                        RenderAction::Paint
+                    } else {
+                        RenderAction::None
+                    },
+                )
             }
             AppEvent::StatusCommandsUpdated => {
                 self.status_poke_pending.store(false, Ordering::Release);
@@ -14830,7 +18992,7 @@ impl App {
                 }
                 match result {
                     Ok(tree) => {
-                        let empty = tree.workspaces.is_empty();
+                        let empty = tree.workspaces().is_empty();
                         self.replace_authoritative_tree(tree, destination_generation);
                         self.session.refresh_clients_background();
                         if empty {
@@ -14934,6 +19096,11 @@ impl App {
                 Ok(RenderAction::None)
             }
             AppEvent::Mux(MuxEvent::SurfaceExited(id)) => {
+                self.invalidate_sidebar_pointer_domains(&[
+                    SidebarPointerDomain::Workspace,
+                    SidebarPointerDomain::Tabs,
+                    SidebarPointerDomain::Projection,
+                ]);
                 self.retire_surface_state(id);
                 self.remove_surface_from_cached_tree(id);
                 if self.surface_only == Some(id) {
@@ -15030,6 +19197,13 @@ impl App {
                 self.write_window_title(&title)?;
                 Ok(RenderAction::None)
             }
+            AppEvent::Mux(MuxEvent::MachineUsageChanged(usage)) => {
+                if self.machine_usage == usage {
+                    return Ok(RenderAction::None);
+                }
+                self.machine_usage = usage;
+                Ok(RenderAction::Draw)
+            }
             AppEvent::Mux(MuxEvent::SurfaceOutput(id)) => {
                 self.graphics_dirty_surfaces.insert(id);
                 if self.sidebar_plugin_surface == Some(id) {
@@ -15041,6 +19215,30 @@ impl App {
                     Ok(RenderAction::Paint)
                 }
             }
+            AppEvent::Mux(MuxEvent::AgentChanged { surface, .. }) => {
+                // Agent rows have no native drag capture. Their paint-only
+                // refresh must not cancel a Files or Workspaces gesture in a
+                // neighboring rail.
+                let paint_requested = self.invalidate_projection_rows_for_surface(
+                    surface,
+                    ProjectionSurfaceChange::Agent,
+                );
+                let attention_paint_requested = self.schedule_agent_attention_paint();
+                Ok(if paint_requested || attention_paint_requested {
+                    RenderAction::Paint
+                } else {
+                    RenderAction::None
+                })
+            }
+            AppEvent::Mux(MuxEvent::TitleChanged { surface, .. }) => Ok(
+                if self
+                    .invalidate_projection_rows_for_surface(surface, ProjectionSurfaceChange::Title)
+                {
+                    RenderAction::Paint
+                } else {
+                    RenderAction::None
+                },
+            ),
             AppEvent::Mux(MuxEvent::PairingRequested(challenge)) => {
                 let duplicate = self
                     .pairing_dialog
@@ -15049,7 +19247,11 @@ impl App {
                     || self.pairing_queue.iter().any(|queued| queued.id == challenge.id);
                 if !duplicate {
                     if self.pairing_dialog.is_none() {
-                        self.cancel_pointer_interaction();
+                        // Pairing is a higher-priority modal. Keep the
+                        // underlay available for restoration, but retire its
+                        // pointer route and any queued mouse samples before
+                        // the trusted dialog becomes visible.
+                        self.advance_pointer_focus_generation();
                         self.pairing_dialog = Some(PairingDialog::new(challenge));
                     } else {
                         self.pairing_queue.push_back(challenge);
@@ -15061,7 +19263,10 @@ impl App {
                 self.pairing_queue.retain(|challenge| challenge.id != request);
                 if self.pairing_dialog.as_ref().is_some_and(|dialog| dialog.challenge.id == request)
                 {
-                    self.cancel_pointer_interaction();
+                    // Fence releases and retained samples from the dialog
+                    // that just disappeared before exposing the next modal
+                    // (or the preserved underlay).
+                    self.advance_pointer_focus_generation();
                     self.pairing_dialog = self.pairing_queue.pop_front().map(PairingDialog::new);
                 }
                 Ok(RenderAction::Draw)
@@ -15471,6 +19676,9 @@ impl App {
         action_destination: Option<SurfaceId>,
         action_fallback_destination: Option<SurfaceId>,
     ) -> anyhow::Result<RenderAction> {
+        if !matches!(&input, TerminalInput::Mouse(_)) {
+            self.reset_selection_click_sequence();
+        }
         let semantic_result =
             if semantic_result.is_none() && self.input_creates_session_destination(&input) {
                 self.clear_finished_semantic_destinations();
@@ -15507,6 +19715,10 @@ impl App {
                     && self.durable_notice_banner_row() == Some(mouse.row)
                     && self.dismiss_painted_durable_notice()
                 {
+                    self.cancel_pointer_interaction();
+                    if let MouseEventKind::Down(button) = mouse.kind {
+                        self.suppress_pointer_button_until_release(button);
+                    }
                     return Ok(RenderAction::Draw);
                 }
                 let dismissed = matches!(
@@ -15521,6 +19733,7 @@ impl App {
                     mouse,
                     input_sequence,
                     terminal_pointer_admission,
+                    Instant::now(),
                 )?;
                 Ok(if dismissed { action.merge(RenderAction::Draw) } else { action })
             }
@@ -15536,6 +19749,11 @@ impl App {
                 Ok(RenderAction::Draw)
             }
             TerminalInput::FocusLost => {
+                self.prefix_armed = false;
+                // Focus loss is an intentional end of a local gesture. A
+                // split drag must publish its final coalesced ratio before
+                // the pointer epoch is retired. Remote topology boundaries
+                // use the no-settle invalidation path instead.
                 let action = if self.cancel_pointer_interaction() {
                     RenderAction::Draw
                 } else {
@@ -15545,6 +19763,10 @@ impl App {
                 Ok(action)
             }
             TerminalInput::Resize => {
+                // A resize replaces every sidebar rectangle. Release any
+                // pointer capture before the next frame, so a drag sampled
+                // against the old topology cannot mutate the new one.
+                self.invalidate_pointer_topology_without_split_settle();
                 self.reassert_scoped_host_terminal_state();
                 if self.graphics_supported {
                     self.graphics_host_scene_reset_pending = true;
@@ -15601,7 +19823,7 @@ impl App {
                 })
             } else {
                 if self.sidebar_view == SidebarView::Files {
-                    self.sidebar_files.insert_filter_text(&text);
+                    self.insert_sidebar_files_filter_text(&text);
                 }
                 Ok(RenderAction::Draw)
             }
@@ -15631,6 +19853,19 @@ impl App {
         {
             return true;
         }
+        if let TerminalInput::Mouse(mouse) = input
+            && Self::mouse_opens_cmux_context_menu(mouse)
+            && self.pointer_route_phase == PointerRoutePhase::PaintPending
+            && !self.session.has_pending_mutations()
+            && !self.session.remote_tree_is_stale()
+            && self.mux_recovery_generation.load(Ordering::Acquire) == 0
+        {
+            // A paint-only boundary does not change hit geometry or resource
+            // ownership. A cmux-owned menu press can cross it without
+            // waiting for the terminal bitmap to repaint. Draw and topology
+            // boundaries remain fail-closed below.
+            return true;
+        }
         match input {
             TerminalInput::FrontendAction { action, .. }
                 if action_is_frontend_local(*action) || *action == Action::Detach =>
@@ -15656,6 +19891,13 @@ impl App {
                     ..
                 }),
                 Some(Drag::HorizontalScrollbar { .. })
+            ) | (
+                TerminalInput::Mouse(MouseEvent {
+                    kind: MouseEventKind::Drag(MouseButton::Left)
+                        | MouseEventKind::Up(MouseButton::Left),
+                    ..
+                }),
+                Some(Drag::FilesScrollbar { .. })
             ) | (
                 TerminalInput::Mouse(MouseEvent {
                     kind: MouseEventKind::Drag(MouseButton::Left)
@@ -15719,6 +19961,7 @@ impl App {
                 Some(
                     Drag::HorizontalScrollbar { .. }
                         | Drag::ResizeSplit { .. }
+                        | Drag::FilesScrollbar { .. }
                         | Drag::Select { .. }
                         | Drag::Browser { .. }
                         | Drag::PtyMouse { .. }
@@ -15783,11 +20026,366 @@ impl App {
     }
 
     fn advance_pointer_focus_generation(&mut self) {
+        // Every pointer-epoch boundary also retires deferred pane-layout
+        // mutations. This covers focus, modal, configuration, and topology
+        // paths that do not currently have a live Drag value.
+        self.session.invalidate_layout_resize_captures();
+        self.layout_resize_expectations = [None, None];
+        self.discard_pointer_interaction();
         self.pointer_focus_generation = self.pointer_focus_generation.wrapping_add(1);
         self.deferred_input.retain(|input| !matches!(&input.event, TerminalInput::Mouse(_)));
         self.pending_pointer_motion = None;
         self.active_pointer_buttons.clear();
-        self.ignored_pty_mouse_buttons.clear();
+        self.pointer_button_surfaces.clear();
+        self.ignored_pointer_buttons.clear();
+        self.reset_selection_click_sequence();
+    }
+
+    fn clear_layout_resize_expectations(&mut self) {
+        self.layout_resize_expectations = [None, None];
+    }
+
+    fn note_layout_resize_expectation(&mut self, expectation: LayoutResizeExpectation) {
+        let slot = match expectation {
+            LayoutResizeExpectation::Split { .. } => 0,
+            LayoutResizeExpectation::Viewport { .. } => 1,
+        };
+        self.layout_resize_expectations[slot] = Some(expectation);
+    }
+
+    fn layout_resize_event_is_expected(&self, screen: ScreenId) -> bool {
+        // The local mux emits LayoutChanged after applying the mutation, but
+        // before the event loop adopts the next TreeView snapshot. Read the
+        // session's live tree here so our own resize event is not mistaken for
+        // an external geometry replacement.
+        let live_tree = self.session.tree();
+        let Some(current) = live_tree
+            .workspaces()
+            .iter()
+            .flat_map(|workspace| workspace.screens.iter())
+            .find(|candidate| candidate.id == screen)
+        else {
+            return false;
+        };
+        self.layout_resize_expectations.iter().flatten().any(|expectation| match *expectation {
+            LayoutResizeExpectation::Split { screen: expected_screen, split, ratio }
+                if expected_screen == screen =>
+            {
+                node_split_ratio(&current.layout, split)
+                    .is_some_and(|current| current.to_bits() == ratio)
+            }
+            LayoutResizeExpectation::Viewport { screen: expected_screen, pane, width }
+                if expected_screen == screen =>
+            {
+                current
+                    .layout
+                    .viewport_column_owner(pane, &current.viewport_splits)
+                    .and_then(|owner| match owner {
+                        ViewportColumn::Base => current.viewport_base_width,
+                        ViewportColumn::Split(split) => {
+                            current.viewport_splits.get(&split).copied()
+                        }
+                    })
+                    .is_some_and(|current| current.to_bits() == width)
+            }
+            _ => false,
+        })
+    }
+
+    fn pointer_topology_capture_active(&self) -> bool {
+        self.drag.is_some()
+            || !self.active_pointer_buttons.is_empty()
+            || !self.pointer_button_surfaces.is_empty()
+            || self.selection.is_some()
+            || self.selection_mode_surface.is_some()
+            || self.selection_click_sequence.is_some()
+            || self.layout_resize_expectations.iter().any(Option::is_some)
+            || self.files_pointer_owner.is_some()
+            || self.deferred_pointer_capture_active()
+    }
+
+    fn deferred_pointer_capture_active(&self) -> bool {
+        self.deferred_input.iter().any(|input| {
+            matches!(
+                input.event,
+                TerminalInput::Mouse(MouseEvent {
+                    kind: MouseEventKind::Down(_)
+                        | MouseEventKind::Drag(_)
+                        | MouseEventKind::Up(_)
+                        | MouseEventKind::ScrollUp
+                        | MouseEventKind::ScrollDown
+                        | MouseEventKind::ScrollLeft
+                        | MouseEventKind::ScrollRight,
+                    ..
+                })
+            )
+        })
+    }
+
+    /// End pointer capture at a boundary that replaces the visible geometry.
+    /// Cancellation sends best-effort releases to browser and PTY surfaces;
+    /// the generation advance drops retained mouse input from the old frame.
+    /// Invalidate a geometry-dependent pointer capture without committing a
+    /// pending split ratio. Remote topology changes and surface retirement
+    /// supersede the old ratio, so settling it would write stale geometry.
+    fn invalidate_pointer_topology_without_split_settle(&mut self) {
+        self.invalidate_pointer_topology_with_split_settle(false);
+    }
+
+    fn invalidate_pointer_topology_with_split_settle(&mut self, settle_split: bool) {
+        self.cancel_pointer_interaction_with_split_settle(settle_split);
+        self.advance_pointer_focus_generation();
+    }
+
+    fn drag_surface(drag: &Drag) -> Option<SurfaceId> {
+        match drag {
+            Drag::TabArm { surface, .. }
+            | Drag::Tab { surface, .. }
+            | Drag::Browser { surface, .. }
+            | Drag::PtyMouse { surface, .. }
+            | Drag::Scrollbar { surface, .. } => Some(*surface),
+            _ => None,
+        }
+    }
+
+    fn surface_screen_id(&self, surface: SurfaceId) -> Option<ScreenId> {
+        let [workspace, screen, _, _] = self.tab_locations.get(&surface).copied()?;
+        self.tree.workspaces().get(workspace)?.screens.get(screen).map(|screen| screen.id)
+    }
+
+    fn drag_belongs_to_screen(&self, drag: &Drag, screen: ScreenId) -> bool {
+        match drag {
+            Drag::HorizontalScrollbar { screen: captured, .. }
+            | Drag::ResizeSplit { screen: captured, .. } => *captured == screen,
+            Drag::Select { .. } => {
+                self.selection_mode_surface
+                    .or_else(|| {
+                        self.selection_click_sequence.as_ref().map(|sequence| sequence.surface)
+                    })
+                    .or_else(|| self.selection.as_ref().map(|selection| selection.surface))
+                    .and_then(|surface| self.surface_screen_id(surface))
+                    == Some(screen)
+            }
+            _ => {
+                Self::drag_surface(drag).and_then(|surface| self.surface_screen_id(surface))
+                    == Some(screen)
+            }
+        }
+    }
+
+    /// Cancel captures whose frozen pane geometry belongs to one screen when
+    /// that screen reports a remote layout change. Sidebar row captures stay
+    /// alive because their data owner is independent of the pane layout.
+    fn invalidate_pane_layout_capture(&mut self, screen: ScreenId) {
+        let should_cancel =
+            self.drag.as_ref().is_some_and(|drag| self.drag_belongs_to_screen(drag, screen));
+        let plain_pane_press = self
+            .pointer_button_surfaces
+            .values()
+            .copied()
+            .any(|surface| self.surface_screen_id(surface) == Some(screen));
+        if should_cancel || plain_pane_press || self.deferred_pointer_capture_active() {
+            self.cancel_pointer_interaction_with_split_settle(false);
+            self.advance_pointer_focus_generation();
+        }
+    }
+
+    /// Cancel content captures after an identity replacement. A tab or pane
+    /// can retain its runtime number while changing its semantic resource or
+    /// terminal/browser route, so frozen content coordinates are no longer
+    /// trustworthy even when split geometry did not move.
+    fn invalidate_content_pointer_capture(&mut self) {
+        let content_capture = self.drag.as_ref().is_some_and(|drag| {
+            matches!(
+                drag,
+                Drag::TabArm { .. }
+                    | Drag::Tab { .. }
+                    | Drag::Select { .. }
+                    | Drag::Browser { .. }
+                    | Drag::PtyMouse { .. }
+                    | Drag::Scrollbar { .. }
+            )
+        });
+        if content_capture || !self.pointer_button_surfaces.is_empty() {
+            self.cancel_pointer_interaction_with_split_settle(false);
+            self.advance_pointer_focus_generation();
+        }
+    }
+
+    /// A mouse event waiting behind a session mutation still owns the old
+    /// rendered hit frame, even though it has not reached
+    /// `admit_pointer_event` and therefore has no Drag or button entry yet.
+    fn invalidate_deferred_pointer_capture(&mut self) {
+        if self.deferred_pointer_capture_active() {
+            self.invalidate_pointer_topology_without_split_settle();
+        }
+    }
+
+    /// Apply the smallest pointer boundary for a tree replacement. Rail rows,
+    /// pane content, and the unpinned Files owner have different lifetimes;
+    /// one global fence would make an unrelated workspace update interrupt a
+    /// Files inspection or a valid local resize.
+    fn handle_tree_pointer_topology_change(
+        &mut self,
+        previous: &SidebarTreePointerTopology,
+        next: &SidebarTreePointerTopology,
+    ) {
+        if previous == next {
+            return;
+        }
+        let identity_changed = !previous.identity_eq(next);
+        if identity_changed {
+            self.invalidate_selection_for_surface_identity_change(previous, next);
+            self.invalidate_sidebar_pointer_domains(&[
+                SidebarPointerDomain::Workspace,
+                SidebarPointerDomain::Tabs,
+                SidebarPointerDomain::Projection,
+            ]);
+            self.invalidate_content_pointer_capture();
+            self.invalidate_deferred_pointer_capture();
+        }
+        if !previous.active_surface_identity_eq(next) && !self.sidebar_files.is_pinned() {
+            // Force the next Files tick to follow the replacement cwd. The
+            // old owner token must not suppress that retry when runtime ids
+            // were reused for a new tab.
+            self.sidebar_followed_surface = None;
+            self.invalidate_sidebar_pointer_domains(&[SidebarPointerDomain::Files]);
+            self.invalidate_deferred_pointer_capture();
+        }
+        for change in previous.geometry_changes(next) {
+            let split_changes_expected = change.split_ratios.iter().all(|(split, _, actual)| {
+                self.layout_resize_expectations.iter().flatten().any(|expectation| {
+                    matches!(
+                        expectation,
+                        LayoutResizeExpectation::Split { screen, split: expected_split, ratio }
+                            if *screen == change.screen
+                                && *expected_split == *split
+                                && *ratio == *actual
+                    )
+                })
+            });
+            let viewport_geometry_changed = change.viewport_base_changed
+                || change.viewport_split_values_changed
+                || !change.viewport_widths.is_empty();
+            let viewport_changes_expected = if !viewport_geometry_changed {
+                true
+            } else {
+                // Resizing one viewport column changes every pane in that
+                // column. One expectation is valid only when it covers the
+                // target pane, every changed pane receives that same new
+                // width, and the base column or split map reaches the same
+                // expected width. A second unrelated width change therefore
+                // cancels.
+                self.layout_resize_expectations.iter().flatten().any(|expectation| {
+                    let LayoutResizeExpectation::Viewport { screen, pane, width } = *expectation
+                    else {
+                        return false;
+                    };
+                    let width_changes_expected = !change.viewport_widths.is_empty()
+                        && change
+                            .viewport_widths
+                            .iter()
+                            .any(|(changed_pane, _, _)| *changed_pane == pane)
+                        && change.viewport_widths.iter().all(|(_, _, actual)| *actual == width);
+                    screen == change.screen
+                        && width_changes_expected
+                        && (!change.viewport_base_changed
+                            || change.viewport_base_width == Some(width))
+                })
+            };
+            if !split_changes_expected || !viewport_changes_expected {
+                self.invalidate_pane_layout_capture(change.screen);
+            }
+        }
+    }
+
+    fn invalidate_selection_for_surface_identity_change(
+        &mut self,
+        previous: &SidebarTreePointerTopology,
+        next: &SidebarTreePointerTopology,
+    ) {
+        let selection_surfaces = [
+            self.selection.map(|selection| selection.surface),
+            self.selection_mode_surface,
+            self.selection_click_sequence.as_ref().map(|sequence| sequence.surface),
+        ];
+        if selection_surfaces
+            .into_iter()
+            .flatten()
+            .any(|surface| !previous.surface_identity_eq(next, surface))
+        {
+            // A selection stores terminal coordinates, not a copy of the
+            // selected text. Keep it only while its surface identity is the
+            // same; otherwise a release or copy would read replacement
+            // content through the old coordinates.
+            self.replace_selection(None);
+            self.reset_selection_click_sequence();
+        }
+    }
+
+    /// A sidebar layout snapshot can move every mounted native rail. Cancel
+    /// captures whose rows or geometry come from that solver, while keeping a
+    /// Files scrollbar alive through a machine catalog update that does not
+    /// change the host column.
+    fn invalidate_sidebar_layout_captures(&mut self) {
+        let should_cancel = self.drag.as_ref().is_some_and(|drag| {
+            matches!(
+                drag,
+                Drag::TabArm { .. }
+                    | Drag::Tab { .. }
+                    | Drag::WorkspaceArm { .. }
+                    | Drag::Workspace { .. }
+                    | Drag::WorkspaceScrollbar { .. }
+                    | Drag::HorizontalScrollbar { .. }
+                    | Drag::RailResize(_)
+                    | Drag::SidebarSplit { .. }
+                    | Drag::ResizeSplit { .. }
+            )
+        });
+        if should_cancel || self.deferred_pointer_capture_active() {
+            self.cancel_pointer_interaction_with_split_settle(false);
+            self.advance_pointer_focus_generation();
+        } else {
+            self.session.invalidate_layout_resize_captures();
+        }
+    }
+
+    /// Cancel a row capture only when its data owner changed. A machine
+    /// update, for example, must not interrupt a Files scrollbar drag.
+    fn invalidate_sidebar_pointer_domains(&mut self, domains: &[SidebarPointerDomain]) {
+        let should_cancel = self.drag.as_ref().is_some_and(|drag| {
+            domains.iter().any(|domain| match (domain, drag) {
+                (
+                    SidebarPointerDomain::Workspace,
+                    Drag::WorkspaceArm { .. }
+                    | Drag::Workspace { .. }
+                    | Drag::WorkspaceScrollbar { .. },
+                )
+                | (SidebarPointerDomain::Files, Drag::FilesScrollbar { .. })
+                | (SidebarPointerDomain::Tabs, Drag::TabArm { .. } | Drag::Tab { .. }) => true,
+                // Workspace, tab, and projection topology changes can move
+                // the pane area and every sidebar divider. Frozen geometry
+                // must not be applied after that boundary.
+                (
+                    SidebarPointerDomain::Workspace
+                    | SidebarPointerDomain::Tabs
+                    | SidebarPointerDomain::Projection,
+                    Drag::HorizontalScrollbar { .. }
+                    | Drag::RailResize(_)
+                    | Drag::SidebarSplit { .. }
+                    | Drag::ResizeSplit { .. },
+                ) => true,
+                // The current projection rows have no native drag gesture.
+                // Keep this arm explicit so a future projection drag cannot
+                // accidentally inherit another rail's invalidation policy.
+                (SidebarPointerDomain::Projection, _) => false,
+                _ => false,
+            })
+        });
+        if should_cancel || self.deferred_pointer_capture_active() {
+            self.cancel_pointer_interaction_with_split_settle(false);
+            self.advance_pointer_focus_generation();
+        }
     }
 
     #[cfg(test)]
@@ -15840,7 +20438,7 @@ impl App {
                 focus_generation: self.pointer_focus_generation,
                 pointer_map_generation: self.rendered_pointer_frame.pointer_map_generation,
                 route: Self::mouse_requires_rendered_route(mouse.kind)
-                    .then(|| self.rendered_pointer_route_for_mouse(mouse)),
+                    .then(|| self.rendered_pointer_frame.route_for_mouse(mouse)),
             })
         } else {
             None
@@ -16021,17 +20619,6 @@ impl App {
                 || mouse.modifiers.contains(KeyModifiers::ALT))
     }
 
-    fn rendered_pointer_route_for_mouse(&self, mouse: &MouseEvent) -> PointerRouteIdentity {
-        let route = self.rendered_pointer_frame.route_for_mouse(mouse);
-        if Self::mouse_opens_cmux_context_menu(mouse) {
-            // The menu press never enters the pane's application; async output
-            // must not change its recorded route.
-            route.normalized_for_cmux_menu()
-        } else {
-            route
-        }
-    }
-
     fn pointer_has_capture(&self, kind: MouseEventKind) -> bool {
         match kind {
             MouseEventKind::Drag(button) | MouseEventKind::Up(button) => {
@@ -16076,14 +20663,6 @@ impl App {
         mouse: &MouseEvent,
         missing_surface: Option<SurfaceId>,
     ) -> TerminalPointerAdmissionResult {
-        if Self::mouse_opens_cmux_context_menu(mouse) {
-            // The menu is owned by cmux rather than the terminal
-            // application: the press never forwards bytes, so encoder
-            // semantics and content-generation admission cannot gate it.
-            // Geometry barriers (pending paints, pointer-map mutations)
-            // still defer it through the route staleness checks.
-            return TerminalPointerAdmissionResult::NotTerminal;
-        }
         let Some((surface, input_rect, expected_snapshot)) =
             rendered_route.terminal_pointer_snapshot()
         else {
@@ -16255,7 +20834,7 @@ impl App {
     fn pane_for_surface(&self, surface: SurfaceId) -> Option<PaneId> {
         let [workspace, screen, pane, _] = self.tab_locations.get(&surface).copied()?;
         self.tree
-            .workspaces
+            .workspaces()
             .get(workspace)?
             .screens
             .get(screen)?
@@ -16276,7 +20855,7 @@ impl App {
         let Some(client_id) = self.client_focus_id.clone() else { return };
         let Some(focus) = self.session.client_focus(&client_id) else { return };
         let mut location = None;
-        for (workspace_index, workspace) in self.tree.workspaces.iter().enumerate() {
+        for (workspace_index, workspace) in self.tree.workspaces().iter().enumerate() {
             for (screen_index, screen) in workspace.screens.iter().enumerate() {
                 if let Some(pane) = screen.panes.iter().find(|pane| pane.id == focus.pane) {
                     let tab = focus.tab.min(pane.tabs.len().saturating_sub(1));
@@ -16286,17 +20865,11 @@ impl App {
         }
         let Some((workspace_index, screen_index, pane_id, tab_index)) = location else { return };
         self.tree.active_workspace = workspace_index;
-        if let Some(workspace) = self.tree.workspaces.get_mut(workspace_index) {
-            workspace.active_screen = screen_index;
-            if let Some(screen) = workspace.screens.get_mut(screen_index) {
-                screen.active_pane = pane_id;
-                if let Some(pane) = screen.panes.iter_mut().find(|pane| pane.id == pane_id) {
-                    pane.active_tab = tab_index;
-                }
-            }
-        }
+        self.tree.set_active_screen(workspace_index, screen_index);
+        self.tree.set_active_pane(workspace_index, screen_index, pane_id);
+        self.tree.set_active_tab(workspace_index, screen_index, pane_id, tab_index);
         self.sidebar_workspace_selection =
-            workspace_index.min(self.tree.workspaces.len().saturating_sub(1));
+            workspace_index.min(self.tree.workspaces().len().saturating_sub(1));
         self.pane_focus_history.record(pane_id);
         self.reported_focus = Some(crate::session::ClientFocus { pane: pane_id, tab: tab_index });
     }
@@ -16571,11 +21144,16 @@ impl App {
             self.set_viewport_target(target, true);
             target
         };
-        self.drag = Some(Drag::HorizontalScrollbar { track, anchor_x: x, anchor_offset });
+        let Some(screen) = self.active_screen_id() else { return };
+        self.drag = Some(Drag::HorizontalScrollbar { screen, track, anchor_x: x, anchor_offset });
     }
 
     pub fn dragging_workspace_scrollbar(&self) -> bool {
         matches!(self.drag, Some(Drag::WorkspaceScrollbar { .. }))
+    }
+
+    pub fn dragging_files_scrollbar(&self) -> bool {
+        matches!(self.drag, Some(Drag::FilesScrollbar { .. }))
     }
 
     fn enqueue_surface_resize(
@@ -16651,9 +21229,382 @@ impl App {
             .unwrap_or(0)
     }
 
+    /// Whether a selection should be painted for a surface. A word or line
+    /// can legitimately contain one cell, so endpoint equality alone is not
+    /// enough to decide whether the highlight is visible.
+    pub(crate) fn selection_is_visible(&self, surface: SurfaceId) -> bool {
+        self.selection.is_some_and(|selection| {
+            selection.surface == surface
+                && (selection.anchor != selection.head
+                    || (self.selection_mode_surface == Some(surface)
+                        && self.selection_mode != SelectionMode::Cell))
+        })
+    }
+
+    fn reset_selection_click_sequence(&mut self) {
+        self.selection_click_sequence = None;
+        self.semantic_selection_cache = None;
+    }
+
+    fn reset_selection_mode(&mut self) {
+        self.selection_mode = SelectionMode::Cell;
+        self.selection_mode_surface = None;
+        self.semantic_selection_cache = None;
+    }
+
+    /// Clear a press that has no semantic range while retaining the surface
+    /// needed to turn a later drag into a cell selection.
+    fn clear_selection_for_cell_gesture(&mut self, surface: SurfaceId) {
+        self.replace_selection(None);
+        self.selection_mode = SelectionMode::Cell;
+        self.selection_mode_surface = Some(surface);
+        if let Some(sequence) = self.selection_click_sequence.as_mut()
+            && sequence.surface == surface
+        {
+            sequence.mode = SelectionMode::Cell;
+        }
+    }
+
+    fn invalidate_selection_repeat(&mut self, surface: SurfaceId) {
+        if let Some(sequence) = self.selection_click_sequence.as_mut()
+            && sequence.surface == surface
+        {
+            sequence.repeatable = false;
+        }
+    }
+
+    fn selection_point(cell: (u16, u64)) -> Option<SelectionPoint> {
+        Some(SelectionPoint { column: cell.0, row: u32::try_from(cell.1).ok()? })
+    }
+
+    fn canonical_selection_cell(&self, surface: SurfaceId, cell: (u16, u64)) -> (u16, u64) {
+        let Some(point) = Self::selection_point(cell) else { return cell };
+        self.session
+            .surface(surface)
+            .and_then(|handle| {
+                handle.with_terminal(|terminal| terminal.normalize_selection_point_screen(point))
+            })
+            .flatten()
+            .map(|point| (point.column, u64::from(point.row)))
+            .unwrap_or(cell)
+    }
+
+    fn selection_from_range(surface: SurfaceId, range: SelectionRange) -> Selection {
+        Selection {
+            surface,
+            anchor: (range.start.column, u64::from(range.start.row)),
+            head: (range.end.column, u64::from(range.end.row)),
+        }
+    }
+
+    fn selection_for_click(
+        &self,
+        surface: SurfaceId,
+        cell: (u16, u64),
+        mode: SelectionMode,
+    ) -> Option<Selection> {
+        if mode == SelectionMode::Cell {
+            let cell = self.canonical_selection_cell(surface, cell);
+            return Some(Selection { surface, anchor: cell, head: cell });
+        }
+        let point = Self::selection_point(cell)?;
+        let handle = self.session.surface(surface)?;
+        let range = handle
+            .with_terminal(|terminal| {
+                let point = if mode == SelectionMode::Word {
+                    terminal.normalize_selection_point_screen(point)?
+                } else {
+                    point
+                };
+                match mode {
+                    SelectionMode::Word => terminal.select_word_screen(point).ok().flatten(),
+                    SelectionMode::Line => terminal
+                        .select_line_screen(point)
+                        .ok()
+                        .flatten()
+                        .or_else(|| terminal.select_line_screen_untrimmed(point).ok().flatten()),
+                    SelectionMode::Cell => None,
+                }
+            })
+            .flatten()?;
+        Some(Self::selection_from_range(surface, range))
+    }
+
+    fn terminal_active_screen(&self, surface: SurfaceId) -> Option<Screen> {
+        self.session
+            .surface(surface)
+            .and_then(|handle| handle.with_terminal(|terminal| terminal.active_screen()))
+    }
+
+    fn terminal_content_generation(&self, surface: SurfaceId) -> Option<u64> {
+        let handle = self.session.surface(surface)?;
+        match handle.try_pointer_snapshot()? {
+            PointerSnapshotProbe::Ready(snapshot) => Some(snapshot.content_generation),
+            PointerSnapshotProbe::Contended => None,
+        }
+    }
+
+    fn selection_repeat_allowed(
+        previous: &SelectionClickSequence,
+        surface: SurfaceId,
+        screen: Option<Screen>,
+        position: (u16, u16),
+        modifiers: KeyModifiers,
+        now: Instant,
+    ) -> bool {
+        let host_selection_modifier =
+            |modifiers| modifiers == KeyModifiers::NONE || modifiers == KeyModifiers::SHIFT;
+        if !previous.repeatable
+            || screen.is_none()
+            || previous.surface != surface
+            || previous.screen != screen
+            || previous.modifiers != modifiers
+            || !host_selection_modifier(modifiers)
+        {
+            return false;
+        }
+        let Some(elapsed) = now.checked_duration_since(previous.time) else { return false };
+        if elapsed > SELECTION_REPEAT_INTERVAL {
+            return false;
+        }
+        let dx = u32::from(previous.position.0.abs_diff(position.0));
+        let dy = u32::from(previous.position.1.abs_diff(position.1));
+        dx.saturating_mul(dx).saturating_add(dy.saturating_mul(dy))
+            <= SELECTION_REPEAT_DISTANCE_SQUARED
+    }
+
+    fn begin_selection_click(
+        &mut self,
+        surface: SurfaceId,
+        cell: (u16, u64),
+        position: (u16, u16),
+        modifiers: KeyModifiers,
+        now: Instant,
+    ) -> SelectionMode {
+        self.semantic_selection_cache = None;
+        let previous = self.selection_click_sequence.take();
+        let screen = self.terminal_active_screen(surface);
+        let repeated = previous.as_ref().is_some_and(|previous| {
+            Self::selection_repeat_allowed(previous, surface, screen, position, modifiers, now)
+        });
+        let (mut count, mut tracked_anchor) = if repeated {
+            let previous = previous.expect("repeated selection click has prior state");
+            (previous.count.saturating_add(1).min(3), previous.tracked_anchor)
+        } else {
+            (1, None)
+        };
+
+        if let Some(row) = u32::try_from(cell.1).ok()
+            && let Some(handle) = self.session.surface(surface)
+        {
+            // A tracked anchor is also a screen-generation check. If it can
+            // no longer be moved, the terminal recycled or removed its page;
+            // do not turn that stale press into a double click.
+            let anchor_moved = tracked_anchor.as_mut().is_some_and(|anchor| {
+                handle
+                    .with_terminal(|terminal| {
+                        terminal.set_tracked_screen_point(anchor, cell.0, row).is_ok()
+                    })
+                    .unwrap_or(false)
+            });
+            if repeated && tracked_anchor.is_some() && !anchor_moved {
+                count = 1;
+                tracked_anchor = None;
+            }
+            if tracked_anchor.is_none() {
+                tracked_anchor = handle
+                    .with_terminal(|terminal| terminal.track_screen_point(cell.0, row).ok())
+                    .flatten();
+            }
+        }
+        let mode = match count {
+            2 => SelectionMode::Word,
+            3 => SelectionMode::Line,
+            _ => SelectionMode::Cell,
+        };
+        self.selection_click_sequence = Some(SelectionClickSequence {
+            surface,
+            screen,
+            position,
+            modifiers,
+            time: now,
+            count,
+            mode,
+            anchor: cell,
+            dragged: false,
+            tracked_anchor,
+            repeatable: true,
+        });
+        mode
+    }
+
+    fn selection_anchor_cell(&self, surface: SurfaceId) -> Option<(u16, u64)> {
+        let sequence = self.selection_click_sequence.as_ref()?;
+        if sequence.surface != surface {
+            return None;
+        }
+        let handle = self.session.surface(surface)?;
+        handle
+            .with_terminal(|terminal| {
+                if let Some(anchor) = sequence.tracked_anchor.as_ref() {
+                    terminal
+                        .tracked_screen_point(anchor)
+                        .map(|(column, row)| (column, u64::from(row)))
+                } else {
+                    Some(sequence.anchor)
+                }
+            })
+            .flatten()
+    }
+
+    fn mark_selection_dragged(&mut self, surface: SurfaceId) {
+        if let Some(sequence) = self.selection_click_sequence.as_mut()
+            && sequence.surface == surface
+        {
+            sequence.dragged = true;
+        }
+    }
+
+    /// Clear an invalid semantic drag result without ending the gesture. The
+    /// mode and tracked anchor stay available so a later pointer sample can
+    /// recover, while release cannot copy an older range.
+    fn clear_selection_for_semantic_gesture(&mut self, surface: SurfaceId, mode: SelectionMode) {
+        if self.selection.is_some() {
+            self.selection_generation = self.selection_generation.wrapping_add(1);
+            self.selection = None;
+        }
+        self.selection_mode = mode;
+        self.selection_mode_surface = Some(surface);
+        if let Some(sequence) = self.selection_click_sequence.as_mut()
+            && sequence.surface == surface
+        {
+            sequence.mode = mode;
+        }
+    }
+
+    fn update_semantic_selection(
+        &mut self,
+        surface: SurfaceId,
+        mode: SelectionMode,
+        current: (u16, u64),
+    ) {
+        if mode == SelectionMode::Cell {
+            return;
+        }
+        let Some(anchor) = self.selection_anchor_cell(surface) else {
+            self.clear_selection_for_semantic_gesture(surface, mode);
+            self.semantic_selection_cache = None;
+            return;
+        };
+        let Some(anchor_point) = Self::selection_point(anchor) else {
+            self.clear_selection_for_semantic_gesture(surface, mode);
+            self.semantic_selection_cache = None;
+            return;
+        };
+        let Some(current_point) = Self::selection_point(current) else {
+            self.clear_selection_for_semantic_gesture(surface, mode);
+            self.semantic_selection_cache = None;
+            return;
+        };
+        let Some(handle) = self.session.surface(surface) else {
+            self.clear_selection_for_semantic_gesture(surface, mode);
+            self.semantic_selection_cache = None;
+            return;
+        };
+        let Some((anchor_point, current_point)) = handle
+            .with_terminal(|terminal| {
+                if mode == SelectionMode::Word {
+                    Some((
+                        terminal.normalize_selection_point_screen(anchor_point)?,
+                        terminal.normalize_selection_point_screen(current_point)?,
+                    ))
+                } else {
+                    Some((anchor_point, current_point))
+                }
+            })
+            .flatten()
+        else {
+            self.clear_selection_for_semantic_gesture(surface, mode);
+            self.semantic_selection_cache = None;
+            return;
+        };
+        let content_generation = self.terminal_content_generation(surface);
+        if let Some(generation) = content_generation
+            && let Some(cache) = self.semantic_selection_cache
+            && cache.surface == surface
+            && cache.mode == mode
+            && cache.anchor == anchor_point
+            && cache.current == current_point
+            && cache.content_generation == generation
+        {
+            if let Some(range) = cache.range {
+                self.replace_selection(Some(Self::selection_from_range(surface, range)));
+            } else {
+                self.clear_selection_for_semantic_gesture(surface, mode);
+            }
+            return;
+        }
+        let range = handle
+            .with_terminal(|terminal| match mode {
+                SelectionMode::Word => {
+                    let first = terminal
+                        .select_word_between_screen(anchor_point, current_point)
+                        .ok()
+                        .flatten()?;
+                    let second = terminal
+                        .select_word_between_screen(current_point, anchor_point)
+                        .ok()
+                        .flatten()?;
+                    let current_before_anchor = (current.1, current.0) < (anchor.1, anchor.0);
+                    Some(if current_before_anchor {
+                        SelectionRange { start: second.start, end: first.end }
+                    } else {
+                        SelectionRange { start: first.start, end: second.end }
+                    })
+                }
+                SelectionMode::Line => {
+                    let select_line =
+                        |point| {
+                            terminal.select_line_screen(point).ok().flatten().or_else(|| {
+                                terminal.select_line_screen_untrimmed(point).ok().flatten()
+                            })
+                        };
+                    let first = select_line(anchor_point)?;
+                    let second = select_line(current_point)?;
+                    let current_before_anchor = (current.1, current.0) < (anchor.1, anchor.0);
+                    Some(if current_before_anchor {
+                        SelectionRange { start: second.start, end: first.end }
+                    } else {
+                        SelectionRange { start: first.start, end: second.end }
+                    })
+                }
+                SelectionMode::Cell => None,
+            })
+            .flatten();
+        if let Some(generation) = content_generation {
+            self.semantic_selection_cache = Some(SemanticSelectionCache {
+                surface,
+                mode,
+                anchor: anchor_point,
+                current: current_point,
+                content_generation: generation,
+                range,
+            });
+        } else {
+            self.semantic_selection_cache = None;
+        }
+        match range {
+            Some(range) => self.replace_selection(Some(Self::selection_from_range(surface, range))),
+            None => self.clear_selection_for_semantic_gesture(surface, mode),
+        }
+    }
+
     fn replace_selection(&mut self, selection: Option<Selection>) {
         self.selection_generation = self.selection_generation.wrapping_add(1);
         self.selection = selection;
+        if selection.is_none() {
+            self.reset_selection_mode();
+        }
     }
 
     fn visible_input_state(&self, destination: Option<SurfaceId>) -> VisibleInputState {
@@ -16705,7 +21656,11 @@ impl App {
         if self.status_selection.as_ref().is_some_and(|selection| selection.text != text) {
             self.status_selection = None;
             if matches!(self.drag, Some(Drag::StatusMessage { .. })) {
-                self.drag = None;
+                // The selected status row changed identity while the button
+                // was down. Consume the old gesture before drawing the new
+                // row so its release cannot copy or activate replacement
+                // content.
+                self.invalidate_pointer_topology_without_split_settle();
             }
         }
         // Every visible status message passes through here; persist each new
@@ -16731,7 +21686,7 @@ impl App {
         self.status_notice_text = None;
         self.status_selection = None;
         if matches!(self.drag, Some(Drag::StatusMessage { .. })) {
-            self.drag = None;
+            self.invalidate_pointer_topology_without_split_settle();
         }
     }
 
@@ -16772,19 +21727,41 @@ impl App {
         else {
             return false;
         };
-        let Some(surface_id) = self.selection.map(|sel| sel.surface) else { return false };
+        let Some(surface_id) =
+            self.selection_mode_surface.or_else(|| self.selection.map(|sel| sel.surface))
+        else {
+            return false;
+        };
         let Some(surface) = self.session.surface(surface_id) else { return false };
         let content =
             self.current_selection_geometry(surface_id).map_or(content, |(content, _)| content);
         let moved = surface.scroll_delta(dir as isize).unwrap_or(false);
         let edge_row = if dir < 0 { 0 } else { content.height.saturating_sub(1) };
         let offset = self.surface_scroll_offset(surface_id);
-        if let Some(mut selection) = self.selection {
-            selection.head = (
-                col.min(content.width.saturating_sub(1).saturating_add(source_x)),
-                offset + edge_row as u64,
-            );
-            self.replace_selection(Some(selection));
+        let raw_edge_cell = (
+            col.min(content.width.saturating_sub(1).saturating_add(source_x)),
+            offset + edge_row as u64,
+        );
+        self.mark_selection_dragged(surface_id);
+        let edge_cell = if self.selection_mode == SelectionMode::Line {
+            raw_edge_cell
+        } else {
+            self.canonical_selection_cell(surface_id, raw_edge_cell)
+        };
+        if self.selection_mode != SelectionMode::Cell
+            && self.selection_mode_surface == Some(surface_id)
+        {
+            self.update_semantic_selection(surface_id, self.selection_mode, edge_cell);
+        } else {
+            let selection = self.selection.or_else(|| {
+                let anchor = self.selection_anchor_cell(surface_id)?;
+                let anchor = self.canonical_selection_cell(surface_id, anchor);
+                Some(Selection { surface: surface_id, anchor, head: edge_cell })
+            });
+            if let Some(mut selection) = selection {
+                selection.head = edge_cell;
+                self.replace_selection(Some(selection));
+            }
         }
         moved
     }
@@ -17126,7 +22103,7 @@ impl App {
         }) else {
             return;
         };
-        self.cancel_pty_mouse_drag();
+        self.cancel_pointer_before_modal();
         self.prompt = Some(Prompt::new(
             localization::catalog().sidebar.rename_machine,
             machine.name,
@@ -17148,7 +22125,7 @@ impl App {
         else {
             return;
         };
-        self.cancel_pty_mouse_drag();
+        self.cancel_pointer_before_modal();
         self.prompt = Some(Prompt::new(
             localization::catalog().sidebar.rename_machine,
             name,
@@ -17168,7 +22145,7 @@ impl App {
         if self.managed_machine(key).is_some_and(|machine| {
             machine.status == ManagedMachineStatus::Active && machine.capabilities.delete
         }) {
-            self.cancel_pty_mouse_drag();
+            self.cancel_pointer_before_modal();
             self.prompt = Some(Prompt::new(
                 localization::catalog().sidebar.confirm_delete_machine,
                 String::new(),
@@ -17181,7 +22158,7 @@ impl App {
         if self.managed_machine(key).is_some_and(|machine| {
             machine.status == ManagedMachineStatus::Recoverable && machine.capabilities.purge
         }) {
-            self.cancel_pty_mouse_drag();
+            self.cancel_pointer_before_modal();
             self.prompt = Some(Prompt::new(
                 localization::catalog().sidebar.confirm_purge_machine,
                 String::new(),
@@ -17196,7 +22173,7 @@ impl App {
     ) -> Option<ManagedWorkspaceDescriptor> {
         let workspace_key = self
             .tree
-            .workspaces
+            .workspaces()
             .iter()
             .find(|workspace| workspace.id == workspace_id)?
             .key
@@ -17311,58 +22288,108 @@ impl App {
         }
     }
 
-    fn request_purge_managed_workspace(&mut self, workspace_id: &str) {
-        let Some(workspace) = self
-            .machine_ui
-            .as_ref()
-            .and_then(|ui| ui.managed_workspace(workspace_id))
-            .filter(|workspace| {
-                workspace.status == ManagedWorkspaceStatus::Recoverable
-                    && workspace.capabilities.purge
-            })
-            .cloned()
-        else {
+    fn managed_workspace_purge_receipt(
+        &self,
+        index: usize,
+    ) -> Option<ManagedWorkspacePurgeReceipt> {
+        let ui = self.machine_ui.as_ref()?;
+        let machine = ui.snapshot.active?;
+        let workspace = ui
+            .recoverable_workspaces()
+            .into_iter()
+            .nth(index)
+            .filter(|workspace| workspace.capabilities.purge)?;
+        Some(ManagedWorkspacePurgeReceipt {
+            machine,
+            workspace_id: workspace.id.clone(),
+            expected_version: workspace.version,
+        })
+    }
+
+    fn request_purge_managed_workspace_receipt(&mut self, receipt: &ManagedWorkspacePurgeReceipt) {
+        let valid = self.machine_ui.as_ref().is_some_and(|ui| {
+            ui.snapshot.active == Some(receipt.machine)
+                && ui.managed_workspace(&receipt.workspace_id).is_some_and(|workspace| {
+                    workspace.status == ManagedWorkspaceStatus::Recoverable
+                        && workspace.capabilities.purge
+                        && workspace.version == receipt.expected_version
+                })
+        });
+        if !valid {
+            self.status_message =
+                Some(localization::catalog().sidebar.managed_workspace_unavailable.to_string());
             return;
-        };
-        let Some(machine) = self.machine_ui.as_ref().and_then(|ui| ui.snapshot.active) else {
-            return;
-        };
+        }
         if let Some(ui) = self.machine_ui.as_mut() {
             ui.request = Some(MachineRequest::PurgeManagedWorkspace {
-                machine,
-                workspace_id: workspace.id,
-                expected_version: workspace.version,
+                machine: receipt.machine,
+                workspace_id: receipt.workspace_id.clone(),
+                expected_version: receipt.expected_version,
             });
         }
     }
 
     fn workspace_rail_targets(&self) -> Vec<WorkspaceRailTarget> {
-        let mut targets = self
+        let mut resources = self
             .tree
-            .workspaces
+            .workspaces()
             .iter()
             .map(|workspace| WorkspaceRailTarget::Workspace(workspace.id))
             .collect::<Vec<_>>();
-        targets.extend(
+        resources.extend(
             self.machine_ui
                 .as_ref()
                 .into_iter()
                 .flat_map(MachineUiState::recoverable_workspaces)
                 .map(|workspace| WorkspaceRailTarget::Recoverable(workspace.id.clone())),
         );
-        targets.extend(
-            self.workspace_sidebar_action_rows()
-                .into_iter()
-                .map(|action| WorkspaceRailTarget::Action(action.target)),
+        let actions = self
+            .workspace_sidebar_action_rows()
+            .into_iter()
+            .map(|action| WorkspaceRailTarget::Action(action.target))
+            .collect::<Vec<_>>();
+        match self.workspace_actions_position() {
+            crate::config::ActionsPosition::Top => actions.into_iter().chain(resources).collect(),
+            crate::config::ActionsPosition::Bottom => {
+                resources.into_iter().chain(actions).collect()
+            }
+        }
+    }
+
+    fn workspace_rail_page_size(&self) -> usize {
+        let Some(area) = self.sidebar_layout.workspace else { return 1 };
+        let metrics = crate::ui::rail::RailMetrics::for_app(self);
+        let recoverable =
+            self.machine_ui.as_ref().map_or(0, |ui| ui.recoverable_workspaces().len());
+        let body_rows = (self.tree.workspaces().len() + recoverable) * metrics.stride;
+        let footer_rows = self.workspace_sidebar_action_rows().len();
+        let scroll = self.active_sidebar_rail_scroll();
+        let mut body_offset = scroll.workspace_rail_scroll;
+        let mut footer_offset = scroll.workspace_footer_scroll;
+        let viewport = crate::ui::rail::viewport_positioned(
+            area,
+            body_rows.max(1),
+            footer_rows,
+            &mut body_offset,
+            &mut footer_offset,
+            None,
+            None,
+            self.workspace_actions_position(),
         );
-        targets
+        let visible_body = if viewport.body.height == 0 {
+            0
+        } else {
+            (usize::from(viewport.body.height) + metrics.stride.saturating_sub(1))
+                / metrics.stride.max(1)
+        };
+        visible_body.saturating_add(usize::from(viewport.footer.height)).max(1)
     }
 
     fn workspace_rail_target(&self) -> Option<WorkspaceRailTarget> {
         match self.workspace_rail_selection {
             WorkspaceRailSelection::Workspace => self
                 .tree
-                .workspaces
+                .workspaces()
                 .get(self.sidebar_workspace_selection)
                 .map(|workspace| WorkspaceRailTarget::Workspace(workspace.id)),
             WorkspaceRailSelection::Recoverable => self
@@ -17382,11 +22409,11 @@ impl App {
         match target {
             WorkspaceRailTarget::Workspace(id) => {
                 if let Some(index) =
-                    self.tree.workspaces.iter().position(|workspace| workspace.id == id)
+                    self.tree.workspaces().iter().position(|workspace| workspace.id == id)
                 {
                     if self.sidebar_workspace_selection != index {
                         self.tabs_rail_selection = 0;
-                        self.tabs_rail_scroll = 0;
+                        self.active_sidebar_rail_scroll_mut().tabs_rail_scroll = 0;
                     }
                     self.sidebar_workspace_selection = index;
                     self.workspace_rail_selection = WorkspaceRailSelection::Workspace;
@@ -17450,10 +22477,15 @@ impl App {
                 self.focus = FocusTarget::Pane;
                 return KeyboardIngress::Handled(RenderAction::Draw);
             };
-            let was_sidebar_focused = self.workspace_sidebar_focused();
+            let was_sidebar_focused = self.sidebar_rail_focused();
             let keep_machine_rail_focus =
                 self.machine_sidebar_focused() && action == Action::ProviderMenu;
-            if !(keep_machine_rail_focus || was_sidebar_focused && action == Action::SendPrefix) {
+            let keep_sidebar_presentation_focus =
+                was_sidebar_focused && sidebar_presentation_action_keeps_focus(action);
+            if !(keep_machine_rail_focus
+                || keep_sidebar_presentation_focus
+                || was_sidebar_focused && action == Action::SendPrefix)
+            {
                 self.focus = FocusTarget::Pane;
             }
             if was_sidebar_focused && action == Action::FocusSidebar {
@@ -17547,6 +22579,10 @@ impl App {
         if key.kind == KeyEventKind::Release {
             return Ok(RenderAction::None);
         }
+        // Keyboard commands are a modal boundary for pointer ownership. A
+        // held rail or selection gesture must finish before a command can
+        // open a menu, prompt, or another focused surface.
+        self.cancel_pointer_before_modal();
         // A context menu acts on the resources visible when it opened. Keep a
         // status message alive while the menu owns input so status actions can
         // still validate and copy that exact message.
@@ -17579,6 +22615,15 @@ impl App {
             }
             return self.handle_omnibar_key(key);
         }
+        // Tab changes the content mode of the native workspace host, but it
+        // is a sidebar-wide command. Handle it before rail-specific routing
+        // so an Agents, Tabs, or Machines rail cannot swallow the command.
+        if key.code == KeyCode::Tab
+            && self.sidebar_rail_focused()
+            && self.config.sidebar.plugin.is_none()
+        {
+            return self.run_action(Action::ToggleSidebarView);
+        }
         if self.machine_sidebar_focused() {
             return Ok(self.handle_machine_sidebar_key(&key));
         }
@@ -17599,7 +22644,7 @@ impl App {
             } else {
                 if self.sidebar_view == SidebarView::Files
                     && let Some(text) = input.text_for_direct_input()
-                    && self.sidebar_files.insert_filter_text(text)
+                    && self.insert_sidebar_files_filter_text(text)
                 {
                     return Ok(RenderAction::Draw);
                 }
@@ -17623,6 +22668,10 @@ impl App {
                 && key.code == KeyCode::Char('m'))
         {
             let _ = self.open_provider_rail_menu(1, 2);
+            return RenderAction::Draw;
+        }
+        if let Some(direction) = alt_vertical_rail_direction(key) {
+            self.move_focus_between_sidebar_rails(direction);
             return RenderAction::Draw;
         }
         if matches!(key.code, KeyCode::Left | KeyCode::Char('h')) {
@@ -17665,7 +22714,11 @@ impl App {
         ) {
             self.machine_rail_follow_selection = true;
         }
-        let page = rail_page_size(self.sidebar_layout.machine);
+        let page = rail_page_size(
+            self.sidebar_layout.machine,
+            crate::ui::rail::RailMetrics::for_app(self),
+        );
+        let mut continue_past_boundary = false;
         let command = {
             let Some(machine) = self.machine_ui.as_mut() else {
                 self.focus = FocusTarget::Pane;
@@ -17685,7 +22738,14 @@ impl App {
                 // keys. A valid provider-menu binding may intentionally use
                 // j, k, h, l, or an arrow key.
                 Some(MachineRailCommand::ProviderMenu)
+            } else if targets.is_empty() && is_vertical_rail_navigation_key(key) {
+                // An empty rail still owns its rectangle. Let vertical
+                // navigation cross its boundary instead of trapping focus in
+                // a rail with no selectable target.
+                continue_past_boundary = true;
+                None
             } else if let Some(next) = rail_navigation_index(key, current, targets.len(), page) {
+                continue_past_boundary = next == current && is_vertical_rail_navigation_key(key);
                 if let Some(target) = targets.get(next).copied() {
                     machine.select_rail_target(target);
                 }
@@ -17742,6 +22802,9 @@ impl App {
                 None
             }
         };
+        if continue_past_boundary && self.continue_past_rail_boundary(RailKind::Machine, key) {
+            return RenderAction::Draw;
+        }
         match command {
             Some(MachineRailCommand::Activate(machine)) => {
                 self.activate_machine(machine);
@@ -17779,27 +22842,102 @@ impl App {
             self.focus = FocusTarget::Pane;
             return Ok(RenderAction::Draw);
         }
+        if let Some(direction) = alt_vertical_rail_direction(key) {
+            self.move_focus_between_sidebar_rails(direction);
+            return Ok(RenderAction::Draw);
+        }
         let rows = self.projection_rows(view_index);
         let actions = self.sidebar_action_rows(view_index);
-        let selectable_rows = rows.len().saturating_add(actions.len());
-        let current = self
+        let Some(spec) = self.config.sidebar.views.get(view_index).cloned() else {
+            return Ok(RenderAction::Draw);
+        };
+        let metrics = crate::ui::rail::RailMetrics::for_app(self);
+        let (row_spans, body_rows) = projection_row_spans(&rows, &spec, metrics);
+        let top_actions = matches!(spec.actions_position, crate::config::ActionsPosition::Top);
+        let mut navigation = Vec::with_capacity(rows.len().saturating_add(actions.len()));
+        if top_actions {
+            for index in 0..actions.len() {
+                navigation.push(ProjectionNavigationItem {
+                    target: ProjectionNavigationTarget::Action(index),
+                    span: crate::ui::rail::RowSpan::new(index, 1),
+                });
+            }
+        }
+        for (index, span) in row_spans.iter().copied().enumerate() {
+            navigation.push(ProjectionNavigationItem {
+                target: ProjectionNavigationTarget::Row(index),
+                span: crate::ui::rail::RowSpan::new(
+                    span.start.saturating_add(if top_actions { actions.len() } else { 0 }),
+                    span.height,
+                ),
+            });
+        }
+        if !top_actions {
+            for index in 0..actions.len() {
+                navigation.push(ProjectionNavigationItem {
+                    target: ProjectionNavigationTarget::Action(index),
+                    span: crate::ui::rail::RowSpan::new(body_rows.saturating_add(index), 1),
+                });
+            }
+        }
+        let current_target = self
             .config
             .sidebar
             .views
             .get(view_index)
-            .and_then(|view| self.projection_rails.get(&view.id))
-            .map_or(0, |state| match state.selected_action {
-                Some(index) if index < actions.len() => rows.len().saturating_add(index),
-                Some(_) => selectable_rows,
-                None => state.selected.min(selectable_rows.saturating_sub(1)),
+            .and_then(|view| {
+                self.active_sidebar_profile_state()
+                    .and_then(|state| state.projection_rails.get(&view.id))
+            })
+            .map(|state| match state.selected_action {
+                Some(index) if index < actions.len() => {
+                    Some(ProjectionNavigationTarget::Action(index))
+                }
+                // A saved action index can outlive a config refresh. Do not
+                // reinterpret it as a resource row at the same numeric
+                // position, because that would collapse or activate the
+                // wrong item. The next directional key chooses a fresh
+                // target from the current navigation table.
+                Some(_) => None,
+                None => Some(ProjectionNavigationTarget::Row(
+                    state.selected.min(rows.len().saturating_sub(1)),
+                )),
+            })
+            .unwrap_or_else(|| {
+                if rows.is_empty() {
+                    Some(ProjectionNavigationTarget::Action(0))
+                } else {
+                    Some(ProjectionNavigationTarget::Row(0))
+                }
             });
-        let selected = rows.get(current).cloned();
+        let current = current_target
+            .and_then(|target| navigation.iter().position(|item| item.target == target))
+            .unwrap_or_default();
+        // Resolve the active item from the navigation table. This keeps the
+        // keyboard reducer aligned with the visual order for both action
+        // positions, and fails closed if a saved selection no longer exists.
+        let active_target =
+            current_target.and_then(|_| navigation.get(current).map(|item| item.target));
+        let selected = active_target.and_then(|target| match target {
+            ProjectionNavigationTarget::Row(index) => rows.get(index).cloned(),
+            ProjectionNavigationTarget::Action(_) => None,
+        });
+        if navigation.is_empty()
+            && matches!(key.code, KeyCode::Up | KeyCode::Down | KeyCode::Char('j' | 'k'))
+        {
+            // An empty projection still participates in the stacked rail
+            // navigation contract. There is no row index to clamp, so route
+            // a vertical movement directly to the adjacent mounted rail.
+            self.continue_past_rail_boundary(RailKind::Projection(view_index), key);
+            return Ok(RenderAction::Draw);
+        }
         if matches!(key.code, KeyCode::Left | KeyCode::Char('h')) {
             if !key.modifiers.contains(KeyModifiers::ALT)
                 && let Some(branch) = selected.as_ref().and_then(|row| row.branch)
                 && selected.as_ref().is_some_and(|row| row.expanded)
             {
                 self.projection_rail_state_mut(view_index).collapsed.insert(branch);
+                self.invalidate_projection_rows_cache();
             } else {
                 self.focus_adjacent_rail(RailKind::Projection(view_index), -1);
             }
@@ -17811,50 +22949,83 @@ impl App {
                 && selected.as_ref().is_some_and(|row| !row.expanded)
             {
                 self.projection_rail_state_mut(view_index).collapsed.remove(&branch);
+                self.invalidate_projection_rows_cache();
             } else if !self.focus_adjacent_rail(RailKind::Projection(view_index), 1) {
                 self.focus = FocusTarget::Pane;
             }
             return Ok(RenderAction::Draw);
         }
-        let page = self
-            .projection_sidebar_area(view_index)
-            .map_or(1, |area| usize::from(area.height.saturating_sub(2)).max(1));
-        if let Some(next) = rail_navigation_index(key, current, selectable_rows, page) {
+        let page = self.projection_sidebar_page_cells(view_index, &spec, body_rows, actions.len());
+        if let Some(next) = projection_navigation_index(key, current, &navigation, page) {
+            if next == current
+                && matches!(key.code, KeyCode::Up | KeyCode::Down | KeyCode::Char('j' | 'k'))
+                && self.continue_past_rail_boundary(RailKind::Projection(view_index), key)
+            {
+                return Ok(RenderAction::Draw);
+            }
             let state = self.projection_rail_state_mut(view_index);
-            if next < rows.len() {
-                state.selected = next;
-                state.selected_action = None;
-            } else {
-                state.selected_action = Some(next.saturating_sub(rows.len()));
+            match navigation[next].target {
+                ProjectionNavigationTarget::Row(index) => {
+                    state.selected = index;
+                    state.selected_target = rows.get(index).map(|row| row.target);
+                    state.selected_action = None;
+                }
+                ProjectionNavigationTarget::Action(index) => {
+                    state.selected_action = Some(index);
+                }
             }
             state.follow_selection = true;
             return Ok(RenderAction::Draw);
         }
+        // `s` cycles this agents view's sort mode for this client only.
+        // The override is presentation state; the config value is where the
+        // cycle starts. The header's right label follows.
+        if key.code == KeyCode::Char('s') && !key.modifiers.contains(KeyModifiers::ALT) {
+            let target = self.config.sidebar.views.get(view_index).and_then(|spec| {
+                spec.levels
+                    .contains(&SidebarResourceKind::Agents)
+                    .then(|| (spec.id.clone(), self.effective_agent_sort(spec).cycle_next()))
+            });
+            if let Some((id, next)) = target {
+                self.active_sidebar_profile_state_mut().agent_sort_overrides.insert(id, next);
+                self.invalidate_projection_rows_cache();
+                return Ok(RenderAction::Draw);
+            }
+        }
         if matches!(key.code, KeyCode::Char(' '))
             && let Some(branch) = selected.as_ref().and_then(|row| row.branch)
         {
-            let state = self.projection_rail_state_mut(view_index);
-            if !state.collapsed.remove(&branch) {
-                state.collapsed.insert(branch);
+            {
+                let state = self.projection_rail_state_mut(view_index);
+                if !state.collapsed.remove(&branch) {
+                    state.collapsed.insert(branch);
+                }
             }
+            self.invalidate_projection_rows_cache();
             return Ok(RenderAction::Draw);
         }
         if key.code == KeyCode::Enter {
-            if let Some(row) = selected {
-                self.activate_projection_target(row.target)?;
-                self.focus = FocusTarget::Pane;
-            } else if let Some(action) = current
-                .checked_sub(rows.len())
-                .and_then(|index| actions.get(index))
-                .map(|action| action.target)
-            {
-                return self.invoke_sidebar_action(action);
+            match active_target {
+                Some(ProjectionNavigationTarget::Row(index)) => {
+                    if let Some(row) = rows.get(index)
+                        && self.activate_projection_target(row.target)?
+                    {
+                        self.focus = FocusTarget::Pane;
+                    }
+                }
+                Some(ProjectionNavigationTarget::Action(index)) => {
+                    if let Some(action) = actions.get(index).map(|action| action.target) {
+                        return self.invoke_sidebar_action(action);
+                    }
+                }
+                None => {}
             }
         }
         Ok(RenderAction::Draw)
     }
 
     fn open_machine_creation_menu(&mut self, x: u16, y: u16) {
+        self.cancel_pointer_before_modal();
         let sources =
             self.machine_ui.as_ref().map(|ui| ui.creation_sources.clone()).unwrap_or_default();
         match sources.as_slice() {
@@ -17888,6 +23059,7 @@ impl App {
     }
 
     fn open_machine_connection_menu(&mut self, x: u16, y: u16) {
+        self.cancel_pointer_before_modal();
         if self.machine_ui.as_ref().is_some_and(|ui| ui.connect_accepts_pairing_code) {
             let prompt = self.connect_machine_prompt();
             self.prompt = Some(prompt);
@@ -17961,6 +23133,7 @@ impl App {
             MachineConnectRoute::Local => localization::catalog().sidebar.connect_host_prompt,
             MachineConnectRoute::Provider => localization::catalog().sidebar.connect_prompt,
         };
+        self.cancel_pointer_before_modal();
         self.prompt = Some(Prompt::new(label, target.clone(), PromptTarget::ConnectMachine(route)));
         if let Some(machine) = self.machine_ui.as_mut() {
             machine.request = Some(MachineRequest::Connect { target, route });
@@ -18000,6 +23173,7 @@ impl App {
         if scopes.is_empty() && actions.is_empty() {
             return false;
         }
+        self.cancel_pointer_before_modal();
         let has_scopes = !scopes.is_empty();
         let mut groups = Vec::new();
         if !scopes.is_empty() {
@@ -18097,6 +23271,7 @@ impl App {
         match action.fields.as_slice() {
             [] => self.stage_provider_action(index, None),
             [field] => {
+                self.cancel_pointer_before_modal();
                 self.prompt = Some(Prompt::new(
                     localization::catalog()
                         .sidebar
@@ -18163,6 +23338,7 @@ impl App {
         match result {
             Some(Ok((request, true))) => {
                 self.pending_provider_action = Some(request);
+                self.cancel_pointer_before_modal();
                 self.prompt = Some(Prompt::new(
                     localization::catalog().sidebar.confirm_destructive_action,
                     String::new(),
@@ -18185,16 +23361,39 @@ impl App {
         if key.code == KeyCode::Tab {
             return self.run_action(Action::ToggleSidebarView);
         }
+        if self.sidebar_view == SidebarView::Files && self.sidebar_files.filter_mode() {
+            return self.handle_files_sidebar_key(key);
+        }
+        // Files owns plain arrows for directory navigation. Option/Alt is
+        // the explicit cross-rail escape, including the vertical direction
+        // needed to reach a stacked Agents rail.
+        if key.modifiers.contains(KeyModifiers::ALT)
+            && matches!(key.code, KeyCode::Up | KeyCode::Down | KeyCode::Char('j' | 'k'))
+        {
+            let direction = match key.code {
+                KeyCode::Up | KeyCode::Char('k') => Direction::Up,
+                KeyCode::Down | KeyCode::Char('j') => Direction::Down,
+                _ => unreachable!(),
+            };
+            self.move_focus_between_sidebar_rails(direction);
+            return Ok(RenderAction::Draw);
+        }
         if matches!(key.code, KeyCode::Left | KeyCode::Char('h')) {
-            let moved = self.focus_adjacent_rail(RailKind::Workspace, -1);
+            let files_owns_left = self.sidebar_view == SidebarView::Files
+                && matches!(self.files_rail_selection, FilesRailSelection::File);
+            let moved = !files_owns_left && self.focus_adjacent_rail(RailKind::Workspace, -1);
             if moved
                 || self.sidebar_view == SidebarView::Workspaces
+                || self.sidebar_view == SidebarView::Files
+                    && matches!(self.files_rail_selection, FilesRailSelection::Action(_))
                 || key.modifiers.contains(KeyModifiers::ALT)
             {
                 return Ok(RenderAction::Draw);
             }
         }
         if (self.sidebar_view == SidebarView::Workspaces
+            || self.sidebar_view == SidebarView::Files
+                && matches!(self.files_rail_selection, FilesRailSelection::Action(_))
             || key.modifiers.contains(KeyModifiers::ALT))
             && matches!(key.code, KeyCode::Right | KeyCode::Char('l'))
         {
@@ -18208,11 +23407,7 @@ impl App {
             return Ok(RenderAction::Draw);
         }
         match self.sidebar_view {
-            SidebarView::Files => {
-                if let Some(command) = self.sidebar_files.handle_key(key) {
-                    self.run_file_command(command);
-                }
-            }
+            SidebarView::Files => return self.handle_files_sidebar_key(key),
             SidebarView::Workspaces => {
                 if matches!(
                     key.code,
@@ -18227,20 +23422,35 @@ impl App {
                     self.workspace_rail_follow_selection = true;
                 }
                 let targets = self.workspace_rail_targets();
+                if targets.is_empty()
+                    && is_vertical_rail_navigation_key(key)
+                    && self.continue_past_rail_boundary(RailKind::Workspace, key)
+                {
+                    return Ok(RenderAction::Draw);
+                }
                 let current = self
                     .workspace_rail_target()
                     .and_then(|selected| targets.iter().position(|target| target == &selected))
                     .unwrap_or_default();
-                let page = rail_page_size(self.sidebar_layout.workspace);
+                let page = self.workspace_rail_page_size();
                 if let Some(next) = rail_navigation_index(key, current, targets.len(), page) {
+                    if next == current
+                        && is_vertical_rail_navigation_key(key)
+                        && self.continue_past_rail_boundary(RailKind::Workspace, key)
+                    {
+                        return Ok(RenderAction::Draw);
+                    }
                     if let Some(target) = targets.get(next).cloned() {
                         self.select_workspace_rail_target(target);
                     }
                 } else if key.code == KeyCode::Enter {
                     match targets.get(current).cloned() {
                         Some(WorkspaceRailTarget::Workspace(id)) => {
-                            if let Some(index) =
-                                self.tree.workspaces.iter().position(|workspace| workspace.id == id)
+                            if let Some(index) = self
+                                .tree
+                                .workspaces()
+                                .iter()
+                                .position(|workspace| workspace.id == id)
                             {
                                 self.select_workspace_for_client(Some(index), None);
                                 self.focus = FocusTarget::Pane;
@@ -18262,6 +23472,10 @@ impl App {
     }
 
     fn handle_tabs_sidebar_key(&mut self, key: &KeyEvent) -> anyhow::Result<RenderAction> {
+        if let Some(direction) = alt_vertical_rail_direction(key) {
+            self.move_focus_between_sidebar_rails(direction);
+            return Ok(RenderAction::Draw);
+        }
         if matches!(key.code, KeyCode::Left | KeyCode::Char('h')) {
             self.focus_adjacent_rail(RailKind::Tabs, -1);
             return Ok(RenderAction::Draw);
@@ -18289,16 +23503,29 @@ impl App {
             self.tabs_rail_follow_selection = true;
         }
         let targets = self.sidebar_tab_targets();
+        if targets.is_empty()
+            && is_vertical_rail_navigation_key(key)
+            && self.continue_past_rail_boundary(RailKind::Tabs, key)
+        {
+            return Ok(RenderAction::Draw);
+        }
         self.tabs_rail_selection = self.tabs_rail_selection.min(targets.len().saturating_sub(1));
-        let page = rail_page_size(self.sidebar_layout.tabs);
+        let page =
+            rail_page_size(self.sidebar_layout.tabs, crate::ui::rail::RailMetrics::for_app(self));
         if let Some(next) =
             rail_navigation_index(key, self.tabs_rail_selection, targets.len(), page)
         {
+            if next == self.tabs_rail_selection
+                && is_vertical_rail_navigation_key(key)
+                && self.continue_past_rail_boundary(RailKind::Tabs, key)
+            {
+                return Ok(RenderAction::Draw);
+            }
             self.tabs_rail_selection = next;
         } else if key.code == KeyCode::Enter
             && let Some(target) = targets.get(self.tabs_rail_selection)
+            && self.activate_sidebar_tab(target)?
         {
-            self.activate_sidebar_tab(target)?;
             self.focus = FocusTarget::Pane;
         }
         Ok(RenderAction::Draw)
@@ -18314,8 +23541,8 @@ impl App {
                 let cwd = self
                     .focused_surface_cwd()
                     .unwrap_or_else(|| self.sidebar_files.fallback_cwd().to_path_buf());
-                self.sidebar_files.reroot(cwd);
-                self.sidebar_followed_surface = self.tree.active_surface();
+                self.reroot_sidebar_files(cwd);
+                self.sidebar_followed_surface = self.focused_surface_owner();
                 return;
             }
             FileCommand::Cd(path) => {
@@ -18347,11 +23574,8 @@ impl App {
                     .ok()
                     .filter(|value| !value.is_empty())
                     .unwrap_or_else(|| "vi".to_string());
-                let cwd = path
-                    .parent()
-                    .unwrap_or_else(|| std::path::Path::new("/"))
-                    .to_string_lossy()
-                    .into_owned();
+                let cwd =
+                    path.parent().unwrap_or_else(|| Path::new("/")).to_string_lossy().into_owned();
                 self.session.run_command(
                     vec![editor, path.to_string_lossy().into_owned()],
                     self.active_pane(),
@@ -18380,6 +23604,7 @@ impl App {
 
     /// Commit the open rename dialog (Enter or the OK button).
     fn commit_prompt(&mut self) {
+        self.cancel_pointer_before_modal();
         if let Some((route, input)) = self.prompt.as_ref().and_then(|prompt| {
             matches!(prompt.target, PromptTarget::ConnectMachine(_)).then(|| {
                 let PromptTarget::ConnectMachine(route) = prompt.target else { unreachable!() };
@@ -18471,15 +23696,16 @@ impl App {
             }
             return;
         }
-        if let PromptTarget::ConfirmPurgeManagedWorkspace(index) = prompt.target {
+        if let PromptTarget::ConfirmPurgeManagedWorkspace(_index) = prompt.target {
             if input.trim() == "CONFIRM" {
-                let workspace_id = self
-                    .machine_ui
-                    .as_ref()
-                    .and_then(|ui| ui.recoverable_workspaces().get(index).copied())
-                    .map(|workspace| workspace.id.clone());
-                if let Some(workspace_id) = workspace_id {
-                    self.request_purge_managed_workspace(&workspace_id);
+                if let Some(receipt) = prompt.managed_workspace_purge.as_ref() {
+                    self.request_purge_managed_workspace_receipt(receipt);
+                } else {
+                    // Prompts constructed by an older caller have no exact
+                    // receipt. Do not fall back to the mutable index.
+                    self.status_message = Some(
+                        localization::catalog().sidebar.managed_workspace_unavailable.to_string(),
+                    );
                 }
             } else {
                 self.status_message =
@@ -18544,6 +23770,7 @@ impl App {
     }
 
     fn close_prompt(&mut self) {
+        self.cancel_pointer_before_modal();
         self.shake_frames = 0;
         self.prompt = None;
         if let Some(transaction) = self.connection_transaction.take() {
@@ -18592,8 +23819,11 @@ impl App {
                 }
             }
         }
-        let Some(prompt) = self.prompt.as_mut() else { return Ok(RenderAction::None) };
-        match prompt.input.handle_key(&key) {
+        let input_event = {
+            let Some(prompt) = self.prompt.as_mut() else { return Ok(RenderAction::None) };
+            prompt.input.handle_key(&key)
+        };
+        match input_event {
             InputEvent::Commit => self.commit_prompt(),
             InputEvent::Cancel => self.close_prompt(),
             InputEvent::Changed | InputEvent::None => {}
@@ -18615,7 +23845,10 @@ impl App {
     }
 
     fn resolve_pairing(&mut self, approve: bool) {
-        self.cancel_pointer_interaction();
+        // The decision itself is a modal transition. Advance the pointer
+        // epoch so the button that approved the dialog cannot activate the
+        // restored underlay on release.
+        self.advance_pointer_focus_generation();
         let Some(dialog) = self.pairing_dialog.take() else { return };
         if let Err(error) = self.session.respond_pairing(dialog.challenge.id, approve) {
             self.status_message = Some(
@@ -18638,32 +23871,36 @@ impl App {
     }
 
     fn handle_shortcut_help_key(&mut self, key: KeyEvent) -> RenderAction {
-        let Some(help) = self.shortcut_help.as_mut() else { return RenderAction::None };
-        let total_rows = help.rows.len();
-        let page = help.visible_rows.max(1) as isize;
-        let previous_offset = help.scroll_offset;
-        let mut close = false;
-        match key.code {
-            KeyCode::Esc => close = true,
-            KeyCode::Char('?')
-                if !key.modifiers.intersects(
-                    KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER,
-                ) =>
-            {
-                close = true;
+        let (close, changed) = {
+            let Some(help) = self.shortcut_help.as_mut() else { return RenderAction::None };
+            let total_rows = help.rows.len();
+            let page = help.visible_rows.max(1) as isize;
+            let previous_offset = help.scroll_offset;
+            let mut close = false;
+            match key.code {
+                KeyCode::Esc => close = true,
+                KeyCode::Char('?')
+                    if !key.modifiers.intersects(
+                        KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER,
+                    ) =>
+                {
+                    close = true;
+                }
+                KeyCode::Up | KeyCode::Char('k') => help.scroll_by(-1, total_rows),
+                KeyCode::Down | KeyCode::Char('j') => help.scroll_by(1, total_rows),
+                KeyCode::PageUp => help.scroll_by(-page, total_rows),
+                KeyCode::PageDown => help.scroll_by(page, total_rows),
+                KeyCode::Home => help.scroll_offset = 0,
+                KeyCode::End => help.scroll_offset = help.max_scroll(total_rows),
+                _ => {}
             }
-            KeyCode::Up | KeyCode::Char('k') => help.scroll_by(-1, total_rows),
-            KeyCode::Down | KeyCode::Char('j') => help.scroll_by(1, total_rows),
-            KeyCode::PageUp => help.scroll_by(-page, total_rows),
-            KeyCode::PageDown => help.scroll_by(page, total_rows),
-            KeyCode::Home => help.scroll_offset = 0,
-            KeyCode::End => help.scroll_offset = help.max_scroll(total_rows),
-            _ => {}
-        }
+            (close, help.scroll_offset != previous_offset)
+        };
         if close {
+            self.cancel_pointer_before_modal();
             self.shortcut_help = None;
             RenderAction::Paint
-        } else if help.scroll_offset != previous_offset {
+        } else if changed {
             RenderAction::Paint
         } else {
             RenderAction::None
@@ -18671,12 +23908,19 @@ impl App {
     }
 
     fn handle_shortcut_help_mouse(&mut self, mouse: MouseEvent) -> RenderAction {
+        let pointer_capture_live = self.drag.is_some() || !self.active_pointer_buttons.is_empty();
         let Some(help) = self.shortcut_help.as_mut() else { return RenderAction::None };
         let total_rows = help.rows.len();
         let mut changed = false;
         let mut close = false;
         match mouse.kind {
             MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => {
+                // A thumb drag owns the pointer until its release. Swallow a
+                // wheel sample during any pointer gesture instead of
+                // changing the offset behind its anchor.
+                if pointer_capture_live || help.scrollbar_dragging() {
+                    return RenderAction::None;
+                }
                 let previous_offset = help.scroll_offset;
                 let delta = if mouse.kind == MouseEventKind::ScrollUp { -1 } else { 1 };
                 help.scroll_by(delta, total_rows);
@@ -18712,6 +23956,13 @@ impl App {
             _ => {}
         }
         if close {
+            // Closing the modal also retires its private scrollbar owner. A
+            // different button may have caused the close, so cancel every
+            // owner before fencing that button's eventual release.
+            self.cancel_pointer_before_modal();
+            if let MouseEventKind::Down(button) = mouse.kind {
+                self.suppress_pointer_button_until_release(button);
+            }
             self.shortcut_help = None;
             RenderAction::Paint
         } else if changed {
@@ -18773,38 +24024,42 @@ impl App {
     }
 
     fn handle_omnibar_key(&mut self, key: KeyEvent) -> anyhow::Result<RenderAction> {
-        let Some(state) = self.omnibar.as_mut() else { return Ok(RenderAction::None) };
-        let replace_selection = state.select_all
-            && matches!(
+        let input_event = {
+            let Some(state) = self.omnibar.as_mut() else { return Ok(RenderAction::None) };
+            let replace_selection = state.select_all
+                && matches!(
+                    key.code,
+                    KeyCode::Backspace
+                        | KeyCode::Delete
+                        | KeyCode::Char(_)
+                            if !key.modifiers.intersects(keys::SHORTCUT_MODIFIERS)
+                );
+            if replace_selection {
+                state.input.clear();
+                state.select_all = false;
+            } else if matches!(
                 key.code,
-                KeyCode::Backspace
+                KeyCode::Left
+                    | KeyCode::Right
+                    | KeyCode::Home
+                    | KeyCode::End
+                    | KeyCode::Backspace
                     | KeyCode::Delete
-                    | KeyCode::Char(_)
-                        if !key.modifiers.intersects(keys::SHORTCUT_MODIFIERS)
-            );
-        if replace_selection {
-            state.input.clear();
-            state.select_all = false;
-        } else if matches!(
-            key.code,
-            KeyCode::Left
-                | KeyCode::Right
-                | KeyCode::Home
-                | KeyCode::End
-                | KeyCode::Backspace
-                | KeyCode::Delete
-        ) {
-            state.select_all = false;
-        }
-        if matches!(key.code, KeyCode::Char('a') | KeyCode::Char('A'))
-            && key.modifiers.contains(KeyModifiers::CONTROL)
-        {
-            state.select_all = true;
-            state.input.cursor = state.input.buffer.len();
-            return Ok(RenderAction::Draw);
-        }
-        match state.input.handle_key(&key) {
+            ) {
+                state.select_all = false;
+            }
+            if matches!(key.code, KeyCode::Char('a') | KeyCode::Char('A'))
+                && key.modifiers.contains(KeyModifiers::CONTROL)
+            {
+                state.select_all = true;
+                state.input.cursor = state.input.buffer.len();
+                return Ok(RenderAction::Draw);
+            }
+            state.input.handle_key(&key)
+        };
+        match input_event {
             InputEvent::Cancel => {
+                self.cancel_pointer_before_modal();
                 self.omnibar = None;
             }
             InputEvent::Commit => {
@@ -18910,6 +24165,12 @@ impl App {
         action_destination: Option<SurfaceId>,
         action_fallback_destination: Option<SurfaceId>,
     ) -> anyhow::Result<RenderAction> {
+        // Frontend actions can arrive from modeless keys, deferred replay, or
+        // a remote action surface without passing through the raw keyboard
+        // handler. All of them are modal boundaries for pointer ownership:
+        // an old release must never settle a drag after focus or layout
+        // changed.
+        self.cancel_pointer_before_modal();
         if action == Action::SendPrefix && self.workspace_sidebar_focused() {
             self.forward_sidebar_key(prefix.into());
             return Ok(RenderAction::Draw);
@@ -19052,17 +24313,32 @@ impl App {
                 }
             }
             Action::ToggleSidebar => {
+                // Visibility changes repack the sidebar. End any gesture
+                // whose rectangles belong to the pre-toggle topology.
+                self.cancel_pointer_before_modal();
                 self.sidebar_visible = !self.sidebar_visible;
                 if !self.sidebar_visible {
                     self.session.invalidate_sidebar_plugin_sync();
                     self.focus = FocusTarget::Pane;
+                    self.projection_agent_surfaces.clear();
+                    self.projection_title_surfaces.clear();
+                    self.projection_agent_surfaces_by_view.clear();
+                    self.projection_title_surfaces_by_view.clear();
+                } else {
+                    self.rebuild_projection_surface_indexes();
                 }
             }
             Action::ToggleSidebarCompact => {
+                // Compact mode changes rail widths and can move split
+                // dividers. Pointer capture must not cross that boundary.
+                self.cancel_pointer_before_modal();
                 self.sidebar_compact = !self.sidebar_compact;
                 self.sidebar_visible = true;
+                self.rebuild_projection_surface_indexes();
             }
             Action::ToggleSidebarView => self.toggle_sidebar_view(),
+            Action::PrevSidebarProfile => self.cycle_sidebar_profile(-1),
+            Action::NextSidebarProfile => self.cycle_sidebar_profile(1),
             Action::FocusSidebar => self.toggle_sidebar_focus(),
             Action::ProviderMenu => {
                 if self.focus == FocusTarget::MachineRail {
@@ -19119,14 +24395,14 @@ impl App {
                 return Ok(RenderAction::Draw);
             }
             Action::ShowShortcuts => {
+                self.cancel_pointer_before_modal();
                 self.shortcut_help = if self.shortcut_help.is_some() {
                     None
                 } else {
-                    self.finish_active_drag();
                     Some(ShortcutHelp::from_config(&self.config, self.surface_only.is_some()))
                 };
                 self.menu = None;
-                self.prompt = None;
+                self.close_prompt();
                 self.omnibar = None;
                 self.replace_selection(None);
                 return Ok(RenderAction::Draw);
@@ -19166,7 +24442,7 @@ impl App {
     fn open_rename_surface_prompt(&mut self, surface: SurfaceId) {
         let Some(buffer) = self
             .tree
-            .workspaces
+            .workspaces()
             .iter()
             .flat_map(|workspace| workspace.screens.iter())
             .flat_map(|screen| screen.panes.iter())
@@ -19181,7 +24457,7 @@ impl App {
             buffer,
             PromptTarget::Surface(surface),
         );
-        self.cancel_pty_mouse_drag();
+        self.cancel_pointer_before_modal();
         self.prompt = Some(prompt);
     }
 
@@ -19195,7 +24471,7 @@ impl App {
     fn open_rename_workspace_prompt_for(&mut self, workspace_id: WorkspaceId) {
         let Some(buffer) = self
             .tree
-            .workspaces
+            .workspaces()
             .iter()
             .find(|ws| ws.id == workspace_id)
             .map(|workspace| workspace.name.clone())
@@ -19221,7 +24497,7 @@ impl App {
             PromptTarget::Workspace(workspace_id)
         };
         let prompt = Prompt::new(localization::catalog().sidebar.rename_workspace, buffer, target);
-        self.cancel_pty_mouse_drag();
+        self.cancel_pointer_before_modal();
         self.prompt = Some(prompt);
     }
 
@@ -19234,7 +24510,7 @@ impl App {
             buffer,
             PromptTarget::Screen(screen.id),
         );
-        self.cancel_pty_mouse_drag();
+        self.cancel_pointer_before_modal();
         self.prompt = Some(prompt);
     }
 
@@ -19319,6 +24595,7 @@ impl App {
         if !has_omnibar {
             return;
         }
+        self.cancel_pointer_before_modal();
         self.omnibar =
             Some(OmnibarState { pane, surface, input: TextInput::new(buffer), select_all });
     }
@@ -19403,6 +24680,7 @@ impl App {
     }
 
     fn activate_menu(&mut self, action: MenuAction) -> anyhow::Result<()> {
+        self.cancel_pointer_before_modal();
         match action {
             MenuAction::TogglePaneZoom { pane, zoomed } => {
                 if self.active_pane() != Some(pane) {
@@ -19453,6 +24731,10 @@ impl App {
                 self.set_sidebar_view_visible(view, visible);
                 return Ok(());
             }
+            MenuAction::SetSidebarViewPinned { view, pinned } => {
+                self.set_sidebar_view_pinned(view, pinned);
+                return Ok(());
+            }
             MenuAction::ShowShortcuts => {
                 self.run_action(Action::ShowShortcuts)?;
                 return Ok(());
@@ -19495,15 +24777,27 @@ impl App {
                 }
             }
             MenuAction::PurgeManagedWorkspace(index) => {
-                self.prompt = Some(Prompt::new(
-                    localization::catalog().sidebar.confirm_purge_workspace,
-                    String::new(),
-                    PromptTarget::ConfirmPurgeManagedWorkspace(index),
-                ));
+                if let Some(receipt) = self.managed_workspace_purge_receipt(index) {
+                    let mut prompt = Prompt::new(
+                        localization::catalog().sidebar.confirm_purge_workspace,
+                        String::new(),
+                        PromptTarget::ConfirmPurgeManagedWorkspace(index),
+                    );
+                    prompt.managed_workspace_purge = Some(receipt);
+                    self.prompt = Some(prompt);
+                } else {
+                    self.status_message = Some(
+                        localization::catalog().sidebar.managed_workspace_unavailable.to_string(),
+                    );
+                }
             }
             MenuAction::CopyWorkspaceId(id) => {
-                if let Some(short_id) =
-                    self.tree.workspaces.iter().find(|ws| ws.id == id).map(|ws| ws.short_id.clone())
+                if let Some(short_id) = self
+                    .tree
+                    .workspaces()
+                    .iter()
+                    .find(|ws| ws.id == id)
+                    .map(|ws| ws.short_id.clone())
                 {
                     self.copy_short_id(short_id);
                 }
@@ -19511,7 +24805,7 @@ impl App {
             MenuAction::RenameScreen(id) => {
                 let buffer = self
                     .tree
-                    .workspaces
+                    .workspaces()
                     .iter()
                     .flat_map(|ws| ws.screens.iter())
                     .find(|s| s.id == id)
@@ -19573,6 +24867,7 @@ impl App {
             | MenuAction::FocusSidebar
             | MenuAction::ActivateSidebarProfile(_)
             | MenuAction::SetSidebarViewVisible { .. }
+            | MenuAction::SetSidebarViewPinned { .. }
             | MenuAction::ShowShortcuts => unreachable!("shared menu actions return above"),
             MenuAction::SetClientSizing { surface, client, enabled } => {
                 self.session.set_client_sizing(surface, client, enabled);
@@ -19746,13 +25041,23 @@ impl App {
         let requested = self.config.sidebar.plugin.is_some() && self.sync_sidebar_plugin(true);
         if self.config.sidebar.plugin.is_none() || self.sidebar_plugin_surface.is_some() {
             let order = self.focusable_rail_order();
-            let preferred = order
-                .iter()
-                .copied()
-                .find(|kind| {
-                    self.view_index_for_rail(*kind)
-                        .and_then(|index| self.config.sidebar.views.get(index))
-                        .is_some_and(|view| view.includes(SidebarResourceKind::Workspaces))
+            let remembered_focus =
+                self.active_sidebar_profile_state().and_then(|state| state.focused_view.clone());
+            let preferred = remembered_focus
+                .as_ref()
+                .and_then(|identity| {
+                    order.iter().copied().find(|kind| {
+                        self.view_index_for_rail(*kind)
+                            .and_then(|index| self.config.sidebar.views.get(index))
+                            .is_some_and(|view| identity == &SidebarViewIdentity::from_spec(view))
+                    })
+                })
+                .or_else(|| {
+                    order.iter().copied().find(|kind| {
+                        self.view_index_for_rail(*kind)
+                            .and_then(|index| self.config.sidebar.views.get(index))
+                            .is_some_and(|view| view.includes(SidebarResourceKind::Workspaces))
+                    })
                 })
                 .or_else(|| order.first().copied());
             if let Some(kind) = preferred {
@@ -19764,11 +25069,12 @@ impl App {
                     self.workspace_rail_selection = WorkspaceRailSelection::Workspace;
                     self.workspace_rail_follow_selection = true;
                 } else if !self.sync_sidebar_files_to_focus(true) {
-                    self.sidebar_files.refresh();
+                    self.refresh_sidebar_files();
                 }
             }
+            self.cancel_pointer_before_modal();
             self.menu = None;
-            self.prompt = None;
+            self.close_prompt();
             self.omnibar = None;
             self.replace_selection(None);
         } else if requested {
@@ -19777,21 +25083,157 @@ impl App {
     }
 
     fn toggle_sidebar_view(&mut self) {
-        self.sidebar_view = self.sidebar_view.toggled();
+        // Files and Workspaces share a host, so changing the mode replaces
+        // every row and scrollbar rectangle in that host. Release a capture
+        // before changing the mode; an old Files drag must never mutate the
+        // hidden browser after the host becomes Workspaces, or vice versa.
+        self.invalidate_pointer_topology_without_split_settle();
+        let sidebar_was_focused = self.sidebar_rail_focused();
+        let next = self.sidebar_view.toggled();
+        self.sidebar_view = next;
+        {
+            let state = self.active_sidebar_profile_state_mut();
+            state.content_mode = Some(next);
+            state.files_restore_pending = false;
+            state.files_restore_host = None;
+        }
         if self.config.sidebar.plugin.is_some() {
             return;
         }
+        self.ensure_files_mode_supported();
+        if sidebar_was_focused && self.sidebar_view == SidebarView::Files {
+            // Files is mounted in the workspace host. A Tab pressed from an
+            // Agents or Tabs rail must make that ownership visible, or the
+            // user sees a changed rail while keyboard focus stays elsewhere.
+            if let Some(index) = self.view_index_for_rail(RailKind::Workspace) {
+                self.focus_rail(self.rail_kind_for_view(index));
+            } else {
+                self.focus = FocusTarget::Pane;
+            }
+        }
         match self.sidebar_view {
             SidebarView::Files => {
-                self.sidebar_followed_surface = None;
+                self.set_files_rail_selection(FilesRailSelection::File);
+                // Keep the semantic Files owner across a temporary mode
+                // toggle. `sync_sidebar_files_to_focus` compares it with the
+                // current surface and resets the action viewport only when
+                // the owner really changed. This preserves a user's action
+                // position when switching to Workspaces and back.
                 if !self.sync_sidebar_files_to_focus(true) {
-                    self.sidebar_files.refresh();
+                    self.refresh_sidebar_files();
                 }
             }
             SidebarView::Workspaces => {
                 self.sidebar_workspace_selection = self.tree.active_workspace;
                 self.workspace_rail_selection = WorkspaceRailSelection::Workspace;
                 self.workspace_rail_follow_selection = true;
+            }
+        }
+    }
+
+    fn handle_files_sidebar_key(&mut self, key: &KeyEvent) -> anyhow::Result<RenderAction> {
+        // The filter editor owns Escape and navigation while it is active.
+        // This check must precede the outer sidebar Escape handler so the
+        // first Escape clears the query and the second one leaves the rail.
+        if self.sidebar_files.filter_mode() {
+            self.set_files_rail_selection(FilesRailSelection::File);
+            if let Some(command) = self.handle_sidebar_files_key(key) {
+                self.run_file_command(command);
+            }
+            return Ok(RenderAction::Draw);
+        }
+
+        let actions = self.workspace_sidebar_action_rows();
+        let visible_target_count = self.files_visible_target_count();
+        let visible_action_rows = self.sidebar_layout.workspace.map_or(0, |area| {
+            let geometry = self.files_layout_geometry(area);
+            geometry.top_action_rows + geometry.bottom_action_rows
+        });
+        let hidden_action_selection = visible_action_rows == 0
+            && matches!(self.files_rail_selection, FilesRailSelection::Action(_));
+        if hidden_action_selection {
+            self.set_files_rail_selection(FilesRailSelection::File);
+        }
+        let visible_action_count = if visible_action_rows > 0 { actions.len() } else { 0 };
+        let target_count = self.sidebar_files.visible_len().saturating_add(visible_action_count);
+        if target_count == 0
+            && is_vertical_rail_navigation_key(key)
+            && self.continue_past_rail_boundary(RailKind::Workspace, key)
+        {
+            return Ok(RenderAction::Draw);
+        }
+        if files_navigation_key(key) && target_count > 0 && visible_target_count > 0 {
+            self.workspace_rail_follow_selection = true;
+            let current = self
+                .selected_files_rail_target(&actions)
+                .and_then(|target| self.files_rail_target_index(target, &actions));
+            let next = current
+                .and_then(|current| {
+                    rail_navigation_index(key, current, target_count, self.files_page_size())
+                })
+                .or_else(|| {
+                    let last = target_count.saturating_sub(1);
+                    matches!(key.code, KeyCode::Up | KeyCode::PageUp | KeyCode::Char('k'))
+                        .then_some(last)
+                        .or(Some(0))
+                });
+            if let Some(next_index) = next {
+                if current == Some(next_index)
+                    && is_vertical_rail_navigation_key(key)
+                    && self.continue_past_rail_boundary(RailKind::Workspace, key)
+                {
+                    return Ok(RenderAction::Draw);
+                }
+                if let Some(next) = self.files_rail_target_at(next_index, &actions) {
+                    self.select_files_rail_target(next);
+                }
+            }
+            return Ok(RenderAction::Draw);
+        }
+
+        if key.code == KeyCode::Enter
+            && let FilesRailSelection::Action(target) = self.files_rail_selection
+        {
+            if visible_action_rows > 0 && actions.iter().any(|action| action.target == target) {
+                return self.invoke_sidebar_action(target);
+            }
+            self.set_files_rail_selection(FilesRailSelection::File);
+            return Ok(RenderAction::Draw);
+        }
+        // If a short frame just invalidated an action selection, consume the
+        // same Enter press. It must not fall through and activate the file
+        // that happens to occupy the first body row.
+        if hidden_action_selection && key.code == KeyCode::Enter {
+            return Ok(RenderAction::Draw);
+        }
+
+        // File commands operate on the file selection. Moving from an action
+        // to a file is explicit, so a stale file target cannot be activated by
+        // a command while an action row is selected.
+        if matches!(
+            key.code,
+            KeyCode::Left | KeyCode::Right | KeyCode::Char('.' | '/' | '~' | 'c' | 'o' | 'h')
+        ) {
+            self.set_files_rail_selection(FilesRailSelection::File);
+        }
+        if let Some(command) = self.handle_sidebar_files_key(key) {
+            self.run_file_command(command);
+        }
+        Ok(RenderAction::Draw)
+    }
+
+    fn select_files_rail_target(&mut self, target: FilesRailTarget) {
+        match target {
+            FilesRailTarget::File(index) => {
+                self.set_files_rail_selection(FilesRailSelection::File);
+                self.sidebar_files.select(index);
+            }
+            FilesRailTarget::Action(target) => {
+                if self.workspace_sidebar_action_rows().iter().any(|action| action.target == target)
+                {
+                    self.set_files_rail_selection(FilesRailSelection::Action(target));
+                    self.reveal_files_action_selection();
+                }
             }
         }
     }
@@ -20082,7 +25524,16 @@ impl App {
     }
 
     fn hit_at(&self, x: u16, y: u16) -> Option<Hit> {
-        self.hits.iter().find(|(rect, _)| rect.contains(x, y)).map(|(_, hit)| *hit)
+        // Split dividers overlay rail border cells. Give their explicit
+        // semantic receipt priority over the rail's generic resize hit.
+        self.hits
+            .iter()
+            .rev()
+            .find(|(rect, hit)| {
+                matches!(hit, Hit::SidebarSplitDivider { .. }) && rect.contains(x, y)
+            })
+            .or_else(|| self.hits.iter().find(|(rect, _)| rect.contains(x, y)))
+            .map(|(_, hit)| *hit)
     }
 
     fn omnibar_hit_at(&self, x: u16, y: u16) -> Option<(PaneId, OmnibarHit)> {
@@ -20132,18 +25583,81 @@ impl App {
 
     fn workspace_drop_target_at(&self, x: u16, y: u16) -> Option<usize> {
         let area = self.workspace_sidebar_area(self.content_area.height.saturating_add(1))?;
-        if area.width < 3 || x < area.x || x >= area.x + area.width.saturating_sub(1) || y < area.y
+        let content_right = area.x.saturating_add(area.width.saturating_sub(1));
+        if area.width < 3
+            || x < area.x
+            || x >= content_right
+            || y < area.y
+            || y >= area.y.saturating_add(area.height)
         {
             return None;
         }
-        let len = self.tree.workspaces.len();
-        for index in 0..len {
-            let start = area.y + 2 + index as u16 * 3;
-            if y < start {
-                return Some(index);
+
+        // Use the same viewport calculation as the renderer to reject the
+        // header and configured action rows. A drag can arrive after a wheel
+        // event, so the app-owned offsets are copied and clamped exactly as
+        // draw_workspaces would clamp them for this frame.
+        let len = self.tree.workspaces().len();
+        let metrics = crate::ui::rail::RailMetrics::for_app(self);
+        let recoverable =
+            self.machine_ui.as_ref().map_or(0, |ui| ui.recoverable_workspaces().len());
+        let body_rows = (len + recoverable).saturating_mul(metrics.stride);
+        let actions = self.workspace_sidebar_action_rows();
+        let scroll = self.active_sidebar_rail_scroll();
+        let mut body_offset = scroll.workspace_rail_scroll;
+        let mut footer_offset = scroll.workspace_footer_scroll;
+        let viewport = crate::ui::rail::viewport_positioned(
+            area,
+            body_rows,
+            actions.len(),
+            &mut body_offset,
+            &mut footer_offset,
+            None,
+            None,
+            self.workspace_actions_position(),
+        );
+        if !viewport.body.contains(x, y) || x >= content_right {
+            return None;
+        }
+
+        // The renderer emits one stable hit receipt for each visible line of
+        // each workspace. Aggregate those receipts into row spans instead of
+        // duplicating row height, gap, and scroll arithmetic here. A delayed
+        // tree update must not turn an old row index into a new workspace.
+        let mut rows: Vec<(usize, u16, u16)> = Vec::new();
+        for (rect, hit) in &self.hits {
+            let Hit::Workspace { index, id } = hit else { continue };
+            let current_index =
+                self.tree.workspaces().iter().position(|workspace| workspace.id == *id)?;
+            if *index != current_index || current_index >= len {
+                return None;
             }
-            if y <= start + 1 {
-                return Some(if y == start { index } else { index + 1 }.min(len));
+            let end = rect.y.saturating_add(rect.height.max(1));
+            if let Some((_, top, bottom)) =
+                rows.iter_mut().find(|(row, _, _)| *row == current_index)
+            {
+                *top = (*top).min(rect.y);
+                *bottom = (*bottom).max(end);
+            } else {
+                rows.push((current_index, rect.y, end));
+            }
+        }
+        if rows.is_empty() {
+            return None;
+        }
+        rows.sort_unstable_by_key(|(index, top, _)| (*index, *top));
+
+        // The upper half of a rendered row inserts before that workspace;
+        // the lower half and the gap before the next row insert after it.
+        // This preserves the old two-line behavior while working for any
+        // configured row height, gap, action position, or scroll offset.
+        for (index, top, bottom) in rows {
+            if y < top {
+                return Some(index.min(len));
+            }
+            let midpoint = top.saturating_add(bottom.saturating_sub(top).saturating_sub(1) / 2);
+            if y <= midpoint {
+                return Some(index.min(len));
             }
         }
         Some(len)
@@ -20151,7 +25665,7 @@ impl App {
 
     fn tab_location(&self, surface: SurfaceId) -> Option<(PaneId, usize)> {
         self.tree
-            .workspaces
+            .workspaces()
             .iter()
             .flat_map(|ws| ws.screens.iter())
             .flat_map(|screen| screen.panes.iter())
@@ -20165,7 +25679,12 @@ impl App {
 
     #[cfg(test)]
     fn handle_mouse(&mut self, mouse: MouseEvent) -> anyhow::Result<RenderAction> {
-        self.handle_mouse_with_sequence(mouse, None, None)
+        self.handle_mouse_with_sequence(mouse, None, None, Instant::now())
+    }
+
+    #[cfg(test)]
+    fn handle_mouse_at(&mut self, mouse: MouseEvent, now: Instant) -> anyhow::Result<RenderAction> {
+        self.handle_mouse_with_sequence(mouse, None, None, now)
     }
 
     fn handle_mouse_with_sequence(
@@ -20173,6 +25692,7 @@ impl App {
         mouse: MouseEvent,
         replay_sequence: Option<u64>,
         terminal_admission: Option<TerminalPointerAdmission>,
+        now: Instant,
     ) -> anyhow::Result<RenderAction> {
         // A live physical sample supersedes retained motion. Replayed input
         // only supersedes motion that was retained earlier in the same
@@ -20181,6 +25701,37 @@ impl App {
             self.pending_pointer_motion.as_ref().is_none_or(|pending| pending.sequence <= sequence)
         }) {
             self.pending_pointer_motion = None;
+        }
+        match mouse.kind {
+            MouseEventKind::Down(button) => {
+                // A fresh physical press starts a new ownership epoch for
+                // this button. A canceled release from the previous epoch
+                // must not suppress the new gesture.
+                self.canceled_pointer_buttons.remove(&button);
+                self.pointer_button_surfaces.remove(&button);
+            }
+            MouseEventKind::Drag(button) if self.canceled_pointer_buttons.contains(&button) => {
+                return Ok(RenderAction::None);
+            }
+            MouseEventKind::Drag(_) => {}
+            MouseEventKind::Up(button) => {
+                self.pointer_button_surfaces.remove(&button);
+                if self.canceled_pointer_buttons.remove(&button) {
+                    return Ok(RenderAction::None);
+                }
+            }
+            _ => {}
+        }
+        if !self.admit_pointer_event(mouse.kind) {
+            return Ok(RenderAction::None);
+        }
+        if let MouseEventKind::Down(button) = mouse.kind {
+            self.remember_pointer_button_surface(
+                button,
+                mouse.column,
+                mouse.row,
+                terminal_admission.as_ref(),
+            );
         }
         if self.pairing_dialog.is_none() && self.shortcut_help.is_some() {
             return Ok(self.handle_shortcut_help_mouse(mouse));
@@ -20201,31 +25752,14 @@ impl App {
                 return Ok(if before != after { RenderAction::Draw } else { RenderAction::None });
             }
             if !matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
+                if let MouseEventKind::Down(button) = mouse.kind {
+                    self.suppress_pointer_button_until_release(button);
+                }
                 if let MouseEventKind::Up(button) = mouse.kind {
                     self.active_pointer_buttons.remove(&button);
                 }
                 return Ok(RenderAction::None);
             }
-        }
-        // This TUI tracks one active pointer button. Ignore additional presses
-        // until its release so a second button cannot orphan the inner app's
-        // pressed state.
-        if let MouseEventKind::Down(button) = mouse.kind
-            && let Some(Drag::PtyMouse { button: active, .. }) = &self.drag
-        {
-            if button != *active {
-                self.ignored_pty_mouse_buttons.insert(button);
-            }
-            return Ok(RenderAction::None);
-        }
-        match mouse.kind {
-            MouseEventKind::Down(button) => {
-                self.active_pointer_buttons.insert(button);
-            }
-            MouseEventKind::Up(button) => {
-                self.active_pointer_buttons.remove(&button);
-            }
-            _ => {}
         }
         match mouse.kind {
             MouseEventKind::Down(MouseButton::Left) => self.handle_left_down_with_admission(
@@ -20233,6 +25767,7 @@ impl App {
                 mouse.row,
                 mouse.modifiers,
                 terminal_admission,
+                now,
             ),
             MouseEventKind::Drag(MouseButton::Left) => {
                 if self.forward_pty_mouse_drag(
@@ -20259,6 +25794,7 @@ impl App {
                 }
             }
             MouseEventKind::Down(MouseButton::Right) => {
+                self.reset_selection_click_sequence();
                 if self.prompt.is_some() {
                     self.shake_frames = 6;
                     return Ok(RenderAction::Draw);
@@ -20274,6 +25810,13 @@ impl App {
                     return Ok(RenderAction::Draw);
                 }
                 self.open_context_menu(mouse.column, mouse.row);
+                if self.menu.is_some() {
+                    // Keep the physical opener as the menu owner. This
+                    // blocks a second button until release and prevents a
+                    // later menu from treating the opener's release as a
+                    // fresh selection.
+                    self.retain_pointer_button_for_open_menu(MouseButton::Right);
+                }
                 Ok(RenderAction::Draw)
             }
             MouseEventKind::Drag(MouseButton::Right) => {
@@ -20300,20 +25843,23 @@ impl App {
                     self.handle_right_up(mouse.column, mouse.row)
                 }
             }
-            MouseEventKind::Down(MouseButton::Middle) => Ok(
-                if self.begin_pty_mouse_drag_with_admission(
-                    mouse.column,
-                    mouse.row,
-                    MouseButton::Middle,
-                    mouse.modifiers,
-                    terminal_admission,
-                ) != PtyMousePressResult::NotOwned
-                {
-                    RenderAction::Draw
-                } else {
-                    RenderAction::None
-                },
-            ),
+            MouseEventKind::Down(MouseButton::Middle) => {
+                self.reset_selection_click_sequence();
+                Ok(
+                    if self.begin_pty_mouse_drag_with_admission(
+                        mouse.column,
+                        mouse.row,
+                        MouseButton::Middle,
+                        mouse.modifiers,
+                        terminal_admission,
+                    ) != PtyMousePressResult::NotOwned
+                    {
+                        RenderAction::Draw
+                    } else {
+                        RenderAction::None
+                    },
+                )
+            }
             MouseEventKind::Drag(MouseButton::Middle) => {
                 self.forward_pty_mouse_drag(
                     mouse.column,
@@ -20420,6 +25966,7 @@ impl App {
         );
         if matches!(release_capture, PtyMouseReleaseCapture::Failed) {
             self.active_pointer_buttons.remove(&button);
+            self.pointer_button_surfaces.remove(&button);
             return PtyMousePressResult::Consumed;
         }
         if !forwarded.owned {
@@ -20429,6 +25976,7 @@ impl App {
             self.focus_pane_after_input(area.pane);
         }
         self.leave_workspace_sidebar();
+        self.reset_selection_click_sequence();
         self.replace_selection(None);
         if !forwarded.accepted {
             return PtyMousePressResult::Consumed;
@@ -20451,7 +25999,7 @@ impl App {
             position: (logical_x, logical_y),
             modifiers,
         });
-        self.ignored_pty_mouse_buttons.clear();
+        self.ignored_pointer_buttons.clear();
         PtyMousePressResult::Started
     }
 
@@ -20539,7 +26087,7 @@ impl App {
         &mut self,
         x: u16,
         y: u16,
-        _reported_button: MouseButton,
+        reported_button: MouseButton,
         modifiers: KeyModifiers,
     ) -> bool {
         let Some(Drag::PtyMouse { surface, semantics, content, button: active_button, .. }) =
@@ -20547,8 +26095,15 @@ impl App {
         else {
             return false;
         };
-        // Some host protocols report a drag as left regardless of the
-        // pressed button. This TUI owns one active button, so it is authoritative.
+        // The press establishes the physical button owner. A later sample
+        // for another button belongs to a separate, rejected gesture. Do not
+        // reinterpret it as motion for the active owner, or a stray host
+        // sample can move a PTY application while the user holds another
+        // button.
+        if reported_button != active_button {
+            self.encode_buf.clear();
+            return true;
+        }
         if self.menu.is_some() || self.prompt.is_some() {
             self.cancel_pty_mouse_drag();
             return true;
@@ -20599,13 +26154,13 @@ impl App {
         let (surface, handle, reservation_id, fallback, content, button) =
             (*surface, handle.clone(), *reservation_id, release_bytes.clone(), *content, *button);
         if reported_button != button {
-            self.ignored_pty_mouse_buttons.remove(&reported_button);
+            self.ignored_pointer_buttons.remove(&reported_button);
             return true;
         }
         let (content, x, y) = self.current_pty_pointer(surface, x, y).unwrap_or((content, x, y));
         let release = self.capture_pty_mouse_release(surface, content, x, y, button, modifiers);
         self.drag = None;
-        self.ignored_pty_mouse_buttons.clear();
+        self.ignored_pointer_buttons.clear();
         match release {
             PtyMouseReleaseCapture::Bytes(bytes) => {
                 if !self.enqueue_pty_release(surface, handle, reservation_id, bytes) {
@@ -20684,8 +26239,171 @@ impl App {
     }
 
     fn cancel_pointer_interaction(&mut self) -> bool {
+        self.cancel_pointer_interaction_with_split_settle(true)
+    }
+
+    /// Consume a button press that a modal surface swallows before the normal
+    /// pointer admission path. Keep the release fenced, while preserving an
+    /// unrelated owner that already controls another button.
+    fn suppress_pointer_button_until_release(&mut self, button: MouseButton) {
+        let drag_button = self.drag.as_ref().map(|drag| match drag {
+            Drag::PtyMouse { button, .. } => *button,
+            _ => MouseButton::Left,
+        });
+        let another_owner = self.active_pointer_buttons.iter().any(|active| *active != button)
+            || drag_button.is_some_and(|active| active != button);
+        if another_owner {
+            self.ignored_pointer_buttons.insert(button);
+            return;
+        }
+        if self.active_pointer_buttons.contains(&button) || drag_button == Some(button) {
+            self.cancel_pointer_interaction();
+        }
+        self.active_pointer_buttons.remove(&button);
+        self.pointer_button_surfaces.remove(&button);
+        self.ignored_pointer_buttons.remove(&button);
+        self.canceled_pointer_buttons.insert(button);
+    }
+
+    /// Admit one physical pointer sample through the shared one-button
+    /// ownership policy. Modal surfaces use the same admission path as the
+    /// normal hit-test surface, so a scrollbar or dialog cannot create a
+    /// private second gesture.
+    fn admit_pointer_event(&mut self, kind: MouseEventKind) -> bool {
+        // This TUI tracks one active pointer button. Ignore additional
+        // presses until their release so a second button cannot orphan the
+        // current native or inner-app gesture. Native sidebar drags have no
+        // button field, because they are all left-button gestures.
+        if let MouseEventKind::Drag(button) | MouseEventKind::Up(button) = kind
+            && self.ignored_pointer_buttons.contains(&button)
+        {
+            if matches!(kind, MouseEventKind::Up(_)) {
+                self.ignored_pointer_buttons.remove(&button);
+            }
+            return false;
+        }
+        if let MouseEventKind::Down(button) = kind {
+            // A lost secondary release must not poison a later gesture. Once
+            // no button owns the pointer, the next physical press starts a
+            // new admission epoch and retires any unreleased ignored marks.
+            if self.active_pointer_buttons.is_empty() && self.drag.is_none() {
+                self.ignored_pointer_buttons.clear();
+            }
+            let another_button_active =
+                self.active_pointer_buttons.iter().any(|active| *active != button)
+                    || self.drag.as_ref().is_some_and(|drag| {
+                        let active = match drag {
+                            Drag::PtyMouse { button, .. } => *button,
+                            _ => MouseButton::Left,
+                        };
+                        active != button
+                    });
+            if another_button_active {
+                self.ignored_pointer_buttons.insert(button);
+                return false;
+            }
+        }
+        match kind {
+            MouseEventKind::Down(button) => {
+                self.active_pointer_buttons.insert(button);
+            }
+            MouseEventKind::Up(button) => {
+                self.active_pointer_buttons.remove(&button);
+                self.pointer_button_surfaces.remove(&button);
+            }
+            _ => {}
+        }
+        true
+    }
+
+    /// Keep a physical opener attached to a menu that was created by that
+    /// press. Menus opened by keyboard actions do not call this method and
+    /// therefore remain ownerless.
+    fn retain_pointer_button_for_open_menu(&mut self, button: MouseButton) {
+        self.canceled_pointer_buttons.remove(&button);
+        self.ignored_pointer_buttons.remove(&button);
+        self.active_pointer_buttons.insert(button);
+    }
+
+    /// Entering a modal command surface retires every pointer owner from the
+    /// previous surface. Otherwise a later release could commit an obsolete
+    /// rail resize or selection after the menu or prompt has taken focus.
+    /// Retained mouse samples belong to the old hit-test frame too, so advance
+    /// the pointer generation when a modal boundary consumes them.
+    fn cancel_pointer_before_modal(&mut self) {
+        self.cancel_pointer_before_boundary(true);
+    }
+
+    /// A creation completion can change the client-owned active pane or tab
+    /// without replacing the authoritative tree. Fence the old route before
+    /// that focus mutation, but never settle a split against its old frame.
+    fn cancel_pointer_before_tree_focus_change(&mut self) {
+        self.cancel_pointer_before_boundary(false);
+    }
+
+    fn cancel_pointer_before_boundary(&mut self, settle_split: bool) {
+        let menu_scrollbar_dragging =
+            self.menu.as_ref().is_some_and(|menu| menu.scrollbar_drag.is_some());
+        let shortcut_help_scrollbar_dragging =
+            self.shortcut_help.as_ref().is_some_and(|help| help.scrollbar_drag.is_some());
+        // Passive motion has no frozen hit owner. Keep the latest sample
+        // across a local redraw so it can be routed against the new frame.
+        // Button and wheel events do own a concrete route and must be
+        // consumed before a modal surface can appear.
+        let retained_discrete_mouse = self.deferred_input.iter().any(|input| {
+            matches!(
+                &input.event,
+                TerminalInput::Mouse(MouseEvent {
+                    kind: MouseEventKind::Down(_)
+                        | MouseEventKind::Drag(_)
+                        | MouseEventKind::Up(_)
+                        | MouseEventKind::ScrollUp
+                        | MouseEventKind::ScrollDown
+                        | MouseEventKind::ScrollLeft
+                        | MouseEventKind::ScrollRight,
+                    ..
+                })
+            )
+        });
+        if self.drag.is_some()
+            || !self.active_pointer_buttons.is_empty()
+            || menu_scrollbar_dragging
+            || shortcut_help_scrollbar_dragging
+            || retained_discrete_mouse
+        {
+            self.cancel_pointer_interaction_with_split_settle(settle_split);
+            self.advance_pointer_focus_generation();
+        }
+    }
+
+    /// Drop a pointer route at a topology/configuration boundary. A pane
+    /// resize must not commit a ratio computed against the old layout, while
+    /// browser and PTY drags still receive a best-effort release event.
+    fn discard_pointer_interaction(&mut self) -> bool {
+        self.cancel_pointer_interaction_with_split_settle(false)
+    }
+
+    fn cancel_pointer_interaction_with_split_settle(&mut self, settle_split: bool) -> bool {
+        self.clear_layout_resize_expectations();
+        self.files_pointer_owner = None;
+        self.reset_selection_click_sequence();
+        let drag_button = self.drag.as_ref().map(|drag| match drag {
+            Drag::PtyMouse { button, .. } => *button,
+            _ => MouseButton::Left,
+        });
+        let mut canceled_buttons = self.active_pointer_buttons.clone();
+        canceled_buttons.extend(self.ignored_pointer_buttons.iter().copied());
+        if let Some(button) = drag_button {
+            canceled_buttons.insert(button);
+        }
         let menu_scrollbar_dragged =
             self.menu.as_mut().is_some_and(|menu| menu.finish_scrollbar_drag());
+        let shortcut_help_scrollbar_dragged =
+            self.shortcut_help.as_mut().is_some_and(|help| help.scrollbar_drag.take().is_some());
+        if menu_scrollbar_dragged || shortcut_help_scrollbar_dragged {
+            canceled_buttons.insert(MouseButton::Left);
+        }
+        self.canceled_pointer_buttons.extend(canceled_buttons);
         let pointer_dragged = self.drag.is_some();
         if matches!(self.drag, Some(Drag::PtyMouse { .. })) {
             self.cancel_pty_mouse_drag();
@@ -20704,15 +26422,46 @@ impl App {
                 BrowserMouseDispatch::new("mouseReleased", Some("left"), Some(1)),
             );
         } else {
-            let settle_split = matches!(self.drag, Some(Drag::ResizeSplit { .. }));
+            let settle_split = settle_split && matches!(self.drag, Some(Drag::ResizeSplit { .. }));
             self.drag = None;
             if settle_split {
                 self.session.settle_split_ratio();
             }
         }
         self.active_pointer_buttons.clear();
-        self.ignored_pty_mouse_buttons.clear();
-        menu_scrollbar_dragged || pointer_dragged
+        self.pointer_button_surfaces.clear();
+        self.ignored_pointer_buttons.clear();
+        menu_scrollbar_dragged || shortcut_help_scrollbar_dragged || pointer_dragged
+    }
+
+    /// Remember the pane surface under a newly admitted press. A click on
+    /// pane chrome can have no `Drag` state, but its release still belongs to
+    /// the surface that was visible when the press started.
+    fn remember_pointer_button_surface(
+        &mut self,
+        button: MouseButton,
+        x: u16,
+        y: u16,
+        terminal_admission: Option<&TerminalPointerAdmission>,
+    ) {
+        if self.pairing_dialog.is_some()
+            || self.shortcut_help.is_some()
+            || self.prompt.is_some()
+            || self.menu.is_some()
+            || self.omnibar.is_some()
+        {
+            self.pointer_button_surfaces.remove(&button);
+            return;
+        }
+        let surface = self
+            .pane_area_at(x, y)
+            .map(|area| area.surface)
+            .or_else(|| terminal_admission.map(|admission| admission.surface));
+        if let Some(surface) = surface {
+            self.pointer_button_surfaces.insert(button, surface);
+        } else {
+            self.pointer_button_surfaces.remove(&button);
+        }
     }
 
     fn cancel_pty_mouse_drag(&mut self) {
@@ -20744,7 +26493,7 @@ impl App {
         let release = self
             .capture_pty_mouse_release(surface, content, position.0, position.1, button, modifiers);
         self.drag = None;
-        self.ignored_pty_mouse_buttons.clear();
+        self.ignored_pointer_buttons.clear();
         match release {
             PtyMouseReleaseCapture::Bytes(bytes) => {
                 if !self.enqueue_pty_release(surface, handle, reservation_id, bytes) {
@@ -20760,11 +26509,15 @@ impl App {
     }
 
     fn finish_active_drag(&mut self) {
+        self.clear_layout_resize_expectations();
+        self.files_pointer_owner = None;
+        let had_drag = self.drag.is_some();
         if let Some(menu) = self.menu.as_mut() {
             menu.finish_scrollbar_drag();
         }
         if matches!(self.drag, Some(Drag::PtyMouse { .. })) {
             self.cancel_pty_mouse_drag();
+            self.reset_selection_click_sequence();
             return;
         }
         match self.drag.take() {
@@ -20794,10 +26547,15 @@ impl App {
                 | Drag::Scrollbar { .. }
                 | Drag::HorizontalScrollbar { .. }
                 | Drag::WorkspaceScrollbar { .. }
-                | Drag::RailResize(_),
+                | Drag::FilesScrollbar { .. }
+                | Drag::RailResize(_)
+                | Drag::SidebarSplit { .. },
             )
             | None => {}
             Some(Drag::PtyMouse { .. }) => unreachable!("PTY drag returned before take"),
+        }
+        if had_drag {
+            self.reset_selection_click_sequence();
         }
     }
 
@@ -21141,14 +26899,11 @@ impl App {
 
     fn focus_pane_after_input(&mut self, pane: PaneId) {
         if self.prepare_pty_input_before_mutation() {
-            let focused = if let Some(screen) = self.tree.active_workspace_mut_screen()
-                && screen.panes.iter().any(|candidate| candidate.id == pane)
-            {
-                screen.active_pane = pane;
-                true
-            } else {
-                false
-            };
+            let workspace_index = self.tree.active_workspace;
+            let screen_index =
+                self.tree.active_workspace().map(|workspace| workspace.active_screen);
+            let focused = screen_index
+                .is_some_and(|screen| self.tree.set_active_pane(workspace_index, screen, pane));
             if focused {
                 self.pane_focus_history.record(pane);
                 self.claim_active_terminal_geometry(true);
@@ -21163,16 +26918,20 @@ impl App {
         delta: Option<isize>,
     ) {
         let pane = pane.or_else(|| self.active_pane());
-        if let Some(pane_id) = pane
-            && let Some(pane) = self.tree.pane_mut(pane_id)
-            && !pane.tabs.is_empty()
-        {
-            if let Some(index) = index.filter(|index| *index < pane.tabs.len()) {
-                pane.active_tab = index;
-            } else if let Some(delta) = delta {
-                pane.active_tab = ((pane.active_tab as isize + delta)
-                    .rem_euclid(pane.tabs.len() as isize))
-                    as usize;
+        if let Some(pane_id) = pane {
+            let target = self.tree.pane(pane_id).and_then(|pane| {
+                if pane.tabs.is_empty() {
+                    return None;
+                }
+                index.filter(|index| *index < pane.tabs.len()).or_else(|| {
+                    delta.map(|delta| {
+                        ((pane.active_tab as isize + delta).rem_euclid(pane.tabs.len() as isize))
+                            as usize
+                    })
+                })
+            });
+            if let Some(target) = target {
+                self.tree.set_pane_active_tab(pane_id, target);
             }
         }
         self.claim_active_terminal_geometry(true);
@@ -21180,18 +26939,20 @@ impl App {
 
     fn select_screen_for_client(&mut self, index: Option<usize>, delta: Option<isize>) {
         let mut selected = false;
-        if let Some(workspace) = self.tree.active_workspace_mut()
-            && !workspace.screens.is_empty()
-        {
-            if let Some(index) = index.filter(|index| *index < workspace.screens.len()) {
-                workspace.active_screen = index;
-                selected = true;
-            } else if let Some(delta) = delta {
-                workspace.active_screen = ((workspace.active_screen as isize + delta)
-                    .rem_euclid(workspace.screens.len() as isize))
-                    as usize;
-                selected = true;
+        let target = self.tree.active_workspace().and_then(|workspace| {
+            if workspace.screens.is_empty() {
+                return None;
             }
+            index.filter(|index| *index < workspace.screens.len()).or_else(|| {
+                delta.map(|delta| {
+                    ((workspace.active_screen as isize + delta)
+                        .rem_euclid(workspace.screens.len() as isize)) as usize
+                })
+            })
+        });
+        if let Some(target) = target {
+            let workspace_index = self.tree.active_workspace;
+            selected = self.tree.set_active_screen(workspace_index, target);
         }
         if selected && let Some(active) = self.active_pane() {
             self.pane_focus_history.record(active);
@@ -21201,13 +26962,13 @@ impl App {
 
     fn select_workspace_for_client(&mut self, index: Option<usize>, delta: Option<isize>) {
         let mut selected = false;
-        if !self.tree.workspaces.is_empty() {
-            if let Some(index) = index.filter(|index| *index < self.tree.workspaces.len()) {
+        if !self.tree.workspaces().is_empty() {
+            if let Some(index) = index.filter(|index| *index < self.tree.workspaces().len()) {
                 self.tree.active_workspace = index;
                 selected = true;
             } else if let Some(delta) = delta {
                 self.tree.active_workspace = ((self.tree.active_workspace as isize + delta)
-                    .rem_euclid(self.tree.workspaces.len() as isize))
+                    .rem_euclid(self.tree.workspaces().len() as isize))
                     as usize;
                 selected = true;
             }
@@ -21416,6 +27177,7 @@ impl App {
                                 | Hit::Scrollbar { .. }
                                 | Hit::HorizontalScrollbar { .. }
                                 | Hit::WorkspaceScrollbar { .. }
+                                | Hit::FilesScrollbar { .. }
                         )
                     })
                     .map(|hit| format!("{hit:?}"))
@@ -21477,7 +27239,7 @@ impl App {
         y: u16,
         modifiers: KeyModifiers,
     ) -> anyhow::Result<RenderAction> {
-        self.handle_left_down_with_admission(x, y, modifiers, None)
+        self.handle_left_down_with_admission(x, y, modifiers, None, Instant::now())
     }
 
     fn handle_left_down_with_admission(
@@ -21486,10 +27248,24 @@ impl App {
         y: u16,
         modifiers: KeyModifiers,
         terminal_admission: Option<TerminalPointerAdmission>,
+        now: Instant,
     ) -> anyhow::Result<RenderAction> {
         self.replace_selection(None);
         self.status_selection = None;
         self.finish_active_drag();
+
+        // A repeat is valid only for presses that land directly in a PTY
+        // content cell. Shift is the host-selection override when an inner
+        // PTY application owns mouse input, so preserve it for repeats.
+        let repeat_target = (modifiers == KeyModifiers::NONE || modifiers == KeyModifiers::SHIFT)
+            && self.hit_at(x, y).is_none()
+            && self.pane_area_at(x, y).is_some_and(|area| {
+                self.surface_kind(area.surface) == Some(SurfaceKind::Pty)
+                    && self.terminal_input_rect(area).is_some_and(|content| content.contains(x, y))
+            });
+        if !repeat_target {
+            self.reset_selection_click_sequence();
+        }
 
         if self.pairing_dialog.is_some() {
             return self.handle_pairing_click(x, y);
@@ -21525,23 +27301,26 @@ impl App {
 
         if let Some((pane, hit)) = self.omnibar_hit_at(x, y) {
             self.focus_pane_after_input(pane);
-            if let Some(state) = self.omnibar.as_mut() {
-                if state.pane == pane {
-                    if hit == OmnibarHit::Edit
-                        && let Some(area) = self
-                            .pane_areas
-                            .iter()
-                            .find(|area| area.pane == pane && area.surface == state.surface)
-                        && let Some(rect) = area.omnibar
-                    {
-                        state.select_all = false;
-                        state.input.set_cursor_from_visible_column(
-                            x.saturating_sub(rect.x) as usize,
-                            rect.width as usize,
-                        );
-                    }
-                    return Ok(RenderAction::Draw);
+            let editing_same_pane = self.omnibar.as_ref().is_some_and(|state| state.pane == pane);
+            if editing_same_pane {
+                if let Some(state) = self.omnibar.as_mut()
+                    && hit == OmnibarHit::Edit
+                    && let Some(area) = self
+                        .pane_areas
+                        .iter()
+                        .find(|area| area.pane == pane && area.surface == state.surface)
+                    && let Some(rect) = area.omnibar
+                {
+                    state.select_all = false;
+                    state.input.set_cursor_from_visible_column(
+                        x.saturating_sub(rect.x) as usize,
+                        rect.width as usize,
+                    );
                 }
+                return Ok(RenderAction::Draw);
+            }
+            if self.omnibar.is_some() {
+                self.cancel_pointer_before_modal();
                 self.omnibar = None;
             }
             match hit {
@@ -21566,6 +27345,7 @@ impl App {
                 .find(|area| area.pane == state.pane && area.surface == state.surface)
                 .and_then(|area| area.omnibar);
             if !editing_rect.is_some_and(|rect| rect.contains(x, y)) {
+                self.cancel_pointer_before_modal();
                 self.omnibar = None;
             }
         }
@@ -21583,18 +27363,45 @@ impl App {
             self.sidebar_focus_pending = requested && self.sidebar_plugin_surface.is_none();
             return Ok(RenderAction::Draw);
         }
-        // Any click outside the plugin rect returns keyboard focus to the
-        // panes; otherwise typing would keep going to the plugin PTY after
-        // the user clicked into a pane.
-        self.leave_workspace_sidebar();
+        // Presentation controls belong to the sidebar focus domain. Preserve
+        // a rail focus while switching profiles or opening its management
+        // menu; ordinary row and pane clicks still return input to the pane.
+        let hit = self.hit_at(x, y);
+        let preserve_sidebar_focus = self.sidebar_rail_focused()
+            && matches!(hit, Some(Hit::SidebarProfile { .. } | Hit::SidebarPresentationMenu));
+        if !preserve_sidebar_focus {
+            self.leave_workspace_sidebar();
+        }
         self.sidebar_focus_pending = false;
 
-        if let Some(hit) = self.hit_at(x, y) {
+        if let Some(hit) = hit {
             match hit {
-                Hit::Machine { index, key } => {
+                Hit::SidebarProfile { index: _, token } => {
+                    let current_index = self
+                        .config
+                        .sidebar
+                        .profiles
+                        .iter()
+                        .position(|profile| sidebar_profile_token(&profile.id) == token);
+                    if let Some(current_index) = current_index {
+                        self.activate_sidebar_profile(current_index);
+                    }
+                }
+                Hit::SidebarPresentationMenu => {
+                    self.open_context_menu(x, y);
+                    if self.menu.is_some() {
+                        self.retain_pointer_button_for_open_menu(MouseButton::Left);
+                    }
+                }
+                Hit::Machine { index: _, key } => {
+                    let Some(current_index) = self.machine_ui.as_ref().and_then(|ui| {
+                        ui.snapshot.machines.iter().position(|machine| machine.key == key)
+                    }) else {
+                        return Ok(RenderAction::Draw);
+                    };
                     self.machine_rail_follow_selection = true;
                     if let Some(machine) = self.machine_ui.as_mut() {
-                        machine.selection = index;
+                        machine.selection = current_index;
                         machine.rail_selection = MachineRailSelection::Machine;
                     }
                     self.focus = FocusTarget::Pane;
@@ -21606,6 +27413,9 @@ impl App {
                         machine.rail_selection = MachineRailSelection::NewVm;
                     }
                     self.open_machine_creation_menu(x, y);
+                    if self.menu.is_some() {
+                        self.retain_pointer_button_for_open_menu(MouseButton::Left);
+                    }
                 }
                 Hit::ConnectMachine => {
                     self.machine_rail_follow_selection = true;
@@ -21613,12 +27423,25 @@ impl App {
                         machine.rail_selection = MachineRailSelection::ConnectMachine;
                     }
                     self.open_machine_connection_menu(x, y);
+                    if self.menu.is_some() {
+                        self.retain_pointer_button_for_open_menu(MouseButton::Left);
+                    }
                 }
-                Hit::Workspace { index, id } => {
-                    self.workspace_rail_follow_selection = true;
-                    self.focus = FocusTarget::Pane;
-                    self.activate_workspace(index);
-                    self.drag = Some(Drag::WorkspaceArm { workspace: id, at: (x, y) });
+                Hit::Workspace { index: _, id } => {
+                    // The rendered row stores both a position and its stable
+                    // identity. Resolve the identity again before changing
+                    // selection, because a tree reorder can make the saved
+                    // position point at a different workspace.
+                    let Some(current_index) =
+                        self.tree.workspaces().iter().position(|workspace| workspace.id == id)
+                    else {
+                        return Ok(RenderAction::Draw);
+                    };
+                    if self.activate_workspace(current_index) {
+                        self.workspace_rail_follow_selection = true;
+                        self.focus = FocusTarget::Pane;
+                        self.drag = Some(Drag::WorkspaceArm { workspace: id, at: (x, y) });
+                    }
                 }
                 Hit::SidebarTab { surface, .. } => {
                     let targets = self.sidebar_tab_targets();
@@ -21627,40 +27450,82 @@ impl App {
                     {
                         self.tabs_rail_follow_selection = true;
                         self.tabs_rail_selection = index;
-                        self.activate_sidebar_tab(target)?;
-                        self.focus = FocusTarget::Pane;
+                        if self.activate_sidebar_tab(target)? {
+                            self.focus = FocusTarget::Pane;
+                        }
                     }
                 }
-                Hit::ProjectionToggle { view, branch } => {
-                    let state = self.projection_rail_state_mut(view);
-                    if !state.collapsed.remove(&branch) {
-                        state.collapsed.insert(branch);
+                Hit::ProjectionToggle { view, view_token, branch } => {
+                    if !self.sidebar_view_token_matches(view, view_token) {
+                        return Ok(RenderAction::Draw);
                     }
+                    {
+                        let state = self.projection_rail_state_mut(view);
+                        if !state.collapsed.remove(&branch) {
+                            state.collapsed.insert(branch);
+                        }
+                    }
+                    self.invalidate_projection_rows_cache();
                 }
-                Hit::ProjectionRow { view, row, target } => {
+                Hit::ProjectionRow { view, view_token, target, .. } => {
+                    if !self.sidebar_view_token_matches(view, view_token) {
+                        return Ok(RenderAction::Draw);
+                    }
+                    // Resolve the row again by semantic resource identity.
+                    // A tree update can reorder rows after the frame was
+                    // rendered, so the old row number must not move the
+                    // cursor onto a different pane.
+                    let current_row = self
+                        .projection_rows(view)
+                        .iter()
+                        .position(|candidate| candidate.target.same_resource(target));
+                    let Some(current_row) = current_row else {
+                        return Ok(RenderAction::Draw);
+                    };
                     let state = self.projection_rail_state_mut(view);
-                    state.selected = row;
+                    state.selected = current_row;
+                    state.selected_target = Some(target);
                     state.selected_action = None;
                     state.follow_selection = true;
-                    self.activate_projection_target(target)?;
-                    self.focus = FocusTarget::Pane;
+                    if self.activate_projection_target(target)? {
+                        self.focus = FocusTarget::Pane;
+                    }
                 }
                 Hit::RailPad(kind) => {
                     self.focus_rail(kind);
                 }
-                Hit::SidebarAction { view, action } => {
+                Hit::SidebarAction { view, view_token, action } => {
+                    if !self.sidebar_view_token_matches(view, view_token) {
+                        return Ok(RenderAction::Draw);
+                    }
+                    let Some(action_index) = self
+                        .sidebar_action_rows(view)
+                        .iter()
+                        .position(|candidate| candidate.target == action)
+                    else {
+                        // A rendered hit can outlive a config reload or an
+                        // availability change. Fail closed instead of
+                        // invoking a command that is no longer rendered.
+                        if self.sidebar_view == SidebarView::Files
+                            && self.rail_kind_for_view(view) == RailKind::Workspace
+                        {
+                            self.set_files_rail_selection(FilesRailSelection::File);
+                        }
+                        return Ok(RenderAction::Draw);
+                    };
                     let kind = self.rail_kind_for_view(view);
                     match kind {
                         RailKind::Workspace => {
-                            self.workspace_rail_selection = WorkspaceRailSelection::Action(action);
-                            self.workspace_rail_follow_selection = true;
+                            if self.sidebar_view == SidebarView::Files {
+                                self.set_files_rail_selection(FilesRailSelection::Action(action));
+                                self.reveal_files_action_selection();
+                            } else {
+                                self.workspace_rail_selection =
+                                    WorkspaceRailSelection::Action(action);
+                                self.workspace_rail_follow_selection = true;
+                            }
                         }
                         RailKind::Projection(_) => {
-                            let action_index = self
-                                .sidebar_action_rows(view)
-                                .iter()
-                                .position(|candidate| candidate.target == action)
-                                .unwrap_or_default();
                             let state = self.projection_rail_state_mut(view);
                             state.selected_action = Some(action_index);
                             state.follow_selection = true;
@@ -21669,31 +27534,83 @@ impl App {
                     }
                     return self.invoke_sidebar_action(action);
                 }
-                Hit::RecoverableWorkspace { index } => {
+                Hit::RecoverableWorkspace { index: _, token } => {
+                    // Recoverable rows are provider-owned and can reorder
+                    // between rendering and dispatch. Resolve the stable id
+                    // carried by the hit instead of trusting its old index.
+                    let Some((current_index, workspace_id)) =
+                        self.machine_ui.as_ref().and_then(|ui| {
+                            ui.recoverable_workspaces()
+                                .into_iter()
+                                .enumerate()
+                                .find(|(_, workspace)| {
+                                    sidebar_profile_token(&workspace.id) == token
+                                })
+                                .map(|(index, workspace)| (index, workspace.id.clone()))
+                        })
+                    else {
+                        return Ok(RenderAction::Draw);
+                    };
                     self.workspace_rail_follow_selection = true;
-                    self.sidebar_recoverable_workspace_selection = index;
+                    self.sidebar_recoverable_workspace_selection = current_index;
                     self.workspace_rail_selection = WorkspaceRailSelection::Recoverable;
                     self.focus = FocusTarget::Pane;
-                    let workspace_id = self
-                        .machine_ui
-                        .as_ref()
-                        .and_then(|ui| ui.recoverable_workspaces().get(index).copied())
-                        .map(|workspace| workspace.id.clone());
-                    if let Some(workspace_id) = workspace_id {
-                        self.request_restore_managed_workspace(&workspace_id);
-                    }
+                    self.request_restore_managed_workspace(&workspace_id);
                 }
-                Hit::CreateWorkspace { mode } => {
+                Hit::CreateWorkspace { mode, view_token } => {
+                    let target = SidebarActionTarget::CreateWorkspace(mode);
+                    let Some(view_index) =
+                        self.config.sidebar.views.iter().enumerate().find_map(|(index, view)| {
+                            (self.rail_kind_for_view(index) == RailKind::Workspace
+                                && sidebar_view_token(view) == view_token
+                                && self.sidebar_view_token_matches(index, view_token))
+                            .then_some(index)
+                        })
+                    else {
+                        if self.sidebar_view == SidebarView::Files {
+                            self.set_files_rail_selection(FilesRailSelection::File);
+                        }
+                        return Ok(RenderAction::Draw);
+                    };
+                    if !self
+                        .sidebar_action_rows(view_index)
+                        .iter()
+                        .any(|candidate| candidate.target == target)
+                    {
+                        if self.sidebar_view == SidebarView::Files {
+                            self.set_files_rail_selection(FilesRailSelection::File);
+                        }
+                        return Ok(RenderAction::Draw);
+                    }
                     self.workspace_rail_follow_selection = true;
                     self.workspace_rail_selection = workspace_creation_selection(mode);
+                    if self.sidebar_view == SidebarView::Files {
+                        self.set_files_rail_selection(FilesRailSelection::Action(target));
+                        self.reveal_files_action_selection();
+                    }
                     self.create_workspace(mode, None)?;
                 }
-                Hit::SidebarFile { index } => {
+                Hit::SidebarFile { index: _, token } => {
+                    let Some(current_index) = self
+                        .sidebar_files
+                        .visible_entries()
+                        .position(|entry| sidebar_file_token(&entry.path) == token)
+                    else {
+                        return Ok(RenderAction::Draw);
+                    };
                     self.focus = FocusTarget::WorkspaceRail;
-                    self.sidebar_files.select(index);
+                    self.set_files_rail_selection(FilesRailSelection::File);
+                    self.sidebar_files.select(current_index);
                 }
                 Hit::SidebarFilterInput => {
                     self.focus = FocusTarget::WorkspaceRail;
+                    if self.sidebar_view == SidebarView::Files {
+                        // Clicking the editor returns the activation target to
+                        // the file domain immediately. Without this reset the
+                        // next Enter could still invoke an action selected
+                        // before the filter click.
+                        self.set_files_rail_selection(FilesRailSelection::File);
+                    }
                     if let Some(area) =
                         self.workspace_sidebar_area(self.content_area.height.saturating_add(1))
                     {
@@ -21741,7 +27658,12 @@ impl App {
                             .new_tab(Some(pane), self.terminal_tab_size_hint(Some(pane)))?;
                     }
                 }
-                Hit::Clients { surface } => self.open_clients_menu(x, y, surface),
+                Hit::Clients { surface } => {
+                    self.open_clients_menu(x, y, surface);
+                    if self.menu.is_some() {
+                        self.retain_pointer_button_for_open_menu(MouseButton::Left);
+                    }
+                }
                 Hit::Scrollbar { surface, track, scrollbar } => {
                     self.start_scrollbar_drag(surface, track, scrollbar, y);
                 }
@@ -21752,16 +27674,79 @@ impl App {
                     self.workspace_rail_follow_selection = false;
                     self.start_workspace_scrollbar_drag(track, total_rows, visible_rows, y);
                 }
-                Hit::RailResize(kind) => {
+                Hit::FilesScrollbar { track, total_rows, visible_rows } => {
+                    self.workspace_rail_follow_selection = false;
+                    self.focus = FocusTarget::WorkspaceRail;
+                    self.sidebar_files.set_viewport_height(visible_rows);
+                    self.start_files_scrollbar_drag(track, total_rows, visible_rows, y);
+                }
+                Hit::RailResize { kind, view_token } => {
+                    if let Some(token) = view_token {
+                        let Some(index) = self.view_index_for_rail(kind) else {
+                            return Ok(RenderAction::Draw);
+                        };
+                        if !self.sidebar_view_token_matches(index, token) {
+                            return Ok(RenderAction::Draw);
+                        }
+                    }
+                    // Explicit SidebarSplitDivider hits own every split
+                    // boundary. A generic border hit at such a coordinate is
+                    // stale and must not discover a new split by geometry.
+                    if self
+                        .sidebar_layout
+                        .dividers
+                        .iter()
+                        .any(|divider| divider.rect.contains(x, y))
+                    {
+                        return Ok(RenderAction::Draw);
+                    }
                     self.drag = Some(Drag::RailResize(kind));
+                }
+                Hit::SidebarSplitDivider {
+                    group,
+                    index,
+                    divider_token,
+                    group_token,
+                    first_token,
+                    second_token,
+                } => {
+                    let current_divider = self
+                        .sidebar_layout
+                        .dividers
+                        .iter()
+                        .find(|divider| divider.group == group && divider.index == index)
+                        .copied();
+                    let valid = current_divider.is_some_and(|divider| {
+                        self.sidebar_layout.split_groups.get(group).is_some_and(|candidate| {
+                            candidate
+                                .child_keys
+                                .get(index)
+                                .zip(candidate.child_keys.get(index + 1))
+                                .is_some_and(|(first, second)| {
+                                    sidebar_split_divider_token(candidate, index, divider.rect)
+                                        == divider_token
+                                        && sidebar_profile_token(&candidate.id) == group_token
+                                        && sidebar_profile_token(first) == first_token
+                                        && sidebar_profile_token(second) == second_token
+                                })
+                        })
+                    });
+                    if valid
+                        && let Some((group, first_child, second_child)) =
+                            self.sidebar_split_drag_target(group, index)
+                    {
+                        self.drag = Some(Drag::SidebarSplit { group, first_child, second_child });
+                    }
                 }
                 Hit::PaneResize { horizontal, vertical } => {
                     let horizontal = horizontal
                         .and_then(|(pane, edge)| self.resolve_pane_resize_drag(pane, edge));
                     let vertical =
                         vertical.and_then(|(pane, edge)| self.resolve_pane_resize_drag(pane, edge));
-                    if horizontal.is_some() || vertical.is_some() {
-                        self.drag = Some(Drag::ResizeSplit { horizontal, vertical });
+                    if (horizontal.is_some() || vertical.is_some())
+                        && let Some(screen) = self.active_screen_id()
+                    {
+                        self.drag = Some(Drag::ResizeSplit { screen, horizontal, vertical });
                     }
                 }
                 Hit::TabScroll { pane, delta } => self.scroll_tabs(pane, delta),
@@ -21801,15 +27786,18 @@ impl App {
                     terminal_admission,
                 ) != PtyMousePressResult::NotOwned
                 {
+                    self.reset_selection_click_sequence();
                     return Ok(RenderAction::Draw);
                 } else {
                     if self.active_pane() != Some(area.pane) {
                         self.focus_pane_after_input(area.pane);
                     }
                     let Some(content) = self.terminal_input_rect(&area) else {
+                        self.reset_selection_click_sequence();
                         return Ok(RenderAction::Draw);
                     };
                     if !content.contains(x, y) {
+                        self.reset_selection_click_sequence();
                         return Ok(RenderAction::Draw);
                     }
                     // Begin a text selection; it becomes visible once the
@@ -21818,11 +27806,31 @@ impl App {
                     let source_x = area.content_source_x();
                     let col = source_x.saturating_add(x - content.x);
                     let cell = (col, offset + (y - content.y) as u64);
-                    self.replace_selection(Some(Selection {
-                        surface: area.surface,
-                        anchor: cell,
-                        head: cell,
-                    }));
+                    let mode = self.begin_selection_click(
+                        area.surface,
+                        cell,
+                        (x.saturating_sub(content.x), y.saturating_sub(content.y)),
+                        modifiers,
+                        now,
+                    );
+                    if mode == SelectionMode::Cell && modifiers == KeyModifiers::NONE {
+                        // Ghostty's cell behavior returns no range on press.
+                        // Keep only the tracked anchor until a drag moves it.
+                        self.clear_selection_for_cell_gesture(area.surface);
+                    } else {
+                        self.selection_mode = mode;
+                        self.selection_mode_surface = Some(area.surface);
+                        if let Some(selection) = self.selection_for_click(area.surface, cell, mode)
+                        {
+                            self.replace_selection(Some(selection));
+                        } else {
+                            // A semantic lookup can legitimately return no
+                            // value for an empty cell. Do not leave an older
+                            // selection or semantic drag mode active.
+                            self.clear_selection_for_cell_gesture(area.surface);
+                            self.invalidate_selection_repeat(area.surface);
+                        }
+                    }
                     self.drag = Some(Drag::Select { content, source_x, auto_scroll: None, col });
                 }
             } else if self.active_pane() != Some(area.pane) {
@@ -21834,6 +27842,7 @@ impl App {
     }
 
     fn handle_left_drag(&mut self, x: u16, y: u16) -> anyhow::Result<RenderAction> {
+        self.ensure_files_pointer_owner();
         if let Some(menu) = self.menu.as_mut()
             && menu.scrollbar_drag.is_some()
         {
@@ -21872,18 +27881,51 @@ impl App {
             }
             Some(Drag::Select { content, source_x, .. }) => {
                 let fallback = (*content, *source_x);
-                let (content, source_x) = self
-                    .selection
-                    .and_then(|selection| self.current_selection_geometry(selection.surface))
+                let selection_surface = self
+                    .selection_mode_surface
+                    .or_else(|| self.selection.map(|selection| selection.surface));
+                let (content, source_x) = selection_surface
+                    .and_then(|surface| self.current_selection_geometry(surface))
                     .unwrap_or(fallback);
                 let cx = x.clamp(content.x, content.x + content.width.saturating_sub(1));
                 let cy = y.clamp(content.y, content.y + content.height.saturating_sub(1));
                 let col = source_x.saturating_add(cx - content.x);
-                let offset =
-                    self.selection.map(|sel| self.surface_scroll_offset(sel.surface)).unwrap_or(0);
-                if let Some(mut selection) = self.selection {
-                    selection.head = (col, offset + (cy - content.y) as u64);
-                    self.replace_selection(Some(selection));
+                let offset = selection_surface
+                    .map(|surface| self.surface_scroll_offset(surface))
+                    .unwrap_or(0);
+                let raw_current = (col, offset + (cy - content.y) as u64);
+                if let Some(surface) = selection_surface {
+                    self.mark_selection_dragged(surface);
+                }
+                let mode = selection_surface
+                    .filter(|surface| self.selection_mode_surface == Some(*surface))
+                    .and_then(|surface| {
+                        self.selection_click_sequence
+                            .as_ref()
+                            .filter(|sequence| sequence.surface == surface)
+                            .map(|sequence| sequence.mode)
+                    })
+                    .unwrap_or(SelectionMode::Cell);
+                let current = if mode == SelectionMode::Line {
+                    raw_current
+                } else {
+                    selection_surface
+                        .map(|surface| self.canonical_selection_cell(surface, raw_current))
+                        .unwrap_or(raw_current)
+                };
+                if mode == SelectionMode::Cell {
+                    let selection = self.selection.or_else(|| {
+                        let surface = selection_surface?;
+                        let anchor = self.selection_anchor_cell(surface)?;
+                        let anchor = self.canonical_selection_cell(surface, anchor);
+                        Some(Selection { surface, anchor, head: current })
+                    });
+                    if let Some(mut selection) = selection {
+                        selection.head = current;
+                        self.replace_selection(Some(selection));
+                    }
+                } else if let Some(surface) = selection_surface {
+                    self.update_semantic_selection(surface, mode, current);
                 }
                 let auto_scroll = if y <= content.y {
                     Some(-1)
@@ -21898,7 +27940,7 @@ impl App {
             Some(Drag::StatusMessage { rect }) => {
                 let rect = *rect;
                 if rect.width == 0 {
-                    self.drag = None;
+                    self.invalidate_pointer_topology_without_split_settle();
                     self.status_selection = None;
                     return Ok(RenderAction::Draw);
                 }
@@ -21943,7 +27985,10 @@ impl App {
                 };
                 let Some((rendered_track, rendered_scrollbar)) = self.rendered_scrollbar(surface)
                 else {
-                    self.drag = None;
+                    // The surface was resized or retired between frames.
+                    // Fence the release instead of leaving a live button
+                    // attached to a missing scrollbar.
+                    self.invalidate_pointer_topology_without_split_settle();
                     return Ok(RenderAction::Draw);
                 };
                 if let Some(updated) =
@@ -21960,7 +28005,14 @@ impl App {
                 }
                 Ok(RenderAction::Draw)
             }
-            Some(Drag::HorizontalScrollbar { track, anchor_x, anchor_offset }) => {
+            Some(Drag::HorizontalScrollbar { screen, track, anchor_x, anchor_offset }) => {
+                if self.active_screen_id() != Some(*screen) {
+                    // The scrollbar's track and offset belong to the screen
+                    // visible at mouse-down. A screen switch must consume the
+                    // old gesture instead of moving the new screen.
+                    self.invalidate_pointer_topology_without_split_settle();
+                    return Ok(RenderAction::Draw);
+                }
                 let (track, anchor_x, anchor_offset) = (*track, *anchor_x, *anchor_offset);
                 if let Some((content_width, viewport_width, _)) = self.horizontal_scrollbar_state()
                 {
@@ -21984,37 +28036,98 @@ impl App {
             }) => {
                 let (track, total_rows, visible_rows, anchor_y, anchor_offset) =
                     (*track, *total_rows, *visible_rows, *anchor_y, *anchor_offset);
-                self.workspace_rail_scroll = viewport_drag_offset(
+                let offset = viewport_drag_offset(
                     total_rows,
                     visible_rows,
                     track.height,
                     anchor_offset,
                     y as i128 - anchor_y as i128,
                 );
+                self.active_sidebar_rail_scroll_mut().workspace_rail_scroll = offset;
+                Ok(RenderAction::Draw)
+            }
+            Some(Drag::FilesScrollbar {
+                track,
+                total_rows,
+                visible_rows,
+                anchor_y,
+                anchor_offset,
+            }) => {
+                if !self.files_pointer_capture_is_current() {
+                    self.invalidate_sidebar_pointer_domains(&[SidebarPointerDomain::Files]);
+                    return Ok(RenderAction::Draw);
+                }
+                let (track, total_rows, visible_rows, anchor_y, anchor_offset) =
+                    (*track, *total_rows, *visible_rows, *anchor_y, *anchor_offset);
+                let offset = viewport_drag_offset(
+                    total_rows,
+                    visible_rows,
+                    track.height,
+                    anchor_offset,
+                    y as i128 - anchor_y as i128,
+                );
+                self.sidebar_files.set_scroll_offset(offset);
+                let topology_revision = self.sidebar_files_pointer_topology();
+                if let Some(owner) = self.files_pointer_owner.as_mut() {
+                    owner.topology_revision = topology_revision;
+                }
                 Ok(RenderAction::Draw)
             }
             Some(Drag::RailResize(kind)) => {
                 let kind = *kind;
                 if let Some(width) = rail_drag_width(&self.config, &self.sidebar_layout, kind, x) {
-                    match kind {
-                        RailKind::Machine => self.machine_sidebar_width_override = Some(width),
-                        RailKind::Workspace => {
-                            self.sidebar_compact = false;
-                            self.sidebar_width_override = Some(width);
-                        }
-                        RailKind::Tabs => self.tabs_sidebar_width_override = Some(width),
-                        RailKind::Projection(index) => {
-                            if let Some(id) =
-                                self.config.sidebar.views.get(index).map(|view| view.id.clone())
-                            {
-                                self.projection_sidebar_width_overrides.insert(id, width);
+                    // Stacked rails share their column's width, so the drag
+                    // commits to the column key instead of the one rail.
+                    let shared_column = sidebar_column_for_rail(&self.sidebar_layout, kind)
+                        .map(|index| &self.sidebar_layout.columns[index])
+                        .filter(|column| column.rails.len() > 1)
+                        .map(|column| column.key.clone());
+                    if let Some(key) = shared_column {
+                        self.active_sidebar_profile_state_mut().column_widths.insert(key, width);
+                    } else {
+                        match kind {
+                            RailKind::Machine => {
+                                self.active_sidebar_profile_state_mut().machine_width = Some(width);
+                            }
+                            RailKind::Workspace => {
+                                self.sidebar_compact = false;
+                                self.active_sidebar_profile_state_mut().workspace_width =
+                                    Some(width);
+                            }
+                            RailKind::Tabs => {
+                                self.active_sidebar_profile_state_mut().tabs_width = Some(width);
+                            }
+                            RailKind::Projection(index) => {
+                                if let Some(id) =
+                                    self.config.sidebar.views.get(index).map(|view| view.id.clone())
+                                {
+                                    self.active_sidebar_profile_state_mut()
+                                        .column_widths
+                                        .insert(id, width);
+                                }
                             }
                         }
                     }
                 }
                 Ok(RenderAction::Draw)
             }
-            Some(Drag::ResizeSplit { horizontal, vertical }) => {
+            Some(Drag::SidebarSplit { group, first_child, second_child }) => {
+                let (group, first_child, second_child) =
+                    (group.clone(), first_child.clone(), second_child.clone());
+                if !self.drag_sidebar_split_divider(&group, &first_child, &second_child, x, y) {
+                    // The split topology changed while the pointer was down.
+                    // Do not apply the old divider to a new child pair.
+                    self.invalidate_pointer_topology_without_split_settle();
+                }
+                Ok(RenderAction::Draw)
+            }
+            Some(Drag::ResizeSplit { screen, horizontal, vertical }) => {
+                if self.active_screen_id() != Some(*screen) {
+                    // Both targets carry frozen geometry. Do not apply it to
+                    // another screen after a focus or layout boundary.
+                    self.invalidate_pointer_topology_without_split_settle();
+                    return Ok(RenderAction::Draw);
+                }
                 let (horizontal, vertical) = (*horizontal, *vertical);
                 if let Some(target) = horizontal {
                     self.resize_drag_target(target, x, y);
@@ -22028,7 +28141,99 @@ impl App {
         }
     }
 
+    /// Capture stable ids for the two children flanking a divider.
+    fn sidebar_split_drag_target(
+        &self,
+        group_index: usize,
+        child_index: usize,
+    ) -> Option<(String, String, String)> {
+        let group = self.sidebar_layout.split_groups.get(group_index)?;
+        let first_child = group.child_keys.get(child_index)?.clone();
+        let second_child = group.child_keys.get(child_index + 1)?.clone();
+        Some((group.id.clone(), first_child, second_child))
+    }
+
+    /// Convert a divider drag into new share fractions for its split group.
+    /// Return false when the split topology no longer contains the same
+    /// adjacent child pair captured at mouse-down.
+    fn drag_sidebar_split_divider(
+        &mut self,
+        group: &str,
+        first_child: &str,
+        second_child: &str,
+        x: u16,
+        y: u16,
+    ) -> bool {
+        use crate::config::SidebarSplitDir;
+        let Some(placement) =
+            self.sidebar_layout.split_groups.iter().find(|placement| placement.id == group)
+        else {
+            return false;
+        };
+        let Some(index) = placement.child_keys.iter().position(|key| key == first_child) else {
+            return false;
+        };
+        let Some(second_index) = placement.child_keys.iter().position(|key| key == second_child)
+        else {
+            return false;
+        };
+        if second_index != index + 1 {
+            return false;
+        }
+        let Some(first) = placement.children.get(index).copied() else { return false };
+        let Some(second) = placement.children.get(second_index).copied() else { return false };
+        let mut sizes: Vec<u16> = placement
+            .children
+            .iter()
+            .map(|child| match placement.dir {
+                SidebarSplitDir::Vertical => child.height,
+                SidebarSplitDir::Horizontal => child.width,
+            })
+            .collect();
+        let (combined, min_each, desired_first) = match placement.dir {
+            SidebarSplitDir::Vertical => (
+                first.height.saturating_add(second.height),
+                MIN_SPLIT_RAIL_HEIGHT,
+                // The divider row sits below the first child, so the row
+                // under the pointer becomes the first child's height.
+                y.saturating_sub(first.y),
+            ),
+            SidebarSplitDir::Horizontal => (
+                first.width.saturating_add(second.width),
+                MIN_RAIL_WIDTH,
+                // The border column belongs to the first child, matching
+                // column-width drags.
+                x.saturating_sub(first.x).saturating_add(1),
+            ),
+        };
+        if combined < min_each.saturating_mul(2) {
+            return true;
+        }
+        let desired_first = desired_first.clamp(min_each, combined - min_each);
+        sizes[index] = desired_first;
+        sizes[index + 1] = combined - desired_first;
+        let total: f32 = sizes.iter().map(|size| f32::from(*size)).sum();
+        if total <= 0.0 {
+            return true;
+        }
+        let id = placement.id.clone();
+        let child_keys = placement.child_keys.clone();
+        let fractions = child_keys
+            .into_iter()
+            .zip(sizes)
+            .map(|(child, size)| (child, f32::from(size) / total))
+            .collect::<HashMap<_, _>>();
+        self.active_sidebar_profile_state_mut()
+            .split_fractions
+            .entry(id)
+            .or_default()
+            .extend(fractions);
+        true
+    }
+
     fn handle_left_up(&mut self, x: u16, y: u16) -> anyhow::Result<RenderAction> {
+        self.ensure_files_pointer_owner();
+        self.clear_layout_resize_expectations();
         if let Some(menu) = self.menu.as_mut()
             && menu.finish_scrollbar_drag()
         {
@@ -22087,6 +28292,15 @@ impl App {
             self.session.settle_split_ratio();
             return Ok(RenderAction::Draw);
         }
+        if matches!(self.drag, Some(Drag::FilesScrollbar { .. })) {
+            if !self.files_pointer_capture_is_current() {
+                self.invalidate_sidebar_pointer_domains(&[SidebarPointerDomain::Files]);
+                return Ok(RenderAction::Draw);
+            }
+            self.files_pointer_owner = None;
+            self.drag = None;
+            return Ok(RenderAction::Draw);
+        }
         if matches!(self.drag, Some(Drag::StatusMessage { .. })) {
             self.drag = None;
             match self.status_selection.as_ref() {
@@ -22098,13 +28312,23 @@ impl App {
             return Ok(RenderAction::Draw);
         }
         let was_select = matches!(self.drag, Some(Drag::Select { .. }));
+        let semantic_select = was_select
+            && self.selection_mode_surface.is_some()
+            && self.selection_mode != SelectionMode::Cell;
+        let selection_dragged = was_select
+            && self.selection_click_sequence.as_ref().is_some_and(|sequence| sequence.dragged);
         let was_drag = self.drag.is_some();
         self.drag = None;
+        if selection_dragged {
+            // Keep the sequence through the gesture so word and line drags use
+            // their semantic mode, then make the next press a plain click.
+            self.reset_selection_click_sequence();
+        }
         if !was_select {
             return Ok(if was_drag { RenderAction::Draw } else { RenderAction::None });
         }
         match self.selection {
-            Some(sel) if sel.anchor != sel.head => {
+            Some(sel) if sel.anchor != sel.head || semantic_select => {
                 self.copy_selection(sel);
                 Ok(RenderAction::Draw)
             }
@@ -22251,22 +28475,60 @@ impl App {
             return;
         }
         let relative = y.saturating_sub(track.y).min(track.height.saturating_sub(1));
+        let scroll = self.active_sidebar_rail_scroll();
         let (thumb_y, thumb_height) = viewport_thumb_geometry(
             total_rows,
             visible_rows,
-            self.workspace_rail_scroll,
+            scroll.workspace_rail_scroll,
             track.height,
         );
         if relative < thumb_y || relative >= thumb_y.saturating_add(thumb_height) {
-            self.workspace_rail_scroll =
+            self.active_sidebar_rail_scroll_mut().workspace_rail_scroll =
                 viewport_jump_offset(total_rows, visible_rows, track.height, relative);
         }
+        let anchor_offset = self.active_sidebar_rail_scroll().workspace_rail_scroll;
         self.drag = Some(Drag::WorkspaceScrollbar {
             track,
             total_rows,
             visible_rows,
             anchor_y: y,
-            anchor_offset: self.workspace_rail_scroll,
+            anchor_offset,
+        });
+    }
+
+    /// Start a Files viewport scrollbar drag, jumping on track clicks.
+    fn start_files_scrollbar_drag(
+        &mut self,
+        track: Rect,
+        total_rows: usize,
+        visible_rows: usize,
+        y: u16,
+    ) {
+        if track.height == 0 {
+            return;
+        }
+        let relative = y.saturating_sub(track.y).min(track.height.saturating_sub(1));
+        let current = self.sidebar_files.scroll_offset();
+        let (thumb_y, thumb_height) =
+            viewport_thumb_geometry(total_rows, visible_rows, current, track.height);
+        let offset = if relative < thumb_y || relative >= thumb_y.saturating_add(thumb_height) {
+            viewport_jump_offset(total_rows, visible_rows, track.height, relative)
+        } else {
+            current
+        };
+        self.sidebar_files.set_scroll_offset(offset);
+        let mut owner = self.current_files_pointer_owner();
+        // `set_scroll_offset` may advance the Files row revision. Capture the
+        // post-jump revision so the drag does not cancel itself on its first
+        // motion sample.
+        owner.topology_revision = self.sidebar_files_pointer_topology();
+        self.files_pointer_owner = Some(owner);
+        self.drag = Some(Drag::FilesScrollbar {
+            track,
+            total_rows,
+            visible_rows,
+            anchor_y: y,
+            anchor_offset: offset,
         });
     }
 
@@ -22528,6 +28790,13 @@ impl App {
                 let width = (((cells as f64) / f64::from(viewport_width)) as f32)
                     .clamp(MIN_VIEWPORT_PANE_WIDTH, MAX_VIEWPORT_PANE_WIDTH);
                 if self.prepare_pty_input_before_mutation() {
+                    if let Some(screen) = self.active_screen_id() {
+                        self.note_layout_resize_expectation(LayoutResizeExpectation::Viewport {
+                            screen,
+                            pane,
+                            width: width.to_bits(),
+                        });
+                    }
                     self.session.set_viewport_pane_width_deferred(pane, width);
                 }
             }
@@ -22557,6 +28826,13 @@ impl App {
                 let requested = (coord.saturating_sub(start) as f64 / extent as f64) as f32;
                 let ratio = requested.clamp(minimum_ratio, maximum_ratio);
                 if self.prepare_pty_input_before_mutation() {
+                    if let Some(screen) = self.active_screen_id() {
+                        self.note_layout_resize_expectation(LayoutResizeExpectation::Split {
+                            screen,
+                            split,
+                            ratio: ratio.to_bits(),
+                        });
+                    }
                     self.session.set_split_ratio_deferred(split, ratio);
                 }
             }
@@ -22610,6 +28886,8 @@ impl App {
 
     pub(crate) fn action_available(&self, action: Action) -> bool {
         action_available_in_mode(action, self.surface_only.is_some())
+            && (!matches!(action, Action::PrevSidebarProfile | Action::NextSidebarProfile)
+                || self.config.sidebar.plugin.is_none() && self.config.sidebar.profiles.len() > 1)
     }
 
     /// The display label for an action: the localized catalog label, or the
@@ -22621,6 +28899,18 @@ impl App {
             return command.name.as_str();
         }
         localization::catalog().action_label(action)
+    }
+
+    pub(crate) fn sidebar_profile_display_name(
+        &self,
+        profile: &crate::config::SidebarProfileSpec,
+    ) -> String {
+        let messages = &localization::catalog().sidebar;
+        match (profile.id.as_str(), profile.name.as_str()) {
+            ("work", "Work") => messages.profile_work.to_string(),
+            ("focus", "Focus") => messages.profile_focus.to_string(),
+            _ => profile.name.clone(),
+        }
     }
 
     fn sidebar_menu_actions(&self) -> Vec<MenuAction> {
@@ -22636,27 +28926,64 @@ impl App {
         let Some(view) = self.config.sidebar.views.get(index) else { return String::new() };
         match view.levels.as_slice() {
             [SidebarResourceKind::Machines] => messages.machines.to_string(),
+            [SidebarResourceKind::Workspaces]
+                if self.sidebar_view == SidebarView::Files && view.legacy_kind().is_some() =>
+            {
+                messages.files.to_string()
+            }
             [SidebarResourceKind::Workspaces] => messages.workspaces.to_string(),
             [SidebarResourceKind::Tabs] => messages.tabs.to_string(),
             _ => view.id.clone(),
         }
     }
 
-    fn sidebar_view_visibility_item(&self, index: usize) -> Option<MenuItem> {
-        let view = self.config.sidebar.views.get(index)?;
+    fn sidebar_view_visibility_items(&self, index: usize) -> Vec<MenuItem> {
+        let Some(view) = self.config.sidebar.views.get(index) else { return Vec::new() };
+        let messages = &localization::catalog().menu;
+        let state = self.active_sidebar_profile_state();
         let hidden = self
-            .hidden_sidebar_views
-            .get(&self.config.sidebar.active_profile)
-            .is_some_and(|hidden| hidden.contains(&view.id));
-        let template = if hidden {
-            localization::catalog().menu.show_sidebar_view
+            .sidebar_layout
+            .hidden_views
+            .iter()
+            .find(|hidden| hidden.id == view.id)
+            .map(|hidden| hidden.reason)
+            .or_else(|| {
+                state
+                    .is_some_and(|state| state.hidden_views.contains(&view.id))
+                    .then_some(SidebarHiddenReason::Explicit)
+            });
+        let view_name = self.sidebar_view_name(index);
+        let mut items = if let Some(reason) = hidden {
+            let reason = match reason {
+                SidebarHiddenReason::Explicit => messages.hidden_explicit,
+                SidebarHiddenReason::Width => messages.hidden_width,
+                SidebarHiddenReason::Height => messages.hidden_height,
+            };
+            vec![MenuItem::LabeledAction {
+                label: messages
+                    .restore_sidebar_view
+                    .replace("{view}", &view_name)
+                    .replace("{reason}", reason),
+                action: MenuAction::SetSidebarViewVisible { view: index, visible: true },
+            }]
         } else {
-            localization::catalog().menu.hide_sidebar_view
+            vec![MenuItem::LabeledAction {
+                label: messages.hide_sidebar_view.replace("{view}", &view_name),
+                action: MenuAction::SetSidebarViewVisible { view: index, visible: false },
+            }]
         };
-        Some(MenuItem::LabeledAction {
-            label: template.replace("{view}", &self.sidebar_view_name(index)),
-            action: MenuAction::SetSidebarViewVisible { view: index, visible: hidden },
-        })
+        if state.is_some_and(|state| state.pinned_views.contains(&view.id)) {
+            items.push(MenuItem::LabeledAction {
+                label: messages.allow_sidebar_view_auto_hide.replace("{view}", &view_name),
+                action: MenuAction::SetSidebarViewPinned { view: index, pinned: false },
+            });
+        } else if hidden.is_none() {
+            items.push(MenuItem::LabeledAction {
+                label: messages.keep_sidebar_view_visible.replace("{view}", &view_name),
+                action: MenuAction::SetSidebarViewPinned { view: index, pinned: true },
+            });
+        }
+        items
     }
 
     fn sidebar_presentation_menu_item(&self) -> MenuItem {
@@ -22678,7 +29005,7 @@ impl App {
                             } else {
                                 "  "
                             },
-                            profile.name
+                            self.sidebar_profile_display_name(profile)
                         ),
                         action: MenuAction::ActivateSidebarProfile(index),
                     })
@@ -22691,7 +29018,7 @@ impl App {
             }
             items.extend(
                 (0..self.config.sidebar.views.len())
-                    .filter_map(|index| self.sidebar_view_visibility_item(index)),
+                    .flat_map(|index| self.sidebar_view_visibility_items(index)),
             );
         }
         MenuItem::Submenu { label: localization::catalog().menu.sidebar_layout.to_string(), items }
@@ -22700,7 +29027,7 @@ impl App {
     fn global_menu_items(&self) -> Vec<MenuItem> {
         let mut items =
             self.menu_group([MenuAction::ToggleSidebar { visible: self.sidebar_visible }]);
-        if self.surface_only.is_none() {
+        if self.native_sidebar_presentation_available() && self.surface_only.is_none() {
             items.push(self.sidebar_presentation_menu_item());
         }
         items.push(self.menu_item(MenuAction::ShowShortcuts));
@@ -22708,56 +29035,261 @@ impl App {
     }
 
     fn set_sidebar_view_visible(&mut self, index: usize, visible: bool) {
-        let Some(view) = self.config.sidebar.views.get(index) else { return };
-        let view_id = view.id.clone();
-        let hides_focused = !visible && self.focused_sidebar_view_id().as_deref() == Some(&view_id);
-        let hidden = self
-            .hidden_sidebar_views
-            .entry(self.config.sidebar.active_profile.clone())
-            .or_default();
-        if visible {
-            hidden.remove(&view_id);
-            self.sidebar_visible = true;
-        } else {
-            hidden.insert(view_id);
-            if hides_focused {
-                self.focus = FocusTarget::Pane;
-            }
-        }
+        let Some(view) = self.config.sidebar.views.get(index).map(|view| view.id.clone()) else {
+            return;
+        };
+        self.reduce_sidebar_presentation(SidebarPresentationCommand::SetViewVisible {
+            profile: self.config.sidebar.active_profile.clone(),
+            view,
+            visible,
+        });
+    }
+
+    fn set_sidebar_view_pinned(&mut self, index: usize, pinned: bool) {
+        let Some(view) = self.config.sidebar.views.get(index).map(|view| view.id.clone()) else {
+            return;
+        };
+        self.reduce_sidebar_presentation(SidebarPresentationCommand::SetViewPinned {
+            profile: self.config.sidebar.active_profile.clone(),
+            view,
+            pinned,
+        });
     }
 
     fn activate_sidebar_profile(&mut self, index: usize) {
-        let Some(profile) = self.config.sidebar.profiles.get(index).cloned() else { return };
-        let focused_view = self.focused_sidebar_view_id();
-        self.config.sidebar.active_profile = profile.id;
-        self.config.sidebar.views = profile.views;
-        self.config.sidebar.columns = self
+        let Some(profile) = self.config.sidebar.profiles.get(index) else { return };
+        self.reduce_sidebar_presentation(SidebarPresentationCommand::ActivateProfile {
+            profile: profile.id.clone(),
+        });
+    }
+
+    fn cycle_sidebar_profile(&mut self, delta: isize) {
+        let count = self.config.sidebar.profiles.len();
+        if count < 2 {
+            return;
+        }
+        let current = self
             .config
             .sidebar
-            .views
+            .profiles
             .iter()
-            .filter_map(|view| {
-                view.legacy_kind().map(|kind| SidebarColumn {
-                    kind,
-                    width: view.width,
-                    max_width: view.max_width,
-                })
-            })
-            .collect();
-        self.sidebar_visible = true;
-        if let Some(focused_view) = focused_view {
-            let hidden = self
-                .hidden_sidebar_views
-                .get(&self.config.sidebar.active_profile)
-                .is_some_and(|hidden| hidden.contains(&focused_view));
-            if !hidden
-                && let Some(index) =
-                    self.config.sidebar.views.iter().position(|view| view.id == focused_view)
-            {
-                self.focus_rail(self.rail_kind_for_view(index));
-                return;
+            .position(|profile| profile.id == self.config.sidebar.active_profile)
+            .unwrap_or_default();
+        let next = (current as isize + delta).rem_euclid(count as isize) as usize;
+        self.activate_sidebar_profile(next);
+    }
+
+    fn reduce_sidebar_presentation(&mut self, command: SidebarPresentationCommand) -> bool {
+        match command {
+            SidebarPresentationCommand::ActivateProfile { profile } => {
+                let Some(profile) = self
+                    .config
+                    .sidebar
+                    .profiles
+                    .iter()
+                    .find(|candidate| candidate.id == profile)
+                    .cloned()
+                else {
+                    return false;
+                };
+                let changed = self.config.sidebar.active_profile != profile.id;
+                let previous_profile = self.config.sidebar.active_profile.clone();
+                let previous_content_mode = self.sidebar_view;
+                let live_focused_view = self.focused_sidebar_view_identity();
+                let restore_sidebar_focus = live_focused_view.is_some();
+                {
+                    let state =
+                        self.sidebar_presentation.profiles.entry(previous_profile).or_default();
+                    state.content_mode.get_or_insert(previous_content_mode);
+                }
+                if let Some(focused_view) = live_focused_view.clone() {
+                    let state = self
+                        .sidebar_presentation
+                        .profiles
+                        .entry(self.config.sidebar.active_profile.clone())
+                        .or_default();
+                    state.focused_view = Some(focused_view);
+                }
+                let remembered_focus = self
+                    .sidebar_profile_state(&profile.id)
+                    .and_then(|state| state.focused_view.clone())
+                    .or_else(|| live_focused_view.clone());
+                let target_view = if restore_sidebar_focus {
+                    let hidden = self
+                        .sidebar_profile_state(&profile.id)
+                        .map(|state| state.hidden_views.clone())
+                        .unwrap_or_default();
+                    let eligible = profile
+                        .views
+                        .iter()
+                        .filter(|view| {
+                            !(hidden.contains(&view.id)
+                                || view.includes(SidebarResourceKind::Machines)
+                                    && self.machine_ui.is_none())
+                        })
+                        .collect::<Vec<_>>();
+                    let source_levels =
+                        remembered_focus.as_ref().map(|identity| identity.levels.as_slice());
+                    eligible
+                        .iter()
+                        .copied()
+                        .find(|view| remembered_focus_matches(remembered_focus.as_ref(), view))
+                        // An Agents rail is a workspace-oriented workflow.
+                        // If its exact view is absent, keep that semantic
+                        // parent before falling back to a machine picker.
+                        .or_else(|| {
+                            source_levels
+                                .filter(|levels| levels.contains(&SidebarResourceKind::Workspaces))
+                                .and_then(|_| {
+                                    eligible
+                                        .iter()
+                                        .copied()
+                                        .find(|view| view.includes(SidebarResourceKind::Workspaces))
+                                })
+                        })
+                        .or_else(|| {
+                            let source_kind = source_levels.and_then(|levels| levels.first());
+                            source_kind.and_then(|kind| {
+                                eligible
+                                    .iter()
+                                    .copied()
+                                    .find(|view| view.levels.first() == Some(kind))
+                            })
+                        })
+                        .or_else(|| eligible.first().copied())
+                        .map(|view| view.id.clone())
+                } else {
+                    None
+                };
+                let target_content_mode = self
+                    .sidebar_content_mode_for_profile(&profile.id)
+                    .unwrap_or(previous_content_mode);
+                self.replace_sidebar_projection(profile.id, profile.views, profile.layout);
+                self.config.sidebar.columns = self
+                    .config
+                    .sidebar
+                    .views
+                    .iter()
+                    .filter_map(|view| {
+                        view.legacy_kind().map(|kind| SidebarColumn {
+                            kind,
+                            width: view.width,
+                            max_width: view.max_width,
+                        })
+                    })
+                    .collect();
+                self.sidebar_visible = true;
+                self.sidebar_view = target_content_mode;
+                if changed {
+                    self.set_files_rail_selection(FilesRailSelection::File);
+                } else {
+                    self.reconcile_files_rail_selection();
+                }
+                self.ensure_files_mode_supported();
+                if restore_sidebar_focus {
+                    if let Some(focused_view) = target_view
+                        && let Some(index) = self
+                            .config
+                            .sidebar
+                            .views
+                            .iter()
+                            .position(|view| view.id == focused_view)
+                    {
+                        let kind = self.rail_kind_for_view(index);
+                        self.focus = match kind {
+                            RailKind::Machine => FocusTarget::MachineRail,
+                            RailKind::Workspace => FocusTarget::WorkspaceRail,
+                            RailKind::Tabs => FocusTarget::TabsRail,
+                            RailKind::Projection(index) => FocusTarget::ProjectionRail(index),
+                        };
+                        let identity =
+                            SidebarViewIdentity::from_spec(&self.config.sidebar.views[index]);
+                        let state = self.active_sidebar_profile_state_mut();
+                        state.focused_view = Some(identity);
+                    } else {
+                        let state = self.active_sidebar_profile_state_mut();
+                        state.focused_view = None;
+                        self.focus = FocusTarget::Pane;
+                    }
+                }
+                if changed {
+                    // A profile switch replaces the complete sidebar
+                    // topology. Any pointer gesture or retained mouse input
+                    // from the old profile must die at that boundary.
+                    self.advance_pointer_focus_generation();
+                }
+                changed
             }
-            self.focus = FocusTarget::Pane;
+            SidebarPresentationCommand::SetViewVisible { profile, view, visible } => {
+                if profile != self.config.sidebar.active_profile
+                    || !self.config.sidebar.views.iter().any(|candidate| candidate.id == view)
+                {
+                    return false;
+                }
+                let hides_focused =
+                    !visible && self.focused_sidebar_view_id().as_deref() == Some(view.as_str());
+                let is_files_host = self.active_files_host_id().as_deref() == Some(view.as_str());
+                let (changed, restore_files) = {
+                    let state = self.sidebar_presentation.profiles.entry(profile).or_default();
+                    let restore_files = visible
+                        && self.sidebar_view == SidebarView::Workspaces
+                        && is_files_host
+                        && state.files_restore_pending
+                        && state.files_restore_host.as_deref() == Some(view.as_str());
+                    if hides_focused
+                        && state.focused_view.as_ref().is_some_and(|identity| identity.id == view)
+                    {
+                        state.focused_view = None;
+                    }
+                    let changed = if visible {
+                        let unhidden = state.hidden_views.remove(&view);
+                        // Restored views win the next packing decision. This
+                        // gives Restore an observable result even at the same
+                        // constrained terminal size.
+                        let pinned = state.pinned_views.insert(view);
+                        self.sidebar_visible = true;
+                        unhidden || pinned
+                    } else {
+                        state.pinned_views.remove(&view);
+                        state.hidden_views.insert(view)
+                    };
+                    (changed, restore_files)
+                };
+                if hides_focused {
+                    self.focus = FocusTarget::Pane;
+                }
+                if restore_files {
+                    let state = self.active_sidebar_profile_state_mut();
+                    state.files_restore_pending = false;
+                    state.files_restore_host = None;
+                    self.sidebar_view = SidebarView::Files;
+                }
+                self.ensure_files_mode_supported();
+                self.rebuild_projection_surface_indexes();
+                if changed {
+                    self.cancel_sidebar_layout_drag();
+                    self.advance_pointer_focus_generation();
+                }
+                changed
+            }
+            SidebarPresentationCommand::SetViewPinned { profile, view, pinned } => {
+                if profile != self.config.sidebar.active_profile
+                    || !self.config.sidebar.views.iter().any(|candidate| candidate.id == view)
+                {
+                    return false;
+                }
+                let state = self.sidebar_presentation.profiles.entry(profile).or_default();
+                let changed = if pinned {
+                    state.pinned_views.insert(view)
+                } else {
+                    state.pinned_views.remove(&view)
+                };
+                if changed {
+                    self.cancel_sidebar_layout_drag();
+                    self.advance_pointer_focus_generation();
+                }
+                changed
+            }
         }
     }
 
@@ -22779,7 +29311,7 @@ impl App {
     }
 
     fn build_context_menu(&mut self, x: u16, y: u16) {
-        self.cancel_pty_mouse_drag();
+        self.cancel_pointer_before_modal();
         self.menu = None;
         self.omnibar = None;
         self.session.refresh_clients_background();
@@ -22872,18 +29404,20 @@ impl App {
                         groups.push(self.menu_group([MenuAction::CopyWorkspaceId(id)]));
                     }
                 }
-                Some(Hit::RecoverableWorkspace { index }) => {
-                    if let Some(workspace) = self
-                        .machine_ui
-                        .as_ref()
-                        .and_then(|ui| ui.recoverable_workspaces().get(index).copied())
+                Some(Hit::RecoverableWorkspace { index: _, token }) => {
+                    if let Some((current_index, workspace)) =
+                        self.machine_ui.as_ref().and_then(|ui| {
+                            ui.recoverable_workspaces().into_iter().enumerate().find(
+                                |(_, workspace)| sidebar_profile_token(&workspace.id) == token,
+                            )
+                        })
                     {
                         let mut actions = Vec::new();
                         if workspace.capabilities.restore {
-                            actions.push(MenuAction::RestoreManagedWorkspace(index));
+                            actions.push(MenuAction::RestoreManagedWorkspace(current_index));
                         }
                         if workspace.capabilities.purge {
-                            actions.push(MenuAction::PurgeManagedWorkspace(index));
+                            actions.push(MenuAction::PurgeManagedWorkspace(current_index));
                         }
                         groups.push(self.menu_group(actions));
                     }
@@ -22928,12 +29462,16 @@ impl App {
                 .iter()
                 .find(|placement| placement.rect.contains(x, y))
                 .map(|placement| placement.view_index)
-                && let Some(item) = self.sidebar_view_visibility_item(view_index)
             {
-                groups.push(vec![item]);
+                let items = self.sidebar_view_visibility_items(view_index);
+                if !items.is_empty() {
+                    groups.push(items);
+                }
             }
             groups.push(self.menu_group(self.sidebar_menu_actions()));
-            groups.push(vec![self.sidebar_presentation_menu_item()]);
+            if self.native_sidebar_presentation_available() {
+                groups.push(vec![self.sidebar_presentation_menu_item()]);
+            }
             groups.push(self.menu_group([MenuAction::ShowShortcuts]));
             self.menu = Some(ContextMenu::with_groups(x, y, groups));
             // Provider scope/action entries dispatch by displayed index;
@@ -23034,6 +29572,7 @@ impl App {
     }
 
     fn open_clients_menu(&mut self, x: u16, y: u16, surface: SurfaceId) {
+        self.cancel_pointer_before_modal();
         self.session.refresh_clients_background();
         let mut groups = Vec::new();
         if let Some(MenuItem::Submenu { items, .. }) = client_menu_item(&self.clients, surface) {
@@ -23062,13 +29601,21 @@ impl App {
         modifiers: KeyModifiers,
         terminal_admission: Option<TerminalPointerAdmission>,
     ) -> anyhow::Result<RenderAction> {
-        if let Some(menu) = self.menu.as_mut() {
-            return Ok(if menu.scroll_at(x, y, down) {
+        if self.menu.is_some() {
+            self.reset_selection_click_sequence();
+            return Ok(if self.menu.as_mut().is_some_and(|menu| menu.scroll_at(x, y, down)) {
                 RenderAction::Draw
             } else {
                 RenderAction::None
             });
         }
+        // A native pointer gesture owns input until its release. Wheel input
+        // must not mutate the viewport underneath a live scrollbar, split,
+        // selection, browser, or PTY drag.
+        if self.drag.is_some() || !self.active_pointer_buttons.is_empty() {
+            return Ok(RenderAction::None);
+        }
+        self.reset_selection_click_sequence();
         if self.prompt.is_some() {
             return Ok(RenderAction::None);
         }
@@ -23076,62 +29623,170 @@ impl App {
             .machine_sidebar_area(self.content_area.height.saturating_add(1))
             .filter(|area| area.contains(x, y))
         {
+            let body_rows = self.machine_ui.as_ref().map_or(0, |ui| {
+                let machine_count = ui.snapshot.machines.len();
+                if machine_count == 0 {
+                    1
+                } else {
+                    machine_count * crate::ui::rail::RailMetrics::for_app(self).stride
+                }
+            });
             let footer_rows = self.machine_ui.as_ref().map_or(0, |ui| {
                 usize::from(ui.snapshot.capabilities.create)
                     + usize::from(ui.snapshot.capabilities.connect)
             });
-            let footer_is_clipped = footer_rows > usize::from(area.height.saturating_sub(2));
-            if footer_is_clipped {
-                self.machine_footer_scroll = if down {
-                    self.machine_footer_scroll.saturating_add(1)
-                } else {
-                    self.machine_footer_scroll.saturating_sub(1)
-                };
+            let viewport = {
+                let scroll = self.active_sidebar_rail_scroll_mut();
+                crate::ui::rail::viewport_positioned(
+                    area,
+                    body_rows,
+                    footer_rows,
+                    &mut scroll.machine_rail_scroll,
+                    &mut scroll.machine_footer_scroll,
+                    None,
+                    None,
+                    crate::config::ActionsPosition::Bottom,
+                )
+            };
+            let delta = if down { 1 } else { -1 };
+            let changed = if viewport.footer.contains(x, y) {
+                let scroll = self.active_sidebar_rail_scroll_mut();
+                scroll_rail_offset(
+                    &mut scroll.machine_footer_scroll,
+                    footer_rows,
+                    viewport.footer.height as usize,
+                    delta,
+                )
+            } else if viewport.body.contains(x, y) {
+                let scroll = self.active_sidebar_rail_scroll_mut();
+                scroll_rail_offset(
+                    &mut scroll.machine_rail_scroll,
+                    body_rows,
+                    viewport.body.height as usize,
+                    if down { 3 } else { -3 },
+                )
             } else {
-                self.machine_rail_scroll = if down {
-                    self.machine_rail_scroll.saturating_add(3)
-                } else {
-                    self.machine_rail_scroll.saturating_sub(3)
-                };
-            }
+                false
+            };
             self.machine_rail_follow_selection = false;
-            return Ok(RenderAction::Draw);
+            return Ok(if changed { RenderAction::Draw } else { RenderAction::None });
         }
-        if let Some(area) = (self.config.sidebar.plugin.is_none()
-            && self.sidebar_view == SidebarView::Workspaces)
+        if let Some(area) = self
+            .config
+            .sidebar
+            .plugin
+            .is_none()
             .then(|| self.workspace_sidebar_area(self.content_area.height.saturating_add(1)))
             .flatten()
             .filter(|area| area.contains(x, y))
         {
-            let footer_rows = self.workspace_sidebar_action_rows().len();
-            let footer_is_clipped = footer_rows > usize::from(area.height.saturating_sub(2));
-            if footer_is_clipped {
-                self.workspace_footer_scroll = if down {
-                    self.workspace_footer_scroll.saturating_add(1)
-                } else {
-                    self.workspace_footer_scroll.saturating_sub(1)
-                };
-            } else {
-                self.workspace_rail_scroll = if down {
-                    self.workspace_rail_scroll.saturating_add(3)
-                } else {
-                    self.workspace_rail_scroll.saturating_sub(3)
-                };
+            if self.sidebar_view == SidebarView::Files {
+                let geometry = self.files_layout_geometry(area);
+                if self
+                    .files_action_rect(area)
+                    .is_some_and(|actions_rect| actions_rect.contains(x, y))
+                {
+                    let visible = geometry.top_action_rows + geometry.bottom_action_rows;
+                    let max_offset =
+                        self.workspace_sidebar_action_rows().len().saturating_sub(visible);
+                    let action_selected =
+                        matches!(self.files_rail_selection, FilesRailSelection::Action(_));
+                    let state = self.active_sidebar_profile_state_mut();
+                    let before = state.files_action_scroll;
+                    state.files_action_scroll =
+                        before.saturating_add_signed(if down { 1 } else { -1 }).min(max_offset);
+                    let changed = state.files_action_scroll != before;
+                    if action_selected && changed {
+                        state.files_action_follow_selection = false;
+                    }
+                    return Ok(if changed { RenderAction::Draw } else { RenderAction::None });
+                }
+                // The Files cursor is the activation target. Do not move it
+                // when the renderer has no visible body, or when the wheel
+                // lands on the header/footer. The event is still consumed so
+                // it cannot leak into the focused PTY behind the rail.
+                let body = geometry.body;
+                if body.height == 0 || !body.contains(x, y) {
+                    return Ok(RenderAction::None);
+                }
+                self.sidebar_files.set_viewport_height(usize::from(body.height));
+                let changed = self.sidebar_files.scroll_viewport(if down { 3 } else { -3 });
+                return Ok(if changed { RenderAction::Draw } else { RenderAction::None });
             }
+            let metrics = crate::ui::rail::RailMetrics::for_app(self);
+            let recoverable_count =
+                self.machine_ui.as_ref().map_or(0, |ui| ui.recoverable_workspaces().len());
+            let body_rows = (self.tree.workspaces().len() + recoverable_count) * metrics.stride;
+            let footer_rows = self.workspace_sidebar_action_rows().len();
+            let actions_position = self.workspace_actions_position();
+            let viewport = {
+                let scroll = self.active_sidebar_rail_scroll_mut();
+                crate::ui::rail::viewport_positioned(
+                    area,
+                    body_rows,
+                    footer_rows,
+                    &mut scroll.workspace_rail_scroll,
+                    &mut scroll.workspace_footer_scroll,
+                    None,
+                    None,
+                    actions_position,
+                )
+            };
+            let delta = if down { 1 } else { -1 };
+            let changed = if viewport.footer.contains(x, y) {
+                let scroll = self.active_sidebar_rail_scroll_mut();
+                scroll_rail_offset(
+                    &mut scroll.workspace_footer_scroll,
+                    footer_rows,
+                    viewport.footer.height as usize,
+                    delta,
+                )
+            } else if viewport.body.contains(x, y) {
+                let scroll = self.active_sidebar_rail_scroll_mut();
+                scroll_rail_offset(
+                    &mut scroll.workspace_rail_scroll,
+                    body_rows,
+                    viewport.body.height as usize,
+                    if down { 3 } else { -3 },
+                )
+            } else {
+                false
+            };
             self.workspace_rail_follow_selection = false;
-            return Ok(RenderAction::Draw);
+            return Ok(if changed { RenderAction::Draw } else { RenderAction::None });
         }
-        if let Some(_area) = self
+        if let Some(area) = self
             .tabs_sidebar_area(self.content_area.height.saturating_add(1))
             .filter(|area| area.contains(x, y))
         {
-            self.tabs_rail_scroll = if down {
-                self.tabs_rail_scroll.saturating_add(3)
-            } else {
-                self.tabs_rail_scroll.saturating_sub(3)
+            let targets = self.sidebar_tab_targets();
+            let metrics = crate::ui::rail::RailMetrics::for_app(self);
+            let body_rows = if targets.is_empty() { 1 } else { targets.len() * metrics.stride };
+            let mut footer_offset = self.active_sidebar_rail_scroll().tabs_footer_scroll;
+            let viewport = {
+                let scroll = self.active_sidebar_rail_scroll_mut();
+                crate::ui::rail::viewport_positioned(
+                    area,
+                    body_rows,
+                    0,
+                    &mut scroll.tabs_rail_scroll,
+                    &mut footer_offset,
+                    None,
+                    None,
+                    crate::config::ActionsPosition::Bottom,
+                )
+            };
+            let changed = viewport.body.contains(x, y) && {
+                let scroll = self.active_sidebar_rail_scroll_mut();
+                scroll_rail_offset(
+                    &mut scroll.tabs_rail_scroll,
+                    body_rows,
+                    viewport.body.height as usize,
+                    if down { 3 } else { -3 },
+                )
             };
             self.tabs_rail_follow_selection = false;
-            return Ok(RenderAction::Draw);
+            return Ok(if changed { RenderAction::Draw } else { RenderAction::None });
         }
         if let Some(view_index) = self.sidebar_layout.ordered.iter().find_map(|placement| {
             matches!(placement.kind, RailKind::Projection(_))
@@ -23139,26 +29794,58 @@ impl App {
                 .filter(|(_, area)| area.contains(x, y))
                 .map(|(view_index, _)| view_index)
         }) {
-            let footer_rows = self.sidebar_action_rows(view_index).len();
-            let footer_is_clipped = self
-                .projection_sidebar_area(view_index)
-                .is_some_and(|area| footer_rows > usize::from(area.height.saturating_sub(2)));
-            let state = self.projection_rail_state_mut(view_index);
-            if footer_is_clipped {
-                state.footer_scroll = if down {
-                    state.footer_scroll.saturating_add(1)
-                } else {
-                    state.footer_scroll.saturating_sub(1)
-                };
-            } else {
-                state.scroll = if down {
-                    state.scroll.saturating_add(3)
-                } else {
-                    state.scroll.saturating_sub(3)
-                };
+            let Some(mut rail_area) = self.projection_sidebar_area(view_index) else {
+                return Ok(RenderAction::None);
+            };
+            let Some(spec) = self.config.sidebar.views.get(view_index).cloned() else {
+                return Ok(RenderAction::None);
+            };
+            let rows = self.projection_rows(view_index);
+            let (_, projected_body_rows) =
+                projection_row_spans(&rows, &spec, crate::ui::rail::RailMetrics::for_app(self));
+            let body_rows = projected_body_rows.max(usize::from(rows.is_empty()));
+            if spec.includes(SidebarResourceKind::Agents) && rail_area.height > 1 {
+                rail_area = Rect { y: rail_area.y + 1, height: rail_area.height - 1, ..rail_area };
             }
+            let footer_rows = self.sidebar_action_rows(view_index).len();
+            let (mut body_offset, mut footer_offset) = self
+                .active_sidebar_profile_state()
+                .and_then(|state| state.projection_rails.get(&spec.id))
+                .map(|state| (state.scroll, state.footer_scroll))
+                .unwrap_or_default();
+            let viewport = crate::ui::rail::viewport_positioned(
+                rail_area,
+                body_rows,
+                footer_rows,
+                &mut body_offset,
+                &mut footer_offset,
+                None,
+                None,
+                spec.actions_position,
+            );
+            let delta = if down { 1 } else { -1 };
+            let changed = if viewport.footer.contains(x, y) {
+                scroll_rail_offset(
+                    &mut footer_offset,
+                    footer_rows,
+                    viewport.footer.height as usize,
+                    delta,
+                )
+            } else if viewport.body.contains(x, y) {
+                scroll_rail_offset(
+                    &mut body_offset,
+                    body_rows,
+                    viewport.body.height as usize,
+                    if down { 3 } else { -3 },
+                )
+            } else {
+                false
+            };
+            let state = self.projection_rail_state_mut(view_index);
+            state.scroll = body_offset;
+            state.footer_scroll = footer_offset;
             state.follow_selection = false;
-            return Ok(RenderAction::Draw);
+            return Ok(if changed { RenderAction::Draw } else { RenderAction::None });
         }
         let Some(area) = self.pane_area_at(x, y).copied() else { return Ok(RenderAction::None) };
         if self.surface_kind(area.surface) == Some(SurfaceKind::Pty)
@@ -23270,6 +29957,12 @@ impl App {
         if self.menu.is_some() || self.prompt.is_some() {
             return Ok(RenderAction::None);
         }
+        // Keep horizontal scrolling under the same one-owner pointer policy
+        // as vertical scrolling. A live drag has exclusive viewport input.
+        if self.drag.is_some() || !self.active_pointer_buttons.is_empty() {
+            return Ok(RenderAction::None);
+        }
+        self.reset_selection_click_sequence();
         let over_scrollbar = matches!(self.hit_at(x, y), Some(Hit::HorizontalScrollbar { .. }));
         let over_pane = self.pane_area_at(x, y).is_some();
         if self.horizontal_scrollbar_state().is_some() && (over_scrollbar || over_pane) {
@@ -23322,7 +30015,7 @@ impl App {
             .get(&surface)
             .and_then(|[workspace, screen, pane, tab]| {
                 self.tree
-                    .workspaces
+                    .workspaces()
                     .get(*workspace)
                     .and_then(|workspace| workspace.screens.get(*screen))
                     .and_then(|screen| screen.panes.get(*pane))
@@ -23334,7 +30027,7 @@ impl App {
 
     fn browser_source(&self, surface: SurfaceId) -> Option<BrowserSource> {
         self.tree
-            .workspaces
+            .workspaces()
             .iter()
             .flat_map(|ws| ws.screens.iter())
             .flat_map(|screen| screen.panes.iter())
@@ -23512,6 +30205,16 @@ fn browser_only_action(action: Action) -> bool {
     )
 }
 
+fn sidebar_presentation_action_keeps_focus(action: Action) -> bool {
+    matches!(
+        action,
+        Action::ToggleSidebarCompact
+            | Action::ToggleSidebarView
+            | Action::PrevSidebarProfile
+            | Action::NextSidebarProfile
+    )
+}
+
 fn action_is_frontend_local(action: Action) -> bool {
     matches!(
         action,
@@ -23526,6 +30229,8 @@ fn action_is_frontend_local(action: Action) -> bool {
             | Action::ToggleSidebar
             | Action::ToggleSidebarCompact
             | Action::ToggleSidebarView
+            | Action::PrevSidebarProfile
+            | Action::NextSidebarProfile
             | Action::FocusSidebar
             | Action::ProviderMenu
             | Action::FocusLeft
@@ -23582,6 +30287,8 @@ fn action_prepares_pty_release(action: Action) -> bool {
             | Action::RenameWorkspace
             | Action::NewWorkspace
             | Action::NewPaneRight
+            | Action::PrevSidebarProfile
+            | Action::NextSidebarProfile
             | Action::ScrollUp
             | Action::ScrollDown
             | Action::BrowserEditUrl
@@ -23617,6 +30324,7 @@ fn menu_action_prepares_pty_release(action: MenuAction) -> bool {
             | MenuAction::ConnectOtherMachine
             | MenuAction::ActivateSidebarProfile(_)
             | MenuAction::SetSidebarViewVisible { .. }
+            | MenuAction::SetSidebarViewPinned { .. }
     )
 }
 
@@ -23760,7 +30468,8 @@ mod tests {
         let mut read_calls = 0;
         let mut poll_durations = Vec::new();
 
-        let blocking = super::read_crossterm_event(
+        let fixed_now = Instant::now();
+        let blocking = super::read_crossterm_event_with_clock(
             None,
             |timeout| {
                 poll_calls += 1;
@@ -23771,12 +30480,13 @@ mod tests {
                 read_calls += 1;
                 Ok(event.clone())
             },
+            || fixed_now,
         )
         .unwrap();
         assert_eq!(blocking, Some(event.clone()));
         assert_eq!((poll_calls, read_calls), (1, 1));
 
-        let timed_out = super::read_crossterm_event(
+        let timed_out = super::read_crossterm_event_with_clock(
             Some(Duration::from_millis(10)),
             |timeout| {
                 poll_calls += 1;
@@ -23787,12 +30497,13 @@ mod tests {
                 read_calls += 1;
                 Ok(event.clone())
             },
+            || fixed_now,
         )
         .unwrap();
         assert_eq!(timed_out, None);
         assert_eq!((poll_calls, read_calls), (2, 1));
 
-        let ready = super::read_crossterm_event(
+        let ready = super::read_crossterm_event_with_clock(
             Some(Duration::from_millis(10)),
             |timeout| {
                 poll_calls += 1;
@@ -23803,6 +30514,7 @@ mod tests {
                 read_calls += 1;
                 Ok(event.clone())
             },
+            || fixed_now,
         )
         .unwrap();
         assert_eq!(ready, Some(event));
@@ -23813,31 +30525,143 @@ mod tests {
         );
     }
 
+    #[test]
+    fn crossterm_reader_propagates_poll_errors_without_reading() {
+        let mut read_calls = 0;
+        let error = std::io::Error::other("poll failed");
+        let mut poll_calls = 0;
+
+        let result = super::read_crossterm_event(
+            None,
+            |_| {
+                poll_calls += 1;
+                if poll_calls == 1 {
+                    Err(std::io::Error::from(std::io::ErrorKind::Interrupted))
+                } else {
+                    Err(std::io::Error::new(error.kind(), error.to_string()))
+                }
+            },
+            || {
+                read_calls += 1;
+                Ok(Event::Resize(80, 24))
+            },
+        );
+
+        assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::Other);
+        assert_eq!(read_calls, 0);
+        assert!(poll_calls >= 1);
+    }
+
+    #[test]
+    fn crossterm_reader_retries_interrupted_poll_and_read() {
+        let mut poll_calls = 0;
+        let mut read_calls = 0;
+        let event = Event::Resize(80, 24);
+        let result = super::read_crossterm_event(
+            None,
+            |_| {
+                poll_calls += 1;
+                if poll_calls == 1 {
+                    Err(std::io::Error::from(std::io::ErrorKind::Interrupted))
+                } else {
+                    Ok(true)
+                }
+            },
+            || {
+                read_calls += 1;
+                if read_calls == 1 {
+                    Err(std::io::Error::from(std::io::ErrorKind::Interrupted))
+                } else {
+                    Ok(event.clone())
+                }
+            },
+        )
+        .unwrap();
+        assert_eq!(result, Some(event));
+        assert_eq!((poll_calls, read_calls), (2, 2));
+    }
+
+    #[test]
+    fn crossterm_reader_limits_consecutive_interrupted_poll_and_read() {
+        let fixed_now = Instant::now();
+        let mut poll_calls = 0;
+        let poll_result = super::read_crossterm_event_with_clock(
+            None,
+            |_| {
+                poll_calls += 1;
+                Err(std::io::Error::from(std::io::ErrorKind::Interrupted))
+            },
+            || Ok(Event::Resize(80, 24)),
+            || fixed_now,
+        );
+        assert_eq!(poll_result.unwrap_err().kind(), std::io::ErrorKind::Interrupted);
+        assert_eq!(poll_calls, 8);
+
+        let mut read_calls = 0;
+        let read_result = super::read_crossterm_event_with_clock(
+            None,
+            |_| Ok(true),
+            || {
+                read_calls += 1;
+                Err(std::io::Error::from(std::io::ErrorKind::Interrupted))
+            },
+            || fixed_now,
+        );
+        assert_eq!(read_result.unwrap_err().kind(), std::io::ErrorKind::Interrupted);
+        assert_eq!(read_calls, 8);
+    }
+
+    #[test]
+    fn crossterm_reader_returns_timeout_when_interrupted_after_deadline() {
+        let start = Instant::now();
+        let mut clock_calls = 0;
+        let mut poll_calls = 0;
+        let result = super::read_crossterm_event_with_clock(
+            Some(Duration::from_millis(10)),
+            |timeout| {
+                poll_calls += 1;
+                assert!(timeout.is_zero());
+                Err(std::io::Error::from(std::io::ErrorKind::Interrupted))
+            },
+            || Ok(Event::Resize(80, 24)),
+            || {
+                let call = clock_calls;
+                clock_calls += 1;
+                if call == 0 { start } else { start + Duration::from_millis(11) }
+            },
+        );
+        assert_eq!(result.unwrap(), None);
+        assert_eq!(poll_calls, 1);
+    }
+
     use super::{
-        App, AppEvent, BACKGROUND_REFRESH_RETRIES, BrowserResizeFailure, ContextMenu,
-        DEFERRED_INPUT_CAPACITY, DeferredInput, DeferredInputAdmission, DeferredInputQueue,
-        DeferredReplayDisposition, Drag, EventCancellation, FocusTarget, ForwardMuxOutcome,
-        FrontendJournalQueue, FrontendJournalWorker, GraphicIdentity, GraphicPlacement,
-        GraphicSourceRect, GraphicsSceneCache, GuardedMouseEncode, HostInputIngress,
-        HostInputMessage, HostInputRuntime, MachineActionWorker, MachineConnectRoute, MenuAction,
-        MenuItem, MutationImpact, MuxTitleIngress, OmnibarHit, OmnibarState, OrderedSession,
-        OuterCursorSpec, PaneArea, PaneAreaProjection, PaneContentGeneration, PaneEdge,
-        PaneFocusHistory, PaneResizeDragTarget, PaneViewportClip, PendingSessionMutation,
+        AgentAttentionReceipt, App, AppEvent, BACKGROUND_REFRESH_RETRIES, BrowserResizeFailure,
+        ContextMenu, DEFERRED_INPUT_CAPACITY, DeferredInput, DeferredInputAdmission,
+        DeferredInputQueue, DeferredReplayDisposition, Drag, EventCancellation, FocusTarget,
+        ForwardMuxOutcome, FrontendJournalQueue, FrontendJournalWorker, GraphicIdentity,
+        GraphicPlacement, GraphicSourceRect, GraphicsSceneCache, GuardedMouseEncode,
+        HostInputIngress, HostInputMessage, HostInputRuntime, LayoutResizeExpectation,
+        MachineActionWorker, MachineConnectRoute, MenuAction, MenuItem, MutationImpact,
+        MuxTitleIngress, OmnibarHit, OmnibarState, OrderedSession, OuterCursorSpec, PairingDialog,
+        PaneArea, PaneAreaProjection, PaneContentGeneration, PaneEdge, PaneFocusHistory,
+        PaneResizeDragTarget, PaneViewportClip, PendingSessionMutation,
         PendingSessionMutationState, PointerHitIdentity, PointerRouteIdentity, PointerRoutePhase,
         Prompt, PromptTarget, PtyFailureIngress, PtyMousePressResult, RailKind, RenderAction,
-        RenderedMenuLevel, RenderedPaneRoute, RenderedPointerFrame, Selection, SessionCompletion,
-        SessionCompletionAction, SessionEventSender, ShortcutHelp, SidebarActionTarget,
-        SidebarLayout, SidebarPluginSyncClaim, SidebarPluginSyncState, SidebarWidthOverrides,
-        StatusTemplateValues, StatusWorkerStop, StdoutLock, SurfaceAttachClaimState,
-        SurfaceResizeDecision, SurfaceResizeOwnership, TERMINAL_PAINT_CADENCE, TerminalInput,
-        TerminalPaintPacer, TerminalPointerAdmission, TerminalPointerAdmissionResult,
-        TerminalPointerEncoding, TextInput, Toast, VIEWPORT_ANIMATION_DURATION, ViewportMotion,
-        ViewportPaneAreaProjection, WorkspaceRailSelection, action_available_in_mode,
-        browser_content_size_for_rect, browser_frame_source_crop, browser_hover_forward_allowed,
-        browser_source_crop, canonical_terminal_content, catch_renderer_panic,
-        clamp_split_ratio_for_tab_bars, client_menu_item, clip_horizontal_rect,
-        content_size_for_rect, disable_host_keyboard_protocol, enable_host_keyboard_protocol,
-        expand_status_tokens, forward_host_input, forward_mux_event, forward_mux_events,
+        RenderedMenuLevel, RenderedPaneRoute, RenderedPointerFrame, Selection, SelectionMode,
+        SessionCompletion, SessionCompletionAction, SessionEventSender, ShortcutHelp,
+        SidebarActionTarget, SidebarHiddenReason, SidebarHiddenView, SidebarLayout,
+        SidebarPluginSyncClaim, SidebarPluginSyncState, SidebarRailScrollState,
+        SidebarSplitGroupPlacement, SidebarWidthOverrides, StatusTemplateValues, StatusWorkerStop,
+        StdoutLock, SurfaceAttachClaimState, SurfaceResizeDecision, SurfaceResizeOwnership,
+        TERMINAL_PAINT_CADENCE, TerminalInput, TerminalPaintPacer, TerminalPointerAdmission,
+        TerminalPointerAdmissionResult, TerminalPointerEncoding, TextInput, Toast,
+        VIEWPORT_ANIMATION_DURATION, ViewportMotion, ViewportPaneAreaProjection,
+        WorkspaceRailSelection, action_available_in_mode, browser_content_size_for_rect,
+        browser_frame_source_crop, browser_hover_forward_allowed, browser_source_crop,
+        canonical_terminal_content, catch_renderer_panic, clamp_split_ratio_for_tab_bars,
+        client_menu_item, clip_horizontal_rect, content_size_for_rect,
+        disable_host_keyboard_protocol, enable_host_keyboard_protocol, expand_status_tokens,
+        first_pane_by_id, forward_host_input, forward_mux_event, forward_mux_events,
         host_mouse_capture_escape_if_changed, host_startup_input_modes,
         initial_applied_outer_cursor, initial_host_mouse_capture, keyboard_protocol_accepts,
         layout_undo_error_completion, negotiate_host_keyboard_protocol_with, outer_cursor_escape,
@@ -23846,7 +30670,7 @@ mod tests {
         rebuild_pane_areas, record_surface_resize_dispatch_result, report_after_unwind,
         reset_pane_area_projection_work, run_status_command, send_bounded_cancelable,
         should_claim_clear_history_shortcut, sidebar_layout_for, sidebar_layout_for_state,
-        sidebar_plugin_status_settles_passive_claim, start_ordered_session,
+        sidebar_plugin_status_settles_passive_claim, sidebar_profile_token, start_ordered_session,
         swept_viewport_size_leases, thumb_geometry, with_panic_stdout_lock,
         workspace_creation_selection,
     };
@@ -23860,7 +30684,10 @@ mod tests {
     use std::sync::{Arc, Barrier, Mutex};
     use std::time::{Duration, Instant};
 
-    use cmux_tui_core::resource::FrontendProjectionPublicId;
+    use cmux_tui_core::resource::{
+        ContentPublicId, FrontendProjectionPublicId, PanePublicId, ScreenPublicId, TabPublicId,
+        TerminalPublicId, WorkspacePublicId,
+    };
     use cmux_tui_core::{
         AgentSource, AgentState, BrowserFrame, BrowserStatus, Direction, LayoutUndoError, Mux,
         MuxEvent, Node, PointerSnapshotProbe, Rect, SplitDir, SurfaceId, SurfaceKind,
@@ -23873,7 +30700,7 @@ mod tests {
     use ghostty_vt::{
         CursorShape, KeyEncoder, KeyInput, KittyGraphicsSnapshot, KittyImage, KittyImageFormat,
         KittyPlacement, KittyPlacementKey, Mods, MouseAction, MouseButton as GhosttyMouseButton,
-        MouseInput, RenderState, Rgb, Screen,
+        MouseInput, RenderState, Rgb, Screen, Scrollbar,
     };
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
@@ -23882,8 +30709,9 @@ mod tests {
 
     use crate::browser_input::{BrowserInputDispatcher, BrowserInputEvent, BrowserInputKind};
     use crate::config::{
-        Action, ChromeTheme, Config, ScrollbarPosition, SidebarColumnKind, SidebarProfileSpec,
-        SidebarResourceKind, SidebarView, SidebarViewSpec, action_definitions,
+        Action, AgentRowFilter, AgentSortMode, ChromeTheme, Config, ScrollbarPosition,
+        SidebarColumnKind, SidebarLayoutNode, SidebarProfileSpec, SidebarResourceKind,
+        SidebarSplitDir, SidebarView, SidebarViewScope, SidebarViewSpec, action_definitions,
     };
     use crate::localization;
     use crate::machine::{
@@ -24137,6 +30965,78 @@ mod tests {
     }
 
     #[test]
+    fn host_input_runtime_shutdown_joins_reader_before_returning() {
+        let runtime = HostInputRuntime::new();
+        let ingress = runtime.ingress.clone();
+        let (events_tx, events_rx) = crossbeam_channel::bounded(1);
+        events_tx.send(AppEvent::HostInputReady).unwrap();
+        let input = runtime.producer(events_tx);
+        let (sent_tx, sent_rx) = std::sync::mpsc::sync_channel(1);
+        let (finished_tx, finished_rx) = std::sync::mpsc::sync_channel(1);
+        let reader = std::thread::spawn(move || {
+            let key = Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
+            assert!(input.send(key));
+            sent_tx.send(()).unwrap();
+            while !ingress.is_closed() {
+                std::thread::yield_now();
+            }
+            finished_tx.send(()).unwrap();
+        });
+
+        runtime.attach_reader(reader);
+        sent_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        runtime.shutdown();
+
+        assert!(
+            finished_rx.try_recv().is_ok(),
+            "runtime shutdown must join the input reader before returning"
+        );
+        drop(events_rx);
+    }
+
+    #[test]
+    fn host_input_runtime_shutdown_serializes_concurrent_callers() {
+        let runtime = HostInputRuntime::new();
+        let ingress = runtime.ingress.clone();
+        let (closed_tx, closed_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+        let reader = std::thread::spawn(move || {
+            while !ingress.is_closed() {
+                std::thread::yield_now();
+            }
+            closed_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+        });
+        runtime.attach_reader(reader);
+
+        let shutdown = runtime.shutdown_control();
+        let first_shutdown = shutdown.clone();
+        let (first_done_tx, first_done_rx) = std::sync::mpsc::sync_channel(1);
+        let first = std::thread::spawn(move || {
+            first_shutdown.shutdown();
+            first_done_tx.send(()).unwrap();
+        });
+        closed_rx.recv().unwrap();
+
+        let second_shutdown = shutdown;
+        let (second_done_tx, second_done_rx) = std::sync::mpsc::sync_channel(1);
+        let second = std::thread::spawn(move || {
+            second_shutdown.shutdown();
+            second_done_tx.send(()).unwrap();
+        });
+        assert!(
+            second_done_rx.try_recv().is_err(),
+            "concurrent shutdown must wait for the reader join"
+        );
+
+        release_tx.send(()).unwrap();
+        first.join().unwrap();
+        second.join().unwrap();
+        assert!(first_done_rx.try_recv().is_ok());
+        assert!(second_done_rx.try_recv().is_ok());
+    }
+
+    #[test]
     fn host_input_ingress_keeps_latest_adjacent_resize() {
         let ingress = HostInputIngress::default();
         ingress.send(Event::Resize(80, 24)).unwrap();
@@ -24367,6 +31267,29 @@ mod tests {
     }
 
     #[test]
+    fn prompt_render_persists_text_input_viewport_before_left_movement() {
+        let mux = Mux::new("text-input-viewport-lifecycle-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.prompt = Some(Prompt::new(
+            "Rename",
+            "abcdefghijklmnopqrstuvwxyz0123456789".to_string(),
+            PromptTarget::Workspace(1),
+        ));
+        let mut terminal = Terminal::new(TestBackend::new(24, 12)).unwrap();
+
+        app.draw_terminal(&mut terminal, RenderAction::Draw).unwrap();
+
+        let before = app.prompt.as_ref().unwrap().input.visible_text_and_cursor(18);
+        assert!(before.1 > 0);
+        app.handle_prompt_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE)).unwrap();
+        let after = app.prompt.as_ref().unwrap().input.visible_text_and_cursor(18);
+
+        assert_eq!(after.0, before.0);
+        assert_eq!(after.1, before.1 - 1);
+        mux.shutdown();
+    }
+
+    #[test]
     fn enhanced_control_text_uses_prompt_and_omnibar_shortcuts() {
         let mux = Mux::new("enhanced-overlay-shortcut-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
@@ -24563,6 +31486,17 @@ mod tests {
         assert!(!app.prefix_armed);
         assert!(!app.quit);
         assert!(app.pty_input.shutdown(Duration::from_secs(1)));
+    }
+
+    #[test]
+    fn focus_loss_clears_a_pending_prefix() {
+        let mux = Mux::new("focus-loss-prefix-reset", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.prefix_armed = true;
+
+        app.handle(AppEvent::Input(Event::FocusLost)).unwrap();
+
+        assert!(!app.prefix_armed);
     }
 
     #[test]
@@ -24896,9 +31830,9 @@ mod tests {
         app.activate_menu(MenuAction::ShowShortcuts).unwrap();
         assert!(app.shortcut_help.is_some());
 
-        let mut inactive_workspace = app.tree.workspaces[0].clone();
+        let mut inactive_workspace = app.tree.workspaces_mut()[0].clone();
         inactive_workspace.id = 14;
-        app.tree.workspaces.push(inactive_workspace);
+        app.tree.workspaces_mut().push(inactive_workspace);
         app.hits.clear();
         app.hits.push((
             Rect { x: 2, y: 6, width: 10, height: 1 },
@@ -24916,7 +31850,7 @@ mod tests {
 
         let mut inactive_screen = app.tree.active_screen().unwrap().clone();
         inactive_screen.id = 13;
-        app.tree.workspaces[0].screens.push(inactive_screen);
+        app.tree.workspaces_mut()[0].screens.push(inactive_screen);
         app.hits.clear();
         app.hits.push((
             Rect { x: 30, y: 30, width: 10, height: 1 },
@@ -24935,7 +31869,7 @@ mod tests {
         let mut inactive_pane = app.tree.active_screen().unwrap().panes[0].clone();
         inactive_pane.id = 12;
         inactive_pane.tabs[0].surface = 51;
-        app.tree.workspaces[0].screens[0].panes.push(inactive_pane);
+        app.tree.workspaces_mut()[0].screens[0].panes.push(inactive_pane);
         app.pane_areas.push(PaneArea {
             pane: 12,
             surface: 51,
@@ -25637,7 +32571,7 @@ mod tests {
             }
         }
         let tree = app.session.tree();
-        assert_eq!(tree.workspaces[0].screens[0].panes.len(), 1);
+        assert_eq!(tree.workspaces()[0].screens[0].panes.len(), 1);
         assert_eq!(tree.active_surface(), Some(original.id));
         mux.close_surface(original.id).unwrap();
     }
@@ -25951,6 +32885,148 @@ mod tests {
     }
 
     #[test]
+    fn shortcut_help_keyboard_boundary_releases_its_scrollbar_capture() {
+        let mux = Mux::new("shortcut-help-scrollbar-boundary-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.run_action(Action::ShowShortcuts).unwrap();
+        let mut terminal = Terminal::new(TestBackend::new(80, 12)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let track = app.shortcut_help.as_ref().unwrap().scrollbar_track;
+        assert!(track.height > 0);
+
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: track.x,
+            row: track.y + track.height - 1,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        assert!(app.shortcut_help.as_ref().unwrap().scrollbar_dragging());
+        let offset_after_down = app.shortcut_help.as_ref().unwrap().scroll_offset;
+        assert_eq!(
+            app.handle_mouse(MouseEvent {
+                kind: MouseEventKind::ScrollDown,
+                column: track.x,
+                row: track.y,
+                modifiers: KeyModifiers::NONE,
+            })
+            .unwrap(),
+            RenderAction::None
+        );
+        assert!(app.shortcut_help.as_ref().unwrap().scrollbar_dragging());
+        assert_eq!(app.shortcut_help.as_ref().unwrap().scroll_offset, offset_after_down);
+
+        app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)).unwrap();
+        assert!(!app.shortcut_help.as_ref().unwrap().scrollbar_dragging());
+        let offset_after_key = app.shortcut_help.as_ref().unwrap().scroll_offset;
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Left),
+            column: track.x,
+            row: track.y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        assert_eq!(
+            app.shortcut_help.as_ref().unwrap().scroll_offset,
+            offset_after_key,
+            "a drag after a keyboard boundary must not reuse the old help scrollbar owner"
+        );
+    }
+
+    #[test]
+    fn shortcut_help_scrollbar_uses_shared_pointer_admission() {
+        let mux = Mux::new("shortcut-help-shared-pointer-owner-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.run_action(Action::ShowShortcuts).unwrap();
+        let mut terminal = Terminal::new(TestBackend::new(80, 12)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let track = app.shortcut_help.as_ref().unwrap().scrollbar_track;
+        assert!(track.height > 0);
+
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: track.x,
+            row: track.y + track.height - 1,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        assert!(app.shortcut_help.as_ref().unwrap().scrollbar_dragging());
+        assert!(app.active_pointer_buttons.contains(&MouseButton::Left));
+
+        assert_eq!(
+            app.handle_mouse(MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Right),
+                column: track.x,
+                row: track.y,
+                modifiers: KeyModifiers::NONE,
+            })
+            .unwrap(),
+            RenderAction::None
+        );
+        assert!(app.ignored_pointer_buttons.contains(&MouseButton::Right));
+        assert!(app.shortcut_help.as_ref().unwrap().scrollbar_dragging());
+
+        assert_eq!(
+            app.handle_mouse(MouseEvent {
+                kind: MouseEventKind::ScrollDown,
+                column: track.x,
+                row: track.y,
+                modifiers: KeyModifiers::NONE,
+            })
+            .unwrap(),
+            RenderAction::None
+        );
+        assert!(app.shortcut_help.as_ref().unwrap().scrollbar_dragging());
+
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: track.x,
+            row: track.y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        assert!(!app.shortcut_help.as_ref().unwrap().scrollbar_dragging());
+        assert!(app.active_pointer_buttons.is_empty());
+    }
+
+    #[test]
+    fn shortcut_help_outside_press_cannot_activate_a_replacement_menu() {
+        let mux =
+            Mux::new("shortcut-help-outside-pointer-boundary-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.run_action(Action::ShowShortcuts).unwrap();
+        let mut terminal = Terminal::new(TestBackend::new(80, 12)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let help = app.shortcut_help.as_ref().unwrap().rect;
+        let outside = if help.x > 0 {
+            (help.x - 1, help.y)
+        } else {
+            (help.x.saturating_add(help.width), help.y)
+        };
+        assert!(!help.contains(outside.0, outside.1));
+
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Right),
+            column: outside.0,
+            row: outside.1,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        assert!(app.shortcut_help.is_none());
+        assert!(app.canceled_pointer_buttons.contains(&MouseButton::Right));
+
+        app.menu = Some(ContextMenu::at(10, 5, vec![vec![MenuAction::ShowShortcuts]]));
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Right),
+            column: 10,
+            row: 5,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        assert!(app.menu.is_some(), "the stale outside release must not activate the new menu");
+    }
+
+    #[test]
     fn opening_shortcut_help_releases_an_active_pty_mouse_press() {
         let mux = Mux::new("shortcut-help-pty-release-test", SurfaceOptions::default());
         let surface = mux.new_workspace(None, Some((20, 8))).unwrap();
@@ -26021,6 +33097,7 @@ mod tests {
         let mux = Mux::new("shortcut-help-split-release-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
         app.drag = Some(Drag::ResizeSplit {
+            screen: app.active_screen_id().unwrap_or(0),
             horizontal: Some(PaneResizeDragTarget::ViewportColumn {
                 pane: 1,
                 edge: PaneEdge::Right,
@@ -26188,6 +33265,1114 @@ mod tests {
     }
 
     #[test]
+    fn fresh_sidebar_renders_work_and_focus_controls_with_the_empty_agents_view() {
+        let (mux, surface) = test_mux("default-sidebar-presentation-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.sidebar_view = SidebarView::Workspaces;
+        app.sync_layout((100, 24));
+
+        let mut terminal = Terminal::new(TestBackend::new(100, 24)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let rendered = buffer_text(terminal.backend().buffer());
+
+        assert!(rendered.contains("Work"), "the active profile is discoverable: {rendered}");
+        assert!(rendered.contains("Focus"), "the alternate profile is discoverable: {rendered}");
+        assert!(rendered.contains("agents"), "the Agents view title is visible: {rendered}");
+        assert!(rendered.contains("no agents"), "an empty roster is explained: {rendered}");
+
+        let presentation = app.sidebar_layout.presentation.expect("shared profile strip");
+        let workspaces = app.sidebar_layout.workspace.expect("workspace rail");
+        let agents = app.sidebar_layout.rail(RailKind::Projection(2)).expect("agent rail");
+        assert_eq!(presentation.y, 0);
+        assert_eq!(workspaces.y, 1);
+        assert_eq!((workspaces.x, workspaces.width), (agents.x, agents.width));
+        assert_eq!(app.sidebar_layout.dividers[0].rect.y, workspaces.y + workspaces.height);
+        assert_eq!(agents.y, app.sidebar_layout.dividers[0].rect.y + 1);
+
+        let focus = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                matches!(hit, super::Hit::SidebarProfile { index: 1, .. }).then_some(*rect)
+            })
+            .expect("Focus profile hit");
+        app.handle_left_down(focus.x, focus.y, KeyModifiers::NONE).unwrap();
+        app.sync_layout((100, 24));
+        assert_eq!(app.config.sidebar.active_profile, "focus");
+        assert_eq!(app.focus, FocusTarget::Pane);
+        assert!(app.sidebar_layout.rail(RailKind::Projection(2)).is_none());
+
+        app.run_action(Action::NextSidebarProfile).unwrap();
+        app.sync_layout((100, 24));
+        assert_eq!(app.config.sidebar.active_profile, "work");
+        assert_eq!(app.focus, FocusTarget::Pane);
+        assert!(app.sidebar_layout.rail(RailKind::Projection(2)).is_some());
+        app.run_action(Action::PrevSidebarProfile).unwrap();
+        assert_eq!(app.config.sidebar.active_profile, "focus");
+
+        app.activate_sidebar_profile(0);
+        let pane = mux.with_state(|state| state.pane_of(surface.id).unwrap());
+        let other = mux.new_tab(Some(pane), None, Some((80, 24))).unwrap();
+        mux.report_agent(
+            surface.id,
+            AgentState::Working,
+            AgentSource::Hook,
+            Some("default-work-agent".into()),
+        )
+        .unwrap();
+        app.replace_tree(app.session.tree());
+        app.sync_layout((100, 24));
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        assert!(
+            buffer_text(terminal.backend().buffer()).contains("~1"),
+            "the profile strip discloses active agent work"
+        );
+        let agent_row = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                matches!(
+                    hit,
+                    super::Hit::ProjectionRow {
+                        view: 2,
+                        target: crate::sidebar_projection::ProjectionTarget::Surface {
+                            surface: target,
+                            ..
+                        },
+                        ..
+                    } if *target == surface.id
+                )
+                .then_some(*rect)
+            })
+            .expect("default agent row targets the reported surface");
+        app.handle_left_down(agent_row.x, agent_row.y, KeyModifiers::NONE).unwrap();
+        assert_eq!(app.tree.active_surface(), Some(surface.id));
+        assert!(matches!(
+            app.active_sidebar_profile_state()
+                .and_then(|state| state.projection_rails.get("agents"))
+                .and_then(|state| state.selected_target),
+            Some(crate::sidebar_projection::ProjectionTarget::Surface {
+                surface: target,
+                ..
+            }) if target == surface.id
+        ));
+
+        // Agents is a workspace-oriented rail. When Focus has no Agents
+        // view, profile switching keeps the semantic workspace parent.
+        app.focus = FocusTarget::ProjectionRail(2);
+        app.focus_rail(RailKind::Projection(2));
+        app.activate_sidebar_profile(1);
+        assert_eq!(app.focus, FocusTarget::WorkspaceRail);
+
+        mux.close_surface(other.id).unwrap();
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn constrained_default_sidebar_discloses_height_hiding_and_restore_pins_the_view() {
+        let (mux, surface) = test_mux("default-sidebar-height-restore-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.sidebar_view = SidebarView::Workspaces;
+        app.sync_layout((100, 9));
+
+        assert_eq!(
+            app.sidebar_layout.hidden_views,
+            vec![SidebarHiddenView {
+                view_index: 2,
+                id: "agents".into(),
+                reason: SidebarHiddenReason::Height,
+            }]
+        );
+        let mut terminal = Terminal::new(TestBackend::new(100, 9)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        assert!(buffer_text(terminal.backend().buffer()).contains("+1↕"));
+        app.open_context_menu(1, 0);
+        assert!(app.menu.as_ref().is_some_and(|menu| {
+            menu.actions().contains(&MenuAction::SetSidebarViewVisible { view: 2, visible: true })
+        }));
+        app.menu = None;
+        let restore = app.sidebar_view_visibility_items(2);
+        assert!(restore.iter().any(|item| {
+            item.action() == Some(MenuAction::SetSidebarViewVisible { view: 2, visible: true })
+                && item.label().is_some_and(|label| label.contains("not enough height"))
+        }));
+
+        app.activate_menu(MenuAction::SetSidebarViewVisible { view: 2, visible: true }).unwrap();
+        app.sync_layout((100, 9));
+        assert!(app.sidebar_layout.rail(RailKind::Projection(2)).is_some());
+        assert_eq!(app.sidebar_layout.hidden_views[0].id, "workspaces");
+        assert_eq!(app.sidebar_layout.hidden_views[0].reason, SidebarHiddenReason::Height);
+        assert!(
+            app.active_sidebar_profile_state()
+                .is_some_and(|state| state.pinned_views.contains("agents"))
+        );
+
+        app.activate_menu(MenuAction::SetSidebarViewPinned { view: 2, pinned: false }).unwrap();
+        app.sync_layout((100, 9));
+        assert!(app.sidebar_layout.rail(RailKind::Projection(2)).is_none());
+        assert_eq!(app.sidebar_layout.hidden_views[0].id, "agents");
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn files_mode_keeps_workspace_host_when_restoring_agents_at_short_height() {
+        let temp = test_temp_dir("files-short-height-restore");
+        std::fs::write(temp.join("host-proof.txt"), "").unwrap();
+        let (mux, surface) = test_mux("files-short-height-restore-test", Some(&temp));
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_files = FileBrowser::new(temp.clone());
+        app.sidebar_files.refresh();
+        app.replace_tree(app.session.tree());
+        app.sidebar_view = SidebarView::Files;
+        app.sync_layout((100, 9));
+
+        assert_eq!(app.sidebar_view, SidebarView::Files);
+        assert!(app.sidebar_layout.workspace.is_some(), "Files needs its workspace host");
+        assert!(app.workspace_sidebar_area(9).is_some());
+        assert!(app.sidebar_width > 0);
+        assert!(app.sidebar_layout.hidden_views.iter().any(|hidden| {
+            hidden.id == "agents" && hidden.reason == SidebarHiddenReason::Height
+        }));
+
+        // Restore exercises the same reducer used by the context menu. The
+        // user pin must not outrank Files' mode-required host.
+        app.activate_menu(MenuAction::SetSidebarViewVisible { view: 2, visible: true }).unwrap();
+        app.sync_layout((100, 9));
+        assert_eq!(app.sidebar_view, SidebarView::Files);
+        assert!(app.sidebar_layout.workspace.is_some());
+        assert!(app.workspace_sidebar_area(9).is_some());
+        assert!(app.sidebar_layout.hidden_views.iter().any(|hidden| {
+            hidden.id == "agents" && hidden.reason == SidebarHiddenReason::Height
+        }));
+        assert!(
+            app.active_sidebar_profile_state()
+                .is_some_and(|state| state.pinned_views.contains("agents"))
+        );
+
+        let mut terminal = Terminal::new(TestBackend::new(100, 9)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        assert!(buffer_text(terminal.backend().buffer()).contains("host-proof.txt"));
+
+        mux.close_surface(surface.id).unwrap();
+        std::fs::remove_dir_all(temp).unwrap();
+    }
+
+    #[test]
+    fn files_mode_restores_after_a_required_workspace_host_returns() {
+        let temp = test_temp_dir("files-required-host-resize-restore");
+        std::fs::write(temp.join("resize-proof.txt"), "").unwrap();
+        let (mux, surface) = test_mux("files-required-host-resize-restore-test", Some(&temp));
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_files = FileBrowser::new(temp.clone());
+        app.sidebar_files.refresh();
+        app.replace_tree(app.session.tree());
+        app.sidebar_view = SidebarView::Files;
+
+        // A one-row frame cannot mount any sidebar rail. Files must fall back
+        // while retaining an explicit restore intent for the same profile.
+        app.sync_layout((100, 1));
+        assert_eq!(app.sidebar_view, SidebarView::Workspaces);
+        assert!(app.sidebar_layout.workspace.is_none());
+        assert!(app.active_sidebar_profile_state().is_some_and(|state| {
+            state.files_restore_pending && state.content_mode == Some(SidebarView::Files)
+        }));
+
+        // The next frame with enough room mounts the host and restores Files
+        // without another user action.
+        app.sync_layout((100, 24));
+        assert_eq!(app.sidebar_view, SidebarView::Files);
+        assert!(app.sidebar_layout.workspace.is_some());
+        assert!(app.active_sidebar_profile_state().is_some_and(|state| {
+            !state.files_restore_pending && state.content_mode == Some(SidebarView::Files)
+        }));
+
+        let mut terminal = Terminal::new(TestBackend::new(100, 24)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        assert!(buffer_text(terminal.backend().buffer()).contains("resize-proof.txt"));
+
+        mux.close_surface(surface.id).unwrap();
+        std::fs::remove_dir_all(temp).unwrap();
+    }
+
+    #[test]
+    fn files_host_action_scroll_is_profile_local_and_starts_at_the_first_row() {
+        let temp = test_temp_dir("files-action-scroll-isolation");
+        std::fs::write(temp.join("workspace.txt"), "x").unwrap();
+        let (mux, surface) = test_mux("files-action-scroll-isolation-test", Some(&temp));
+        let mut app = test_app(Session::Local(mux.clone()));
+        let mut view = SidebarViewSpec::legacy(SidebarColumnKind::Workspaces, 34, 0);
+        view.actions = vec![
+            crate::config::SidebarActionSpec::plain(Action::NewTab),
+            crate::config::SidebarActionSpec::plain(Action::NewScreen),
+            crate::config::SidebarActionSpec::plain(Action::NewBrowserTab),
+            crate::config::SidebarActionSpec::plain(Action::NewPaneSmart),
+            crate::config::SidebarActionSpec::plain(Action::NextTab),
+            crate::config::SidebarActionSpec::plain(Action::PrevTab),
+            crate::config::SidebarActionSpec::plain(Action::RenameWorkspace),
+            crate::config::SidebarActionSpec::plain(Action::PrevScreen),
+            crate::config::SidebarActionSpec::plain(Action::NextScreen),
+            crate::config::SidebarActionSpec::plain(Action::NewWorkspace),
+        ];
+        let profile = SidebarProfileSpec {
+            id: "files-actions".into(),
+            name: "Files actions".into(),
+            layout: crate::config::sidebar_layout_of_columns(std::slice::from_ref(&view)),
+            views: vec![view],
+        };
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.profiles = vec![profile.clone()];
+        app.config.sidebar.active_profile = profile.id.clone();
+        app.config.sidebar.views = profile.views.clone();
+        app.config.sidebar.layout = profile.layout;
+        app.config.sidebar.views_explicit = true;
+        app.sidebar_files = FileBrowser::new(temp.clone());
+        app.sidebar_view = SidebarView::Workspaces;
+        app.sync_layout((100, 9));
+        let actions = app.workspace_sidebar_action_rows();
+        assert!(actions.len() >= 8, "the test needs clipped action rows: {actions:?}");
+
+        // A Workspaces footer scroll must not become the initial Files action
+        // offset. The first configured action is the first action target after
+        // entering Files in this profile.
+        app.active_sidebar_rail_scroll_mut().workspace_footer_scroll = 2;
+        app.focus = FocusTarget::WorkspaceRail;
+        app.toggle_sidebar_view();
+        app.sync_layout((100, 9));
+        let area = app.workspace_sidebar_area(9).expect("Files workspace host");
+        let geometry = app.files_layout_geometry(area);
+        assert_eq!(geometry.action_offset, 0);
+        let mut terminal = Terminal::new(TestBackend::new(100, 9)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let hidden_actions =
+            actions.len().saturating_sub(geometry.top_action_rows + geometry.bottom_action_rows);
+        assert!(hidden_actions > 0);
+        assert!(
+            buffer_text(terminal.backend().buffer()).contains(&format!(
+                "+{hidden_actions} {}",
+                localization::catalog().sidebar.provider_actions
+            )),
+            "a clipped action section must disclose its hidden rows"
+        );
+        assert!(
+            buffer_text(terminal.backend().buffer()).contains("↓"),
+            "the visible action boundary must disclose that more rows are below"
+        );
+        assert!(app.hits.iter().any(|(_, hit)| {
+            matches!(
+                hit,
+                super::Hit::SidebarAction { action, .. }
+                    if *action == actions[0].target
+            )
+        }));
+
+        // End crosses the file/action boundary and reveals the semantic last
+        // action. Its offset belongs to Files, not to the Workspaces footer.
+        app.handle_builtin_sidebar_key(&KeyEvent::new(KeyCode::End, KeyModifiers::NONE)).unwrap();
+        assert_eq!(
+            app.files_rail_selection,
+            super::FilesRailSelection::Action(actions.last().unwrap().target)
+        );
+        let files_offset =
+            app.active_sidebar_profile_state().map_or(0, |state| state.files_action_scroll);
+        assert!(files_offset > 0);
+
+        // The action section has its own wheel viewport. Scrolling it keeps
+        // the semantic activation target, while allowing a clipped action to
+        // be inspected with the mouse.
+        let action_y = app.files_action_rect(area).expect("visible Files action section").y;
+        let before_action_offset = files_offset;
+        assert_eq!(
+            app.handle_scroll(area.x, action_y, false, KeyModifiers::NONE).unwrap(),
+            RenderAction::Draw
+        );
+        let after_action_offset =
+            app.active_sidebar_profile_state().map_or(0, |state| state.files_action_scroll);
+        assert!(after_action_offset < before_action_offset);
+        assert_eq!(
+            app.files_rail_selection,
+            super::FilesRailSelection::Action(actions.last().unwrap().target)
+        );
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        assert_eq!(
+            app.active_sidebar_profile_state().map_or(0, |state| state.files_action_scroll),
+            after_action_offset,
+            "a redraw must not snap a mouse-scrolled action viewport back"
+        );
+
+        app.handle_builtin_sidebar_key(&KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)).unwrap();
+        assert_eq!(app.focus, FocusTarget::Pane);
+        app.focus_rail(RailKind::Workspace);
+        assert_eq!(
+            app.active_sidebar_profile_state().map_or(0, |state| state.files_action_scroll),
+            files_offset,
+            "refocusing the Files host must reveal its semantic action target"
+        );
+
+        app.toggle_sidebar_view();
+        assert_eq!(app.sidebar_view, SidebarView::Workspaces);
+        assert_eq!(app.active_sidebar_rail_scroll().workspace_footer_scroll, 2);
+        app.active_sidebar_rail_scroll_mut().workspace_footer_scroll = 0;
+        app.toggle_sidebar_view();
+        app.sync_layout((100, 9));
+        let area = app.workspace_sidebar_area(9).expect("Files workspace host");
+        assert_eq!(app.files_layout_geometry(area).action_offset, files_offset);
+
+        mux.close_surface(surface.id).unwrap();
+        std::fs::remove_dir_all(temp).unwrap();
+    }
+
+    #[test]
+    fn files_host_keyboard_navigation_follows_action_position_and_invokes_semantic_targets() {
+        let temp = test_temp_dir("files-host-keyboard-actions");
+        std::fs::write(temp.join("a.txt"), "a").unwrap();
+        std::fs::write(temp.join("b.txt"), "b").unwrap();
+        let (mux, surface) = test_mux("files-host-keyboard-actions-test", Some(&temp));
+        let mut app = test_app(Session::Local(mux.clone()));
+        let mut view = SidebarViewSpec::legacy(SidebarColumnKind::Workspaces, 34, 0);
+        view.actions = vec![
+            crate::config::SidebarActionSpec::plain(Action::NewTab),
+            crate::config::SidebarActionSpec::plain(Action::NewScreen),
+            crate::config::SidebarActionSpec::plain(Action::RenameWorkspace),
+        ];
+        let profile = SidebarProfileSpec {
+            id: "files-keyboard".into(),
+            name: "Files keyboard".into(),
+            layout: crate::config::sidebar_layout_of_columns(std::slice::from_ref(&view)),
+            views: vec![view],
+        };
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.profiles = vec![profile.clone()];
+        app.config.sidebar.active_profile = profile.id.clone();
+        app.config.sidebar.views = profile.views.clone();
+        app.config.sidebar.layout = profile.layout;
+        app.config.sidebar.views_explicit = true;
+        app.sidebar_files = FileBrowser::new(temp.clone());
+        app.sidebar_view = SidebarView::Files;
+        app.focus = FocusTarget::WorkspaceRail;
+        app.sync_layout((100, 16));
+        let actions = app.workspace_sidebar_action_rows();
+        assert_eq!(actions.len(), 3);
+
+        // Bottom actions follow the file rows. Ctrl-j/k are the explicit
+        // terminal-friendly aliases for Down/Up and cross the boundary.
+        app.files_rail_selection = super::FilesRailSelection::File;
+        app.sidebar_files.select(0);
+        app.handle_builtin_sidebar_key(&KeyEvent::new(KeyCode::Home, KeyModifiers::NONE)).unwrap();
+        app.handle_builtin_sidebar_key(&KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)).unwrap();
+        assert_eq!(app.sidebar_files.selected(), 1);
+        app.handle_builtin_sidebar_key(&KeyEvent::new(KeyCode::Char('j'), KeyModifiers::CONTROL))
+            .unwrap();
+        assert_eq!(app.files_rail_selection, super::FilesRailSelection::Action(actions[0].target));
+        app.handle_builtin_sidebar_key(&KeyEvent::new(KeyCode::Char('k'), KeyModifiers::CONTROL))
+            .unwrap();
+        assert_eq!(app.files_rail_selection, super::FilesRailSelection::File);
+        assert_eq!(app.sidebar_files.selected(), 1);
+
+        // Top actions are the first keyboard targets. Home and End therefore
+        // select the first action and the last file, respectively.
+        app.config.sidebar.views[0].actions_position = crate::config::ActionsPosition::Top;
+        app.config.sidebar.profiles[0].views[0].actions_position =
+            crate::config::ActionsPosition::Top;
+        app.files_rail_selection = super::FilesRailSelection::File;
+        app.sidebar_files.select(0);
+        app.sync_layout((100, 16));
+        app.handle_builtin_sidebar_key(&KeyEvent::new(KeyCode::Home, KeyModifiers::NONE)).unwrap();
+        assert_eq!(app.files_rail_selection, super::FilesRailSelection::Action(actions[0].target));
+        app.handle_builtin_sidebar_key(&KeyEvent::new(KeyCode::End, KeyModifiers::NONE)).unwrap();
+        assert_eq!(app.files_rail_selection, super::FilesRailSelection::File);
+        assert_eq!(app.sidebar_files.selected(), 1);
+
+        // Enter uses the same semantic action reducer as a configured
+        // keyboard command. Rename opens its workspace prompt.
+        app.files_rail_selection = super::FilesRailSelection::Action(actions[2].target);
+        app.handle_builtin_sidebar_key(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
+        assert!(matches!(
+            app.prompt.as_ref().map(|prompt| prompt.target),
+            Some(PromptTarget::Workspace(_))
+        ));
+
+        // Removing the selected action makes the old semantic target stale.
+        // Enter must fail closed and must not activate the new first row.
+        app.prompt = None;
+        app.config.sidebar.views[0].actions.clear();
+        app.config.sidebar.profiles[0].views[0].actions.clear();
+        app.files_rail_selection = super::FilesRailSelection::Action(actions[2].target);
+        app.handle_builtin_sidebar_key(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
+        assert_eq!(app.files_rail_selection, super::FilesRailSelection::File);
+        assert!(app.prompt.is_none());
+
+        mux.close_surface(surface.id).unwrap();
+        std::fs::remove_dir_all(temp).unwrap();
+    }
+
+    #[test]
+    fn files_filter_escape_clears_then_exits_without_losing_rail_focus() {
+        let temp = test_temp_dir("files-filter-escape-focus");
+        std::fs::write(temp.join("filter-target.txt"), "x").unwrap();
+        let (mux, surface) = test_mux("files-filter-escape-focus-test", Some(&temp));
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_files = FileBrowser::new(temp.clone());
+        app.sidebar_view = SidebarView::Files;
+        app.focus = FocusTarget::WorkspaceRail;
+        app.sync_layout((100, 16));
+        app.sidebar_files.handle_key(&KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
+        assert!(app.sidebar_files.insert_filter_text("filter"));
+        app.files_rail_selection =
+            super::FilesRailSelection::Action(SidebarActionTarget::Run(Action::NewTab));
+
+        app.handle_builtin_sidebar_key(&KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)).unwrap();
+        assert_eq!(app.sidebar_files.query(), "");
+        assert!(app.sidebar_files.filter_mode());
+        assert_eq!(app.focus, FocusTarget::WorkspaceRail);
+        assert_eq!(app.files_rail_selection, super::FilesRailSelection::File);
+
+        app.handle_builtin_sidebar_key(&KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)).unwrap();
+        assert!(!app.sidebar_files.filter_mode());
+        assert_eq!(app.focus, FocusTarget::WorkspaceRail);
+
+        app.handle_builtin_sidebar_key(&KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)).unwrap();
+        assert_eq!(app.focus, FocusTarget::Pane);
+
+        mux.close_surface(surface.id).unwrap();
+        std::fs::remove_dir_all(temp).unwrap();
+    }
+
+    #[test]
+    fn files_wheel_keeps_activation_target_and_file_click_clears_action_selection() {
+        let temp = test_temp_dir("files-wheel-action-selection");
+        for index in 0..16 {
+            std::fs::write(temp.join(format!("entry-{index:02}.txt")), "x").unwrap();
+        }
+        let (mux, surface) = test_mux("files-wheel-action-selection-test", Some(&temp));
+        let mut app = test_app(Session::Local(mux.clone()));
+        let mut view = SidebarViewSpec::legacy(SidebarColumnKind::Workspaces, 34, 0);
+        view.actions = vec![crate::config::SidebarActionSpec::plain(Action::NewTab)];
+        let profile = SidebarProfileSpec {
+            id: "files-wheel".into(),
+            name: "Files wheel".into(),
+            layout: crate::config::sidebar_layout_of_columns(std::slice::from_ref(&view)),
+            views: vec![view],
+        };
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.profiles = vec![profile.clone()];
+        app.config.sidebar.active_profile = profile.id.clone();
+        app.config.sidebar.views = profile.views.clone();
+        app.config.sidebar.layout = profile.layout;
+        app.config.sidebar.views_explicit = true;
+        app.sidebar_files = FileBrowser::new(temp.clone());
+        app.sidebar_view = SidebarView::Files;
+        app.focus = FocusTarget::WorkspaceRail;
+        app.sync_layout((100, 12));
+        let action = app.workspace_sidebar_action_rows()[0].target;
+        app.files_rail_selection = super::FilesRailSelection::Action(action);
+        let mut terminal = Terminal::new(TestBackend::new(100, 12)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let area = app.workspace_sidebar_area(12).expect("Files workspace host");
+        let body = app.files_body_rect(area);
+        let before = app.sidebar_files.scroll_offset();
+        assert_eq!(
+            app.handle_scroll(area.x, body.y, true, KeyModifiers::NONE).unwrap(),
+            RenderAction::Draw
+        );
+        assert!(app.sidebar_files.scroll_offset() > before);
+        assert_eq!(app.files_rail_selection, super::FilesRailSelection::Action(action));
+
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let file_hit = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| matches!(hit, super::Hit::SidebarFile { .. }).then_some(*rect))
+            .expect("a visible file row");
+        app.handle_left_down(file_hit.x, file_hit.y, KeyModifiers::NONE).unwrap();
+        assert_eq!(app.focus, FocusTarget::WorkspaceRail);
+        assert_eq!(app.files_rail_selection, super::FilesRailSelection::File);
+
+        mux.close_surface(surface.id).unwrap();
+        std::fs::remove_dir_all(temp).unwrap();
+    }
+
+    #[test]
+    fn files_short_host_does_not_select_or_activate_invisible_rows() {
+        let temp = test_temp_dir("files-short-host-no-invisible-target");
+        std::fs::write(temp.join("visible.txt"), "x").unwrap();
+        let (mux, surface) = test_mux("files-short-host-no-invisible-target-test", Some(&temp));
+        let mut app = test_app(Session::Local(mux.clone()));
+        let mut view = SidebarViewSpec::legacy(SidebarColumnKind::Workspaces, 34, 0);
+        view.actions = vec![crate::config::SidebarActionSpec::plain(Action::NewTab)];
+        let profile = SidebarProfileSpec {
+            id: "files-short".into(),
+            name: "Files short".into(),
+            layout: crate::config::sidebar_layout_of_columns(std::slice::from_ref(&view)),
+            views: vec![view],
+        };
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.profiles = vec![profile.clone()];
+        app.config.sidebar.active_profile = profile.id.clone();
+        app.config.sidebar.views = profile.views.clone();
+        app.config.sidebar.layout = profile.layout;
+        app.config.sidebar.views_explicit = true;
+        app.sidebar_files = FileBrowser::new(temp.clone());
+        app.sidebar_files.refresh();
+        app.sidebar_view = SidebarView::Files;
+        app.focus = FocusTarget::WorkspaceRail;
+        app.sync_layout((100, 3));
+        let area = app.workspace_sidebar_area(3).expect("Files workspace host");
+        let geometry = app.files_layout_geometry(area);
+        assert_eq!(geometry.body.height, 1, "this frame has only one Files body row");
+        assert_eq!(geometry.top_action_rows + geometry.bottom_action_rows, 0);
+        let action = app.workspace_sidebar_action_rows()[0].target;
+        app.files_rail_selection = super::FilesRailSelection::Action(action);
+
+        // Enter on an action that has no visible row is consumed after the
+        // selection returns to the file domain. It must not invoke the action
+        // or fall through to the first file row.
+        let pending_before = app.session.has_pending_mutations();
+        app.handle_builtin_sidebar_key(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
+        assert_eq!(app.files_rail_selection, super::FilesRailSelection::File);
+        assert!(app.prompt.is_none());
+        assert_eq!(app.session.has_pending_mutations(), pending_before);
+
+        // End also clamps a stale action selection to the visible file
+        // domain. A later Enter is allowed to activate that file normally.
+        app.files_rail_selection = super::FilesRailSelection::Action(action);
+        app.handle_builtin_sidebar_key(&KeyEvent::new(KeyCode::End, KeyModifiers::NONE)).unwrap();
+        assert_eq!(app.files_rail_selection, super::FilesRailSelection::File);
+
+        mux.close_surface(surface.id).unwrap();
+        std::fs::remove_dir_all(temp).unwrap();
+    }
+
+    #[test]
+    fn single_profile_width_overflow_has_management_without_a_false_profile_tab() {
+        let mux = Mux::new("single-profile-width-overflow-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.sidebar_view = SidebarView::Workspaces;
+        let views = vec![
+            SidebarViewSpec::legacy(SidebarColumnKind::Workspaces, 22, 0),
+            SidebarViewSpec {
+                id: "agents".into(),
+                levels: vec![SidebarResourceKind::Agents],
+                actions: Vec::new(),
+                actions_position: crate::config::ActionsPosition::Bottom,
+                width: 22,
+                max_width: 0,
+                collapse_priority: 20,
+                row_lines: 2,
+                scope: SidebarViewScope::All,
+                sort: AgentSortMode::Priority,
+                filter: AgentRowFilter::default(),
+            },
+        ];
+        let layout = crate::config::sidebar_layout_of_columns(&views);
+        app.config.sidebar.profiles = vec![SidebarProfileSpec {
+            id: "only".into(),
+            name: "Only".into(),
+            views: views.clone(),
+            layout: layout.clone(),
+        }];
+        app.config.sidebar.active_profile = "only".into();
+        app.config.sidebar.views = views;
+        app.config.sidebar.layout = layout;
+        app.config.sidebar.views_explicit = true;
+        app.sync_layout((100, 20));
+        assert!(app.sidebar_layout.presentation.is_none());
+        assert_eq!(app.sidebar_layout.ordered.len(), 2);
+
+        app.sync_layout((50, 20));
+
+        assert_eq!(app.sidebar_layout.hidden_views.len(), 1);
+        assert_eq!(app.sidebar_layout.hidden_views[0].id, "agents");
+        assert_eq!(app.sidebar_layout.hidden_views[0].reason, SidebarHiddenReason::Width);
+        let mut terminal = Terminal::new(TestBackend::new(50, 20)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let rendered = buffer_text(terminal.backend().buffer());
+        assert!(rendered.contains("+1↔"), "width hiding is visible: {rendered}");
+        assert!(app.hits.iter().any(|(_, hit)| *hit == super::Hit::SidebarPresentationMenu));
+        assert!(
+            !app.hits.iter().any(|(_, hit)| { matches!(hit, super::Hit::SidebarProfile { .. }) })
+        );
+    }
+
+    #[test]
+    fn narrow_profile_strip_keeps_the_active_name_and_compact_mode_discoverable() {
+        let (mux, surface) = test_mux("narrow-profile-strip-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_view = SidebarView::Workspaces;
+        app.sync_layout((50, 20));
+        let mut terminal = Terminal::new(TestBackend::new(50, 20)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let first_line =
+            (0..50).map(|x| terminal.backend().buffer()[(x, 0)].symbol()).collect::<String>();
+        assert!(first_line.contains("Work"), "active profile remains readable: {first_line:?}");
+        assert!(app.hits.iter().any(|(_, hit)| *hit == super::Hit::SidebarPresentationMenu));
+
+        app.sidebar_compact = true;
+        app.sync_layout((100, 20));
+        let mut compact = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        compact.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let compact_line =
+            (0..100).map(|x| compact.backend().buffer()[(x, 0)].symbol()).collect::<String>();
+        assert!(
+            compact_line.contains("Work"),
+            "compact mode keeps profile discovery: {compact_line:?}"
+        );
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn alt_vertical_navigation_reaches_the_stacked_agents_rail_from_files() {
+        let (mux, surface) = test_mux("files-alt-rail-navigation-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_view = SidebarView::Files;
+        app.sync_layout((100, 24));
+        app.focus = FocusTarget::WorkspaceRail;
+        app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::ALT)).unwrap();
+        assert_eq!(app.focus, FocusTarget::ProjectionRail(2));
+        app.handle_key(KeyEvent::new(KeyCode::Up, KeyModifiers::ALT)).unwrap();
+        assert_eq!(app.focus, FocusTarget::WorkspaceRail);
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn sidebar_profile_pointer_identity_uses_the_stable_profile_id() {
+        let mux = Mux::new("sidebar-profile-pointer-identity-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let before = app.pointer_hit_identity(
+            super::Hit::SidebarProfile { index: 0, token: sidebar_profile_token("work") },
+            None,
+        );
+        app.config.sidebar.profiles.swap(0, 1);
+        let after = app.pointer_hit_identity(
+            super::Hit::SidebarProfile { index: 0, token: sidebar_profile_token("work") },
+            None,
+        );
+
+        assert_eq!(before, Some(PointerHitIdentity::SidebarProfile("work".into())));
+        assert_eq!(after, Some(PointerHitIdentity::SidebarProfile("work".into())));
+    }
+
+    #[test]
+    fn profile_hit_resolves_stable_id_after_profile_reorder() {
+        let mux = Mux::new("sidebar-profile-stale-hit-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.sync_layout((100, 20));
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let profile = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                matches!(hit, super::Hit::SidebarProfile { index: 1, .. }).then_some(*rect)
+            })
+            .expect("Focus profile hit");
+
+        // Simulate a config reorder between pointer sampling and dispatch.
+        // The rendered token belongs to Focus, while index 1 now names Work.
+        // Resolve the stable profile id instead of dropping a valid click.
+        app.config.sidebar.active_profile = "work".into();
+        app.config.sidebar.profiles.swap(0, 1);
+        app.handle_left_down(profile.x, profile.y, KeyModifiers::NONE).unwrap();
+        assert_eq!(app.config.sidebar.active_profile, "focus");
+    }
+
+    #[test]
+    fn files_mode_keeps_native_profile_controls_visible_and_operable() {
+        let mux = Mux::new("files-mode-profile-controls-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.sidebar_view = SidebarView::Files;
+        let active = app.config.sidebar.active_profile.clone();
+
+        app.sync_layout((100, 20));
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        assert!(app.sidebar_layout.presentation.is_some());
+        assert!(
+            app.hits.iter().any(|(_, hit)| { matches!(hit, super::Hit::SidebarProfile { .. }) })
+        );
+
+        app.run_action(Action::NextSidebarProfile).unwrap();
+        assert_ne!(app.config.sidebar.active_profile, active);
+        app.sync_layout((100, 20));
+        assert!(app.sidebar_layout.rail(RailKind::Projection(2)).is_none());
+
+        assert!(
+            app.global_menu_items()
+                .iter()
+                .any(|item| { item.label() == Some(localization::catalog().menu.sidebar_layout) })
+        );
+    }
+
+    #[test]
+    fn profile_controls_keep_sidebar_focus_and_files_host_hits_are_focusable() {
+        let (mux, surface) = test_mux("sidebar-presentation-focus-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_view = SidebarView::Files;
+        app.sync_layout((100, 20));
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+
+        // A profile click from the pane is a presentation action. It must
+        // leave terminal input focused in the pane.
+        let profile = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                matches!(hit, super::Hit::SidebarProfile { index: 1, .. }).then_some(*rect)
+            })
+            .expect("Focus profile hit");
+        app.focus = FocusTarget::Pane;
+        app.handle_left_down(profile.x, profile.y, KeyModifiers::NONE).unwrap();
+        assert_eq!(app.config.sidebar.active_profile, "focus");
+        assert_eq!(app.focus, FocusTarget::Pane);
+
+        // Return to Work before checking the rail-origin rule.
+        app.activate_sidebar_profile(0);
+        app.sync_layout((100, 20));
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let files_area = app.workspace_sidebar_area(20).expect("workspace host area");
+        let header = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                (*hit == super::Hit::RailPad(RailKind::Workspace) && rect.y == files_area.y)
+                    .then_some(*rect)
+            })
+            .expect("Files header focuses the workspace host");
+        app.focus = FocusTarget::Pane;
+        app.handle_left_down(header.x, header.y, KeyModifiers::NONE).unwrap();
+        assert_eq!(app.focus, FocusTarget::WorkspaceRail);
+
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let profile = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                matches!(hit, super::Hit::SidebarProfile { index: 1, .. }).then_some(*rect)
+            })
+            .expect("Focus profile hit");
+        app.handle_left_down(profile.x, profile.y, KeyModifiers::NONE).unwrap();
+        assert_eq!(app.config.sidebar.active_profile, "focus");
+        assert_eq!(app.focus, FocusTarget::WorkspaceRail);
+
+        app.sync_layout((100, 20));
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let menu = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| (*hit == super::Hit::SidebarPresentationMenu).then_some(*rect))
+            .expect("presentation menu hit");
+        app.handle_left_down(menu.x, menu.y, KeyModifiers::NONE).unwrap();
+        assert_eq!(app.focus, FocusTarget::WorkspaceRail);
+        assert!(app.menu.is_some());
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn prefixed_sidebar_presentation_actions_preserve_rail_focus() {
+        let (mux, surface) = test_mux("sidebar-presentation-keyboard-focus-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_view = SidebarView::Workspaces;
+        app.sync_layout((100, 24));
+        let prefix = KeyEvent::new(KeyCode::Char('b'), KeyModifiers::CONTROL);
+
+        // The Work profile's Agents rail is a real keyboard target. Cycling
+        // to Focus must keep the user in the sidebar and restore its
+        // workspace-oriented semantic parent.
+        app.focus = FocusTarget::ProjectionRail(2);
+        app.handle_key(prefix).unwrap();
+        app.handle_key(KeyEvent::new(KeyCode::Char('L'), KeyModifiers::NONE)).unwrap();
+        assert_eq!(app.config.sidebar.active_profile, "focus");
+        assert_eq!(app.focus, FocusTarget::WorkspaceRail);
+
+        // Switching the native content mode from a non-host rail must also
+        // preserve sidebar intent, then move focus to the stable Files host.
+        app.activate_sidebar_profile(0);
+        app.sync_layout((100, 24));
+        app.focus = FocusTarget::ProjectionRail(2);
+        app.handle_key(prefix).unwrap();
+        app.handle_key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE)).unwrap();
+        assert_eq!(app.sidebar_view, SidebarView::Files);
+        assert_eq!(app.focus, FocusTarget::WorkspaceRail);
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn stale_files_row_click_resolves_the_rendered_path_after_reorder() {
+        let temp = test_temp_dir("files-stale-reorder-click");
+        std::fs::write(temp.join("alpha.txt"), "a").unwrap();
+        std::fs::write(temp.join("beta.txt"), "b").unwrap();
+        let (mux, surface) = test_mux("files-stale-reorder-click-test", Some(&temp));
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_files = FileBrowser::new(temp.clone());
+        app.sidebar_view = SidebarView::Files;
+        app.sync_layout((100, 12));
+        let mut terminal = Terminal::new(TestBackend::new(100, 12)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+
+        let rect = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                matches!(hit, super::Hit::SidebarFile { index: 0, .. }).then_some(*rect)
+            })
+            .expect("the first rendered file row has a hit receipt");
+        let rendered_path = app.sidebar_files.visible_entry(0).unwrap().path.clone();
+        assert_eq!(app.sidebar_files.visible_entry(0).unwrap().name, "alpha.txt");
+
+        // A refresh inserts a directory before the rendered file. Keep the
+        // old hit map and click its old coordinates to exercise delayed
+        // dispatch, as a pointer event can arrive before the next draw.
+        std::fs::create_dir(temp.join("00-new-directory")).unwrap();
+        app.sidebar_files.refresh();
+        assert_eq!(app.sidebar_files.visible_entry(0).unwrap().name, "00-new-directory");
+        app.handle_left_down(rect.x, rect.y, KeyModifiers::NONE).unwrap();
+
+        let selected = app.sidebar_files.selected();
+        assert_eq!(selected, 1);
+        assert_eq!(app.sidebar_files.visible_entry(selected).unwrap().path, rendered_path);
+
+        mux.close_surface(surface.id).unwrap();
+        std::fs::remove_dir_all(temp).unwrap();
+    }
+
+    #[test]
+    fn files_sidebar_empty_body_and_wheel_are_consumed_by_the_workspace_host() {
+        let temp = test_temp_dir("files-host-input");
+        let (mux, surface) = test_mux("files-host-input-test", Some(&temp));
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_view = SidebarView::Files;
+        app.sidebar_files = FileBrowser::new(temp.clone());
+        app.sync_layout((100, 12));
+        let mut terminal = Terminal::new(TestBackend::new(100, 12)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let area = app.workspace_sidebar_area(12).expect("workspace host area");
+        let body_y = area.y + 1;
+        assert_eq!(app.hit_at(area.x, area.y), Some(super::Hit::RailPad(RailKind::Workspace)));
+        assert_eq!(app.hit_at(area.x, body_y), Some(super::Hit::RailPad(RailKind::Workspace)));
+        let footer_y = area.y + area.height - 1;
+        assert_eq!(
+            app.hit_at(area.x, footer_y),
+            Some(super::Hit::RailPad(RailKind::Workspace)),
+            "the Files count footer stays inside the host focus domain"
+        );
+        app.focus = FocusTarget::Pane;
+        app.handle_left_down(area.x, body_y, KeyModifiers::NONE).unwrap();
+        assert_eq!(app.focus, FocusTarget::WorkspaceRail);
+        app.focus = FocusTarget::Pane;
+        app.handle_left_down(area.x, footer_y, KeyModifiers::NONE).unwrap();
+        assert_eq!(app.focus, FocusTarget::WorkspaceRail);
+
+        for index in 0..12 {
+            std::fs::write(temp.join(format!("file-{index:02}")), "x").unwrap();
+        }
+        app.sidebar_files.refresh();
+        app.sync_layout((100, 12));
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let area = app.workspace_sidebar_area(12).unwrap();
+        let row_y = area.y + 1;
+        assert!(matches!(
+            app.hit_at(area.x, row_y),
+            Some(super::Hit::SidebarFile { index: 0, .. })
+        ));
+        let before = app.sidebar_files.selected();
+        app.sidebar_files.set_scroll_offset(0);
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let scrollbar = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                matches!(hit, super::Hit::FilesScrollbar { .. }).then_some(*rect)
+            })
+            .expect("Files viewport scrollbar hit");
+        app.focus = FocusTarget::Pane;
+        app.handle_left_down(
+            scrollbar.x,
+            scrollbar.y + scrollbar.height.saturating_sub(1),
+            KeyModifiers::NONE,
+        )
+        .unwrap();
+        assert_eq!(app.focus, FocusTarget::WorkspaceRail);
+        assert!(app.sidebar_files.scroll_offset() > 0);
+        assert_eq!(app.sidebar_files.selected(), before);
+        app.handle_left_drag(scrollbar.x, scrollbar.y).unwrap();
+        assert_eq!(app.sidebar_files.scroll_offset(), 0);
+        app.handle_left_up(scrollbar.x, scrollbar.y).unwrap();
+
+        let before_offset = app.sidebar_files.scroll_offset();
+        let action = app.handle_scroll(area.x, row_y, true, KeyModifiers::NONE).unwrap();
+        assert_eq!(action, RenderAction::Draw);
+        assert_eq!(app.sidebar_files.selected(), before);
+        assert_eq!(app.sidebar_files.scroll_offset(), before_offset + 3);
+        assert_eq!(
+            app.handle_scroll(area.x, row_y, false, KeyModifiers::NONE).unwrap(),
+            RenderAction::Draw
+        );
+        assert_eq!(app.sidebar_files.selected(), before);
+        assert_eq!(app.sidebar_files.scroll_offset(), before_offset);
+        assert_eq!(
+            app.handle_scroll(area.x, row_y, false, KeyModifiers::NONE).unwrap(),
+            RenderAction::None
+        );
+        assert_eq!(app.sidebar_files.selected(), 0);
+
+        app.sidebar_files.handle_key(&KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
+        let selected = app.sidebar_files.selected();
+        let offset = app.sidebar_files.scroll_offset();
+        let _ = app.handle_scroll(area.x, row_y, true, KeyModifiers::NONE).unwrap();
+        assert_eq!(app.sidebar_files.selected(), selected);
+        assert!(app.sidebar_files.scroll_offset() >= offset);
+
+        // Header and footer are host chrome, not file viewport rows. Wheel
+        // input on those boundaries is consumed as a no-op and cannot alter
+        // the independent Files offset. An action section, when present, has
+        // its own viewport and is tested separately above.
+        let offset = app.sidebar_files.scroll_offset();
+        let geometry = app.files_layout_geometry(area);
+        let footer_y = geometry.footer_y.unwrap_or(area.y);
+        let action_y = match app.workspace_actions_position() {
+            crate::config::ActionsPosition::Top if geometry.top_action_rows > 0 => Some(area.y + 1),
+            crate::config::ActionsPosition::Bottom if geometry.bottom_action_rows > 0 => {
+                app.files_action_rect(area).map(|rect| rect.y)
+            }
+            _ => None,
+        };
+        assert_eq!(
+            app.handle_scroll(area.x, footer_y, true, KeyModifiers::NONE).unwrap(),
+            RenderAction::None
+        );
+        if let Some(action_y) = action_y {
+            assert_eq!(
+                app.handle_scroll(area.x, action_y, true, KeyModifiers::NONE).unwrap(),
+                RenderAction::None
+            );
+        }
+        assert_eq!(app.sidebar_files.scroll_offset(), offset);
+
+        // A one-row host has no list body. Wheel input is consumed as a safe
+        // no-op, rather than moving a selection that cannot be rendered.
+        app.sync_layout((100, 3));
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let tiny = app.workspace_sidebar_area(3).unwrap();
+        let tiny_geometry = app.files_layout_geometry(tiny);
+        assert!(tiny_geometry.body.height == 0);
+        assert!(tiny_geometry.footer_y.is_none_or(|footer| footer != tiny.y));
+        let selected = app.sidebar_files.selected();
+        let offset = app.sidebar_files.scroll_offset();
+        assert_eq!(
+            app.handle_scroll(tiny.x, tiny.y, true, KeyModifiers::NONE).unwrap(),
+            RenderAction::None
+        );
+        assert_eq!(app.sidebar_files.selected(), selected);
+        assert_eq!(app.sidebar_files.scroll_offset(), offset);
+
+        mux.close_surface(surface.id).unwrap();
+        std::fs::remove_dir_all(temp).unwrap();
+    }
+
+    #[test]
+    fn files_mode_falls_back_when_a_profile_has_no_workspace_host() {
+        let (mux, surface) = test_mux("files-profile-fallback-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        let agents = SidebarViewSpec {
+            id: "agents-only".into(),
+            levels: vec![SidebarResourceKind::Agents],
+            actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
+            width: 22,
+            max_width: 0,
+            collapse_priority: 20,
+            row_lines: 2,
+            scope: SidebarViewScope::All,
+            sort: AgentSortMode::default(),
+            filter: AgentRowFilter::default(),
+        };
+        let profile = SidebarProfileSpec {
+            id: "agents-only".into(),
+            name: "Agents only".into(),
+            layout: crate::config::sidebar_layout_of_columns(std::slice::from_ref(&agents)),
+            views: vec![agents],
+        };
+        app.config.sidebar.profiles.push(profile);
+        app.sidebar_view = SidebarView::Files;
+        app.sync_layout((100, 20));
+        app.activate_sidebar_profile(2);
+        assert_eq!(app.sidebar_view, SidebarView::Workspaces);
+        assert!(
+            app.status_message
+                .as_deref()
+                .is_some_and(|message| message.contains("Workspaces rail"))
+        );
+        app.activate_sidebar_profile(0);
+        assert_eq!(
+            app.sidebar_view,
+            SidebarView::Files,
+            "returning to the profile that requested Files restores its mode"
+        );
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn hiding_the_files_host_switches_mode_and_keeps_restore_available() {
+        let (mux, surface) = test_mux("files-host-hide-restore-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_view = SidebarView::Files;
+        app.sync_layout((100, 20));
+
+        app.set_sidebar_view_visible(1, false);
+        assert_eq!(app.sidebar_view, SidebarView::Workspaces);
+        assert!(
+            app.status_message
+                .as_deref()
+                .is_some_and(|message| message.contains("Workspaces rail"))
+        );
+        app.sync_layout((100, 20));
+        assert!(app.sidebar_layout.workspace.is_none());
+        let restore = app.sidebar_view_visibility_items(1);
+        assert!(restore.iter().any(|item| {
+            item.action() == Some(MenuAction::SetSidebarViewVisible { view: 1, visible: true })
+        }));
+
+        app.activate_menu(MenuAction::SetSidebarViewVisible { view: 1, visible: true }).unwrap();
+        app.sync_layout((100, 20));
+        assert!(app.sidebar_layout.workspace.is_some());
+        assert_eq!(app.sidebar_view, SidebarView::Files);
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        assert!(buffer_text(terminal.backend().buffer()).contains("filter"));
+        assert!(app.sidebar_view_visibility_items(1).iter().any(|item| {
+            item.action() == Some(MenuAction::SetSidebarViewPinned { view: 1, pinned: false })
+        }));
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn files_layout_menu_names_the_visible_host_files() {
+        let (mux, surface) = test_mux("files-host-menu-label-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_view = SidebarView::Files;
+        app.sync_layout((100, 20));
+        app.open_context_menu(1, 1);
+        assert!(app.menu.as_ref().unwrap().levels[0].items.iter().any(|item| {
+            matches!(item, MenuItem::Submenu { label, .. } if label.contains("Sidebar"))
+        }));
+        assert!(
+            app.sidebar_view_visibility_items(1)
+                .iter()
+                .any(|item| { item.label().is_some_and(|label| label.contains("Files")) })
+        );
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
     fn compact_sidebar_width_and_action_preserve_the_full_width() {
         let mut config = Config::default();
         config.sidebar.width = 28;
@@ -26234,6 +34419,7 @@ mod tests {
             .iter()
             .map(|column| SidebarViewSpec::legacy(column.kind, column.width, column.max_width))
             .collect();
+        config.sidebar.layout = crate::config::sidebar_layout_of_columns(&config.sidebar.views);
         config.sidebar.views_explicit = true;
 
         let full = sidebar_layout_for(
@@ -26276,6 +34462,39 @@ mod tests {
     }
 
     #[test]
+    fn sidebar_collapse_equal_priorities_keep_first_configured_rail() {
+        let mut config = Config::default();
+        config.sidebar.views_explicit = true;
+        config.sidebar.views = vec![
+            SidebarViewSpec::legacy(SidebarColumnKind::Machines, 18, 0),
+            SidebarViewSpec::legacy(SidebarColumnKind::Workspaces, 22, 0),
+            SidebarViewSpec::legacy(SidebarColumnKind::Tabs, 24, 0),
+        ];
+        config.sidebar.layout = crate::config::sidebar_layout_of_columns(&config.sidebar.views);
+        for view in &mut config.sidebar.views {
+            view.collapse_priority = 10;
+        }
+
+        // 60 columns cannot fit three minimum rails and the content area,
+        // but can fit the two rails that remain after the first collapse.
+        // Equal priorities must collapse the first configured rail, matching
+        // the previous `min_by_key` plus `remove(index)` behavior.
+        let layout = sidebar_layout_for(
+            &config,
+            true,
+            false,
+            true,
+            (60, 30),
+            SidebarWidthOverrides::default(),
+        );
+        assert_eq!(layout.machine, None);
+        assert_eq!(
+            layout.ordered.iter().map(|placement| placement.kind).collect::<Vec<_>>(),
+            vec![RailKind::Workspace, RailKind::Tabs]
+        );
+    }
+
+    #[test]
     fn context_menu_switches_sidebar_profiles_and_keeps_per_profile_visibility() {
         let mux = Mux::new("sidebar-profile-menu-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
@@ -26291,17 +34510,28 @@ mod tests {
             width: 30,
             max_width: 0,
             collapse_priority: 30,
+            row_lines: 1,
+            scope: SidebarViewScope::Workspace,
+            sort: AgentSortMode::default(),
+            filter: AgentRowFilter::default(),
         }];
         app.config.sidebar.profiles = vec![
-            SidebarProfileSpec { id: "full".into(), name: "Full".into(), views: full.clone() },
+            SidebarProfileSpec {
+                id: "full".into(),
+                name: "Full".into(),
+                layout: crate::config::sidebar_layout_of_columns(&full),
+                views: full.clone(),
+            },
             SidebarProfileSpec {
                 id: "focused".into(),
                 name: "Focused".into(),
+                layout: crate::config::sidebar_layout_of_columns(&focused),
                 views: focused.clone(),
             },
         ];
         app.config.sidebar.active_profile = "full".into();
         app.config.sidebar.views = full;
+        app.config.sidebar.layout = app.config.sidebar.profiles[0].layout.clone();
         app.config.sidebar.views_explicit = true;
         app.sync_layout((120, 20));
 
@@ -26315,7 +34545,9 @@ mod tests {
         app.sync_layout((120, 20));
         assert_eq!(app.config.sidebar.views, focused);
         assert!(app.sidebar_layout.tabs.is_none());
-        assert_eq!(app.focus, FocusTarget::Pane);
+        // The focused profile contains the same workspace semantic parent in
+        // a projection rail, so focus follows that stable identity.
+        assert_eq!(app.focus, FocusTarget::ProjectionRail(0));
 
         app.activate_sidebar_profile(0);
         app.set_sidebar_view_visible(1, false);
@@ -26328,6 +34560,589 @@ mod tests {
     }
 
     #[test]
+    fn sidebar_rail_scroll_offsets_follow_the_active_profile() {
+        let mux = Mux::new("sidebar-profile-scroll-state-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let first_views = vec![SidebarViewSpec::legacy(SidebarColumnKind::Workspaces, 22, 0)];
+        let second_views = vec![SidebarViewSpec::legacy(SidebarColumnKind::Workspaces, 28, 0)];
+        let first_layout = crate::config::sidebar_layout_of_columns(&first_views);
+        let second_layout = crate::config::sidebar_layout_of_columns(&second_views);
+        app.config.sidebar.profiles = vec![
+            SidebarProfileSpec {
+                id: "first".into(),
+                name: "First".into(),
+                views: first_views.clone(),
+                layout: first_layout.clone(),
+            },
+            SidebarProfileSpec {
+                id: "second".into(),
+                name: "Second".into(),
+                views: second_views,
+                layout: second_layout,
+            },
+        ];
+        app.config.sidebar.active_profile = "first".into();
+        app.config.sidebar.views = first_views;
+        app.config.sidebar.layout = first_layout;
+        app.config.sidebar.views_explicit = true;
+        app.sync_layout((100, 20));
+
+        let first_scroll = SidebarRailScrollState {
+            machine_rail_scroll: 1,
+            machine_footer_scroll: 2,
+            workspace_rail_scroll: 3,
+            workspace_footer_scroll: 4,
+            tabs_rail_scroll: 5,
+            tabs_footer_scroll: 6,
+        };
+        *app.active_sidebar_rail_scroll_mut() = first_scroll;
+
+        app.activate_sidebar_profile(1);
+        assert_eq!(app.active_sidebar_rail_scroll(), SidebarRailScrollState::default());
+
+        let second_scroll = SidebarRailScrollState {
+            machine_rail_scroll: 6,
+            machine_footer_scroll: 5,
+            workspace_rail_scroll: 4,
+            workspace_footer_scroll: 3,
+            tabs_rail_scroll: 2,
+            tabs_footer_scroll: 1,
+        };
+        *app.active_sidebar_rail_scroll_mut() = second_scroll;
+
+        app.activate_sidebar_profile(0);
+        assert_eq!(app.active_sidebar_rail_scroll(), first_scroll);
+        app.activate_sidebar_profile(1);
+        assert_eq!(app.active_sidebar_rail_scroll(), second_scroll);
+    }
+
+    #[test]
+    fn profile_switch_repacks_against_the_new_profile_at_the_width_boundary() {
+        let mux = Mux::new("sidebar-profile-width-boundary-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let workspace = SidebarViewSpec::legacy(SidebarColumnKind::Workspaces, 10, 0);
+        let agents = SidebarViewSpec {
+            id: "agents".into(),
+            levels: vec![SidebarResourceKind::Agents],
+            actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
+            width: 10,
+            max_width: 0,
+            collapse_priority: 20,
+            row_lines: 1,
+            scope: SidebarViewScope::All,
+            sort: AgentSortMode::default(),
+            filter: AgentRowFilter::default(),
+        };
+        let narrow_views = vec![workspace.clone()];
+        let wide_views = vec![workspace, agents];
+        app.config.sidebar.profiles = vec![
+            SidebarProfileSpec {
+                id: "narrow".into(),
+                name: "Narrow".into(),
+                layout: crate::config::sidebar_layout_of_columns(&narrow_views),
+                views: narrow_views.clone(),
+            },
+            SidebarProfileSpec {
+                id: "wide".into(),
+                name: "Wide".into(),
+                layout: crate::config::sidebar_layout_of_columns(&wide_views),
+                views: wide_views.clone(),
+            },
+        ];
+        app.config.sidebar.active_profile = "narrow".into();
+        app.config.sidebar.views = narrow_views;
+        app.config.sidebar.layout = app.config.sidebar.profiles[0].layout.clone();
+        app.config.sidebar.views_explicit = true;
+
+        // At 60 columns, 40 columns remain for content and exactly two
+        // ten-cell rails. The old profile's one-column frame must not add
+        // reveal hysteresis to the new profile's second rail.
+        app.sync_layout((60, 20));
+        assert_eq!(app.sidebar_layout.ordered.len(), 1);
+
+        app.activate_sidebar_profile(1);
+        app.sync_layout((60, 20));
+        assert_eq!(app.config.sidebar.active_profile, "wide");
+        assert_eq!(app.sidebar_layout.ordered.len(), 2);
+        assert!(app.sidebar_layout.rail(RailKind::Projection(1)).is_some());
+    }
+
+    #[test]
+    fn restoring_width_hidden_view_bypasses_stale_reveal_hysteresis() {
+        let mux = Mux::new("sidebar-width-restore-boundary-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let workspace = SidebarViewSpec::legacy(SidebarColumnKind::Workspaces, 10, 0);
+        let agents = SidebarViewSpec {
+            id: "agents".into(),
+            levels: vec![SidebarResourceKind::Agents],
+            actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
+            width: 10,
+            max_width: 0,
+            collapse_priority: 20,
+            row_lines: 1,
+            scope: SidebarViewScope::All,
+            sort: AgentSortMode::default(),
+            filter: AgentRowFilter::default(),
+        };
+        let views = vec![workspace, agents];
+        let profile = SidebarProfileSpec {
+            id: "work".into(),
+            name: "Work".into(),
+            layout: crate::config::sidebar_layout_of_columns(&views),
+            views: views.clone(),
+        };
+        app.config.sidebar.profiles = vec![profile.clone()];
+        app.config.sidebar.active_profile = profile.id.clone();
+        app.config.sidebar.views = profile.views;
+        app.config.sidebar.layout = profile.layout;
+        app.config.sidebar.views_explicit = true;
+
+        // The second rail is width-hidden at 50 columns. Its frame becomes
+        // the previous layout used by the reveal hysteresis solver.
+        app.sync_layout((50, 20));
+        assert_eq!(app.sidebar_layout.hidden_views[0].id, "agents");
+        assert_eq!(app.sidebar_layout.hidden_views[0].reason, SidebarHiddenReason::Width);
+
+        // Restore at the exact two-rail minimum. The changed presentation
+        // state must invalidate the old one-rail hysteresis baseline.
+        app.activate_menu(MenuAction::SetSidebarViewVisible { view: 1, visible: true }).unwrap();
+        app.sync_layout((60, 20));
+        assert!(app.sidebar_layout.rail(RailKind::Projection(1)).is_some());
+        assert!(app.sidebar_layout.hidden_views.is_empty());
+    }
+
+    #[test]
+    fn profile_switch_rebuilds_projection_when_view_id_is_reused() {
+        let (mux, surface) = test_mux("sidebar-profile-projection-cache-test", None);
+        mux.report_agent(
+            surface.id,
+            AgentState::Working,
+            AgentSource::Hook,
+            Some("agent-session".into()),
+        )
+        .unwrap();
+
+        let tabs_view = SidebarViewSpec {
+            id: "shared-view".into(),
+            levels: vec![SidebarResourceKind::Tabs],
+            actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
+            width: 30,
+            max_width: 0,
+            collapse_priority: 30,
+            row_lines: 1,
+            scope: SidebarViewScope::Workspace,
+            sort: AgentSortMode::default(),
+            filter: AgentRowFilter::default(),
+        };
+        let agents_view = SidebarViewSpec {
+            id: "shared-view".into(),
+            levels: vec![SidebarResourceKind::Agents],
+            actions: vec![crate::config::SidebarActionSpec::plain(Action::NewWorkspace)],
+            actions_position: crate::config::ActionsPosition::Bottom,
+            width: 30,
+            max_width: 0,
+            collapse_priority: 30,
+            row_lines: 1,
+            scope: SidebarViewScope::Workspace,
+            sort: AgentSortMode::default(),
+            filter: AgentRowFilter::default(),
+        };
+        let tabs_profile = SidebarProfileSpec {
+            id: "tabs".into(),
+            name: "Tabs".into(),
+            layout: crate::config::sidebar_layout_of_columns(std::slice::from_ref(&tabs_view)),
+            views: vec![tabs_view],
+        };
+        let agents_profile = SidebarProfileSpec {
+            id: "agents".into(),
+            name: "Agents".into(),
+            layout: crate::config::sidebar_layout_of_columns(std::slice::from_ref(&agents_view)),
+            views: vec![agents_view],
+        };
+
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.profiles = vec![tabs_profile, agents_profile];
+        app.config.sidebar.active_profile = app.config.sidebar.profiles[0].id.clone();
+        app.config.sidebar.views = app.config.sidebar.profiles[0].views.clone();
+        app.config.sidebar.layout = app.config.sidebar.profiles[0].layout.clone();
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+
+        let tabs_rows = app.projection_rows(0);
+        assert!(tabs_rows.iter().any(|row| row.resource == SidebarResourceKind::Tabs));
+
+        app.activate_sidebar_profile(1);
+
+        let agent_rows = app.projection_rows(0);
+        assert!(agent_rows.iter().any(|row| row.resource == SidebarResourceKind::Agents));
+        assert!(
+            app.sidebar_action_rows(0)
+                .iter()
+                .any(|row| row.target == SidebarActionTarget::CreateWorkspace(None))
+        );
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn profile_switch_cancels_old_sidebar_pointer_interaction() {
+        let (mux, surface) = test_mux("sidebar-profile-pointer-boundary-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        let workspace = app.tree.workspaces().first().expect("test workspace").id;
+        app.drag = Some(Drag::WorkspaceArm { workspace, at: (1, 1) });
+        app.defer_input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: 1,
+            row: 1,
+            modifiers: KeyModifiers::NONE,
+        }));
+        app.pending_pointer_motion = Some(super::PendingPointerMotion {
+            event: MouseEvent {
+                kind: MouseEventKind::Moved,
+                column: 2,
+                row: 2,
+                modifiers: KeyModifiers::NONE,
+            },
+            destination: Some(surface.id),
+            focus_generation: app.pointer_focus_generation,
+            sequence: 99,
+        });
+        let generation = app.pointer_focus_generation;
+
+        app.activate_sidebar_profile(1);
+
+        assert_eq!(app.config.sidebar.active_profile, "focus");
+        assert!(app.drag.is_none(), "the old workspace gesture cannot cross profiles");
+        assert!(app.pending_pointer_motion.is_none());
+        assert_eq!(app.pointer_focus_generation, generation.wrapping_add(1));
+        assert!(
+            !app.deferred_input.iter().any(|input| matches!(input.event, TerminalInput::Mouse(_)))
+        );
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn profile_focus_restore_rejects_a_reused_id_with_a_different_resource_path() {
+        let (mux, surface) = test_mux("sidebar-profile-focus-identity-test", None);
+        let source_view = SidebarViewSpec {
+            id: "shared-view".into(),
+            // A multi-level source is a real projection rail. A legacy
+            // single-level Tabs view resolves to the built-in Tabs rail, so
+            // forcing ProjectionRail(0) would make this test describe an
+            // impossible focus state instead of exercising identity restore.
+            levels: vec![SidebarResourceKind::Tabs, SidebarResourceKind::Agents],
+            actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
+            width: 22,
+            max_width: 0,
+            collapse_priority: 20,
+            row_lines: 1,
+            scope: SidebarViewScope::Workspace,
+            sort: AgentSortMode::default(),
+            filter: AgentRowFilter::default(),
+        };
+        let workspace_view = SidebarViewSpec::legacy(SidebarColumnKind::Workspaces, 22, 0);
+        let target_view = SidebarViewSpec {
+            id: "shared-view".into(),
+            levels: vec![SidebarResourceKind::Agents],
+            actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
+            width: 22,
+            max_width: 0,
+            collapse_priority: 20,
+            row_lines: 1,
+            scope: SidebarViewScope::Workspace,
+            sort: AgentSortMode::default(),
+            filter: AgentRowFilter::default(),
+        };
+        let source_profile = SidebarProfileSpec {
+            id: "source".into(),
+            name: "Source".into(),
+            layout: crate::config::sidebar_layout_of_columns(std::slice::from_ref(&source_view)),
+            views: vec![source_view],
+        };
+        let target_profile = SidebarProfileSpec {
+            id: "target".into(),
+            name: "Target".into(),
+            layout: crate::config::sidebar_layout_of_columns(&[
+                workspace_view.clone(),
+                target_view.clone(),
+            ]),
+            views: vec![workspace_view, target_view],
+        };
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.config.sidebar.profiles = vec![source_profile, target_profile];
+        app.config.sidebar.active_profile = "source".into();
+        app.config.sidebar.views = app.config.sidebar.profiles[0].views.clone();
+        app.config.sidebar.layout = app.config.sidebar.profiles[0].layout.clone();
+        app.config.sidebar.views_explicit = true;
+        app.sidebar_view = SidebarView::Workspaces;
+        app.sync_layout((100, 20));
+        app.focus = FocusTarget::ProjectionRail(0);
+        app.focus_rail(RailKind::Projection(0));
+
+        app.activate_sidebar_profile(1);
+        assert_eq!(app.focus, FocusTarget::WorkspaceRail);
+        assert_eq!(app.config.sidebar.active_profile, "target");
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn profile_focus_identity_includes_scope_filter_and_sort() {
+        let source = SidebarViewSpec {
+            id: "shared-view".into(),
+            levels: vec![SidebarResourceKind::Agents],
+            actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
+            width: 22,
+            max_width: 0,
+            collapse_priority: 20,
+            row_lines: 2,
+            scope: SidebarViewScope::Workspace,
+            sort: AgentSortMode::Priority,
+            filter: AgentRowFilter::default(),
+        };
+        let target = SidebarViewSpec {
+            id: source.id.clone(),
+            levels: source.levels.clone(),
+            actions: source.actions.clone(),
+            actions_position: source.actions_position,
+            width: source.width,
+            max_width: source.max_width,
+            collapse_priority: source.collapse_priority,
+            row_lines: source.row_lines,
+            scope: SidebarViewScope::All,
+            sort: AgentSortMode::Recency,
+            filter: AgentRowFilter {
+                agents: vec!["codex".into()],
+                states: vec!["working".into()],
+                seen: Some(false),
+            },
+        };
+        let remembered = super::SidebarViewIdentity::from_spec(&source);
+        assert!(!super::remembered_focus_matches(Some(&remembered), &target));
+        assert!(super::remembered_focus_matches(Some(&remembered), &source));
+    }
+
+    #[test]
+    fn config_reload_preserves_runtime_sidebar_mode_until_setting_changes() {
+        assert_eq!(
+            super::sidebar_view_after_config_reload(
+                SidebarView::Workspaces,
+                SidebarView::Files,
+                SidebarView::Workspaces,
+            ),
+            SidebarView::Files,
+            "an unrelated reload keeps the user's open Files mode"
+        );
+        assert_eq!(
+            super::sidebar_view_after_config_reload(
+                SidebarView::Workspaces,
+                SidebarView::Files,
+                SidebarView::Files,
+            ),
+            SidebarView::Files,
+            "an edited sidebar.view setting takes effect"
+        );
+        assert_eq!(
+            super::sidebar_view_after_config_reload(
+                SidebarView::Files,
+                SidebarView::Workspaces,
+                SidebarView::Workspaces,
+            ),
+            SidebarView::Workspaces,
+            "a changed configured mode overrides a stale runtime mode"
+        );
+    }
+
+    #[test]
+    fn config_reload_preserves_runtime_profile_until_startup_setting_changes() {
+        let mut unchanged = Config::default();
+        let focus = unchanged
+            .sidebar
+            .profiles
+            .iter()
+            .find(|profile| profile.id == "focus")
+            .cloned()
+            .expect("built-in Focus profile");
+
+        let configured = App::restore_runtime_sidebar_profile(&mut unchanged, "work", "focus");
+
+        assert_eq!(configured, "work");
+        assert_eq!(unchanged.sidebar.active_profile, "focus");
+        assert_eq!(unchanged.sidebar.views, focus.views);
+        assert_eq!(unchanged.sidebar.layout, focus.layout);
+
+        // An edit from Work to Focus is different from a runtime switch. It
+        // must replace a client-local Work choice on this reload.
+        let mut edited = Config::default();
+        edited.sidebar.active_profile = focus.id.clone();
+        edited.sidebar.views = focus.views.clone();
+        edited.sidebar.layout = focus.layout.clone();
+        let configured = App::restore_runtime_sidebar_profile(&mut edited, "work", "work");
+
+        assert_eq!(configured, "focus");
+        assert_eq!(edited.sidebar.active_profile, "focus");
+        assert_eq!(edited.sidebar.views, focus.views);
+
+        // Removing a runtime-selected profile fails closed to the loaded
+        // startup profile instead of leaving views and identity inconsistent.
+        let mut removed = Config::default();
+        let configured =
+            App::restore_runtime_sidebar_profile(&mut removed, "work", "removed-profile");
+        assert_eq!(configured, "work");
+        assert_eq!(removed.sidebar.active_profile, "work");
+    }
+
+    #[test]
+    fn config_boundary_clears_positional_sidebar_action_targets() {
+        let (mux, surface) = test_mux("sidebar-action-reload-invalidation", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        let user_action = Action::UserCommand(crate::config::UserCommandIndex::new(0).unwrap());
+        app.workspace_rail_selection =
+            WorkspaceRailSelection::Action(SidebarActionTarget::Run(user_action));
+        app.files_rail_selection =
+            super::FilesRailSelection::Action(SidebarActionTarget::Run(user_action));
+        app.active_sidebar_profile_state_mut()
+            .projection_rails
+            .entry("agents".into())
+            .or_default()
+            .selected_action = Some(3);
+        app.menu = Some(ContextMenu::with_groups(
+            1,
+            1,
+            vec![vec![MenuItem::LabeledAction {
+                label: "command".into(),
+                action: MenuAction::RunConfigured { action: user_action, pane: None },
+            }]],
+        ));
+        app.hits.push((Rect { x: 0, y: 0, width: 1, height: 1 }, super::Hit::StatusMessage));
+
+        app.invalidate_sidebar_action_targets();
+
+        assert_eq!(app.workspace_rail_selection, WorkspaceRailSelection::Workspace);
+        assert_eq!(app.files_rail_selection, super::FilesRailSelection::File);
+        assert!(app.active_sidebar_profile_state().is_some_and(|state| {
+            state.projection_rails.values().all(|rail| rail.selected_action.is_none())
+        }));
+        assert!(app.menu.is_none());
+        assert!(app.hits.is_empty());
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn profile_switch_does_not_reuse_a_sort_override_for_a_reused_view_id() {
+        let mux = Mux::new("sidebar-profile-sort-override-test", SurfaceOptions::default());
+        let first_view = SidebarViewSpec {
+            id: "shared-view".into(),
+            levels: vec![SidebarResourceKind::Agents],
+            actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
+            width: 30,
+            max_width: 0,
+            collapse_priority: 30,
+            row_lines: 1,
+            scope: SidebarViewScope::Workspace,
+            sort: AgentSortMode::Priority,
+            filter: AgentRowFilter::default(),
+        };
+        let second_view = SidebarViewSpec { sort: AgentSortMode::Recency, ..first_view.clone() };
+        let first_profile = SidebarProfileSpec {
+            id: "first".into(),
+            name: "First".into(),
+            layout: crate::config::sidebar_layout_of_columns(std::slice::from_ref(&first_view)),
+            views: vec![first_view.clone()],
+        };
+        let second_profile = SidebarProfileSpec {
+            id: "second".into(),
+            name: "Second".into(),
+            layout: crate::config::sidebar_layout_of_columns(std::slice::from_ref(&second_view)),
+            views: vec![second_view.clone()],
+        };
+        let mut app = test_app(Session::Local(mux));
+        app.config.sidebar.profiles = vec![first_profile, second_profile];
+        app.config.sidebar.active_profile = "first".into();
+        app.config.sidebar.views = vec![first_view];
+        app.config.sidebar.layout =
+            crate::config::sidebar_layout_of_columns(&app.config.sidebar.views);
+        app.active_sidebar_profile_state_mut()
+            .agent_sort_overrides
+            .insert("shared-view".into(), AgentSortMode::State);
+
+        app.activate_sidebar_profile(1);
+
+        assert_eq!(app.effective_agent_sort(&second_view), AgentSortMode::Recency);
+    }
+
+    #[test]
+    fn profile_switch_isolates_and_restores_state_for_a_reused_group_id() {
+        let mux = Mux::new("sidebar-profile-split-fractions-test", SurfaceOptions::default());
+        let mut first = split_sidebar_config();
+        let mut second_layout = first.sidebar.layout.clone();
+        if let Some(SidebarLayoutNode::Split(split)) = second_layout.first_mut() {
+            split.weights = vec![3, 1];
+        }
+        let first_profile = SidebarProfileSpec {
+            id: "first".into(),
+            name: "First".into(),
+            views: first.sidebar.views.clone(),
+            layout: first.sidebar.layout.clone(),
+        };
+        let second_profile = SidebarProfileSpec {
+            id: "second".into(),
+            name: "Second".into(),
+            views: first.sidebar.views.clone(),
+            layout: second_layout,
+        };
+        first.sidebar.profiles = vec![first_profile, second_profile];
+        first.sidebar.active_profile = "first".into();
+
+        let mut app = test_app(Session::Local(mux));
+        app.config = first;
+        // This unit isolates profile-local geometry from the native profile
+        // strip; the strip itself is covered by the renderer tests above.
+        app.sidebar_view = SidebarView::Files;
+        app.active_sidebar_profile_state_mut().split_fractions.insert(
+            "left".into(),
+            HashMap::from([("workspaces".to_string(), 0.8), ("all-agents".to_string(), 0.2)]),
+        );
+        app.focus_rail(RailKind::Projection(1));
+        app.sync_layout((120, 31));
+        assert_eq!(app.sidebar_layout.ordered[0].rect.height, 24);
+        app.active_sidebar_profile_state_mut().column_widths.insert("left".into(), 50);
+
+        app.activate_sidebar_profile(1);
+        assert!(
+            app.active_sidebar_profile_state()
+                .is_some_and(|state| state.split_fractions.is_empty())
+        );
+        app.focus_rail(RailKind::Workspace);
+        app.sync_layout((120, 31));
+        // The profile strip consumes one row. The split solver partitions the
+        // remaining 29 rows, so a 3:1 split gives the first child 22 rows.
+        assert_eq!(app.sidebar_layout.ordered[0].rect.height, 22);
+
+        app.activate_sidebar_profile(0);
+        app.sync_layout((120, 31));
+        assert_eq!(app.focus, FocusTarget::ProjectionRail(1));
+        let restored = app.active_sidebar_profile_state().unwrap();
+        assert!(restored.split_fractions.contains_key("left"));
+        assert_eq!(restored.column_widths.get("left"), Some(&50));
+        assert_eq!(app.sidebar_layout.ordered[0].rect.height, 24);
+
+        app.activate_sidebar_profile(1);
+        assert_eq!(app.focus, FocusTarget::WorkspaceRail);
+    }
+
+    #[test]
     fn collapsed_rail_requires_hysteresis_before_reappearing() {
         let mut config = Config::default();
         config.sidebar.views = vec![
@@ -26335,6 +35150,7 @@ mod tests {
             SidebarViewSpec::legacy(SidebarColumnKind::Workspaces, 22, 0),
             SidebarViewSpec::legacy(SidebarColumnKind::Tabs, 24, 0),
         ];
+        config.sidebar.layout = crate::config::sidebar_layout_of_columns(&config.sidebar.views);
         config.sidebar.views_explicit = true;
         let overrides = HashMap::new();
         let collapsed = sidebar_layout_for_state(
@@ -26347,10 +35163,27 @@ mod tests {
             None,
             None,
             &overrides,
+            &HashMap::new(),
             &HashSet::new(),
             None,
         );
         assert!(collapsed.machine.is_none());
+
+        let without_previous = sidebar_layout_for_state(
+            &config,
+            true,
+            false,
+            true,
+            (70, 30),
+            None,
+            None,
+            None,
+            &overrides,
+            &HashMap::new(),
+            &HashSet::new(),
+            None,
+        );
+        assert!(without_previous.machine.is_some());
 
         let at_boundary = sidebar_layout_for_state(
             &config,
@@ -26362,10 +35195,15 @@ mod tests {
             None,
             None,
             &overrides,
+            &HashMap::new(),
             &HashSet::new(),
             Some(&collapsed),
         );
         assert!(at_boundary.machine.is_none());
+        assert_eq!(
+            at_boundary.ordered.iter().map(|placement| placement.kind).collect::<Vec<_>>(),
+            vec![RailKind::Workspace, RailKind::Tabs]
+        );
         let revealed = sidebar_layout_for_state(
             &config,
             true,
@@ -26376,10 +35214,516 @@ mod tests {
             None,
             None,
             &overrides,
+            &HashMap::new(),
             &HashSet::new(),
             Some(&at_boundary),
         );
         assert!(revealed.machine.is_some());
+    }
+
+    #[test]
+    fn split_hysteresis_tracks_column_after_inner_child_pruning() {
+        let mut config = split_sidebar_config();
+        // The first child is pruned by the split's minimum height, while the
+        // top-level split column itself remains rendered.
+        config.sidebar.views[0].collapse_priority = 10;
+        config.sidebar.views[1].collapse_priority = 20;
+
+        let previous = sidebar_layout_for_state(
+            &config,
+            true,
+            false,
+            false,
+            (50, 8),
+            None,
+            None,
+            None,
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashSet::new(),
+            None,
+        );
+        assert!(previous.has_column("left"));
+        assert!(previous.rail(RailKind::Workspace).is_none());
+        assert!(previous.rail(RailKind::Projection(1)).is_some());
+
+        let current = sidebar_layout_for_state(
+            &config,
+            true,
+            false,
+            false,
+            (50, 8),
+            None,
+            None,
+            None,
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashSet::new(),
+            Some(&previous),
+        );
+        assert!(current.has_column("left"));
+        assert!(current.rail(RailKind::Projection(1)).is_some());
+    }
+
+    fn split_sidebar_config() -> Config {
+        use crate::config::{
+            SidebarLayoutNode, SidebarSplitDir, SidebarSplitSpec, SidebarViewScope,
+        };
+        let mut config = Config::default();
+        config.sidebar.views = vec![
+            SidebarViewSpec::legacy(SidebarColumnKind::Workspaces, 26, 0),
+            SidebarViewSpec {
+                id: "all-agents".into(),
+                levels: vec![SidebarResourceKind::Agents],
+                actions: Vec::new(),
+                actions_position: crate::config::ActionsPosition::Bottom,
+                width: 26,
+                max_width: 0,
+                collapse_priority: 20,
+                row_lines: 1,
+                scope: SidebarViewScope::All,
+                sort: AgentSortMode::default(),
+                filter: AgentRowFilter::default(),
+            },
+        ];
+        config.sidebar.views_explicit = true;
+        config.sidebar.layout = vec![SidebarLayoutNode::Split(SidebarSplitSpec {
+            id: "left".into(),
+            dir: SidebarSplitDir::Vertical,
+            weights: vec![1, 1],
+            children: vec![SidebarLayoutNode::Leaf(0), SidebarLayoutNode::Leaf(1)],
+            width: 26,
+            max_width: 0,
+            collapse_priority: 30,
+        })];
+        config.sidebar.profiles = vec![SidebarProfileSpec {
+            id: "default".into(),
+            name: "Default".into(),
+            views: config.sidebar.views.clone(),
+            layout: config.sidebar.layout.clone(),
+        }];
+        config.sidebar.active_profile = "default".into();
+        config
+    }
+
+    #[test]
+    fn vertical_split_column_stacks_rails_around_a_divider_row() {
+        let config = split_sidebar_config();
+        let layout = sidebar_layout_for_state(
+            &config,
+            true,
+            false,
+            false,
+            (120, 31),
+            None,
+            None,
+            None,
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashSet::new(),
+            None,
+        );
+        assert_eq!(layout.columns.len(), 1);
+        assert_eq!(layout.ordered.len(), 2);
+        let top = layout.ordered[0].rect;
+        let bottom = layout.ordered[1].rect;
+        assert_eq!(layout.workspace, Some(top));
+        assert_eq!(layout.ordered[1].kind, RailKind::Projection(1));
+        assert_eq!((top.x, bottom.x), (0, 0));
+        assert_eq!(top.width, bottom.width);
+        assert_eq!(layout.dividers.len(), 1);
+        let divider = layout.dividers[0];
+        assert_eq!(divider.rect.y, top.y + top.height);
+        assert_eq!(bottom.y, divider.rect.y + 1);
+        assert_eq!(top.height + bottom.height + 1, 31, "children partition the full column");
+        assert_eq!(layout.content.x, top.width, "one column, one column width");
+    }
+
+    #[test]
+    fn split_fraction_overrides_replace_configured_weights() {
+        let config = split_sidebar_config();
+        let mut fractions = HashMap::new();
+        fractions.insert(
+            "left".to_string(),
+            HashMap::from([("workspaces".to_string(), 0.2f32), ("all-agents".to_string(), 0.8f32)]),
+        );
+        let layout = sidebar_layout_for_state(
+            &config,
+            true,
+            false,
+            false,
+            (120, 31),
+            None,
+            None,
+            None,
+            &HashMap::new(),
+            &fractions,
+            &HashSet::new(),
+            None,
+        );
+        let top = layout.ordered[0].rect;
+        let bottom = layout.ordered[1].rect;
+        assert_eq!(top.height, 6, "0.2 of the 30 shared rows");
+        assert_eq!(bottom.height, 24);
+    }
+
+    #[test]
+    fn split_fraction_overrides_follow_child_ids_after_reordering() {
+        let mut config = split_sidebar_config();
+        if let Some(SidebarLayoutNode::Split(split)) = config.sidebar.layout.first_mut() {
+            split.children.reverse();
+            split.weights.reverse();
+        }
+        let mut fractions = HashMap::new();
+        fractions.insert(
+            "left".to_string(),
+            HashMap::from([("workspaces".to_string(), 0.2f32), ("all-agents".to_string(), 0.8f32)]),
+        );
+        let layout = sidebar_layout_for_state(
+            &config,
+            true,
+            false,
+            false,
+            (120, 31),
+            None,
+            None,
+            None,
+            &HashMap::new(),
+            &fractions,
+            &HashSet::new(),
+            None,
+        );
+
+        assert_eq!(layout.rail(RailKind::Workspace).unwrap().height, 6);
+        assert_eq!(layout.rail(RailKind::Projection(1)).unwrap().height, 24);
+    }
+
+    #[test]
+    fn split_fraction_overrides_keep_surviving_child_ratios_after_pruning() {
+        use crate::config::{SidebarLayoutNode, SidebarSplitDir, SidebarSplitSpec};
+
+        let mut config = split_sidebar_config();
+        let mut third = config.sidebar.views[1].clone();
+        third.id = "third".into();
+        config.sidebar.views.push(third);
+        config.sidebar.views[0].collapse_priority = 1;
+        config.sidebar.views[1].collapse_priority = 20;
+        config.sidebar.views[2].collapse_priority = 30;
+        config.sidebar.layout = vec![SidebarLayoutNode::Split(SidebarSplitSpec {
+            id: "left".into(),
+            dir: SidebarSplitDir::Vertical,
+            weights: vec![1, 1, 1],
+            children: vec![
+                SidebarLayoutNode::Leaf(0),
+                SidebarLayoutNode::Leaf(1),
+                SidebarLayoutNode::Leaf(2),
+            ],
+            width: 26,
+            max_width: 0,
+            collapse_priority: 30,
+        })];
+        let mut fractions = HashMap::new();
+        fractions.insert(
+            "left".to_string(),
+            HashMap::from([
+                ("workspaces".to_string(), 0.2f32),
+                ("all-agents".to_string(), 0.6f32),
+                ("third".to_string(), 0.2f32),
+            ]),
+        );
+
+        // The first child is pruned at this height. The two surviving
+        // children retain their 3:1 saved ratio instead of falling back to
+        // equal configured weights.
+        let layout = sidebar_layout_for_state(
+            &config,
+            true,
+            false,
+            false,
+            (120, 13),
+            None,
+            None,
+            None,
+            &HashMap::new(),
+            &fractions,
+            &HashSet::new(),
+            None,
+        );
+        assert_eq!(layout.split_groups[0].child_keys, vec!["all-agents", "third"]);
+        assert_eq!(layout.rail(RailKind::Projection(1)).unwrap().height, 8);
+        assert_eq!(layout.rail(RailKind::Projection(2)).unwrap().height, 4);
+    }
+
+    #[test]
+    fn hidden_split_pane_gives_the_column_to_the_remaining_rail() {
+        let config = split_sidebar_config();
+        let mut hidden = HashSet::new();
+        hidden.insert("all-agents".to_string());
+        let layout = sidebar_layout_for_state(
+            &config,
+            true,
+            false,
+            false,
+            (120, 31),
+            None,
+            None,
+            None,
+            &HashMap::new(),
+            &HashMap::new(),
+            &hidden,
+            None,
+        );
+        assert_eq!(layout.ordered.len(), 1);
+        assert!(layout.dividers.is_empty());
+        assert_eq!(layout.ordered[0].rect.height, 31);
+    }
+
+    #[test]
+    fn sidebar_split_divider_drag_re_shares_the_column() {
+        let mux = Mux::new("sidebar-split-drag-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.config = split_sidebar_config();
+        app.sync_layout((120, 31));
+        assert_eq!(app.sidebar_layout.dividers.len(), 1);
+
+        app.drag_sidebar_split_divider("left", "workspaces", "all-agents", 0, 9);
+        app.sync_layout((120, 31));
+        let top = app.sidebar_layout.ordered[0].rect;
+        let bottom = app.sidebar_layout.ordered[1].rect;
+        assert_eq!(top.height, 9, "the dragged divider row becomes the boundary");
+        assert_eq!(top.height + bottom.height, 30);
+
+        // The two rails clamp at their minimum height.
+        app.drag_sidebar_split_divider("left", "workspaces", "all-agents", 0, 0);
+        app.sync_layout((120, 31));
+        assert_eq!(app.sidebar_layout.ordered[0].rect.height, super::MIN_SPLIT_RAIL_HEIGHT);
+    }
+
+    #[test]
+    fn horizontal_sidebar_split_uses_an_explicit_receipt_and_rejects_stale_geometry() {
+        use crate::config::{SidebarLayoutNode, SidebarSplitDir, SidebarSplitSpec};
+
+        let mux = Mux::new("sidebar-horizontal-split-hit-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut config = split_sidebar_config();
+        config.sidebar.layout = vec![SidebarLayoutNode::Split(SidebarSplitSpec {
+            id: "left".into(),
+            dir: SidebarSplitDir::Horizontal,
+            weights: vec![1, 1],
+            children: vec![SidebarLayoutNode::Leaf(0), SidebarLayoutNode::Leaf(1)],
+            width: 50,
+            max_width: 0,
+            collapse_priority: 30,
+        })];
+        config.sidebar.profiles[0].layout = config.sidebar.layout.clone();
+        app.config = config;
+        app.sync_layout((100, 24));
+
+        let mut terminal = Terminal::new(TestBackend::new(100, 24)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let (handle, receipt) = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                matches!(hit, super::Hit::SidebarSplitDivider { .. }).then_some((*rect, *hit))
+            })
+            .expect("horizontal split has an explicit divider receipt");
+        assert!(matches!(receipt, super::Hit::SidebarSplitDivider { .. }));
+
+        app.handle_left_down(handle.x, handle.y, KeyModifiers::NONE).unwrap();
+        assert!(matches!(app.drag, Some(Drag::SidebarSplit { .. })));
+
+        // A layout refresh moves the boundary. The old receipt remains in the
+        // hit map until the next draw, so dispatch must validate its geometry
+        // before accepting the drag.
+        app.drag = None;
+        if let Some(SidebarLayoutNode::Split(split)) = app.config.sidebar.layout.first_mut() {
+            split.weights = vec![3, 1];
+        }
+        app.sync_layout((100, 24));
+        app.handle_left_down(handle.x, handle.y, KeyModifiers::NONE).unwrap();
+        assert!(app.drag.is_none(), "a stale horizontal divider receipt must fail closed");
+    }
+
+    #[test]
+    fn sidebar_split_divider_drag_resolves_group_by_stable_id() {
+        let mux = Mux::new("sidebar-split-stable-id-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.sidebar_layout.split_groups = vec![
+            SidebarSplitGroupPlacement {
+                id: "other".into(),
+                dir: SidebarSplitDir::Vertical,
+                children: vec![
+                    Rect { x: 0, y: 0, width: 20, height: 10 },
+                    Rect { x: 0, y: 11, width: 20, height: 10 },
+                ],
+                child_keys: vec!["other-first".into(), "other-second".into()],
+            },
+            SidebarSplitGroupPlacement {
+                id: "left".into(),
+                dir: SidebarSplitDir::Vertical,
+                children: vec![
+                    Rect { x: 0, y: 0, width: 20, height: 10 },
+                    Rect { x: 0, y: 11, width: 20, height: 10 },
+                ],
+                child_keys: vec!["first".into(), "second".into()],
+            },
+        ];
+
+        app.drag_sidebar_split_divider("left", "first", "second", 0, 9);
+
+        let presentation = app.active_sidebar_profile_state().unwrap();
+        assert!(presentation.split_fractions.contains_key("left"));
+        assert!(!presentation.split_fractions.contains_key("other"));
+        let fractions = presentation.split_fractions.get("left").unwrap();
+        assert!(fractions.contains_key("first"));
+        assert!(fractions.contains_key("second"));
+    }
+
+    #[test]
+    fn sidebar_split_drag_keeps_the_same_children_after_layout_pruning() {
+        use crate::config::{SidebarLayoutNode, SidebarSplitDir, SidebarSplitSpec};
+
+        let mux = Mux::new("sidebar-split-drag-pruning-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut config = split_sidebar_config();
+        let mut third = config.sidebar.views[1].clone();
+        third.id = "third".into();
+        let mut fourth = third.clone();
+        fourth.id = "fourth".into();
+        config.sidebar.views.extend([third, fourth]);
+        config.sidebar.views[0].collapse_priority = 1;
+        config.sidebar.views[1].collapse_priority = 20;
+        config.sidebar.views[2].collapse_priority = 30;
+        config.sidebar.views[3].collapse_priority = 40;
+        config.sidebar.layout = vec![SidebarLayoutNode::Split(SidebarSplitSpec {
+            id: "left".into(),
+            dir: SidebarSplitDir::Vertical,
+            weights: vec![1; 4],
+            children: (0..4).map(SidebarLayoutNode::Leaf).collect(),
+            width: 26,
+            max_width: 0,
+            collapse_priority: 30,
+        })];
+        config.sidebar.views_explicit = true;
+        app.config = config;
+        app.sidebar_view = SidebarView::Workspaces;
+
+        // Capture the divider between the second and third children while all
+        // four children fit.
+        app.sync_layout((120, 23));
+        let (group, first_child, second_child) =
+            app.sidebar_split_drag_target(0, 1).expect("second split divider exists");
+        assert_eq!((first_child.as_str(), second_child.as_str()), ("all-agents", "third"));
+        app.drag = Some(Drag::SidebarSplit { group, first_child, second_child });
+
+        // A shorter frame prunes only the first child. The captured pair is
+        // now at indexes 0 and 1, so an index-only drag would target the wrong
+        // pair (or fail when the old index is out of range).
+        app.sync_layout((120, 18));
+        assert_eq!(
+            app.sidebar_layout.split_groups[0].child_keys,
+            vec!["all-agents", "third", "fourth"]
+        );
+        app.handle_left_drag(0, 6).unwrap();
+        app.sync_layout((120, 18));
+
+        let fourth_height = app
+            .sidebar_layout
+            .ordered
+            .iter()
+            .find(|placement| placement.kind == RailKind::Projection(3))
+            .map(|placement| placement.rect.height)
+            .expect("fourth child remains visible");
+        assert_eq!(fourth_height, 5, "the captured pair, not the stale index, was resized");
+        assert!(matches!(app.drag, Some(Drag::SidebarSplit { .. })));
+    }
+
+    #[test]
+    fn focus_moves_vertically_between_stacked_rails() {
+        let mux = Mux::new("sidebar-split-focus-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.config = split_sidebar_config();
+        app.sidebar_view = SidebarView::Workspaces;
+        app.sync_layout((120, 31));
+
+        app.focus = FocusTarget::WorkspaceRail;
+        assert!(app.move_focus_between_sidebar_rails(Direction::Down));
+        assert_eq!(app.focus, FocusTarget::ProjectionRail(1));
+        assert!(app.move_focus_between_sidebar_rails(Direction::Up));
+        assert_eq!(app.focus, FocusTarget::WorkspaceRail);
+        assert!(
+            !app.move_focus_between_sidebar_rails(Direction::Up),
+            "no rail above the top of the column"
+        );
+    }
+
+    #[test]
+    fn empty_projection_passes_vertical_keyboard_focus_to_stacked_rail() {
+        let mux = Mux::new("empty-projection-boundary-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.config = split_sidebar_config();
+        app.sidebar_view = SidebarView::Workspaces;
+        app.sync_layout((120, 31));
+        app.focus = FocusTarget::ProjectionRail(1);
+
+        assert!(app.projection_rows(1).is_empty());
+        app.handle_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)).unwrap();
+        assert_eq!(app.focus, FocusTarget::WorkspaceRail);
+
+        let last_workspace_target = app
+            .workspace_rail_targets()
+            .last()
+            .cloned()
+            .expect("the empty workspace rail still exposes its footer action");
+        app.select_workspace_rail_target(last_workspace_target);
+        app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)).unwrap();
+        assert_eq!(app.focus, FocusTarget::ProjectionRail(1));
+    }
+
+    #[test]
+    fn alt_vertical_navigation_crosses_a_nonempty_stacked_projection() {
+        let mux = Mux::new("alt-stacked-projection-navigation-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.config = split_sidebar_config();
+        app.sync_layout((120, 31));
+
+        app.focus = FocusTarget::ProjectionRail(1);
+        app.handle_key(KeyEvent::new(KeyCode::Up, KeyModifiers::ALT)).unwrap();
+        assert_eq!(app.focus, FocusTarget::WorkspaceRail);
+
+        app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::ALT)).unwrap();
+        assert_eq!(app.focus, FocusTarget::ProjectionRail(1));
+    }
+
+    #[test]
+    fn rail_width_drag_on_a_stacked_rail_resizes_the_whole_column() {
+        let mux = Mux::new("sidebar-split-width-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.config = split_sidebar_config();
+        app.sync_layout((120, 31));
+
+        app.drag = Some(Drag::RailResize(RailKind::Projection(1)));
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Left),
+            column: 33,
+            row: 25,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        app.sync_layout((120, 31));
+        assert_eq!(
+            app.active_sidebar_profile_state()
+                .and_then(|state| state.column_widths.get("left"))
+                .copied(),
+            Some(34),
+            "the override commits under the split group id"
+        );
+        let top = app.sidebar_layout.ordered[0].rect;
+        let bottom = app.sidebar_layout.ordered[1].rect;
+        assert_eq!(top.width, 34);
+        assert_eq!(bottom.width, 34);
+        app.drag = None;
     }
 
     #[test]
@@ -26426,7 +35770,7 @@ mod tests {
     fn pane_focus_history_overlays_authoritative_recency() {
         let mut history = PaneFocusHistory::default();
         let mut tree = notify_tree(1, false);
-        tree.workspaces[0].screens[0].panes[0].focused_at = 8;
+        tree.workspaces_mut()[0].screens[0].panes[0].focused_at = 8;
         history.reconcile_membership(&tree);
 
         assert_eq!(history.recency(2), (false, 8));
@@ -26451,11 +35795,11 @@ mod tests {
     fn pane_focus_history_freezes_remote_baseline_until_membership_changes() {
         let mut history = PaneFocusHistory::default();
         let mut initial = notify_tree(1, false);
-        initial.workspaces[0].screens[0].panes[0].focused_at = 8;
+        initial.workspaces_mut()[0].screens[0].panes[0].focused_at = 8;
         history.reconcile_membership(&initial);
 
         let mut peer_refresh = initial.clone();
-        peer_refresh.workspaces[0].screens[0].panes[0].focused_at = 99;
+        peer_refresh.workspaces_mut()[0].screens[0].panes[0].focused_at = 99;
         history.sync_membership(&peer_refresh);
 
         assert_eq!(history.recency(2), (false, 8));
@@ -26468,7 +35812,7 @@ mod tests {
         history.reconcile_membership(&notify_tree(1, false));
 
         let mut replacement = notify_tree(2, false);
-        let screen = &mut replacement.workspaces[0].screens[0];
+        let screen = &mut replacement.workspaces_mut()[0].screens[0];
         screen.active_pane = 99;
         screen.layout = Node::Leaf(99);
         screen.panes[0].id = 99;
@@ -26750,6 +36094,653 @@ mod tests {
         assert!(matches!(app.drag, Some(Drag::StatusMessage { .. })));
     }
 
+    fn selection_fixture(
+        name: &str,
+        text: &[u8],
+    ) -> (App, Arc<Mux>, Arc<cmux_tui_core::Surface>, Rect) {
+        let (mux, surface) = test_mux(name, None);
+        surface.with_terminal(|terminal| terminal.vt_write(text));
+
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+        let pane = app.tree.active_screen().unwrap().active_pane;
+        let content = Rect { x: 2, y: 3, width: 20, height: 8 };
+        app.pane_areas.push(PaneArea {
+            pane,
+            surface: surface.id,
+            rect: Rect { x: 1, y: 2, width: 23, height: 10 },
+            bar: Some(Rect { x: 1, y: 2, width: 23, height: 1 }),
+            omnibar: None,
+            content,
+            track: None,
+            viewport: None,
+        });
+        app.rendered_terminal_bounds.insert(surface.id, content);
+        (app, mux, surface, content)
+    }
+
+    fn wrapped_selection_fixture(
+        name: &str,
+        text: &[u8],
+    ) -> (App, Arc<Mux>, Arc<cmux_tui_core::Surface>, Rect) {
+        let (mux, surface) = test_mux(name, None);
+        surface.with_terminal(|terminal| {
+            terminal.resize(4, 3, 8, 16).unwrap();
+            terminal.vt_write(text);
+        });
+
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+        let pane = app.tree.active_screen().unwrap().active_pane;
+        let content = Rect { x: 2, y: 3, width: 4, height: 3 };
+        app.pane_areas.push(PaneArea {
+            pane,
+            surface: surface.id,
+            rect: Rect { x: 1, y: 2, width: 7, height: 5 },
+            bar: Some(Rect { x: 1, y: 2, width: 7, height: 1 }),
+            omnibar: None,
+            content,
+            track: None,
+            viewport: None,
+        });
+        app.rendered_terminal_bounds.insert(surface.id, content);
+        (app, mux, surface, content)
+    }
+
+    #[test]
+    fn dragging_from_a_wrapped_wide_head_anchors_to_the_glyph_lead() {
+        let (mut app, mux, surface, content) =
+            wrapped_selection_fixture("wrapped-wide-cell-drag-selection-test", "ABC橋D".as_bytes());
+
+        let press = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 3,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle_mouse(press).unwrap();
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Left),
+            column: content.x + 2,
+            row: content.y + 1,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+
+        let selection = app.selection.expect("dragging a wrapped glyph must create a selection");
+        assert_eq!(selection.anchor, (0, 1));
+        assert_eq!(selection.range(), ((0, 1), (2, 1)));
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn double_clicking_a_wrapped_wide_head_selects_the_glyph_word() {
+        let (mut app, mux, surface, content) =
+            wrapped_selection_fixture("wrapped-wide-word-selection-test", "AB 橋".as_bytes());
+        let click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 3,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        };
+
+        app.handle_mouse(click).unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+            .unwrap();
+        app.handle_mouse(click).unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+            .unwrap();
+
+        assert_eq!(
+            app.selection.map(|selection| selection.range()),
+            Some(((0, 1), (0, 1))),
+            "double-clicking a wrapped glyph head must select its word"
+        );
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn double_click_selects_a_complete_word() {
+        let (mut app, mux, surface, content) =
+            selection_fixture("double-click-word-selection-test", b"alpha beta gamma");
+
+        let click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 1,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle_mouse(click).unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+            .unwrap();
+        app.handle_mouse(click).unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+            .unwrap();
+
+        assert_eq!(
+            app.selection.map(|selection| selection.range()),
+            Some(((0, 0), (4, 0))),
+            "a double click must highlight the complete word"
+        );
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn selection_for_click_returns_the_terminal_word_range() {
+        let (app, mux, surface, _) =
+            selection_fixture("selection-for-click-word-range-test", b"alpha beta");
+
+        let selection = app
+            .selection_for_click(surface.id, (1, 0), SelectionMode::Word)
+            .expect("a word click must return the terminal selection range");
+        assert_eq!(selection.range(), ((0, 0), (4, 0)));
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn shift_double_click_selects_a_complete_word() {
+        let (mut app, mux, surface, content) =
+            selection_fixture("shift-double-click-word-selection-test", b"alpha beta gamma");
+
+        let click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 1,
+            row: content.y,
+            modifiers: KeyModifiers::SHIFT,
+        };
+        let now = Instant::now();
+        app.handle_mouse_at(click, now).unwrap();
+        app.handle_mouse_at(
+            MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click },
+            now,
+        )
+        .unwrap();
+        app.handle_mouse_at(click, now).unwrap();
+        app.handle_mouse_at(
+            MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click },
+            now,
+        )
+        .unwrap();
+
+        assert_eq!(
+            app.selection.map(|selection| selection.range()),
+            Some(((0, 0), (4, 0))),
+            "Shift double click must select the complete word when bypassing PTY mouse reporting"
+        );
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn shift_triple_click_selects_a_complete_line() {
+        let (mut app, mux, surface, content) =
+            selection_fixture("shift-triple-click-line-selection-test", b"alpha beta\ngamma");
+
+        let click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 1,
+            row: content.y,
+            modifiers: KeyModifiers::SHIFT,
+        };
+        let now = Instant::now();
+        for _ in 0..3 {
+            app.handle_mouse_at(click, now).unwrap();
+            app.handle_mouse_at(
+                MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click },
+                now,
+            )
+            .unwrap();
+        }
+
+        assert_eq!(
+            app.selection.map(|selection| selection.range()),
+            Some(((0, 0), (9, 0))),
+            "Shift triple click must select the complete line when bypassing PTY mouse reporting"
+        );
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn a_single_cell_press_does_not_store_a_zero_length_selection() {
+        let (mut app, mux, surface, content) =
+            selection_fixture("single-cell-press-selection-state-test", b"alpha beta");
+
+        let click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 1,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle_mouse(click).unwrap();
+
+        assert!(
+            app.selection.is_none(),
+            "a single cell press must not retain a zero-length selection"
+        );
+
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+            .unwrap();
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn a_failed_word_lookup_downgrades_to_a_cell_gesture() {
+        let (mut app, mux, surface, content) =
+            selection_fixture("failed-word-lookup-selection-state-test", b"alpha");
+
+        let click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 10,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle_mouse(click).unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+            .unwrap();
+        app.handle_mouse(click).unwrap();
+
+        assert!(app.selection.is_none(), "a missing word must not retain an older selection");
+        assert_eq!(
+            app.selection_mode,
+            SelectionMode::Cell,
+            "a failed word lookup must not leave semantic drag mode active"
+        );
+
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+            .unwrap();
+        app.handle_mouse(click).unwrap();
+        assert!(
+            app.selection.is_none(),
+            "a click after a failed semantic lookup must not inherit its selection"
+        );
+        assert_eq!(
+            app.selection_mode,
+            SelectionMode::Cell,
+            "a failed semantic lookup must invalidate the repeat count before the next click"
+        );
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+            .unwrap();
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn double_click_selects_a_complete_whitespace_run() {
+        let (mut app, mux, surface, content) =
+            selection_fixture("double-click-whitespace-selection-test", b"alpha   beta");
+
+        let click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 6,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle_mouse(click).unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+            .unwrap();
+        app.handle_mouse(click).unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+            .unwrap();
+
+        assert_eq!(
+            app.selection.map(|selection| selection.range()),
+            Some(((5, 0), (7, 0))),
+            "double click must select the full whitespace run between words"
+        );
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn double_click_drag_extends_selection_by_complete_words() {
+        let (mut app, mux, surface, content) =
+            selection_fixture("double-click-word-drag-selection-test", b"alpha beta gamma");
+
+        let click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 7,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle_mouse(click).unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+            .unwrap();
+        app.handle_mouse(click).unwrap();
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Left),
+            column: content.x + 15,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: content.x + 15,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+
+        assert_eq!(
+            app.selection.map(|selection| selection.range()),
+            Some(((6, 0), (15, 0))),
+            "double-click drag must start at the selected word and end at the whole target word"
+        );
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn selection_drag_wheel_does_not_reset_semantic_click_sequence() {
+        let (mut app, mux, surface, content) =
+            selection_fixture("selection-drag-wheel-pointer-owner-test", b"alpha beta gamma");
+
+        let click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 7,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle_mouse(click).unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+            .unwrap();
+        app.handle_mouse(click).unwrap();
+        assert_eq!(app.selection_mode, SelectionMode::Word);
+        let sequence = app.selection_click_sequence.as_ref().expect("semantic click sequence");
+        assert_eq!(sequence.count, 2);
+
+        assert_eq!(
+            app.handle_mouse(MouseEvent {
+                kind: MouseEventKind::ScrollDown,
+                column: content.x + 7,
+                row: content.y,
+                modifiers: KeyModifiers::NONE,
+            })
+            .unwrap(),
+            RenderAction::None
+        );
+        assert_eq!(app.selection_mode, SelectionMode::Word);
+        assert_eq!(
+            app.selection_click_sequence.as_ref().map(|sequence| sequence.count),
+            Some(2),
+            "a wheel sample during selection must not reset the repeat mode"
+        );
+        assert!(matches!(app.drag, Some(Drag::Select { .. })));
+
+        let target = MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Left),
+            column: content.x + 15,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle_mouse(target).unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..target })
+            .unwrap();
+        assert_eq!(
+            app.selection.map(|selection| selection.range()),
+            Some(((6, 0), (15, 0))),
+            "the semantic word range must survive an interleaved wheel sample"
+        );
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn double_click_drag_anchors_at_second_press() {
+        let (mut app, mux, surface, content) =
+            selection_fixture("double-click-second-press-anchor-test", b"a b c");
+
+        let first_click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 1,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle_mouse(first_click).unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..first_click })
+            .unwrap();
+
+        let second_click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 2,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle_mouse(second_click).unwrap();
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Left),
+            column: content.x + 4,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: content.x + 4,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+
+        assert_eq!(
+            app.selection.map(|selection| selection.range()),
+            Some(((2, 0), (4, 0))),
+            "a double-click drag must use the second press as its word anchor"
+        );
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn double_click_drag_extends_backwards_by_complete_words() {
+        let (mut app, mux, surface, content) =
+            selection_fixture("double-click-word-reverse-drag-test", b"alpha beta gamma");
+
+        let click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 7,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle_mouse(click).unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+            .unwrap();
+        app.handle_mouse(click).unwrap();
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Left),
+            column: content.x + 1,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: content.x + 1,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+
+        assert_eq!(
+            app.selection.map(|selection| selection.range()),
+            Some(((0, 0), (9, 0))),
+            "reverse double-click drags must include both complete words"
+        );
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn failed_semantic_drag_does_not_keep_a_stale_selection() {
+        let (mut app, mux, surface, content) =
+            selection_fixture("failed-semantic-drag-selection-test", b"alpha beta gamma");
+
+        let click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 1,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle_mouse(click).unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+            .unwrap();
+        app.handle_mouse(click).unwrap();
+        assert_eq!(
+            app.selection.map(|selection| selection.range()),
+            Some(((0, 0), (4, 0))),
+            "the second press must establish the semantic selection before the drag"
+        );
+
+        // Leave the rendered pane geometry unchanged, but shrink Ghostty's
+        // grid so the next pointer cell is no longer a valid semantic point.
+        surface
+            .with_terminal(|terminal| terminal.resize(2, 8, 8, 16).unwrap())
+            .expect("selection fixture surface must remain a PTY");
+        let invalid_drag = MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Left),
+            column: content.x + 15,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle_mouse(invalid_drag).unwrap();
+        assert!(
+            app.selection.is_none(),
+            "a failed semantic drag must clear the old selection before release"
+        );
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            ..invalid_drag
+        })
+        .unwrap();
+        assert!(app.selection.is_none(), "release must not copy or retain stale semantic text");
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn single_click_drag_does_not_seed_a_double_click() {
+        let (mut app, mux, surface, content) =
+            selection_fixture("single-click-drag-repeat-test", b"alpha beta gamma");
+
+        let click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 1,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle_mouse(click).unwrap();
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Left),
+            column: content.x + 3,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: content.x + 3,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+
+        app.handle_mouse(click).unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+            .unwrap();
+
+        assert!(
+            app.selection.is_none(),
+            "a click after a selection drag must remain a plain click"
+        );
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn single_click_drag_into_padding_does_not_seed_a_double_click() {
+        let (mut app, mux, surface, content) =
+            selection_fixture("single-click-padding-drag-repeat-test", b"alpha beta gamma");
+
+        let click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle_mouse(click).unwrap();
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Left),
+            column: content.x - 1,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: content.x - 1,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+
+        app.handle_mouse(click).unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+            .unwrap();
+
+        assert!(
+            app.selection.is_none(),
+            "a padding drag must prevent the next click from becoming a double click"
+        );
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn triple_click_drag_extends_to_a_blank_line() {
+        let (mut app, mux, surface, content) =
+            selection_fixture("triple-click-blank-line-drag-test", b"alpha\n\nbeta");
+
+        let click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 1,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        for _ in 0..2 {
+            app.handle_mouse(click).unwrap();
+            app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+                .unwrap();
+        }
+        app.handle_mouse(click).unwrap();
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Left),
+            column: content.x + 1,
+            row: content.y + 1,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: content.x + 1,
+            row: content.y + 1,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+
+        assert!(
+            app.selection.is_some_and(|selection| selection.range().1.1 == 1),
+            "triple-click drag must extend the line selection onto a blank line"
+        );
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
     #[test]
     fn status_message_drag_selection_highlights_the_visible_text() {
         let (mux, _) = test_mux("status-message-selection-test", None);
@@ -26877,20 +36868,6 @@ mod tests {
         assert_eq!(app.status_message.as_deref(), Some("SSH connection failed"));
         app.run_action(Action::ToggleSidebarCompact).unwrap();
         assert_eq!(app.status_message.as_deref(), Some("SSH connection failed"));
-    }
-
-    #[test]
-    fn expired_toast_is_consumed_once() {
-        let mux = Mux::new("expired-toast-once-test", SurfaceOptions::default());
-        let mut app = test_app(Session::Local(mux));
-        app.toast = Some(Toast {
-            text: "expired".to_string(),
-            deadline: Instant::now() - Duration::from_millis(1),
-        });
-
-        assert!(app.expire_toast());
-        assert!(!app.expire_toast());
-        assert!(app.toast.is_none());
     }
 
     #[test]
@@ -27149,6 +37126,29 @@ mod tests {
     }
 
     #[test]
+    fn first_pane_index_preserves_screen_pane_lookup_semantics() {
+        let pane = |name: &str| PaneView {
+            id: 7,
+            resource_id: None,
+            short_id: name.to_string(),
+            name: Some(name.to_string()),
+            tabs: Vec::new(),
+            active_tab: 0,
+            focused_at: 0,
+        };
+        let panes = vec![pane("first"), pane("duplicate")];
+
+        let indexed = first_pane_by_id(&panes);
+
+        assert_eq!(indexed.get(&7).and_then(|pane| pane.name.as_deref()), Some("first"));
+    }
+
+    #[test]
+    fn first_pane_index_is_empty_for_empty_input() {
+        assert!(first_pane_by_id(&[]).is_empty());
+    }
+
+    #[test]
     fn viewport_animation_leases_every_column_in_its_swept_range() {
         let pane = |id, surface| PaneView {
             id,
@@ -27315,8 +37315,8 @@ mod tests {
         app.content_area = Rect { x: 0, y: 0, width: 80, height: 24 };
         app.viewport_layout = layout;
         app.viewport_virtual_width = pane_count * 80;
-        app.tree = TreeView {
-            workspaces: vec![WorkspaceView {
+        app.tree = TreeView::from_parts(
+            vec![WorkspaceView {
                 id: 3,
                 resource_id: None,
                 key: "workspace".to_string(),
@@ -27325,10 +37325,10 @@ mod tests {
                 screens: vec![screen],
                 active_screen: 0,
             }],
-            workspace_revision: 1,
-            pane_revision: Some(1),
-            active_workspace: 0,
-        };
+            1,
+            Some(1),
+            0,
+        );
 
         app.reclip_viewport_panes();
         app.viewport_offset = (pane_count - 1) * 80;
@@ -27461,8 +37461,8 @@ mod tests {
             (2, VirtualRect { x: 80, y: 0, width: 53, height: 24 }),
         ];
         app.viewport_virtual_width = 133;
-        app.tree = TreeView {
-            workspaces: vec![WorkspaceView {
+        app.tree = TreeView::from_parts(
+            vec![WorkspaceView {
                 id: 3,
                 resource_id: None,
                 key: "workspace".to_string(),
@@ -27527,10 +37527,10 @@ mod tests {
                 }],
                 active_screen: 0,
             }],
-            workspace_revision: 1,
-            pane_revision: Some(1),
-            active_workspace: 0,
-        };
+            1,
+            Some(1),
+            0,
+        );
         let started_at = Instant::now();
         let mut motion = ViewportMotion::new(started_at);
         motion.retarget(53, true, started_at);
@@ -27715,7 +37715,7 @@ mod tests {
         app.select_workspace_for_client(Some(1), None);
         // The report records the session's last focus for later attaches and
         // leaves the live shared focus alone, so attached clients stay put.
-        let second_pane = app.tree.workspaces[1].screens[0].active_pane;
+        let second_pane = app.tree.workspaces()[1].screens[0].active_pane;
         assert_eq!(mux.with_state(|state| state.active_workspace), 0);
         assert_eq!(mux.session_focus(), Some((second_pane, Some(0))));
 
@@ -29336,6 +39336,7 @@ mod tests {
         app.replace_tree(browser_completion_tree(surface_id, surface_id));
         app.sidebar_visible = false;
         let area = browser_completion_area(surface_id);
+        app.outer_size = (40, 12);
         app.pane_areas = vec![area];
         app.rendered_pane_content_generations
             .insert(surface_id, PaneContentGeneration::Browser(41));
@@ -29448,9 +39449,15 @@ mod tests {
                 .unwrap(),
             RenderAction::None
         );
-        assert!(app.encode_buf.is_empty());
+        assert_eq!(
+            app.encode_buf, b"\x1b[<2;5;3M",
+            "a mismatched drag is ignored without forwarding a second PTY sample"
+        );
         app.handle_mouse(event(MouseEventKind::Up(MouseButton::Left), KeyModifiers::NONE)).unwrap();
-        assert!(app.encode_buf.is_empty());
+        assert_eq!(
+            app.encode_buf, b"\x1b[<2;5;3M",
+            "a mismatched release does not release the retained right-button owner"
+        );
         assert!(matches!(app.drag, Some(Drag::PtyMouse { button: MouseButton::Right, .. })));
         app.handle_mouse(event(MouseEventKind::Up(MouseButton::Right), KeyModifiers::NONE))
             .unwrap();
@@ -29474,6 +39481,8 @@ mod tests {
         assert!(app.encode_buf.is_empty(), "Shift-right-click must bypass PTY mouse reporting");
         assert!(app.drag.is_none());
         assert!(app.menu.is_some(), "Shift-right-click must open the cmux context menu");
+        app.handle_mouse(event(MouseEventKind::Up(MouseButton::Right), KeyModifiers::SHIFT))
+            .unwrap();
         app.menu = None;
 
         app.encode_buf.clear();
@@ -29482,6 +39491,7 @@ mod tests {
         assert!(app.encode_buf.is_empty(), "Option-right-click must bypass PTY mouse reporting");
         assert!(app.drag.is_none());
         assert!(app.menu.is_some(), "Option-right-click must open the cmux context menu");
+        app.handle_mouse(event(MouseEventKind::Up(MouseButton::Right), KeyModifiers::ALT)).unwrap();
         app.menu = None;
 
         app.handle_mouse(event(MouseEventKind::Down(MouseButton::Left), KeyModifiers::NONE))
@@ -29631,6 +39641,7 @@ mod tests {
         let mut app = test_app(Session::Local(mux));
         let transaction = app.session.layout_resize_transaction.load(Ordering::Acquire);
         app.drag = Some(Drag::ResizeSplit {
+            screen: app.active_screen_id().unwrap_or(0),
             horizontal: Some(PaneResizeDragTarget::ViewportColumn {
                 pane: 1,
                 edge: PaneEdge::Right,
@@ -29654,6 +39665,7 @@ mod tests {
         let mut app = test_app(Session::Local(mux));
         let transaction = app.session.layout_resize_transaction.load(Ordering::Acquire);
         app.drag = Some(Drag::ResizeSplit {
+            screen: app.active_screen_id().unwrap_or(0),
             horizontal: Some(PaneResizeDragTarget::ViewportColumn {
                 pane: 1,
                 edge: PaneEdge::Right,
@@ -30590,100 +40602,6 @@ mod tests {
     }
 
     #[test]
-    fn immediate_menu_press_survives_content_changed_before_surface_output() {
-        let (mux, surface) = test_mux("immediate-menu-content-test", None);
-        surface.with_terminal(|terminal| {
-            for index in 0..100 {
-                terminal.vt_write(format!("line {index}\r\n").as_bytes());
-            }
-        });
-        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
-        app.replace_tree(app.session.tree());
-        app.sidebar_visible = false;
-        app.sync_layout((40, 15));
-        while app.session.has_pending_mutations() {
-            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
-        }
-        let mut terminal = Terminal::new(TestBackend::new(40, 15)).unwrap();
-        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
-        let content = app.pane_areas[0].content;
-        assert_eq!(app.pointer_route_phase, PointerRoutePhase::Fresh);
-
-        // Terminal content moves after the frame committed, exactly like PTY
-        // output landing between a paint and the user's press.
-        surface.scroll_delta(-3).unwrap();
-        assert_eq!(
-            app.pointer_route_phase,
-            PointerRoutePhase::Fresh,
-            "the queued output event has not marked the rendered route stale yet"
-        );
-
-        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
-            kind: MouseEventKind::Down(MouseButton::Right),
-            column: content.x + 4,
-            row: content.y + 2,
-            modifiers: KeyModifiers::SHIFT,
-        })))
-        .unwrap();
-
-        assert!(
-            app.menu.is_some(),
-            "a cmux-owned context menu press must not be swallowed by terminal content \
-             admission: it never forwards bytes to the terminal application"
-        );
-        assert!(app.deferred_input.is_empty());
-        mux.close_surface(surface.id).unwrap();
-    }
-
-    #[test]
-    fn deferred_menu_press_survives_content_repaint_before_replay() {
-        let (mux, surface) = test_mux("deferred-menu-content-test", None);
-        surface.with_terminal(|terminal| {
-            for index in 0..100 {
-                terminal.vt_write(format!("line {index}\r\n").as_bytes());
-            }
-        });
-        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
-        app.replace_tree(app.session.tree());
-        app.sidebar_visible = false;
-        app.sync_layout((40, 15));
-        while app.session.has_pending_mutations() {
-            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
-        }
-        let mut terminal = Terminal::new(TestBackend::new(40, 15)).unwrap();
-        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
-        let content = app.pane_areas[0].content;
-
-        app.pointer_route_phase = PointerRoutePhase::DrawPending;
-        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
-            kind: MouseEventKind::Down(MouseButton::Right),
-            column: content.x + 4,
-            row: content.y + 2,
-            modifiers: KeyModifiers::SHIFT,
-        })))
-        .unwrap();
-        assert_eq!(app.deferred_input.len(), 1);
-        assert!(app.menu.is_none());
-
-        // Content changes while the press waits for its paint, so the
-        // repainted frame carries a newer terminal content generation than
-        // the one recorded when the press was deferred.
-        surface.scroll_delta(-3).unwrap();
-        let repaint = app.handle(AppEvent::Mux(MuxEvent::SurfaceOutput(surface.id))).unwrap();
-        app.render_action(&mut terminal, repaint).unwrap();
-        assert_eq!(app.pointer_route_phase, PointerRoutePhase::Fresh);
-        app.replay_deferred_input().unwrap();
-
-        assert!(app.deferred_input.is_empty());
-        assert!(
-            app.menu.is_some(),
-            "a replayed cmux-owned context menu press must not be dropped because terminal \
-             content changed under it while it waited for the paint"
-        );
-        mux.close_surface(surface.id).unwrap();
-    }
-
-    #[test]
     fn immediate_untracked_wheel_fails_closed_before_surface_output_marks_route_stale() {
         let (mux, surface) = test_mux("immediate-wheel-semantics-test", None);
         let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
@@ -30994,49 +40912,6 @@ mod tests {
     }
 
     #[test]
-    fn pointer_routes_projection_rail_padding_to_projection_rail() {
-        let rect = Rect { x: 4, y: 0, width: 20, height: 10 };
-        let pane = PaneArea {
-            pane: 7,
-            surface: 9,
-            rect,
-            bar: None,
-            omnibar: None,
-            content: Rect { x: 5, y: 1, width: 18, height: 8 },
-            track: None,
-            viewport: None,
-        };
-        let mux = Mux::new("projection-rail-pointer-frame-test", SurfaceOptions::default());
-        let mut app = test_app(Session::Local(mux));
-        app.outer_size = (40, 10);
-        app.sidebar_layout.ordered =
-            vec![super::RailPlacement { kind: RailKind::Projection(0), view_index: 0, rect }];
-        app.pane_areas = vec![pane];
-        app.commit_rendered_pointer_frame();
-
-        let padding_route = app.rendered_pointer_frame.route_for_mouse(&MouseEvent {
-            kind: MouseEventKind::Down(MouseButton::Left),
-            column: rect.x + rect.width - 1,
-            row: rect.y + rect.height - 1,
-            modifiers: KeyModifiers::NONE,
-        });
-        assert!(matches!(
-            padding_route,
-            PointerRouteIdentity::Rail { kind: RailKind::Projection(0), .. }
-        ));
-
-        let content_route = app.rendered_pointer_frame.route_for_mouse(&MouseEvent {
-            kind: MouseEventKind::Down(MouseButton::Left),
-            column: pane.content.x,
-            row: pane.content.y,
-            modifiers: KeyModifiers::NONE,
-        });
-        assert!(
-            matches!(content_route, PointerRouteIdentity::Pane { pane: routed, .. } if routed.pane == pane.pane)
-        );
-    }
-
-    #[test]
     fn graphics_only_repaint_is_a_pointer_replay_barrier() {
         assert_eq!(
             PointerRoutePhase::Fresh.with_action(RenderAction::Graphics),
@@ -31135,15 +41010,6 @@ mod tests {
             app.pointer_route_is_stale_for_mouse(&covered),
             "the old browser image still owns this cell until deletion is processed"
         );
-        let menu = MouseEvent {
-            kind: MouseEventKind::Down(MouseButton::Right),
-            modifiers: KeyModifiers::SHIFT,
-            ..covered
-        };
-        assert!(
-            !app.pointer_route_is_stale_for_mouse(&menu),
-            "a cmux-owned menu press must not wait for a graphics image it never enters"
-        );
 
         app.pending_graphics_snapshot = Some(vec![GraphicIdentity {
             session_generation: app.session_generation,
@@ -31157,6 +41023,39 @@ mod tests {
         assert!(app.pointer_route_is_stale_for_mouse(&covered));
         assert!(app.pointer_route_is_stale_for_mouse(&newly_covered));
         assert!(!app.pointer_route_is_stale_for_mouse(&unchanged));
+    }
+
+    #[test]
+    fn graphics_changed_rect_bound_stays_within_linear_comparison_budget() {
+        let mux = Mux::new("graphics-diff-complexity-test", SurfaceOptions::default());
+        let app = test_app(Session::Local(mux));
+        let count = 512usize;
+        let previous = (0..count)
+            .map(|index| GraphicIdentity {
+                session_generation: app.session_generation,
+                surface: index as SurfaceId,
+                rect: Rect { x: index as u16, y: 1, width: 1, height: 1 },
+                seq: index as u64,
+                pointer_frame_seq: None,
+            })
+            .collect::<Vec<_>>();
+        let next = (0..count)
+            .map(|index| GraphicIdentity {
+                session_generation: app.session_generation,
+                surface: (count + index) as SurfaceId,
+                rect: Rect { x: (count + index) as u16, y: 1, width: 1, height: 1 },
+                seq: (count + index) as u64,
+                pointer_frame_seq: None,
+            })
+            .collect::<Vec<_>>();
+
+        super::GRAPHICS_ROUTE_COMPARISONS.with(|comparisons| comparisons.set(0));
+        assert!(app.graphics_changed_rect_bound(&previous, &next).is_some());
+        let comparisons = super::GRAPHICS_ROUTE_COMPARISONS.with(std::cell::Cell::get);
+        assert!(
+            comparisons <= count.saturating_mul(8),
+            "graphics diff compared {comparisons} pairs for {count} entries"
+        );
     }
 
     #[test]
@@ -33027,9 +42926,16 @@ mod tests {
         let mut app = test_app(Session::Local(mux));
 
         app.replace_tree(notify_tree(41, false));
+        assert!(app.tree.pane(2).is_some());
+        let index_before = app.tree.location_index.get().unwrap() as *const _;
         assert!(app.mux_titles.push(41, "live-title".to_string()));
         app.handle(AppEvent::MuxTitlesReady).unwrap();
+        let index_after = app.tree.location_index.get().unwrap() as *const _;
+        assert!(std::ptr::eq(index_before, index_after));
         assert_eq!(app.tree.pane(2).unwrap().tabs[0].title, "live-title");
+
+        assert!(app.mux_titles.push(41, "live-title".to_string()));
+        assert_eq!(app.handle(AppEvent::MuxTitlesReady).unwrap(), RenderAction::None);
 
         app.replace_tree(notify_tree(41, false));
         assert_eq!(app.tree.pane(2).unwrap().tabs[0].title, "live-title");
@@ -33071,6 +42977,7 @@ mod tests {
         let mux = Mux::new("mux-forwarder-overflow-test", SurfaceOptions::default());
         let event_source = Session::Local(mux.clone());
         let session_events = event_source.events();
+        let stop_receiver = Arc::new(Mutex::new(Some(session_events.clone())));
         for surface in 0..5_000 {
             mux.emit(MuxEvent::Bell(surface));
         }
@@ -33083,6 +42990,7 @@ mod tests {
             forward_mux_events(
                 event_source,
                 session_events,
+                stop_receiver,
                 destination_generation,
                 forwarder_recovery_generation,
                 SessionEventSender::unscoped(tx),
@@ -33135,6 +43043,62 @@ mod tests {
             AppEvent::Mux(MuxEvent::Empty)
         ));
         drop(rx);
+        forwarder.join().unwrap();
+    }
+
+    #[test]
+    fn mux_forwarder_stop_wakes_after_overflow_replaces_mailbox() {
+        let mux = Mux::new("mux-forwarder-overflow-stop-test", SurfaceOptions::default());
+        let event_source = Session::Local(mux.clone());
+        let session_events = event_source.events();
+        let stop_receiver = Arc::new(Mutex::new(Some(session_events.clone())));
+        let stop_for_test = stop_receiver.clone();
+        for surface in 0..5_000 {
+            mux.emit(MuxEvent::Bell(surface));
+        }
+        let (tx, rx) = crossbeam_channel::bounded(8_192);
+        let titles = Arc::new(MuxTitleIngress::default());
+        let destination_generation = Arc::new(AtomicU64::new(0));
+        let recovery_generation = Arc::new(AtomicU64::new(0));
+        let cancellation = EventCancellation::new();
+        let forwarder_events = SessionEventSender {
+            tx,
+            generation: None,
+            surface_filter: None,
+            cancellation: cancellation.clone(),
+        };
+        let forwarder_recovery_generation = recovery_generation;
+        let forwarder = std::thread::spawn(move || {
+            forward_mux_events(
+                event_source,
+                session_events,
+                stop_receiver,
+                destination_generation,
+                forwarder_recovery_generation,
+                forwarder_events,
+                titles,
+            );
+        });
+
+        let deadline = Instant::now() + Duration::from_secs(1);
+        let mut recovered = false;
+        while Instant::now() < deadline {
+            match rx.recv_timeout(Duration::from_millis(50)) {
+                Ok(AppEvent::MuxRecoveryComplete { .. }) => {
+                    recovered = true;
+                    break;
+                }
+                Ok(_) => {}
+                Err(crossbeam_channel::RecvTimeoutError::Timeout) => {}
+                Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break,
+            }
+        }
+        assert!(recovered, "overflow recovery must install a replacement mailbox");
+
+        // The forwarder is blocked on the replacement mailbox here. Closing
+        // the currently active receiver must wake it without timer polling.
+        cancellation.cancel();
+        stop_for_test.lock().unwrap().take().unwrap().close();
         forwarder.join().unwrap();
     }
 
@@ -33373,7 +43337,7 @@ mod tests {
         let mux = Mux::new("cached-surface-exit-index-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
         let mut tree = notify_tree(41, false);
-        let pane = &mut tree.workspaces[0].screens[0].panes[0];
+        let pane = &mut tree.workspaces_mut()[0].screens[0].panes[0];
         let mut second = pane.tabs[0].clone();
         second.surface = 41;
         let mut third = pane.tabs[0].clone();
@@ -33383,15 +43347,19 @@ mod tests {
         pane.tabs.push(third);
         pane.active_tab = 1;
         app.replace_tree(tree);
+        assert_eq!(app.tree.surface(40).map(|tab| tab.surface), Some(40));
 
         app.remove_surface_from_cached_tree(40);
 
-        let pane = &app.tree.workspaces[0].screens[0].panes[0];
+        let pane = &app.tree.workspaces()[0].screens[0].panes[0];
         assert_eq!(pane.tabs.iter().map(|tab| tab.surface).collect::<Vec<_>>(), vec![41, 43]);
         assert_eq!(pane.active_tab, 0);
         assert!(!app.tab_locations.contains_key(&40));
         assert_eq!(app.tab_locations.get(&41), Some(&[0, 0, 0, 0]));
         assert_eq!(app.tab_locations.get(&43), Some(&[0, 0, 0, 1]));
+        assert!(app.tree.surface(40).is_none());
+        assert_eq!(app.tree.surface(41).map(|tab| tab.surface), Some(41));
+        assert_eq!(app.tree.surface(43).map(|tab| tab.surface), Some(43));
     }
 
     #[test]
@@ -33399,7 +43367,7 @@ mod tests {
         let mux = Mux::new("stale-surface-exit-index-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
         let mut tree = notify_tree(41, false);
-        let pane = &mut tree.workspaces[0].screens[0].panes[0];
+        let pane = &mut tree.workspaces_mut()[0].screens[0].panes[0];
         let mut second = pane.tabs[0].clone();
         second.surface = 41;
         let mut third = pane.tabs[0].clone();
@@ -33414,7 +43382,7 @@ mod tests {
         app.tab_locations.insert(40, [0, 0, 0, 1]);
         app.remove_surface_from_cached_tree(40);
 
-        let pane = &app.tree.workspaces[0].screens[0].panes[0];
+        let pane = &app.tree.workspaces()[0].screens[0].panes[0];
         assert_eq!(pane.tabs.iter().map(|tab| tab.surface).collect::<Vec<_>>(), vec![41, 43]);
         assert_eq!(pane.active_tab, 1);
         assert_eq!(app.tab_locations.get(&41), Some(&[0, 0, 0, 0]));
@@ -33424,7 +43392,7 @@ mod tests {
         // The fallback must repair the index so the next exit uses the
         // indexed path instead of scanning the whole tree again.
         app.remove_surface_from_cached_tree(41);
-        let pane = &app.tree.workspaces[0].screens[0].panes[0];
+        let pane = &app.tree.workspaces()[0].screens[0].panes[0];
         assert_eq!(pane.tabs.iter().map(|tab| tab.surface).collect::<Vec<_>>(), vec![43]);
         assert_eq!(app.tab_locations.get(&43), Some(&[0, 0, 0, 0]));
         assert!(!app.tab_locations.contains_key(&41));
@@ -34804,7 +44772,7 @@ mod tests {
             refresh_sequence: 1,
         }))
         .unwrap();
-        assert_eq!(app.tree.workspaces[0].screens[0].panes[0].tabs[0].surface, 22);
+        assert_eq!(app.tree.workspaces()[0].screens[0].panes[0].tabs[0].surface, 22);
         assert_eq!(app.pointer_route_phase, PointerRoutePhase::DrawPending);
         assert_eq!(app.deferred_input.len(), 1);
 
@@ -34823,7 +44791,7 @@ mod tests {
             result: Ok(older),
         })
         .unwrap();
-        assert_eq!(app.tree.workspaces[0].screens[0].panes[0].tabs[0].surface, 22);
+        assert_eq!(app.tree.workspaces()[0].screens[0].panes[0].tabs[0].surface, 22);
     }
 
     #[test]
@@ -35106,7 +45074,7 @@ mod tests {
             RenderAction::Draw
         );
         assert!(!app.tab_locations.contains_key(&surface));
-        assert!(app.tree.workspaces[0].screens[0].panes[0].tabs.is_empty());
+        assert!(app.tree.workspaces()[0].screens[0].panes[0].tabs.is_empty());
         assert!(!app.rendered_terminal_sizes.contains_key(&surface));
         assert!(!app.rendered_terminal_bounds.contains_key(&surface));
 
@@ -35767,6 +45735,33 @@ mod tests {
     }
 
     #[test]
+    fn creation_completion_fences_pointer_capture_before_focus_change() {
+        let mux = Mux::new("creation-completion-pointer-boundary-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut tree = notify_tree(11, false);
+        let pane = &mut tree.workspaces_mut()[0].screens[0].panes[0];
+        let pane_id = pane.id;
+        let mut created = pane.tabs[0].clone();
+        created.surface = 12;
+        pane.tabs.push(created);
+        app.tree = tree;
+        app.rebuild_tab_locations();
+        app.drag = Some(Drag::Tab { surface: 11, target: Some((pane_id, 1)) });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+
+        app.apply_session_completion(SessionCompletion {
+            mutation_generation: 1,
+            semantic_intent: None,
+            action: SessionCompletionAction::SurfaceCreated { surface: 12 },
+        });
+
+        assert!(app.drag.is_none(), "focus changes must retire the old tab drag");
+        assert!(app.active_pointer_buttons.is_empty());
+        assert!(app.canceled_pointer_buttons.contains(&MouseButton::Left));
+        assert_eq!(app.tree.active_surface(), Some(12));
+    }
+
+    #[test]
     fn single_surface_client_ignores_creation_completion_selection() {
         let mux = Mux::new("single-surface-completion-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
@@ -35974,7 +45969,13 @@ mod tests {
     #[test]
     fn split_drag_updates_the_coalescing_lane_while_a_ratio_is_pending() {
         let mux = Mux::new("pending-split-drag-test", SurfaceOptions::default());
-        let (mut app, _events) = test_app_with_events(Session::Local(mux));
+        let surface = mux.new_workspace(None, Some((40, 12))).unwrap();
+        let initial_tree = Session::Local(mux.clone()).tree();
+        let active_screen = initial_tree.active_screen().expect("split drag test screen");
+        let screen_id = active_screen.id;
+        let active_pane = active_screen.active_pane;
+        let (mut app, _events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(initial_tree);
         let (started_tx, started_rx) = std::sync::mpsc::channel();
         let (_release_tx, release_rx) = std::sync::mpsc::channel::<()>();
         app.session.enqueue("blocking ratio", move |_| {
@@ -35984,8 +45985,9 @@ mod tests {
         });
         started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
         app.drag = Some(Drag::ResizeSplit {
+            screen: screen_id,
             horizontal: Some(PaneResizeDragTarget::ViewportColumn {
-                pane: 1,
+                pane: active_pane,
                 edge: PaneEdge::Right,
                 column_x: 0,
                 viewport_x: 0,
@@ -36013,6 +46015,8 @@ mod tests {
         .unwrap();
         assert!(app.deferred_input.is_empty());
         assert!(app.drag.is_none());
+
+        mux.close_surface(surface.id).unwrap();
     }
 
     #[test]
@@ -36279,6 +46283,26 @@ mod tests {
         app.reset_session_presentation(TreeView::default());
 
         assert!(app.pending_pointer_motion.is_none());
+    }
+
+    #[test]
+    fn session_presentation_reset_restarts_agent_attention_identity_without_losing_release_fence() {
+        let mux = Mux::new("reset-agent-attention-identity-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.agent_focus_stamps.insert(77, 123);
+        app.rendered_agent_attention = Some(AgentAttentionReceipt { attention: 2, working: 1 });
+        app.agent_attention_paint_pending = true;
+        app.canceled_pointer_buttons.insert(MouseButton::Right);
+
+        app.reset_session_presentation(TreeView::default());
+
+        assert!(app.agent_focus_stamps.is_empty());
+        assert!(app.rendered_agent_attention.is_none());
+        assert!(!app.agent_attention_paint_pending);
+        assert!(
+            app.canceled_pointer_buttons.contains(&MouseButton::Right),
+            "a release from the previous session must remain fenced until it arrives"
+        );
     }
 
     #[test]
@@ -36638,6 +46662,542 @@ mod tests {
     }
 
     #[test]
+    fn resize_cancels_sidebar_pointer_capture_before_new_geometry() {
+        let mux = Mux::new("resize-sidebar-pointer-boundary-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.sync_layout((100, 20));
+        app.drag = Some(Drag::RailResize(RailKind::Workspace));
+        app.active_pointer_buttons.insert(MouseButton::Left);
+        let generation = app.pointer_focus_generation;
+
+        app.handle(AppEvent::Input(Event::Resize(80, 20))).unwrap();
+        app.sync_layout((80, 20));
+
+        assert!(app.drag.is_none(), "resize must release the old sidebar drag");
+        assert!(app.active_pointer_buttons.is_empty());
+        assert!(app.pointer_focus_generation != generation);
+        app.handle_left_drag(79, 10).unwrap();
+        assert!(app.drag.is_none(), "a post-resize drag must start only after a new press");
+    }
+
+    #[test]
+    fn sidebar_visibility_actions_cancel_old_pointer_capture() {
+        for action in [Action::ToggleSidebar, Action::ToggleSidebarCompact] {
+            let mux = Mux::new(
+                format!("sidebar-pointer-action-boundary-{action:?}"),
+                SurfaceOptions::default(),
+            );
+            let mut app = test_app(Session::Local(mux));
+            app.sync_layout((100, 20));
+            app.drag = Some(Drag::RailResize(RailKind::Workspace));
+            app.active_pointer_buttons.insert(MouseButton::Left);
+
+            app.run_action(action).unwrap();
+            app.sync_layout((100, 20));
+
+            assert!(app.drag.is_none(), "{action:?} must release sidebar pointer capture");
+            assert!(app.active_pointer_buttons.is_empty());
+            app.handle_left_drag(99, 10).unwrap();
+            assert!(app.drag.is_none(), "{action:?} cannot continue an old drag");
+        }
+    }
+
+    #[test]
+    fn frontend_actions_cancel_old_pointer_capture() {
+        let mux = Mux::new("frontend-action-pointer-boundary-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.sidebar_visible = true;
+        app.sync_layout((100, 20));
+        app.drag = Some(Drag::RailResize(RailKind::Workspace));
+        app.active_pointer_buttons.insert(MouseButton::Left);
+        let prefix = app.config.keys.prefix;
+
+        app.handle(AppEvent::NormalizedInput(TerminalInput::FrontendAction {
+            action: Action::FocusSidebar,
+            prefix: KeyEvent::new(prefix.code, prefix.mods),
+        }))
+        .unwrap();
+
+        assert!(app.drag.is_none(), "frontend actions must release sidebar pointer capture");
+        assert!(app.active_pointer_buttons.is_empty());
+        app.handle_left_drag(99, 10).unwrap();
+        assert!(app.drag.is_none(), "a post-action drag must start only after a new press");
+    }
+
+    #[test]
+    fn secondary_pointer_button_cannot_orphan_native_sidebar_capture() {
+        let temp = test_temp_dir("secondary-sidebar-pointer-button");
+        for index in 0..6 {
+            std::fs::write(temp.join(format!("file-{index}.txt")), "x").unwrap();
+        }
+        let (mux, surface) = test_mux("secondary-sidebar-pointer-button-test", Some(&temp));
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_files = FileBrowser::new(temp.clone());
+        app.sidebar_files.set_viewport_height(2);
+        app.sidebar_files.refresh();
+        app.sidebar_view = SidebarView::Files;
+        app.focus = FocusTarget::WorkspaceRail;
+        app.sync_layout((100, 12));
+        app.drag = Some(Drag::FilesScrollbar {
+            track: Rect { x: 20, y: 1, width: 1, height: 4 },
+            total_rows: 6,
+            visible_rows: 2,
+            anchor_y: 2,
+            anchor_offset: 1,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+        let offset = app.sidebar_files.scroll_offset();
+        let event = |kind| MouseEvent { kind, column: 20, row: 4, modifiers: KeyModifiers::SHIFT };
+
+        assert_eq!(
+            app.handle_mouse(event(MouseEventKind::Down(MouseButton::Right))).unwrap(),
+            RenderAction::None
+        );
+        assert_eq!(
+            app.handle_mouse(event(MouseEventKind::Drag(MouseButton::Right))).unwrap(),
+            RenderAction::None
+        );
+
+        assert!(app.menu.is_none(), "a secondary button must not open a menu during a native drag");
+        assert!(matches!(app.drag, Some(Drag::FilesScrollbar { .. })));
+        assert_eq!(app.sidebar_files.scroll_offset(), offset);
+        assert!(app.active_pointer_buttons.contains(&MouseButton::Left));
+        assert!(!app.active_pointer_buttons.contains(&MouseButton::Right));
+        assert!(app.ignored_pointer_buttons.contains(&MouseButton::Right));
+
+        app.handle_mouse(event(MouseEventKind::Up(MouseButton::Left))).unwrap();
+        assert!(app.drag.is_none(), "the owning button must still be able to finish its drag");
+        assert!(app.active_pointer_buttons.is_empty());
+
+        // If the ignored secondary release was lost, it must not poison the
+        // next physical press after the owning gesture has ended.
+        app.handle_mouse(event(MouseEventKind::Down(MouseButton::Right))).unwrap();
+        assert!(app.menu.is_some(), "a fresh secondary press must start a new pointer epoch");
+        assert!(app.active_pointer_buttons.contains(&MouseButton::Right));
+        app.menu = None;
+        app.handle_mouse(event(MouseEventKind::Up(MouseButton::Right))).unwrap();
+        assert!(app.active_pointer_buttons.is_empty());
+
+        mux.close_surface(surface.id).unwrap();
+        std::fs::remove_dir_all(temp).unwrap();
+    }
+
+    #[test]
+    fn sidebar_scroll_is_blocked_while_native_pointer_capture_is_live() {
+        let temp = test_temp_dir("sidebar-scroll-pointer-owner");
+        for index in 0..8 {
+            std::fs::write(temp.join(format!("file-{index}.txt")), "x").unwrap();
+        }
+        let (mux, surface) = test_mux("sidebar-scroll-pointer-owner-test", Some(&temp));
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_files = FileBrowser::new(temp.clone());
+        app.sidebar_files.set_viewport_height(2);
+        app.sidebar_files.refresh();
+        app.sidebar_view = SidebarView::Files;
+        app.focus = FocusTarget::WorkspaceRail;
+        app.sync_layout((100, 12));
+
+        let before = app.sidebar_files.scroll_offset();
+        app.drag = Some(Drag::FilesScrollbar {
+            track: Rect { x: 20, y: 1, width: 1, height: 5 },
+            total_rows: 8,
+            visible_rows: 2,
+            anchor_y: 2,
+            anchor_offset: before,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+
+        assert_eq!(app.handle_scroll(20, 3, true, KeyModifiers::NONE).unwrap(), RenderAction::None);
+        assert_eq!(app.sidebar_files.scroll_offset(), before);
+        assert!(matches!(app.drag, Some(Drag::FilesScrollbar { .. })));
+
+        assert_eq!(
+            app.handle_horizontal_scroll(20, 3, true, KeyModifiers::NONE).unwrap(),
+            RenderAction::None
+        );
+        assert!(matches!(app.drag, Some(Drag::FilesScrollbar { .. })));
+
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: 20,
+            row: 3,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        assert!(app.drag.is_none());
+        assert!(app.active_pointer_buttons.is_empty());
+
+        mux.close_surface(surface.id).unwrap();
+        std::fs::remove_dir_all(temp).unwrap();
+    }
+
+    #[test]
+    fn keyboard_modal_boundary_releases_native_sidebar_capture() {
+        let mux = Mux::new("keyboard-modal-sidebar-pointer-boundary", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.machine_ui = Some(provider_controls_ui());
+        app.focus = FocusTarget::MachineRail;
+        app.sync_layout((100, 16));
+        app.drag = Some(Drag::RailResize(RailKind::Machine));
+        app.active_pointer_buttons.insert(MouseButton::Left);
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('m'), KeyModifiers::NONE)).unwrap();
+
+        assert!(app.menu.is_some(), "the keyboard command must still open its menu");
+        assert!(app.drag.is_none(), "opening a menu must retire the old native drag");
+        assert!(app.active_pointer_buttons.is_empty());
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: 1,
+            row: 2,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        assert!(app.drag.is_none());
+        assert!(app.active_pointer_buttons.is_empty());
+    }
+
+    #[test]
+    fn keyboard_modal_boundary_discards_deferred_mouse_samples() {
+        let mux = Mux::new("keyboard-modal-deferred-pointer-boundary", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.machine_ui = Some(provider_controls_ui());
+        app.focus = FocusTarget::MachineRail;
+        app.sync_layout((100, 16));
+        let generation = app.pointer_focus_generation;
+        app.defer_input(TerminalInput::Mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: 2,
+            row: 2,
+            modifiers: KeyModifiers::NONE,
+        }));
+        assert_eq!(app.deferred_input.len(), 1);
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('m'), KeyModifiers::NONE)).unwrap();
+
+        assert!(app.menu.is_some(), "the keyboard command must still open its menu");
+        assert!(app.deferred_input.is_empty(), "a modal must not replay an old hit-test sample");
+        assert!(app.pending_pointer_motion.is_none());
+        assert_ne!(app.pointer_focus_generation, generation);
+    }
+
+    #[test]
+    fn keyboard_modal_boundary_consumes_releases_from_canceled_buttons() {
+        let mux = Mux::new("keyboard-modal-canceled-button-boundary", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.machine_ui = Some(provider_controls_ui());
+        app.focus = FocusTarget::MachineRail;
+        app.sync_layout((100, 16));
+        app.drag = Some(Drag::RailResize(RailKind::Machine));
+        app.active_pointer_buttons.insert(MouseButton::Left);
+        app.ignored_pointer_buttons.insert(MouseButton::Right);
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('m'), KeyModifiers::NONE)).unwrap();
+
+        assert!(app.menu.is_some());
+        assert!(app.canceled_pointer_buttons.contains(&MouseButton::Left));
+        assert!(app.canceled_pointer_buttons.contains(&MouseButton::Right));
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Right),
+            column: 1,
+            row: 2,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        assert!(app.menu.is_some(), "a canceled release must not activate the new menu");
+        assert!(!app.canceled_pointer_buttons.contains(&MouseButton::Right));
+    }
+
+    #[test]
+    fn shortcuts_modal_boundary_releases_held_pointer_button() {
+        let mux = Mux::new("shortcuts-modal-sidebar-pointer-boundary", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.sync_layout((100, 16));
+        app.drag = Some(Drag::RailResize(RailKind::Workspace));
+        app.active_pointer_buttons.insert(MouseButton::Left);
+
+        app.run_action(Action::ShowShortcuts).unwrap();
+
+        assert!(app.shortcut_help.is_some());
+        assert!(app.drag.is_none());
+        assert!(app.active_pointer_buttons.is_empty());
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: 1,
+            row: 2,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        assert!(app.active_pointer_buttons.is_empty());
+    }
+
+    #[test]
+    fn sidebar_view_toggle_cancels_old_pointer_capture_before_host_mode_change() {
+        let temp = test_temp_dir("sidebar-view-pointer-boundary");
+        for index in 0..5 {
+            std::fs::write(temp.join(format!("file-{index}.txt")), "x").unwrap();
+        }
+        let (mux, surface) = test_mux("sidebar-view-pointer-boundary-test", Some(&temp));
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_files = FileBrowser::new(temp.clone());
+        app.sidebar_files.set_viewport_height(2);
+        app.sidebar_files.refresh();
+        app.sidebar_view = SidebarView::Files;
+        app.focus = FocusTarget::WorkspaceRail;
+        app.sync_layout((100, 12));
+        app.drag = Some(Drag::FilesScrollbar {
+            track: Rect { x: 20, y: 1, width: 1, height: 4 },
+            total_rows: 5,
+            visible_rows: 2,
+            anchor_y: 1,
+            anchor_offset: 0,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+        let generation = app.pointer_focus_generation;
+        let offset = app.sidebar_files.scroll_offset();
+
+        app.run_action(Action::ToggleSidebarView).unwrap();
+
+        assert_eq!(app.sidebar_view, SidebarView::Workspaces);
+        assert!(app.drag.is_none(), "mode changes must release old Files captures");
+        assert!(app.active_pointer_buttons.is_empty());
+        assert_ne!(app.pointer_focus_generation, generation);
+        app.handle_left_drag(20, 4).unwrap();
+        assert_eq!(app.sidebar_files.scroll_offset(), offset);
+
+        mux.close_surface(surface.id).unwrap();
+        std::fs::remove_dir_all(temp).unwrap();
+    }
+
+    #[test]
+    fn tree_refresh_cancels_native_sidebar_capture_before_new_rows() {
+        let mux = Mux::new("tree-sidebar-pointer-boundary-test", SurfaceOptions::default());
+        mux.new_workspace(Some("first".into()), None).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.drag = Some(Drag::WorkspaceScrollbar {
+            track: Rect { x: 20, y: 1, width: 1, height: 8 },
+            total_rows: 12,
+            visible_rows: 8,
+            anchor_y: 2,
+            anchor_offset: 2,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+
+        mux.new_workspace(Some("second".into()), None).unwrap();
+        app.replace_tree(app.session.tree());
+
+        assert!(app.drag.is_none(), "tree row changes must release old sidebar captures");
+        assert!(app.active_pointer_buttons.is_empty());
+    }
+
+    #[test]
+    fn machine_catalog_refresh_does_not_cancel_an_unrelated_files_capture() {
+        let mux = Mux::new("machine-sidebar-pointer-boundary-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.machine_ui = Some(provider_machine_ui());
+        // Model the already-presented provider machine. The refresh changes
+        // only the catalog, so its active workspace policy must remain stable.
+        app.machine_selection_intent = Some(MachineKey(41));
+        app.machine_presented = Some(MachineKey(41));
+        app.drag = Some(Drag::FilesScrollbar {
+            track: Rect { x: 20, y: 1, width: 1, height: 4 },
+            total_rows: 8,
+            visible_rows: 4,
+            anchor_y: 2,
+            anchor_offset: 2,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+
+        let mut update = provider_machine_ui();
+        update.snapshot.machines.push(MachineDescriptor {
+            key: MachineKey(42),
+            id: "managed-42".into(),
+            name: "second".into(),
+            subtitle: "cloud".into(),
+            status: MachineStatus::Running,
+        });
+        app.apply_machine_ui_update(update);
+
+        assert!(matches!(app.drag, Some(Drag::FilesScrollbar { .. })));
+        assert!(app.active_pointer_buttons.contains(&MouseButton::Left));
+    }
+
+    #[test]
+    fn machine_workspace_refresh_cancels_workspace_capture_before_new_rows() {
+        let mux = Mux::new("machine-workspace-pointer-boundary-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.machine_ui = Some(provider_machine_ui());
+        app.drag = Some(Drag::WorkspaceScrollbar {
+            track: Rect { x: 20, y: 1, width: 1, height: 4 },
+            total_rows: 8,
+            visible_rows: 4,
+            anchor_y: 2,
+            anchor_offset: 2,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+
+        app.apply_machine_ui_update(provider_machine_ui_with_lifecycle());
+
+        assert!(app.drag.is_none(), "new recoverable workspace rows must release old capture");
+        assert!(app.active_pointer_buttons.is_empty());
+    }
+
+    #[test]
+    fn machine_policy_refresh_cancels_files_capture_before_shared_host_moves() {
+        let mux = Mux::new("machine-policy-files-pointer-boundary-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.machine_ui = Some(provider_machine_ui());
+        app.drag = Some(Drag::FilesScrollbar {
+            track: Rect { x: 20, y: 1, width: 1, height: 4 },
+            total_rows: 8,
+            visible_rows: 4,
+            anchor_y: 2,
+            anchor_offset: 2,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+
+        let update = provider_machine_ui_with_policy(
+            WorkspaceCreationMode::Host,
+            vec![WorkspaceCreationMode::Host],
+        );
+        app.apply_machine_ui_update(update);
+
+        assert!(app.drag.is_none(), "provider footer changes must release the old Files track");
+        assert!(app.active_pointer_buttons.is_empty());
+    }
+
+    #[test]
+    fn notification_tree_refresh_does_not_cancel_an_unrelated_files_capture() {
+        let mux = Mux::new("notification-files-pointer-boundary-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.drag = Some(Drag::FilesScrollbar {
+            track: Rect { x: 20, y: 1, width: 1, height: 4 },
+            total_rows: 8,
+            visible_rows: 4,
+            anchor_y: 2,
+            anchor_offset: 2,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+
+        app.handle(AppEvent::Mux(MuxEvent::TreeChanged)).unwrap();
+
+        assert!(matches!(app.drag, Some(Drag::FilesScrollbar { .. })));
+        assert!(app.active_pointer_buttons.contains(&MouseButton::Left));
+    }
+
+    #[test]
+    fn pane_layout_refresh_does_not_cancel_an_unrelated_files_capture() {
+        let mux = Mux::new("layout-files-pointer-boundary-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.drag = Some(Drag::FilesScrollbar {
+            track: Rect { x: 20, y: 1, width: 1, height: 4 },
+            total_rows: 8,
+            visible_rows: 4,
+            anchor_y: 2,
+            anchor_offset: 2,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+
+        app.handle(AppEvent::Mux(MuxEvent::LayoutChanged(1))).unwrap();
+
+        assert!(matches!(app.drag, Some(Drag::FilesScrollbar { .. })));
+        assert!(app.active_pointer_buttons.contains(&MouseButton::Left));
+    }
+
+    #[test]
+    fn files_refresh_cancels_native_sidebar_capture_before_new_rows() {
+        let temp = test_temp_dir("files-sidebar-pointer-boundary");
+        std::fs::write(temp.join("first.txt"), "x").unwrap();
+        let (mux, surface) = test_mux("files-sidebar-pointer-boundary-test", Some(&temp));
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_files = FileBrowser::new(temp.clone());
+        app.sidebar_files.set_viewport_height(4);
+        app.drag = Some(Drag::FilesScrollbar {
+            track: Rect { x: 20, y: 1, width: 1, height: 4 },
+            total_rows: 8,
+            visible_rows: 4,
+            anchor_y: 2,
+            anchor_offset: 2,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+
+        std::fs::write(temp.join("second.txt"), "x").unwrap();
+        app.refresh_sidebar_files();
+
+        assert!(app.drag.is_none(), "file row changes must release old sidebar captures");
+        assert!(app.active_pointer_buttons.is_empty());
+
+        mux.close_surface(surface.id).unwrap();
+        std::fs::remove_dir_all(temp).unwrap();
+    }
+
+    #[test]
+    fn files_keyboard_scroll_cancels_native_sidebar_capture_before_new_rows() {
+        let temp = test_temp_dir("files-sidebar-keyboard-pointer-boundary");
+        for index in 0..5 {
+            std::fs::write(temp.join(format!("file-{index}.txt")), "x").unwrap();
+        }
+        let (mux, surface) = test_mux("files-sidebar-keyboard-pointer-boundary-test", Some(&temp));
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_files = FileBrowser::new(temp.clone());
+        app.sidebar_files.set_viewport_height(2);
+        app.drag = Some(Drag::FilesScrollbar {
+            track: Rect { x: 20, y: 1, width: 1, height: 2 },
+            total_rows: 5,
+            visible_rows: 2,
+            anchor_y: 1,
+            anchor_offset: 0,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+
+        app.handle_sidebar_files_key(&KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+        app.handle_sidebar_files_key(&KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+
+        assert!(app.drag.is_none(), "keyboard scrolling must release old file captures");
+        assert!(app.active_pointer_buttons.is_empty());
+
+        mux.close_surface(surface.id).unwrap();
+        std::fs::remove_dir_all(temp).unwrap();
+    }
+
+    #[test]
+    fn agent_update_does_not_cancel_an_unrelated_files_capture() {
+        let temp = test_temp_dir("agent-files-pointer-scope");
+        for index in 0..4 {
+            std::fs::write(temp.join(format!("file-{index}.txt")), "x").unwrap();
+        }
+        let (mux, surface) = test_mux("agent-files-pointer-scope-test", Some(&temp));
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_files = FileBrowser::new(temp.clone());
+        app.sidebar_files.set_viewport_height(2);
+        app.drag = Some(Drag::FilesScrollbar {
+            track: Rect { x: 20, y: 1, width: 1, height: 2 },
+            total_rows: 4,
+            visible_rows: 2,
+            anchor_y: 1,
+            anchor_offset: 0,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+
+        app.handle(AppEvent::Mux(MuxEvent::AgentChanged {
+            surface: surface.id,
+            state: "working".into(),
+            source: "test".into(),
+            session: None,
+            agent: None,
+            updated_at_ms: 1,
+        }))
+        .unwrap();
+
+        assert!(matches!(app.drag, Some(Drag::FilesScrollbar { .. })));
+        assert!(app.active_pointer_buttons.contains(&MouseButton::Left));
+
+        mux.close_surface(surface.id).unwrap();
+        std::fs::remove_dir_all(temp).unwrap();
+    }
+
+    #[test]
     fn routine_paint_and_draw_do_not_defer_key_or_paste_input() {
         let mux = Mux::new("paint-key-latency-test", SurfaceOptions::default());
         let mut paint_app = test_app(Session::Local(mux));
@@ -36715,10 +47275,11 @@ mod tests {
         app.replay_deferred_input().unwrap();
 
         assert_eq!(
-            app.machine_rail_scroll, 0,
+            app.active_sidebar_rail_scroll().machine_rail_scroll,
+            0,
             "a wheel event captured outside the old frame must not scroll a newly drawn rail"
         );
-        assert_eq!(app.machine_footer_scroll, 0);
+        assert_eq!(app.active_sidebar_rail_scroll().machine_footer_scroll, 0);
     }
 
     #[test]
@@ -36749,10 +47310,11 @@ mod tests {
         app.replay_deferred_input().unwrap();
 
         assert_eq!(
-            app.workspace_rail_scroll, 0,
+            app.active_sidebar_rail_scroll().workspace_rail_scroll,
+            0,
             "a wheel event captured outside the old frame must not scroll a newly drawn rail"
         );
-        assert_eq!(app.workspace_footer_scroll, 0);
+        assert_eq!(app.active_sidebar_rail_scroll().workspace_footer_scroll, 0);
     }
 
     #[test]
@@ -36799,11 +47361,11 @@ mod tests {
             text: "expired".to_string(),
             deadline: Instant::now() - Duration::from_millis(1),
         });
-        let timeout_seen = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let timeout_seen = Arc::new(AtomicBool::new(false));
         let timeout_seen_in_hook = timeout_seen.clone();
         let (events, receiver) = crossbeam_channel::unbounded();
         app.timeout_drain_hook = Some(Box::new(move |app| {
-            timeout_seen_in_hook.store(true, std::sync::atomic::Ordering::Relaxed);
+            timeout_seen_in_hook.store(true, Ordering::Relaxed);
             app.toast = Some(Toast {
                 text: "reintroduced".to_string(),
                 deadline: Instant::now() - Duration::from_millis(1),
@@ -36814,7 +47376,7 @@ mod tests {
 
         app.event_loop(&mut terminal, receiver).unwrap();
 
-        assert!(timeout_seen.load(std::sync::atomic::Ordering::Relaxed));
+        assert!(timeout_seen.load(Ordering::Relaxed));
         assert_eq!(app.toast.as_ref().map(|toast| toast.text.as_str()), Some("reintroduced"));
     }
 
@@ -37120,6 +47682,7 @@ mod tests {
         });
         started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
         app.drag = Some(Drag::ResizeSplit {
+            screen: app.active_screen_id().unwrap_or(0),
             horizontal: Some(PaneResizeDragTarget::ViewportColumn {
                 pane: 1,
                 edge: PaneEdge::Right,
@@ -37233,6 +47796,82 @@ mod tests {
             "the old right-button capture must not activate its menu behind a trusted dialog"
         );
         assert!(decision.try_recv().is_err());
+    }
+
+    #[test]
+    fn pairing_modal_swallowing_a_right_press_fences_its_release() {
+        let mux = Mux::new("pairing-right-release-boundary-test", SurfaceOptions::default());
+        let (challenge, decision) = mux.begin_pairing("127.0.0.1".parse().unwrap()).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.pairing_dialog = Some(PairingDialog::new(challenge.clone()));
+
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Right),
+            column: 2,
+            row: 2,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        assert!(app.canceled_pointer_buttons.contains(&MouseButton::Right));
+
+        app.pairing_dialog = None;
+        app.menu = Some(ContextMenu::at(10, 5, vec![vec![MenuAction::ShowShortcuts]]));
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Right),
+            column: 10,
+            row: 5,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        assert!(app.menu.is_some(), "a pairing-owned release must not activate a later menu");
+        assert!(mux.respond_pairing(challenge.id, false));
+        assert!(decision.recv_timeout(Duration::from_secs(1)).is_ok());
+    }
+
+    #[test]
+    fn pairing_modal_fences_underlay_pointer_and_restores_it_after_resolution() {
+        let mux = Mux::new("pairing-underlay-pointer-boundary-test", SurfaceOptions::default());
+        let (challenge, decision) = mux.begin_pairing("127.0.0.1".parse().unwrap()).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.menu = Some(ContextMenu::at(10, 5, vec![vec![MenuAction::ShowShortcuts]]));
+        app.active_pointer_buttons.insert(MouseButton::Right);
+        app.defer_input(TerminalInput::Mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: 10,
+            row: 5,
+            modifiers: KeyModifiers::NONE,
+        }));
+        app.retain_pointer_motion(MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: 12,
+            row: 6,
+            modifiers: KeyModifiers::NONE,
+        });
+        let generation = app.pointer_focus_generation;
+
+        app.handle(AppEvent::Mux(MuxEvent::PairingRequested(challenge.clone()))).unwrap();
+
+        assert!(app.pairing_dialog.is_some());
+        assert!(app.menu.is_some(), "the previous menu remains available below the pairing modal");
+        assert!(app.deferred_input.is_empty());
+        assert!(app.pending_pointer_motion.is_none());
+        assert_ne!(app.pointer_focus_generation, generation);
+        assert!(app.canceled_pointer_buttons.contains(&MouseButton::Right));
+
+        assert!(mux.respond_pairing(challenge.id, false));
+        assert!(decision.recv_timeout(Duration::from_secs(1)).is_ok());
+        app.handle(AppEvent::Mux(MuxEvent::PairingResolved { request: challenge.id })).unwrap();
+        assert!(app.pairing_dialog.is_none());
+        assert!(app.menu.is_some());
+
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Right),
+            column: 10,
+            row: 5,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        assert!(app.menu.is_some(), "the fenced opener release must not act on the restored menu");
     }
 
     #[test]
@@ -37454,6 +48093,53 @@ mod tests {
             "the accepted right press must keep ownership through menu render, drag, and release"
         );
         assert!(app.menu.is_none());
+    }
+
+    #[test]
+    fn left_menu_opener_keeps_ownership_until_release() {
+        let mux = Mux::new("left-menu-owner-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.sidebar_visible = true;
+        app.sidebar_width = 20;
+        let point = (4, 1);
+        app.hits.push((
+            Rect { x: point.0, y: point.1, width: 1, height: 1 },
+            super::Hit::SidebarPresentationMenu,
+        ));
+
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: point.0,
+            row: point.1,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        assert!(app.menu.is_some());
+        assert!(app.active_pointer_buttons.contains(&MouseButton::Left));
+        assert!(!app.canceled_pointer_buttons.contains(&MouseButton::Left));
+
+        assert_eq!(
+            app.handle_mouse(MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Right),
+                column: point.0,
+                row: point.1,
+                modifiers: KeyModifiers::NONE,
+            })
+            .unwrap(),
+            RenderAction::None
+        );
+        assert!(app.ignored_pointer_buttons.contains(&MouseButton::Right));
+        assert!(app.menu.is_some());
+
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: point.0,
+            row: point.1,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        assert!(app.active_pointer_buttons.is_empty());
+        assert!(app.menu.is_some(), "the opener release must not dismiss or activate the menu");
     }
 
     #[test]
@@ -38019,6 +48705,7 @@ mod tests {
         let mux = Mux::new("pty-release-barrier-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
         app.session.pending_mutations.store(1, Ordering::Release);
+        app.active_pointer_buttons.insert(MouseButton::Right);
         app.drag = Some(Drag::PtyMouse {
             surface: 42,
             handle: None,
@@ -38032,7 +48719,7 @@ mod tests {
         });
 
         app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
-            kind: MouseEventKind::Drag(MouseButton::Left),
+            kind: MouseEventKind::Drag(MouseButton::Right),
             column: 8,
             row: 6,
             modifiers: KeyModifiers::NONE,
@@ -38319,7 +49006,7 @@ mod tests {
         assert!(
             app.hits.iter().any(|(rect, hit)| matches!(
                 hit,
-                super::Hit::RailResize(RailKind::Workspace)
+                super::Hit::RailResize { kind: RailKind::Workspace, .. }
             ) && rect.x == divider_x
                 && rect.width == 1),
             "plugin sidebar must register the workspace rail resize hit on the divider column"
@@ -38471,11 +49158,8 @@ mod tests {
         if active_surface != created_surface {
             tabs.push(tab(active_surface));
         }
-        TreeView {
-            workspace_revision: 0,
-            pane_revision: Some(1),
-            active_workspace: 0,
-            workspaces: vec![WorkspaceView {
+        TreeView::from_parts(
+            vec![WorkspaceView {
                 id: 4,
                 resource_id: None,
                 key: "00000000-0000-4000-8000-000000000004".to_string(),
@@ -38503,7 +49187,10 @@ mod tests {
                     }],
                 }],
             }],
-        }
+            0,
+            Some(1),
+            0,
+        )
     }
 
     #[test]
@@ -38527,6 +49214,79 @@ mod tests {
     }
 
     #[test]
+    fn workspace_sidebar_shows_machine_usage_readout_only_when_available() {
+        let (mux, surface) = test_mux("machine-usage-readout-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_view = SidebarView::Workspaces;
+        app.sidebar_width = 24;
+        app.tree = notify_tree(surface.id, false);
+
+        let mut terminal = Terminal::new(TestBackend::new(60, 12)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let hidden = buffer_text(terminal.backend().buffer());
+        assert!(!hidden.contains("/ 30d"), "{hidden}");
+
+        let usage = cmux_tui_core::MachineUsage {
+            vm_id: "vm-1".to_string(),
+            period_days: 30,
+            total_tokens: 184_220,
+            api_equivalent_usd: 1.234,
+            as_of: None,
+        };
+        let action =
+            app.handle(AppEvent::Mux(MuxEvent::MachineUsageChanged(Some(usage.clone())))).unwrap();
+        assert_eq!(action, RenderAction::Draw);
+        assert_eq!(app.machine_usage.as_ref(), Some(&usage));
+        let repeat = app.handle(AppEvent::Mux(MuxEvent::MachineUsageChanged(Some(usage)))).unwrap();
+        assert_eq!(repeat, RenderAction::None, "an unchanged readout does not redraw");
+
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let shown = buffer_text(terminal.backend().buffer());
+        let expected = localization::catalog().sidebar.machine_usage_readout(1.234, 30);
+        assert_eq!(expected, "$1.23 / 30d");
+        let first_row = shown.lines().next().unwrap();
+        assert!(first_row.contains(&expected), "readout sits on the rail's top pad row: {shown}");
+        assert!(
+            !shown.lines().skip(1).any(|line| line.contains(&expected)),
+            "readout stays out of the body rows: {shown}"
+        );
+        let readout_end = first_row.find(&expected).unwrap() + expected.len();
+        assert!(
+            readout_end < usize::from(app.sidebar_width),
+            "readout stays inside the rail: {first_row}"
+        );
+
+        let cleared = app.handle(AppEvent::Mux(MuxEvent::MachineUsageChanged(None))).unwrap();
+        assert_eq!(cleared, RenderAction::Draw);
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let hidden_again = buffer_text(terminal.backend().buffer());
+        assert!(!hidden_again.contains("/ 30d"), "{hidden_again}");
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn machine_usage_readout_is_skipped_when_the_rail_is_too_narrow() {
+        let (mux, surface) = test_mux("machine-usage-narrow-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_view = SidebarView::Workspaces;
+        app.sidebar_width = 8;
+        app.tree = notify_tree(surface.id, false);
+        app.machine_usage = Some(cmux_tui_core::MachineUsage {
+            vm_id: "vm-1".to_string(),
+            period_days: 30,
+            total_tokens: 0,
+            api_equivalent_usd: 12345.0,
+            as_of: None,
+        });
+        let mut terminal = Terminal::new(TestBackend::new(60, 12)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let text = buffer_text(terminal.backend().buffer());
+        assert!(!text.contains('$'), "a readout that does not fit is not drawn at all: {text}");
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
     fn files_filter_exposes_ratatui_cursor_and_accepts_mouse_cursor_placement() {
         let temp = test_temp_dir("files-filter-cursor");
         let (mux, surface) = test_mux("files-filter-cursor-test", Some(&temp));
@@ -38546,15 +49306,26 @@ mod tests {
             .iter()
             .find_map(|(rect, hit)| (*hit == super::Hit::SidebarFilterInput).then_some(*rect))
             .unwrap();
-        terminal.backend_mut().assert_cursor_position((input.x + 4, input.y));
+        // The slash is part of the rendered control, so the terminal cursor
+        // is one cell after the visible query text. Derive the expected
+        // column from the same width-aware projection used by the renderer.
+        let (_, cursor_col) = app
+            .sidebar_files
+            .visible_filter_text_and_cursor(input.width.saturating_sub(1) as usize);
+        terminal.backend_mut().assert_cursor_position((input.x + 1 + cursor_col as u16, input.y));
 
+        app.files_rail_selection =
+            super::FilesRailSelection::Action(SidebarActionTarget::Run(Action::NewTab));
         app.handle_mouse(MouseEvent {
             kind: MouseEventKind::Down(MouseButton::Left),
-            column: input.x + 1,
+            // Place the cursor before the wide `界` cell, then Delete removes
+            // that grapheme rather than the leading combining sequence.
+            column: input.x + 2,
             row: input.y,
             modifiers: KeyModifiers::NONE,
         })
         .unwrap();
+        assert_eq!(app.files_rail_selection, super::FilesRailSelection::File);
         app.handle_key(KeyEvent::new(KeyCode::Delete, KeyModifiers::NONE)).unwrap();
         assert_eq!(app.sidebar_files.query(), "áb");
 
@@ -38583,7 +49354,39 @@ mod tests {
         assert_eq!(app.sidebar_view, SidebarView::Files);
         let mut terminal = Terminal::new(TestBackend::new(50, 12)).unwrap();
         terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
-        assert!(buffer_text(terminal.backend().buffer()).contains("toggle-marker"));
+        let files_text = buffer_text(terminal.backend().buffer());
+        assert!(files_text.contains("toggle-marker"));
+        assert!(
+            files_text.contains("+ new workspace"),
+            "Files keeps the workspace host action visible: {files_text}"
+        );
+        assert!(
+            app.hits
+                .iter()
+                .any(|(_, hit)| matches!(hit, super::Hit::CreateWorkspace { mode: None, .. }))
+        );
+
+        mux.close_surface(surface.id).unwrap();
+        std::fs::remove_dir_all(temp).unwrap();
+    }
+
+    #[test]
+    fn tab_from_an_agents_rail_toggles_files_and_focuses_its_workspace_host() {
+        let temp = test_temp_dir("tab-from-agents-rail");
+        let (mux, surface) = test_mux("tab-from-agents-rail-test", Some(&temp));
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_files = FileBrowser::new(temp.clone());
+        app.sidebar_view = SidebarView::Workspaces;
+        app.tree = notify_tree(surface.id, false);
+        app.sync_layout((100, 24));
+        assert!(app.sidebar_layout.rail(RailKind::Projection(2)).is_some());
+        app.focus_rail(RailKind::Projection(2));
+
+        app.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)).unwrap();
+
+        assert_eq!(app.sidebar_view, SidebarView::Files);
+        assert_eq!(app.focus, FocusTarget::WorkspaceRail);
+        assert!(app.active_files_host_id().is_some());
 
         mux.close_surface(surface.id).unwrap();
         std::fs::remove_dir_all(temp).unwrap();
@@ -38608,16 +49411,30 @@ mod tests {
     }
 
     #[test]
+    fn focus_sidebar_restores_the_last_focused_profile_rail() {
+        let (mux, surface) = test_mux("focus-sidebar-restores-rail-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.tree = notify_tree(surface.id, false);
+        app.sync_layout((100, 24));
+
+        app.focus_rail(RailKind::Projection(2));
+        app.focus = FocusTarget::Pane;
+        app.focus_sidebar();
+
+        assert_eq!(app.focus, FocusTarget::ProjectionRail(2));
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
     fn focus_sidebar_uses_only_visible_rails() {
         let mux = Mux::new("focus-visible-rails-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
         let mut machine_ui = provider_machine_ui();
         machine_ui.session_available = true;
         app.machine_ui = Some(machine_ui);
-        app.hidden_sidebar_views
-            .entry(app.config.sidebar.active_profile.clone())
-            .or_default()
-            .insert("workspaces".into());
+        app.active_sidebar_profile_state_mut()
+            .hidden_views
+            .extend(["workspaces".to_string(), "agents".to_string()]);
         app.sync_layout((100, 16));
         assert_eq!(app.visible_rail_order(), vec![RailKind::Machine]);
 
@@ -38655,7 +49472,7 @@ mod tests {
             terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
             assert!(
                 app.hits.iter().any(|(rect, hit)| {
-                    matches!(hit, super::Hit::RailResize(RailKind::Workspace))
+                    matches!(hit, super::Hit::RailResize { kind: RailKind::Workspace, .. })
                         && rect.x == app.sidebar_width - 1
                         && rect.width == 1
                 }),
@@ -39800,7 +50617,7 @@ mod tests {
         );
 
         app.machine_ui.as_mut().unwrap().request = None;
-        app.tree.workspaces[0].key = "local-workspace".into();
+        app.tree.workspaces_mut()[0].key = "local-workspace".into();
         app.open_rename_workspace_prompt_for(4);
         assert!(app.prompt.is_none());
         assert!(app.status_message.is_some());
@@ -40224,7 +51041,7 @@ mod tests {
         app.replace_tree(app.session.tree());
         app.apply_machine_ui_update(provider_machine_ui_with_lifecycle());
         let stale_key = "00000000-0000-4000-8000-000000000099";
-        app.tree.workspaces[0].key = stale_key.into();
+        app.tree.workspaces_mut()[0].key = stale_key.into();
 
         app.apply_managed_workspace_session_mutation(ManagedWorkspaceSessionMutation::Rename {
             workspace_key: stale_key.into(),
@@ -40239,7 +51056,7 @@ mod tests {
             app.status_message.as_deref(),
             Some(localization::catalog().session.operation_failed)
         );
-        assert!(app.tree.workspaces.iter().any(|workspace| workspace.id == placement.workspace));
+        assert!(app.tree.workspaces().iter().any(|workspace| workspace.id == placement.workspace));
     }
 
     #[test]
@@ -40327,7 +51144,7 @@ mod tests {
             .hits
             .iter()
             .find_map(|(rect, hit)| {
-                matches!(hit, super::Hit::RecoverableWorkspace { index: 0 }).then_some(*rect)
+                matches!(hit, super::Hit::RecoverableWorkspace { index: 0, .. }).then_some(*rect)
             })
             .unwrap();
 
@@ -40781,7 +51598,10 @@ mod tests {
         app.sidebar_width = 20;
         app.hits.push((
             Rect { x: 2, y: 2, width: 8, height: 1 },
-            super::Hit::RecoverableWorkspace { index: 0 },
+            super::Hit::RecoverableWorkspace {
+                index: 0,
+                token: sidebar_profile_token(&workspaces[1].id),
+            },
         ));
         app.open_context_menu(2, 2);
 
@@ -40818,7 +51638,7 @@ mod tests {
             Some(&unavailable),
         )
         .unwrap();
-        assert!(Session::Local(mux.clone()).tree().workspaces.is_empty());
+        assert!(Session::Local(mux.clone()).tree().workspaces().is_empty());
 
         let mut app = test_app(Session::Local(mux));
         app.sidebar_view = SidebarView::Workspaces;
@@ -41028,7 +51848,7 @@ mod tests {
             Some(&ui),
         )
         .unwrap();
-        assert!(Session::Local(mux).tree().workspaces.is_empty());
+        assert!(Session::Local(mux).tree().workspaces().is_empty());
     }
 
     #[test]
@@ -41043,7 +51863,7 @@ mod tests {
 
         app.run_action(Action::NewScreen).unwrap();
 
-        assert!(Session::Local(mux).tree().workspaces.is_empty());
+        assert!(Session::Local(mux).tree().workspaces().is_empty());
         assert_eq!(
             app.status_message.as_deref(),
             Some(localization::catalog().sidebar.no_active_session)
@@ -41063,7 +51883,7 @@ mod tests {
             Some(MachineRequest::CreateManagedIsolatedWorkspace(MachineKey(41)))
         ));
         assert!(!app.quit);
-        assert!(Session::Local(mux).tree().workspaces.is_empty());
+        assert!(Session::Local(mux).tree().workspaces().is_empty());
     }
 
     #[test]
@@ -41085,7 +51905,7 @@ mod tests {
             .find_map(|(rect, hit)| {
                 matches!(
                     hit,
-                    super::Hit::CreateWorkspace { mode: Some(WorkspaceCreationMode::Isolated) }
+                    super::Hit::CreateWorkspace { mode: Some(WorkspaceCreationMode::Isolated), .. }
                 )
                 .then_some(*rect)
             })
@@ -41096,7 +51916,7 @@ mod tests {
             .find_map(|(rect, hit)| {
                 matches!(
                     hit,
-                    super::Hit::CreateWorkspace { mode: Some(WorkspaceCreationMode::Host) }
+                    super::Hit::CreateWorkspace { mode: Some(WorkspaceCreationMode::Host), .. }
                 )
                 .then_some(*rect)
             })
@@ -41161,7 +51981,7 @@ mod tests {
             .find_map(|(rect, hit)| {
                 matches!(
                     hit,
-                    super::Hit::CreateWorkspace { mode: Some(WorkspaceCreationMode::Host) }
+                    super::Hit::CreateWorkspace { mode: Some(WorkspaceCreationMode::Host), .. }
                 )
                 .then_some(rect.y)
             })
@@ -41172,7 +51992,7 @@ mod tests {
             .find_map(|(rect, hit)| {
                 matches!(
                     hit,
-                    super::Hit::CreateWorkspace { mode: Some(WorkspaceCreationMode::Isolated) }
+                    super::Hit::CreateWorkspace { mode: Some(WorkspaceCreationMode::Isolated), .. }
                 )
                 .then_some(rect.y)
             })
@@ -41313,11 +52133,14 @@ mod tests {
         assert!(app.hits.iter().any(|(_, hit)| {
             matches!(
                 hit,
-                super::Hit::CreateWorkspace { mode: Some(WorkspaceCreationMode::Isolated) }
+                super::Hit::CreateWorkspace { mode: Some(WorkspaceCreationMode::Isolated), .. }
             )
         }));
         assert!(app.hits.iter().any(|(_, hit)| {
-            matches!(hit, super::Hit::CreateWorkspace { mode: Some(WorkspaceCreationMode::Host) })
+            matches!(
+                hit,
+                super::Hit::CreateWorkspace { mode: Some(WorkspaceCreationMode::Host), .. }
+            )
         }));
     }
 
@@ -41329,6 +52152,11 @@ mod tests {
         machine_ui.session_available = true;
         app.machine_ui = Some(machine_ui);
         app.sidebar_view = SidebarView::Workspaces;
+        // This test covers the legacy machine/workspace boundary. The built-in
+        // Work profile also has an Agents rail, so select Focus explicitly.
+        app.config.sidebar.active_profile = "focus".into();
+        app.config.sidebar.views = app.config.sidebar.profiles[1].views.clone();
+        app.config.sidebar.layout = app.config.sidebar.profiles[1].layout.clone();
         app.replace_tree(app.session.tree());
         app.sync_layout((100, 16));
 
@@ -41405,6 +52233,11 @@ mod tests {
         let mux = Mux::new("rail-mouse-resize-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
         app.sidebar_view = SidebarView::Workspaces;
+        // The Work profile stacks Workspaces and Agents in one column. This
+        // test verifies independent top-level rail resizing, so use Focus.
+        app.config.sidebar.active_profile = "focus".into();
+        app.config.sidebar.views = app.config.sidebar.profiles[1].views.clone();
+        app.config.sidebar.layout = app.config.sidebar.profiles[1].layout.clone();
         app.machine_ui = Some(provider_machine_ui());
         app.sync_layout((100, 12));
 
@@ -41413,7 +52246,10 @@ mod tests {
         let divider = |app: &App, kind| {
             app.hits
                 .iter()
-                .find_map(|(rect, hit)| (*hit == super::Hit::RailResize(kind)).then_some(*rect))
+                .find_map(|(rect, hit)| {
+                    matches!(hit, super::Hit::RailResize { kind: candidate, .. } if *candidate == kind)
+                        .then_some(*rect)
+                })
                 .unwrap()
         };
 
@@ -41446,11 +52282,15 @@ mod tests {
 
             match kind {
                 RailKind::Machine => {
-                    assert_eq!(app.machine_sidebar_width_override, Some(expected));
-                    assert_eq!(app.sidebar_width_override, None);
+                    let state = app.active_sidebar_profile_state().unwrap();
+                    assert_eq!(state.machine_width, Some(expected));
+                    assert_eq!(state.workspace_width, None);
                 }
                 RailKind::Workspace => {
-                    assert_eq!(app.sidebar_width_override, Some(expected));
+                    assert_eq!(
+                        app.active_sidebar_profile_state().unwrap().workspace_width,
+                        Some(expected)
+                    );
                 }
                 RailKind::Tabs => unreachable!("tabs rail is not configured in this test"),
                 RailKind::Projection(_) => {
@@ -41516,8 +52356,133 @@ mod tests {
         });
         assert_ne!(scrolled_machine, first_machine);
         assert_ne!(scrolled_workspace, first_workspace);
-        assert!(app.machine_rail_scroll > 0);
-        assert!(app.workspace_rail_scroll > 0);
+        assert!(app.active_sidebar_rail_scroll().machine_rail_scroll > 0);
+        assert!(app.active_sidebar_rail_scroll().workspace_rail_scroll > 0);
+    }
+
+    #[test]
+    fn wheel_over_workspace_does_not_use_a_pruned_machine_fallback() {
+        let mux = Mux::new("pruned-machine-wheel-test", SurfaceOptions::default());
+        for index in 0..8 {
+            mux.new_workspace(Some(format!("workspace-{index}")), None).unwrap();
+        }
+        let machine = SidebarViewSpec::legacy(SidebarColumnKind::Machines, 22, 0);
+        let workspace = SidebarViewSpec::legacy(SidebarColumnKind::Workspaces, 22, 0);
+        let views = vec![machine, workspace];
+        let layout = crate::config::sidebar_layout_of_columns(&views);
+        let profile = SidebarProfileSpec {
+            id: "pruned-machine".into(),
+            name: "Pruned machine".into(),
+            views: views.clone(),
+            layout: layout.clone(),
+        };
+        let mut app = test_app(Session::Local(mux));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.views = views;
+        app.config.sidebar.layout = layout;
+        app.config.sidebar.profiles = vec![profile];
+        app.config.sidebar.active_profile = "pruned-machine".into();
+        app.config.sidebar.views_explicit = true;
+        app.sidebar_view = SidebarView::Workspaces;
+        // No machine provider means the first leaf is pruned. Keep a stale
+        // legacy width to model an input event arriving during a layout
+        // transition. The ordered placement is the authoritative hit frame.
+        app.sync_layout((100, 12));
+        assert!(app.sidebar_layout.machine.is_none());
+        let workspace_area = app.sidebar_layout.workspace.expect("workspace rail remains visible");
+        assert!(!app.sidebar_layout.ordered.is_empty());
+        app.machine_sidebar_width = 22;
+
+        app.handle_scroll(workspace_area.x + 1, workspace_area.y + 2, true, KeyModifiers::NONE)
+            .unwrap();
+
+        assert_eq!(
+            app.active_sidebar_rail_scroll().machine_rail_scroll,
+            0,
+            "a pruned machine rail cannot consume the wheel"
+        );
+        assert!(
+            app.active_sidebar_rail_scroll().workspace_rail_scroll > 0,
+            "the visible workspace rail receives the wheel"
+        );
+    }
+
+    #[test]
+    fn wheel_over_projection_does_not_use_a_pruned_workspace_fallback() {
+        let mux = Mux::new("pruned-workspace-wheel-test", SurfaceOptions::default());
+        let mut agent_surfaces = Vec::new();
+        for index in 0..24 {
+            let surface =
+                mux.new_workspace(Some(format!("agent-workspace-{index}")), Some((20, 8))).unwrap();
+            mux.report_agent(
+                surface.id,
+                AgentState::Working,
+                AgentSource::Hook,
+                Some(format!("agent-{index}")),
+            )
+            .unwrap();
+            agent_surfaces.push(surface.id);
+        }
+        let workspace = SidebarViewSpec::legacy(SidebarColumnKind::Workspaces, 22, 0);
+        let agents = SidebarViewSpec {
+            id: "agents".into(),
+            levels: vec![SidebarResourceKind::Agents],
+            actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
+            width: 22,
+            max_width: 0,
+            collapse_priority: 20,
+            row_lines: 1,
+            scope: SidebarViewScope::All,
+            sort: AgentSortMode::default(),
+            filter: AgentRowFilter::default(),
+        };
+        let views = vec![workspace, agents];
+        let layout = crate::config::sidebar_layout_of_columns(&views);
+        let profile = SidebarProfileSpec {
+            id: "pruned-workspace".into(),
+            name: "Pruned workspace".into(),
+            views: views.clone(),
+            layout: layout.clone(),
+        };
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.views = views;
+        app.config.sidebar.layout = layout;
+        app.config.sidebar.profiles = vec![profile];
+        app.config.sidebar.active_profile = "pruned-workspace".into();
+        app.config.sidebar.views_explicit = true;
+        app.sidebar_view = SidebarView::Workspaces;
+        app.sync_layout((100, 20));
+        app.active_sidebar_profile_state_mut().hidden_views.insert("workspaces".into());
+        app.sync_layout((100, 20));
+        assert!(app.sidebar_layout.workspace.is_none());
+        let agents_area = app
+            .sidebar_layout
+            .rail(RailKind::Projection(1))
+            .expect("Agents projection remains visible");
+        assert!(!app.sidebar_layout.ordered.is_empty());
+        assert!(app.projection_rows(1).len() > 1, "the wheel target must have scrollable rows");
+        app.sidebar_width = 22;
+
+        app.handle_scroll(agents_area.x + 1, agents_area.y + 2, true, KeyModifiers::NONE).unwrap();
+
+        assert_eq!(
+            app.active_sidebar_rail_scroll().workspace_rail_scroll,
+            0,
+            "a pruned workspace rail cannot consume the wheel"
+        );
+        assert!(
+            app.active_sidebar_profile_state()
+                .and_then(|state| state.projection_rails.get("agents"))
+                .is_some_and(|state| state.scroll > 0),
+            "the visible Agents projection receives the wheel"
+        );
+
+        for surface in agent_surfaces {
+            mux.close_surface(surface).unwrap();
+        }
     }
 
     #[test]
@@ -41547,13 +52512,14 @@ mod tests {
             .hits
             .iter()
             .find_map(|(rect, hit)| {
-                (*hit == super::Hit::RailResize(RailKind::Workspace)).then_some(*rect)
+                matches!(hit, super::Hit::RailResize { kind: RailKind::Workspace, .. })
+                    .then_some(*rect)
             })
             .unwrap();
         let (thumb_y, _) = crate::ui::viewport_thumb_geometry(
             total_rows,
             visible_rows,
-            app.workspace_rail_scroll,
+            app.active_sidebar_rail_scroll().workspace_rail_scroll,
             track.height,
         );
         assert_eq!(track.x + 1, divider.x);
@@ -41566,7 +52532,7 @@ mod tests {
             modifiers: KeyModifiers::NONE,
         })
         .unwrap();
-        let jumped = app.workspace_rail_scroll;
+        let jumped = app.active_sidebar_rail_scroll().workspace_rail_scroll;
         assert!(jumped > 0);
         assert!(!app.workspace_rail_follow_selection);
         assert_eq!(app.focus, FocusTarget::Pane);
@@ -41578,7 +52544,7 @@ mod tests {
             modifiers: KeyModifiers::NONE,
         })
         .unwrap();
-        assert!(app.workspace_rail_scroll < jumped);
+        assert!(app.active_sidebar_rail_scroll().workspace_rail_scroll < jumped);
         app.handle_mouse(MouseEvent {
             kind: MouseEventKind::Up(MouseButton::Left),
             column: track.x,
@@ -41606,7 +52572,8 @@ mod tests {
             .hits
             .iter()
             .find_map(|(rect, hit)| {
-                (*hit == super::Hit::RailResize(RailKind::Workspace)).then_some(*rect)
+                matches!(hit, super::Hit::RailResize { kind: RailKind::Workspace, .. })
+                    .then_some(*rect)
             })
             .unwrap();
         let scrollbar_x = divider.x - 1;
@@ -41616,6 +52583,77 @@ mod tests {
                 "▕" | "▐"
             ))
         );
+    }
+
+    #[test]
+    fn workspace_drop_target_follows_rendered_metrics_actions_and_scroll() {
+        let mux = Mux::new("workspace-drop-target-geometry-test", SurfaceOptions::default());
+        for index in 0..6 {
+            mux.new_workspace(Some(format!("workspace-{index}")), None).unwrap();
+        }
+        let mut workspace = SidebarViewSpec::legacy(SidebarColumnKind::Workspaces, 28, 0);
+        workspace.actions_position = crate::config::ActionsPosition::Top;
+        let profile = SidebarProfileSpec {
+            id: "workspace-drop-target".into(),
+            name: "Workspace drop target".into(),
+            layout: crate::config::sidebar_layout_of_columns(std::slice::from_ref(&workspace)),
+            views: vec![workspace],
+        };
+        let mut app = test_app(Session::Local(mux));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.profiles = vec![profile.clone()];
+        app.config.sidebar.active_profile = profile.id.clone();
+        app.config.sidebar.views = profile.views.clone();
+        app.config.sidebar.layout = profile.layout;
+        app.config.sidebar.views_explicit = true;
+        app.config.sidebar.row_height = 1;
+        app.config.sidebar.row_gap = 2;
+        app.sidebar_view = SidebarView::Workspaces;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((90, 12));
+
+        let mut terminal = Terminal::new(TestBackend::new(90, 12)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let area = app.sidebar_layout.workspace.expect("workspace rail area");
+        let mut rows = app
+            .hits
+            .iter()
+            .filter_map(|(rect, hit)| match hit {
+                super::Hit::Workspace { index, .. } => Some((*index, *rect)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        rows.sort_by_key(|(index, rect)| (*index, rect.y));
+        assert!(!rows.is_empty(), "the rendered workspace rows are required");
+
+        // The header and the configured top action own these cells. A drop
+        // there must not reorder a workspace behind the action hit map.
+        assert_eq!(app.workspace_drop_target_at(area.x + 1, area.y), None);
+        assert_eq!(app.workspace_drop_target_at(area.x + 1, area.y + 1), None);
+        let first_row = rows[0].1;
+        assert_eq!(app.workspace_drop_target_at(first_row.x, first_row.y), Some(0));
+        assert_eq!(
+            app.workspace_drop_target_at(first_row.x, first_row.y + 1),
+            Some(1),
+            "the configured gap inserts before the next rendered row"
+        );
+
+        // Scrolling changes the physical row positions. The same receipt-
+        // based hit test must follow the visible workspace rather than the
+        // old fixed three-line formula.
+        app.active_sidebar_rail_scroll_mut().workspace_rail_scroll = 6;
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let scrolled = app
+            .hits
+            .iter()
+            .filter_map(|(rect, hit)| match hit {
+                super::Hit::Workspace { index, .. } => Some((*index, *rect)),
+                _ => None,
+            })
+            .min_by_key(|(_, rect)| rect.y)
+            .expect("a scrolled workspace row");
+        assert_eq!(scrolled.0, 2, "the scroll offset selects the third workspace");
+        assert_eq!(app.workspace_drop_target_at(scrolled.1.x, scrolled.1.y), Some(scrolled.0));
     }
 
     #[test]
@@ -41693,6 +52731,10 @@ mod tests {
             width: 40,
             max_width: 0,
             collapse_priority: 30,
+            row_lines: 1,
+            scope: SidebarViewScope::Workspace,
+            sort: AgentSortMode::default(),
+            filter: AgentRowFilter::default(),
         }];
         app.config.sidebar.views_explicit = true;
         app.replace_tree(app.session.tree());
@@ -41727,6 +52769,210 @@ mod tests {
         for surface in [first.id, second.id] {
             mux.close_surface(surface).unwrap();
         }
+    }
+
+    #[test]
+    fn projection_actions_position_top_mounts_actions_above_the_body() {
+        let (mux, surface) = test_mux("projection-top-actions-test", None);
+        mux.report_agent(
+            surface.id,
+            AgentState::Working,
+            AgentSource::Hook,
+            Some("top-actions-agent".into()),
+        )
+        .unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.views = vec![SidebarViewSpec {
+            id: "top-agents".into(),
+            levels: vec![SidebarResourceKind::Agents],
+            actions: vec![crate::config::SidebarActionSpec::plain(Action::RenameWorkspace)],
+            actions_position: crate::config::ActionsPosition::Top,
+            width: 40,
+            max_width: 0,
+            collapse_priority: 30,
+            row_lines: 1,
+            scope: SidebarViewScope::Workspace,
+            sort: AgentSortMode::Priority,
+            filter: AgentRowFilter::default(),
+        }];
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((100, 20));
+
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let rail =
+            app.sidebar_layout.rail(RailKind::Projection(0)).expect("Agents projection rail");
+        let action = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                matches!(hit, super::Hit::SidebarAction { view: 0, .. }).then_some(*rect)
+            })
+            .expect("top action hit");
+        let row = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                matches!(
+                    hit,
+                    super::Hit::ProjectionRow {
+                        target: crate::sidebar_projection::ProjectionTarget::Surface {
+                            surface: hit_surface,
+                            ..
+                        },
+                        ..
+                    } if *hit_surface == surface.id
+                )
+                .then_some(*rect)
+            })
+            .expect("agent row hit");
+
+        assert!(action.y > rail.y, "the Agents header must stay above actions");
+        assert!(action.y < row.y, "top actions must precede the projection body");
+        assert!(
+            buffer_text(terminal.backend().buffer())
+                .contains(localization::catalog().sidebar.rename_workspace)
+        );
+
+        // Keyboard order must use the same top-mounted action as the mouse
+        // hit map. Enter on the first visible action opens its workspace
+        // prompt instead of subtracting the body row count from its index.
+        app.focus = FocusTarget::ProjectionRail(0);
+        app.projection_rail_state_mut(0).selected_action = Some(0);
+        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
+        assert!(matches!(
+            app.prompt.as_ref().map(|prompt| prompt.target),
+            Some(PromptTarget::Workspace(_))
+        ));
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn stale_projection_action_hit_fails_closed_after_action_removal() {
+        let (mux, surface) = test_mux("projection-stale-action-hit-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.views = vec![SidebarViewSpec {
+            id: "stale-action".into(),
+            levels: vec![SidebarResourceKind::Agents],
+            actions: vec![crate::config::SidebarActionSpec::plain(Action::RenameWorkspace)],
+            actions_position: crate::config::ActionsPosition::Bottom,
+            width: 40,
+            max_width: 0,
+            collapse_priority: 30,
+            row_lines: 1,
+            scope: SidebarViewScope::Workspace,
+            sort: AgentSortMode::Priority,
+            filter: AgentRowFilter::default(),
+        }];
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((100, 20));
+
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let action = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                matches!(hit, super::Hit::SidebarAction { view: 0, .. }).then_some(*rect)
+            })
+            .expect("rendered action hit");
+
+        // The view id stays stable across a definition edit, but the old
+        // receipt must still expire because its label and geometry changed.
+        app.config.sidebar.views[0].actions[0].label = Some("renamed action".into());
+        app.handle_left_down(action.x, action.y, KeyModifiers::NONE).unwrap();
+        assert!(app.prompt.is_none(), "a changed view definition invalidates its old hit");
+
+        app.config.sidebar.views[0].actions.clear();
+        app.handle_left_down(action.x, action.y, KeyModifiers::NONE).unwrap();
+
+        assert!(app.prompt.is_none(), "a removed action must not open its old command");
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn sidebar_visibility_and_pin_changes_cancel_captured_layout_drags() {
+        let mux = Mux::new("sidebar-layout-drag-invalidation-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.sync_layout((100, 24));
+
+        app.drag = Some(Drag::RailResize(RailKind::Projection(2)));
+        app.set_sidebar_view_visible(2, false);
+        assert!(app.drag.is_none(), "hiding a rail cancels its captured resize");
+
+        app.set_sidebar_view_visible(2, true);
+        app.drag = Some(Drag::RailResize(RailKind::Projection(2)));
+        app.set_sidebar_view_pinned(2, false);
+        assert!(app.drag.is_none(), "unpinning a rail cancels its captured resize");
+    }
+
+    #[test]
+    fn projection_workspace_target_follows_id_after_tree_reorder() {
+        let mux = Mux::new("projection-workspace-target-reorder-test", SurfaceOptions::default());
+        let first = mux.new_workspace(Some("Alpha".into()), Some((80, 24))).unwrap();
+        let second = mux.new_workspace(Some("Beta".into()), Some((80, 24))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+
+        let target = crate::sidebar_projection::ProjectionTarget::Workspace {
+            index: 0,
+            id: app.tree.workspaces()[0].id,
+        };
+        app.tree.workspaces_mut().swap(0, 1);
+        app.activate_projection_target(target).unwrap();
+
+        assert_eq!(app.tree.active_workspace, 1);
+        assert_eq!(
+            app.tree.active_workspace().map(|workspace| workspace.id),
+            Some(target_id(target))
+        );
+
+        for surface in [first.id, second.id] {
+            mux.close_surface(surface).unwrap();
+        }
+    }
+
+    fn target_id(
+        target: crate::sidebar_projection::ProjectionTarget,
+    ) -> cmux_tui_core::WorkspaceId {
+        match target {
+            crate::sidebar_projection::ProjectionTarget::Workspace { id, .. } => id,
+            _ => unreachable!("workspace target expected"),
+        }
+    }
+
+    #[test]
+    fn empty_projection_uses_its_leaf_resource_label() {
+        let mux = Mux::new("projection-empty-leaf-label-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.views = vec![SidebarViewSpec {
+            id: "workspace-tabs".into(),
+            levels: vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Tabs],
+            actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
+            width: 40,
+            max_width: 0,
+            collapse_priority: 30,
+            row_lines: 1,
+            scope: SidebarViewScope::Workspace,
+            sort: AgentSortMode::default(),
+            filter: AgentRowFilter::default(),
+        }];
+        app.config.sidebar.views_explicit = true;
+        app.sync_layout((100, 12));
+
+        let mut terminal = Terminal::new(TestBackend::new(100, 12)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let rendered = buffer_text(terminal.backend().buffer());
+
+        assert!(rendered.contains("no tabs"), "{rendered}");
+        assert!(!rendered.contains("no workspaces"), "{rendered}");
     }
 
     #[test]
@@ -41771,6 +53017,10 @@ mod tests {
             width: 40,
             max_width: 0,
             collapse_priority: 30,
+            row_lines: 1,
+            scope: SidebarViewScope::Workspace,
+            sort: AgentSortMode::default(),
+            filter: AgentRowFilter::default(),
         }];
         app.config.sidebar.views_explicit = true;
         app.replace_tree(app.session.tree());
@@ -41784,6 +53034,498 @@ mod tests {
         assert_eq!(app.focus, FocusTarget::Pane);
 
         mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn projection_agent_update_keeps_an_unrelated_workspace_cache() {
+        let (mux, first) = test_mux("projection-agent-cache-scope-test", None);
+        let second = mux.new_workspace(Some("second".into()), Some((20, 8))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.views = vec![
+            SidebarViewSpec {
+                id: "agents-first".into(),
+                levels: vec![SidebarResourceKind::Agents],
+                actions: Vec::new(),
+                actions_position: crate::config::ActionsPosition::Bottom,
+                width: 40,
+                max_width: 0,
+                collapse_priority: 30,
+                row_lines: 1,
+                scope: SidebarViewScope::Workspace,
+                sort: AgentSortMode::default(),
+                filter: AgentRowFilter::default(),
+            },
+            SidebarViewSpec {
+                id: "agents-second".into(),
+                levels: vec![SidebarResourceKind::Agents],
+                actions: Vec::new(),
+                actions_position: crate::config::ActionsPosition::Bottom,
+                width: 40,
+                max_width: 0,
+                collapse_priority: 30,
+                row_lines: 1,
+                scope: SidebarViewScope::Workspace,
+                sort: AgentSortMode::default(),
+                filter: AgentRowFilter::default(),
+            },
+        ];
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+        app.sidebar_workspace_selection = 0;
+        app.projection_rows(0);
+        app.sidebar_workspace_selection = 1;
+        app.projection_rows(1);
+
+        assert_eq!(
+            app.handle(AppEvent::Mux(MuxEvent::AgentChanged {
+                surface: SurfaceId::MAX,
+                state: "working".into(),
+                source: "hook".into(),
+                session: None,
+                agent: None,
+                updated_at_ms: 1,
+            }))
+            .unwrap(),
+            RenderAction::None,
+            "an agent outside every projected scope must not schedule a paint"
+        );
+        assert_eq!(app.projection_rows_cache.len(), 2);
+
+        let action = app
+            .handle(AppEvent::Mux(MuxEvent::AgentChanged {
+                surface: first.id,
+                state: "working".into(),
+                source: "hook".into(),
+                session: None,
+                agent: None,
+                updated_at_ms: 1,
+            }))
+            .unwrap();
+        assert_eq!(action, RenderAction::Paint);
+        assert_eq!(
+            app.projection_rows_cache
+                .iter()
+                .map(|cache| cache.view_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["agents-second"],
+            "an agent update must retain caches for other workspace scopes"
+        );
+        assert_eq!(
+            app.handle(AppEvent::Mux(MuxEvent::AgentChanged {
+                surface: first.id,
+                state: "working".into(),
+                source: "hook".into(),
+                session: None,
+                agent: None,
+                updated_at_ms: 2,
+            }))
+            .unwrap(),
+            RenderAction::None,
+            "repeated updates for one surface share one paint boundary"
+        );
+
+        mux.close_surface(first.id).unwrap();
+        mux.close_surface(second.id).unwrap();
+    }
+
+    #[test]
+    fn all_scope_projection_cache_ignores_workspace_highlight_moves() {
+        let (mux, first) = test_mux("projection-all-scope-selection-cache-test", None);
+        let second = mux.new_workspace(Some("second".into()), Some((20, 8))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.views = vec![SidebarViewSpec {
+            id: "all-agents".into(),
+            levels: vec![SidebarResourceKind::Agents],
+            actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
+            width: 40,
+            max_width: 0,
+            collapse_priority: 30,
+            row_lines: 1,
+            scope: SidebarViewScope::All,
+            sort: AgentSortMode::default(),
+            filter: AgentRowFilter::default(),
+        }];
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+
+        app.sidebar_workspace_selection = 0;
+        let first_rows = app.projection_rows(0);
+        app.sidebar_workspace_selection = 1;
+        let second_rows = app.projection_rows(0);
+
+        assert!(Arc::ptr_eq(&first_rows, &second_rows));
+        assert_eq!(app.projection_rows_cache.len(), 1);
+
+        mux.close_surface(first.id).unwrap();
+        mux.close_surface(second.id).unwrap();
+    }
+
+    #[test]
+    fn projection_title_update_keeps_an_unrelated_workspace_cache() {
+        let (mux, first) = test_mux("projection-title-cache-scope-test", None);
+        let second = mux.new_workspace(Some("second".into()), Some((20, 8))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.views = vec![
+            SidebarViewSpec {
+                id: "tabs-first".into(),
+                levels: vec![SidebarResourceKind::Tabs],
+                actions: Vec::new(),
+                actions_position: crate::config::ActionsPosition::Bottom,
+                width: 40,
+                max_width: 0,
+                collapse_priority: 30,
+                row_lines: 1,
+                scope: SidebarViewScope::Workspace,
+                sort: AgentSortMode::default(),
+                filter: AgentRowFilter::default(),
+            },
+            SidebarViewSpec {
+                id: "tabs-second".into(),
+                levels: vec![SidebarResourceKind::Tabs],
+                actions: Vec::new(),
+                actions_position: crate::config::ActionsPosition::Bottom,
+                width: 40,
+                max_width: 0,
+                collapse_priority: 30,
+                row_lines: 1,
+                scope: SidebarViewScope::Workspace,
+                sort: AgentSortMode::default(),
+                filter: AgentRowFilter::default(),
+            },
+        ];
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+        app.sidebar_workspace_selection = 0;
+        app.projection_rows(0);
+        app.sidebar_workspace_selection = 1;
+        app.projection_rows(1);
+
+        assert_eq!(
+            app.handle(AppEvent::Mux(MuxEvent::TitleChanged {
+                surface: SurfaceId::MAX,
+                title: "unrelated".into(),
+            }))
+            .unwrap(),
+            RenderAction::None,
+            "a title outside every projected scope must not schedule a paint"
+        );
+        assert_eq!(app.projection_rows_cache.len(), 2);
+
+        let action = app
+            .handle(AppEvent::Mux(MuxEvent::TitleChanged {
+                surface: first.id,
+                title: "renamed".into(),
+            }))
+            .unwrap();
+        assert_eq!(action, RenderAction::Paint);
+        assert_eq!(
+            app.projection_rows_cache
+                .iter()
+                .map(|cache| cache.view_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["tabs-second"],
+            "a title update must retain caches for other workspace scopes"
+        );
+
+        mux.close_surface(first.id).unwrap();
+        mux.close_surface(second.id).unwrap();
+    }
+
+    #[test]
+    fn projection_surface_indexes_drop_retired_surfaces() {
+        let (mux, surface) = test_mux("projection-surface-index-prune-test", None);
+        let mut app = test_app(Session::Local(mux));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.views = vec![SidebarViewSpec {
+            id: "agents".into(),
+            levels: vec![SidebarResourceKind::Agents],
+            actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
+            width: 40,
+            max_width: 0,
+            collapse_priority: 30,
+            row_lines: 1,
+            scope: SidebarViewScope::Workspace,
+            sort: AgentSortMode::default(),
+            filter: AgentRowFilter::default(),
+        }];
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+        app.projection_rows(0);
+
+        assert!(app.projection_agent_surfaces.contains(&surface.id));
+        app.handle(AppEvent::Mux(MuxEvent::SurfaceExited(surface.id))).unwrap();
+        assert!(!app.projection_agent_surfaces.contains(&surface.id));
+
+        // A retained cache entry may still be hit before the authoritative
+        // topology refresh. It must not reintroduce the retired id.
+        app.projection_rows(0);
+        assert!(!app.projection_agent_surfaces.contains(&surface.id));
+    }
+
+    #[test]
+    fn hidden_projection_view_drops_wake_dependencies() {
+        let (mux, surface) = test_mux("projection-hidden-view-wake-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.views = vec![SidebarViewSpec {
+            id: "agents".into(),
+            levels: vec![SidebarResourceKind::Agents],
+            actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
+            width: 40,
+            max_width: 0,
+            collapse_priority: 30,
+            row_lines: 1,
+            scope: SidebarViewScope::Workspace,
+            sort: AgentSortMode::default(),
+            filter: AgentRowFilter::default(),
+        }];
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+        app.projection_rows(0);
+        assert!(app.projection_agent_surfaces.contains(&surface.id));
+
+        app.set_sidebar_view_visible(0, false);
+        assert!(!app.projection_agent_surfaces.contains(&surface.id));
+        assert_eq!(
+            app.handle(AppEvent::Mux(MuxEvent::AgentChanged {
+                surface: surface.id,
+                state: "working".into(),
+                source: "hook".into(),
+                session: None,
+                agent: None,
+                updated_at_ms: 1,
+            }))
+            .unwrap(),
+            RenderAction::None,
+            "updates for a hidden projection must not schedule a paint"
+        );
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn agent_attention_wakes_profile_strip_before_new_surface_enters_tree() {
+        let (mux, first) = test_mux("agent-attention-profile-strip-wake-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.sync_layout((100, 20));
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        assert_eq!(
+            app.rendered_agent_attention,
+            Some(AgentAttentionReceipt { attention: 0, working: 0 })
+        );
+
+        // The mux knows about this tab immediately, while the frontend's
+        // cached tree still does not. The persistent profile strip must wake
+        // from the global agent receipt even without a row dependency.
+        let pane = mux.with_state(|state| state.pane_of(first.id).expect("first pane"));
+        let second = mux.new_tab(Some(pane), None, Some((20, 8))).unwrap();
+        mux.report_agent(
+            second.id,
+            AgentState::Working,
+            AgentSource::Hook,
+            Some("unadopted-agent".into()),
+        )
+        .unwrap();
+        let action = app
+            .handle(AppEvent::Mux(MuxEvent::AgentChanged {
+                surface: second.id,
+                state: "working".into(),
+                source: "hook".into(),
+                session: Some("unadopted-agent".into()),
+                agent: None,
+                updated_at_ms: 1,
+            }))
+            .unwrap();
+        assert_eq!(action, RenderAction::Paint);
+        assert!(
+            !app.projection_agent_surfaces.contains(&second.id),
+            "the test must remain outside the stale cached tree dependency"
+        );
+
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        assert!(buffer_text(terminal.backend().buffer()).contains("~1"));
+
+        mux.close_surface(first.id).unwrap();
+        mux.close_surface(second.id).unwrap();
+    }
+
+    #[test]
+    fn projection_title_wake_paints_after_invalidating_cached_rows() {
+        let (mux, surface) = test_mux("projection-title-paint-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.views = vec![SidebarViewSpec {
+            id: "tabs".into(),
+            levels: vec![SidebarResourceKind::Tabs],
+            actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
+            width: 40,
+            max_width: 0,
+            collapse_priority: 30,
+            row_lines: 1,
+            scope: SidebarViewScope::Workspace,
+            sort: AgentSortMode::default(),
+            filter: AgentRowFilter::default(),
+        }];
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+        app.projection_rows(0);
+
+        assert!(app.mux_titles.push(surface.id, "renamed"));
+        assert_eq!(app.handle(AppEvent::MuxTitlesReady).unwrap(), RenderAction::Paint);
+        assert_eq!(
+            app.tree
+                .workspaces()
+                .iter()
+                .flat_map(|workspace| workspace.screens.iter())
+                .flat_map(|screen| screen.panes.iter())
+                .flat_map(|pane| pane.tabs.iter())
+                .find(|tab| tab.surface == surface.id)
+                .map(|tab| tab.title.as_str()),
+            Some("renamed")
+        );
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn projection_cache_hit_reuses_a_shared_rows_snapshot() {
+        let (mux, surface) = test_mux("projection-shared-rows-cache-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.views = vec![SidebarViewSpec {
+            id: "tabs".into(),
+            levels: vec![SidebarResourceKind::Tabs],
+            actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
+            width: 40,
+            max_width: 0,
+            collapse_priority: 30,
+            row_lines: 1,
+            scope: SidebarViewScope::Workspace,
+            sort: AgentSortMode::default(),
+            filter: AgentRowFilter::default(),
+        }];
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+
+        let first = app.projection_rows(0);
+        let second = app.projection_rows(0);
+        assert!(Arc::ptr_eq(&first, &second));
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn reapply_mux_titles_invalidates_cached_projection_rows() {
+        let (mux, surface) = test_mux("projection-title-reapply-cache-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.views = vec![SidebarViewSpec {
+            id: "tabs".into(),
+            levels: vec![SidebarResourceKind::Tabs],
+            actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
+            width: 40,
+            max_width: 0,
+            collapse_priority: 30,
+            row_lines: 1,
+            scope: SidebarViewScope::Workspace,
+            sort: AgentSortMode::default(),
+            filter: AgentRowFilter::default(),
+        }];
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+        app.projection_rows(0);
+        assert_eq!(app.projection_rows_cache.len(), 1);
+
+        assert!(app.mux_titles.push(surface.id, "reapplied"));
+        let (changed, projection_paint_requested) = app.reapply_mux_titles();
+        assert!(changed);
+        assert!(projection_paint_requested);
+        assert!(app.projection_rows_cache.is_empty());
+
+        let rows = app.projection_rows(0);
+        assert!(rows.iter().any(|row| {
+            matches!(
+                row.target,
+                crate::sidebar_projection::ProjectionTarget::Surface { surface: id, .. }
+                    if id == surface.id
+            ) && row.name == "reapplied"
+        }));
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn projection_cache_refreshes_active_tab_after_focus_changes() {
+        let (mux, first) = test_mux("projection-active-focus-cache-test", None);
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let second = mux.new_tab(Some(pane), None, Some((20, 8))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.views = vec![SidebarViewSpec {
+            id: "tabs".into(),
+            levels: vec![SidebarResourceKind::Tabs],
+            actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
+            width: 40,
+            max_width: 0,
+            collapse_priority: 30,
+            row_lines: 1,
+            scope: SidebarViewScope::Workspace,
+            sort: AgentSortMode::default(),
+            filter: AgentRowFilter::default(),
+        }];
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+
+        let before = app.projection_rows(0);
+        let before_active = app.tree.active_surface().unwrap();
+        let after_active = if before_active == first.id { second.id } else { first.id };
+        let after_index = app
+            .tree
+            .pane(pane)
+            .unwrap()
+            .tabs
+            .iter()
+            .position(|tab| tab.surface == after_active)
+            .unwrap();
+        app.select_tab_for_client(Some(pane), Some(after_index), None);
+        let after = app.projection_rows(0);
+
+        assert!(before.iter().any(|row| {
+            matches!(
+                row.target,
+                crate::sidebar_projection::ProjectionTarget::Surface { surface, .. }
+                    if surface == before_active && row.active
+            )
+        }));
+        assert!(after.iter().any(|row| {
+            matches!(
+                row.target,
+                crate::sidebar_projection::ProjectionTarget::Surface { surface, .. }
+                    if surface == after_active && row.active
+            )
+        }));
+        assert!(after.iter().any(|row| {
+            matches!(
+                row.target,
+                crate::sidebar_projection::ProjectionTarget::Surface { surface, .. }
+                    if surface == before_active && !row.active
+            )
+        }));
+
+        mux.close_surface(first.id).unwrap();
+        mux.close_surface(second.id).unwrap();
     }
 
     #[test]
@@ -41806,6 +53548,10 @@ mod tests {
             width: 40,
             max_width: 0,
             collapse_priority: 30,
+            row_lines: 1,
+            scope: SidebarViewScope::Workspace,
+            sort: AgentSortMode::default(),
+            filter: AgentRowFilter::default(),
         }];
         app.config.sidebar.views_explicit = true;
         app.replace_tree(app.session.tree());
@@ -41819,6 +53565,154 @@ mod tests {
         assert!(
             app.projection_rail_state_mut(0).collapsed.is_empty(),
             "stale action selection must not collapse the selected resource row"
+        );
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn agents_view_priority_renders_header_dots_and_two_line_rows() {
+        let (mux, first) = test_mux("agents-view-two-line-test", None);
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let second = mux.new_tab(Some(pane), None, Some((80, 24))).unwrap();
+        // The working report lands last, but blocked still ranks first.
+        mux.report_agent(second.id, AgentState::Blocked, AgentSource::Socket, None).unwrap();
+        mux.report_agent(first.id, AgentState::Working, AgentSource::Socket, None).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.views = vec![SidebarViewSpec {
+            id: "agents".into(),
+            levels: vec![SidebarResourceKind::Agents],
+            actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
+            width: 30,
+            max_width: 0,
+            collapse_priority: 30,
+            row_lines: 2,
+            scope: SidebarViewScope::Workspace,
+            sort: AgentSortMode::default(),
+            filter: AgentRowFilter::default(),
+        }];
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((100, 20));
+
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let rendered = buffer_text(terminal.backend().buffer());
+        let lines: Vec<&str> = rendered.lines().collect();
+
+        let header = lines
+            .iter()
+            .position(|line| line.contains("agents") && line.contains("priority"))
+            .expect("agents view header shows the title and the sort mode");
+        let blocked = lines.iter().position(|line| line.contains("blocked")).unwrap();
+        let working = lines.iter().position(|line| line.contains("working")).unwrap();
+        assert!(header < blocked, "header renders above the rows");
+        assert!(blocked < working, "blocked outranks working regardless of recency");
+        // Two-line rows: the state dot and title line sits directly above
+        // the dim type/state line.
+        assert!(lines[blocked - 1].contains("●"), "blocked row carries a dot on its title line");
+        assert!(lines[working - 1].contains("●"), "working row carries a dot on its title line");
+        assert_eq!(working - blocked, 2, "each agent entry spans two lines");
+
+        mux.close_surface(second.id).unwrap();
+    }
+
+    #[test]
+    fn filtered_nested_agents_view_discloses_the_filter_in_its_header() {
+        let (mux, surface) = test_mux("agents-view-filter-header-test", None);
+        mux.report_agent(
+            surface.id,
+            AgentState::Working,
+            AgentSource::Socket,
+            Some("agent-session".into()),
+        )
+        .unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.views = vec![SidebarViewSpec {
+            id: "workspace-agents".into(),
+            levels: vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Agents],
+            actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
+            width: 40,
+            max_width: 0,
+            collapse_priority: 30,
+            row_lines: 1,
+            scope: SidebarViewScope::Workspace,
+            sort: AgentSortMode::Recency,
+            filter: AgentRowFilter {
+                agents: Vec::new(),
+                states: vec!["working".into()],
+                seen: None,
+            },
+        }];
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((100, 20));
+
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let rendered = buffer_text(terminal.backend().buffer());
+        assert!(
+            rendered.lines().any(|line| line.contains("agents") && line.contains("filtered")),
+            "an active nested-view filter must be visible in the header"
+        );
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn agents_view_sort_key_updates_the_live_header_and_keeps_config_starting_mode() {
+        let (mux, surface) = test_mux("agents-view-sort-cycle-test", None);
+        mux.report_agent(
+            surface.id,
+            AgentState::Working,
+            AgentSource::Socket,
+            Some("agent-session".into()),
+        )
+        .unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.views = vec![SidebarViewSpec {
+            id: "agents".into(),
+            levels: vec![SidebarResourceKind::Agents],
+            actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
+            width: 32,
+            max_width: 0,
+            collapse_priority: 30,
+            row_lines: 1,
+            scope: SidebarViewScope::Workspace,
+            sort: AgentSortMode::Priority,
+            filter: AgentRowFilter::default(),
+        }];
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((100, 12));
+        app.focus = FocusTarget::ProjectionRail(0);
+
+        let mut terminal = Terminal::new(TestBackend::new(100, 12)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        assert!(
+            buffer_text(terminal.backend().buffer())
+                .lines()
+                .any(|line| { line.contains("agents") && line.contains("priority") })
+        );
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE)).unwrap();
+        assert_eq!(
+            app.config.sidebar.views[0].sort,
+            AgentSortMode::Priority,
+            "the runtime cycle must not rewrite the shared config"
+        );
+        assert_eq!(app.effective_agent_sort(&app.config.sidebar.views[0]), AgentSortMode::Recency);
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        assert!(
+            buffer_text(terminal.backend().buffer())
+                .lines()
+                .any(|line| { line.contains("agents") && line.contains("recency") })
         );
 
         mux.close_surface(surface.id).unwrap();
@@ -41844,14 +53738,47 @@ mod tests {
             width: 40,
             max_width: 0,
             collapse_priority: 30,
+            row_lines: 1,
+            scope: SidebarViewScope::Workspace,
+            sort: AgentSortMode::default(),
+            filter: AgentRowFilter::default(),
         }];
         app.config.sidebar.views_explicit = true;
+        // Keep the profile and resolved layout coherent with the replacement
+        // view. Production config loading does this normalization; the test
+        // must model the same runtime invariant before drawing the rail.
+        app.config.sidebar.layout =
+            crate::config::sidebar_layout_of_columns(&app.config.sidebar.views);
+        app.config.sidebar.profiles = vec![SidebarProfileSpec {
+            id: "agents-only".into(),
+            name: "Agents only".into(),
+            views: app.config.sidebar.views.clone(),
+            layout: app.config.sidebar.layout.clone(),
+        }];
+        app.config.sidebar.active_profile = "agents-only".into();
         app.replace_tree(app.session.tree());
+        app.sync_layout((100, 12));
 
         assert!(
             app.projection_rows(0).is_empty(),
             "finished reports must not leave stale agent rows"
         );
+        let mut terminal = Terminal::new(TestBackend::new(100, 12)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        assert!(
+            buffer_text(terminal.backend().buffer())
+                .contains(localization::catalog().sidebar.no_active_agents),
+            "history-only records explain why the default queue is empty"
+        );
+
+        // A lifecycle filter is an explicit request for historical rows. The
+        // app must pass the canonical record through instead of removing it
+        // before the projection layer can apply that request.
+        app.config.sidebar.views[0].filter.states = vec!["done".into()];
+        app.invalidate_projection_rows_cache();
+        let history = app.projection_rows(0);
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].agent_state.as_deref(), Some("done"));
 
         mux.close_surface(surface.id).unwrap();
     }
@@ -41915,7 +53842,7 @@ mod tests {
 
         let tree = app.session.tree();
         let renamed = tree
-            .workspaces
+            .workspaces()
             .iter()
             .flat_map(|workspace| workspace.screens.iter())
             .flat_map(|screen| screen.panes.iter())
@@ -41964,7 +53891,7 @@ mod tests {
 
         let tree = app.session.tree();
         let renamed = tree
-            .workspaces
+            .workspaces()
             .iter()
             .flat_map(|workspace| workspace.screens.iter())
             .flat_map(|screen| screen.panes.iter())
@@ -41995,6 +53922,10 @@ mod tests {
             width: 40,
             max_width: 0,
             collapse_priority: 30,
+            row_lines: 1,
+            scope: SidebarViewScope::Workspace,
+            sort: AgentSortMode::default(),
+            filter: AgentRowFilter::default(),
         }];
         app.config.sidebar.views_explicit = true;
         app.replace_tree(app.session.tree());
@@ -42013,6 +53944,7 @@ mod tests {
             super::Hit::SidebarAction {
                 view: 0,
                 action: SidebarActionTarget::CreateWorkspace(None),
+                ..
             }
         )));
         let surface_row = app
@@ -42094,6 +54026,10 @@ mod tests {
             width: 40,
             max_width: 0,
             collapse_priority: 30,
+            row_lines: 1,
+            scope: SidebarViewScope::Workspace,
+            sort: AgentSortMode::default(),
+            filter: AgentRowFilter::default(),
         }];
         app.config.sidebar.views_explicit = true;
         app.sync_layout((100, 12));
@@ -42272,8 +54208,8 @@ mod tests {
         let mut app = test_app(Session::Local(mux));
         app.replace_tree(app.session.tree());
         app.sidebar_workspace_selection = 1;
-        app.workspace_rail_scroll = 3;
-        let selected_workspace = app.tree.workspaces[1].id;
+        app.active_sidebar_rail_scroll_mut().workspace_rail_scroll = 3;
+        let selected_workspace = app.tree.workspaces()[1].id;
         let mut initial = MachineUiState::new(MachineSnapshot {
             machines: vec![descriptor(1), descriptor(2), descriptor(3)],
             active: Some(MachineKey(1)),
@@ -42281,7 +54217,7 @@ mod tests {
         });
         initial.select_rail_target(crate::machine::MachineRailTarget::Machine(MachineKey(2)));
         app.machine_ui = Some(initial);
-        app.machine_rail_scroll = 6;
+        app.active_sidebar_rail_scroll_mut().machine_rail_scroll = 6;
 
         let update = MachineUiState::new(MachineSnapshot {
             machines: vec![descriptor(3), descriptor(2), descriptor(1)],
@@ -42290,16 +54226,16 @@ mod tests {
         });
         app.apply_machine_ui_update(update);
         let mut reordered = app.tree.clone();
-        reordered.workspaces.swap(0, 1);
+        reordered.workspaces_mut().swap(0, 1);
         app.replace_tree(reordered);
 
         assert_eq!(
             app.machine_ui.as_ref().and_then(MachineUiState::rail_target),
             Some(crate::machine::MachineRailTarget::Machine(MachineKey(2)))
         );
-        assert_eq!(app.machine_rail_scroll, 6);
-        assert_eq!(app.tree.workspaces[app.sidebar_workspace_selection].id, selected_workspace);
-        assert_eq!(app.workspace_rail_scroll, 3);
+        assert_eq!(app.active_sidebar_rail_scroll().machine_rail_scroll, 6);
+        assert_eq!(app.tree.workspaces()[app.sidebar_workspace_selection].id, selected_workspace);
+        assert_eq!(app.active_sidebar_rail_scroll().workspace_rail_scroll, 3);
     }
 
     enum FakeMachineAction {
@@ -42621,6 +54557,35 @@ mod tests {
     }
 
     #[test]
+    fn canceling_machine_controller_completion_send_unblocks_when_queue_is_full() {
+        let (events, receiver) = crossbeam_channel::bounded(1);
+        events.send(AppEvent::Mux(MuxEvent::Empty)).unwrap();
+        let cancellation = EventCancellation::new();
+        let worker_cancellation = cancellation.clone();
+        let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
+        let (completed_tx, completed_rx) = std::sync::mpsc::sync_channel(1);
+        let worker = std::thread::spawn(move || {
+            started_tx.send(()).unwrap();
+            let completed = super::send_machine_controller_completion(
+                &events,
+                super::MachineControllerCompletion::Updates(Err("cancelled".into())),
+                &worker_cancellation,
+            );
+            completed_tx.send(completed).unwrap();
+        });
+
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(matches!(
+            completed_rx.recv_timeout(Duration::from_millis(50)),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+        ));
+        cancellation.cancel();
+        assert!(!completed_rx.recv_timeout(Duration::from_secs(1)).unwrap());
+        worker.join().unwrap();
+        drop(receiver);
+    }
+
+    #[test]
     fn in_place_machine_switch_preserves_rail_view_focus_and_widths() {
         let first = Mux::new("machine-switch-first", SurfaceOptions::default());
         first.new_workspace(None, None).unwrap();
@@ -42630,10 +54595,10 @@ mod tests {
         app.machine_ui = Some(provider_machine_ui());
         app.sidebar_view = SidebarView::Workspaces;
         app.focus = FocusTarget::MachineRail;
-        app.sidebar_width_override = Some(27);
-        app.machine_sidebar_width_override = Some(19);
-        app.machine_rail_scroll = 3;
-        app.workspace_rail_scroll = 6;
+        app.active_sidebar_profile_state_mut().workspace_width = Some(27);
+        app.active_sidebar_profile_state_mut().machine_width = Some(19);
+        app.active_sidebar_rail_scroll_mut().machine_rail_scroll = 3;
+        app.active_sidebar_rail_scroll_mut().workspace_rail_scroll = 6;
 
         let next_ui = provider_machine_ui();
         let (controller, requests) = fake_controller(FakeMachineAction::Return(Box::new(
@@ -42647,10 +54612,10 @@ mod tests {
         assert_eq!(app.session_label, "second");
         assert_eq!(app.sidebar_view, SidebarView::Workspaces);
         assert_eq!(app.focus, FocusTarget::MachineRail);
-        assert_eq!(app.sidebar_width_override, Some(27));
-        assert_eq!(app.machine_sidebar_width_override, Some(19));
-        assert_eq!(app.machine_rail_scroll, 3);
-        assert_eq!(app.workspace_rail_scroll, 6);
+        assert_eq!(app.active_sidebar_profile_state().unwrap().workspace_width, Some(27));
+        assert_eq!(app.active_sidebar_profile_state().unwrap().machine_width, Some(19));
+        assert_eq!(app.active_sidebar_rail_scroll().machine_rail_scroll, 3);
+        assert_eq!(app.active_sidebar_rail_scroll().workspace_rail_scroll, 6);
         assert!(!app.quit);
         assert_eq!(requests.lock().unwrap().as_slice(), &[MachineRequest::Switch(MachineKey(41))]);
     }
@@ -42709,6 +54674,7 @@ mod tests {
         );
         started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
         app.drag = Some(Drag::ResizeSplit {
+            screen: app.active_screen_id().unwrap_or(0),
             horizontal: Some(PaneResizeDragTarget::ViewportColumn {
                 pane: 1,
                 edge: PaneEdge::Right,
@@ -42866,7 +54832,6 @@ mod tests {
     }
 
     #[test]
-    #[test]
     fn replaced_session_ignores_old_surface_lane_completion() {
         let first = Mux::new("surface-lane-generation-first", SurfaceOptions::default());
         let first_surface = first.new_workspace(None, Some((80, 24))).unwrap();
@@ -42988,6 +54953,1057 @@ mod tests {
         );
         assert!(app.pty_input.shutdown(Duration::from_secs(1)));
         mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn retiring_surface_cancels_selection_and_scrollbar_pointer_captures() {
+        let mux = Mux::new("retired-surface-pointer-capture-test", SurfaceOptions::default());
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+
+        app.selection_mode_surface = Some(surface.id);
+        app.selection = Some(Selection { surface: surface.id, anchor: (2, 3), head: (5, 3) });
+        app.drag = Some(Drag::Select {
+            content: Rect { x: 2, y: 2, width: 40, height: 12 },
+            source_x: 0,
+            auto_scroll: Some(1),
+            col: 5,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+
+        app.retire_surface_state(surface.id);
+
+        assert!(app.drag.is_none(), "selection capture must end with its surface");
+        assert!(app.active_pointer_buttons.is_empty());
+        assert!(app.canceled_pointer_buttons.contains(&MouseButton::Left));
+
+        // A terminal scrollbar is a separate surface-owned native capture.
+        // Exercise it after restoring a minimal surface-local setup so this
+        // test protects both variants of the same retirement invariant.
+        app.drag = Some(Drag::Scrollbar {
+            surface: surface.id,
+            track: Rect { x: 40, y: 2, width: 1, height: 10 },
+            anchor_y: 4,
+            anchor_offset: 2,
+            position_y: 4,
+            scrollbar: Scrollbar { total: 100, offset: 2, len: 10 },
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+        app.retire_surface_state(surface.id);
+
+        assert!(app.drag.is_none(), "terminal scrollbar capture must end with its surface");
+        assert!(app.active_pointer_buttons.is_empty());
+        assert!(app.canceled_pointer_buttons.contains(&MouseButton::Left));
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn surface_exit_fences_only_the_unpinned_files_owner() {
+        let mux = Mux::new("surface-exit-files-pointer-owner-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.sidebar_view = SidebarView::Files;
+        app.tree = notify_tree(11, false);
+        app.rebuild_tab_locations();
+        app.drag = Some(Drag::FilesScrollbar {
+            track: Rect { x: 20, y: 1, width: 1, height: 4 },
+            total_rows: 8,
+            visible_rows: 4,
+            anchor_y: 2,
+            anchor_offset: 1,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+
+        // The direct SurfaceExited path must use the focused surface owner,
+        // even when the Files mouse-down helper did not run in this frame.
+        app.handle(AppEvent::Mux(MuxEvent::SurfaceExited(11))).unwrap();
+
+        assert!(app.drag.is_none(), "an exited focused surface cannot own Files scrolling");
+        assert!(app.active_pointer_buttons.is_empty());
+        assert!(app.canceled_pointer_buttons.contains(&MouseButton::Left));
+
+        // An exit for another surface must not interrupt the active Files
+        // owner. This is the common remote-refresh case.
+        app.tree = notify_tree(11, false);
+        app.rebuild_tab_locations();
+        app.drag = Some(Drag::FilesScrollbar {
+            track: Rect { x: 20, y: 1, width: 1, height: 4 },
+            total_rows: 8,
+            visible_rows: 4,
+            anchor_y: 2,
+            anchor_offset: 1,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+        app.handle(AppEvent::Mux(MuxEvent::SurfaceExited(12))).unwrap();
+        assert!(matches!(app.drag, Some(Drag::FilesScrollbar { .. })));
+        assert!(app.active_pointer_buttons.contains(&MouseButton::Left));
+    }
+
+    #[test]
+    fn pinned_files_capture_survives_direct_surface_exit() {
+        let temp = test_temp_dir("pinned-files-surface-exit");
+        std::fs::create_dir(temp.join("pinned-child")).unwrap();
+        let mux = Mux::new("pinned-files-surface-exit-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.sidebar_files = FileBrowser::new(temp.clone());
+        let directory = (0..app.sidebar_files.visible_len())
+            .find(|index| {
+                app.sidebar_files.visible_entry(*index).is_some_and(|entry| entry.is_dir())
+            })
+            .expect("test directory must be listed");
+        app.sidebar_files.select(directory);
+        app.sidebar_files.handle_key(&KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+        assert!(app.sidebar_files.is_pinned());
+        app.sidebar_view = SidebarView::Files;
+        app.tree = notify_tree(11, false);
+        app.rebuild_tab_locations();
+        app.drag = Some(Drag::FilesScrollbar {
+            track: Rect { x: 20, y: 1, width: 1, height: 4 },
+            total_rows: 8,
+            visible_rows: 4,
+            anchor_y: 2,
+            anchor_offset: 1,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+
+        app.handle(AppEvent::Mux(MuxEvent::SurfaceExited(11))).unwrap();
+
+        assert!(matches!(app.drag, Some(Drag::FilesScrollbar { .. })));
+        assert!(app.active_pointer_buttons.contains(&MouseButton::Left));
+        std::fs::remove_dir_all(temp).unwrap();
+    }
+
+    #[test]
+    fn retiring_surface_releases_browser_pointer_capture_before_forgetting_it() {
+        let mux = Mux::new("retired-browser-pointer-capture-test", SurfaceOptions::default());
+        let surface = mux.new_browser_tab("about:blank".to_string(), None, Some((20, 8))).unwrap();
+        let (dispatcher, received) = BrowserInputDispatcher::blocked(1);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.browser_input = dispatcher;
+        assert!(app.browser_input.enqueue(BrowserInputEvent {
+            surface_id: surface.id,
+            surface: app.session.surface(surface.id).unwrap(),
+            kind: BrowserInputKind::Mouse {
+                event_type: "mousePressed",
+                x: 3.0,
+                y: 2.0,
+                button: Some("left"),
+                click_count: Some(1),
+                frame_seq: 1,
+            },
+        }));
+        assert!(matches!(
+            received.recv_timeout(Duration::from_secs(1)).map(|event| event.kind),
+            Some(BrowserInputKind::Mouse {
+                event_type: "mousePressed",
+                x,
+                y,
+                button: Some("left"),
+                click_count: Some(1),
+                frame_seq: 1,
+            }) if x == 3.0 && y == 2.0
+        ));
+        app.drag = Some(Drag::Browser {
+            surface: surface.id,
+            content: Rect { x: 2, y: 2, width: 20, height: 8 },
+            position: (5, 5),
+            frame_seq: 1,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+
+        app.retire_surface_state(surface.id);
+
+        assert!(app.drag.is_none());
+        assert!(app.active_pointer_buttons.is_empty());
+        assert!(app.canceled_pointer_buttons.contains(&MouseButton::Left));
+        assert!(matches!(
+            received.recv_timeout(Duration::from_secs(1)).map(|event| event.kind),
+            Some(BrowserInputKind::Mouse { event_type: "mouseReleased", .. })
+        ));
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn retiring_surface_fences_a_plain_pane_press_without_a_drag() {
+        let mux = Mux::new("retired-plain-pane-press-test", SurfaceOptions::default());
+        let surface = mux.new_browser_tab("about:blank".to_string(), None, Some((20, 8))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.pane_areas = vec![browser_completion_area(surface.id)];
+
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: 4,
+            row: 0,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+
+        assert!(app.drag.is_none(), "the toolbar press must remain a plain click");
+        assert_eq!(app.pointer_button_surfaces.get(&MouseButton::Left), Some(&surface.id));
+        assert!(app.active_pointer_buttons.contains(&MouseButton::Left));
+
+        app.retire_surface_state(surface.id);
+
+        assert!(app.active_pointer_buttons.is_empty());
+        assert!(app.pointer_button_surfaces.is_empty());
+        assert!(app.canceled_pointer_buttons.contains(&MouseButton::Left));
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: 4,
+            row: 0,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        assert!(!app.canceled_pointer_buttons.contains(&MouseButton::Left));
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn retiring_surface_closes_its_rename_prompt() {
+        let mux = Mux::new("retired-surface-prompt-test", SurfaceOptions::default());
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.prompt =
+            Some(Prompt::new("Rename", "old name".to_string(), PromptTarget::Surface(surface.id)));
+
+        app.retire_surface_state(surface.id);
+
+        assert!(app.prompt.is_none(), "a dead surface must not keep a live rename target");
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn retiring_surface_fences_every_geometry_capture_without_settling_a_split() {
+        for (label, capture) in [
+            ("horizontal-scrollbar", GeometryCapture::HorizontalScrollbar),
+            ("pane-resize", GeometryCapture::PaneResize),
+            ("rail-resize", GeometryCapture::RailResize),
+            ("sidebar-split", GeometryCapture::SidebarSplit),
+        ] {
+            let mux = Mux::new(format!("retired-geometry-{label}"), SurfaceOptions::default());
+            let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+            let mut app = test_app(Session::Local(mux.clone()));
+            let screen = app.active_screen_id().unwrap_or(0);
+            let transaction = app.session.layout_resize_transaction.load(Ordering::Acquire);
+            app.drag = Some(match capture {
+                GeometryCapture::HorizontalScrollbar => Drag::HorizontalScrollbar {
+                    screen,
+                    track: Rect { x: 0, y: 0, width: 10, height: 1 },
+                    anchor_x: 2,
+                    anchor_offset: 1,
+                },
+                GeometryCapture::PaneResize => Drag::ResizeSplit {
+                    screen,
+                    horizontal: Some(PaneResizeDragTarget::ViewportColumn {
+                        pane: 1,
+                        edge: PaneEdge::Right,
+                        column_x: 0,
+                        viewport_x: 0,
+                        viewport_width: 80,
+                        viewport_offset: 0,
+                    }),
+                    vertical: None,
+                },
+                GeometryCapture::RailResize => Drag::RailResize(RailKind::Workspace),
+                GeometryCapture::SidebarSplit => Drag::SidebarSplit {
+                    group: "left".into(),
+                    first_child: "workspaces".into(),
+                    second_child: "agents".into(),
+                },
+            });
+            app.active_pointer_buttons.insert(MouseButton::Left);
+
+            app.retire_surface_state(surface.id);
+
+            assert!(app.drag.is_none(), "{label} capture must die with topology");
+            assert!(app.active_pointer_buttons.is_empty());
+            assert!(app.canceled_pointer_buttons.contains(&MouseButton::Left));
+            assert_eq!(
+                app.session.layout_resize_transaction.load(Ordering::Acquire),
+                transaction,
+                "{label} retirement must not settle stale split geometry"
+            );
+            app.handle_mouse(MouseEvent {
+                kind: MouseEventKind::Up(MouseButton::Left),
+                column: 0,
+                row: 0,
+                modifiers: KeyModifiers::NONE,
+            })
+            .unwrap();
+            assert!(!app.canceled_pointer_buttons.contains(&MouseButton::Left));
+            mux.close_surface(surface.id).unwrap();
+        }
+    }
+
+    #[derive(Clone, Copy)]
+    enum GeometryCapture {
+        HorizontalScrollbar,
+        PaneResize,
+        RailResize,
+        SidebarSplit,
+    }
+
+    #[test]
+    fn machine_layout_updates_fence_geometry_captures_but_keep_files_rows_owned() {
+        let mux = Mux::new("machine-layout-capture-boundary-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.drag = Some(Drag::RailResize(RailKind::Workspace));
+        app.active_pointer_buttons.insert(MouseButton::Left);
+        app.apply_machine_ui_update(provider_machine_ui());
+        assert!(app.drag.is_none(), "machine column insertion must cancel rail geometry capture");
+        assert!(app.active_pointer_buttons.is_empty());
+        assert!(app.canceled_pointer_buttons.contains(&MouseButton::Left));
+
+        let mux = Mux::new("machine-files-capture-boundary-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.apply_machine_ui_update(provider_machine_ui());
+        app.drag = Some(Drag::FilesScrollbar {
+            track: Rect { x: 20, y: 1, width: 1, height: 4 },
+            total_rows: 8,
+            visible_rows: 4,
+            anchor_y: 2,
+            anchor_offset: 2,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+        // A provider catalog notice changes presentation text only. The
+        // mounted machine column and host geometry remain identical, so the
+        // independent Files capture must survive it.
+        let mut update = app.machine_ui.clone().expect("initial machine UI");
+        update.notice = Some("catalog refreshed".into());
+        app.apply_machine_ui_update(update);
+        assert!(matches!(app.drag, Some(Drag::FilesScrollbar { .. })));
+        assert!(app.active_pointer_buttons.contains(&MouseButton::Left));
+    }
+
+    #[test]
+    fn remote_layout_change_fences_matching_pane_captures_without_canceling_files() {
+        let mux = Mux::new("remote-layout-pane-capture-boundary-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let screen = app.active_screen_id().unwrap_or(0);
+        app.drag = Some(Drag::HorizontalScrollbar {
+            screen,
+            track: Rect { x: 0, y: 0, width: 10, height: 1 },
+            anchor_x: 2,
+            anchor_offset: 1,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+        app.handle(AppEvent::Mux(MuxEvent::LayoutChanged(screen))).unwrap();
+        assert!(app.drag.is_none());
+        assert!(app.active_pointer_buttons.is_empty());
+        assert!(app.canceled_pointer_buttons.contains(&MouseButton::Left));
+
+        let mux = Mux::new("remote-layout-files-capture-boundary-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let files_screen = app.active_screen_id().unwrap_or(0);
+        app.drag = Some(Drag::FilesScrollbar {
+            track: Rect { x: 20, y: 1, width: 1, height: 4 },
+            total_rows: 8,
+            visible_rows: 4,
+            anchor_y: 2,
+            anchor_offset: 2,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+        app.handle(AppEvent::Mux(MuxEvent::LayoutChanged(files_screen))).unwrap();
+        assert!(matches!(app.drag, Some(Drag::FilesScrollbar { .. })));
+        assert!(app.active_pointer_buttons.contains(&MouseButton::Left));
+    }
+
+    #[test]
+    fn same_id_tree_layout_change_fences_pane_capture_without_settling() {
+        let mux = Mux::new("same-id-tree-layout-capture-boundary-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let previous = notify_tree(11, false);
+        app.tree = previous;
+        app.rebuild_tab_locations();
+        let screen = app.active_screen_id().unwrap_or(0);
+        let transaction = app.session.layout_resize_transaction.load(Ordering::Acquire);
+        app.drag = Some(Drag::ResizeSplit {
+            screen,
+            horizontal: Some(PaneResizeDragTarget::ViewportColumn {
+                pane: 2,
+                edge: PaneEdge::Right,
+                column_x: 0,
+                viewport_x: 0,
+                viewport_width: 80,
+                viewport_offset: 0,
+            }),
+            vertical: None,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+
+        let mut next = app.tree.clone();
+        let next_screen = &mut next.workspaces_mut()[0].screens[0];
+        let mut second = next_screen.panes[0].clone();
+        second.id = 5;
+        second.tabs[0].surface = 12;
+        next_screen.panes.push(second);
+        next_screen.layout = Node::Split {
+            id: 9,
+            dir: SplitDir::Right,
+            ratio: 0.7,
+            a: Box::new(Node::Leaf(2)),
+            b: Box::new(Node::Leaf(5)),
+        };
+
+        app.replace_tree(next);
+
+        assert!(app.drag.is_none(), "a same-id layout replacement must retire pane capture");
+        assert!(app.active_pointer_buttons.is_empty());
+        assert!(app.canceled_pointer_buttons.contains(&MouseButton::Left));
+        assert_eq!(
+            app.session.layout_resize_transaction.load(Ordering::Acquire),
+            transaction,
+            "a remote layout replacement must not settle stale split geometry"
+        );
+    }
+
+    #[test]
+    fn workspace_key_replacement_fences_workspace_capture_without_public_ids() {
+        let mux = Mux::new("workspace-key-capture-boundary-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut previous = notify_tree(11, false);
+        previous.workspaces_mut()[0].key = "workspace-old".into();
+        app.tree = previous.clone();
+        app.rebuild_tab_locations();
+        app.drag = Some(Drag::WorkspaceScrollbar {
+            track: Rect { x: 20, y: 1, width: 1, height: 4 },
+            total_rows: 8,
+            visible_rows: 4,
+            anchor_y: 2,
+            anchor_offset: 1,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+
+        let mut next = previous;
+        next.workspaces_mut()[0].key = "workspace-new".into();
+        app.replace_tree(next);
+
+        assert!(app.drag.is_none(), "a key replacement must retire workspace capture");
+        assert!(app.active_pointer_buttons.is_empty());
+        assert!(app.canceled_pointer_buttons.contains(&MouseButton::Left));
+    }
+
+    #[test]
+    fn revision_only_tree_updates_keep_pointer_capture_when_targets_are_unchanged() {
+        let mux = Mux::new("revision-only-pointer-capture-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut previous = notify_tree(11, false);
+        previous.workspaces_mut()[0].name = "before".into();
+        app.tree = previous.clone();
+        app.rebuild_tab_locations();
+        app.drag = Some(Drag::WorkspaceScrollbar {
+            track: Rect { x: 20, y: 1, width: 1, height: 4 },
+            total_rows: 8,
+            visible_rows: 4,
+            anchor_y: 2,
+            anchor_offset: 1,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+
+        let mut next = previous;
+        next.workspaces_mut()[0].name = "after".into();
+        next.workspace_revision = next.workspace_revision.saturating_add(1);
+        app.replace_tree(next);
+
+        assert!(
+            matches!(app.drag, Some(Drag::WorkspaceScrollbar { .. })),
+            "a workspace rename must not retire an unchanged workspace scrollbar target"
+        );
+        assert!(app.active_pointer_buttons.contains(&MouseButton::Left));
+
+        let mut pane_app = test_app(Session::Local(Mux::new(
+            "pane-revision-only-pointer-capture-test",
+            SurfaceOptions::default(),
+        )));
+        let pane_previous = notify_tree(11, false);
+        pane_app.tree = pane_previous.clone();
+        pane_app.rebuild_tab_locations();
+        pane_app.drag = Some(Drag::ResizeSplit {
+            screen: 3,
+            horizontal: Some(PaneResizeDragTarget::ViewportColumn {
+                pane: 2,
+                edge: PaneEdge::Right,
+                column_x: 0,
+                viewport_x: 0,
+                viewport_width: 80,
+                viewport_offset: 0,
+            }),
+            vertical: None,
+        });
+        pane_app.active_pointer_buttons.insert(MouseButton::Left);
+
+        let mut pane_next = pane_previous;
+        pane_next.pane_revision = pane_next.pane_revision.map(|revision| revision + 1);
+        pane_app.replace_tree(pane_next);
+
+        assert!(
+            matches!(pane_app.drag, Some(Drag::ResizeSplit { .. })),
+            "an unrelated pane registry revision must not retire an unchanged pane target"
+        );
+        assert!(pane_app.active_pointer_buttons.contains(&MouseButton::Left));
+    }
+
+    #[test]
+    fn same_id_split_ratio_change_fences_pane_capture_without_settling() {
+        let mux = Mux::new("same-id-split-ratio-capture-boundary-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut previous = notify_tree(11, false);
+        let screen = &mut previous.workspaces_mut()[0].screens[0];
+        let mut second = screen.panes[0].clone();
+        second.id = 5;
+        second.tabs[0].surface = 12;
+        screen.panes.push(second);
+        screen.active_pane = 2;
+        screen.layout = Node::Split {
+            id: 9,
+            dir: SplitDir::Right,
+            ratio: 0.4,
+            a: Box::new(Node::Leaf(2)),
+            b: Box::new(Node::Leaf(5)),
+        };
+        app.tree = previous.clone();
+        app.rebuild_tab_locations();
+        let transaction = app.session.layout_resize_transaction.load(Ordering::Acquire);
+        app.drag = Some(Drag::ResizeSplit {
+            screen: 3,
+            horizontal: Some(PaneResizeDragTarget::Split {
+                split: 9,
+                edge: PaneEdge::Right,
+                area: Rect { x: 0, y: 0, width: 80, height: 24 }.into(),
+                minimum_ratio: 0.1,
+                maximum_ratio: 0.9,
+                viewport_x: 0,
+                viewport_offset: 0,
+            }),
+            vertical: None,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+
+        let mut next = previous;
+        if let Node::Split { ratio, .. } = &mut next.workspaces_mut()[0].screens[0].layout {
+            *ratio = 0.7;
+        }
+        app.replace_tree(next);
+
+        assert!(app.drag.is_none(), "a ratio-only replacement must retire pane capture");
+        assert!(app.active_pointer_buttons.is_empty());
+        assert!(app.canceled_pointer_buttons.contains(&MouseButton::Left));
+        assert_eq!(
+            app.session.layout_resize_transaction.load(Ordering::Acquire),
+            transaction,
+            "a remote ratio replacement must not settle stale split geometry"
+        );
+    }
+
+    #[test]
+    fn expected_split_ratio_change_keeps_its_capture() {
+        let mux = Mux::new("expected-split-ratio-capture-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut previous = notify_tree(11, false);
+        let screen = &mut previous.workspaces_mut()[0].screens[0];
+        let mut second = screen.panes[0].clone();
+        second.id = 5;
+        second.tabs[0].surface = 12;
+        screen.panes.push(second);
+        screen.active_pane = 2;
+        screen.layout = Node::Split {
+            id: 9,
+            dir: SplitDir::Right,
+            ratio: 0.4,
+            a: Box::new(Node::Leaf(2)),
+            b: Box::new(Node::Leaf(5)),
+        };
+        app.tree = previous.clone();
+        app.rebuild_tab_locations();
+        app.drag = Some(Drag::ResizeSplit {
+            screen: 3,
+            horizontal: Some(PaneResizeDragTarget::Split {
+                split: 9,
+                edge: PaneEdge::Right,
+                area: Rect { x: 0, y: 0, width: 80, height: 24 }.into(),
+                minimum_ratio: 0.1,
+                maximum_ratio: 0.9,
+                viewport_x: 0,
+                viewport_offset: 0,
+            }),
+            vertical: None,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+        app.layout_resize_expectations[0] =
+            Some(LayoutResizeExpectation::Split { screen: 3, split: 9, ratio: 0.7_f32.to_bits() });
+
+        let mut next = previous;
+        if let Node::Split { ratio, .. } = &mut next.workspaces_mut()[0].screens[0].layout {
+            *ratio = 0.7;
+        }
+        app.replace_tree(next);
+
+        assert!(matches!(app.drag, Some(Drag::ResizeSplit { .. })));
+        assert!(app.active_pointer_buttons.contains(&MouseButton::Left));
+    }
+
+    #[test]
+    fn viewport_column_width_expectation_accepts_derived_layout_ratio_changes() {
+        let mux = Mux::new("viewport-derived-ratio-capture-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut previous = notify_tree(11, false);
+        let screen = &mut previous.workspaces_mut()[0].screens[0];
+        let mut second = screen.panes[0].clone();
+        second.id = 5;
+        second.tabs[0].surface = 12;
+        screen.panes.push(second);
+        screen.active_pane = 5;
+        screen.layout = Node::Split {
+            id: 9,
+            dir: SplitDir::Right,
+            ratio: 0.5,
+            a: Box::new(Node::Leaf(2)),
+            b: Box::new(Node::Leaf(5)),
+        };
+        screen.viewport_base_width = Some(0.5);
+        screen.viewport_splits.insert(9, 0.5);
+        app.tree = previous.clone();
+        app.rebuild_tab_locations();
+        app.drag = Some(Drag::ResizeSplit {
+            screen: 3,
+            horizontal: Some(PaneResizeDragTarget::ViewportColumn {
+                pane: 5,
+                edge: PaneEdge::Left,
+                column_x: 40,
+                viewport_x: 0,
+                viewport_width: 80,
+                viewport_offset: 0,
+            }),
+            vertical: None,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+        app.layout_resize_expectations[1] = Some(LayoutResizeExpectation::Viewport {
+            screen: 3,
+            pane: 5,
+            width: 0.6_f32.to_bits(),
+        });
+
+        let mut next = previous;
+        let next_screen = &mut next.workspaces_mut()[0].screens[0];
+        next_screen.viewport_splits.insert(9, 0.6);
+        if let Node::Split { ratio, .. } = &mut next_screen.layout {
+            *ratio = 0.5 / 1.1;
+        }
+        app.replace_tree(next);
+
+        assert!(matches!(app.drag, Some(Drag::ResizeSplit { .. })));
+        assert!(app.active_pointer_buttons.contains(&MouseButton::Left));
+    }
+
+    #[test]
+    fn active_surface_kind_replacement_fences_content_capture_with_same_ids() {
+        let mux = Mux::new("active-surface-kind-capture-boundary-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut previous = notify_tree(11, false);
+        let tab = &mut previous.workspaces_mut()[0].screens[0].panes[0].tabs[0];
+        tab.public_id =
+            Some(TabPublicId::parse("tab_00000000000000000000000000000011".to_string()).unwrap());
+        tab.content_id = Some(ContentPublicId::Terminal(
+            TerminalPublicId::parse("term_00000000000000000000000000000011".to_string()).unwrap(),
+        ));
+        app.tree = previous.clone();
+        app.rebuild_tab_locations();
+        app.drag = Some(Drag::Scrollbar {
+            surface: 11,
+            track: Rect { x: 20, y: 1, width: 1, height: 4 },
+            anchor_y: 2,
+            anchor_offset: 0,
+            position_y: 2,
+            scrollbar: Scrollbar { total: 8, offset: 0, len: 4 },
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+
+        let mut next = previous;
+        let tab = &mut next.workspaces_mut()[0].screens[0].panes[0].tabs[0];
+        tab.kind = SurfaceKind::Browser;
+        tab.content_id = Some(ContentPublicId::Browser(
+            cmux_tui_core::resource::BrowserPublicId::parse(
+                "browser_00000000000000000000000000000011".to_string(),
+            )
+            .unwrap(),
+        ));
+        app.replace_tree(next);
+
+        assert!(app.drag.is_none(), "a tab route replacement must retire content capture");
+        assert!(app.active_pointer_buttons.is_empty());
+        assert!(app.canceled_pointer_buttons.contains(&MouseButton::Left));
+    }
+
+    #[test]
+    fn active_surface_content_replacement_fences_unpinned_files_capture_with_same_ids() {
+        let mux = Mux::new(
+            "active-surface-content-files-capture-boundary-test",
+            SurfaceOptions::default(),
+        );
+        let mut app = test_app(Session::Local(mux));
+        let mut previous = notify_tree(11, false);
+        let tab = &mut previous.workspaces_mut()[0].screens[0].panes[0].tabs[0];
+        tab.public_id =
+            Some(TabPublicId::parse("tab_00000000000000000000000000000031".to_string()).unwrap());
+        tab.content_id = Some(ContentPublicId::Terminal(
+            TerminalPublicId::parse("term_00000000000000000000000000000031".to_string()).unwrap(),
+        ));
+        app.tree = previous.clone();
+        app.rebuild_tab_locations();
+        app.drag = Some(Drag::FilesScrollbar {
+            track: Rect { x: 20, y: 1, width: 1, height: 4 },
+            total_rows: 8,
+            visible_rows: 4,
+            anchor_y: 2,
+            anchor_offset: 0,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+
+        let mut next = previous;
+        next.workspaces_mut()[0].screens[0].panes[0].tabs[0].content_id =
+            Some(ContentPublicId::Terminal(
+                TerminalPublicId::parse("term_00000000000000000000000000000032".to_string())
+                    .unwrap(),
+            ));
+        app.replace_tree(next);
+
+        assert!(app.drag.is_none(), "a content replacement must retire Files capture");
+        assert!(app.active_pointer_buttons.is_empty());
+        assert!(app.canceled_pointer_buttons.contains(&MouseButton::Left));
+    }
+
+    #[test]
+    fn active_surface_content_replacement_clears_released_selection_with_same_ids() {
+        let mux =
+            Mux::new("active-surface-content-selection-boundary-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut previous = notify_tree(11, false);
+        let tab = &mut previous.workspaces_mut()[0].screens[0].panes[0].tabs[0];
+        tab.public_id =
+            Some(TabPublicId::parse("tab_00000000000000000000000000000051".to_string()).unwrap());
+        tab.content_id = Some(ContentPublicId::Terminal(
+            TerminalPublicId::parse("term_00000000000000000000000000000051".to_string()).unwrap(),
+        ));
+        tab.terminal_id = Some(
+            TerminalPublicId::parse("term_00000000000000000000000000000051".to_string()).unwrap(),
+        );
+        app.tree = previous.clone();
+        app.rebuild_tab_locations();
+        app.selection = Some(Selection { surface: 11, anchor: (2, 3), head: (8, 3) });
+        app.selection_mode = SelectionMode::Word;
+        app.selection_mode_surface = Some(11);
+
+        let mut next = previous;
+        next.workspaces_mut()[0].screens[0].panes[0].tabs[0].content_id =
+            Some(ContentPublicId::Terminal(
+                TerminalPublicId::parse("term_00000000000000000000000000000052".to_string())
+                    .unwrap(),
+            ));
+        app.replace_tree(next);
+
+        assert!(app.selection.is_none(), "a replacement terminal must clear released selection");
+        assert!(
+            app.selection_mode_surface.is_none(),
+            "selection mode must not target replacement terminal content"
+        );
+    }
+
+    #[test]
+    fn active_surface_terminal_replacement_fences_unpinned_files_capture_with_same_route_ids() {
+        let mux = Mux::new(
+            "active-surface-terminal-files-capture-boundary-test",
+            SurfaceOptions::default(),
+        );
+        let mut app = test_app(Session::Local(mux));
+        let mut previous = notify_tree(11, false);
+        let tab = &mut previous.workspaces_mut()[0].screens[0].panes[0].tabs[0];
+        tab.public_id =
+            Some(TabPublicId::parse("tab_00000000000000000000000000000041".to_string()).unwrap());
+        tab.terminal_id = Some(
+            TerminalPublicId::parse("term_00000000000000000000000000000041".to_string()).unwrap(),
+        );
+        app.tree = previous.clone();
+        app.rebuild_tab_locations();
+        app.drag = Some(Drag::FilesScrollbar {
+            track: Rect { x: 20, y: 1, width: 1, height: 4 },
+            total_rows: 8,
+            visible_rows: 4,
+            anchor_y: 2,
+            anchor_offset: 0,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+
+        let mut next = previous;
+        next.workspaces_mut()[0].screens[0].panes[0].tabs[0].terminal_id = Some(
+            TerminalPublicId::parse("term_00000000000000000000000000000042".to_string()).unwrap(),
+        );
+        app.replace_tree(next);
+
+        assert!(
+            app.drag.is_none(),
+            "a terminal replacement must retire Files capture even when route ids are unchanged"
+        );
+        assert!(app.active_pointer_buttons.is_empty());
+        assert!(app.canceled_pointer_buttons.contains(&MouseButton::Left));
+    }
+
+    #[test]
+    fn deferred_mouse_capture_is_fenced_when_active_surface_is_replaced() {
+        let mux =
+            Mux::new("deferred-active-surface-capture-boundary-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut previous = notify_tree(11, false);
+        let tab = &mut previous.workspaces_mut()[0].screens[0].panes[0].tabs[0];
+        tab.public_id =
+            Some(TabPublicId::parse("tab_00000000000000000000000000000021".to_string()).unwrap());
+        tab.content_id = Some(ContentPublicId::Terminal(
+            TerminalPublicId::parse("term_00000000000000000000000000000021".to_string()).unwrap(),
+        ));
+        app.tree = previous.clone();
+        app.rebuild_tab_locations();
+        let mouse = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: 20,
+            row: 4,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.defer_input(TerminalInput::Mouse(mouse));
+        let generation = app.pointer_focus_generation;
+        assert!(
+            app.deferred_input
+                .iter()
+                .any(|input| matches!(input.event, TerminalInput::Mouse(event) if event == mouse))
+        );
+
+        let mut next = previous;
+        let tab = &mut next.workspaces_mut()[0].screens[0].panes[0].tabs[0];
+        tab.kind = SurfaceKind::Browser;
+        tab.content_id = Some(ContentPublicId::Browser(
+            cmux_tui_core::resource::BrowserPublicId::parse(
+                "browser_00000000000000000000000000000021".to_string(),
+            )
+            .unwrap(),
+        ));
+        app.replace_tree(next);
+
+        assert!(
+            app.deferred_input.iter().all(|input| !matches!(input.event, TerminalInput::Mouse(_))),
+            "a deferred mouse route must not replay into a replacement surface"
+        );
+        assert!(
+            app.pointer_focus_generation > generation,
+            "replacing the active route must advance the pointer generation"
+        );
+    }
+
+    #[test]
+    fn deferred_mouse_capture_is_fenced_by_same_id_split_geometry_change() {
+        let mux = Mux::new("deferred-split-capture-boundary-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut previous = notify_tree(11, false);
+        let screen = &mut previous.workspaces_mut()[0].screens[0];
+        let mut second = screen.panes[0].clone();
+        second.id = 5;
+        second.tabs[0].surface = 12;
+        screen.panes.push(second);
+        screen.active_pane = 2;
+        screen.layout = Node::Split {
+            id: 9,
+            dir: SplitDir::Right,
+            ratio: 0.4,
+            a: Box::new(Node::Leaf(2)),
+            b: Box::new(Node::Leaf(5)),
+        };
+        app.tree = previous.clone();
+        app.rebuild_tab_locations();
+        app.defer_input(TerminalInput::Mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: 20,
+            row: 4,
+            modifiers: KeyModifiers::NONE,
+        }));
+        assert!(app.deferred_pointer_capture_active());
+
+        let mut next = previous;
+        if let Node::Split { ratio, .. } = &mut next.workspaces_mut()[0].screens[0].layout {
+            *ratio = 0.7;
+        }
+        app.replace_tree(next);
+
+        assert!(
+            app.deferred_input.iter().all(|input| !matches!(input.event, TerminalInput::Mouse(_))),
+            "a deferred route must not cross a same-id split geometry change"
+        );
+    }
+
+    #[test]
+    fn tab_membership_move_between_panes_fences_tab_capture() {
+        let mux = Mux::new("tab-membership-capture-boundary-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut previous = notify_tree(11, false);
+        let screen = &mut previous.workspaces_mut()[0].screens[0];
+        let pane_id = screen.panes[0].id;
+        let (moved, mut second) = {
+            let pane = &mut screen.panes[0];
+            let mut moved = pane.tabs[0].clone();
+            moved.surface = 12;
+            pane.tabs.push(moved.clone());
+            pane.active_tab = 0;
+            (moved, pane.clone())
+        };
+        second.id = 5;
+        second.tabs = vec![TabView { surface: 13, ..moved }];
+        second.active_tab = 0;
+        screen.panes.push(second);
+        screen.active_pane = pane_id;
+        screen.layout = Node::Split {
+            id: 9,
+            dir: SplitDir::Right,
+            ratio: 0.5,
+            a: Box::new(Node::Leaf(pane_id)),
+            b: Box::new(Node::Leaf(5)),
+        };
+        app.tree = previous.clone();
+        app.rebuild_tab_locations();
+        app.drag = Some(Drag::TabArm { surface: 12, at: (20, 4) });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+
+        let mut next = previous;
+        let next_screen = &mut next.workspaces_mut()[0].screens[0];
+        let first = &mut next_screen.panes[0];
+        let moved = first.tabs.pop().expect("the second tab must exist");
+        let second = next_screen
+            .panes
+            .iter_mut()
+            .find(|pane| pane.id == 5)
+            .expect("the second pane must exist");
+        second.tabs.insert(0, moved);
+        second.active_tab = 1;
+        app.replace_tree(next);
+
+        assert!(app.drag.is_none(), "moving a tab between panes changes its hit bar");
+        assert!(app.active_pointer_buttons.is_empty());
+        assert!(app.canceled_pointer_buttons.contains(&MouseButton::Left));
+    }
+
+    #[test]
+    fn pinned_files_capture_survives_active_surface_replacement() {
+        let temp = test_temp_dir("pinned-files-active-surface-boundary");
+        std::fs::create_dir(temp.join("pinned-child")).unwrap();
+        let mux = Mux::new("pinned-files-active-surface-boundary-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.sidebar_files = FileBrowser::new(temp.clone());
+        app.sidebar_files.set_viewport_height(4);
+        let directory = (0..app.sidebar_files.visible_len())
+            .find(|index| {
+                app.sidebar_files.visible_entry(*index).is_some_and(|entry| entry.is_dir())
+            })
+            .expect("test directory must be listed");
+        app.sidebar_files.select(directory);
+        app.sidebar_files.handle_key(&KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+        assert!(app.sidebar_files.is_pinned());
+        app.drag = Some(Drag::FilesScrollbar {
+            track: Rect { x: 20, y: 1, width: 1, height: 4 },
+            total_rows: 8,
+            visible_rows: 4,
+            anchor_y: 2,
+            anchor_offset: 0,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+
+        let mut previous = notify_tree(11, false);
+        let tab = &mut previous.workspaces_mut()[0].screens[0].panes[0].tabs[0];
+        tab.public_id =
+            Some(TabPublicId::parse("tab_00000000000000000000000000000012".to_string()).unwrap());
+        app.tree = previous.clone();
+        app.rebuild_tab_locations();
+        let mut next = previous;
+        next.workspaces_mut()[0].screens[0].panes[0].tabs[0].kind = SurfaceKind::Browser;
+        app.replace_tree(next);
+
+        assert!(matches!(app.drag, Some(Drag::FilesScrollbar { .. })));
+        assert!(app.active_pointer_buttons.contains(&MouseButton::Left));
+        assert!(app.sidebar_files.is_pinned());
+        std::fs::remove_dir_all(temp).unwrap();
+    }
+
+    #[test]
+    fn active_surface_replacement_fences_files_capture() {
+        let mux = Mux::new("active-surface-files-capture-boundary-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let previous = notify_tree(11, false);
+        app.tree = previous;
+        app.rebuild_tab_locations();
+        app.drag = Some(Drag::FilesScrollbar {
+            track: Rect { x: 20, y: 1, width: 1, height: 4 },
+            total_rows: 8,
+            visible_rows: 4,
+            anchor_y: 2,
+            anchor_offset: 2,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+
+        // The old active surface is gone, so preserve_client_view cannot
+        // retain the previous tab target. This is the case that a stable-id
+        // membership check alone must still fence.
+        app.replace_tree(notify_tree(12, false));
+
+        assert!(app.drag.is_none(), "Files rows must not keep a capture for a dead active surface");
+        assert!(app.active_pointer_buttons.is_empty());
+        assert!(app.canceled_pointer_buttons.contains(&MouseButton::Left));
+    }
+
+    #[test]
+    fn active_tab_switch_fences_unpinned_files_capture() {
+        let mux = Mux::new("active-tab-files-capture-boundary-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut previous = notify_tree(11, false);
+        let pane = &mut previous.workspaces_mut()[0].screens[0].panes[0];
+        let mut second = pane.tabs[0].clone();
+        second.surface = 12;
+        pane.tabs.push(second);
+        pane.active_tab = 0;
+        app.tree = previous.clone();
+        app.rebuild_tab_locations();
+        app.drag = Some(Drag::FilesScrollbar {
+            track: Rect { x: 20, y: 1, width: 1, height: 4 },
+            total_rows: 8,
+            visible_rows: 4,
+            anchor_y: 2,
+            anchor_offset: 2,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+        app.surface_only = Some(12);
+
+        app.replace_tree(previous);
+
+        assert!(app.drag.is_none(), "Files rows must follow the newly active tab");
+        assert!(app.active_pointer_buttons.is_empty());
+        assert!(app.canceled_pointer_buttons.contains(&MouseButton::Left));
+        assert_eq!(app.active_surface(), Some(12));
+    }
+
+    #[test]
+    fn files_filter_edit_fences_its_scrollbar_capture() {
+        let mux = Mux::new("files-filter-capture-boundary-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.drag = Some(Drag::FilesScrollbar {
+            track: Rect { x: 20, y: 1, width: 1, height: 4 },
+            total_rows: 8,
+            visible_rows: 4,
+            anchor_y: 2,
+            anchor_offset: 2,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+
+        app.sidebar_files.handle_key(&KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
+        assert!(app.insert_sidebar_files_filter_text("src"));
+
+        assert!(app.drag.is_none(), "filtering changes the Files row topology");
+        assert!(app.active_pointer_buttons.is_empty());
+        assert!(app.canceled_pointer_buttons.contains(&MouseButton::Left));
     }
 
     #[test]
@@ -43272,11 +56288,11 @@ mod tests {
         mux.new_workspace(None, None).unwrap();
         let (mut app, events) = test_app_with_events(Session::Local(mux));
         app.replace_tree(app.session.tree());
-        let original_workspace_count = app.tree.workspaces.len();
+        let original_workspace_count = app.tree.workspaces().len();
         let original_surface = app.tree.active_surface();
         app.machine_ui = Some(provider_machine_ui());
-        app.sidebar_width_override = Some(25);
-        app.machine_sidebar_width_override = Some(17);
+        app.active_sidebar_profile_state_mut().workspace_width = Some(25);
+        app.active_sidebar_profile_state_mut().machine_width = Some(17);
         let mut next_ui = provider_machine_ui();
         next_ui.notice = Some("team selected".into());
         let (controller, requests) =
@@ -43288,10 +56304,10 @@ mod tests {
         settle_machine_action(&mut app, &events);
 
         assert_eq!(app.session_generation, 1);
-        assert_eq!(app.tree.workspaces.len(), original_workspace_count);
+        assert_eq!(app.tree.workspaces().len(), original_workspace_count);
         assert_eq!(app.tree.active_surface(), original_surface);
-        assert_eq!(app.sidebar_width_override, Some(25));
-        assert_eq!(app.machine_sidebar_width_override, Some(17));
+        assert_eq!(app.active_sidebar_profile_state().unwrap().workspace_width, Some(25));
+        assert_eq!(app.active_sidebar_profile_state().unwrap().machine_width, Some(17));
         assert_eq!(app.status_message.as_deref(), Some("team selected"));
         assert!(!app.quit);
         assert!(matches!(
@@ -43306,7 +56322,7 @@ mod tests {
         mux.new_workspace(None, None).unwrap();
         let (mut app, events) = test_app_with_events(Session::Local(mux));
         app.replace_tree(app.session.tree());
-        let original_workspace_count = app.tree.workspaces.len();
+        let original_workspace_count = app.tree.workspaces().len();
         let original_surface = app.tree.active_surface();
         app.machine_ui = Some(provider_machine_ui());
         let (controller, _) = fake_controller(FakeMachineAction::Fail("candidate refused"));
@@ -43317,7 +56333,7 @@ mod tests {
 
         assert_eq!(app.session_generation, 1);
         assert_eq!(app.session_label, "test");
-        assert_eq!(app.tree.workspaces.len(), original_workspace_count);
+        assert_eq!(app.tree.workspaces().len(), original_workspace_count);
         assert_eq!(app.tree.active_surface(), original_surface);
         let expected =
             format!("{}: candidate refused", localization::catalog().sidebar.machine_action_failed);
@@ -43939,12 +56955,15 @@ mod tests {
             durable_notice_ack_failures: 0,
             durable_notice_ack_retry_at: None,
             config: Config::default(),
+            configured_sidebar_profile: "work".to_string(),
+            configured_sidebar_profile_request: None,
             config_reload_applications: 0,
             chrome: ChromeTheme::dark(),
             tree: TreeView::default(),
             tab_locations: HashMap::new(),
             render_states: HashMap::<u64, RenderState>::new(),
             chrome_row_scratch: crate::ui::ReusableRowBuffer::default(),
+            sidebar_kind_scratch: Vec::new(),
             rendered_terminal_sizes: HashMap::new(),
             rendered_terminal_pointer_semantics: HashMap::new(),
             rendered_pane_content_generations: HashMap::new(),
@@ -43988,17 +57007,22 @@ mod tests {
             machine_pointer_context_cache: None,
             sidebar_view: SidebarView::Files,
             sidebar_files: FileBrowser::new(std::env::temp_dir()),
+            files_rail_selection: super::FilesRailSelection::default(),
             sidebar_workspace_selection: 0,
             sidebar_recoverable_workspace_selection: 0,
             workspace_rail_selection: WorkspaceRailSelection::default(),
-            machine_rail_scroll: 0,
-            machine_footer_scroll: 0,
-            workspace_rail_scroll: 0,
-            workspace_footer_scroll: 0,
             tabs_rail_selection: 0,
-            tabs_rail_scroll: 0,
-            tabs_footer_scroll: 0,
-            projection_rails: HashMap::new(),
+            sidebar_presentation: super::SidebarPresentationState::default(),
+            projection_rows_cache: VecDeque::new(),
+            projection_rows_revision: 0,
+            agent_focus_stamps: HashMap::new(),
+            rendered_agent_attention: None,
+            agent_attention_paint_pending: false,
+            projection_agent_surfaces: HashSet::new(),
+            projection_title_surfaces: HashSet::new(),
+            projection_agent_surfaces_by_view: HashMap::new(),
+            projection_title_surfaces_by_view: HashMap::new(),
+            projection_paint_pending: false,
             machine_rail_follow_selection: true,
             workspace_rail_follow_selection: true,
             tabs_rail_follow_selection: true,
@@ -44007,15 +57031,11 @@ mod tests {
             machine_sidebar_width: 0,
             tabs_sidebar_width: 0,
             sidebar_layout: SidebarLayout::default(),
+            sidebar_layout_reuse_spec: None,
             sidebar_plugin_surface: None,
             sidebar_plugin_error: None,
             sidebar_plugin_retry_after_ms: None,
             sidebar_plugin_retry_at: None,
-            sidebar_width_override: None,
-            machine_sidebar_width_override: None,
-            tabs_sidebar_width_override: None,
-            projection_sidebar_width_overrides: HashMap::new(),
-            hidden_sidebar_views: HashMap::new(),
             content_area: Rect::default(),
             hits: Vec::new(),
             tab_scroll: HashMap::new(),
@@ -44035,6 +57055,10 @@ mod tests {
             shake_frames: 0,
             selection: None,
             selection_generation: 0,
+            selection_mode: SelectionMode::Cell,
+            selection_mode_surface: None,
+            selection_click_sequence: None,
+            semantic_selection_cache: None,
             status_selection: None,
             rendered_status_message: None,
             logged_status_message: None,
@@ -44065,8 +57089,12 @@ mod tests {
             pty_failures,
             mux_recovery_generation: Arc::new(AtomicU64::new(0)),
             drag: None,
+            files_pointer_owner: None,
+            layout_resize_expectations: [None, None],
             active_pointer_buttons: HashSet::new(),
-            ignored_pty_mouse_buttons: HashSet::new(),
+            pointer_button_surfaces: HashMap::new(),
+            ignored_pointer_buttons: HashSet::new(),
+            canceled_pointer_buttons: HashSet::new(),
             timeout_drain_hook: None,
             encoder: KeyEncoder::new().unwrap(),
             encode_buf: Vec::new(),
@@ -44078,16 +57106,14 @@ mod tests {
             retiring_status_workers: Vec::new(),
             status_outputs_generation: Arc::new(AtomicU64::new(0)),
             status_segments_cache: None,
+            machine_usage: None,
         };
         (app, receiver)
     }
 
     fn notify_tree(surface: u64, unread: bool) -> TreeView {
-        TreeView {
-            workspace_revision: 0,
-            pane_revision: Some(1),
-            active_workspace: 0,
-            workspaces: vec![WorkspaceView {
+        TreeView::from_parts(
+            vec![WorkspaceView {
                 id: 4,
                 resource_id: None,
                 key: "00000000-0000-4000-8000-000000000004".to_string(),
@@ -44129,23 +57155,26 @@ mod tests {
                     }],
                 }],
             }],
-        }
+            0,
+            Some(1),
+            0,
+        )
     }
 
     #[test]
     fn remote_tree_refresh_preserves_this_clients_tab() {
         let mut previous = notify_tree(11, false);
-        let pane = &mut previous.workspaces[0].screens[0].panes[0];
+        let pane = &mut previous.workspaces_mut()[0].screens[0].panes[0];
         let mut second = pane.tabs[0].clone();
         second.surface = 12;
         pane.tabs.push(second);
         pane.active_tab = 0;
 
         let mut other_client_selection = previous.clone();
-        other_client_selection.workspaces[0].screens[0].panes[0].active_tab = 1;
+        other_client_selection.workspaces_mut()[0].screens[0].panes[0].active_tab = 1;
         preserve_client_view(&previous, &mut other_client_selection);
         assert_eq!(
-            other_client_selection.workspaces[0].screens[0].panes[0].active_surface(),
+            other_client_selection.workspaces()[0].screens[0].panes[0].active_surface(),
             Some(11)
         );
     }
@@ -44154,7 +57183,7 @@ mod tests {
     fn remote_tree_refresh_scales_to_one_thousand_workspaces() {
         let mut previous = TreeView::default();
         for index in 0..1_000_u64 {
-            let mut workspace = notify_tree(40_000 + index * 2, false).workspaces.remove(0);
+            let mut workspace = notify_tree(40_000 + index * 2, false).workspaces_mut().remove(0);
             workspace.id = 10_000 + index;
             workspace.key = format!("workspace-{index}");
             let screen = &mut workspace.screens[0];
@@ -44167,13 +57196,13 @@ mod tests {
             second.surface += 1;
             pane.tabs.push(second);
             pane.active_tab = (index % 2) as usize;
-            previous.workspaces.push(workspace);
+            previous.workspaces_mut().push(workspace);
         }
         previous.active_workspace = 999;
 
         let expected_active_workspace = previous.active_workspace().unwrap().id;
         let expected_surfaces = previous
-            .workspaces
+            .workspaces()
             .iter()
             .map(|workspace| {
                 let pane = &workspace.screens[0].panes[0];
@@ -44181,19 +57210,81 @@ mod tests {
             })
             .collect::<HashMap<_, _>>();
         let mut refreshed = previous.clone();
-        refreshed.workspaces.reverse();
+        refreshed.workspaces_mut().reverse();
         refreshed.active_workspace = 0;
-        for workspace in &mut refreshed.workspaces {
+        for workspace in refreshed.workspaces_mut() {
             workspace.screens[0].panes[0].active_tab ^= 1;
         }
 
         preserve_client_view(&previous, &mut refreshed);
 
         assert_eq!(refreshed.active_workspace().unwrap().id, expected_active_workspace);
-        for workspace in &refreshed.workspaces {
+        for workspace in refreshed.workspaces() {
             let pane = &workspace.screens[0].panes[0];
             assert_eq!(pane.active_surface(), expected_surfaces.get(&workspace.id).copied());
         }
+    }
+
+    #[test]
+    fn remote_tree_refresh_restores_focus_by_public_ids_after_runtime_remap() {
+        let mut previous = notify_tree(11, false);
+        let mut second = notify_tree(12, false).workspaces_mut().remove(0);
+        second.id = 5;
+        second.key = "workspace-second".into();
+        second.screens[0].id = 6;
+        second.screens[0].panes[0].id = 7;
+        second.screens[0].active_pane = 7;
+        second.screens[0].layout = Node::Leaf(7);
+        previous.workspaces_mut().push(second);
+        previous.active_workspace = 1;
+
+        for (workspace_index, workspace) in previous.workspaces_mut().iter_mut().enumerate() {
+            workspace.resource_id =
+                Some(WorkspacePublicId::parse(format!("ws_{:032x}", workspace_index + 1)).unwrap());
+            let screen = &mut workspace.screens[0];
+            screen.resource_id = Some(
+                ScreenPublicId::parse(format!("screen_{:032x}", workspace_index + 1)).unwrap(),
+            );
+            let pane = &mut screen.panes[0];
+            pane.resource_id =
+                Some(PanePublicId::parse(format!("pane_{:032x}", workspace_index + 1)).unwrap());
+            pane.tabs[0].public_id =
+                Some(TabPublicId::parse(format!("tab_{:032x}", workspace_index + 1)).unwrap());
+        }
+        let expected_workspace = previous.workspaces()[1].resource_id.clone().unwrap();
+
+        let mut refreshed = previous.clone();
+        refreshed.active_workspace = 0;
+        for (workspace_index, workspace) in refreshed.workspaces_mut().iter_mut().enumerate() {
+            workspace.id += 100;
+            let screen = &mut workspace.screens[0];
+            screen.id += 100;
+            let pane = &mut screen.panes[0];
+            pane.id += 100;
+            screen.active_pane = pane.id;
+            screen.layout = Node::Leaf(pane.id);
+            pane.tabs[0].surface += 100;
+            // Give the incoming frame a different focus. The client-local
+            // public-id match must restore the previous target.
+            workspace.active_screen = 0;
+            pane.active_tab = workspace_index;
+            if pane.active_tab >= pane.tabs.len() {
+                pane.active_tab = 0;
+            }
+        }
+
+        preserve_client_view(&previous, &mut refreshed);
+
+        let active_workspace = refreshed.active_workspace().unwrap();
+        assert_eq!(active_workspace.resource_id.as_ref(), Some(&expected_workspace));
+        let active_screen = &active_workspace.screens[active_workspace.active_screen];
+        let active_pane =
+            active_screen.panes.iter().find(|pane| pane.id == active_screen.active_pane).unwrap();
+        assert_eq!(
+            active_pane.resource_id.as_ref().unwrap().as_str(),
+            "pane_00000000000000000000000000000002"
+        );
+        assert_eq!(active_pane.active_surface(), Some(112));
     }
 
     #[test]
@@ -44212,7 +57303,7 @@ mod tests {
     #[test]
     fn remote_tree_refresh_keeps_restored_zoom_and_focus_aligned() {
         let mut previous = notify_tree(11, false);
-        let screen = &mut previous.workspaces[0].screens[0];
+        let screen = &mut previous.workspaces_mut()[0].screens[0];
         let mut second = screen.panes[0].clone();
         second.id = 5;
         second.tabs[0].surface = 12;
@@ -44227,15 +57318,52 @@ mod tests {
         screen.active_pane = 5;
 
         let mut restored = previous.clone();
-        let restored_screen = &mut restored.workspaces[0].screens[0];
+        let restored_screen = &mut restored.workspaces_mut()[0].screens[0];
         restored_screen.zoomed_pane = Some(2);
         restored_screen.active_pane = 2;
 
         preserve_client_view(&previous, &mut restored);
 
-        let restored_screen = &restored.workspaces[0].screens[0];
+        let restored_screen = &restored.workspaces()[0].screens[0];
         assert_eq!(restored_screen.zoomed_pane, Some(2));
         assert_eq!(restored_screen.active_pane, 2);
+    }
+
+    #[test]
+    fn remote_tree_refresh_pairs_incoming_zoom_with_its_active_pane() {
+        let mut previous = notify_tree(11, false);
+        let screen = &mut previous.workspaces_mut()[0].screens[0];
+        let mut second = screen.panes[0].clone();
+        second.id = 5;
+        second.tabs[0].surface = 12;
+        screen.panes.push(second);
+        screen.layout = Node::Split {
+            id: 9,
+            dir: SplitDir::Right,
+            ratio: 0.5,
+            a: Box::new(Node::Leaf(2)),
+            b: Box::new(Node::Leaf(5)),
+        };
+        screen.active_pane = 2;
+        screen.zoomed_pane = Some(2);
+
+        let mut incoming_zoom = previous.clone();
+        let incoming_screen = &mut incoming_zoom.workspaces_mut()[0].screens[0];
+        incoming_screen.active_pane = 2;
+        incoming_screen.zoomed_pane = Some(5);
+        preserve_client_view(&previous, &mut incoming_zoom);
+        let incoming_screen = &incoming_zoom.workspaces()[0].screens[0];
+        assert_eq!(incoming_screen.zoomed_pane, Some(5));
+        assert_eq!(incoming_screen.active_pane, 5);
+
+        let mut incoming_unzoomed = previous.clone();
+        let incoming_screen = &mut incoming_unzoomed.workspaces_mut()[0].screens[0];
+        incoming_screen.active_pane = 2;
+        incoming_screen.zoomed_pane = None;
+        preserve_client_view(&previous, &mut incoming_unzoomed);
+        let incoming_screen = &incoming_unzoomed.workspaces()[0].screens[0];
+        assert_eq!(incoming_screen.zoomed_pane, None);
+        assert_eq!(incoming_screen.active_pane, 2);
     }
 
     fn row_contains(buffer: &ratatui::buffer::Buffer, y: u16, needle: &str) -> bool {

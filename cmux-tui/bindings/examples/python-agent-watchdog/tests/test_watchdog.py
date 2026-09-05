@@ -63,6 +63,7 @@ def full_snapshot(*, blocked: bool) -> Dict[str, Any]:
         "terminal_id": TERMINAL_ID,
         "state": "blocked",
         "source": "socket",
+        "agent": "codex",
         "updated_at_ms": "1700000000000",
         "source_session": "codex-7",
     }
@@ -360,6 +361,7 @@ class WatchdogTests(unittest.TestCase):
             terminal_id=TerminalId(TERMINAL_ID),
             state="working",
             source="socket",
+            agent="codex",
             updated_at_ms="1700000000000",
             source_session="codex-7",
         )

@@ -187,7 +187,11 @@ pub fn hashed_runtime_dir_for_base(base: &Path) -> PathBuf {
 /// Private root for compatibility paths produced from invalid session text.
 /// These paths are never opened by a fallible connector.
 pub fn invalid_runtime_dir() -> PathBuf {
-    PathBuf::from("/tmp").join(format!("cmux-tui-invalid-{}", user_id_component()))
+    #[cfg(windows)]
+    let base = runtime_base_dir();
+    #[cfg(not(windows))]
+    let base = PathBuf::from("/tmp");
+    base.join(format!("cmux-tui-invalid-{}", user_id_component()))
 }
 
 /// Default root for durable workspace/session state. Runtime sockets stay in
@@ -398,10 +402,13 @@ fn ghostty_config_paths_from(
         push_unique(&mut candidates, dir.join("config.ghostty"));
     }
     #[cfg(target_os = "macos")]
-    if !has_xdg_config_home && let Some(home) = home {
-        let dir = home.join("Library").join("Application Support").join("com.mitchellh.ghostty");
-        push_unique(&mut candidates, dir.join("config"));
-        push_unique(&mut candidates, dir.join("config.ghostty"));
+    {
+        if !has_xdg_config_home && let Some(home) = home {
+            let dir =
+                home.join("Library").join("Application Support").join("com.mitchellh.ghostty");
+            push_unique(&mut candidates, dir.join("config"));
+            push_unique(&mut candidates, dir.join("config.ghostty"));
+        }
     }
     candidates
 }
@@ -735,9 +742,10 @@ pub fn foreground_cwd(pid: u32) -> Option<String> {
     process_cwd(foreground_process_group(pid)?)
 }
 
-/// Executable name of a terminal's live foreground process group leader
-/// (see [`foreground_cwd`] for the leader resolution contract). Used by
-/// screen detection to decide whether the pane runs a known agent CLI.
+/// Executable path or name of a terminal's live foreground process-group
+/// leader (see [`foreground_cwd`] for the leader resolution contract). Exposed
+/// as generic terminal metadata so userland plugins can identify their own
+/// foreground applications.
 /// Returns `None` when the leader is gone, the child has no controlling
 /// terminal, or the platform denies the lookup.
 pub fn foreground_process_name(pid: u32) -> Option<String> {
@@ -860,7 +868,7 @@ fn runtime_base_dir() -> PathBuf {
 
 #[cfg(windows)]
 fn runtime_base_dir() -> PathBuf {
-    env_path("TEMP").or_else(|| env_path("TMP")).unwrap_or_else(std::env::temp_dir)
+    std::env::temp_dir()
 }
 
 #[cfg(not(windows))]
@@ -914,6 +922,24 @@ fn default_terminal_cwd_from(launch: Option<&Path>) -> Option<String> {
 /// name a safe local spawn directory, so callers should fall back to the
 /// surface's original working directory when this returns `None`.
 pub fn terminal_pwd_to_local_path(value: &str) -> Option<PathBuf> {
+    // Hosted surfaces never trust hostless OSC 7 values. Their authenticated
+    // spawn CWD is the only safe fallback when no local host is identified.
+    let mut url = url::Url::parse(value).ok()?;
+    if url.scheme() != "file" {
+        return None;
+    }
+    let host = url.host_str()?;
+    if !terminal_pwd_host_is_local(host) {
+        return None;
+    }
+    url.set_host(Some("localhost")).ok()?;
+    url.to_file_path().ok().filter(|path| terminal_pwd_path_is_safe(path))
+}
+
+/// Convert a local terminal's OSC 7 working directory. Local PTYs may emit a
+/// hostless file URL or an ordinary absolute path, both of which are valid
+/// local reports. Hosted PTYs must use [`terminal_pwd_to_local_path`] instead.
+pub fn local_terminal_pwd_to_local_path(value: &str) -> Option<PathBuf> {
     let plain = Path::new(value);
     if terminal_pwd_path_is_safe(plain) {
         return Some(plain.to_owned());
@@ -932,6 +958,53 @@ pub fn terminal_pwd_to_local_path(value: &str) -> Option<PathBuf> {
         url.set_host(Some("localhost")).ok()?;
     }
     url.to_file_path().ok().filter(|path| terminal_pwd_path_is_safe(path))
+}
+
+/// Convert a trusted spawn working directory into a local path. Spawn CWDs
+/// may be ordinary absolute paths, while terminal-reported OSC 7 values must
+/// go through the stricter host check above.
+pub fn spawn_cwd_to_local_path(value: &str) -> Option<PathBuf> {
+    if value.is_empty() || value.contains('\0') {
+        return None;
+    }
+    if !value.get(..5).is_some_and(|prefix| prefix.eq_ignore_ascii_case("file:")) {
+        return Some(PathBuf::from(value));
+    }
+    if value.starts_with("cmux-tui:spawn-cwd:") {
+        return None;
+    }
+    // Legacy daemons serialized the authenticated spawn path directly.
+    // Snapshot data is received over the owner-token authenticated host
+    // channel, so preserve that format for backward compatibility.
+    terminal_pwd_to_local_path(value)
+}
+
+/// Versioned, host-authenticated provenance for a spawn CWD fallback. The
+/// capability token prevents a shell's OSC 7 payload from impersonating this
+/// value when a daemon adopts the host later.
+pub const SNAPSHOT_SPAWN_CWD_PREFIX: &str = "cmux-tui:spawn-cwd:v1:";
+
+pub fn snapshot_cwd_to_local_path(value: &str, owner_token: Option<&str>) -> Option<PathBuf> {
+    if let Some(payload) = value.strip_prefix(SNAPSHOT_SPAWN_CWD_PREFIX) {
+        let (token, path) = payload.split_once(':')?;
+        let expected = owner_token?;
+        if !constant_time_equal(token.as_bytes(), expected.as_bytes()) {
+            return None;
+        }
+        return (!path.is_empty() && !path.contains('\0')).then(|| PathBuf::from(path));
+    }
+    spawn_cwd_to_local_path(value)
+}
+
+fn constant_time_equal(left: &[u8], right: &[u8]) -> bool {
+    if left.len() != right.len() {
+        return false;
+    }
+    let mut difference = 0_u8;
+    for (left, right) in left.iter().zip(right) {
+        difference |= left ^ right;
+    }
+    difference == 0
 }
 
 fn terminal_pwd_path_is_safe(path: &Path) -> bool {
@@ -1048,6 +1121,14 @@ fn restrict_permissions(_path: &Path, _mode: u32) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(windows)]
+    use std::ffi::OsString;
+    #[cfg(windows)]
+    use std::sync::Mutex;
+
+    #[cfg(windows)]
+    static RUNTIME_ENV_LOCK: Mutex<()> = Mutex::new(());
 
     #[cfg(target_os = "macos")]
     #[test]
@@ -1191,14 +1272,8 @@ mod tests {
         ] {
             assert_eq!(terminal_pwd_to_local_path(path), None, "{path}");
         }
-        assert_eq!(
-            terminal_pwd_to_local_path(r"C:\Users\alice\src"),
-            Some(PathBuf::from(r"C:\Users\alice\src"))
-        );
-        assert_eq!(
-            terminal_pwd_to_local_path("file:///C:/Users/alice/src"),
-            Some(PathBuf::from(r"C:\Users\alice\src"))
-        );
+        assert_eq!(terminal_pwd_to_local_path(r"C:\Users\alice\src"), None);
+        assert_eq!(terminal_pwd_to_local_path("file:///C:/Users/alice/src"), None);
     }
 
     #[cfg(windows)]
@@ -1236,6 +1311,107 @@ mod tests {
         ] {
             assert!(!windows_path_is_rooted_local_drive(path), "{path}");
         }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn invalid_runtime_dir_uses_the_runtime_temp_precedence() {
+        let _lock = RUNTIME_ENV_LOCK.lock().unwrap();
+        let old_temp = std::env::var_os("TEMP");
+        let old_tmp = std::env::var_os("TMP");
+        let old_userprofile = std::env::var_os("USERPROFILE");
+        let temp = OsString::from(r"C:\cmux-preferred-temp");
+        let tmp = OsString::from(r"D:\cmux-secondary-temp");
+        let userprofile = OsString::from(r"E:\cmux-user-profile");
+
+        // SAFETY: this test serializes its process-global environment changes.
+        unsafe {
+            std::env::set_var("TEMP", &temp);
+            std::env::set_var("TMP", &tmp);
+            std::env::set_var("USERPROFILE", &userprofile);
+        }
+        let path = invalid_runtime_dir();
+        // SAFETY: this test serializes its process-global environment changes.
+        unsafe {
+            match old_temp {
+                Some(value) => std::env::set_var("TEMP", value),
+                None => std::env::remove_var("TEMP"),
+            }
+            match old_tmp {
+                Some(value) => std::env::set_var("TMP", value),
+                None => std::env::remove_var("TMP"),
+            }
+            match old_userprofile {
+                Some(value) => std::env::set_var("USERPROFILE", value),
+                None => std::env::remove_var("USERPROFILE"),
+            }
+        }
+
+        assert_eq!(path.parent(), Some(Path::new(r"D:\cmux-secondary-temp")));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn invalid_runtime_dir_falls_back_to_tmp_when_temp_is_unset() {
+        let _lock = RUNTIME_ENV_LOCK.lock().unwrap();
+        let old_temp = std::env::var_os("TEMP");
+        let old_tmp = std::env::var_os("TMP");
+        let tmp = OsString::from(r"D:\cmux-secondary-temp");
+
+        // SAFETY: this test serializes its process-global environment changes.
+        unsafe {
+            std::env::remove_var("TEMP");
+            std::env::set_var("TMP", &tmp);
+        }
+        let path = invalid_runtime_dir();
+        // SAFETY: this test serializes its process-global environment changes.
+        unsafe {
+            match old_temp {
+                Some(value) => std::env::set_var("TEMP", value),
+                None => std::env::remove_var("TEMP"),
+            }
+            match old_tmp {
+                Some(value) => std::env::set_var("TMP", value),
+                None => std::env::remove_var("TMP"),
+            }
+        }
+
+        assert_eq!(path.parent(), Some(Path::new(r"D:\cmux-secondary-temp")));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn invalid_runtime_dir_falls_back_to_userprofile_when_temp_is_unset() {
+        let _lock = RUNTIME_ENV_LOCK.lock().unwrap();
+        let old_temp = std::env::var_os("TEMP");
+        let old_tmp = std::env::var_os("TMP");
+        let old_userprofile = std::env::var_os("USERPROFILE");
+        let userprofile = OsString::from(r"E:\cmux-user-profile");
+
+        // SAFETY: this test serializes its process-global environment changes.
+        unsafe {
+            std::env::remove_var("TEMP");
+            std::env::remove_var("TMP");
+            std::env::set_var("USERPROFILE", &userprofile);
+        }
+        let path = invalid_runtime_dir();
+        // SAFETY: this test serializes its process-global environment changes.
+        unsafe {
+            match old_temp {
+                Some(value) => std::env::set_var("TEMP", value),
+                None => std::env::remove_var("TEMP"),
+            }
+            match old_tmp {
+                Some(value) => std::env::set_var("TMP", value),
+                None => std::env::remove_var("TMP"),
+            }
+            match old_userprofile {
+                Some(value) => std::env::set_var("USERPROFILE", value),
+                None => std::env::remove_var("USERPROFILE"),
+            }
+        }
+
+        assert_eq!(path.parent(), Some(Path::new(r"E:\cmux-user-profile")));
     }
 
     #[test]
@@ -1345,8 +1521,57 @@ mod tests {
             terminal_pwd_to_local_path("file://localhost/tmp/local"),
             Some(PathBuf::from("/tmp/local"))
         );
-        assert_eq!(terminal_pwd_to_local_path("/tmp/plain"), Some(PathBuf::from("/tmp/plain")));
+        assert_eq!(terminal_pwd_to_local_path("file:///tmp/hostless"), None);
+        // Hostless absolute paths are ambiguous for hosted terminals. A
+        // remote shell can emit one and otherwise redirect a local spawn.
+        assert_eq!(terminal_pwd_to_local_path("/tmp/plain"), None);
         assert_eq!(terminal_pwd_to_local_path("file://remote.invalid/tmp/nope"), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn local_terminal_pwd_keeps_hostless_osc7_urls() {
+        assert_eq!(
+            local_terminal_pwd_to_local_path("file:///tmp/hostless"),
+            Some(PathBuf::from("/tmp/hostless"))
+        );
+    }
+
+    #[test]
+    fn spawn_cwd_preserves_trusted_relative_paths() {
+        assert_eq!(spawn_cwd_to_local_path("subdir"), Some(PathBuf::from("subdir")));
+        assert_eq!(spawn_cwd_to_local_path("build:debug"), Some(PathBuf::from("build:debug")));
+        assert_eq!(
+            spawn_cwd_to_local_path(r"C:\Users\alice\src"),
+            Some(PathBuf::from(r"C:\Users\alice\src"))
+        );
+        assert_eq!(
+            spawn_cwd_to_local_path("/tmp/foo://bar"),
+            Some(PathBuf::from("/tmp/foo://bar"))
+        );
+        assert_eq!(spawn_cwd_to_local_path("file:///tmp/hostless"), None);
+        assert_eq!(
+            snapshot_cwd_to_local_path(
+                "cmux-tui:spawn-cwd:v1:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef:subdir",
+                Some("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"),
+            ),
+            Some(PathBuf::from("subdir"))
+        );
+    }
+
+    #[test]
+    fn snapshot_cwd_rejects_forged_spawn_marker_from_osc7() {
+        assert_eq!(
+            snapshot_cwd_to_local_path("cmux-tui:spawn-cwd:/tmp/attacker-controlled", None),
+            None
+        );
+        assert_eq!(
+            snapshot_cwd_to_local_path(
+                "cmux-tui:spawn-cwd:v1:bad-token:/tmp/attacker-controlled",
+                Some("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"),
+            ),
+            None
+        );
     }
 
     #[cfg(unix)]

@@ -73,8 +73,8 @@ use crate::workspace_registry::TerminalLifecycle;
 use crate::{
     AgentRecord, AgentSource, AgentState, AttachFrame, BrowserAttachState, BrowserFrameStream,
     DefaultColors, Direction, GraphicsStatus, JournalClass, JournalSensitivity, JournalSubject,
-    LayoutLeafSpec, LayoutRatioError, LayoutSpec, LayoutUndoResult, Mux, MuxEvent, Node,
-    NotificationLevel, PairingDecision, PaneId, RenderAttachFrame, RenderAttachStream, Rgb,
+    LayoutLeafSpec, LayoutRatioError, LayoutSpec, LayoutUndoResult, MachineUsage, Mux, MuxEvent,
+    Node, NotificationLevel, PairingDecision, PaneId, RenderAttachFrame, RenderAttachStream, Rgb,
     ScreenId, SidebarPluginStatus, SplitDir, SplitId, SurfaceId, SurfaceKind, SurfaceNotification,
     SurfaceRenderFrame, TerminalColors, TreeDelta, TreeDeltaKind, ViewportWidthError, WorkspaceId,
     WorkspaceMutation, ZoomMode, assign_short_ids,
@@ -107,7 +107,14 @@ pub const MAX_CREATION_SELECTOR_FALLBACKS: usize = 7;
 pub const PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY: &str =
     "provider-managed-workspace-authority-v2";
 pub const BROWSER_PROVIDER_CAPABILITY: &str = "browser-provider-v1";
+/// Advertises the `server-stats` command.
+pub const SERVER_STATS_CAPABILITY: &str = "server-stats-v1";
 pub const CLIENT_FOCUS_CAPABILITY: &str = "client-focus-v1";
+/// The daemon answers `machine-usage` and emits `machine-usage-changed`.
+pub const MACHINE_USAGE_CAPABILITY: &str = "machine-usage-v1";
+/// The daemon includes durable lifecycle rows in `list-agents` responses for
+/// clients that explicitly negotiate the additive history fields.
+pub const AGENT_HISTORY_CAPABILITY: &str = "agent-history-v1";
 const INITIAL_BROWSER_RESIZE_TIMEOUT: Duration = Duration::from_secs(10);
 pub const STABLE_SPLIT_IDS_PROTOCOL_VERSION: u32 = 8;
 pub const STACK_LAYOUT_PROTOCOL_VERSION: u32 = 9;
@@ -127,6 +134,20 @@ fn validate_client_focus_id(client_id: &str) -> anyhow::Result<()> {
         anyhow::bail!("bad request: invalid client_id");
     }
     Ok(())
+}
+
+/// `machine-usage` result and `machine-usage-changed` payload body: `usage`
+/// is the readout object or null when the daemon has none.
+fn machine_usage_json(usage: Option<&MachineUsage>) -> Value {
+    json!({
+        "usage": usage.map(|usage| json!({
+            "vm_id": usage.vm_id,
+            "period_days": usage.period_days,
+            "total_tokens": usage.total_tokens,
+            "api_equivalent_usd": usage.api_equivalent_usd,
+            "as_of": usage.as_of,
+        })),
+    })
 }
 
 fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&'static str> {
@@ -150,6 +171,9 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
         BROWSER_PROVIDER_CAPABILITY,
         CLIENT_FOCUS_CAPABILITY,
+        MACHINE_USAGE_CAPABILITY,
+        SERVER_STATS_CAPABILITY,
+        AGENT_HISTORY_CAPABILITY,
     ];
     if bounded_clear_history_fallback_writes {
         capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);
@@ -611,6 +635,10 @@ struct BrowserProviderTargetRequest {
 #[serde(tag = "cmd", rename_all = "kebab-case")]
 enum Command {
     Identify,
+    /// Report where this daemon spends its time: registry lock contention
+    /// with holder sites, journal writer batch metrics, and connection
+    /// admission. Owner-only diagnostics, never journaled.
+    ServerStats,
     /// Gracefully hand this daemon's durable session to a replacement.
     /// The caller must fence the request with values from this daemon's
     /// `identify` response.
@@ -630,6 +658,8 @@ enum Command {
         capabilities: Option<Vec<String>>,
     },
     ListClients,
+    /// Read the machine-level model spend readout hosted by this daemon.
+    MachineUsage,
     /// Publish the native browser process's live CDP targets. This is an
     /// owner-only, connection-scoped lease and never enters the journal.
     RegisterBrowserProvider {
@@ -2842,21 +2872,30 @@ struct ConnectionPermit {
     _lease: Arc<ConnectionPermitLease>,
 }
 
-struct ConnectionPermitLease(Arc<AtomicU64>);
+struct ConnectionPermitLease(Arc<crate::diagnostics::ConnectionStats>);
 
 impl Drop for ConnectionPermitLease {
     fn drop(&mut self) {
-        self.0.fetch_sub(1, Ordering::AcqRel);
+        self.0.release();
     }
 }
 
-fn claim_connection(active: &Arc<AtomicU64>) -> Option<ConnectionPermit> {
-    active
-        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
-            (count < MAX_SERVER_CONNECTIONS as u64).then_some(count + 1)
-        })
-        .ok()
-        .map(|_| ConnectionPermit { _lease: Arc::new(ConnectionPermitLease(active.clone())) })
+fn claim_connection(
+    connections: &Arc<crate::diagnostics::ConnectionStats>,
+) -> Option<ConnectionPermit> {
+    connections
+        .try_claim(MAX_SERVER_CONNECTIONS as u64)
+        .then(|| ConnectionPermit { _lease: Arc::new(ConnectionPermitLease(connections.clone())) })
+}
+
+fn server_stats(mux: &Mux) -> crate::diagnostics::ServerStatsSnapshot {
+    crate::diagnostics::ServerStatsSnapshot {
+        schema: crate::diagnostics::SERVER_STATS_SCHEMA,
+        uptime_ms: u64::try_from(mux.uptime().as_millis()).unwrap_or(u64::MAX),
+        registry_lock: mux.registry_lock_stats(),
+        journal_writer: mux.journal_writer_stats(),
+        connections: mux.connection_stats().snapshot(MAX_SERVER_CONNECTIONS as u64),
+    }
 }
 
 impl BoundedOutbound {
@@ -3972,6 +4011,7 @@ impl ClientRegistry {
                     || capability == CREATION_RECEIPTS_CAPABILITY
                     || capability == CREATION_ATTEMPT_KEYS_CAPABILITY
                     || capability == CREATION_SELECTOR_FALLBACKS_CAPABILITY
+                    || capability == AGENT_HISTORY_CAPABILITY
             }));
         }
         Ok((record.name.clone(), record.kind.clone()))
@@ -4861,25 +4901,81 @@ pub struct SocketStartLock {
     _file: std::fs::File,
 }
 
+const SOCKET_START_LOCK_RETRY_INTERVAL: Duration = Duration::from_millis(25);
+
+/// Return the next retry wait without extending the caller's deadline.
+/// `try_lock` remains non-blocking; only this retry delay is bounded.
+fn socket_start_lock_retry_delay(now: Instant, deadline: Instant) -> Option<Duration> {
+    let remaining = deadline.checked_duration_since(now)?;
+    (!remaining.is_zero()).then_some(SOCKET_START_LOCK_RETRY_INTERVAL.min(remaining))
+}
+
+fn socket_start_lock_timeout() -> std::io::Error {
+    std::io::Error::new(
+        std::io::ErrorKind::TimedOut,
+        "timed out waiting for a concurrent session-server start",
+    )
+}
+
 impl SocketStartLock {
     pub fn acquire(socket: &Path, deadline: Instant) -> std::io::Result<Self> {
         let mut name = socket.file_name().unwrap_or_default().to_os_string();
         name.push(".spawn-lock");
         let path = socket.with_file_name(name);
-        let file = std::fs::OpenOptions::new().create(true).append(true).open(&path)?;
+        let mut options = std::fs::OpenOptions::new();
+        options.create(true).append(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt as _;
+            options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK).mode(0o600);
+        }
+        let file = options.open(&path)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
+            let metadata = file.metadata()?;
+            if !metadata.is_file() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "session-server start lock is not a regular file",
+                ));
+            }
+            if metadata.nlink() != 1 {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "session-server start lock has unexpected hard links",
+                ));
+            }
+            if metadata.uid() != unsafe { libc::geteuid() } {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "session-server start lock owner changed",
+                ));
+            }
+            let mut permissions = metadata.permissions();
+            permissions.set_mode(0o600);
+            file.set_permissions(permissions)?;
+            let mode = file.metadata()?.permissions().mode();
+            if mode & 0o077 != 0 {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "session-server start lock is not private",
+                ));
+            }
+        }
         loop {
             match fs4::FileExt::try_lock(&file) {
                 Ok(()) => return Ok(Self { _file: file }),
                 Err(fs4::TryLockError::WouldBlock) => {}
                 Err(fs4::TryLockError::Error(error)) => return Err(error),
             }
+            let Some(retry_delay) = socket_start_lock_retry_delay(Instant::now(), deadline) else {
+                return Err(socket_start_lock_timeout());
+            };
+            std::thread::sleep(retry_delay);
             if Instant::now() >= deadline {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::TimedOut,
-                    "timed out waiting for a concurrent session-server start",
-                ));
+                return Err(socket_start_lock_timeout());
             }
-            std::thread::sleep(Duration::from_millis(25));
         }
     }
 }
@@ -4917,7 +5013,7 @@ pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<Pend
         cleanup(&path);
         return Err(error.into());
     }
-    let active_connections = Arc::new(AtomicU64::new(0));
+    let active_connections = mux.connection_stats().clone();
     let render_service = Arc::new(RenderService::new());
     let shutdown = Arc::new(AtomicBool::new(false));
     let server_shutdown = shutdown.clone();
@@ -5005,7 +5101,7 @@ pub fn serve_websocket(
     let shutdown = Arc::new(AtomicBool::new(false));
     let connections = Arc::new(Mutex::new(HashMap::new()));
     let next_connection = Arc::new(AtomicU64::new(1));
-    let active_connections = Arc::new(AtomicU64::new(0));
+    let active_connections = mux.connection_stats().clone();
     let thread_shutdown = shutdown.clone();
     let thread_connections = connections.clone();
     let render_service = Arc::new(RenderService::new());
@@ -8157,7 +8253,7 @@ fn handle_journal_extension_request(
     let origin = LOCAL_JOURNAL_PRINCIPAL;
     match request.envelope.operation {
         ResourceOperation::SessionJournalProducerList => mux
-            .journal_producer_manifests()
+            .userland_journal_producer_manifests()
             .map(|producers| json!({"producers":producers}))
             .map_err(|error| journal_extension_error("session.journal.producer.list", error)),
         ResourceOperation::SessionJournalProducerPut => {
@@ -10067,7 +10163,7 @@ fn parse_agent_source(source: &str) -> anyhow::Result<AgentSource> {
     match source {
         "socket" => Ok(AgentSource::Socket),
         "hook" => Ok(AgentSource::Hook),
-        other => anyhow::bail!("bad source {other}"),
+        other => anyhow::bail!("bad source {other}; raw report-agent accepts only socket or hook"),
     }
 }
 
@@ -11042,6 +11138,12 @@ fn handle_command_with_cancellation(
     cancellation: Option<&AtomicBool>,
 ) -> anyhow::Result<Value> {
     match cmd {
+        Command::ServerStats => {
+            if !mux.control_clients.is_unix(client) {
+                anyhow::bail!("server stats requires a trusted local connection");
+            }
+            Ok(serde_json::to_value(server_stats(mux))?)
+        }
         Command::Identify => {
             let (registry_id, generation) = mux.registry_identity();
             Ok(json!({
@@ -11085,6 +11187,7 @@ fn handle_command_with_cancellation(
             Ok(json!({}))
         }
         Command::ListClients => Ok(mux.control_clients_json(client)),
+        Command::MachineUsage => Ok(machine_usage_json(mux.machine_usage().as_ref())),
         Command::RegisterBrowserProvider {
             provider_id,
             endpoint,
@@ -11526,7 +11629,22 @@ fn handle_command_with_cancellation(
                 None => None,
             };
             let agents = mux.list_agents(surface, state).iter().map(agent_json).collect::<Vec<_>>();
-            Ok(json!({ "agents": agents }))
+            if mux.control_clients.supports_capability(client, AGENT_HISTORY_CAPABILITY) {
+                let history = mux
+                    .list_agent_history(surface, state)
+                    .iter()
+                    .map(agent_json)
+                    .collect::<Vec<_>>();
+                Ok(json!({
+                    "agents": agents,
+                    "history": history,
+                    "has_history": mux.has_agent_history(),
+                }))
+            } else {
+                // Keep the protocol-6 response byte-compatible for clients
+                // that do not understand the additive history fields.
+                Ok(json!({ "agents": agents }))
+            }
         }
         Command::ReportAgent { surface, state, source, session } => {
             get_surface(mux, surface)?;
@@ -11537,6 +11655,7 @@ fn handle_command_with_cancellation(
                 "surface": record.surface,
                 "state": record.state.as_str(),
                 "source": record.source.as_str(),
+                "agent": record.agent,
                 "session": record.session,
             }))
         }
@@ -12028,6 +12147,9 @@ fn handle_command_with_cancellation(
                 "command": surface.spawn_command(),
                 "cwd": surface.local_cwd(),
                 "foreground_cwd": surface.process_id().and_then(platform::foreground_cwd),
+                "foreground_executable": surface
+                    .process_id()
+                    .and_then(platform::foreground_process_name),
             }))
         }
         Command::MoveTerminal { terminal_id, workspace_key, terminal_incarnation, mutation } => {
@@ -13053,6 +13175,11 @@ fn subscribed_event_json(event: &MuxEvent) -> Value {
             }),
         },
         MuxEvent::Status(message) => json!({"event": "status", "message": message}),
+        MuxEvent::MachineUsageChanged(usage) => {
+            let mut payload = machine_usage_json(usage.as_ref());
+            payload["event"] = json!("machine-usage-changed");
+            payload
+        }
         MuxEvent::ConfigReloadRequested => json!({"event": "config-reload-requested"}),
         MuxEvent::WindowTitleRequested(title) => {
             json!({"event": "window-title-requested", "title": title})
@@ -13203,6 +13330,131 @@ mod tests {
             default_socket_path_in_runtime_dir("main", runtime_dir.clone()),
             runtime_dir.join("main.sock")
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn socket_start_lock_rejects_a_symlinked_lock_path() {
+        use std::os::unix::fs::symlink;
+
+        let dir = TestSocketDir::create("start-lock-symlink");
+        let socket = dir.path().join("mux.sock");
+        let lock = dir.path().join("mux.sock.spawn-lock");
+        let target = dir.path().join("target");
+        std::fs::write(&target, b"not the lock").unwrap();
+        symlink(&target, &lock).unwrap();
+
+        let error = match SocketStartLock::acquire(&socket, Instant::now()) {
+            Ok(_) => panic!("symlinked start lock must be rejected"),
+            Err(error) => error,
+        };
+        assert_eq!(error.raw_os_error(), Some(libc::ELOOP));
+    }
+
+    #[test]
+    fn socket_start_lock_retry_delay_never_exceeds_remaining_deadline() {
+        let now = Instant::now();
+        let short_deadline = now + Duration::from_millis(10);
+        let delay = socket_start_lock_retry_delay(now, short_deadline)
+            .expect("a future deadline should permit a retry");
+        assert_eq!(delay, Duration::from_millis(10));
+        assert!(delay <= short_deadline.duration_since(now));
+
+        let long_deadline = now + Duration::from_secs(1);
+        assert_eq!(
+            socket_start_lock_retry_delay(now, long_deadline),
+            Some(Duration::from_millis(25))
+        );
+        assert_eq!(socket_start_lock_retry_delay(short_deadline, short_deadline), None);
+        assert_eq!(
+            socket_start_lock_retry_delay(
+                short_deadline + Duration::from_millis(1),
+                short_deadline
+            ),
+            None
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn socket_start_lock_rejects_a_fifo_without_blocking() {
+        use std::ffi::CString;
+        use std::os::unix::ffi::OsStrExt;
+        use std::os::unix::fs::OpenOptionsExt;
+
+        let dir = TestSocketDir::create("start-lock-fifo");
+        let socket = dir.path().join("mux.sock");
+        let lock = dir.path().join("mux.sock.spawn-lock");
+        let lock_path = CString::new(lock.as_os_str().as_bytes()).unwrap();
+        let result = unsafe { libc::mkfifo(lock_path.as_ptr(), 0o600) };
+        assert_eq!(result, 0, "mkfifo failed: {}", std::io::Error::last_os_error());
+
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let acquire_socket = socket;
+        let acquire = std::thread::spawn(move || {
+            sender.send(SocketStartLock::acquire(&acquire_socket, Instant::now())).unwrap();
+        });
+
+        let outcome = receiver.recv_timeout(Duration::from_secs(1));
+        if outcome.is_err() {
+            // Release a writer that used blocking open in an unfixed build so
+            // this regression test fails promptly instead of leaking a thread.
+            let reader = std::fs::OpenOptions::new()
+                .read(true)
+                .custom_flags(libc::O_NONBLOCK)
+                .open(&lock)
+                .unwrap();
+            let _ = receiver.recv_timeout(Duration::from_secs(1));
+            drop(reader);
+            acquire.join().unwrap();
+            panic!("opening a start-lock FIFO blocked before type validation");
+        }
+        acquire.join().unwrap();
+        let error = match outcome.unwrap() {
+            Ok(_) => panic!("FIFO start lock must be rejected"),
+            Err(error) => error,
+        };
+        assert_eq!(error.raw_os_error(), Some(libc::ENXIO));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn socket_start_lock_migrates_existing_lock_to_owner_only_mode() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+        let dir = TestSocketDir::create("start-lock-mode");
+        let socket = dir.path().join("mux.sock");
+        let lock = dir.path().join("mux.sock.spawn-lock");
+        std::fs::write(&lock, b"").unwrap();
+        std::fs::set_permissions(&lock, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+        let _guard = SocketStartLock::acquire(&socket, Instant::now()).unwrap();
+        let metadata = std::fs::metadata(&lock).unwrap();
+        assert_eq!(metadata.uid(), unsafe { libc::geteuid() });
+        assert_eq!(metadata.permissions().mode() & 0o777, 0o600);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn socket_start_lock_rejects_a_hard_linked_lock_without_chmod() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+        let dir = TestSocketDir::create("start-lock-hard-link");
+        let socket = dir.path().join("mux.sock");
+        let lock = dir.path().join("mux.sock.spawn-lock");
+        let alias = dir.path().join("lock-alias");
+        std::fs::write(&lock, b"").unwrap();
+        std::fs::set_permissions(&lock, std::fs::Permissions::from_mode(0o644)).unwrap();
+        std::fs::hard_link(&lock, &alias).unwrap();
+
+        let error = match SocketStartLock::acquire(&socket, Instant::now()) {
+            Ok(_) => panic!("hard-linked start lock must be rejected"),
+            Err(error) => error,
+        };
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+        let metadata = std::fs::metadata(&lock).unwrap();
+        assert_eq!(metadata.nlink(), 2);
+        assert_eq!(metadata.permissions().mode() & 0o777, 0o644);
     }
 
     #[test]
@@ -17844,13 +18096,50 @@ mod tests {
 
     #[test]
     fn server_connection_permits_enforce_and_release_the_cap() {
-        let active = Arc::new(AtomicU64::new(MAX_SERVER_CONNECTIONS as u64));
-        assert!(claim_connection(&active).is_none());
-        active.store(MAX_SERVER_CONNECTIONS as u64 - 1, Ordering::Release);
-        let permit = claim_connection(&active).expect("last connection slot");
-        assert_eq!(active.load(Ordering::Acquire), MAX_SERVER_CONNECTIONS as u64);
-        drop(permit);
-        assert_eq!(active.load(Ordering::Acquire), MAX_SERVER_CONNECTIONS as u64 - 1);
+        let connections = Arc::new(crate::diagnostics::ConnectionStats::default());
+        let permits: Vec<ConnectionPermit> = (0..MAX_SERVER_CONNECTIONS)
+            .map(|_| claim_connection(&connections).expect("slot below the cap"))
+            .collect();
+        assert!(claim_connection(&connections).is_none());
+        assert_eq!(connections.active(), MAX_SERVER_CONNECTIONS as u64);
+        drop(permits);
+        assert_eq!(connections.active(), 0);
+        let snapshot = connections.snapshot(MAX_SERVER_CONNECTIONS as u64);
+        assert_eq!(snapshot.refused, 1);
+        assert_eq!(snapshot.peak, MAX_SERVER_CONNECTIONS as u64);
+    }
+
+    #[test]
+    fn server_stats_report_lock_writer_and_connection_metrics() {
+        let mux = test_mux();
+        let unix_client = mux.control_clients.register(ClientTransport::Unix, test_writer());
+        let websocket_client =
+            mux.control_clients.register(ClientTransport::WebSocket, test_writer());
+        let identity = handle_command(&mux, 0, Command::Identify, &test_writer()).unwrap();
+        assert!(
+            identity["capabilities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|c| c == SERVER_STATS_CAPABILITY)
+        );
+        // Any registry use records a hold at its call site.
+        let _ = mux.registry_identity();
+        let stats =
+            handle_command(&mux, unix_client, Command::ServerStats, &test_writer()).unwrap();
+        assert_eq!(stats["schema"].as_u64(), Some(crate::diagnostics::SERVER_STATS_SCHEMA as u64));
+        assert!(stats["uptime_ms"].is_u64());
+        let lock = &stats["registry_lock"];
+        assert!(lock["hold_us"]["count"].as_u64().unwrap() >= 1, "{lock}");
+        assert!(lock["holder"].is_null(), "{lock}");
+        let site = lock["top_sites"][0]["site"].as_str().unwrap();
+        assert!(site.contains("mux.rs:"), "{site}");
+        assert_eq!(stats["connections"]["limit"].as_u64(), Some(MAX_SERVER_CONNECTIONS as u64));
+        assert!(stats["journal_writer"].is_object() || stats["journal_writer"].is_null());
+
+        let error = handle_command(&mux, websocket_client, Command::ServerStats, &test_writer())
+            .expect_err("remote clients must not receive internal server stats");
+        assert!(error.to_string().contains("trusted local connection"));
     }
 
     #[test]
@@ -18337,7 +18626,7 @@ mod tests {
 
     #[test]
     fn scheduler_retains_connection_permit_until_dispatcher_exit() {
-        let active = Arc::new(AtomicU64::new(0));
+        let active = Arc::new(crate::diagnostics::ConnectionStats::default());
         let permit = claim_connection(&active).unwrap();
         let scheduler = Arc::new(ConnectionSurfaceScheduler::new_with_connection_permit(
             Arc::new(ServerSurfaceOperationAdmission::default()),
@@ -18354,14 +18643,14 @@ mod tests {
 
         assert!(!scheduler.close_and_wait(Duration::from_millis(25)));
         assert_eq!(
-            active.load(Ordering::Acquire),
+            active.active(),
             1,
             "timed-out shutdown released admission while its dispatcher was live"
         );
 
         release_tx.send(()).unwrap();
         assert!(scheduler.close_and_wait(Duration::from_secs(1)));
-        assert_eq!(active.load(Ordering::Acquire), 0);
+        assert_eq!(active.active(), 0);
     }
 
     #[test]
@@ -18896,6 +19185,7 @@ mod tests {
         assert_eq!(result["surface"], surface.id);
         assert_eq!(result["state"], "working");
         assert_eq!(result["source"], "socket");
+        assert_eq!(result["agent"], Value::Null);
         assert_eq!(result["session"], "raw-command");
         assert_eq!(mux.with_state(|state| state.resource_revision), revision + 1);
         // A fresh direct report publishes twice on the shared change epoch:
@@ -18906,6 +19196,76 @@ mod tests {
         assert_eq!(events.batches.len(), 1);
         assert_eq!(events.batches[0].changes[0]["resource"], "agent");
         assert_eq!(events.batches[0].changes[0]["value"]["source_session"], "raw-command");
+    }
+
+    #[test]
+    fn raw_report_agent_command_rejects_internal_projection_sources() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+
+        for source in ["plugin", "detected"] {
+            let error = handle_command(
+                &mux,
+                0,
+                Command::ReportAgent {
+                    surface: surface.id,
+                    state: "working".into(),
+                    source: source.into(),
+                    session: Some("raw-command".into()),
+                },
+                &test_writer(),
+            )
+            .unwrap_err();
+            assert!(error.to_string().contains("bad source"), "{source}: {error}");
+        }
+
+        assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 0);
+    }
+
+    #[test]
+    fn list_agents_history_fields_require_the_additive_client_capability() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        mux.report_agent(
+            surface.id,
+            AgentState::Working,
+            AgentSource::Socket,
+            Some("history-capability".into()),
+        )
+        .unwrap();
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+
+        let legacy = handle_command(
+            &mux,
+            client,
+            Command::ListAgents { surface: None, state: None },
+            &writer,
+        )
+        .unwrap();
+        assert!(legacy.get("history").is_none());
+        assert!(legacy.get("has_history").is_none());
+
+        handle_command(
+            &mux,
+            client,
+            Command::SetClientInfo {
+                name: None,
+                kind: Some("tui".into()),
+                capabilities: Some(vec![AGENT_HISTORY_CAPABILITY.into()]),
+            },
+            &writer,
+        )
+        .unwrap();
+        let capable = handle_command(
+            &mux,
+            client,
+            Command::ListAgents { surface: None, state: None },
+            &writer,
+        )
+        .unwrap();
+        assert_eq!(capable["history"].as_array().map(Vec::len), Some(1));
+        assert_eq!(capable["has_history"], true);
     }
 
     #[test]
@@ -20260,6 +20620,37 @@ mod tests {
         )
         .unwrap();
         let listed = handle_command(&mux, client, Command::ListClients, &writer).unwrap();
+        assert_eq!(listed[0]["sizes"][0]["size_participating"], false);
+    }
+
+    #[test]
+    fn dimensionless_terminal_client_reports_disabled_sizing_participation() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let stream = writer.start_stream(&json!({"event": "test"})).unwrap();
+        let stream_id = stream.id;
+        mux.control_clients.attach_surface(client, surface.id, stream).unwrap();
+        mux.control_clients.commit_surface(client, surface.id, stream_id, None).unwrap();
+
+        handle_command(
+            &mux,
+            client,
+            Command::SetClientSizing {
+                surface: surface.id,
+                client: Some(client),
+                enabled: false,
+                exclusive: false,
+            },
+            &writer,
+        )
+        .unwrap();
+
+        let listed = handle_command(&mux, client, Command::ListClients, &writer).unwrap();
+        assert_eq!(listed[0]["attached"], json!([surface.id]));
+        assert_eq!(listed[0]["sizes"][0]["cols"], Value::Null);
+        assert_eq!(listed[0]["sizes"][0]["rows"], Value::Null);
         assert_eq!(listed[0]["sizes"][0]["size_participating"], false);
     }
 
@@ -22147,6 +22538,7 @@ mod tests {
             CREATION_RECEIPTS_CAPABILITY,
             CREATION_SELECTOR_FALLBACKS_CAPABILITY,
             PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
+            AGENT_HISTORY_CAPABILITY,
         ] {
             assert!(capabilities.iter().any(|value| value.as_str() == Some(expected)));
         }

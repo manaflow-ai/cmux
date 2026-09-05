@@ -38,7 +38,7 @@ extension CmxIrohOnlineAdmissionRegistryTests {
     @Test
     func connectivityAllowsLocallyValidGrantOffline() async throws {
         let fixture = try OnlineAdmissionFixture()
-        let broker = OnlineAdmissionBroker(responses: [.failure(.connectivity)])
+        let broker = OnlineAdmissionBroker(responses: [.failure(.connectivity(nil))])
         let registry = fixture.registry(broker: broker)
 
         let authorization = await registry.authorizePairGrant(
@@ -99,7 +99,7 @@ extension CmxIrohOnlineAdmissionRegistryTests {
         let fixture = try OnlineAdmissionFixture()
         let broker = OnlineAdmissionBroker(responses: [
             .success(try fixture.discovery(includeInitiator: false)),
-            .failure(.connectivity),
+            .failure(.connectivity(nil)),
         ])
         let registry = fixture.registry(broker: broker)
 
@@ -109,7 +109,7 @@ extension CmxIrohOnlineAdmissionRegistryTests {
                 authenticatedPeerID: fixture.initiator.endpointID
             ) == .denied
         )
-        await broker.replaceResponses([.failure(.connectivity)])
+        await broker.replaceResponses([.failure(.connectivity(nil))])
         #expect(
             await registry.authorizePairGrant(
                 fixture.grant(),
@@ -226,7 +226,7 @@ extension CmxIrohOnlineAdmissionRegistryTests {
         let clock = OnlineAdmissionManualClock(now: fixture.now)
         let broker = OnlineAdmissionBroker(responses: [
             .success(try fixture.discovery()),
-            .failure(.connectivity),
+            .failure(.connectivity(nil)),
         ])
         let registry = fixture.registry(broker: broker, clock: clock)
         let lease = try #require(
@@ -406,8 +406,8 @@ extension CmxIrohOnlineAdmissionRegistryTests {
         let fixture = try OnlineAdmissionFixture(grantLifetime: 31)
         let clock = OnlineAdmissionManualClock(now: fixture.now)
         let broker = OnlineAdmissionBroker(responses: [
-            .failure(.connectivity),
-            .failure(.connectivity),
+            .failure(.connectivity(nil)),
+            .failure(.connectivity(nil)),
         ])
         let registry = fixture.registry(broker: broker, clock: clock)
         let lease = try #require(

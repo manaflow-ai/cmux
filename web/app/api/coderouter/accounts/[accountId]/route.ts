@@ -21,7 +21,7 @@ export function createDeleteAccountHandler(dependencies: {
     request: Request,
     context: { params: Promise<{ accountId: string }> },
   ): Promise<Response> => {
-    const resolved = await dependencies.resolve(request, "manage");
+    const resolved = await dependencies.resolve(request);
     if (!resolved.ok) return resolved.response;
     const { accountId } = await context.params;
     if (!UUID.test(accountId)) {

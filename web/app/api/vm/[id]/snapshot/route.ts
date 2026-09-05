@@ -9,6 +9,10 @@ import { isVmNotFoundError } from "../../../../../services/vms/errors";
 import { runVmWorkflow, snapshotVm } from "../../../../../services/vms/workflows";
 import { parseOptionalObjectBody } from "../../../../../services/vms/routeInput";
 
+// Snapshot duration scales with the machine's dirty memory; give it the same
+// long-provisioning budget as create (see app/api/vm/route.ts).
+export const maxDuration = 600;
+
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> },

@@ -30,7 +30,7 @@ from test_codex_feed_hooks import (
 
 EXPECTED_NOTIFY_COMMAND = (
     f"notify_target_async {FAKE_WORKSPACE_ID} {FAKE_SURFACE_ID} "
-    "Codex|Permission|shell needs approval|c=needs-permission;p=0"
+    "Codex|Permission|shell needs approval|c=needs-permission;p=0;a=codex;s=needsInput"
 )
 EXPECTED_CLEAR_COMMAND = (
     f"clear_notifications --tab={FAKE_WORKSPACE_ID} --panel={FAKE_SURFACE_ID}"
@@ -277,7 +277,7 @@ def test_permission_notification_targets_rehomed_pane(cli_path: str, root: Path)
         raise AssertionError(f"probe must carry the ambient surface identity: {resolve_frame!r}")
     expected = (
         f"notify_target_async {live_workspace} {live_surface} "
-        "Codex|Permission|shell needs approval|c=needs-permission;p=0"
+        "Codex|Permission|shell needs approval|c=needs-permission;p=0;a=codex;s=needsInput"
     )
     commands = raw_commands(frames)
     if expected not in commands:

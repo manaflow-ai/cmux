@@ -7,9 +7,37 @@ import CmuxFoundation
 final class CloudTreeNSOutlineView: NSOutlineView {
     static let leadingMargin: CGFloat = 8
 
+    /// Keeps the outline delegate/source graph alive while AppKit owns a
+    /// native surface drag, including reconstruction between writer creation
+    /// and `willBeginAt`.
+    /// Strong coordinator owner for the active Cloud drag. The coordinator
+    /// clears this at the native terminal boundary; the distinct name makes
+    /// its ownership contract explicit (unlike weak File Explorer markers).
+    var activeNativeDragCoordinator: AnyObject?
+    var activeNativeDragSession: NSDraggingSession?
+    /// Invoked before a new pointer gesture. AppKit cannot deliver this
+    /// boundary while the previous native drag loop is active.
+    var onNativeDragPointerBoundary: (() -> Void)?
+
     /// The active visual preset; the coordinator keeps this in step with the
     /// style it lays rows out with (chevron centering depends on it).
     var treeStyle: CloudTreeStyle = CloudTreeStyleStore.current
+
+    /// Per-event context menu, the same presentation path the sidebar rows
+    /// use. The persistent `menu` + delegate `menuNeedsUpdate` route rendered
+    /// items whose actions never dispatched; building the menu in
+    /// `menu(for:)` is the pattern proven by every working cmux menu.
+    var contextMenuBuilder: ((_ row: Int) -> NSMenu?)?
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        guard let contextMenuBuilder else { return super.menu(for: event) }
+        let point = convert(event.locationInWindow, from: nil)
+        let row = self.row(at: point)
+        if row >= 0, !selectedRowIndexes.contains(row) {
+            selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        }
+        return contextMenuBuilder(row)
+    }
 
     var onOpenSelection: (() -> Void)?
     var onMoveSelection: ((Int) -> Void)?
@@ -17,6 +45,11 @@ final class CloudTreeNSOutlineView: NSOutlineView {
     var onQuickSearch: ((String) -> Void)?
     var onDidBecomeFirstResponder: (() -> Void)?
     private var quickSearchQuery: String?
+
+    override func mouseDown(with event: NSEvent) {
+        onNativeDragPointerBoundary?()
+        super.mouseDown(with: event)
+    }
 
     override func keyDown(with event: NSEvent) {
         if handle(event) { return }

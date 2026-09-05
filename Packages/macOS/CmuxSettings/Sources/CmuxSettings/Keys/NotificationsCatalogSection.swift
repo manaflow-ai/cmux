@@ -1,7 +1,7 @@
 import Foundation
 
 /// Settings under the dotted-id prefix `notifications.*`.
-public struct NotificationsCatalogSection: SettingCatalogSection {
+nonisolated public struct NotificationsCatalogSection: SettingCatalogSection {
     public let dockBadge = DefaultsKey<Bool>(
         id: "notifications.dockBadge",
         defaultValue: true,
@@ -44,6 +44,15 @@ public struct NotificationsCatalogSection: SettingCatalogSection {
         id: "notifications.customSoundFilePath",
         defaultValue: "",
         userDefaultsKey: "notificationSoundCustomFilePath"
+    )
+
+    /// Canonical JSON for the sparse agent × alert-type sound matrix. The
+    /// string backing keeps cmux.json's nested object declarative while using
+    /// the existing managed UserDefaults import/backup machinery.
+    public let soundOverrides = DefaultsKey<String>(
+        id: "notifications.soundOverrides",
+        defaultValue: "{}",
+        userDefaultsKey: "notificationSoundOverrides"
     )
 
     public let command = DefaultsKey<String>(

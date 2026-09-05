@@ -13,8 +13,15 @@ import {
 import {
   DEFAULT_FROM_EMAIL,
   buildFoundersWelcomeEmail,
+  buildProWelcomeEmail,
 } from "./welcome-email";
-import { welcomeTriggerForMetadata } from "./welcome-trigger";
+import {
+  sessionProductMarkerIsAuthoritative,
+  welcomeTriggerForCheckout,
+} from "./welcome-trigger";
+import { locales, type Locale } from "../../../../i18n/routing";
+import { personalProWelcomeOwnsDelivery } from "../../../../services/billing/personalProWelcome";
+import { stripe } from "../../../../services/billing/stripe";
 
 // to blunt replay attempts.
 const SIGNATURE_TOLERANCE_SECONDS = 5 * 60;
@@ -23,6 +30,25 @@ type FoundersConfig = {
   resendApiKey: string;
   webhookSecret: string;
   fromEmail: string;
+};
+
+type FoundersWelcomeDependencies = {
+  personalProWelcomeEnabled: () => boolean;
+  retrieveSubscription: (
+    subscriptionId: string,
+  ) => Promise<{ metadata?: Record<string, string> | null }>;
+};
+
+const defaultDependencies: FoundersWelcomeDependencies = {
+  personalProWelcomeEnabled: () =>
+    personalProWelcomeOwnsDelivery({
+      enabled: env.CMUX_PERSONAL_PRO_WELCOME_ENABLED,
+      resendApiKey: env.RESEND_API_KEY,
+      webhookSecret: env.STRIPE_FOUNDERS_WEBHOOK_SECRET,
+      stripeSecretKey: env.STRIPE_SECRET_KEY,
+    }),
+  retrieveSubscription: async (subscriptionId) =>
+    stripe().subscriptions.retrieve(subscriptionId),
 };
 
 function resolveConfig(): FoundersConfig | null {
@@ -88,12 +114,16 @@ function isValidStripeSignature(
   });
 }
 
-export async function POST(request: Request) {
-  return withApiRouteSpan(
-    request,
-    "/api/stripe/founders-welcome",
-    { "cmux.subsystem": "stripe", "cmux.stripe.operation": "founders_welcome" },
-    async (span): Promise<Response> => {
+export function makeFoundersWelcomeHandler(
+  dependencies: Partial<FoundersWelcomeDependencies> = {},
+) {
+  const resolvedDependencies = { ...defaultDependencies, ...dependencies };
+  return async function POST(request: Request) {
+    return withApiRouteSpan(
+      request,
+      "/api/stripe/founders-welcome",
+      { "cmux.subsystem": "stripe", "cmux.stripe.operation": "founders_welcome" },
+      async (span): Promise<Response> => {
       const config = resolveConfig();
       if (!config) {
         return jsonError("Founders welcome endpoint is not configured", 503);
@@ -121,25 +151,65 @@ export async function POST(request: Request) {
 
       setSpanAttributes(span, { "cmux.stripe.event_type": event.type ?? "" });
 
-      // Pro purchases have their own transactional welcome and TestFlight
-      // fulfillment in /api/stripe/webhook. Acknowledge them here without
-      // sending the personal Founder's Edition email as well. Explicit
-      // Founder's Edition metadata wins in welcomeTriggerForMetadata, so its
-      // behavior remains unchanged even if extra metadata is present.
-      if (event.type !== "checkout.session.completed") {
+      // This endpoint owns the personal welcome for Founder's Edition and Pro.
+      // Team and unrecognized checkouts are acknowledged without mail. Explicit
+      // Session product markers take precedence. Some Stripe checkout flows
+      // put the product metadata only on the expanded subscription, so pass
+      // that metadata to the shared classifier as a fallback.
+      if (
+        event.type !== "checkout.session.completed" &&
+        event.type !== "checkout.session.async_payment_succeeded"
+      ) {
         return NextResponse.json({ ok: true, skipped: "event_type" });
       }
       const session = event.data?.object;
-      const trigger = welcomeTriggerForMetadata(session?.metadata);
-      if (trigger === "pro_plan") {
-        return NextResponse.json({ ok: true, skipped: "pro_plan" });
+      let subscriptionMetadata =
+        session?.subscription && typeof session.subscription === "object"
+          ? session.subscription.metadata
+          : null;
+      if (
+        !subscriptionMetadata &&
+        typeof session?.subscription === "string" &&
+        !sessionProductMarkerIsAuthoritative(session.metadata)
+      ) {
+        try {
+          subscriptionMetadata = (
+            await resolvedDependencies.retrieveSubscription(session.subscription)
+          ).metadata ?? null;
+        } catch (error) {
+          recordSpanError(span, error);
+          console.error("stripe.founders_welcome.subscription_lookup_failed");
+          return jsonError("Unable to resolve checkout metadata", 503);
+        }
       }
+      const trigger = welcomeTriggerForCheckout(
+        session?.metadata,
+        subscriptionMetadata,
+      );
       const customerEmail = session?.customer_details?.email ?? null;
       setSpanAttributes(span, {
         "cmux.stripe.is_founders": trigger === "founders_edition",
         "cmux.stripe.welcome_trigger": trigger,
         "cmux.stripe.has_customer_email": Boolean(customerEmail),
       });
+      if (trigger !== "founders_edition" && trigger !== "pro_plan") {
+        return NextResponse.json({ ok: true, skipped: "not_welcome_eligible" });
+      }
+      if (
+        trigger === "pro_plan" &&
+        !resolvedDependencies.personalProWelcomeEnabled()
+      ) {
+        return NextResponse.json({ ok: true, skipped: "pro_rollout_disabled" });
+      }
+      if (
+        event.type === "checkout.session.completed" &&
+        session?.payment_status !== "paid" &&
+        session?.payment_status !== "no_payment_required"
+      ) {
+        // Delayed payment methods can emit `completed` before funds settle;
+        // wait for `async_payment_succeeded` before sending a welcome.
+        return NextResponse.json({ ok: true, skipped: "payment_pending" });
+      }
       if (!customerEmail) {
         // A completed session that arrives without a customer email is
         // diagnosable in telemetry rather than a silent miss.
@@ -164,13 +234,22 @@ export async function POST(request: Request) {
           ? `Austin Wang <${config.fromEmail}>`
           : config.fromEmail;
       const resend = new Resend(config.resendApiKey);
+      const emailPayload = trigger === "pro_plan"
+        ? await buildProWelcomeEmail({
+            from: fromAddress,
+            to: customerEmail,
+            customerName: session?.customer_details?.name,
+            sessionRef,
+            locale: localeForSession(session),
+          })
+        : buildFoundersWelcomeEmail({
+            from: fromAddress,
+            to: customerEmail,
+            customerName: session?.customer_details?.name,
+            sessionRef,
+          });
       const { error } = await resend.emails.send(
-        buildFoundersWelcomeEmail({
-          from: fromAddress,
-          to: customerEmail,
-          customerName: session?.customer_details?.name,
-          sessionRef,
-        }),
+        emailPayload,
         { idempotencyKey },
       );
 
@@ -185,9 +264,12 @@ export async function POST(request: Request) {
         { ok: true, sent: true },
         { headers: { "Cache-Control": "no-store" } },
       );
-    },
-  );
+      },
+    );
+  };
 }
+
+export const POST = makeFoundersWelcomeHandler();
 
 function jsonError(message: string, status: number): Response {
   return NextResponse.json(
@@ -203,10 +285,50 @@ type StripeEvent = {
     object?: {
       id?: string;
       metadata?: Record<string, string> | null;
+      subscription?:
+        | string
+        | {
+            metadata?: Record<string, string> | null;
+          }
+        | null;
       customer_details?: {
         email?: string | null;
         name?: string | null;
       } | null;
+      payment_status?: string | null;
+      locale?: string | null;
     };
   };
 };
+
+type StripeSessionPayload = NonNullable<
+  NonNullable<StripeEvent["data"]>["object"]
+>;
+
+function localeForSession(session: StripeSessionPayload | undefined): Locale {
+  const value =
+    session && typeof session === "object" && "locale" in session
+      ? (session as { locale?: unknown }).locale
+      : undefined;
+  if (typeof value !== "string") return "en";
+  const trimmed = value.trim();
+  const normalized = trimmed.toLowerCase();
+  const aliases: Record<string, Locale> = {
+    "en-gb": "en",
+    "es-419": "es",
+    "fr-ca": "fr",
+    nb: "no",
+    pt: "pt-BR",
+    "pt-br": "pt-BR",
+    zh: "zh-CN",
+    "zh-cn": "zh-CN",
+    "zh-hk": "zh-TW",
+    "zh-tw": "zh-TW",
+  };
+  // Keep the catalog's case-sensitive regional keys when Stripe already
+  // supplied one, while accepting lowercase provider aliases as well.
+  const aliased = aliases[normalized] ?? trimmed;
+  return (locales as readonly string[]).includes(aliased)
+    ? (aliased as Locale)
+    : "en";
+}

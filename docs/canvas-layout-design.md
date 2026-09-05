@@ -1,5 +1,12 @@
 # Freeform canvas layout for workspace panes
 
+Canvas is a layout renderer for the `pane` region in the shared
+[presentation system](sidebar-system-design.md). It may arrange interactive
+surface instances spatially instead of using a split tree, but it keeps the
+same stable instance IDs, action receipts, resource revisions, and
+frontend-window ownership. Sidebar or right-panel projection rows are not
+silently converted into canvas panes.
+
 A workspace can opt into a freeform 2D canvas layout: every panel (terminal,
 browser, markdown, file preview, agent session, ...) becomes a freely placed,
 individually resizable pane on an infinite scrollable canvas. Canvas layout

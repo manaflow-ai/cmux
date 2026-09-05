@@ -67,6 +67,11 @@ on:
         required: false
         default: false
         type: boolean
+      build_agent_plugin:
+        description: "Build and upload the Unix userland agent screen-detection plugin"
+        required: false
+        default: false
+        type: boolean
 
 permissions: {}
 
@@ -179,18 +184,11 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan-build.outputs.matrix) }}
     steps:
-      - name: Checkout caller ref
-        if: inputs.checkout_ref == ''
+      - name: Checkout caller or requested ref
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          persist-credentials: false
-
-      - name: Checkout requested ref
-        if: inputs.checkout_ref != ''
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
           ref: ${{ inputs.checkout_ref }}
+          persist-credentials: false
 
       - name: Init ghostty submodule
         run: git submodule update --init --depth 1 ghostty
@@ -291,7 +289,34 @@ jobs:
           cargo build -p cmux-relay --bin cmux-relay --release --locked --target ${{ matrix.build_target }}
           cargo build -p chatmux-relay --bin chatmux-relay --release --locked --target ${{ matrix.build_target }}
 
+      - name: Build agent screen-detection plugin
+        if: inputs.build_agent_plugin && runner.os != 'Windows'
+        env:
+          AGENT_PLUGIN_CROSS: ${{ matrix.cross }}
+          AGENT_PLUGIN_TARGET: ${{ matrix.build_target }}
+          RUNNER_OS: ${{ runner.os }}
+        working-directory: cmux-tui
+        shell: bash
+        run: |
+          set -euo pipefail
+          plugin_manifest="bindings/examples/rust-agent-screen-detection/Cargo.toml"
+          # The reference plugin is its own Cargo workspace. Use the common
+          # target directory so staging has one predictable path and the
+          # plugin can reuse SDK dependencies from the TUI build.
+          export CARGO_TARGET_DIR="$GITHUB_WORKSPACE/cmux-tui/target"
+          if [[ "$AGENT_PLUGIN_CROSS" == "true" && "$RUNNER_OS" == "Linux" ]]; then
+            cargo zigbuild \
+              --manifest-path "$plugin_manifest" \
+              --release --locked --target "$AGENT_PLUGIN_TARGET"
+          else
+            cargo build \
+              --manifest-path "$plugin_manifest" \
+              --release --locked --target "$AGENT_PLUGIN_TARGET"
+          fi
+
       - name: Stage binary
+        env:
+          BUILD_AGENT_PLUGIN: ${{ inputs.build_agent_plugin }}
         shell: bash
         run: |
           mkdir -p dist
@@ -302,6 +327,10 @@ jobs:
           cp "cmux-tui/target/${{ matrix.target }}/release/cmux-tui-hook${{ matrix.ext }}" "$hook_binary"
           cp "cmux-tui/target/${{ matrix.target }}/release/cmux-relay${{ matrix.ext }}" "$relay_binary"
           cp "cmux-tui/target/${{ matrix.target }}/release/chatmux-relay${{ matrix.ext }}" "dist/chatmux-relay-${{ matrix.target }}${{ matrix.ext }}"
+          if [[ "$BUILD_AGENT_PLUGIN" == "true" && "${{ runner.os }}" != "Windows" ]]; then
+            cp "cmux-tui/target/${{ matrix.target }}/release/cmux-agent-screen-detection${{ matrix.ext }}" \
+              "dist/cmux-agent-screen-detection-${{ matrix.target }}${{ matrix.ext }}"
+          fi
           if [[ -n "${{ matrix.compatibility_target }}" ]]; then
             cp "$binary" "dist/cmux-tui-${{ matrix.compatibility_target }}${{ matrix.ext }}"
             cp "$hook_binary" "dist/cmux-tui-hook-${{ matrix.compatibility_target }}${{ matrix.ext }}"
@@ -368,6 +397,14 @@ jobs:
           path: dist/chatmux-relay-*${{ matrix.ext }}
           if-no-files-found: error
 
+      - name: Upload agent screen-detection plugin artifact
+        if: inputs.build_agent_plugin && runner.os != 'Windows'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cmux-agent-screen-detection-${{ matrix.target }}
+          path: dist/cmux-agent-screen-detection-*${{ matrix.ext }}
+          if-no-files-found: error
+
   cloudflare-relay:
     name: Cloudflare Durable Object relay
     if: inputs.build_cloudflare_relay
@@ -379,18 +416,11 @@ jobs:
       run:
         working-directory: cmux-tui/relays/cloudflare-do
     steps:
-      - name: Checkout caller ref
-        if: inputs.checkout_ref == ''
+      - name: Checkout caller or requested ref
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          persist-credentials: false
-
-      - name: Checkout requested ref
-        if: inputs.checkout_ref != ''
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
           ref: ${{ inputs.checkout_ref }}
+          persist-credentials: false
 
       - name: Set up Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
@@ -435,18 +465,11 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Checkout caller ref
-        if: inputs.checkout_ref == ''
+      - name: Checkout caller or requested ref
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          persist-credentials: false
-
-      - name: Checkout requested ref
-        if: inputs.checkout_ref != ''
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
           ref: ${{ inputs.checkout_ref }}
+          persist-credentials: false
 
       - name: Init ghostty submodule
         run: git submodule update --init --depth 1 ghostty
@@ -576,18 +599,11 @@ jobs:
       NPM_VERSION: ${{ inputs.version }}
       PYPI_VERSION: ${{ inputs.pypi_version != '' && inputs.pypi_version || inputs.version }}
     steps:
-      - name: Checkout caller ref
-        if: inputs.checkout_ref == ''
+      - name: Checkout caller or requested ref
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          persist-credentials: false
-
-      - name: Checkout requested ref
-        if: inputs.checkout_ref != ''
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
           ref: ${{ inputs.checkout_ref }}
+          persist-credentials: false
 
       - name: Download darwin arm64 binary
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -800,18 +816,11 @@ jobs:
     env:
       PYPI_VERSION: ${{ inputs.pypi_version != '' && inputs.pypi_version || inputs.version }}
     steps:
-      - name: Checkout caller ref
-        if: inputs.checkout_ref == ''
+      - name: Checkout caller or requested ref
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          persist-credentials: false
-
-      - name: Checkout requested ref
-        if: inputs.checkout_ref != ''
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
           ref: ${{ inputs.checkout_ref }}
+          persist-credentials: false
 
       - name: Download npm package archive
         if: inputs.package_npm
@@ -876,18 +885,26 @@ jobs:
       id-token: write
       attestations: write
     steps:
-      - name: Checkout caller ref
-        if: inputs.checkout_ref == ''
+      - name: Checkout caller or requested ref
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
 
-      - name: Checkout requested ref
-        if: inputs.checkout_ref != ''
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-          ref: ${{ inputs.checkout_ref }}
+      - name: Verify attestation checkout matches caller
+        env:
+          CHECKOUT_REF: ${{ inputs.checkout_ref }}
+        run: |
+          set -euo pipefail
+          checked_out_sha="$(git rev-parse HEAD)"
+          if [[ "$checked_out_sha" != "$GITHUB_SHA" ]]; then
+            echo "attest_packages requires checkout_ref to resolve to $GITHUB_SHA; got $checked_out_sha." >&2
+            exit 1
+          fi
+          if [[ -n "$CHECKOUT_REF" && "$CHECKOUT_REF" != "$GITHUB_SHA" ]]; then
+            echo "attest_packages rejects checkout_ref=$CHECKOUT_REF; it must be empty or $GITHUB_SHA." >&2
+            exit 1
+          fi
 
       - name: Download npm package archive
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0

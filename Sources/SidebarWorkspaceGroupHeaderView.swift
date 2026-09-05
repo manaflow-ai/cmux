@@ -75,21 +75,9 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let isBeingDragged: Bool
     let topDropIndicatorVisible: Bool
     let bottomDropIndicatorVisible: Bool
-    let onToggleCollapsed: () -> Void
-    let onFocusAnchor: (NSEvent.ModifierFlags) -> Void
-    let onTapPlus: () -> Void
-    let onRunResolvedItem: (CmuxResolvedConfigMenuAction) -> Void
-    let onRename: () -> Void
-    let onTogglePinned: () -> Void
-    let onMarkRead: () -> Void
-    let onMarkUnread: () -> Void
-    let onClearLatestNotifications: () -> Void
-    let onMarkAllRead: () -> Void
-    let onMarkAllUnread: () -> Void
-    let onUngroup: () -> Void
-    let onDelete: () -> Void
-    let onEditConfig: () -> Void
-    let onOpenDocs: () -> Void
+    /// Shared group-header actions used by both the lazy SwiftUI row and the
+    /// retained AppKit table cell.
+    let actions: SidebarGroupHeaderRowActions
     let onContextMenuAppear: () -> Void
     let onContextMenuDisappear: () -> Void
 
@@ -159,7 +147,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 .foregroundStyle(.secondary)
                 .frame(width: metrics.chevronFrame, height: metrics.chevronFrame)
                 .contentShape(Rectangle())
-                .onTapGesture { onToggleCollapsed() }
+                .onTapGesture { actions.onToggleCollapsed() }
                 .accessibilityAddTraits(.isButton)
                 .accessibilityLabel(
                     Text(
@@ -200,7 +188,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
             .onTapGesture {
-                onFocusAnchor(NSApp.currentEvent?.modifierFlags ?? [])
+                actions.onFocusAnchor(NSApp.currentEvent?.modifierFlags ?? [])
             }
             .accessibilityAddTraits(.isButton)
             .accessibilityLabel(Text(name))
@@ -210,7 +198,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             )))
 
             let plusVisible = isPointerHovering && !contextMenuVisible && !showsShortcutHint
-            Button(action: onTapPlus) {
+            Button(action: actions.onTapPlus) {
                 CmuxSystemSymbolImage(
                     systemName: "plus",
                     pointSize: metrics.plusFontSize,
@@ -236,7 +224,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                         localized: "workspaceGroup.plus.contextMenu.newWorkspace",
                         defaultValue: "New Workspace in Group"
                     ),
-                    action: onTapPlus
+                    action: actions.onTapPlus
                 )
                 .onAppear {
                     contextMenuVisible = true
@@ -254,7 +242,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                             Divider()
                         case .action(let action):
                             Button(action.title) {
-                                onRunResolvedItem(action)
+                                actions.onRunResolvedItem(action)
                             }
                         }
                     }
@@ -265,14 +253,14 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                         localized: "workspaceGroup.plus.contextMenu.editConfig",
                         defaultValue: "Edit Group Config..."
                     ),
-                    action: onEditConfig
+                    action: actions.onEditConfig
                 )
                 Button(
                     String(
                         localized: "workspaceGroup.plus.contextMenu.openDocs",
                         defaultValue: "Open Workspace Groups Docs"
                     ),
-                    action: onOpenDocs
+                    action: actions.onOpenDocs
                 )
             }
         }
@@ -321,7 +309,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                     localized: "workspaceGroup.plus.contextMenu.newWorkspace",
                     defaultValue: "New Workspace in Group"
                 ),
-                action: onTapPlus
+                action: actions.onTapPlus
             )
             .onAppear {
                 contextMenuVisible = true
@@ -337,7 +325,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                     localized: "workspaceGroup.contextMenu.rename",
                     defaultValue: "Rename Group..."
                 ),
-                action: onRename
+                action: actions.onRename
             )
             Button(
                 isPinned
@@ -349,7 +337,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                         localized: "workspaceGroup.contextMenu.pin",
                         defaultValue: "Pin Group"
                     ),
-                action: onTogglePinned
+                action: actions.onTogglePinned
             )
             Divider()
             Button(
@@ -357,7 +345,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                     localized: "workspaceGroup.contextMenu.markRead",
                     defaultValue: "Mark Group as Read"
                 ),
-                action: onMarkRead
+                action: actions.onMarkRead
             )
             .disabled(!canMarkRead)
             Button(
@@ -365,7 +353,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                     localized: "workspaceGroup.contextMenu.markUnread",
                     defaultValue: "Mark Group as Unread"
                 ),
-                action: onMarkUnread
+                action: actions.onMarkUnread
             )
             .disabled(!canMarkUnread)
             Button(
@@ -373,7 +361,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                     localized: "workspaceGroup.contextMenu.clearLatestNotifications",
                     defaultValue: "Clear Latest Notifications"
                 ),
-                action: onClearLatestNotifications
+                action: actions.onClearLatestNotifications
             )
             .disabled(!hasLatestNotifications)
             Divider()
@@ -382,7 +370,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                     localized: "workspaceGroup.contextMenu.markAllRead",
                     defaultValue: "Mark All Workspaces in Group as Read"
                 ),
-                action: onMarkAllRead
+                action: actions.onMarkAllRead
             )
             .disabled(!canMarkAllRead)
             Button(
@@ -390,7 +378,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                     localized: "workspaceGroup.contextMenu.markAllUnread",
                     defaultValue: "Mark All Workspaces in Group as Unread"
                 ),
-                action: onMarkAllUnread
+                action: actions.onMarkAllUnread
             )
             .disabled(!canMarkAllUnread)
             Divider()
@@ -399,14 +387,14 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                     localized: "workspaceGroup.contextMenu.editConfig",
                     defaultValue: "Edit Group Config..."
                 ),
-                action: onEditConfig
+                action: actions.onEditConfig
             )
             Button(
                 String(
                     localized: "workspaceGroup.contextMenu.openDocs",
                     defaultValue: "Open Workspace Groups Docs"
                 ),
-                action: onOpenDocs
+                action: actions.onOpenDocs
             )
             Divider()
             if !isPinned || memberCount > 0 {
@@ -415,12 +403,12 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                         localized: "workspaceGroup.contextMenu.ungroup",
                         defaultValue: "Ungroup Workspaces"
                     ),
-                    action: onUngroup
+                    action: actions.onUngroup
                 )
             }
             Button(
                 role: .destructive,
-                action: onDelete
+                action: actions.onDelete
             ) {
                 Text(
                     String(
