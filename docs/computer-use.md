@@ -38,9 +38,13 @@ Migration of `cmux-cua`, `cmux-computer-use`, and `codex-cua` links requires an
 existing cmux bundle with a verified bundle ID, known install/build root, and
 root/current-user ownership. Real skill directories, unrelated symlinks, and
 project skills remain untouched. Unknown or dangling targets lack that proof
-and require manual review; `CMUX_CUA_DIAGNOSTICS=1` reports a preserved path
-that blocks an explicit install. No plugin manifest or temporary projection is
-shipped. Final picker rendering and selection are owned by the agent client.
+and require manual review; `CMUX_CUA_DIAGNOSTICS=1` reports preserved paths
+blocking explicit install and verified managed links retired by the per-launch
+policy. Historical app-created and manually-created symlinks with identical
+verified targets cannot be distinguished retroactively; recognized app-bundle
+links are treated as cmux-managed, while unknown and dangling links remain
+preserved. No plugin manifest or temporary projection is shipped. Final picker
+rendering and selection are owned by the agent client.
 
 While Codex runs inside a cmux terminal, its CLI also Apple-Events its own
 "Codex Computer Use" (`com.openai.sky.CUAService`) helper. macOS attributes

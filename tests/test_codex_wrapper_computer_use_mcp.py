@@ -953,6 +953,8 @@ def test_codex_gets_cmux_cua(failures: list[str]) -> None:
         failures,
     )
     expect("hello" in args, f"expected user prompt to survive, got {args}", failures)
+    expect("skill-install=" not in stderr and "managed-link-retired" not in stderr,
+           f"ordinary Codex launch must keep diagnostics quiet, got {stderr!r}", failures)
     # Codex CLI does not discover skills from skills.config session flags; the
     # default path is deliberately picker-inert and leaves global state absent.
     expect(configured_skill_path(args) is None, f"Codex must not fake session picker discovery, got {args}", failures)
@@ -1104,6 +1106,7 @@ def test_codex_home_ancestor_is_not_project_collision(failures: list[str]) -> No
         code, args, stderr, skill = run_wrapper(
             ["hello"], preexisting_valid_cmux_link=True,
             cwd_under_home_no_git=True, install_global_skill=opt_in,
+            diagnostics=not opt_in,
         )
         expect(code == 0, f"home-ancestor wrapper exited {code}: {stderr}", failures)
         expect(skill["exists"] is opt_in and skill["is_symlink"] is opt_in,
@@ -1111,6 +1114,9 @@ def test_codex_home_ancestor_is_not_project_collision(failures: list[str]) -> No
         if opt_in:
             expect(skill["target"] == skill["bundled_skill"],
                    f"HOME ancestor must permit retargeting to this exact bundle: {skill}", failures)
+        else:
+            expect("managed-link-retired" in stderr and "/.agents/skills/cmux-cua" in stderr,
+                   f"retired managed Codex link must be diagnosed, got {stderr!r}", failures)
         expect(configured_skill_path(args) is None,
                f"HOME ancestor must not produce an unsupported session path: {args}", failures)
         expect(len(skill["picker_entries"]) == int(opt_in),
@@ -1201,6 +1207,7 @@ def test_codex_explicit_global_opt_in_does_not_override_project_skill(
         ["hello"],
         install_global_skill=True,
         project_skill_collision=True,
+        diagnostics=True,
     )
     expect(code == 0, f"collision opt-in wrapper exited {code}: {stderr}", failures)
     expect(
@@ -1213,6 +1220,8 @@ def test_codex_explicit_global_opt_in_does_not_override_project_skill(
         f"collision opt-in must not add a same-name fallback, got {args}",
         failures,
     )
+    expect("skill-install=blocked-project-collision" in stderr,
+           f"explicit project collision must be diagnosed, got {stderr!r}", failures)
 
 
 def test_codex_managed_global_link_does_not_shadow_project(failures: list[str]) -> None:

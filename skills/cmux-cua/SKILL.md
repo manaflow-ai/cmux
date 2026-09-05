@@ -55,7 +55,11 @@ or permissions are not a reason to begin setup automatically.
   `codex-cua` links requires an existing cmux bundle ID, known install/build root,
   and root/current-user ownership. Unknown or dangling targets, real skill
   directories, unrelated symlinks, and project paths are preserved.
-  `CMUX_CUA_DIAGNOSTICS=1` identifies preserved paths blocking explicit install.
+  `CMUX_CUA_DIAGNOSTICS=1` identifies preserved paths blocking explicit install
+  and verified managed links retired by the per-launch policy. Historical
+  app-created and manually-created symlinks with identical verified targets
+  cannot be distinguished retroactively; recognized app-bundle links are
+  treated as cmux-managed, while unknown and dangling links are preserved.
 - While Computer Use is enabled, the helper daemon starts quietly at cmux
   startup with its internal permission gate disabled. Starting cmux or an agent
   never requests access or shows onboarding.

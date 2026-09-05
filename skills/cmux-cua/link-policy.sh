@@ -161,6 +161,9 @@ cmux_cua_skill_remove_managed_link() {
         # rm acts on the link itself because the target was validated and the
         # operand is an absolute path. Never recurse or follow the target.
         /bin/rm -f "$link" 2>/dev/null || true
+        if [[ "${CMUX_CUA_DIAGNOSTICS:-0}" == 1 && ! -L "$link" ]]; then
+            printf 'cmux-cua: managed-link-retired path=%q\n' "$link" >&2
+        fi
         return 0
     fi
     return 1
@@ -343,6 +346,10 @@ cmux_cua_skill_reconcile() {
     if [[ "$install_requested" == 1 && "$user_path_collision" == 1 \
           && "${CMUX_CUA_DIAGNOSTICS:-0}" == 1 ]]; then
         printf 'cmux-cua: skill-install=blocked-user-path path=%q\n' "$blocked_path" >&2
+    fi
+    if [[ "$install_requested" == 1 && "$project_collision" == 1 \
+          && "${CMUX_CUA_DIAGNOSTICS:-0}" == 1 ]]; then
+        printf 'cmux-cua: skill-install=blocked-project-collision path=%q\n' "$cwd" >&2
     fi
 
     if [[ "$install_requested" == 1 \

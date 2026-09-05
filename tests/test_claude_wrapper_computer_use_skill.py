@@ -267,6 +267,8 @@ def test_claude_default_is_session_scoped_without_global_mutation(
         f"default Claude launch unexpectedly wrote a global skill, got {link}",
         failures,
     )
+    expect("skill-install=" not in result.stderr and "managed-link-retired" not in result.stderr,
+           f"ordinary Claude launch must keep diagnostics quiet, got {result.stderr!r}", failures)
     expect(add_dir_arg(args) is None, f"default Claude launch must not add an automatic skill directory, got {args}", failures)
     expect(
         plugin_dir_arg(args) is None,
@@ -354,6 +356,7 @@ def test_claude_home_ancestor_is_not_project_collision(
         result, link, bundled_skill, args = run_wrapper(
             ["hello"], preexisting_valid_cmux_link=True,
             cwd_under_home_no_git=True, install_global_skill=opt_in,
+            diagnostics=not opt_in,
         )
         expect(result.returncode == 0,
                f"home-ancestor Claude wrapper exited {result.returncode}: {result.stderr}", failures)
@@ -362,6 +365,9 @@ def test_claude_home_ancestor_is_not_project_collision(
         if opt_in:
             expect(os.path.realpath(link) == os.path.realpath(bundled_skill),
                    f"HOME ancestor must permit retargeting to this exact bundle: {link}", failures)
+        else:
+            expect("managed-link-retired" in result.stderr and str(link) in result.stderr,
+                   f"retired managed Claude link must be diagnosed, got {result.stderr!r}", failures)
         expect(add_dir_arg(args) is None,
                f"HOME ancestor must not add an automatic skill directory: {args}", failures)
 
@@ -372,6 +378,8 @@ def test_claude_collision_keeps_project_skill_and_avoids_second_row(
     result, link, _, args = run_wrapper(
         ["hello"],
         project_skill_collision=True,
+        install_global_skill=True,
+        diagnostics=True,
     )
     expect(
         result.returncode == 0,
@@ -388,6 +396,8 @@ def test_claude_collision_keeps_project_skill_and_avoids_second_row(
         f"Claude collision must not add a second same-name session root, got {args}",
         failures,
     )
+    expect("skill-install=blocked-project-collision" in result.stderr,
+           f"explicit project collision must be diagnosed, got {result.stderr!r}", failures)
 
 
 def test_claude_explicit_global_opt_in_remains_available(failures: list[str]) -> None:
