@@ -35,6 +35,21 @@ struct MachineSizeOption: Equatable, Sendable {
             diskMb / 1024
         )
     }
+
+    var diskTitle: String {
+        String(
+            format: String(localized: "machines.new.size.gb", defaultValue: "%d GB"),
+            diskMb / 1024
+        )
+    }
+
+    var menuTitle: String {
+        String(
+            format: String(localized: "machines.new.size.menu", defaultValue: "%d GB RAM · %d GB disk"),
+            memoryMb / 1024,
+            diskMb / 1024
+        )
+    }
 }
 
 /// State behind the New Machine sheet: what the person picked, what the plan
@@ -116,7 +131,7 @@ final class NewMachineModel {
     ) {
         self.mode = mode
         self.plan = plan
-        let serverOptions = memoryOptionsMb.filter { MachineSizeOption(memoryMb: $0) != nil }
+        let serverOptions = Set(memoryOptionsMb.filter { MachineSizeOption(memoryMb: $0) != nil }).sorted()
         // An empty list means an older control plane did not advertise the
         // ladder. Preserve its 20 GiB default and omit --size entirely.
         self.availableMemoryOptionsMb = serverOptions
