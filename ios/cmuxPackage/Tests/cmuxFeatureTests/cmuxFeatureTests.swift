@@ -2347,9 +2347,10 @@ struct TerminalStreamTests {
 
     #expect(sent)
     let pasteRequest = try #require(await responses.sentRequests().first { $0.method == "terminal.paste" })
-    #expect(pasteRequest.text == "reply from notification")
+    let pastedText = try #require(pasteRequest.text)
+    #expect(pastedText == "reply from notification")
     #expect(pasteRequest.submitKey == "return")
-    #expect(!pasteRequest.text.contains("\r"))
+    #expect(!pastedText.contains("\r"))
 }
 
 @MainActor
