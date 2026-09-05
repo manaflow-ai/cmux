@@ -7256,12 +7256,13 @@ final class cmuxUITests: XCTestCase {
         before.lifetime = .keepAlways
         add(before)
 
-        // The terminal stays onscreen while its transport is replaced. The
-        // host changes its snapshot at registration, after an early replay
-        // would already have captured the old output.
-        let nextSubscription = await server.disconnectForTerminalReconnect(
+        // The connection remains healthy, but its visible contents are stale.
+        // Exercise the actual session menu action without leaving the terminal.
+        let nextSubscription = await server.prepareTerminalReconnect(
             lines: ["output generated during reconnect", "same terminal, current output"]
         )
+        tapCompactToolbarTitleMenu(app.buttons["MobileWorkspaceTitleMenu"], in: app)
+        tapMenuItem(app.buttons["MobileWorkspaceTitleReconnectMenuItem"], in: app)
         let reconnected = await server.waitForRequest(
             method: "mobile.events.subscribe",
             minimumCount: nextSubscription,
@@ -9989,16 +9990,11 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         }
     }
 
-    func disconnectForTerminalReconnect(lines: [String]) async -> Int {
+    func prepareTerminalReconnect(lines: [String]) async -> Int {
         await withCheckedContinuation { continuation in
             queue.async {
                 self.terminalLinesOnNextSubscription = lines
                 let nextSubscription = self.requestCountsByMethod["mobile.events.subscribe", default: 0] + 1
-                for connection in self.connections {
-                    connection.cancel()
-                }
-                self.connections.removeAll()
-                self.eventSubscriptionStreamIDsByConnection.removeAll()
                 continuation.resume(returning: nextSubscription)
             }
         }
