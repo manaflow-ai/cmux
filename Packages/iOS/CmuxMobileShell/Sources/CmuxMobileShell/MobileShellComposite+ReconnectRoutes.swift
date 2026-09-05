@@ -151,14 +151,6 @@ extension MobileShellComposite {
     public nonisolated static func hasUsableTailscaleAuthorization(
         in macs: [MobilePairedMac]
     ) -> Bool {
-        // An Iroh-identified pairing with a numeric Tailscale address dials
-        // the Iroh lane pinned to that address: admission authenticates it,
-        // so no device-local legacy grant is required.
-        for mac in macs where mac.routes.contains(where: { $0.kind == .iroh }) {
-            if !irohTailscaleDialCandidates(for: mac).isEmpty {
-                return true
-            }
-        }
         var authorizedEndpoints: Set<MobileTailscaleAuthorizationEndpoint> = []
         for mac in macs {
             for route in mac.legacyTailscaleRoutes ?? [] {
@@ -233,13 +225,9 @@ extension MobileShellComposite {
 
     /// Supported routes for reconnecting an already-paired Mac.
     ///
-    /// Unlike the legacy host/port helper, this preserves Iroh peer routes. Once
-    /// a supported Iroh route exists, it also pins the pairing to Iroh and drops
-    /// every raw host/port fallback. A numeric Tailscale route is first copied
-    /// into the pinned Iroh route as a private fallback address, so Tailscale can
-    /// still carry Iroh without receiving a Stack bearer. Otherwise an admission
-    /// or revocation failure could silently downgrade around the Iroh device
-    /// grant. Pairings without an authenticated Iroh identity remain fail-closed.
+    /// Unlike the legacy host/port helper, this preserves Iroh peer routes for
+    /// the Automatic and Direct methods. An explicit Tailscale requirement
+    /// filters the result to exact locally authorized Tailscale endpoints.
     ///
     /// `tailscaleRequirement` represents the user's explicit Tailscale-only
     /// connection method. Only stored Tailscale routes carrying a device-local
@@ -283,33 +271,31 @@ extension MobileShellComposite {
     /// The dial order for one stored Mac, honoring the user's connection-method
     /// choice. With the default automatic method this is exactly
     /// ``storedReconnectRoutes(_:supportedKinds:preferNonLoopback:tailscaleRequirement:)``
-    /// without a preference.
+    /// without a preference. A pre-Iroh automatic pairing may retain a
+    /// migration grant and no Iroh identity; that exact legacy route remains
+    /// available until the Mac publishes an Iroh route or the user selects a
+    /// different method.
     func orderedReconnectRoutes(
         for mac: MobilePairedMac,
         supportedKinds: [CmxAttachTransportKind]
     ) -> [CmxAttachRoute] {
         let method = connectionMethod(for: mac)
-        // Tailscale Only on an Iroh-identified pairing rides the Iroh lane
-        // pinned to the pairing's numeric Tailscale addresses; the raw
-        // grant-gated host lane remains only for legacy pairings without an
-        // Iroh identity, so admission stays the single auth authority.
-        let tailscaleRidesPinnedIroh = method == .tailscale
-            && mac.routes.contains { $0.kind == .iroh }
         let routes = Self.storedReconnectRoutes(
             mac.routes,
             supportedKinds: supportedKinds,
             preferNonLoopback: Self.prefersNonLoopbackRoutes,
-            tailscaleRequirement: method == .tailscale && !tailscaleRidesPinnedIroh
+            tailscaleRequirement: method == .tailscale
                 ? TailscaleRouteRequirement(
                     macDeviceID: mac.macDeviceID,
                     grantRoutes: mac.legacyTailscaleRoutes ?? []
                 )
                 : nil
         )
-        // A pinned method rides the Iroh lane EXCLUSIVELY: the transport
-        // dials only the method's allowlisted addresses, and no dev-loopback
-        // or host/port lane may substitute when they are unreachable.
-        return method == .direct || tailscaleRidesPinnedIroh
+        // Direct rides the Iroh lane EXCLUSIVELY: the transport dials only the
+        // method's allowlisted addresses, and no dev-loopback or host/port lane
+        // may substitute when they are unreachable. Tailscale routes remain
+        // Tailscale routes, with Iroh excluded by the requirement above.
+        return method == .direct
             ? routes.filter { $0.kind == .iroh }
             : routes
     }

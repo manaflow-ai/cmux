@@ -1,12 +1,14 @@
 #if os(iOS)
 import CMUXMobileCore
 import CmuxAuthRuntime
+import CmuxMobileDiagnostics
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import CmuxMobileToast
 import CmuxMobileWorkspace
 import SwiftUI
+import UIKit
 
 /// The mobile app's settings page. Surfaces the signed-in account (so the user
 /// can confirm which cmux account this device uses — the account must match the
@@ -336,6 +338,23 @@ struct MobileSettingsView: View {
                     "mobile.settings.cmuxLabs",
                     defaultValue: "CMUX Labs"
                 )) {
+                    Toggle(isOn: $displaySettings.taskComposerFullLiquidGlass) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(L10n.string(
+                                "mobile.settings.taskComposerFullLiquidGlass",
+                                defaultValue: "Task Composer Liquid Glass"
+                            ))
+                            Text(L10n.string(
+                                "mobile.settings.taskComposerFullLiquidGlassCaption",
+                                defaultValue:
+                                    "Use Liquid Glass controls and a transparent bar in New Task."
+                            ))
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        }
+                    }
+                    .accessibilityIdentifier("MobileSettingsTaskComposerFullLiquidGlass")
+
                     NavigationLink {
                         TaskComposerShellIconLabView()
                     } label: {
@@ -866,8 +885,12 @@ struct MobileSettingsView: View {
 private struct MobileSettingsDiagnosticsSection: View {
     @Environment(\.irohSettingsController) private var irohSettingsController
     @Environment(\.mobileDiagnosticLog) private var diagnosticLog
-    @State private var appLogURLs: [URL] = []
-    @State private var networkLogURLs: [URL] = []
+    @Environment(\.mobileAppLog) private var appLog
+    @State private var isPreparingExport = false
+    @State private var logExportTask: Task<Void, Never>?
+    @State private var logExportTaskID: UUID?
+    @State private var presentationHost: UIViewController?
+    @State private var exportErrorMessage: String?
     /// Owns the verbose-log toggle and the privacy-scrubbed connection report
     /// that used to live on the Networking screen. `nil` without a controller
     /// (previews, hosts without the app root).
@@ -876,33 +899,20 @@ private struct MobileSettingsDiagnosticsSection: View {
 
     var body: some View {
         Section {
-            if !appLogURLs.isEmpty {
-                ShareLink(items: appLogURLs) {
+            if appLog != nil {
+                Button {
+                    startLogExport()
+                } label: {
                     Label(
                         L10n.string(
-                            "mobile.settings.diagnostics.shareAppLog",
-                            defaultValue: "Share App Log"
+                            "mobile.settings.diagnostics.export",
+                            defaultValue: "Export Logs"
                         ),
-                        systemImage: "doc.text"
+                        systemImage: "square.and.arrow.up"
                     )
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
                 }
-                .accessibilityIdentifier("MobileSettingsShareAppLog")
-            }
-            if !networkLogURLs.isEmpty {
-                ShareLink(items: networkLogURLs) {
-                    Label(
-                        L10n.string(
-                            "mobile.settings.diagnostics.shareNetworkLog",
-                            defaultValue: "Share Network Log"
-                        ),
-                        systemImage: "network"
-                    )
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
-                }
-                .accessibilityIdentifier("MobileSettingsShareNetworkLog")
+                .disabled(isPreparingExport)
+                .accessibilityIdentifier("MobileSettingsExportLogs")
             }
             if let model = irohSettingsModel {
                 Toggle(isOn: Binding(
@@ -923,73 +933,71 @@ private struct MobileSettingsDiagnosticsSection: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                 }
-                if let verboseLogShareURL = model.verboseLogShareURL {
-                    ShareLink(item: verboseLogShareURL) {
-                        Label(
-                            L10n.string(
-                                "mobile.iroh.diagnostics.shareVerboseLog",
-                                defaultValue: "Share Verbose Log"
-                            ),
-                            systemImage: "doc.text"
-                        )
-                    }
-                    .accessibilityIdentifier("MobileIrohShareVerboseLog")
-                    .simultaneousGesture(TapGesture().onEnded {
-                        diagnosticLog?.recordAppEvent(.verboseDiagnosticsShared)
-                    })
-                }
-                ShareLink(item: model.diagnosticExportText) {
-                    Label(
-                        L10n.string("mobile.iroh.diagnostics.share", defaultValue: "Share Safe Report"),
-                        systemImage: "square.and.arrow.up"
-                    )
-                }
-                .disabled(model.diagnosticExportText.isEmpty)
-                .accessibilityIdentifier("MobileIrohShareDiagnosticReport")
-                .simultaneousGesture(TapGesture().onEnded {
-                    diagnosticLog?.recordAppEvent(.irohDiagnosticsShared)
-                })
                 Button(role: .destructive) {
                     showsClearConfirmation = true
                 } label: {
                     Label(
-                        L10n.string("mobile.iroh.diagnostics.clear", defaultValue: "Clear Report"),
+                        L10n.string("mobile.iroh.diagnostics.clear", defaultValue: "Clear Logs"),
                         systemImage: "trash"
                     )
                 }
-                .disabled(model.diagnosticReport.events.isEmpty)
-                .accessibilityIdentifier("MobileIrohClearDiagnosticReport")
+                .accessibilityIdentifier("MobileSettingsClearLogs")
             }
         } header: {
             Text(L10n.string("mobile.settings.diagnostics", defaultValue: "Diagnostics"))
         } footer: {
             Text(L10n.string(
                 "mobile.settings.diagnostics.footer",
-                defaultValue: "The App Log records in-app activity; the Network Log records connection diagnostics. Terminal contents and credentials are never written."
+                defaultValue: "Export includes app events and networking diagnostics. Terminal contents and credentials are never written."
             ))
         }
+        .background {
+            MobileSettingsPresentationAnchor { host in
+                presentationHost = host
+            }
+            .frame(width: 0, height: 0)
+        }
         .confirmationDialog(
-            L10n.string("mobile.iroh.diagnostics.clear.confirm", defaultValue: "Clear this diagnostic report?"),
+            L10n.string("mobile.iroh.diagnostics.clear.confirm", defaultValue: "Clear all diagnostic logs?"),
             isPresented: $showsClearConfirmation,
             titleVisibility: .visible
         ) {
-            Button(L10n.string("mobile.iroh.diagnostics.clear", defaultValue: "Clear Report"), role: .destructive) {
-                Task { await irohSettingsModel?.clearDiagnosticReport() }
+            Button(L10n.string("mobile.iroh.diagnostics.clear", defaultValue: "Clear Logs"), role: .destructive) {
+                Task {
+                    // Stop and drain the string sink first. Its synchronous
+                    // observer mirrors each accepted line into AppLog, so the
+                    // AppLog barrier below includes every pre-clear line.
+                    let verboseLogWasEnabled = irohSettingsModel?.verboseLogEnabled == true
+                    let didClearVerboseLog = await MobileDebugLog.shared.clearPersistedLog()
+                    if !didClearVerboseLog {
+                        if verboseLogWasEnabled {
+                            await irohSettingsModel?.setVerboseLog(false)
+                        }
+                        exportErrorMessage = L10n.string(
+                            "mobile.settings.diagnostics.clear.failed",
+                            defaultValue: "Couldn’t clear the verbose connection logs. Check available storage and try again."
+                        )
+                    }
+                    await irohSettingsModel?.clearDiagnosticReport()
+                    await diagnosticLog?.clear()
+                    let didClearAppLog = await appLog?.clear() ?? true
+                    if !didClearAppLog {
+                        exportErrorMessage = L10n.string(
+                            "mobile.settings.diagnostics.clear.failed",
+                            defaultValue: "Couldn’t clear every log generation. Check available storage and try again."
+                        )
+                    }
+                }
             }
             Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {}
         } message: {
             Text(L10n.string(
                 "mobile.iroh.diagnostics.clear.message",
-                defaultValue: "This permanently removes the connection timeline stored on this device."
+                defaultValue: "This permanently removes the app, networking, verbose, and connection logs stored on this device."
             ))
         }
         .task {
-            let urls = await Task.detached(priority: .utility) {
-                (AppLog.appLogFileURLs, AppLog.networkLogFileURLs)
-            }.value
             guard !Task.isCancelled else { return }
-            appLogURLs = urls.0
-            networkLogURLs = urls.1
             guard let irohSettingsController else { return }
             // Reuse the model but restart observation on every appearance;
             // the previous observe loop died with the previous task.
@@ -1000,7 +1008,139 @@ private struct MobileSettingsDiagnosticsSection: View {
             irohSettingsModel = model
             await model.observe(recordingScreenEvents: false)
         }
-        .onDisappear { irohSettingsModel?.cancelOperations() }
+        .onDisappear {
+            logExportTask?.cancel()
+            logExportTask = nil
+            logExportTaskID = nil
+            irohSettingsModel?.cancelOperations()
+        }
+        .alert(
+            L10n.string("mobile.settings.diagnostics", defaultValue: "Diagnostics"),
+            isPresented: Binding(
+                get: { exportErrorMessage != nil },
+                set: { isPresented in
+                    if !isPresented { exportErrorMessage = nil }
+                }
+            )
+        ) {
+            Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {
+                exportErrorMessage = nil
+            }
+        } message: {
+            Text(exportErrorMessage ?? L10n.string(
+                "mobile.settings.diagnostics.export.failed",
+                defaultValue: "Couldn’t export logs. Check available storage and try again."
+            ))
+        }
+    }
+
+    @MainActor
+    private func startLogExport() {
+        guard logExportTask == nil else { return }
+        let taskID = UUID()
+        logExportTaskID = taskID
+        logExportTask = Task { @MainActor in
+            defer {
+                if logExportTaskID == taskID {
+                    logExportTask = nil
+                    logExportTaskID = nil
+                }
+            }
+            await prepareLogExport()
+        }
+    }
+
+    @MainActor
+    private func prepareLogExport() async {
+        guard !isPreparingExport, let appLog else { return }
+        isPreparingExport = true
+        defer { isPreparingExport = false }
+        guard let url = await appLog.exportLogs() else {
+            guard !Task.isCancelled else { return }
+            exportErrorMessage = L10n.string(
+                "mobile.settings.diagnostics.export.failed",
+                defaultValue: "Couldn’t export logs. Check available storage and try again."
+            )
+            return
+        }
+        guard !Task.isCancelled else {
+            try? FileManager.default.removeItem(at: url)
+            return
+        }
+        presentLogExport(url)
+    }
+
+    @MainActor
+    private func presentLogExport(_ url: URL) {
+        let controller = UIActivityViewController(
+            activityItems: [url],
+            applicationActivities: nil
+        )
+        controller.completionWithItemsHandler = { _, _, _, _ in
+            try? FileManager.default.removeItem(at: url)
+        }
+        guard let host = presentationHost,
+              let window = host.viewIfLoaded?.window,
+              let root = window.rootViewController else {
+            try? FileManager.default.removeItem(at: url)
+            exportErrorMessage = L10n.string(
+                "mobile.settings.diagnostics.export.failed",
+                defaultValue: "Couldn’t export logs. Check available storage and try again."
+            )
+            return
+        }
+        let presenter = Self.topViewController(from: root)
+        controller.popoverPresentationController?.sourceView = presenter.view
+        controller.popoverPresentationController?.sourceRect = CGRect(
+            x: presenter.view.bounds.midX,
+            y: presenter.view.bounds.midY,
+            width: 1,
+            height: 1
+        )
+        presenter.present(controller, animated: true)
+    }
+
+    private static func topViewController(from controller: UIViewController) -> UIViewController {
+        if let presented = controller.presentedViewController {
+            return topViewController(from: presented)
+        }
+        if let navigation = controller as? UINavigationController,
+           let visible = navigation.visibleViewController {
+            return topViewController(from: visible)
+        }
+        if let tab = controller as? UITabBarController,
+           let selected = tab.selectedViewController {
+            return topViewController(from: selected)
+        }
+        return controller
+    }
+}
+
+@MainActor
+private struct MobileSettingsPresentationAnchor: UIViewControllerRepresentable {
+    let onReady: (UIViewController) -> Void
+
+    func makeUIViewController(context: Context) -> MobileSettingsPresentationAnchorViewController {
+        let controller = MobileSettingsPresentationAnchorViewController()
+        controller.onReady = onReady
+        return controller
+    }
+
+    func updateUIViewController(
+        _ uiViewController: MobileSettingsPresentationAnchorViewController,
+        context: Context
+    ) {
+        uiViewController.onReady = onReady
+    }
+}
+
+@MainActor
+private final class MobileSettingsPresentationAnchorViewController: UIViewController {
+    var onReady: ((UIViewController) -> Void)?
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        onReady?(self)
     }
 }
 #endif

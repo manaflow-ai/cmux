@@ -5,13 +5,14 @@ import Foundation
 /// shares — `cmux vm shell|new|fork|restore|base open|base reset`, the Machines
 /// panel, and the sidebar cloud button all land in `openVMTuiWorkspace`.
 ///
-/// The control plane returns a tokenized `/v1/link` route and, for a device that has
-/// not enrolled with this machine's daemon yet, a single-use invitation. A workspace
+/// The app uses the machine's private `/v1/link` route through its user-space
+/// WireGuard hub. Only a device that has not enrolled with this machine's
+/// daemon asks the control plane for a single-use invitation. A workspace
 /// pane runs the hidden `vm-tui-connect` helper, which hands the terminal to the
 /// local cmux-tui client (`remote connect`) and, while the client claims the
 /// invitation, asks the control plane to approve the pending enrollment through the
-/// app socket. After the first enrollment the device key lives in the client's state
-/// directory and later attaches need only a fresh route.
+/// app socket. After the first enrollment the device key and private route are
+/// local facts. Later attaches make no connection or approval request.
 extension CMUXCLI {
     struct VMTuiConnectConfig: Codable {
         let vmId: String
@@ -22,6 +23,9 @@ extension CMUXCLI {
         let clientPath: String
         let stateDir: String
         let deviceName: String
+        /// The app's WireGuard hub socket for a private-network route (`--wireguard-hub`);
+        /// Required for every Cloud VM route.
+        var wireguardHubSocket: String? = nil
     }
 
     /// How an entrypoint wants the machine's workspace shaped; the session itself is
@@ -53,9 +57,6 @@ extension CMUXCLI {
         let deviceFingerprint: String
         let updatedAtUnix: Int
     }
-
-    static let vmTuiApprovalPollSeconds: TimeInterval = 2
-    static let vmTuiApprovalTimeoutSeconds: TimeInterval = 5 * 60
 
     static var vmTuiUsage: String {
         """
@@ -241,12 +242,12 @@ extension CMUXCLI {
     /// stay alive until that split lands; it is closed right after.
     static let vmPlainTerminalPlaceholderCommand = "sleep 60"
 
-    /// The shared cloud open path (`vmOpenShell`) calls this first for every entrypoint.
-    /// Returns nil only when the control plane says the machine's deployment does not
-    /// run cmux-tui at all (providers that predate the migration), so the caller may
-    /// fall back to their transport. Any other failure — including a machine that
-    /// reports it attaches through cmux-tui only — surfaces as-is; nothing falls back
-    /// to a websocket attach the backend will refuse.
+    /// Backend code the control plane returns when a machine refuses the legacy
+    /// `vm.ssh_info` attach because it runs cmux-tui only. A forced SSH request treats
+    /// it as "use the managed cmux-remote route instead", never as a hard failure
+    /// (`shouldFallbackFromForcedSSH` in cmux.swift).
+    static let vmAttachTransportUnsupportedCode = "vm_attach_transport_unsupported"
+
     /// True when `workspaceRaw` (a UUID or handle) is the selected workspace of the
     /// window in question. Unknown (socket error, no such workspace) reads as false:
     /// when in doubt, do not move focus.
@@ -258,37 +259,6 @@ extension CMUXCLI {
         guard let current = try? client.sendV2(method: "workspace.current", params: params) else { return false }
         let candidates = [current["workspace_id"] as? String, current["workspace_ref"] as? String].compactMap { $0 }
         return candidates.contains { $0.caseInsensitiveCompare(workspaceRaw) == .orderedSame }
-    }
-
-    func openVMShellViaCmuxTuiIfAvailable(
-        vmId: String,
-        windowRaw: String?,
-        options: VMTuiOpenOptions = VMTuiOpenOptions(),
-        client: SocketClient
-    ) throws -> VMTuiOpenResult? {
-        do {
-            return try openVMTuiWorkspace(vmId: vmId, windowRaw: windowRaw, options: options, client: client)
-        } catch let error as CLIError where Self.isCmuxTuiUnavailable(error) {
-            return nil
-        }
-    }
-
-    /// Backend code the control plane returns when a machine refuses the legacy attach
-    /// because it runs cmux-tui only; it means "use cmux-tui", never "fall back".
-    static let vmAttachTransportUnsupportedCode = "vm_attach_transport_unsupported"
-
-    static func isCmuxTuiUnavailable(_ error: CLIError) -> Bool {
-        if error.vmBackendCode == vmAttachTransportUnsupportedCode {
-            return false
-        }
-        let text = error.message.lowercased()
-        if text.contains(vmAttachTransportUnsupportedCode) || text.contains("cmux-tui only") {
-            return false
-        }
-        return text.contains("not enabled for this deployment")
-            || text.contains("not supported by this deployment")
-            || text.contains("does not run the cmux-tui")
-            || text.contains("unknown method")
     }
 
     func runVMTuiCommand(rest: [String], windowRaw: String?, client: SocketClient, jsonOutput: Bool) throws {
@@ -333,10 +303,8 @@ extension CMUXCLI {
     ) throws -> VMTuiOpenResult {
         let startedAt = Date()
         let known = Self.loadVMTuiDevices()[vmId]
-        // Probe the local client before asking the control plane: what it can do
-        // (`capabilities`) decides which machine host the route points at. A missing
-        // client is still only reported once the machine is confirmed reachable
-        // through cmux-tui, so deployments without the daemon fall back cleanly.
+        // Probe the local client before asking the app for connection data. Its
+        // WireGuard capability is mandatory for every Cloud VM route.
         let clientPath = locateCmuxTuiClient()
         let clientProbe = clientPath.flatMap { Self.cmuxTuiClientProbe(at: $0) }
         var infoParams: [String: Any] = ["id": vmId]
@@ -386,7 +354,8 @@ extension CMUXCLI {
                 invitationId: invitationId,
                 clientPath: clientPath,
                 stateDir: stateDir.path,
-                deviceName: Self.vmTuiDeviceName()
+                deviceName: Self.vmTuiDeviceName(),
+                wireguardHubSocket: info["wireguard_hub_socket"] as? String
             )
             let configURL = FileManager.default.temporaryDirectory
                 .appendingPathComponent("cmux-vm-tui-\(UUID().uuidString.lowercased()).json")
@@ -549,6 +518,9 @@ extension CMUXCLI {
         if let inviteFilePath, !inviteFilePath.isEmpty {
             arguments += ["--invite-file", inviteFilePath]
         }
+        if let hubSocket = config.wireguardHubSocket, !hubSocket.isEmpty {
+            arguments += ["--wireguard-hub", hubSocket]
+        }
         return arguments
     }
 
@@ -658,8 +630,8 @@ extension CMUXCLI {
     // MARK: - cmux vm-tui-approve --id <vm> --invitation-id <id> [--invite-file <path>]  (detached)
 
     /// Approves a pending cmux-tui enrollment through the app while the pane's client
-    /// claims the invitation. Silent: it owns no terminal. Ends when the claim is
-    /// approved or `vmTuiApprovalTimeoutSeconds` pass, and deletes the invite file
+    /// claims the invitation. Silent: it owns no terminal. The app makes one request;
+    /// the VM waits for the claim on its local daemon socket. The invite file is deleted
     /// either way.
     func runVMTuiApprove(commandArgs: [String], client: SocketClient) throws {
         let (vmIdOpt, rest0) = parseOption(commandArgs, name: "--id")
@@ -673,20 +645,15 @@ extension CMUXCLI {
                 try? FileManager.default.removeItem(atPath: inviteFileOpt)
             }
         }
-        let deadline = Date().addingTimeInterval(Self.vmTuiApprovalTimeoutSeconds)
-        while Date() < deadline {
-            Thread.sleep(forTimeInterval: Self.vmTuiApprovalPollSeconds)
-            guard let result = try? client.sendV2(
-                method: "vm.cmux_remote_approve",
-                params: ["id": vmId, "invitation_id": invitationId],
-                responseTimeout: 60
-            ) else { continue }
-            if (result["state"] as? String) == "approved" {
-                if let fingerprint = result["device_fingerprint"] as? String, !fingerprint.isEmpty {
-                    Self.saveVMTuiDevice(vmId: vmId, deviceFingerprint: fingerprint)
-                }
-                return
-            }
+        guard let result = try? client.sendV2(
+            method: "vm.cmux_remote_approve",
+            params: ["id": vmId, "invitation_id": invitationId],
+            responseTimeout: 75
+        ) else { return }
+        if (result["state"] as? String) == "approved",
+           let fingerprint = result["device_fingerprint"] as? String,
+           !fingerprint.isEmpty {
+            Self.saveVMTuiDevice(vmId: vmId, deviceFingerprint: fingerprint)
         }
     }
 }

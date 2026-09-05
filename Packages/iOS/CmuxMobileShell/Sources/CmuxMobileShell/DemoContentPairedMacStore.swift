@@ -166,6 +166,26 @@ public struct DemoContentPairedMacStore: MobilePairedMacStoring {
         )
     }
 
+    @discardableResult
+    public func removeRouteIfAuthorized(
+        macDeviceID: String,
+        route: CmxAttachRoute,
+        condition: MobilePairedMacRouteWriteCondition,
+        stackUserID: String?,
+        teamID: String?,
+        now: Date
+    ) async throws -> Bool {
+        guard !isDemoDeviceID(macDeviceID) else { return false }
+        return try await inner.removeRouteIfAuthorized(
+            macDeviceID: macDeviceID,
+            route: route,
+            condition: condition,
+            stackUserID: stackUserID,
+            teamID: teamID,
+            now: now
+        )
+    }
+
     public func setActive(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
         guard !isDemoDeviceID(macDeviceID) else { return }
         try await inner.setActive(macDeviceID: macDeviceID, stackUserID: stackUserID, teamID: teamID)

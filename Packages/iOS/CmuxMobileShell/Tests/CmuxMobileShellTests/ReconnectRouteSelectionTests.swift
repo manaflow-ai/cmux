@@ -619,12 +619,22 @@ import Testing
             stackUserID: base.stackUserID,
             legacyTailscaleRoutes: [stale]
         )
+        let irohBacked = MobilePairedMac(
+            macDeviceID: base.macDeviceID,
+            displayName: base.displayName,
+            routes: [current, try iroh()],
+            createdAt: base.createdAt,
+            lastSeenAt: base.lastSeenAt,
+            isActive: base.isActive,
+            stackUserID: base.stackUserID
+        )
 
         #expect(MobileShellComposite.hasUsableTailscaleAuthorization(in: [authorized]))
         #expect(!MobileShellComposite.hasUsableTailscaleAuthorization(in: [base]))
         #expect(!MobileShellComposite.hasUsableTailscaleAuthorization(
             in: [staleAuthorization]
         ))
+        #expect(!MobileShellComposite.hasUsableTailscaleAuthorization(in: [irohBacked]))
     }
 
     @Test func usableTailscaleAuthorizationFindsLastMacInLargeSnapshot() throws {
@@ -723,13 +733,9 @@ import Testing
         )
     }
 
-    /// Switching an Iroh-identified pairing to Tailscale Only still replaces
-    /// the live session (its route decisions were made under the old method),
-    /// but the replacement dial rides the Iroh lane pinned to the pairing's
-    /// numeric Tailscale addresses: transport admission stays the single auth
-    /// authority for every session purpose, and the raw TCP lane is reserved
-    /// for legacy pairings without an Iroh identity.
-    @Test func changingToTailscaleReplacesLiveIrohWithPinnedIrohDial() async throws {
+    /// Switching an Iroh-identified pairing to Tailscale Only replaces the
+    /// live session and dials the actual authorized Tailscale route.
+    @Test func changingToTailscaleReplacesLiveIrohWithTailscaleDial() async throws {
         let clock = TestClock()
         let router = LivenessHostRouter()
         // The factory boxes the live Iroh transport it hands out, so the test
@@ -738,7 +744,7 @@ import Testing
         let factory = KindRecordingTransportFactory(
             router: router,
             box: liveTransportBox,
-            failingKinds: [.tailscale]
+            failingKinds: []
         )
         let tailscale = try tailscale()
         let iroh = try iroh()
@@ -791,7 +797,11 @@ import Testing
         // live session before the method change replaces it.
         let originalTransport = await liveTransportBox.get()
 
-        methodStore.method = .tailscale
+        await store.setConnectionMethod(
+            .tailscale,
+            macDeviceID: "test-mac",
+            instanceTag: "default"
+        )
 
         // The reconnected route only proves the store's logical state; the
         // replaced live Iroh transport must also finish closing so no
@@ -799,14 +809,200 @@ import Testing
         let applied = try await pollUntil {
             let originalTransportClosed =
                 await originalTransport?.isClosedForTesting() == true
-            return factory.attemptedKinds().filter { $0 == .iroh }.count == 2
+            return factory.attemptedKinds().filter { $0 == .iroh }.count == 1
                 && store.connectionState == .connected
                 && originalTransportClosed
         }
         #expect(applied)
+        #expect(store.activeRoute?.kind == .tailscale)
+        #expect(factory.attemptedKinds().filter { $0 == .tailscale }.count == 1)
+    }
+
+    /// A selected Tailscale route is strict. If its dial fails, the old Iroh
+    /// session stays closed and no Iroh retry is allowed to mask the failure.
+    @Test func failingTailscaleAfterMethodChangeDoesNotFallbackToIroh() async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        let liveTransportBox = TransportBox()
+        let factory = KindRecordingTransportFactory(
+            router: router,
+            box: liveTransportBox,
+            failingKinds: [.tailscale]
+        )
+        let tailscale = try tailscale()
+        let iroh = try iroh()
+        let (pairedStore, directory) = try makePairedMacStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try await pairedStore.upsert(
+            macDeviceID: "test-mac",
+            displayName: "Test Mac",
+            routes: [tailscale, iroh],
+            instanceTag: "default",
+            markActive: true,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: clock.now
+        )
+        try await pairedStore.authorizeUserTailscaleRoutes(
+            macDeviceID: "test-mac",
+            instanceTag: "default",
+            stackUserID: "user-1",
+            teamID: nil,
+            routes: [tailscale]
+        )
+        let methodStore = MobileConnectionMethodStore(
+            defaults: UserDefaults(
+                suiteName: "connection-method-strict-failure-\(UUID().uuidString)"
+            )!
+        )
+        let store = MobileShellComposite(
+            runtime: LivenessTestRuntime(
+                transportFactory: factory,
+                now: { clock.now },
+                supportedRouteKinds: [.iroh, .tailscale]
+            ),
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            connectionMethodStore: methodStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            reachability: AlwaysOnlineReachability(),
+            pairingHintDefaults: UserDefaults(
+                suiteName: "connection-method-strict-failure-hint-\(UUID().uuidString)"
+            )!,
+            hiddenMacStore: InMemoryPairedMacHiddenStore()
+        )
+        await store.loadPairedMacs()
+
+        #expect(await store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
         #expect(store.activeRoute?.kind == .iroh)
-        // Tailscale Only never dials the raw TCP lane for a pairing with an
-        // Iroh identity, even when that dial would be authorized.
-        #expect(!factory.attemptedKinds().contains(.tailscale))
+        let originalTransport = await liveTransportBox.get()
+
+        await store.setConnectionMethod(
+            .tailscale,
+            macDeviceID: "test-mac",
+            instanceTag: "default"
+        )
+
+        let failed = try await pollUntil {
+            let originalTransportClosed =
+                await originalTransport?.isClosedForTesting() == true
+            return store.connectionState == .disconnected
+                && store.macConnectionStatus == .unavailable
+                && originalTransportClosed
+        }
+        #expect(failed)
+        #expect(store.activeRoute == nil)
+        #expect(store.connectionError != nil)
+        #expect(factory.attemptedKinds() == [.iroh, .tailscale])
+    }
+
+    /// A strict Tailscale foreground selection must not be hidden by reconnect
+    /// promoting a different saved computer over Iroh after the selected Mac
+    /// fails.
+    @Test func failingSelectedTailscaleDoesNotPromoteAnotherSavedIrohMac()
+        async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        let liveTransportBox = TransportBox()
+        let factory = KindRecordingTransportFactory(
+            router: router,
+            box: liveTransportBox,
+            failingKinds: [.tailscale]
+        )
+        let tailscale = try tailscale()
+        let iroh = try iroh()
+        let otherIroh = try CmxAttachRoute(
+            id: "iroh-other",
+            kind: .iroh,
+            endpoint: .peer(
+                identity: CmxIrohPeerIdentity(
+                    endpointID: String(repeating: "b", count: 64)
+                ),
+                pathHints: []
+            ),
+            priority: -10_000
+        )
+        let (pairedStore, directory) = try makePairedMacStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try await pairedStore.upsert(
+            macDeviceID: "selected-mac",
+            displayName: "Selected Mac",
+            routes: [tailscale, iroh],
+            instanceTag: "default",
+            markActive: true,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: clock.now
+        )
+        try await pairedStore.authorizeUserTailscaleRoutes(
+            macDeviceID: "selected-mac",
+            instanceTag: "default",
+            stackUserID: "user-1",
+            teamID: nil,
+            routes: [tailscale]
+        )
+        try await pairedStore.upsert(
+            macDeviceID: "other-mac",
+            displayName: "Other Mac",
+            routes: [otherIroh],
+            instanceTag: "default",
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: clock.now
+        )
+        await router.setHostIdentity(
+            deviceID: "selected-mac",
+            instanceTag: "default",
+            displayName: "Selected Mac"
+        )
+        await router.setHostIdentity(
+            deviceID: "other-mac",
+            instanceTag: "default",
+            displayName: "Other Mac"
+        )
+        let methodStore = MobileConnectionMethodStore(
+            defaults: UserDefaults(
+                suiteName: "connection-method-strict-other-mac-\(UUID().uuidString)"
+            )!
+        )
+        let store = MobileShellComposite(
+            runtime: LivenessTestRuntime(
+                transportFactory: factory,
+                now: { clock.now },
+                supportedRouteKinds: [.iroh, .tailscale]
+            ),
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            connectionMethodStore: methodStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            reachability: AlwaysOnlineReachability(),
+            pairingHintDefaults: UserDefaults(
+                suiteName: "connection-method-strict-other-mac-hint-\(UUID().uuidString)"
+            )!,
+            hiddenMacStore: InMemoryPairedMacHiddenStore()
+        )
+        await store.loadPairedMacs()
+
+        await store.setConnectionMethod(
+            .tailscale,
+            macDeviceID: "selected-mac",
+            instanceTag: "default"
+        )
+
+        let failed = try await pollUntil {
+            store.connectionState == .disconnected
+                && store.macConnectionStatus == .unavailable
+                && store.connectionError != nil
+        }
+        #expect(failed)
+        #expect(
+            store.connectionMethod(
+                forMacDeviceID: "selected-mac",
+                instanceTag: "default"
+            ) == .tailscale
+        )
+        #expect(store.foregroundMacDeviceID == nil)
+        #expect(factory.attemptedKinds() == [.tailscale])
     }
 }

@@ -181,6 +181,29 @@ import Testing
             .map(\.macDeviceID) == [mac.macDeviceID])
     }
 
+    @Test func pendingAutomaticReconnectTargetIsExcludedFromSecondaryAggregation() throws {
+        let shell = MobileShellComposite(
+            isSignedIn: false,
+            presence: IdlePresence()
+        )
+        let mac = try Self.pairedMac(
+            id: "mac-pending-retry",
+            instanceTag: "tag-pending-retry"
+        )
+        shell.foregroundMacDeviceID = mac.macDeviceID
+        shell.foregroundMacDeviceID = nil
+        shell.automaticReconnectRetryTask = Task {}
+        defer { shell.automaticReconnectRetryTask?.cancel() }
+
+        #expect(shell.secondaryAggregationCandidateMacs(from: [mac]).isEmpty)
+
+        // A retry for a different target must not freeze the whole control
+        // pool. Clearing the task models the retry being consumed or canceled.
+        shell.automaticReconnectRetryTask = nil
+        #expect(shell.secondaryAggregationCandidateMacs(from: [mac])
+            .map(\.macDeviceID) == [mac.macDeviceID])
+    }
+
     @Test func onlineAliasKeepsLogicalMacInPool() async throws {
         let route = try CmxAttachRoute(
             id: "alias-route",

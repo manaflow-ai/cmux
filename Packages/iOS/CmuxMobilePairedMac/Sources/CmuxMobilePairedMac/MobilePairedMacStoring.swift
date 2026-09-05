@@ -64,6 +64,20 @@ public protocol MobilePairedMacStoring: Sendable {
         now: Date
     ) async throws -> Bool
 
+    /// Remove one advertised route while retaining a local tombstone for its
+    /// endpoint. Reconnect and presence updates may continue to advertise a
+    /// route that the user removed on this device; the tombstone keeps that
+    /// route hidden until the paired Mac itself is forgotten and re-paired.
+    @discardableResult
+    func removeRouteIfAuthorized(
+        macDeviceID: String,
+        route: CmxAttachRoute,
+        condition: MobilePairedMacRouteWriteCondition,
+        stackUserID: String?,
+        teamID: String?,
+        now: Date
+    ) async throws -> Bool
+
     /// Load all paired Macs, optionally scoped to a Stack user and team.
     /// - Parameters:
     ///   - stackUserID: When set, returns only Macs owned by that user.
@@ -227,6 +241,52 @@ public protocol MobilePairedMacStoring: Sendable {
 }
 
 extension MobilePairedMacStoring {
+    /// In-memory/test fallback for stores that do not persist route tombstones.
+    /// Production SQLite and scope decorators override this requirement.
+    @discardableResult
+    public func removeRouteIfAuthorized(
+        macDeviceID: String,
+        route: CmxAttachRoute,
+        condition: MobilePairedMacRouteWriteCondition,
+        stackUserID: String?,
+        teamID: String?,
+        now: Date
+    ) async throws -> Bool {
+        let instanceTag: String?
+        switch condition {
+        case .matchingInstanceTag(let tag): instanceTag = tag
+        case .unclaimed: instanceTag = nil
+        }
+        let current = try await loadAll(stackUserID: stackUserID, teamID: teamID)
+            .first {
+                cmxCanonicalDeviceID($0.macDeviceID) == cmxCanonicalDeviceID(macDeviceID)
+                    && CmxMacAppInstanceIdentity(
+                        macDeviceID: $0.macDeviceID,
+                        instanceTag: $0.instanceTag
+                    ).id == CmxMacAppInstanceIdentity(
+                        macDeviceID: macDeviceID,
+                        instanceTag: instanceTag
+                    ).id
+            }
+        guard let current else { return false }
+        guard let removedIndex = current.routes.firstIndex(where: {
+            $0.kind == route.kind && $0.endpoint == route.endpoint
+        }) else { return false }
+        var remaining = current.routes
+        remaining.remove(at: removedIndex)
+        guard remaining.count < current.routes.count, !remaining.isEmpty else { return false }
+        return try await upsertRoutesIfAuthorized(
+            macDeviceID: macDeviceID,
+            displayName: current.displayName,
+            routes: remaining,
+            condition: condition,
+            markActive: nil,
+            stackUserID: stackUserID,
+            teamID: teamID,
+            now: now
+        )
+    }
+
     /// Compatibility no-op for stores that predate per-Computer Direct
     /// addresses (test fixtures); the SQLite store and decorators override.
     public func setDirectAddresses(

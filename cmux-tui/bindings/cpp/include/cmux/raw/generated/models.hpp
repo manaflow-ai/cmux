@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "3081404cdf961727b704a56041bf714f07cdaf815429b37e305ad54a08a29b04";
+inline constexpr std::string_view kProtocolIrSha256 = "8ff10c20fef75f9aaa1498eaf5e1107f084bdcf3febdcf8806fb4e7fc1c90b86";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -64,6 +64,7 @@ struct LayoutUndoUndone;
 struct ListAgentsResult;
 struct ListTerminalsResult;
 struct LivePane;
+struct MachineListeningTcpResult;
 struct MachineUsage;
 struct MachineUsageResult;
 struct MintTerminalRendererResult;
@@ -175,6 +176,7 @@ struct ListClientsRequest;
 struct ListClientsResult;
 struct ListTerminalsRequest;
 struct ListWorkspacesRequest;
+struct MachineListeningTcpRequest;
 struct MachineUsageRequest;
 struct MarkWorkspacesProviderManagedRequest;
 struct MintTerminalRendererRequest;
@@ -1505,6 +1507,15 @@ struct LivePane {
     std::optional<std::string> short_id{};
     std::vector<Tab> tabs{};
     friend bool operator==(const LivePane&, const LivePane&) = default;
+};
+
+struct MachineListeningTcpRequest {
+    friend bool operator==(const MachineListeningTcpRequest&, const MachineListeningTcpRequest&) = default;
+};
+
+struct MachineListeningTcpResult {
+    std::string stdout{};
+    friend bool operator==(const MachineListeningTcpResult&, const MachineListeningTcpResult&) = default;
 };
 
 struct MachineUsage {
@@ -2963,6 +2974,12 @@ struct Codec<LivePane> {
 };
 
 template <>
+struct Codec<MachineListeningTcpResult> {
+    static Result<Json> encode(const MachineListeningTcpResult& value);
+    static Result<MachineListeningTcpResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<MachineUsage> {
     static Result<Json> encode(const MachineUsage& value);
     static Result<MachineUsage> decode(const Json& value);
@@ -3626,6 +3643,12 @@ template <>
 struct Codec<ListWorkspacesRequest> {
     static Result<Json> encode(const ListWorkspacesRequest& value);
     static Result<ListWorkspacesRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<MachineListeningTcpRequest> {
+    static Result<Json> encode(const MachineListeningTcpRequest& value);
+    static Result<MachineListeningTcpRequest> decode(const Json& value);
 };
 
 template <>

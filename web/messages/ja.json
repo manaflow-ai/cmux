@@ -166,6 +166,8 @@
   "dashboard": {
     "nav": {
       "brand": "cmux",
+      "cloudGroup": "クラウド",
+      "cloudDevices": "Macアクセス",
       "vaultGroup": "vault",
       "vaultOverview": "概要",
       "vaultSessions": "セッション",
@@ -182,6 +184,9 @@
     "home": {
       "title": "ダッシュボード",
       "description": "プロダクトのダッシュボードを選択します。",
+      "cloudName": "Cloud Macアクセス",
+      "cloudDescription": "プライベートCloud VMネットワークに接続できるMacを確認し、アクセスを取り消します。",
+      "cloudLink": "Macアクセスを管理",
       "vaultName": "vault",
       "vaultDescription": "同期済みエージェントセッションの閲覧とCLIアクセスの管理を行います。",
       "vaultLink": "vaultを開く",
@@ -191,6 +196,31 @@
       "iosAppName": "iOSアプリ",
       "iosAppDescription": "TestFlight（ベータ版）で cmux iOS アプリをインストール。",
       "iosLink": "iOSアプリを開く"
+    },
+    "cloud": {
+      "title": "Cloud Macアクセス",
+      "description": "これらのMacはプライベートCloud VMネットワークへのWireGuardアクセスを持っています。iPhoneとIrohのペアリング記録は別に管理されます。",
+      "empty": "Cloud VMアクセスが登録されたMacはありません。",
+      "cmux": "cmuxビルド",
+      "access": "ネットワークアクセス",
+      "lastContact": "最後のコントロールプレーン接続",
+      "deviceId": "デバイスID",
+      "unknown": "不明",
+      "none": "なし",
+      "purpose": {
+        "terminal": "ターミナル",
+        "browser": "ブラウザVPN"
+      },
+      "rename": "名前を変更",
+      "revoke": "アクセスを取り消す",
+      "renameTitle": "このMacの名前を変更",
+      "nameLabel": "名前",
+      "cancel": "キャンセル",
+      "save": "保存",
+      "renameError": "このMacの名前を変更できませんでした。",
+      "revokeTitle": "{name}のアクセスを取り消しますか？",
+      "revokeBody": "このMacをサインアウトし、すべてのCloud VMネットワークアクセスを削除します。",
+      "revokeError": "このMacのアクセスを取り消せませんでした。"
     },
     "coderouter": {
       "metaTitle": "coderouter — cmux",
@@ -2161,7 +2191,12 @@
           "snappingEnabled": "ペインのドラッグやリサイズを隣のペインの端や間隔にスナップします。Commandキーを押している間はスナップを一時停止します。"
         },
         "fileEditor": {
-          "wordWrap": "横スクロールする代わりに、エディタの右端で長い行を折り返します。"
+          "wordWrap": "長い行を横スクロールせずにエディタの右端で折り返します。",
+          "syntaxHighlighting": "組み込みファイルエディタでソースのトークンに色を付けます。",
+          "lineNumbers": "組み込みファイルエディタに行番号ガターを表示します。",
+          "indentGuides": "組み込みファイルエディタに縦のインデントガイドを描画します。",
+          "currentLineHighlight": "選択範囲が空のとき、キャレットのある行をハイライトします。",
+          "tabWidth": "インデントとインデントガイドに使用するタブストップの幅（桁数）。"
         },
         "sidebar": {
           "notificationMessageLineLimit": "各ワークスペースタイトルの下に表示する最新通知の最大行数です。",
@@ -2200,7 +2235,7 @@
       "shortcutsWhenBooleanKeys": "boolean キー。未知または存在しないキーは false として扱われ、リテラル true / false も使えます。",
       "shortcutsWhenTypedKeys": "比較用の型付きキー。右サイドバーのアクティブモード（文字列）と、ペイン数・ワークスペース数（整数）です。",
       "shortcutsWhenOperators": "boolean 演算子、型付き比較、正規表現マッチ、リスト所属。比較は && や || より強く結合します。",
-      "shortcutsWhenExample": "例えば次の設定では、右サイドバーにフォーカスがある場合を除いて Ctrl+1–9 でワークスペースを選択し（Ctrl+1–5 はサイドバーのモード切り替えに残します）、ワークスペースに複数のペインがあるときはサーフェス選択を Find サイドバーに限定します。"
+      "shortcutsWhenExample": "例えば次の設定では、右サイドバーにフォーカスがある場合を除いて Ctrl+1–9 でワークスペースを選択し（Ctrl+数字 はサイドバーのモード切り替えに残します）、ワークスペースに複数のペインがあるときはサーフェス選択を Find サイドバーに限定します。"
     },
     "customCommands": {
       "title": "カスタムコマンド",
@@ -5360,6 +5395,28 @@
         "body": "プラン、請求書、解約を確認できます。",
         "action": "プランを管理"
       }
+    }
+  },
+  "PublicationApi": {
+    "invalid_email": {
+      "message": "有効なメールアドレスを入力してください。",
+      "action": "受信者は、この確認済みメールアドレスでサインインする必要があります。"
+    },
+    "invalid_expiry": {
+      "message": "アクセス許可の有効期限には将来の日時を指定してください。",
+      "action": "ISO 8601形式の日時を使うか、expiresAtを省略してください。"
+    },
+    "public_confirmation_required": {
+      "message": "公開アクセスには確認が必要です。",
+      "action": "ホスト名、VM、ポートを確認してから、confirmPublic: trueを送信してください。"
+    },
+    "organization_slug": {
+      "message": "組織のスラッグが無効か、すでに予約されています。",
+      "action": "小文字の英数字と単一のハイフンを使い、1〜19文字にしてください。既存の組織は予約済みのスラッグを使用します。"
+    },
+    "grant_body": {
+      "message": "公開ポートのメールアクセス許可",
+      "action": "emailと、必要に応じてexpiresAtを送信してください。"
     }
   }
 }

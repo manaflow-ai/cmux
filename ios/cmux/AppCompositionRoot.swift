@@ -25,6 +25,10 @@ final class AppCompositionRoot {
     /// The irx (from-scratch iroh) composition when its DEBUG flag owns the
     /// `.iroh` route; nil when the legacy runtime is active.
     let irx: MobileIrxRuntimeComposition?
+    /// Settings surface routed to the same Iroh implementation that owns
+    /// connections. In IRX mode, private addresses must never mutate only the
+    /// dormant legacy runtime.
+    let irohSettingsController: any CmxIrohSettingsControlling
     /// irx-backed first-pair discovery/forget; nil when legacy owns the slot.
     let irxDiscovery: MobileIrxDiscoveryProvider?
     /// One build-compatibility policy shared by discovery, persistence, and
@@ -109,6 +113,14 @@ final class AppCompositionRoot {
         self.auth = auth
         self.iroh = iroh
         self.irx = irx
+        if let irx {
+            self.irohSettingsController = MobileIrxSettingsController(
+                irx: irx,
+                legacy: iroh
+            )
+        } else {
+            self.irohSettingsController = iroh
+        }
         self.irxDiscovery = irxDiscovery
         self.buildCompatibilityPolicy = buildCompatibilityPolicy
         self.reachability = reachability
@@ -139,7 +151,12 @@ final class AppCompositionRoot {
         let appLog = AppLog(
             appFileURL: AppLog.defaultAppLogFileURL,
             networkFileURL: AppLog.defaultNetworkLogFileURL,
-            buildStamp: MobileDebugLog.buildStamp
+            buildStamp: MobileDebugLog.buildStamp,
+            supplementalAppLogURLs: { MobileDebugLog.logFileURLs },
+            flushSupplementalAppLog: { await MobileDebugLog.shared.flush() },
+            supplementalAppLogSnapshot: {
+                await MobileDebugLog.shared.snapshotPersistedLogData()
+            }
         )
         self.appLog = appLog
         let analytics = MobileAnalyticsComposition(
@@ -167,8 +184,8 @@ final class AppCompositionRoot {
         // opt-in), so this mirror never widens what gets persisted.
         Task {
             let sink = MobileDebugLog.shared.sink
-            for await line in await sink.lines() {
-                appLog.mirrorAppLine(line)
+            await sink.addLineObserver { [weak appLog] line in
+                appLog?.mirrorAppLine(line)
             }
         }
         self.featureFlags = MobileFeatureFlags(

@@ -104,9 +104,11 @@ private actor ContinuityTransport:
 
     func transportClosureObservation() -> CmxTransportClosureObservation? {
         guard connected, !closed else { return nil }
-        return CmxTransportClosureObservation {
+        return CmxTransportClosureObservation(waitUntilClosed: {
             await self.waitUntilClosed()
-        }
+        }, cancel: {
+            Task { await self.close() }
+        })
     }
 
     func didClose() -> Bool {

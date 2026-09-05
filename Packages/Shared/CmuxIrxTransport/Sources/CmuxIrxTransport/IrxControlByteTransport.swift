@@ -11,16 +11,29 @@ public import Foundation
 /// classify lane teardown, but this lane never closes the shared QUIC session.
 /// Session ownership belongs to ``IrxPeerEngine``.
 public actor IrxControlByteTransport: CmxByteTransport {
+    /// Factory for an admitted connection and its control lane.
     public typealias Establish = @Sendable () async throws -> (IrxConnection, IrxLaneStream)
+    /// Closure called after this lane releases its owner claim.
+    public typealias OnClose = @Sendable () async -> Void
 
     private let establish: Establish
+    private let onClose: OnClose?
     private var pair: (IrxConnection, IrxLaneStream)?
+    private var lastConnection: IrxConnection?
     private var connectInFlight: Task<(IrxConnection, IrxLaneStream), any Error>?
     private var isClosed = false
+    private var closureObservationReadyWaiters: [CheckedContinuation<Void, Never>] = []
 
-    public init(closeCode: IrxCloseCode, establish: @escaping Establish) {
+    /// Creates a control-lane transport, optionally releasing its owner claim
+    /// when the lane closes.
+    public init(
+        closeCode: IrxCloseCode,
+        establish: @escaping Establish,
+        onClose: OnClose? = nil
+    ) {
         _ = closeCode
         self.establish = establish
+        self.onClose = onClose
     }
 
     /// Wraps an already-established pair (host side).
@@ -44,6 +57,7 @@ public actor IrxControlByteTransport: CmxByteTransport {
 
     public func close() async {
         isClosed = true
+        resumeClosureObservationReadyWaiters()
         connectInFlight?.cancel()
         connectInFlight = nil
         guard let (_, lane) = pair else { return }
@@ -54,11 +68,12 @@ public actor IrxControlByteTransport: CmxByteTransport {
         // retiring RPC client look like a peer death to the engine.
         await lane.writer.finish()
         await lane.reader.stop()
+        await onClose?()
     }
 
     private func establishedPair() async throws -> (IrxConnection, IrxLaneStream) {
         guard !isClosed else { throw IrxConnectionError.closed(nil) }
-        if let pair, await !pair.0.isClosed {
+        if let pair, await !pair.0.isConnectionClosed() {
             return pair
         }
         if let connectInFlight {
@@ -71,11 +86,23 @@ public actor IrxControlByteTransport: CmxByteTransport {
         defer { connectInFlight = nil }
         let established = try await task.value
         guard !isClosed else {
+            lastConnection = established.0
             await established.1.close()
+            await onClose?()
             throw IrxConnectionError.closed(nil)
         }
+        lastConnection = established.0
         pair = established
+        resumeClosureObservationReadyWaiters()
         return established
+    }
+
+    private func resumeClosureObservationReadyWaiters() {
+        let waiters = closureObservationReadyWaiters
+        closureObservationReadyWaiters.removeAll(keepingCapacity: false)
+        for waiter in waiters {
+            waiter.resume()
+        }
     }
 }
 
@@ -93,8 +120,36 @@ extension IrxControlByteTransport: CmxByteTransportClosureObserving {
     /// death immediately instead of discovering it on the next failed write.
     public func transportClosureObservation() async -> CmxTransportClosureObservation? {
         guard let (connection, _) = pair else { return nil }
-        return CmxTransportClosureObservation {
-            _ = await connection.termination()
+        let observationID = await connection.makeClosureObservationID()
+        return CmxTransportClosureObservation(waitUntilClosed: {
+            await connection.waitForClosure(observationID: observationID)
+        }, cancel: {
+            Task { await connection.cancelClosureObservation(observationID: observationID) }
+        })
+    }
+}
+
+extension IrxControlByteTransport: CmxByteTransportClosureObservationReadiness {
+    public func waitUntilTransportClosureObservationIsReady() async -> Bool {
+        guard pair == nil, !isClosed else { return pair != nil }
+        await withCheckedContinuation { continuation in
+            if pair != nil || isClosed {
+                continuation.resume()
+            } else {
+                closureObservationReadyWaiters.append(continuation)
+            }
         }
+        return pair != nil
+    }
+}
+
+extension IrxControlByteTransport: CmxByteTransportLivenessObserving {
+    /// A control-lane failure is not proof that the shared QUIC session died.
+    /// Read the session snapshot directly so application-level liveness can
+    /// repair this lane without redialing every other lane.
+    public func isTransportClosed() async -> Bool {
+        if isClosed { return true }
+        guard let connection = pair?.0 ?? lastConnection else { return false }
+        return await connection.isConnectionClosed()
     }
 }

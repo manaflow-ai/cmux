@@ -144,9 +144,13 @@ public actor IrxConnection {
     public private(set) var lastPongAt: ContinuousClock.Instant?
     private let journal: IrxJournal
     private var closedFlag = false
+    private var nativeClosureObserved = false
     private var localTermination: IrxTermination?
     private var keepaliveTask: Task<Void, Never>?
     private var pingSeq: UInt64 = 0
+    private var closureWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
+    private var cancelledClosureWaiters = Set<UUID>()
+    private var closureWatcher: Task<Void, Never>?
 
     public init(connection: Connection, role: Role, journal: IrxJournal) {
         self.connection = connection
@@ -159,7 +163,74 @@ public actor IrxConnection {
     public nonisolated var underlying: Connection { connection }
 
     public var isClosed: Bool {
-        closedFlag || connection.closeReason() != nil
+        closedFlag || nativeClosureObserved || connection.closeReason() != nil
+    }
+
+    /// Explicit method form for callers that need to query liveness across
+    /// actor boundaries without confusing the property with a function.
+    public func isConnectionClosed() -> Bool {
+        isClosed
+    }
+
+    /// Returns whether the connection has demonstrated liveness recently.
+    /// This catches suspended-app zombie sessions whose native closed flag has
+    /// not flipped, while allowing a healthy long-lived session to survive a
+    /// foreground event.
+    public func hasRecentKeepalive(within age: Duration) -> Bool {
+        guard let lastPongAt else { return false }
+        return ContinuousClock.now - lastPongAt <= age
+    }
+
+    /// Registers a cancellation-aware waiter for the complete QUIC
+    /// connection, shared by all RPC lanes on this session.
+    public func makeClosureObservationID() -> UUID {
+        let observationID = UUID()
+        if closureWatcher == nil {
+            let driver = connection
+            closureWatcher = Task { [weak self] in
+                _ = await driver.closed()
+                await self?.finishClosureWaiters()
+            }
+        }
+        return observationID
+    }
+
+    /// Waits for a registered complete-connection observation to fire.
+    public func waitForClosure(observationID: UUID) async {
+        if isClosed || cancelledClosureWaiters.remove(observationID) != nil {
+            return
+        }
+        await withCheckedContinuation { continuation in
+            if isClosed || cancelledClosureWaiters.remove(observationID) != nil {
+                continuation.resume()
+            } else {
+                closureWaiters[observationID] = continuation
+            }
+        }
+    }
+
+    /// Cancels one complete-connection observation without closing the
+    /// connection itself.
+    public func cancelClosureObservation(observationID: UUID) {
+        if let continuation = closureWaiters.removeValue(forKey: observationID) {
+            continuation.resume()
+        } else {
+            cancelledClosureWaiters.insert(observationID)
+        }
+    }
+
+    private func finishClosureWaiters() {
+        // Native closure can race registration. Mark the terminal state before
+        // draining waiters so a waiter registered after the watcher fires
+        // completes immediately instead of hanging forever.
+        nativeClosureObserved = true
+        let waiters = closureWaiters
+        closureWaiters.removeAll(keepingCapacity: false)
+        cancelledClosureWaiters.removeAll(keepingCapacity: false)
+        for continuation in waiters.values {
+            continuation.resume()
+        }
+        closureWatcher = nil
     }
 
     /// Raises the number of streams the REMOTE side may open, called by the
@@ -259,7 +330,9 @@ public actor IrxConnection {
                 let sentAt = DispatchTime.now()
                 do {
                     try await lane.writer.writeControlFrame(IrxPing(seq: seq, pong: false))
-                    let pong = try await withIrxDeadline(deadline) {
+                    let pong = try await withIrxDeadline(deadline, onTimeout: {
+                        await lane.reader.stop()
+                    }) {
                         () -> IrxPing? in
                         while true {
                             guard
@@ -365,6 +438,9 @@ public actor IrxConnection {
     public func close(code: IrxCloseCode, origin: IrxTermination.Origin) async {
         guard !closedFlag else { return }
         closedFlag = true
+        finishClosureWaiters()
+        closureWatcher?.cancel()
+        closureWatcher = nil
         localTermination = IrxTermination(origin: origin, code: code.rawValue)
         keepaliveTask?.cancel()
         keepaliveTask = nil
@@ -373,6 +449,12 @@ public actor IrxConnection {
             "connection", "closed-locally",
             ["code": code.rawValue, "remote": String(remoteEndpointIDHex.prefix(12))]
         )
+    }
+
+    /// Returns a close reason that the underlying QUIC connection has already
+    /// published, without waiting for the connection to finish closing.
+    public func closeReason() -> String? {
+        connection.closeReason()
     }
 
     /// Resolves once the connection has ended, returning the attributed
@@ -394,24 +476,5 @@ public actor IrxConnection {
             return IrxTermination(origin: .remote, code: code.rawValue)
         }
         return IrxTermination(origin: .transport, code: "connection-lost(\(rendered.prefix(80)))")
-    }
-}
-
-/// Bounded deadline for one async operation. An intentional, cancellable
-/// timeout through the clock (never a synchronization substitute): the racing
-/// sleep is cancelled the moment the operation resolves.
-public func withIrxDeadline<T: Sendable>(
-    _ limit: Duration,
-    operation: @escaping @Sendable () async throws -> T?
-) async throws -> T? {
-    try await withThrowingTaskGroup(of: T?.self) { group in
-        group.addTask { try await operation() }
-        group.addTask {
-            try await Task.sleep(for: limit)
-            return nil
-        }
-        let first = try await group.next() ?? nil
-        group.cancelAll()
-        return first
     }
 }
