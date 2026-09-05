@@ -94,22 +94,21 @@ export function makeMobileNetworkOutcomeHandler(
         });
         try {
           await dependencies.emitOutcomes(user.id, accepted);
-          // Serverless instances can be torn down after the response. Bound
-          // every batch flush so successful latency denominators are not lost.
-          const flushed = await dependencies.flushTraces(1_000);
-          if (!flushed) {
-            return jsonResponse(
-              { error: "observability_unavailable" },
-              503,
-              { "cache-control": "no-store" },
-            );
-          }
         } catch {
           return jsonResponse(
             { error: "observability_unavailable" },
             503,
             { "cache-control": "no-store" },
           );
+        }
+        // Serverless instances can be torn down after the response. Bound
+        // every batch flush so successful latency denominators are not lost.
+        // The batch is already accepted once emission succeeds. Do not turn
+        // an ambiguous flush result into a retry, which would duplicate spans.
+        try {
+          await dependencies.flushTraces(1_000);
+        } catch {
+          // Best effort after emission. A retry here could duplicate spans.
         }
         return jsonResponse(
           { ok: true, accepted: accepted.length },
