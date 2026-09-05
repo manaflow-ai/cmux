@@ -21,7 +21,7 @@ struct NewMachineSheet: View {
             buttons
         }
         .padding(24)
-        .frame(width: 520)
+        .frame(width: 500)
         .accessibilityIdentifier("NewMachineSheet")
     }
 
@@ -59,90 +59,45 @@ struct NewMachineSheet: View {
                 .foregroundStyle(.secondary)
             }
 
-            LazyVGrid(
-                columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)],
-                spacing: 8
-            ) {
-                ForEach(model.memoryOptions, id: \.self) { memoryMb in
-                    if let size = MachineSizeOption(memoryMb: memoryMb) {
-                        sizeOption(size)
+            if let selectedSize = model.selectedSize {
+                Picker(selection: $model.memoryMb) {
+                    ForEach(model.memoryOptions, id: \.self) { memoryMb in
+                        if let size = MachineSizeOption(memoryMb: memoryMb) {
+                            Text(size.menuTitle).tag(memoryMb)
+                        }
                     }
+                } label: {
+                    Text(selectedSize.menuTitle)
                 }
-            }
-        }
-        .padding(14)
-        .background(Color.primary.opacity(0.025), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.09), lineWidth: 1)
-        )
-        .accessibilityIdentifier("NewMachineSheet.sizeSection")
-    }
+                .pickerStyle(.menu)
+                .accessibilityIdentifier("NewMachineSheet.size")
+                .accessibilityLabel(String(localized: "machines.new.size.accessibilityLabel", defaultValue: "RAM size"))
+                .accessibilityValue(selectedSize.menuTitle)
 
-    private func sizeOption(_ size: MachineSizeOption) -> some View {
-        let isSelected = model.memoryMb == size.memoryMb
-        return Button {
-            model.memoryMb = size.memoryMb
-        } label: {
-            HStack(alignment: .center, spacing: 10) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(size.title)
-                        .cmuxFont(size: 13, weight: .semibold)
-                    Text(size.detail)
-                        .cmuxFont(size: 11)
-                        .foregroundStyle(isSelected ? Color.primary.opacity(0.78) : Color.secondary)
-                }
-                Spacer(minLength: 4)
-                if isSelected {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(Color.accentColor)
-                }
+                Text(selectedSize.detail)
+                    .cmuxFont(size: 11)
+                    .foregroundStyle(.secondary)
             }
-            .frame(maxWidth: .infinity, minHeight: 42, alignment: .leading)
-            .padding(.horizontal, 11)
-            .padding(.vertical, 8)
-            .background(
-                isSelected ? Color.accentColor.opacity(0.14) : Color.primary.opacity(0.035),
-                in: RoundedRectangle(cornerRadius: 9, style: .continuous)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .strokeBorder(
-                        isSelected ? Color.accentColor.opacity(0.76) : Color.primary.opacity(0.12),
-                        lineWidth: isSelected ? 1.5 : 1
-                    )
-            )
         }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("NewMachineSheet.size.\(size.memoryMb)")
-        .accessibilityLabel(size.menuTitle)
-        .accessibilityAddTraits(isSelected ? AccessibilityTraits.isSelected : [])
+        .accessibilityIdentifier("NewMachineSheet.sizeSection")
     }
 
     @ViewBuilder
     private var planSection: some View {
         if model.planMeterText != nil || model.freeAccessNoteText != nil {
-            HStack(alignment: .top, spacing: 9) {
-                Image(systemName: "chart.bar.fill")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 16, height: 16)
-                VStack(alignment: .leading, spacing: 3) {
-                    if let meter = model.planMeterText {
-                        Text(meter)
-                            .cmuxFont(size: 11, weight: .medium)
-                            .foregroundStyle(.secondary)
-                    }
-                    if let note = model.freeAccessNoteText {
-                        Text(note)
-                            .cmuxFont(size: 11)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
+            VStack(alignment: .leading, spacing: 3) {
+                if let meter = model.planMeterText {
+                    Text(meter)
+                        .cmuxFont(size: 11, weight: .medium)
+                        .foregroundStyle(.secondary)
+                }
+                if let note = model.freeAccessNoteText {
+                    Text(note)
+                        .cmuxFont(size: 11)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            .padding(.vertical, 2)
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityIdentifier("NewMachineSheet.plan")
         }
@@ -208,3 +163,193 @@ struct NewMachineSheet: View {
     }
 
 }
+
+#if DEBUG
+/// Plain SwiftUI alternatives for reviewing the size control without a web mockup.
+/// These views are preview-only. The sheet uses the first variation: the native menu.
+private struct NewMachinePickerVariationsPreview: View {
+    @State private var selectedMemoryMb = 8192
+
+    private static let sizes = [4096, 8192, 16384, 24576, 32768, 65536]
+        .compactMap { MachineSizeOption(memoryMb: $0) }
+
+    private var selectedSize: MachineSizeOption {
+        MachineSizeOption(memoryMb: selectedMemoryMb) ?? Self.sizes[1]
+    }
+
+    private var selectedIndex: Int {
+        Self.sizes.firstIndex(where: { $0.memoryMb == selectedMemoryMb }) ?? 0
+    }
+
+    private var selectedIndexBinding: Binding<Int> {
+        Binding(
+            get: { selectedIndex },
+            set: { selectedMemoryMb = Self.sizes[$0].memoryMb }
+        )
+    }
+
+    private var selectedIndexDoubleBinding: Binding<Double> {
+        Binding(
+            get: { Double(selectedIndex) },
+            set: {
+                let index = min(max(Int($0.rounded()), 0), Self.sizes.count - 1)
+                selectedMemoryMb = Self.sizes[index].memoryMb
+            }
+        )
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Text(String(localized: "machines.new.size.label", defaultValue: "Machine size"))
+                    .font(.headline)
+                Text(String(
+                    localized: "machines.new.size.help",
+                    defaultValue: "Choose the memory and disk profile for this machine."
+                ))
+                .foregroundStyle(.secondary)
+
+                variation(1) {
+                    Picker(selection: $selectedMemoryMb) {
+                        sizeOptions
+                    } label: {
+                        Text(selectedSize.menuTitle)
+                    }
+                    .pickerStyle(.menu)
+                }
+
+                variation(2) {
+                    Picker(selection: $selectedMemoryMb) {
+                        sizeOptions
+                    } label: {
+                        Text(selectedSize.menuTitle)
+                    }
+                    .pickerStyle(.segmented)
+                }
+
+                variation(3) {
+                    Picker(selection: $selectedMemoryMb) {
+                        sizeOptions
+                    } label: {
+                        Text(selectedSize.menuTitle)
+                    }
+                    .pickerStyle(.radioGroup)
+                }
+
+                variation(4) {
+                    Stepper(value: selectedIndexBinding, in: 0...(Self.sizes.count - 1)) {
+                        Text(selectedSize.menuTitle)
+                    }
+                }
+
+                variation(5) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(selectedSize.menuTitle)
+                        Slider(value: selectedIndexDoubleBinding, in: 0...Double(Self.sizes.count - 1), step: 1)
+                    }
+                }
+
+                variation(6) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(Self.sizes, id: \.memoryMb) { size in
+                            Button {
+                                selectedMemoryMb = size.memoryMb
+                            } label: {
+                                HStack {
+                                    Text(size.menuTitle)
+                                    Spacer()
+                                    if size.memoryMb == selectedMemoryMb {
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+
+                variation(7) {
+                    DisclosureGroup(selectedSize.menuTitle) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            ForEach(Self.sizes, id: \.memoryMb) { size in
+                                Button(size.menuTitle) {
+                                    selectedMemoryMb = size.memoryMb
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.top, 4)
+                    }
+                }
+
+                variation(8) {
+                    Menu {
+                        ForEach(Self.sizes, id: \.memoryMb) { size in
+                            Button(size.menuTitle) {
+                                selectedMemoryMb = size.memoryMb
+                            }
+                        }
+                    } label: {
+                        Text(selectedSize.menuTitle)
+                    }
+                }
+
+                variation(9) {
+                    Picker(selection: $selectedMemoryMb) {
+                        sizeOptions
+                    } label: {
+                        Text(selectedSize.menuTitle)
+                    }
+                }
+
+                variation(10) {
+                    HStack(spacing: 8) {
+                        Button {
+                            selectedMemoryMb = Self.sizes[max(selectedIndex - 1, 0)].memoryMb
+                        } label: {
+                            Image(systemName: "minus")
+                        }
+                        .buttonStyle(.bordered)
+                        Text(selectedSize.menuTitle)
+                        Button {
+                            selectedMemoryMb = Self.sizes[min(selectedIndex + 1, Self.sizes.count - 1)].memoryMb
+                        } label: {
+                            Image(systemName: "plus")
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                }
+            }
+            .padding()
+        }
+        .frame(width: 620, height: 820)
+    }
+
+    @ViewBuilder
+    private var sizeOptions: some View {
+        ForEach(Self.sizes, id: \.memoryMb) { size in
+            Text(size.menuTitle).tag(size.memoryMb)
+        }
+    }
+
+    @ViewBuilder
+    private func variation<Content: View>(
+        _ number: Int,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(String(format: "%02d", number))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            content()
+            Divider()
+        }
+    }
+}
+
+private struct NewMachinePickerVariationsPreview_Previews: PreviewProvider {
+    static var previews: some View {
+        NewMachinePickerVariationsPreview()
+    }
+}
+#endif
