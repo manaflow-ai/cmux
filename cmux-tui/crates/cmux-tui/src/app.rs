@@ -45676,6 +45676,33 @@ mod tests {
     }
 
     #[test]
+    fn creation_completion_fences_pointer_capture_before_focus_change() {
+        let mux = Mux::new("creation-completion-pointer-boundary-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut tree = notify_tree(11, false);
+        let pane = &mut tree.workspaces_mut()[0].screens[0].panes[0];
+        let pane_id = pane.id;
+        let mut created = pane.tabs[0].clone();
+        created.surface = 12;
+        pane.tabs.push(created);
+        app.tree = tree;
+        app.rebuild_tab_locations();
+        app.drag = Some(Drag::Tab { surface: 11, target: Some((pane_id, 1)) });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+
+        app.apply_session_completion(SessionCompletion {
+            mutation_generation: 1,
+            semantic_intent: None,
+            action: SessionCompletionAction::SurfaceCreated { surface: 12 },
+        });
+
+        assert!(app.drag.is_none(), "focus changes must retire the old tab drag");
+        assert!(app.active_pointer_buttons.is_empty());
+        assert!(app.canceled_pointer_buttons.contains(&MouseButton::Left));
+        assert_eq!(app.tree.active_surface(), Some(12));
+    }
+
+    #[test]
     fn single_surface_client_ignores_creation_completion_selection() {
         let mux = Mux::new("single-surface-completion-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
