@@ -1413,7 +1413,7 @@ jobs:
           python3 tests/test_nushell_resume_command_dialect.py
           python3 tests/test_nushell_integration_hooks.py
           python3 tests/test_shell_git_branch_stale_cwd.py
-          python3 tests/test_shell_git_config_remote_url_parsing.py
+          python3 tests/test_issue_1138_sidebar_pr_polling.py
           if ! command -v fish >/dev/null 2>&1; then
             HOMEBREW_NO_AUTO_UPDATE=1 brew install fish
           fi
