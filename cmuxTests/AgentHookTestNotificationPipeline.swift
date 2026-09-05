@@ -1,6 +1,12 @@
 import CmuxAgentJournal
+import CmuxSettings
 import Foundation
 import Testing
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
 
 /// The hook socket fixtures run production reconciliation and durable admission.
 /// Their command trace includes the accepted notification effect in the historical
@@ -47,12 +53,15 @@ final class AgentHookTestNotificationPipeline {
     private static func presentation(_ draft: AgentJournalEventDraft) -> String? {
         guard let candidate = draft.attention?.notification,
               let workspace = draft.workspaceId, let surface = draft.surfaceId else { return nil }
-        let base = "notify_target_async \(workspace) \(surface) \(candidate.title)|\(candidate.subtitle)|\(candidate.body)"
+        let fields = [candidate.title, candidate.subtitle, candidate.body].map {
+            $0.components(separatedBy: .newlines).joined(separator: " ").replacingOccurrences(of: "|", with: "¦")
+        }
+        let base = "notify_target_async \(workspace) \(surface) " + fields.joined(separator: "|")
         if draft.kind == .messagePublished { return base }
         var meta = "c=\(candidate.category);p=\(draft.pendingWork ? 1 : 0);a=\(draft.source);n=\(draft.isSubagent ? 1 : 0)"
-        let sound = draft.kind == .errorReported ? "errorStalled"
-            : candidate.category == "turn-complete" ? "turnDone" : "needsInput"
-        meta += ";s=\(sound)"
+        let sound: NotificationSoundAlertType? = draft.kind == .errorReported ? .errorStalled
+            : AgentNotifyCategory(rawValue: candidate.category)?.soundAlertType
+        if let sound { meta += ";s=\(sound.rawValue)" }
         if let key = candidate.correlationKey { meta += ";k=\(key)" }
         return base + "|" + meta
     }

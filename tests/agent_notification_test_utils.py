@@ -39,7 +39,7 @@ def notification_view(command: str) -> dict | None:
 
 def resolution_view(command: str) -> dict | None:
     draft = journal_draft(command)
-    if draft is None or draft["kind"] != "agent.state.changed" or draft.get("declared_phase") != "running":
+    if draft is None or draft["kind"] != "agent.attention.resolved" or draft.get("declared_phase") != "running":
         return None
     return {
         "workspace_id": draft.get("workspace_id"),

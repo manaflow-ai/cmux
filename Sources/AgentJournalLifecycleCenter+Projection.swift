@@ -71,7 +71,7 @@ extension AgentJournalLifecycleCenter {
             for event in page.events {
                 let canonical = canonicalized(event, aliases: aliases)
                 let decision = notifications.apply(canonical)
-                if decision.disposition != .stale {
+                if decision.disposition != .stale, decision.projectsLifecycle {
                     reducer.apply(notifications.lifecycleEvent(canonical), to: &state)
                 }
             }

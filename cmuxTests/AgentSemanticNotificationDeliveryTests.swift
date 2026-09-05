@@ -13,7 +13,9 @@ import Testing
 extension AgentNotificationRegressionTests {
     private func semanticEvent(_ fixture: Fixture, source: String, sequence: Int64 = 1,
                                request: String = "approval") -> AgentJournalEvent {
-        AgentJournalEvent(sequence: sequence, committedAtMs: sequence,
+        fixture.source.surfaceResumeBindingsByPanelId[fixture.panelId] = SurfaceResumeBindingSnapshot(
+            name: source, kind: source, command: "agent resume", checkpointId: "session", source: "agent-hook", updatedAt: 1)
+        return AgentJournalEvent(sequence: sequence, committedAtMs: sequence,
             draft: AgentJournalEventDraft(kind: .approvalRequested, occurredAtMs: sequence,
                 source: source, agentKey: source == "claude" ? "claude_code" : source,
                 sessionId: "session", workspaceId: fixture.source.id.uuidString,
@@ -112,6 +114,8 @@ extension AgentNotificationRegressionTests {
         fixture.source.surfaceResumeBindingsByPanelId[fixture.panelId]?.checkpointId = "session"
         fixture.source.surfaceResumeBindingsByPanelId[fixture.panelId]?.kind = source == "claude" ? "codex" : "claude"
         #expect(!AgentJournalLifecycleCenter.notificationRequestIsCurrent(request))
+        fixture.source.surfaceResumeBindingsByPanelId.removeValue(forKey: fixture.panelId)
+        #expect(!AgentJournalLifecycleCenter.notificationRequestIsCurrent(request))
     }
 
     @MainActor private final class FeedEffectRecorder {
@@ -119,8 +123,8 @@ extension AgentNotificationRegressionTests {
         var unreadWhenBannerPosted = false
     }
 
-    @Test(arguments: ["claude", "codex"])
-    func genuineFeedWaitSharesAdmissionAndRecordedEffects(source: String) async throws {
+    @Test(arguments: ["claude", "codex"], [false, true])
+    func genuineFeedWaitSharesAdmissionAndRecordedEffects(source: String, duplicate: Bool) async throws {
         let fixture = try makeFixture()
         defer { fixture.restore() }
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -129,36 +133,63 @@ extension AgentNotificationRegressionTests {
         let previousStore = FeedCoordinator.shared.store
         let previousJournal = FeedCoordinator.shared.notificationJournal
         let previousObserver = FeedCoordinatorTestHooks.notificationPostObserver
+        let previousCenter = FeedCoordinator.shared.notificationCenterForTesting
         defer {
             FeedCoordinatorTestHooks.notificationPostObserver = previousObserver
-            if let previousStore {
-                FeedCoordinator.shared.install(store: previousStore, notificationJournal: previousJournal)
-            }
+            FeedCoordinator.shared.restoreInstallationForTesting(store: previousStore,
+                journal: previousJournal, center: previousCenter)
         }
         FeedCoordinator.shared.install(store: WorkstreamStore(ringCapacity: 10), notificationJournal: journal)
         let recorder = FeedEffectRecorder()
+        let banner = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        defer { banner.continuation.finish() }
         let requestID = UUID().uuidString
         let workspaceID = fixture.source.id
         let surfaceID = fixture.panelId
+        fixture.source.surfaceResumeBindingsByPanelId[surfaceID] = SurfaceResumeBindingSnapshot(
+            name: source, kind: source, command: "agent resume", checkpointId: "feed-session", source: "agent-hook", updatedAt: 1)
         FeedCoordinatorTestHooks.notificationPostObserver = { _, request in
             MainActor.assumeIsolated {
                 guard request == requestID else { return }
                 recorder.banners += 1
                 recorder.unreadWhenBannerPosted = TerminalNotificationStore.shared
                     .hasUnreadNotification(forTabId: workspaceID, surfaceId: surfaceID)
-                FeedCoordinator.shared.deliverReply(requestId: request, decision: .permission(.once))
+                banner.continuation.yield(())
             }
         }
         let event = WorkstreamEvent(sessionId: try #require(FeedWorkstreamIdentifier(agentID: source, sessionID: "feed-session")).rawValue,
             hookEventName: .permissionRequest, source: source,
             workspaceId: workspaceID.uuidString, surfaceId: surfaceID.uuidString,
             toolName: "Tool", requestId: requestID)
-        let result = await Task.detached {
-            FeedCoordinator.shared.ingestBlocking(event: event, waitTimeout: 10)
-        }.value
-        guard case .resolved = result else {
+        let primary = Task.detached {
+            let result = FeedCoordinator.shared.ingestBlocking(event: event, waitTimeout: 15)
+            banner.continuation.finish()
+            return result
+        }
+        var iterator = banner.stream.makeAsyncIterator()
+        let posted = await iterator.next()
+        #expect(posted != nil)
+        var secondary: Task<FeedCoordinator.IngestBlockingResult, Never>?
+        if duplicate {
+            secondary = Task.detached { FeedCoordinator.shared.ingestBlocking(event: event, waitTimeout: 15) }
+            let deadline = ContinuousClock.now + .seconds(5)
+            while FeedCoordinator.shared.waiterCountForTesting(requestId: requestID) < 2, ContinuousClock.now < deadline {
+                await Task.yield()
+            }
+            #expect(FeedCoordinator.shared.waiterCountForTesting(requestId: requestID) == 2)
+        }
+        FeedCoordinator.shared.deliverReply(requestId: requestID, decision: .permission(.once))
+        let result = await primary.value
+        guard case .resolved(let itemID, _) = result else {
             Issue.record("A genuine Feed wait must notify and accept its reply: \(result)")
             return
+        }
+        if let secondary {
+            guard case .resolved(let duplicateID, _) = await secondary.value else {
+                Issue.record("A duplicate waiter lost the shared reply")
+                return
+            }
+            #expect(duplicateID == itemID)
         }
         #expect(recorder.banners == 1)
         #expect(recorder.unreadWhenBannerPosted)

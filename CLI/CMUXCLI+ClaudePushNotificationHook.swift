@@ -1,3 +1,4 @@
+import CmuxAgentJournal
 import Foundation
 
 extension CMUXCLI {
@@ -28,6 +29,11 @@ extension CMUXCLI {
         }
         guard claudePushNotificationShouldBridge(parsedInput.rawObject) else {
             telemetry.breadcrumb("claude-hook.push-notification.skipped")
+            printClaudeHookAck()
+            return
+        }
+        guard let sessionID = parsedInput.sessionId, !sessionID.isEmpty else {
+            telemetry.breadcrumb("claude-hook.push-notification.missing-session")
             printClaudeHookAck()
             return
         }
@@ -73,10 +79,10 @@ extension CMUXCLI {
         // meta tag, like legacy untagged payloads). No lifecycle/status
         // change: the agent is usually still running when it fires, and a
         // push must not flip a running pane to "Needs input".
-        let payload = notificationPayload(title: title, subtitle: "", body: pushMessage)
+        let notification = AgentJournalNotification(title: title, subtitle: "", body: pushMessage, category: "other")
         _ = try sendV1Command(try semanticNotificationCommand(source: "claude", agentKey: Self.claudeCodeStatusKey,
-            sessionId: parsedInput.sessionId, workspaceId: workspaceId, surfaceId: surfaceId,
-            kind: .messagePublished, rawObject: parsedInput.rawObject, payload: payload), client: client)
+            sessionId: sessionID, workspaceId: workspaceId, surfaceId: surfaceId,
+            kind: .messagePublished, rawObject: parsedInput.rawObject, notification: notification), client: client)
         printClaudeHookAck()
     }
 

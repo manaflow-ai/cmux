@@ -322,7 +322,7 @@ def main() -> int:
         return 1
 
     # 1. localSent true -> bridged into a cmux notification, no lifecycle flip.
-    message = "build failed: 2 auth tests"
+    message = "build failed: alpha|beta, 2 auth tests"
     proc, commands, workspace_id, surface_id = run_push_notification_hook(
         cli_path,
         push_payload(

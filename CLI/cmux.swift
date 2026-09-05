@@ -28698,7 +28698,7 @@ struct CMUXCLI {
             // `errorStalled` context and silently lose the sound override.
             let payload = notificationPayload(
                 title: title,
-                subtitle: summary.subtitle,
+                subtitle: localizedClaudeNotificationSubtitle(summary.subtitle),
                 body: summary.body,
                 meta: Self.agentNotificationMeta(
                     category: notifyCategory,
@@ -28718,7 +28718,7 @@ struct CMUXCLI {
             case "permission_prompt":
                 journalKind = .approvalRequested
             case "idle_prompt":
-                journalKind = suppressNeedsInputState ? .stateChanged : .questionRequested
+                journalKind = .idleObserved
             default:
                 switch classifiedSubtitle {
                 case "Permission":
@@ -28730,7 +28730,7 @@ struct CMUXCLI {
                 case "Error":
                     journalKind = .errorReported
                 default:
-                    journalKind = summary.body.isEmpty ? .stateChanged : .questionRequested
+                    journalKind = .stateChanged
                 }
             }
             emitAgentJournalEvent(
@@ -28770,7 +28770,7 @@ struct CMUXCLI {
                     client: client,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    value: "Needs input",
+                    value: String(localized: "feed.status.needsInput", defaultValue: "Needs input"),
                     icon: "bell.fill",
                     color: "#4C8DFF", pid: claudePid
                 )
@@ -35113,9 +35113,13 @@ export default CMUXSessionRestore;
                         body: pendingBody,
                         meta: pendingMeta
                     )
+                    let remaining = mapped?.pendingCursorShellApprovals?.first {
+                        $0.notificationCorrelationKey == resolution.remainingNotificationCorrelationKey
+                    }
+                    let evidence = remaining?.toolUseId.map { ["tool_use_id": $0] }
                     if let command = try? semanticNotificationCommand(source: def.name, agentKey: def.statusKey,
                         sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId,
-                        kind: .approvalRequested, rawObject: input.rawObject, payload: pendingPayload) {
+                        kind: .approvalRequested, rawObject: evidence, payload: pendingPayload) {
                         sendCursorCriticalCommand(command)
                     }
                     return
@@ -36578,10 +36582,11 @@ export default CMUXSessionRestore;
             // An approval response resumes the blocked turn: journal it as the
             // turn running again.
             emitJournal(
-                .stateChanged,
+                .attentionResolved,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
                 isSubagent: suppressVisibleMutations,
+                pendingWork: true,
                 declaredPhase: .running,
                 detail: "approval-response"
             )
@@ -39351,7 +39356,7 @@ export default CMUXSessionRestore;
             guard evidence.requestIdentity != nil,
                   let workspaceID = liveTarget?.workspaceId ?? ambientWorkspaceId,
                   let surfaceID = liveTarget?.surfaceId ?? ambientSurfaceId else { return }
-            emitAgentJournalEvent(client: activeClient, kind: .stateChanged,
+            emitAgentJournalEvent(client: activeClient, kind: .attentionResolved,
                 source: source, agentKey: Self.agentDef(named: source)?.statusKey ?? source,
                 sessionId: FeedWorkstreamIdentifier(rawValue: eventDict["session_id"] as? String ?? "")?.sessionID,
                 workspaceId: workspaceID, surfaceId: surfaceID,
@@ -39787,11 +39792,11 @@ export default CMUXSessionRestore;
             hookEventName: hookEventName,
             promptText: promptText
         )
-        let requestId = stdinObj["_opencode_request_id"] as? String
-            ?? firstString(in: stdinObj, keys: ["request_id", "tool_use_id", "toolUseID"])
-            ?? "\(source)-\(sessionId)-\(rawEvent)-\(toolName)-\(Int(Date().timeIntervalSince1970 * 1000))"
-        eventDict["_opencode_request_id"] = requestId
         let causalEvidence = Self.semanticAttentionContext(stdinObj)
+        let requestId = stdinObj["_opencode_request_id"] as? String
+            ?? causalEvidence.requestIdentity.map { "\(workstreamID):\(Data($0.utf8).base64EncodedString())" }
+            ?? UUID().uuidString
+        eventDict["_opencode_request_id"] = requestId
         if let value = causalEvidence.eventIdentity { eventDict["event_id"] = value }
         if let value = causalEvidence.turnIdentity { eventDict["turn_id"] = value }
         if let value = causalEvidence.requestIdentity { eventDict["request_id"] = value }

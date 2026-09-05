@@ -45,7 +45,8 @@ public struct AgentJournalEventDraft: Codable, Sendable, Equatable {
     public var isSubagent: Bool
     /// For ``AgentJournalEventKind/turnCompleted``: the turn ended but
     /// background work is still live, so the agent is still effectively
-    /// running.
+    /// running. For an attention resolution, `true` explicitly indicates the
+    /// agent is continuing work after the user's decision.
     public var pendingWork: Bool
     /// The adapter's native hook event name, kept for diagnostics and for
     /// auditing the semantic mapping.

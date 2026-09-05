@@ -255,8 +255,8 @@ struct ClaudeBackgroundWorkNotifyTests {
         // needs-input question, so the reduced lifecycle stays running.
         #expect(journalEvent(snapshot, kind: "agent.question.requested") == nil,
                 "Pending idle_prompt must not journal a needs-input question; saw \(snapshot)")
-        #expect(journalEvent(snapshot, kind: "agent.state.changed") != nil,
-                "Pending idle_prompt must still journal an observation; saw \(snapshot)")
+        #expect(journalEvent(snapshot, kind: "agent.idle.observed") != nil,
+                "Pending idle_prompt must still journal an idle observation; saw \(snapshot)")
     }
 
     @Test func idlePromptAfterIdleStopTagsNotPending() throws {
@@ -298,11 +298,10 @@ struct ClaudeBackgroundWorkNotifyTests {
         let snapshot = context.state.snapshot()
         #expect(notifyLine(snapshot, containing: "c=idle-reminder;p=0") != nil,
                 "idle_prompt after an idle stop must tag pending=0; saw \(snapshot)")
-        // With no pending work this is a real waiting state, so the pill
-        // flips and the journal records the needs-input question.
-        #expect(statusLine(snapshot, value: "Needs input") != nil,
-                "Idle idle_prompt must still set the Needs input pill; saw \(snapshot)")
-        #expect(journalEvent(snapshot, kind: "agent.question.requested") != nil,
-                "Idle idle_prompt must journal a needs-input question; saw \(snapshot)")
+        // An idle reminder is the same settled episode, not a new blocking request.
+        #expect(statusLine(snapshot, value: "Needs input") == nil,
+                "Idle reminders must not invent a blocking Needs input state; saw \(snapshot)")
+        #expect(journalEvent(snapshot, kind: "agent.idle.observed") != nil,
+                "Idle idle_prompt must journal a settled-idle observation; saw \(snapshot)")
     }
 }

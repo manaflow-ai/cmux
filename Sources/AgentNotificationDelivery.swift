@@ -36,16 +36,7 @@ struct AgentNotificationDelivery: Sendable {
         sessionId: String? = nil,
         coalesces: Bool = false
     ) -> Bool {
-        if let category,
-           !agentNotificationShouldDeliver(
-               category: category,
-               pending: pending,
-               permissionEnabled: permissionEnabled,
-               turnMode: turnMode,
-               idleEnabled: idleEnabled
-           ) {
-            return false
-        }
+        guard allows(category: category, pending: pending) else { return false }
         TerminalMutationBus.shared.enqueueNotification(
             tabId: workspaceID,
             surfaceId: surfaceID,
@@ -65,6 +56,12 @@ struct AgentNotificationDelivery: Sendable {
             coalesces: coalesces
         )
         return true
+    }
+
+    func allows(category: AgentNotifyCategory?, pending: Bool) -> Bool {
+        guard let category else { return true }
+        return agentNotificationShouldDeliver(category: category, pending: pending,
+            permissionEnabled: permissionEnabled, turnMode: turnMode, idleEnabled: idleEnabled)
     }
 
     /// Builds the hook-facing agent context, or `nil` for untagged legacy

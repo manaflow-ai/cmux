@@ -61,13 +61,15 @@ extension AgentJournalStore {
     /// cap, drop the guard triggers inside one transaction, delete the oldest
     /// rows down to the retained count, and reinstall the triggers.
     /// AUTOINCREMENT guarantees pruned sequences are never reused.
-    static func pruneIfNeeded(_ database: AgentJournalDatabase) throws {
+    static func pruneIfNeeded(_ database: AgentJournalDatabase,
+                              maximumCount: Int = maximumEventCountAtOpen,
+                              retainedCount: Int = retainedEventCountAfterPrune) throws {
         let count = try scalarInt64(
             database,
             "SELECT COUNT(*) FROM agent_journal;",
             binding: []
         ) ?? 0
-        guard count > Int64(maximumEventCountAtOpen) else { return }
+        guard count > Int64(maximumCount) else { return }
         // Cut by row rank, not by sequence arithmetic: prior prunes leave
         // sequence gaps, so MAX(sequence) - N would retain the wrong count.
         guard let cutoff = try scalarInt64(
@@ -76,7 +78,7 @@ extension AgentJournalStore {
             SELECT sequence FROM agent_journal
             ORDER BY sequence DESC LIMIT 1 OFFSET ?1;
             """,
-            binding: [.int(Int64(retainedEventCountAfterPrune - 1))]
+            binding: [.int(Int64(retainedCount - 1))]
         ) else { return }
         try database.transaction {
             try database.exec(
@@ -89,6 +91,7 @@ extension AgentJournalStore {
                 "DELETE FROM agent_journal WHERE sequence < ?1;",
                 binding: [.int(cutoff)]
             )
+            try database.exec("DELETE FROM agent_attention_context WHERE event_id NOT IN (SELECT event_id FROM agent_journal);")
             try installImmutabilityTriggers(database)
         }
     }

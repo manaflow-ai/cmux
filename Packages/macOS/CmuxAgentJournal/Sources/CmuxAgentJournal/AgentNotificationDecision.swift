@@ -23,9 +23,17 @@ public struct AgentNotificationDecision: Sendable, Equatable {
     /// Previously accepted requests invalidated by an explicit continuation or end.
     public let invalidatedCorrelationKeys: [String]
 
-    init(_ disposition: Disposition, identity: String? = nil, invalidatedCorrelationKeys: [String] = []) {
+    /// A previously delayed completion released by a causal child/request resolution.
+    public let notificationEvent: AgentJournalEvent?
+
+    /// Whether the event contributed a lifecycle assertion rather than only a reminder.
+    public let projectsLifecycle: Bool
+
+    init(_ disposition: Disposition, identity: String? = nil, invalidatedCorrelationKeys: [String] = [], notificationEvent: AgentJournalEvent? = nil, projectsLifecycle: Bool = true) {
         self.disposition = disposition
         self.identity = identity
         self.invalidatedCorrelationKeys = invalidatedCorrelationKeys
+        self.notificationEvent = notificationEvent
+        self.projectsLifecycle = projectsLifecycle
     }
 }

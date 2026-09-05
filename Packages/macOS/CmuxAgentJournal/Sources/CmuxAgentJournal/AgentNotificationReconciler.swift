@@ -13,11 +13,19 @@ public struct AgentNotificationReconciler: Sendable {
         var sequence: Int64 = 0
         var turn: String = "initial"
         var nativeTurn: String?
+        var seenTurns: Set<String> = []
         var phase: AgentLifecyclePhase = .unknown
         var ended = false
         var attentionEpoch: Int64 = 0
         var children: Set<String> = []
+        var finishedChildren: Set<String> = []
+        var rootStopped = false
+        var pendingCompletion: AgentJournalEvent?
         var delivered: [String: String] = [:]
+        // Blocking requests, separate from error and completion history.
+        var attentionIdentities: Set<String> = []
+        var attentionRequestIDs: [String: String] = [:]
+        var completionIdentity: String?
         var starts: Set<String> = []
         var resolvedRequests: Set<String> = []
         var completionTurns: [String: String] = [:]
@@ -41,31 +49,109 @@ public struct AgentNotificationReconciler: Sendable {
         var session = sessions[sessionKey] ?? Session()
         let context = draft.attention
         if draft.kind == .stateChanged, draft.declaredPhase == nil { return .init(.observation) }
-        if draft.kind == .messagePublished {
-            guard context?.notification != nil else { return .init(.observation) }
-            let key = context?.requestIdentity ?? context?.eventIdentity ?? draft.eventId
-            return .init(.accepted, identity: Self.key([sessionKey, "message", key]))
-        }
         let incomingTurn = context?.turnIdentity
         if [.approvalRequested, .questionRequested, .planReviewRequested].contains(draft.kind),
            let request = context?.requestIdentity, session.resolvedRequests.contains(request) {
             return .init(.stale)
         }
+        let isResolution = draft.kind == .attentionResolved
+            || draft.kind == .childCompleted || draft.kind == .childFailed
         var requestInvalidations: [String] = []
-        if draft.kind == .stateChanged, draft.declaredPhase == .running,
-           let request = context?.requestIdentity {
-            session.resolvedRequests.insert(request)
-            let identity = Self.key([sessionKey, Self.key(["attention", request])])
-            if let key = session.delivered.removeValue(forKey: identity) { requestInvalidations = [key] }
+        if isResolution {
+            // A work observation is not a resolution. Only this explicit semantic
+            // event can retire an immutable request/child ID behind a newer watermark.
+            if let request = context?.requestIdentity {
+                if draft.kind == .attentionResolved {
+                    let wasResolved = session.resolvedRequests.contains(request)
+                    session.resolvedRequests.insert(request)
+                    if draft.pendingWork && !wasResolved {
+                        session.rootStopped = false
+                        session.pendingCompletion = nil
+                        session.phase = .running
+                    }
+                    let identity = Self.key([sessionKey, Self.key(["attention", request])])
+                    if let key = session.delivered.removeValue(forKey: identity) { requestInvalidations.append(key) }
+                    session.attentionIdentities.remove(identity)
+                    session.attentionRequestIDs.removeValue(forKey: identity)
+                } else {
+                    session.finishedChildren.insert(request)
+                    session.children.remove(request)
+                }
+            }
+            if !session.attentionIdentities.isEmpty {
+                session.phase = .needsInput
+            } else if session.rootStopped && session.children.isEmpty {
+                session.phase = .idle
+            } else if session.phase == .needsInput {
+                session.phase = .running
+            }
+            session.occurredAtMs = max(session.occurredAtMs, draft.occurredAtMs)
+            session.sequence = max(session.sequence, event.sequence)
+            let pending = session.phase == .idle && !session.ended ? session.pendingCompletion : nil
+            if pending != nil { session.pendingCompletion = nil }
             sessions[sessionKey] = session
+            if let pending {
+                var completion = pending.draft
+                completion.occurredAtMs = session.occurredAtMs
+                completion.pendingWork = false
+                let released = AgentJournalEvent(sequence: session.sequence, committedAtMs: event.committedAtMs, draft: completion)
+                let decision = apply(released)
+                return .init(decision.disposition, identity: decision.identity,
+                    invalidatedCorrelationKeys: requestInvalidations + decision.invalidatedCorrelationKeys,
+                    notificationEvent: released)
+            }
+            return .init(.observation, invalidatedCorrelationKeys: requestInvalidations)
         }
-        if draft.occurredAtMs < session.occurredAtMs
-            || (draft.occurredAtMs == session.occurredAtMs && event.sequence < session.sequence) {
-            return .init(.stale, invalidatedCorrelationKeys: requestInvalidations)
+        let isAttention = [.approvalRequested, .questionRequested, .planReviewRequested].contains(draft.kind)
+        if isAttention, let incomingTurn, let currentTurn = session.nativeTurn,
+           incomingTurn != currentTurn, session.seenTurns.contains(incomingTurn) { return .init(.stale) }
+        if isAttention, context?.requestIdentity == nil, !session.attentionIdentities.isEmpty {
+            // A generic permission reminder adds no new request identity. Do not
+            // let it re-notify or advance the watermark past a real later request.
+            guard context?.notification != nil else { return .init(.observation, projectsLifecycle: false) }
+            guard session.attentionIdentities.count == 1,
+                  let identity = session.attentionIdentities.first else { return .init(.observation, projectsLifecycle: false) }
+            var reminder = draft
+            reminder.attention?.notification?.correlationKey = session.delivered[identity]
+            return .init(.accepted, identity: identity,
+                notificationEvent: AgentJournalEvent(sequence: event.sequence, committedAtMs: event.committedAtMs, draft: reminder),
+                projectsLifecycle: false)
         }
-        if draft.kind == .turnCompleted, let incomingTurn,
-           let nativeTurn = session.nativeTurn, incomingTurn != nativeTurn {
+        let independentRequest = isAttention && context?.requestIdentity != nil && session.phase == .needsInput
+        if !independentRequest && (draft.occurredAtMs < session.occurredAtMs
+            || (draft.occurredAtMs == session.occurredAtMs && event.sequence < session.sequence)) {
             return .init(.stale)
+        }
+        if draft.kind == .messagePublished {
+            guard !session.ended else { return .init(.stale) }
+            guard context?.notification != nil else { return .init(.observation) }
+            let key = context?.requestIdentity ?? context?.eventIdentity ?? draft.eventId
+            return .init(.accepted, identity: Self.key([sessionKey, "message", key]))
+        }
+        if (draft.kind == .turnCompleted || draft.kind == .idleObserved), let incomingTurn,
+           let nativeTurn = session.nativeTurn, incomingTurn != nativeTurn {
+            guard session.phase != .running, session.phase != .needsInput,
+                  !session.seenTurns.contains(incomingTurn) else { return .init(.stale) }
+            session.turn = incomingTurn
+            session.nativeTurn = incomingTurn
+            session.completionIdentity = nil
+        }
+        if draft.kind == .idleObserved {
+            let matchesTurn = context?.turnIdentity != nil && context?.turnIdentity == session.nativeTurn
+            guard !draft.pendingWork, session.attentionIdentities.isEmpty, session.children.isEmpty,
+                  session.phase == .idle || session.phase == .unknown || (session.phase == .running && matchesTurn),
+                  !session.ended else { return .init(.delayed, projectsLifecycle: false) }
+            session.phase = .idle
+            session.rootStopped = true
+            session.occurredAtMs = max(session.occurredAtMs, draft.occurredAtMs)
+            session.sequence = max(session.sequence, event.sequence)
+            sessions[sessionKey] = session
+            guard context?.notification != nil else { return .init(.observation) }
+            let identity = Self.key([sessionKey, Self.key(["completion", context?.turnIdentity ?? session.turn])])
+            session.delivered[identity] = context?.notification?.correlationKey ?? identity
+            session.completionIdentity = identity
+            sessions[sessionKey] = session
+            return .init(.accepted, identity: identity)
         }
         if draft.kind == .turnStarted, let incomingTurn, incomingTurn == session.turn,
            session.phase == .needsInput || session.phase == .idle { return .init(.stale) }
@@ -79,32 +165,48 @@ public struct AgentNotificationReconciler: Sendable {
             if let boundTurn = session.completionTurns[key], boundTurn != session.turn { return .init(.stale) }
             session.completionTurns[key] = session.turn
         }
-        var invalidated = requestInvalidations
-        if draft.kind == .turnStarted || draft.kind == .sessionEnded
-            || (draft.kind == .stateChanged && draft.declaredPhase == .running) {
-            if draft.kind == .stateChanged, let request = context?.requestIdentity {
-                let identity = Self.key([sessionKey, Self.key(["attention", request])])
-                if let key = session.delivered.removeValue(forKey: identity) { invalidated = [key] }
-            } else {
-                invalidated = Array(session.delivered.values).sorted()
-                session.delivered.removeAll()
-            }
+        var invalidated: [String] = []
+        if draft.kind == .turnStarted || draft.kind == .sessionEnded {
+            invalidated = Array(session.delivered.values).sorted()
+            session.delivered.removeAll()
+            session.attentionIdentities.removeAll()
+            session.resolvedRequests.formUnion(session.attentionRequestIDs.values)
+            session.attentionRequestIDs.removeAll()
+            session.completionIdentity = nil
+            session.pendingCompletion = nil
         }
         let previousPhase = session.phase
         switch draft.kind {
-        case .messagePublished:
+        case .messagePublished, .attentionResolved, .idleObserved:
             return .init(.observation)
         case .sessionStarted:
+            if session.ended { session.phase = .unknown; session.nativeTurn = nil }
             session.ended = false
         case .turnStarted:
+            session.rootStopped = false
             if let key = context?.eventIdentity { session.starts.insert(key) }
-            session.turn = incomingTurn ?? context?.eventIdentity ?? draft.eventId
-            session.nativeTurn = incomingTurn
+            if incomingTurn != nil || context?.eventIdentity != nil || session.phase != .running {
+                session.turn = incomingTurn ?? context?.eventIdentity ?? draft.eventId
+                session.nativeTurn = incomingTurn
+            }
             session.phase = .running
             session.ended = false
         case .turnCompleted:
+            session.rootStopped = !draft.pendingWork
+            if !draft.pendingWork, !session.children.isEmpty, context?.notification != nil {
+                session.pendingCompletion = event
+            }
             if session.turn == "initial", let incomingTurn { session.turn = incomingTurn }
-            session.phase = draft.pendingWork || !session.children.isEmpty ? .running : .idle
+            let pending = draft.pendingWork || !session.children.isEmpty
+            if !draft.pendingWork {
+                for identity in session.delivered.keys.sorted() where identity != session.completionIdentity {
+                    if let key = session.delivered.removeValue(forKey: identity) { invalidated.append(key) }
+                }
+                session.attentionIdentities.removeAll()
+                session.resolvedRequests.formUnion(session.attentionRequestIDs.values)
+                session.attentionRequestIDs.removeAll()
+            }
+            session.phase = pending ? (session.attentionIdentities.isEmpty ? .running : .needsInput) : .idle
         case .approvalRequested, .questionRequested, .planReviewRequested:
             if let incomingTurn { session.turn = incomingTurn; session.nativeTurn = incomingTurn }
             if previousPhase != .needsInput { session.attentionEpoch = event.sequence }
@@ -114,18 +216,23 @@ public struct AgentNotificationReconciler: Sendable {
         case .sessionEnded:
             session.ended = true
         case .stateChanged:
+            if draft.declaredPhase == .running {
+                session.rootStopped = false
+                session.pendingCompletion = nil
+            }
             if let phase = draft.declaredPhase {
-                session.phase = phase == .running && !session.delivered.isEmpty ? .needsInput : phase
+                session.phase = phase == .running && !session.attentionIdentities.isEmpty ? .needsInput : phase
             }
         case .childSpawned:
-            if let child = context?.requestIdentity {
+            if let child = context?.requestIdentity, !session.finishedChildren.contains(child) {
                 session.children.insert(child)
                 if session.phase == .idle || session.phase == .unknown { session.phase = .running }
             }
         case .childCompleted, .childFailed:
             if let child = context?.requestIdentity { session.children.remove(child) }
         }
-        session.occurredAtMs = draft.occurredAtMs
+        if let turn = session.nativeTurn { session.seenTurns.insert(turn) }
+        session.occurredAtMs = max(session.occurredAtMs, draft.occurredAtMs)
         session.sequence = max(session.sequence, event.sequence)
         sessions[sessionKey] = session
         guard context?.notification != nil else { return .init(.observation, invalidatedCorrelationKeys: invalidated) }
@@ -146,6 +253,11 @@ public struct AgentNotificationReconciler: Sendable {
         }
         let identity = Self.key([sessionKey, boundary])
         session.delivered[identity] = context?.notification?.correlationKey ?? identity
+        if [.approvalRequested, .questionRequested, .planReviewRequested].contains(draft.kind) {
+            session.attentionIdentities.insert(identity)
+            if let request = context?.requestIdentity { session.attentionRequestIDs[identity] = request }
+        }
+        if draft.kind == .turnCompleted { session.completionIdentity = identity }
         sessions[sessionKey] = session
         return .init(.accepted, identity: identity, invalidatedCorrelationKeys: invalidated)
     }
@@ -158,11 +270,20 @@ public struct AgentNotificationReconciler: Sendable {
         guard let sessionID = draft.sessionId,
               let session = sessions[Self.key([draft.source, sessionID])] else { return event }
         switch draft.kind {
+        case .sessionStarted where session.phase != .unknown:
+            draft.kind = .stateChanged
+            draft.declaredPhase = session.phase
         case .turnCompleted:
-            draft.pendingWork = session.phase == .running
+            if session.phase == .needsInput {
+                draft.kind = .stateChanged
+                draft.declaredPhase = .needsInput
+            } else {
+                draft.pendingWork = session.phase == .running
+            }
         case .stateChanged where draft.declaredPhase != nil:
             draft.declaredPhase = session.phase
-        case .childSpawned, .childCompleted, .childFailed:
+        case .idleObserved, .attentionResolved, .childSpawned, .childCompleted, .childFailed:
+            draft.occurredAtMs = max(draft.occurredAtMs, session.occurredAtMs)
             draft.kind = .stateChanged
             draft.declaredPhase = session.phase
         default:
@@ -173,6 +294,13 @@ public struct AgentNotificationReconciler: Sendable {
 
     private static func key(_ components: [String]) -> String {
         let framed = components.map { "\($0.utf8.count):\($0)" }.joined()
-        return SHA256.hash(data: Data(framed.utf8)).map { String(format: "%02x", $0) }.joined()
+        let digits = Array("0123456789abcdef".utf8)
+        var bytes: [UInt8] = []
+        bytes.reserveCapacity(64)
+        for byte in SHA256.hash(data: Data(framed.utf8)) {
+            bytes.append(digits[Int(byte >> 4)])
+            bytes.append(digits[Int(byte & 15)])
+        }
+        return String(decoding: bytes, as: UTF8.self)
     }
 }

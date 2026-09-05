@@ -19,11 +19,20 @@ final class AgentJournalLifecycleCenter: Sendable {
 
     private enum Operation: Sendable {
         case ingest(AgentJournalEvent)
-        case submit(AgentJournalEventDraft, CheckedContinuation<Bool, Never>?)
+        case submit(AgentJournalEventDraft, UUID?)
+        case feed(AgentFeedSemanticInput, UUID?)
         case recordAliases(workspaces: [String: String], surfaces: [String: String])
         case startupReplay
+
+        var admissionID: UUID? {
+            switch self {
+            case .submit(_, let id), .feed(_, let id): id
+            default: nil
+            }
+        }
     }
 
+    private let admissions = AgentNotificationAdmissionWaiters()
     private let lazyStore: AgentJournalLazyStore?
     private let operations: AsyncStream<Operation>.Continuation?
     private let consumerTask: Task<Void, Never>?
@@ -41,9 +50,10 @@ final class AgentJournalLifecycleCenter: Sendable {
         }
         let lazyStore = AgentJournalLazyStore(databaseURL: databaseURL)
         self.lazyStore = lazyStore
-        var continuation: AsyncStream<Operation>.Continuation?
-        let stream = AsyncStream<Operation>(bufferingPolicy: .unbounded) { continuation = $0 }
-        self.operations = continuation
+        let admissions = self.admissions
+        let channel = AsyncStream<Operation>.makeStream(bufferingPolicy: .unbounded)
+        channel.continuation.onTermination = { _ in admissions.finish() }
+        self.operations = channel.continuation
         self.consumerTask = Task.detached(priority: .utility) {
             let reducer = AgentLifecycleReducer()
             let replayPolicy = AgentJournalReplayPolicy()
@@ -82,27 +92,39 @@ final class AgentJournalLifecycleCenter: Sendable {
                 guard let eventAliases = resolver(store) else { return false }
                 let canonical = Self.canonicalized(event, aliases: eventAliases)
                 let decision = notifications.apply(canonical)
-                if decision.disposition != .stale,
+                if decision.disposition != .stale, decision.projectsLifecycle,
                    let application = Self.reduceIngest(notifications.lifecycleEvent(canonical), aliases: eventAliases,
                        reducer: reducer, state: &state) {
                     await MainActor.run { Self.apply(application.assignment, workspaceHint: application.workspaceHint) }
                 }
                 Self.clearInvalidatedNotifications(canonical, decision: decision)
-                guard canonical.draft.attention?.notification != nil else { return false }
+                let notificationEvent = Self.canonicalized(decision.notificationEvent ?? canonical, aliases: eventAliases)
+                guard notificationEvent.draft.attention?.notification != nil else { return false }
                 guard let identity = decision.identity else {
                     Self.notificationDiagnostic(canonical.draft, reason: decision.disposition.rawValue)
                     return false
                 }
-                if deliver, !(await MainActor.run(body: { Self.notificationTargetIsCurrent(canonical.draft) })) {
-                    return false
-                }
-                guard Self.claimNotification(canonical, decision: decision, store: store) else { return false }
+                guard !Task.isCancelled,
+                      let delivery = await MainActor.run(body: { Self.notificationAdmission(notificationEvent.draft) }) else { return false }
+                guard Self.claimNotification(notificationEvent, decision: decision, store: store) else { return false }
                 if deliver {
-                    await MainActor.run { Self.deliverNotification(canonical, identity: identity) }
+                    await MainActor.run { Self.deliverNotification(notificationEvent, identity: identity, admission: delivery) }
                 }
                 return true
             }
-            for await operation in stream {
+            func submit(_ draft: AgentJournalEventDraft, id: UUID?, store: AgentJournalStore) async {
+                do {
+                    let outcome = try store.append(draft)
+                    let event = AgentJournalEvent(sequence: outcome.sequence,
+                        committedAtMs: outcome.committedAtMs, draft: draft)
+                    let accepted = await reconcile(event, store: store, deliver: false)
+                    admissions.complete(id, accepted: accepted)
+                } catch {
+                    Self.notificationDiagnostic(draft, reason: "storage-unavailable")
+                    admissions.complete(id, accepted: false)
+                }
+            }
+            for await operation in channel.stream {
                 guard let store = lazyStore.store() else {
                     // Fails closed (no badges), but never silently: the open
                     // failure itself was reported on the event bus, and each
@@ -110,22 +132,20 @@ final class AgentJournalLifecycleCenter: Sendable {
 #if DEBUG
                     cmuxDebugLog("agentJournal.op.dropped reason=storeUnavailable")
 #endif
-                    if case .submit(_, let continuation) = operation { continuation?.resume(returning: false) }
+                    admissions.complete(operation.admissionID, accepted: false)
                     continue
                 }
+                if let id = operation.admissionID, !admissions.contains(id) { continue }
                 switch operation {
                 case .ingest(let event):
                     _ = await reconcile(event, store: store, deliver: true)
-                case .submit(let draft, let continuation):
-                    do {
-                        let outcome = try store.append(draft)
-                        let event = AgentJournalEvent(sequence: outcome.sequence,
-                            committedAtMs: outcome.committedAtMs, draft: draft)
-                        let accepted = await reconcile(event, store: store, deliver: false)
-                        continuation?.resume(returning: accepted)
-                    } catch {
-                        Self.notificationDiagnostic(draft, reason: "storage-unavailable")
-                        continuation?.resume(returning: false)
+                case .submit(let draft, let id):
+                    await submit(draft, id: id, store: store)
+                case .feed(let input, let id):
+                    if let draft = input.draft() {
+                        await submit(draft, id: id, store: store)
+                    } else {
+                        admissions.complete(id, accepted: false)
                     }
                 case .recordAliases(let workspaces, let surfaces):
                     do {
@@ -177,6 +197,7 @@ final class AgentJournalLifecycleCenter: Sendable {
     }
 
     deinit {
+        admissions.finish()
         consumerTask?.cancel()
         operations?.finish()
         lazyStore?.close()
@@ -285,9 +306,31 @@ final class AgentJournalLifecycleCenter: Sendable {
 
     /// Uses the same durable semantic gate for actionable Feed delivery.
     func admitNotification(_ draft: AgentJournalEventDraft) async -> Bool {
+        await admit { .submit(draft, $0) }
+    }
+
+    func observeFeed(_ input: AgentFeedSemanticInput) {
+        operations?.yield(.feed(input, nil))
+    }
+
+    func admitFeedNotification(_ input: AgentFeedSemanticInput) async -> Bool {
+        await admit { .feed(input, $0) }
+    }
+
+    private func admit(_ operation: (UUID) -> Operation) async -> Bool {
         guard let operations else { return false }
-        return await withCheckedContinuation { continuation in
-            operations.yield(.submit(draft, continuation))
+        let id = UUID()
+        let admissions = self.admissions
+        defer { admissions.forget(id) }
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                guard admissions.register(id, continuation: continuation) else { return }
+                if case .terminated = operations.yield(operation(id)) {
+                    admissions.complete(id, accepted: false)
+                }
+            }
+        } onCancel: {
+            admissions.cancel(id)
         }
     }
 

@@ -26,6 +26,9 @@ extension AgentJournalLifecycleCenter {
         for key in decision.invalidatedCorrelationKeys {
             TerminalMutationBus.shared.enqueueClearNotifications(forTabId: workspaceID,
                 surfaceId: surfaceID, correlationKey: key)
+            if let sessionID = event.draft.sessionId {
+                FeedCoordinator.shared.invalidateSemanticRequest(requestId: key, source: event.draft.source, sessionId: sessionID)
+            }
         }
     }
 
@@ -48,25 +51,48 @@ extension AgentJournalLifecycleCenter {
             .surfaceResumeBindingsByPanelId[panelID]
             ?? AppDelegate.shared?.workspaceContainingPanel(panelId: panelID,
                 preferredWorkspaceId: live.tabId)?.workspace.surfaceResumeBindingsByPanelId[panelID]
-        if let binding, binding.isAgentHookBinding,
-           binding.checkpointId != draft.sessionId
-            || (binding.kind != nil && binding.kind?.lowercased() != draft.source.lowercased()) {
-            notificationDiagnostic(draft, reason: "session-superseded")
-            return nil
+        if let binding, binding.isAgentHookBinding {
+            guard binding.checkpointId == draft.sessionId,
+                  binding.kind == nil || binding.kind?.lowercased() == draft.source.lowercased() else {
+                notificationDiagnostic(draft, reason: "session-superseded")
+                return nil
+            }
+        } else {
+            let active = SharedLiveAgentIndex.shared.index?.entryForStablePanel(
+                workspaceId: live.tabId, panelId: panelID, revalidateProcessEvidence: false)
+            guard let sessionID = draft.sessionId,
+                  AgentResumeLiveness.hasLiveProcess(for: active, kind: draft.source, sessionId: sessionID) else {
+                notificationDiagnostic(draft, reason: "session-unbound")
+                return nil
+            }
         }
         return (live.tabId, panelID)
     }
 
     @MainActor
-    static func deliverNotification(_ event: AgentJournalEvent, identity: String) {
+    static func notificationAdmission(_ draft: AgentJournalEventDraft) -> AgentNotificationDelivery? {
+        guard let notification = draft.attention?.notification,
+              notificationTarget(draft) != nil else { return nil }
+        let delivery = AgentNotificationDelivery()
+        guard delivery.allows(category: AgentNotifyCategory(rawValue: notification.category), pending: draft.pendingWork) else {
+            notificationDiagnostic(draft, reason: "preference-filtered")
+            return nil
+        }
+        return delivery
+    }
+
+    @MainActor
+    static func deliverNotification(_ event: AgentJournalEvent, identity: String,
+                                    admission: AgentNotificationDelivery? = nil) {
         let draft = event.draft
         guard let notification = draft.attention?.notification,
+              let delivery = admission ?? notificationAdmission(draft),
               let live = notificationTarget(draft) else { return }
         let liveSurfaceID = live.surfaceId
         let category = AgentNotifyCategory(rawValue: notification.category)
         let alert: NotificationSoundAlertType? = draft.kind == .errorReported ? .errorStalled : category?.soundAlertType
         let sound = alert.flatMap { NotificationSoundOverrideContext(agentID: draft.source, alertType: $0) }
-        let delivered = AgentNotificationDelivery().enqueue(
+        let delivered = delivery.enqueue(
             workspaceID: live.tabId, surfaceID: liveSurfaceID,
             title: notification.title, subtitle: notification.subtitle, body: notification.body,
             category: category, pending: draft.pendingWork, soundContext: sound,

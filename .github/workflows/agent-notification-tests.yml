@@ -3,7 +3,15 @@ on:
   pull_request:
     paths:
       - Packages/macOS/CmuxAgentJournal/**
-      - CLI/CMUXCLI+SemanticNotifications.swift
+      - CLI/*Notification*.swift
+      - CLI/CMUXCLI+AgentJournalEmission.swift
+      - CLI/cmux.swift
+      - Sources/AgentNotification*.swift
+      - Sources/AgentFeedSemanticInput.swift
+      - Sources/Feed/**
+      - cmuxTests/**
+      - Packages/macOS/CMUXAgentLaunch/**
+      - .github/workflows/test-depot.yml
       - Sources/AgentJournalLifecycleCenter*.swift
       - .github/workflows/agent-notification-tests.yml
 permissions:
@@ -16,3 +24,13 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
       - name: Test semantic lifecycle and durable notification admission
         run: swift test --package-path Packages/macOS/CmuxAgentJournal -Xswiftc -warnings-as-errors
+      - name: Test immutable Feed ingestion
+        run: swift test --package-path Packages/macOS/CMUXAgentLaunch --filter Workstream -Xswiftc -warnings-as-errors
+
+  semantic-delivery-integration:
+    needs: agent-notification-tests
+    uses: ./.github/workflows/test-depot.yml
+    with:
+      ref: ${{ github.event.pull_request.head.sha }}
+      skip_ui_tests: true
+      unit_test_suites: AgentNotificationRegressionTests,AgentJournalLifecycleCenterTests,FeedWaiterRegistryTests,ClaudeBackgroundWorkNotifyTests,CLICodexResumeNotificationTests
