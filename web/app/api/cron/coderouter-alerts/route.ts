@@ -1,10 +1,9 @@
-import { createHash, timingSafeEqual } from "node:crypto";
-
 import {
   coderouterAlertSinkReady,
   runCoderouterAlertChecks,
   type CoderouterAlertSummary,
 } from "../../../../services/observability/coderouterAlerts";
+import { authorizeCronRequest } from "../../../../services/cronAuth";
 import { jsonResponse } from "../../../../services/vms/routeHelpers";
 
 export const maxDuration = 60;
@@ -15,19 +14,11 @@ export async function handleCoderouterAlertsCron(
   request: Request,
   run: CoderouterAlertCronRunner = runCoderouterAlertChecks,
 ): Promise<Response> {
-  const cronSecret = process.env.CRON_SECRET?.trim();
-  if (!cronSecret) {
+  const auth = authorizeCronRequest(request);
+  if (!auth.ok && auth.reason === "cron_secret_missing") {
     return jsonResponse({ error: "cron_not_configured" }, 503);
   }
-  // Hash both values before comparing so the comparison always has the same
-  // length and does not leak a matching prefix through timing.
-  const provided = createHash("sha256")
-    .update(request.headers.get("authorization") ?? "")
-    .digest();
-  const expected = createHash("sha256")
-    .update(`Bearer ${cronSecret}`)
-    .digest();
-  if (!timingSafeEqual(provided, expected)) {
+  if (!auth.ok) {
     return jsonResponse({ error: "unauthorized" }, 401);
   }
   if (!coderouterAlertSinkReady()) {

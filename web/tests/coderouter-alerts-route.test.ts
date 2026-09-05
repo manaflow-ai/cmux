@@ -38,6 +38,48 @@ function withEnv(values: Record<string, string | undefined>, run: () => Promise<
 }
 
 describe("coderouter alerts cron route", () => {
+  test("fails closed when CRON_SECRET is not configured", async () => {
+    let ran = false;
+    await withEnv({
+      CRON_SECRET: undefined,
+      CMUX_ALERTS_SLACK_WEBHOOK_URL: "https://hooks.slack.test/x",
+      CMUX_ALERTS_SINK_UNCONFIGURED_ACK: undefined,
+    }, async () => {
+      const response = await handleCoderouterAlertsCron(
+        new Request("https://cmux.test/api/cron/coderouter-alerts", {
+          headers: { authorization: "Bearer cron-secret" },
+        }),
+        async () => {
+          ran = true;
+          return summary;
+        },
+      );
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({ error: "cron_not_configured" });
+    });
+    expect(ran).toBe(false);
+  });
+
+  test("rejects a request without the Vercel bearer header before running checks", async () => {
+    let ran = false;
+    await withEnv({
+      CRON_SECRET: "cron-secret",
+      CMUX_ALERTS_SLACK_WEBHOOK_URL: "https://hooks.slack.test/x",
+      CMUX_ALERTS_SINK_UNCONFIGURED_ACK: undefined,
+    }, async () => {
+      const response = await handleCoderouterAlertsCron(
+        new Request("https://cmux.test/api/cron/coderouter-alerts"),
+        async () => {
+          ran = true;
+          return summary;
+        },
+      );
+      expect(response.status).toBe(401);
+      expect(await response.json()).toEqual({ error: "unauthorized" });
+    });
+    expect(ran).toBe(false);
+  });
+
   test("fails before running checks when neither Slack nor a waiver is configured", async () => {
     let ran = false;
     await withEnv({

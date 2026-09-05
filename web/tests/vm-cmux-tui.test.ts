@@ -375,7 +375,9 @@ describe("cmux-tui install and daemon commands", () => {
       "#!/bin/sh",
       "trap ': > \"$CMUX_TEST_STATE/daemon-term\"; exit 0' TERM INT HUP",
       ": > \"$CMUX_TEST_STATE/daemon-ready\"",
-      "while :; do :; done",
+      // Keep the fake daemon alive without monopolizing a CPU while Bun runs
+      // other isolated test files concurrently on the small CI runner.
+      "while :; do sleep 0.05; done",
       "",
     ].join("\n"));
     chmodSync(daemonBinary, 0o755);
@@ -484,7 +486,7 @@ describe("cmux-tui install and daemon commands", () => {
       ": > \"$CMUX_TEST_STATE/daemon-ready\"",
       // Keep the fake daemon in shell code so its TERM trap runs reliably when
       // the supervisor switches away from the lost view.
-      "while :; do :; done",
+      "while :; do sleep 0.05; done",
       "",
     ].join("\n"));
     chmodSync(daemonBinary, 0o755);
@@ -506,7 +508,7 @@ describe("cmux-tui install and daemon commands", () => {
         const timer = setTimeout(() => {
           child?.kill("SIGKILL");
           reject(new Error("mount-loss supervisor test timed out"));
-        }, 5_000);
+        }, 8_000);
         child?.once("error", (error) => {
           clearTimeout(timer);
           reject(error);
@@ -559,7 +561,7 @@ describe("cmux-tui install and daemon commands", () => {
       "#!/bin/sh",
       "trap ':' TERM INT HUP",
       ": > \"$CMUX_TEST_STATE/daemon-ready\"",
-      "while :; do :; done",
+      "while :; do sleep 0.05; done",
       "",
     ].join("\n"));
     chmodSync(daemonBinary, 0o755);
@@ -580,7 +582,7 @@ describe("cmux-tui install and daemon commands", () => {
         const timer = setTimeout(() => {
           child?.kill("SIGKILL");
           reject(new Error("unresponsive daemon shutdown timed out"));
-        }, 5_000);
+        }, 8_000);
         child?.once("error", (error) => {
           clearTimeout(timer);
           reject(error);
@@ -633,7 +635,7 @@ describe("cmux-tui install and daemon commands", () => {
       "#!/bin/sh",
       "trap ': > \"$CMUX_TEST_STATE/daemon-term\"; exit 0' TERM INT HUP",
       ": > \"$CMUX_TEST_STATE/daemon-ready\"",
-      "while :; do :; done",
+      "while :; do sleep 0.05; done",
       "",
     ].join("\n"));
     chmodSync(daemonBinary, 0o755);
@@ -654,7 +656,7 @@ describe("cmux-tui install and daemon commands", () => {
         const timer = setTimeout(() => {
           child?.kill("SIGKILL");
           reject(new Error("backing-loss supervisor test timed out"));
-        }, 5_000);
+        }, 8_000);
         child?.once("error", (error) => {
           clearTimeout(timer);
           reject(error);
@@ -701,7 +703,7 @@ describe("cmux-tui install and daemon commands", () => {
       "#!/bin/sh",
       "trap ': > \"$CMUX_TEST_STATE/daemon-term\"; exit 0' TERM INT HUP",
       ": > \"$CMUX_TEST_STATE/daemon-ready\"",
-      "while :; do :; done",
+      "while :; do sleep 0.05; done",
       "",
     ].join("\n"));
     chmodSync(daemonBinary, 0o755);

@@ -11,12 +11,16 @@ const scriptPath = fileURLToPath(new URL("./load-dev-env.sh", import.meta.url));
 function sourceDevEnv({
   downloadedKeyID = "",
   downloadedPrivateKey = "",
-  keyFileContents,
+  keyFileContents = "",
   localKeyID = "",
+  providerFileContents = "",
+  extraFileContents = "",
 }) {
   const home = mkdtempSync(path.join(tmpdir(), "cmux-load-dev-env-"));
   const secrets = path.join(home, ".secrets");
   const envFile = path.join(secrets, "cmuxterm-dev.env");
+  const providerFile = path.join(secrets, "cmux.env");
+  const extraFile = path.join(secrets, "extra.env");
   const keyFile = path.join(
     secrets,
     "cmux-staging-relay-policy-2026-08.pem",
@@ -32,13 +36,19 @@ function sourceDevEnv({
     { mode: 0o600 },
   );
   writeFileSync(keyFile, keyFileContents, { mode: 0o600 });
+  if (providerFileContents) {
+    writeFileSync(providerFile, providerFileContents, { mode: 0o600 });
+  }
+  if (extraFileContents) {
+    writeFileSync(extraFile, extraFileContents, { mode: 0o600 });
+  }
 
   try {
     return execFileSync(
       "bash",
       [
         "-c",
-        `source "$1"; printf '%s\\0%s' "\${CMUX_RELAY_POLICY_KEY_ID-}" "\${CMUX_RELAY_POLICY_PRIVATE_KEY_PEM-}"`,
+        `source "$1"; printf '%s\\0%s\\0%s\\0%s\\0%s' "\${CMUX_RELAY_POLICY_KEY_ID-}" "\${CMUX_RELAY_POLICY_PRIVATE_KEY_PEM-}" "\${FREESTYLE_API_KEY-}" "\${FREESTYLE_SANDBOX_SNAPSHOT-}" "\${CMUX_VM_DEFAULT_PROVIDER-}"`,
         "bash",
         scriptPath,
       ],
@@ -51,6 +61,8 @@ function sourceDevEnv({
           CMUX_RELAY_POLICY_KEY_ID: "",
           CMUX_RELAY_POLICY_PRIVATE_KEY_PEM: "",
           CMUX_RELAY_POLICY_LOCAL_KEY_ID: localKeyID,
+          CMUX_VM_DEFAULT_PROVIDER: "",
+          CMUXTERM_EXTRA_ENV_FILE: extraFileContents ? extraFile : "",
         },
       },
     ).split("\0");
@@ -102,4 +114,23 @@ test("custom local fallback key id remains coupled to its private key", () => {
 
   assert.equal(keyID, "custom-local-key-id");
   assert.equal(loadedPrivateKey, privateKey);
+});
+
+test("loads Freestyle credentials from the generic provider file", () => {
+  const [, , apiKey, snapshot, provider] = sourceDevEnv({
+    providerFileContents: "FREESTYLE_API_KEY=local-freestyle-key\nFREESTYLE_SANDBOX_SNAPSHOT=sh-local\n",
+  });
+
+  assert.equal(apiKey, "local-freestyle-key");
+  assert.equal(snapshot, "sh-local");
+  assert.equal(provider, "freestyle");
+});
+
+test("loads an explicitly selected Freestyle provider from the extra environment file", () => {
+  const [, , apiKey, , provider] = sourceDevEnv({
+    extraFileContents: "FREESTYLE_API_KEY=explicit-freestyle-key\nCMUX_VM_DEFAULT_PROVIDER=freestyle\n",
+  });
+
+  assert.equal(apiKey, "explicit-freestyle-key");
+  assert.equal(provider, "freestyle");
 });
