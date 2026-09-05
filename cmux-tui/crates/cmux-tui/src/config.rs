@@ -574,8 +574,7 @@ struct RawSidebarView {
     max_width: Option<u16>,
     collapse_priority: Option<u16>,
     /// Resource scope for flat tabs/agents views: `"workspace"` (default)
-    /// follows the selected workspace; `"all"` lists every workspace, and
-    /// agents order chronologically by their last status change.
+    /// follows the selected workspace; `"all"` lists every workspace.
     scope: Option<String>,
     /// Rows per agent entry: 2 (default for agents views) renders the state
     /// dot and title above a dim agent-type line; 1 is the compact mode.
@@ -1234,7 +1233,7 @@ pub struct SidebarViewSpec {
     /// Lower values collapse first when pane space becomes constrained.
     pub collapse_priority: u16,
     /// Resource scope for flat tabs/agents views. `All` lists every
-    /// workspace; agents then order chronologically by last status change.
+    /// workspace. Agent rows use the configured sort mode.
     pub scope: SidebarViewScope,
     /// Rows each agent entry occupies (herdr-style two-line rows by
     /// default; 1 is the compact mode). Non-agent rows are always one line.

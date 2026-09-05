@@ -130,7 +130,7 @@ Every view has an independent width and drag handle. Lower `collapse_priority` v
 | `sidebar.views[].max_width` | integer | `0` | Maximum live drag width; `0` means no configured maximum |
 | `sidebar.views[].collapse_priority` | integer | resource default | Lower priorities hide first on narrow terminals |
 | `sidebar.views[].actions_position` | `"top"` or `"bottom"` | `"bottom"` | Where the view's pinned action buttons render |
-| `sidebar.views[].scope` | `"workspace"` or `"all"` | `"workspace"` | For flat `tabs`/`agents` views: follow the highlighted workspace, or sweep all workspaces (agents order newest status change first) |
+| `sidebar.views[].scope` | `"workspace"` or `"all"` | `"workspace"` | For flat `tabs`/`agents` views: follow the highlighted workspace, or sweep all workspaces |
 | `sidebar.views[].sort` | `"priority"`, `"recency"`, `"name"`, `"agent"`, `"state"` | `"priority"` | Agents views: the starting sort mode. `priority` is herdr's attention order (blocked > unseen idle > working > seen idle). Press `s` in a focused agents view to cycle modes for this client; the header shows the active mode. Unknown values warn and fall back |
 | `sidebar.views[].filter` | object | none | Agents views: `{"agent": ["claude"], "state": ["blocked", "working"], "seen": false}`. Criteria AND together; empty lists are inactive. The header gains a `filtered` marker while active. Invalid values warn and are ignored |
 | `sidebar.views[].split` | `"vertical"` or `"horizontal"` | unset | Turns the entry into a split group of `panes` instead of a leaf view |
