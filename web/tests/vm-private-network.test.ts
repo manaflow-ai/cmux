@@ -14,11 +14,9 @@ import {
 import {
   VmAccessGrantMutationBusyError,
   VmAccessGrantRevokedError,
-  VmDatabaseError,
   VmPrivateNetworkUnavailableError,
   VmProviderOperationError,
   VmTunnelNotFoundError,
-  VmTunnelEnrollmentUnavailableError,
 } from "../services/vms/errors";
 import type {
   CreateProviderTunnelOptions,
@@ -193,7 +191,6 @@ function testRepo(options: {
   tunnel?: CloudVmTunnelRow | null;
   lockAcquired?: boolean;
   lockRenewed?: boolean;
-  lockError?: VmDatabaseError;
 } = {}): VmRepositoryShape {
   const calls = options.calls;
   const base: Partial<VmRepositoryShape> = {
@@ -243,13 +240,10 @@ function testRepo(options: {
         calls?.revoked.push(id);
         return true;
       }),
-    acquireTunnelEnrollmentLock: () => {
-      if (options.lockError) return Effect.fail(options.lockError);
-      return Effect.sync(() => {
+    acquireTunnelEnrollmentLock: () => Effect.sync(() => {
         if (calls) calls.lockAcquires += 1;
         return options.lockAcquired ?? true;
-      });
-    },
+      }),
     releaseTunnelEnrollmentLock: () =>
       Effect.sync(() => {
         if (calls) calls.lockReleases += 1;
@@ -331,7 +325,7 @@ describe("resolveOwnerNetwork", () => {
     expect(repoCalls.upserts).toBe(1);
   });
 
-  test("reconciles the recorded network with the provider before reuse", async () => {
+  test("reuses the recorded network without a provider read", async () => {
     const gatewayCalls = newGatewayCalls();
     const network = await Effect.runPromise(
       resolveOwnerNetwork({ userId: "user-1", provider: "freestyle" }).pipe(
@@ -342,10 +336,10 @@ describe("resolveOwnerNetwork", () => {
       ),
     );
     expect(network?.providerNetworkId).toBe(NETWORK.id);
-    expect(gatewayCalls.ensureNetwork).toBe(1);
+    expect(gatewayCalls.ensureNetwork).toBe(0);
   });
 
-  test("replaces a stale control-plane network id when Freestyle recreated the VPC", async () => {
+  test("keeps the recorded network id as the control-plane authority", async () => {
     const gatewayCalls = newGatewayCalls();
     const repoCalls = newRepoCalls();
     const recreated: ProviderNetwork = {
@@ -361,9 +355,9 @@ describe("resolveOwnerNetwork", () => {
         )),
       ),
     );
-    expect(network?.providerNetworkId).toBe(recreated.id);
-    expect(gatewayCalls.ensureNetwork).toBe(1);
-    expect(repoCalls.upserts).toBe(1);
+    expect(network?.providerNetworkId).toBe("vpc-deleted-1");
+    expect(gatewayCalls.ensureNetwork).toBe(0);
+    expect(repoCalls.upserts).toBe(0);
   });
 
   test("fails closed when the provider has no private networking", async () => {
@@ -654,33 +648,6 @@ describe("enrollVmTunnel", () => {
 });
 
 describe("readVmTunnel / revokeVmTunnel", () => {
-  test("keeps an existing tunnel readable while new private-network provisioning is rolled back", async () => {
-    const prior = process.env.CMUX_VM_PRIVATE_NETWORK_ENABLED;
-    process.env.CMUX_VM_PRIVATE_NETWORK_ENABLED = "0";
-    const gatewayCalls = newGatewayCalls();
-    try {
-      const tunnel = await Effect.runPromise(
-        readVmTunnel({
-          userId: "user-1",
-          provider: "freestyle",
-          deviceFingerprint: "device-1",
-          tunnelPurpose: "terminal",
-        }).pipe(
-          Effect.provide(layerFor(
-            testRepo({ network: networkRow(), tunnel: tunnelRow() }),
-            testGateway({ calls: gatewayCalls }),
-          )),
-        ),
-      );
-      expect(tunnel.tunnelId).toBe("tun-test-1");
-      expect(gatewayCalls.ensureNetwork).toBe(0);
-      expect(gatewayCalls.getNetwork).toBe(1);
-    } finally {
-      if (prior === undefined) delete process.env.CMUX_VM_PRIVATE_NETWORK_ENABLED;
-      else process.env.CMUX_VM_PRIVATE_NETWORK_ENABLED = prior;
-    }
-  });
-
   test("fails closed when rollback leaves only a stale network row", async () => {
     const prior = process.env.CMUX_VM_PRIVATE_NETWORK_ENABLED;
     process.env.CMUX_VM_PRIVATE_NETWORK_ENABLED = "0";
@@ -724,7 +691,7 @@ describe("readVmTunnel / revokeVmTunnel", () => {
     expect(gatewayCalls.ensureNetwork).toBe(0);
   });
 
-  test("reports a missing lock migration as a typed unavailable response", async () => {
+  test("reports a missing device as not found without a mutation lock", async () => {
     const error = await Effect.runPromise(
       readVmTunnel({
         userId: "user-1",
@@ -733,18 +700,13 @@ describe("readVmTunnel / revokeVmTunnel", () => {
         tunnelPurpose: "terminal",
       }).pipe(
         Effect.provide(layerFor(
-          testRepo({
-            lockError: new VmDatabaseError({
-              operation: "acquireTunnelEnrollmentLock",
-              cause: { code: "42P01", message: 'relation "cloud_vm_tunnel_enrollment_locks" does not exist' },
-            }),
-          }),
+          testRepo(),
           testGateway(),
         )),
         Effect.flip,
       ),
     );
-    expect(error).toBeInstanceOf(VmTunnelEnrollmentUnavailableError);
+    expect(error).toBeInstanceOf(VmTunnelNotFoundError);
   });
 
   test("revoke deletes the provider tunnel before marking the row revoked", async () => {
@@ -766,9 +728,9 @@ describe("readVmTunnel / revokeVmTunnel", () => {
     expect(result.revoked).toBe(true);
     expect(gatewayCalls.deleteTunnel).toEqual(["tun-test-1"]);
     expect(repoCalls.revoked).toHaveLength(1);
-    expect(repoCalls.lockAcquires).toBe(1);
-    expect(repoCalls.lockReleases).toBe(1);
-    expect(repoCalls.lockRenews).toBeGreaterThan(0);
+    expect(repoCalls.lockAcquires).toBe(0);
+    expect(repoCalls.lockReleases).toBe(0);
+    expect(repoCalls.lockRenews).toBe(0);
   });
 
   test("revoking a device that never enrolled is a no-op, not an error", async () => {
@@ -800,8 +762,8 @@ describe("readVmTunnel / revokeVmTunnel", () => {
       ),
     );
     expect(error).toBeInstanceOf(VmTunnelNotFoundError);
-    expect(repoCalls.lockAcquires).toBe(1);
-    expect(repoCalls.lockReleases).toBe(1);
+    expect(repoCalls.lockAcquires).toBe(0);
+    expect(repoCalls.lockReleases).toBe(0);
   });
 });
 

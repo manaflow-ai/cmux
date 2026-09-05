@@ -63,6 +63,18 @@ describe("lazy active-limit provider refresh", () => {
       markCreateFailed: () => Effect.void,
       recordUsageEvent: () => Effect.void,
       recordUsageEvents: () => Effect.void,
+      findNetwork: () => Effect.succeed(null),
+      upsertNetwork: () => Effect.succeed({
+        id: "network-row",
+        userId: "user-limit-refresh",
+        provider: "freestyle" as const,
+        providerNetworkId: "network-1",
+        slug: "cmux-net",
+        cidr: "10.0.0.0/24",
+        cidrV6: "fd00::/64",
+        createdAt: FIXTURE_NOW,
+        updatedAt: FIXTURE_NOW,
+      }),
     } as unknown as VmRepositoryShape;
     const providers = {
       create: () => Effect.succeed({
@@ -80,6 +92,8 @@ describe("lazy active-limit provider refresh", () => {
       exec: () => Effect.succeed({ exitCode: 0, stdout: "", stderr: "" }),
       openAttach: () => Effect.fail(new Error("unused") as never),
       openSSH: () => Effect.fail(new Error("unused") as never),
+      supportsPrivateNetworking: () => true,
+      ensureNetwork: () => Effect.succeed({ id: "network-1", slug: "cmux-net", cidr: "10.0.0.0/24", cidrV6: "fd00::/64" }),
     } as unknown as VmProviderGatewayShape;
     const layer = Layer.mergeAll(
       Layer.succeed(VmRepository, repo),
@@ -128,6 +142,18 @@ describe("lazy active-limit provider refresh", () => {
       markCreateFailed: () => Effect.void,
       recordUsageEvent: () => Effect.void,
       recordUsageEvents: () => Effect.void,
+      findNetwork: () => Effect.succeed(null),
+      upsertNetwork: () => Effect.succeed({
+        id: "network-row",
+        userId: "user-limit-refresh",
+        provider: "freestyle" as const,
+        providerNetworkId: "network-1",
+        slug: "cmux-net",
+        cidr: "10.0.0.0/24",
+        cidrV6: "fd00::/64",
+        createdAt: FIXTURE_NOW,
+        updatedAt: FIXTURE_NOW,
+      }),
     } as unknown as VmRepositoryShape;
     const provider = {
       create: () => Effect.succeed({
@@ -141,6 +167,8 @@ describe("lazy active-limit provider refresh", () => {
       exec: () => Effect.succeed({ exitCode: 0, stdout: "", stderr: "" }),
       openAttach: () => Effect.fail(new Error("unused") as never),
       openSSH: () => Effect.fail(new Error("unused") as never),
+      supportsPrivateNetworking: () => true,
+      ensureNetwork: () => Effect.succeed({ id: "network-1", slug: "cmux-net", cidr: "10.0.0.0/24", cidrV6: "fd00::/64" }),
     } as unknown as VmProviderGatewayShape;
 
     await Effect.runPromise(
@@ -364,6 +392,18 @@ describe("lazy active-limit provider refresh", () => {
       markCreateFailed: () => Effect.void,
       recordUsageEvent: () => Effect.void,
       recordUsageEvents: () => Effect.void,
+      findNetwork: () => Effect.succeed(null),
+      upsertNetwork: () => Effect.succeed({
+        id: "network-row",
+        userId: requested.userId,
+        provider: "freestyle" as const,
+        providerNetworkId: "network-1",
+        slug: "cmux-net",
+        cidr: "10.0.0.0/24",
+        cidrV6: "fd00::/64",
+        createdAt: FIXTURE_NOW,
+        updatedAt: FIXTURE_NOW,
+      }),
     } as unknown as VmRepositoryShape;
     const providers = {
       create: () => Effect.succeed({
@@ -392,6 +432,8 @@ describe("lazy active-limit provider refresh", () => {
       exec: () => Effect.succeed({ exitCode: 0, stdout: "", stderr: "" }),
       openAttach: () => Effect.fail(new Error("unused") as never),
       openSSH: () => Effect.fail(new Error("unused") as never),
+      supportsPrivateNetworking: () => true,
+      ensureNetwork: () => Effect.succeed({ id: "network-1", slug: "cmux-net", cidr: "10.0.0.0/24", cidrV6: "fd00::/64" }),
     } as unknown as VmProviderGatewayShape;
 
     await Effect.runPromise(
