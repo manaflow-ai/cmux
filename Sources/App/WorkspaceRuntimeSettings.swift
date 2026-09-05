@@ -484,6 +484,7 @@ enum RightSidebarBetaFeatureSettings {
     static let defaultFeedEnabled = false
     static let defaultDockEnabled = false
     static let defaultCloudMachinesEnabled = false
+    static let didChangeNotification = Notification.Name("rightSidebarBetaFeatureDidChange")
 
     nonisolated static func isFeedEnabled(defaults: UserDefaults = .standard) -> Bool {
         guard defaults.object(forKey: feedEnabledKey) != nil else { return defaultFeedEnabled }

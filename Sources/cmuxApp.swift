@@ -225,7 +225,8 @@ struct cmuxApp: App {
             hostActions: HostSettingsActions(
                 configFileURL: configFileURL,
                 computerUseRuntimeService: computerUseRuntimeService
-            )
+            ),
+            shortcutDefaultResolver: Self.makeShortcutDefaultResolver()
         )
         StartupBreadcrumbLog.append("app.init.settingsRuntime.created")
 
@@ -329,6 +330,21 @@ struct cmuxApp: App {
         )
         historyMenuCoordinator.refreshIfNeeded()
         StartupBreadcrumbLog.append("app.init.delegate.configured")
+    }
+
+    /// Builds the host-owned resolver used by Settings UI shortcut models.
+    /// Dynamic right-sidebar defaults depend on app state and must not be
+    /// installed into the settings package as process-global mutable state.
+    private static func makeShortcutDefaultResolver() -> CmuxSettings.ShortcutDefaultResolver {
+        CmuxSettings.ShortcutDefaultResolver { action in
+            guard let mode = RightSidebarMode.allCases.first(where: {
+                $0.shortcutAction?.rawValue == action.rawValue
+            }) else { return .useBuiltIn }
+            guard let digit = RightSidebarMode.positionalDigit(for: mode) else {
+                return .stroke(nil)
+            }
+            return .stroke(CmuxSettings.ShortcutStroke(key: String(digit), control: true))
+        }
     }
 
     private static func terminateForMissingLaunchTag() -> Never {
