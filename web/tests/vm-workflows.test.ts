@@ -117,7 +117,7 @@ function providerLayer(
 ) {
   return Layer.mergeAll(
     VmRepositoryLive,
-    Layer.succeed(VmProviderGateway, provider),
+    Layer.succeed(VmProviderGateway, testPrivateNetworkProvider(provider)),
     Layer.succeed(VmBillingGateway, billing),
   );
 }
@@ -128,8 +128,8 @@ function workflowLayer(
   billing: VmBillingGatewayShape = noOpVmBillingGateway(),
 ) {
   return Layer.mergeAll(
-    Layer.succeed(VmRepository, repo),
-    Layer.succeed(VmProviderGateway, provider),
+    Layer.succeed(VmRepository, testPrivateNetworkRepo(repo)),
+    Layer.succeed(VmProviderGateway, testPrivateNetworkProvider(provider)),
     Layer.succeed(VmBillingGateway, billing),
   );
 }
@@ -2672,8 +2672,8 @@ describe("VM Effect workflows", () => {
       revokeSSHIdentity: () => Effect.void,
     };
     const layer = Layer.mergeAll(
-      Layer.succeed(VmRepository, repo),
-      Layer.succeed(VmProviderGateway, provider),
+      Layer.succeed(VmRepository, testPrivateNetworkRepo(repo)),
+      Layer.succeed(VmProviderGateway, testPrivateNetworkProvider(provider)),
       Layer.succeed(VmBillingGateway, noOpVmBillingGateway()),
     );
 
@@ -6448,6 +6448,39 @@ function unusedProviderGateway(): VmProviderGatewayShape {
     openAttach: () => unusedProviderEffect("openAttach"),
     openSSH: () => unusedProviderEffect("openSSH"),
     revokeSSHIdentity: () => Effect.void,
+  };
+}
+
+function testPrivateNetworkProvider(provider: VmProviderGatewayShape): VmProviderGatewayShape {
+  return {
+    supportsPrivateNetworking: () => true,
+    ensureNetwork: (_provider, options) =>
+      Effect.succeed({
+        id: `network-${options.slug}`,
+        slug: options.slug,
+        cidr: "10.40.0.0/24",
+        cidrV6: "fd00:40::/64",
+      }),
+    ...provider,
+  };
+}
+
+function testPrivateNetworkRepo(repo: VmRepositoryShape): VmRepositoryShape {
+  return {
+    findNetwork: () => Effect.succeed(null),
+    upsertNetwork: (input) =>
+      Effect.succeed({
+        id: "00000000-0000-4000-8000-00000000c10d",
+        userId: input.userId,
+        provider: input.provider,
+        providerNetworkId: input.providerNetworkId,
+        slug: input.slug ?? null,
+        cidr: input.cidr ?? null,
+        cidrV6: input.cidrV6 ?? null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }),
+    ...repo,
   };
 }
 

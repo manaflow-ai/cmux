@@ -30,6 +30,12 @@ export default async function DashboardIndexPage({
   const t = await getTranslations({ locale, namespace: "dashboard.home" });
   const products = [
     {
+      href: "/dashboard/cloud",
+      name: t("cloudName"),
+      description: t("cloudDescription"),
+      link: t("cloudLink"),
+    },
+    {
       href: "/dashboard/coderouter",
       name: t("coderouterName"),
       description: t("coderouterDescription"),

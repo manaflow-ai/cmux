@@ -40,8 +40,8 @@ export class VmResizeInProgressError extends Data.TaggedError("VmResizeInProgres
 
 /**
  * A private-network or tunnel operation on a deployment that does not serve
- * one — the provider has no `privateNetworking`, or
- * `CMUX_VM_PRIVATE_NETWORK_ENABLED=0` has rolled the feature back.
+ * one. The provider has no `privateNetworking`, or the fail-closed private
+ * network switch has disabled the operation.
  *
  * Distinct from {@link VmOperationUnsupportedError} because the caller's next
  * move is different: this is a deployment that will not give *any* caller a
@@ -65,6 +65,16 @@ export class VmTunnelEnrollmentBusyError extends Data.TaggedError("VmTunnelEnrol
 /** The deployed control plane is missing the enrollment lease table/API. */
 export class VmTunnelEnrollmentUnavailableError extends Data.TaggedError("VmTunnelEnrollmentUnavailableError")<{
   readonly reason: string;
+}> {}
+
+/** A remote revoke blocked this Stack login, or any older login on the same Mac. */
+export class VmAccessGrantRevokedError extends Data.TaggedError("VmAccessGrantRevokedError")<{
+  readonly stackSessionId: string;
+}> {}
+
+/** Another enrollment or revoke owns this physical Mac's provider mutation. */
+export class VmAccessGrantMutationBusyError extends Data.TaggedError("VmAccessGrantMutationBusyError")<{
+  readonly accessGrantId: string;
 }> {}
 
 export class VmSnapshotNotFoundError extends Data.TaggedError("VmSnapshotNotFoundError")<{
@@ -212,6 +222,8 @@ export type VmWorkflowError =
   | VmTunnelNotFoundError
   | VmTunnelEnrollmentBusyError
   | VmTunnelEnrollmentUnavailableError
+  | VmAccessGrantRevokedError
+  | VmAccessGrantMutationBusyError
   | VmAccountDeletionIdentityRevocationError
   | VmModelPlaneError;
 
@@ -233,6 +245,14 @@ export function isVmTunnelEnrollmentUnavailableError(
   err: unknown,
 ): err is VmTunnelEnrollmentUnavailableError {
   return (err as { _tag?: string } | null)?._tag === "VmTunnelEnrollmentUnavailableError";
+}
+
+export function isVmAccessGrantRevokedError(err: unknown): err is VmAccessGrantRevokedError {
+  return (err as { _tag?: string } | null)?._tag === "VmAccessGrantRevokedError";
+}
+
+export function isVmAccessGrantMutationBusyError(err: unknown): err is VmAccessGrantMutationBusyError {
+  return (err as { _tag?: string } | null)?._tag === "VmAccessGrantMutationBusyError";
 }
 
 export function isVmNotFoundError(err: unknown): err is VmNotFoundError {
@@ -349,6 +369,8 @@ const vmWorkflowErrorTagRecord = {
   VmTunnelNotFoundError: true,
   VmTunnelEnrollmentBusyError: true,
   VmTunnelEnrollmentUnavailableError: true,
+  VmAccessGrantRevokedError: true,
+  VmAccessGrantMutationBusyError: true,
   VmAccountDeletionIdentityRevocationError: true,
   VmModelPlaneError: true,
 } as const satisfies Record<VmWorkflowError["_tag"], true>;
