@@ -21,118 +21,56 @@ struct NewMachineSheet: View {
             buttons
         }
         .padding(24)
-        .frame(width: 500)
+        .frame(width: 520)
         .accessibilityIdentifier("NewMachineSheet")
     }
 
     private var header: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: model.isBaseSetup ? "externaldrive.fill" : "cpu")
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(Color.accentColor)
-                .frame(width: 32, height: 32)
-                .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(model.isBaseSetup
-                    ? String(localized: "machines.new.title.base", defaultValue: "Set Up Base")
-                    : String(localized: "machines.new.title", defaultValue: "New Machine"))
-                    .cmuxFont(size: 16, weight: .semibold)
-                Text(model.isBaseSetup
-                    ? String(
-                        localized: "machines.new.subtitle.base",
-                        defaultValue: "Base is your persistent cloud machine. Opening it later reuses this same machine; reset Base to start over."
-                    )
-                    : String(
-                        localized: "machines.new.subtitle",
-                        defaultValue: "A cloud computer with devtools and coding agents preinstalled. It keeps its home directory between sessions."
-                    ))
-                    .cmuxFont(size: 12)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+        VStack(alignment: .leading, spacing: 5) {
+            Text(model.isBaseSetup
+                ? String(localized: "machines.new.title.base", defaultValue: "Set Up Base")
+                : String(localized: "machines.new.title", defaultValue: "New Machine"))
+                .cmuxFont(size: 19, weight: .semibold)
+            Text(model.isBaseSetup
+                ? String(
+                    localized: "machines.new.subtitle.base",
+                    defaultValue: "Base is your persistent cloud machine. Opening it later reuses this same machine; reset Base to start over."
+                )
+                : String(
+                    localized: "machines.new.subtitle",
+                    defaultValue: "A cloud computer with devtools and coding agents preinstalled. It keeps its home directory between sessions."
+                ))
+                .cmuxFont(size: 12)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
     private var sizeSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(String(localized: "machines.new.size.label", defaultValue: "Machine size"))
-                        .cmuxFont(size: 13, weight: .semibold)
-                    Text(String(
-                        localized: "machines.new.size.help",
-                        defaultValue: "Choose the memory and disk profile for this machine."
-                    ))
-                    .cmuxFont(size: 11)
-                    .foregroundStyle(.secondary)
-                }
-                Spacer(minLength: 8)
-                Text(String(localized: "machines.new.size.required", defaultValue: "Required"))
-                    .cmuxFont(size: 10, weight: .medium)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 4)
-                    .background(Color.primary.opacity(0.06), in: Capsule())
+            VStack(alignment: .leading, spacing: 2) {
+                Text(String(localized: "machines.new.size.label", defaultValue: "Machine size"))
+                    .cmuxFont(size: 13, weight: .semibold)
+                Text(String(
+                    localized: "machines.new.size.help",
+                    defaultValue: "Choose the memory and disk profile for this machine."
+                ))
+                .cmuxFont(size: 11)
+                .foregroundStyle(.secondary)
             }
 
-            if let selectedSize = model.selectedSize {
-                Picker(selection: $model.memoryMb) {
-                    ForEach(model.memoryOptions, id: \.self) { memoryMb in
-                        if let size = MachineSizeOption(memoryMb: memoryMb) {
-                            Text(size.menuTitle).tag(memoryMb)
-                        }
+            LazyVGrid(
+                columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)],
+                spacing: 8
+            ) {
+                ForEach(model.memoryOptions, id: \.self) { memoryMb in
+                    if let size = MachineSizeOption(memoryMb: memoryMb) {
+                        sizeOption(size)
                     }
-                } label: {
-                    HStack(spacing: 10) {
-                        Image(systemName: "memorychip")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(Color.accentColor)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(selectedSize.title)
-                                .cmuxFont(size: 13, weight: .semibold)
-                            Text(selectedSize.detail)
-                                .cmuxFont(size: 11)
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer(minLength: 8)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .pickerStyle(.menu)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 11)
-                .padding(.vertical, 9)
-                .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .strokeBorder(Color.primary.opacity(0.12), lineWidth: 1)
-                )
-                .accessibilityIdentifier("NewMachineSheet.size")
-                .accessibilityLabel(String(localized: "machines.new.size.accessibilityLabel", defaultValue: "RAM size"))
-                .accessibilityValue(selectedSize.menuTitle)
-            }
-
-            if let selectedSize = model.selectedSize {
-                HStack(spacing: 0) {
-                    resourceMetric(
-                        symbol: "memorychip",
-                        label: String(localized: "machines.new.size.ram", defaultValue: "RAM"),
-                        value: selectedSize.title
-                    )
-                    resourceDivider
-                    resourceMetric(
-                        symbol: "internaldrive",
-                        label: String(localized: "machines.new.size.disk", defaultValue: "Disk"),
-                        value: selectedSize.diskTitle
-                    )
-                }
-                .padding(.horizontal, 4)
-                .accessibilityElement(children: .combine)
-                .accessibilityIdentifier("NewMachineSheet.resources")
             }
         }
-        .padding(13)
+        .padding(14)
         .background(Color.primary.opacity(0.025), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -141,28 +79,45 @@ struct NewMachineSheet: View {
         .accessibilityIdentifier("NewMachineSheet.sizeSection")
     }
 
-    private var resourceDivider: some View {
-        Rectangle()
-            .fill(Color.primary.opacity(0.12))
-            .frame(width: 1, height: 26)
-            .padding(.horizontal, 9)
-    }
-
-    private func resourceMetric(symbol: String, label: String, value: String) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: symbol)
-                .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(.secondary)
-                .frame(width: 14)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(label.uppercased())
-                    .cmuxFont(size: 9, weight: .medium)
-                    .foregroundStyle(.tertiary)
-                Text(value)
-                    .cmuxFont(size: 11, weight: .medium, monospacedDigit: true)
+    private func sizeOption(_ size: MachineSizeOption) -> some View {
+        let isSelected = model.memoryMb == size.memoryMb
+        return Button {
+            model.memoryMb = size.memoryMb
+        } label: {
+            HStack(alignment: .center, spacing: 10) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(size.title)
+                        .cmuxFont(size: 13, weight: .semibold)
+                    Text(size.detail)
+                        .cmuxFont(size: 11)
+                        .foregroundStyle(isSelected ? Color.primary.opacity(0.78) : Color.secondary)
+                }
+                Spacer(minLength: 4)
+                if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(Color.accentColor)
+                }
             }
+            .frame(maxWidth: .infinity, minHeight: 42, alignment: .leading)
+            .padding(.horizontal, 11)
+            .padding(.vertical, 8)
+            .background(
+                isSelected ? Color.accentColor.opacity(0.14) : Color.primary.opacity(0.035),
+                in: RoundedRectangle(cornerRadius: 9, style: .continuous)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .strokeBorder(
+                        isSelected ? Color.accentColor.opacity(0.76) : Color.primary.opacity(0.12),
+                        lineWidth: isSelected ? 1.5 : 1
+                    )
+            )
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("NewMachineSheet.size.\(size.memoryMb)")
+        .accessibilityLabel(size.menuTitle)
+        .accessibilityAddTraits(isSelected ? AccessibilityTraits.isSelected : [])
     }
 
     @ViewBuilder
@@ -187,13 +142,8 @@ struct NewMachineSheet: View {
                     }
                 }
             }
-            .padding(10)
+            .padding(.vertical, 2)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.primary.opacity(0.025), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
-            )
             .accessibilityIdentifier("NewMachineSheet.plan")
         }
     }
