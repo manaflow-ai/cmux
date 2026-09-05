@@ -322,22 +322,12 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             recordPayloadApplyRoute(.tableReload)
             #endif
         } else if !changedRowHeightsStable {
-            // Keep the existing cells when a response adds or removes a
-            // description line. Replacing rows at high update rates can leave
-            // the old and new self-sizing hosts composited together while
-            // UIKit is still reconciling their heights. Configure the visible
-            // cells in place, then let one begin/end update pass remeasure all
-            // rows from the latest item map.
-            for item in changedToApply {
-                guard
-                    let indexPath = dataSource.indexPath(for: item),
-                    let cell = tableView.cellForRow(at: indexPath)
-                else { continue }
-                configure(cell, for: item)
-            }
-            UIView.performWithoutAnimation {
-                tableView.beginUpdates()
-                tableView.endUpdates()
+            // A description or changes chip can alter a row's self-sizing
+            // height. Reload only those rows so a live session update never
+            // forces UIKit to remeasure the entire workspace list.
+            let changedIndexPaths = changedToApply.compactMap { dataSource.indexPath(for: $0) }
+            if !changedIndexPaths.isEmpty {
+                tableView.reloadRows(at: changedIndexPaths, with: .none)
             }
             #if DEBUG
             recordPayloadApplyRoute(.tableRelayout)
