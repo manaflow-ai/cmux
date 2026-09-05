@@ -10,10 +10,10 @@ extension UserDefaultsSettingsStore {
         return Dictionary(uniqueKeysWithValues: ShortcutAction.allCases.compactMap { action in
             let key = legacyShortcutKey(for: action)
             guard let data = storage.valueIfPresent(for: key),
-                  let payload = try? decoder.decode(LegacyStoredShortcutPayload.self, from: data) else {
+                  let shortcut = try? decoder.decode(StoredShortcut.self, from: data) else {
                 return nil
             }
-            return (action.rawValue, payload.storedShortcut)
+            return (action.rawValue, shortcut)
         })
     }
 
