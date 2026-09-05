@@ -317,9 +317,9 @@ struct AgentUpdate {
 }
 
 impl RemoteTreeCache {
-    fn replace(&mut self, view: TreeView, refresh_generation: u64) {
+    fn rebuild_surface_tabs(&mut self) {
         self.surface_tabs.clear();
-        for (workspace_index, workspace) in view.workspaces().iter().enumerate() {
+        for (workspace_index, workspace) in self.view.workspaces().iter().enumerate() {
             for (screen_index, screen) in workspace.screens.iter().enumerate() {
                 for (pane_index, pane) in screen.panes.iter().enumerate() {
                     for (tab_index, tab) in pane.tabs.iter().enumerate() {
@@ -331,7 +331,11 @@ impl RemoteTreeCache {
                 }
             }
         }
+    }
+
+    fn replace(&mut self, view: TreeView, refresh_generation: u64) {
         self.view = view;
+        self.rebuild_surface_tabs();
 
         // A response snapshot can predate title events received while its
         // request was in flight. Reapply only those later authoritative
@@ -424,6 +428,16 @@ impl RemoteTreeCache {
     fn remove_agent(&mut self, surface: SurfaceId) {
         self.agents.retain(|agent| agent.surface != surface);
         self.agent_updates.remove(&surface);
+    }
+
+    /// Remove a retired surface from the cached topology before the
+    /// authoritative refresh arrives. This keeps a Draw-triggered layout
+    /// pass from re-adopting the stale tab snapshot returned by `cached_tree`.
+    fn retire_surface(&mut self, surface: SurfaceId) {
+        self.view.retain_not_retired(&HashSet::from([surface]));
+        self.rebuild_surface_tabs();
+        self.title_updates.remove(&surface);
+        self.remove_agent(surface);
     }
 
     fn agent_generation(&self) -> u64 {
@@ -3415,7 +3429,7 @@ impl RemoteSession {
         if let Some(sender) = self.retire_surface_test_marker.lock().unwrap().clone() {
             let _ = sender.send(id);
         }
-        self.tree.lock().unwrap().remove_agent(id);
+        self.tree.lock().unwrap().retire_surface(id);
         drop(retired_surfaces);
         let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
         let surface = self.surfaces.lock().unwrap().remove(&id);
@@ -7625,6 +7639,44 @@ mod tests {
             &retired_surfaces,
         );
         assert!(cache.agents.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn surface_exit_removes_cached_tab_before_the_next_draw_refresh() {
+        let tree = || {
+            parse_tree(&json!({
+                "workspaces": [{
+                    "id": 1,
+                    "screens": [{
+                        "id": 2,
+                        "layout": {"type": "leaf", "pane": 3},
+                        "panes": [{
+                            "id": 3,
+                            "tabs": [{"surface": 7, "title": "exiting terminal"}],
+                        }],
+                    }],
+                }],
+            }))
+        };
+        let (client, _server) = UnixStream::pair().unwrap();
+        let session = socket_test_session(client);
+        session.tree.lock().unwrap().replace(tree(), 0);
+        assert!(session.cached_tree().workspaces()[0].screens[0].panes[0]
+            .tabs
+            .iter()
+            .any(|tab| tab.surface == 7));
+
+        session.handle_line(json!({"event": "surface-exited", "surface": 7}));
+
+        // App Draw calls Session::tree before the authoritative refresh can
+        // complete. The cached snapshot must already have the retired tab
+        // removed, or the next layout pass can briefly resurrect it.
+        let cached = session.cached_tree();
+        assert!(!cached.workspaces()[0].screens[0].panes[0]
+            .tabs
+            .iter()
+            .any(|tab| tab.surface == 7));
     }
 
     #[cfg(unix)]
