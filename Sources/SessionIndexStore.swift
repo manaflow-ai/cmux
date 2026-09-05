@@ -1884,7 +1884,7 @@ final class SessionIndexStore: ObservableObject {
                 gitBranch: parsed.branch,
                 pullRequest: nil,
                 modified: mtime,
-                fileURL: url,
+                fileURL: url, indexedCodexHome: (root as NSString).deletingLastPathComponent,
                 specifics: .codex(
                     model: parsed.model,
                     approvalPolicy: parsed.approvalPolicy,

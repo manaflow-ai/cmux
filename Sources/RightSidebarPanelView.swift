@@ -427,9 +427,9 @@ struct RightSidebarPanelView: View {
                     store: sessionIndexStore,
                     onResume: onResumeSession,
                     onOpen: onOpenSession,
-                    activeSessionKeys: SessionEntryResumeCoordinator.inPaneSessionKeys(tabManager: tabManager),
+                    activeSessionKeys: SessionEntryResumeCoordinator(tabManager: tabManager).inPaneSessionKeys(),
                     onFocus: { entry in
-                        _ = SessionEntryResumeCoordinator.focusIfActive(entry, tabManager: tabManager)
+                        Task { _ = await SessionEntryResumeCoordinator(tabManager: tabManager).focusIfActive(entry) }
                     }
                 )
                     .onAppear {

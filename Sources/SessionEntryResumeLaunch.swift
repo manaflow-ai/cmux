@@ -104,7 +104,7 @@ extension SessionEntry {
             }
             components = SessionEntryResumeSnapshotComponents(
                 arguments: arguments,
-                environment: [:],
+                environment: codexHomeForResume.map { ["CODEX_HOME": $0] } ?? [:],
                 registration: nil,
                 permissionMode: nil
             )

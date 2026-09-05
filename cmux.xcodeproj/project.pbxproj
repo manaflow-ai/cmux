@@ -755,6 +755,7 @@
 		C0DE60C0000000000000A022 /* CMUXCLI+Coderouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE60C0000000000000A021 /* CMUXCLI+Coderouter.swift */; };
 		C0D3F1F00000000000000101 /* CMUXCLI+CodexFireAndForgetHooks.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0D3F1F00000000000000102 /* CMUXCLI+CodexFireAndForgetHooks.swift */; };
 		D96290030000000000000001 /* CMUXCLI+CodexResumeBindingVerification.swift in Sources */ = {isa = PBXBuildFile; fileRef = D96290040000000000000001 /* CMUXCLI+CodexResumeBindingVerification.swift */; };
+		D11973000000000000000011 /* CMUXCLI+CodexWriterRestore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D11973000000000000000004 /* CMUXCLI+CodexWriterRestore.swift */; };
 		B90000D2A1B2C3D4E5F60719 /* CMUXCLI+CommandSuggestions.swift in Sources */ = {isa = PBXBuildFile; fileRef = B90000D1A1B2C3D4E5F60719 /* CMUXCLI+CommandSuggestions.swift */; };
 		CC0033E15A1B2C3D4E5F0001 /* CMUXCLI+Comments.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0033E15A1B2C3D4E5F0002 /* CMUXCLI+Comments.swift */; };
 		B9000050A1B2C3D4E5F60719 /* CMUXCLI+Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000051A1B2C3D4E5F60719 /* CMUXCLI+Config.swift */; };
@@ -1043,6 +1044,8 @@
 		7520C0DF0000000000000005 /* CodexTurnLedgerModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7520C0DF0000000000000006 /* CodexTurnLedgerModels.swift */; };
 		7520C0DF0000000000000007 /* CodexTurnLedgerPersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7520C0DF0000000000000008 /* CodexTurnLedgerPersistence.swift */; };
 		7520C0DF0000000000000009 /* CodexTurnLifecycleCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7520C0DF000000000000000A /* CodexTurnLifecycleCoordinator.swift */; };
+		D11973000000000000000012 /* CodexWriterRestoreMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = D11973000000000000000001 /* CodexWriterRestoreMessage.swift */; };
+		D11973000000000000000015 /* CodexWriterRestoreMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = D11973000000000000000001 /* CodexWriterRestoreMessage.swift */; };
 		C4041001000000000000001B /* CommandClickFileOpenRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4041001000000000000001A /* CommandClickFileOpenRouter.swift */; };
 		C0DEC0DE000000000000F302 /* CommandPaletteEmojiTitleSearchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE000000000000F301 /* CommandPaletteEmojiTitleSearchTests.swift */; };
 		C0DE86060000000000000001 /* CommandPaletteFocusRestoreCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE86060000000000000002 /* CommandPaletteFocusRestoreCoordinator.swift */; };
@@ -2120,6 +2123,11 @@
 		469201000000000000000006 /* SessionDragSessionSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 469201000000000000000005 /* SessionDragSessionSource.swift */; };
 		46920100000000000000000E /* SessionDragSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46920100000000000000000D /* SessionDragSource.swift */; };
 		46920100000000000000000C /* SessionDragSourceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46920100000000000000000B /* SessionDragSourceView.swift */; };
+		D11973000000000000000016 /* SessionEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = D11973000000000000000005 /* SessionEntry.swift */; };
+		D11973000000000000000013 /* SessionEntryCodexHome.swift in Sources */ = {isa = PBXBuildFile; fileRef = D11973000000000000000002 /* SessionEntryCodexHome.swift */; };
+		D11973000000000000000014 /* SessionEntryResumeCoordinator+CodexWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D11973000000000000000003 /* SessionEntryResumeCoordinator+CodexWriter.swift */; };
+		D11973000000000000000017 /* SessionEntryResumeCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D11973000000000000000006 /* SessionEntryResumeCoordinator.swift */; };
+		D11973000000000000000018 /* SessionEntryResumeCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D11973000000000000000007 /* SessionEntryResumeCoordinatorTests.swift */; };
 		992300019923000199230003 /* SessionEntryResumeLaunch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 992300019923000199230004 /* SessionEntryResumeLaunch.swift */; };
 		992300019923000199230001 /* SessionEntryResumeLaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 992300019923000199230002 /* SessionEntryResumeLaunchTests.swift */; };
 		D4476F030000000000000001 /* SessionIndexAgentIconImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4476F030000000000000002 /* SessionIndexAgentIconImage.swift */; };
@@ -3942,6 +3950,7 @@
 		C0DE60C0000000000000A021 /* CMUXCLI+Coderouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Coderouter.swift"; sourceTree = "<group>"; };
 		C0D3F1F00000000000000102 /* CMUXCLI+CodexFireAndForgetHooks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+CodexFireAndForgetHooks.swift"; sourceTree = "<group>"; };
 		D96290040000000000000001 /* CMUXCLI+CodexResumeBindingVerification.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+CodexResumeBindingVerification.swift"; sourceTree = "<group>"; };
+		D11973000000000000000004 /* CMUXCLI+CodexWriterRestore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+CodexWriterRestore.swift"; sourceTree = "<group>"; };
 		B90000D1A1B2C3D4E5F60719 /* CMUXCLI+CommandSuggestions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+CommandSuggestions.swift"; sourceTree = "<group>"; };
 		CC0033E15A1B2C3D4E5F0002 /* CMUXCLI+Comments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Comments.swift"; sourceTree = "<group>"; };
 		B9000051A1B2C3D4E5F60719 /* CMUXCLI+Config.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Config.swift"; sourceTree = "<group>"; };
@@ -4164,6 +4173,7 @@
 		7520C0DF0000000000000006 /* CodexTurnLedgerModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTurnLedgerModels.swift; sourceTree = "<group>"; };
 		7520C0DF0000000000000008 /* CodexTurnLedgerPersistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTurnLedgerPersistence.swift; sourceTree = "<group>"; };
 		7520C0DF000000000000000A /* CodexTurnLifecycleCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTurnLifecycleCoordinator.swift; sourceTree = "<group>"; };
+		D11973000000000000000001 /* CodexWriterRestoreMessage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexWriterRestoreMessage.swift; sourceTree = "<group>"; };
 		C4041001000000000000001A /* CommandClickFileOpenRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandClickFileOpenRouter.swift; sourceTree = "<group>"; };
 		C0DEC0DE000000000000F301 /* CommandPaletteEmojiTitleSearchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteEmojiTitleSearchTests.swift; sourceTree = "<group>"; };
 		C0DE86060000000000000002 /* CommandPaletteFocusRestoreCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteFocusRestoreCoordinator.swift; sourceTree = "<group>"; };
@@ -5232,6 +5242,11 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		469201000000000000000005 /* SessionDragSessionSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionDragSessionSource.swift; sourceTree = "<group>"; };
 		46920100000000000000000D /* SessionDragSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionDragSource.swift; sourceTree = "<group>"; };
 		46920100000000000000000B /* SessionDragSourceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionDragSourceView.swift; sourceTree = "<group>"; };
+		D11973000000000000000005 /* SessionEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionEntry.swift; sourceTree = "<group>"; };
+		D11973000000000000000002 /* SessionEntryCodexHome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionEntryCodexHome.swift; sourceTree = "<group>"; };
+		D11973000000000000000003 /* SessionEntryResumeCoordinator+CodexWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionEntryResumeCoordinator+CodexWriter.swift; sourceTree = "<group>"; };
+		D11973000000000000000006 /* SessionEntryResumeCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionEntryResumeCoordinator.swift; sourceTree = "<group>"; };
+		D11973000000000000000007 /* SessionEntryResumeCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionEntryResumeCoordinatorTests.swift; sourceTree = "<group>"; };
 		992300019923000199230004 /* SessionEntryResumeLaunch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionEntryResumeLaunch.swift; sourceTree = "<group>"; };
 		992300019923000199230002 /* SessionEntryResumeLaunchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionEntryResumeLaunchTests.swift; sourceTree = "<group>"; };
 		D4476F030000000000000002 /* SessionIndexAgentIconImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexAgentIconImage.swift; sourceTree = "<group>"; };
@@ -7488,6 +7503,10 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				9090F0029090F0029090F002 /* AgentHibernationResumePreparation.swift */,
 				F0ACC0E0000000000000002 /* CachedAgentProcessIdentityValidator.swift */,
 				992300019923000199230004 /* SessionEntryResumeLaunch.swift */,
+				D11973000000000000000002 /* SessionEntryCodexHome.swift */,
+				D11973000000000000000005 /* SessionEntry.swift */,
+				D11973000000000000000006 /* SessionEntryResumeCoordinator.swift */,
+				D11973000000000000000003 /* SessionEntryResumeCoordinator+CodexWriter.swift */,
 				B3575000000000000000000B /* SessionIndexModels.swift */,
 				F0ACC0DE0000000000000008 /* SharedLiveAgentIndexLoader.swift */,
 				B3575000000000000000000D /* VaultAgentRegistry+Campfire.swift */,
@@ -8433,6 +8452,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A2C22D3F893E4B2D8FB3B91F /* VaultAllSessionsBar.swift */,
 				189ED88E2958436BAE17D5E4 /* VaultSessionSearchQuery.swift */,
 				5B9D1EE40CA94CD8BEDDDD98 /* VaultSessionLiveStatus.swift */,
+				D11973000000000000000001 /* CodexWriterRestoreMessage.swift */,
 				5D1AE45742E0440681EC9AD4 /* VaultRecencySections.swift */,
 				850000000000000000000016 /* SessionIndexTableView.swift */,
 				850000000000000000000017 /* SessionIndexSnapshotLoader.swift */,
@@ -8662,6 +8682,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				4CF59318F1D5B2195AC77C28 /* CMUXCLI+ClaudePushNotificationHook.swift */,
 				C6711B050000000000000001 /* CMUXCLI+AgentHookRestoreEvidence.swift */,
 				D96290040000000000000001 /* CMUXCLI+CodexResumeBindingVerification.swift */,
+				D11973000000000000000004 /* CMUXCLI+CodexWriterRestore.swift */,
 				C6209A020000000000000001 /* CodexRestoreValidationResult.swift */,
 				5257257034CA4729B1211166 /* CMUXCLI+AutoNaming.swift */,
 				5257257034CA4729B121116A /* CMUXCLI+AutoNamingDispatch.swift */,
@@ -8806,6 +8827,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				8837A0020000000000000002 /* AgentResumeReturnShellStartupTests.swift */,
 				9200B0019200B0019200B002 /* ResumeLauncherCwdConsistencyTests.swift */,
 				992300019923000199230002 /* SessionEntryResumeLaunchTests.swift */,
+				D11973000000000000000007 /* SessionEntryResumeCoordinatorTests.swift */,
 				992300019923000199230005 /* VaultRestoreRelaunchPersistenceTests.swift */,
 				99230001992300019923000F /* VaultQueuedRestoreIdentityTests.swift */,
 				99230001992300019923000D /* TerminalStartupRestoreFailureTests.swift */,
@@ -10552,8 +10574,9 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A9E02000000000000000000E /* CodexAppServerSession.swift in Sources */,
 					C8711C000000000000000002 /* CodexRolloutIdentity.swift in Sources */,
 					C8711D000000000000000002 /* CodexRolloutIdentityResolver.swift in Sources */,
-				A10240030000000000000001 /* CodexTeamsAppServerProcess.swift in Sources */,
-				A10240100000000000000001 /* CodexTeamsPOSIXSupport.swift in Sources */,
+					A10240030000000000000001 /* CodexTeamsAppServerProcess.swift in Sources */,
+					A10240100000000000000001 /* CodexTeamsPOSIXSupport.swift in Sources */,
+					D11973000000000000000012 /* CodexWriterRestoreMessage.swift in Sources */,
 				C4041001000000000000001B /* CommandClickFileOpenRouter.swift in Sources */,
 				C0DE86060000000000000001 /* CommandPaletteFocusRestoreCoordinator.swift in Sources */,
 				C0DEFF200000000000000001 /* CommandPaletteOverlay.swift in Sources */,
@@ -11299,6 +11322,10 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				469201000000000000000006 /* SessionDragSessionSource.swift in Sources */,
 				46920100000000000000000E /* SessionDragSource.swift in Sources */,
 				46920100000000000000000C /* SessionDragSourceView.swift in Sources */,
+				D11973000000000000000016 /* SessionEntry.swift in Sources */,
+				D11973000000000000000013 /* SessionEntryCodexHome.swift in Sources */,
+				D11973000000000000000014 /* SessionEntryResumeCoordinator+CodexWriter.swift in Sources */,
+				D11973000000000000000017 /* SessionEntryResumeCoordinator.swift in Sources */,
 				992300019923000199230003 /* SessionEntryResumeLaunch.swift in Sources */,
 				D4476F030000000000000001 /* SessionIndexAgentIconImage.swift in Sources */,
 				85000000000000000000002A /* SessionIndexEntryProjection.swift in Sources */,
@@ -12101,6 +12128,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 					C0DE60C0000000000000A022 /* CMUXCLI+Coderouter.swift in Sources */,
 				C0D3F1F00000000000000101 /* CMUXCLI+CodexFireAndForgetHooks.swift in Sources */,
 				D96290030000000000000001 /* CMUXCLI+CodexResumeBindingVerification.swift in Sources */,
+				D11973000000000000000011 /* CMUXCLI+CodexWriterRestore.swift in Sources */,
 				B90000D2A1B2C3D4E5F60719 /* CMUXCLI+CommandSuggestions.swift in Sources */,
 				CC0033E15A1B2C3D4E5F0001 /* CMUXCLI+Comments.swift in Sources */,
 				B9000050A1B2C3D4E5F60719 /* CMUXCLI+Config.swift in Sources */,
@@ -12189,6 +12217,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				7520C0DF0000000000000005 /* CodexTurnLedgerModels.swift in Sources */,
 				7520C0DF0000000000000007 /* CodexTurnLedgerPersistence.swift in Sources */,
 				7520C0DF0000000000000009 /* CodexTurnLifecycleCoordinator.swift in Sources */,
+				D11973000000000000000015 /* CodexWriterRestoreMessage.swift in Sources */,
 				FEEDC1A50000000000000001 /* FeedEventClassifier.swift in Sources */,
 				C51A73B20000000000000002 /* IOSScreenshotCommandResultBox.swift in Sources */,
 				A5FB1308 /* JSONCObjectEditor+Remove.swift in Sources */,
@@ -12830,6 +12859,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C0DE1A070000000000000001 /* SavedLayoutStoreTests.swift in Sources */,
 				3865A0043865A0043865A004 /* SearchIndexTests.swift in Sources */,
 				C71510010000000000000001 /* SessionContentWidthSettingsFileStoreTests.swift in Sources */,
+				D11973000000000000000018 /* SessionEntryResumeCoordinatorTests.swift in Sources */,
 				992300019923000199230001 /* SessionEntryResumeLaunchTests.swift in Sources */,
 				850000000000000000000004 /* SessionIndexJSONLReaderTests.swift in Sources */,
 				850000000000000000000006 /* SessionIndexSnapshotLoaderTests.swift in Sources */,
