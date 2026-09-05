@@ -71,7 +71,13 @@ async function ensureVmSlug(tx: Tx, vm: typeof cloudVms.$inferSelect, scopeId: s
   await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${scopeId}, 0))`);
   const slug = await allocateVmSlug(async (candidate) => {
     const [row] = await tx.select({ id: cloudVms.id }).from(cloudVms)
-      .where(and(eq(cloudVms.slug, candidate), eq(cloudVms.billingTeamId, scopeId), inArray(cloudVms.status, ["provisioning", "running", "paused"])));
+      .where(and(
+        eq(cloudVms.slug, candidate),
+        scopeId === vm.userId
+          ? sql`(${cloudVms.billingTeamId} = ${scopeId} or (${cloudVms.billingTeamId} is null and ${cloudVms.userId} = ${vm.userId}))`
+          : eq(cloudVms.billingTeamId, scopeId),
+        inArray(cloudVms.status, ["provisioning", "running", "paused"]),
+      ));
     return !!row;
   });
   await tx.update(cloudVms).set({ slug }).where(eq(cloudVms.id, vm.id));

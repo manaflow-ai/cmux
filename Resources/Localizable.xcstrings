@@ -41717,7 +41717,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用方法:\n  cmux cloud domains [list]\n  cmux cloud domains zones\n  cmux cloud domains verify <domain>\n  cmux cloud domains publish <vm> <port> [--domain <hostname>] [--access personal|team|public] [--team <id>] [--org-slug <slug>] [--yes]\n  cmux cloud domains access <hostname> <personal|team|public> [--team <id>] [--yes]\n  cmux cloud domains grant <hostname> <email> [--expires <ISO-date>]\n  cmux cloud domains ungrant <hostname> <email>\n  cmux cloud domains grants <hostname>\n  cmux cloud domains rm <hostname>\n\nカスタムドメインは最初にverifyで所有権を確認してください。\n生成される名前は<vm>--<organization>--<port>.cmux.shで、DNS確認は不要です。\n既定のアクセス権は所有チームまたは個人所有者です。メールのアクセス許可は1つのポートにのみ適用されます。\n公開アクセスには確認が必要です。スクリプトでは--yesで確認できます。JSON出力には--jsonを追加してください。"
+            "value": "使用方法:\n  cmux cloud domains [list]\n  cmux cloud domains zones\n  cmux cloud domains verify <domain>\n  cmux cloud domains publish <vm> <port> [--domain <hostname>] [--access personal|team|public] [--team <id>] [--org-slug <slug>] [--yes]\n  cmux cloud domains access <hostname> <personal|team|public> [--team <id>] [--yes]\n  cmux cloud domains grant <hostname> <email> [--expires <ISO-date>]\n  cmux cloud domains ungrant <hostname> <email>\n  cmux cloud domains grants <hostname>\n  cmux cloud domains rm <hostname>\n\nカスタムドメインは先にverifyを実行し、表示されたDNSレコードを追加した後、もう一度verifyを実行して所有権確認を完了してください。\npublish --domainには確認済みドメイン、またはその直下1階層のサブドメインを指定できます。\n生成される名前は<vm>--<organization>--<port>.cmux.shで、DNS確認は不要です。\n既定のアクセス権は所有チームまたは個人所有者です。メールのアクセス許可は1つのポートにのみ適用されます。\n公開アクセスには確認が必要です。スクリプトでは--yesで確認できます。JSON出力には--jsonを追加してください。"
           }
         }
       }
