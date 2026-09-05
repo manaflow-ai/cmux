@@ -58,6 +58,50 @@ enum MobileHostIrxTerminalLaneServer {
         journal.record("host-terminal", "lane-closed", ["surface": surfaceID.uuidString])
     }
 
+    /// Serves render-grid input without opening a second byte-output stream.
+    /// The empty replay envelope establishes readiness and the input half then
+    /// stays open for fire-and-forget length-prefixed frames.
+    static func serveInputOnly(
+        resourceID: String,
+        stream: CmxIrohBidirectionalStream,
+        journal: IrxJournal
+    ) async {
+        guard let surfaceID = terminalSurfaceID(resourceID),
+            await MainActor.run(body: {
+                GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: surfaceID) != nil
+            })
+        else {
+            await reject(stream, errorCode: ErrorCode.unsupportedResource)
+            return
+        }
+        do {
+            let currentSequence = await MainActor.run {
+                MobileTerminalByteTee.shared.replayState(surfaceID: surfaceID)?.seq ?? 0
+            }
+            let baseline = try CmxIrohTerminalOutputEnvelope(
+                kind: .replay,
+                retainedBaseSequence: currentSequence,
+                sequence: currentSequence,
+                currentSequence: currentSequence,
+                payload: Data()
+            )
+            try await stream.sendStream.send(
+                CmxIrohTerminalOutputEnvelopeCodec().encode(baseline)
+            )
+            _ = await receiveInput(
+                surfaceID: surfaceID,
+                stream: stream,
+                forceRefresh: false
+            )
+        } catch is CancellationError {
+            await stream.sendStream.reset(errorCode: 0)
+        } catch {
+            await reject(stream, errorCode: ErrorCode.invalidInput)
+        }
+        await stream.receiveStream.stop(errorCode: 0)
+        journal.record("host-terminal", "input-lane-closed", ["surface": surfaceID.uuidString])
+    }
+
     private static func sendOutput(
         surfaceID: UUID,
         cursor: UInt64?,
@@ -163,7 +207,8 @@ enum MobileHostIrxTerminalLaneServer {
     /// on a clean input-side finish (output-only lanes stay open).
     private static func receiveInput(
         surfaceID: UUID,
-        stream: CmxIrohBidirectionalStream
+        stream: CmxIrohBidirectionalStream,
+        forceRefresh: Bool = true
     ) async -> Bool {
         var buffer = Data()
         do {
@@ -181,7 +226,11 @@ enum MobileHostIrxTerminalLaneServer {
                 for input in try MobileHostIrohApplicationLaneRouter
                     .decodeTerminalInputFrames(from: &buffer)
                 {
-                    guard await deliverInput(input, surfaceID: surfaceID) else {
+                    guard await deliverInput(
+                        input,
+                        surfaceID: surfaceID,
+                        forceRefresh: forceRefresh
+                    ) else {
                         await reject(stream, errorCode: ErrorCode.invalidInput)
                         return true
                     }
@@ -200,7 +249,11 @@ enum MobileHostIrxTerminalLaneServer {
         }
     }
 
-    private static func deliverInput(_ input: String, surfaceID: UUID) async -> Bool {
+    private static func deliverInput(
+        _ input: String,
+        surfaceID: UUID,
+        forceRefresh: Bool = true
+    ) async -> Bool {
         await MainActor.run {
             guard
                 let surface = GhosttyApp.terminalSurfaceRegistry.terminalSurface(
@@ -208,7 +261,9 @@ enum MobileHostIrxTerminalLaneServer {
             else { return false }
             switch surface.sendInputResult(input) {
             case .sent:
-                surface.forceRefresh(reason: "mobileHost.irxTerminalLaneInput")
+                if forceRefresh {
+                    surface.forceRefresh(reason: "mobileHost.irxTerminalLaneInput")
+                }
                 return true
             case .queued:
                 return true

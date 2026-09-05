@@ -87,6 +87,7 @@ public enum IrxLaneKind: String, Codable, Sendable {
     case keepalive
     case events
     case terminal
+    case terminalInput = "terminal_input"
     case artifact
     case simulatorStream = "simulator_stream"
 }

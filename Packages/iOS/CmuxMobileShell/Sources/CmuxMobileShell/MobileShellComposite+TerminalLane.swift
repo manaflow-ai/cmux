@@ -10,12 +10,20 @@ extension MobileShellComposite {
         guard !demonstrationOwnsSurface(surfaceID) else { return }
         guard let terminalLaneCoordinator,
               connectionState == .connected,
-              terminalOutputTransport != .renderGrid,
               terminalByteContinuationsBySurfaceID[surfaceID] != nil,
               let activeRoute,
               activeRoute.kind == .iroh,
               let activeTicket else {
             return
+        }
+        let laneMode: MobileTerminalLaneCoordinator.LaneMode
+        if terminalOutputTransport == .renderGrid {
+            // Render-grid owns terminal output. Use a separate input-only
+            // stream so every key bypasses ordered RPC settlement.
+            guard runtime?.terminalInputLaneProvider != nil else { return }
+            laneMode = .inputOnly
+        } else {
+            laneMode = .output
         }
         // A Direct lane request can redial the peer session, so it must carry
         // the same method-pinned allowlist as the control dial or it could
@@ -36,6 +44,7 @@ extension MobileShellComposite {
         let configuration = MobileTerminalLaneCoordinator.Configuration(
             request: request,
             surfaceID: surfaceID,
+            mode: laneMode,
             cursor: { @MainActor [weak self] in
                 guard let self,
                       self.connectionGeneration == connectionGeneration,
@@ -69,8 +78,7 @@ extension MobileShellComposite {
 
     func resumeTerminalLaneIfSuspended(surfaceID: String) {
         guard let terminalLaneCoordinator,
-              connectionState == .connected,
-              terminalOutputTransport != .renderGrid else { return }
+              connectionState == .connected else { return }
         Task { await terminalLaneCoordinator.resume(surfaceID: surfaceID) }
     }
 
@@ -105,11 +113,9 @@ extension MobileShellComposite {
     }
 
     func reconcileTerminalLanesForOutputTransport() {
-        if terminalOutputTransport == .renderGrid {
-            deactivateAllTerminalLanes()
-        } else {
-            restartTerminalLanesForMountedSurfaces()
-        }
+        // Render-grid keeps its authoritative event stream for output, but
+        // retains an input-only lane for fire-and-forget keystrokes.
+        restartTerminalLanesForMountedSurfaces()
     }
 
     private func consumeTerminalLaneFrame(
@@ -118,6 +124,11 @@ extension MobileShellComposite {
     ) -> MobileTerminalLaneCoordinator.FrameDisposition {
         guard terminalByteContinuationsBySurfaceID[surfaceID] != nil else {
             return .stop
+        }
+        if terminalOutputTransport == .renderGrid {
+            // The input-only lane's baseline only gates readiness. Its output
+            // half is deliberately ignored because render-grid is authoritative.
+            return .accepted(outputReady: true)
         }
         if terminalOutputTransport == .hybrid,
            terminalActiveScreenBySurfaceID[surfaceID] == .alternate {

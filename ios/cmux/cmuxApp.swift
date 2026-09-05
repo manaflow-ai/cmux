@@ -139,6 +139,20 @@ struct cmuxApp: App {
                         cursor: cursor
                     )
             },
+            terminalInputLaneProvider: { request, surfaceID, _ in
+                guard let surfaceUUID = UUID(uuidString: surfaceID) else {
+                    throw MobileIrohTerminalLaneError.invalidSurfaceID
+                }
+                return irxEnabled
+                    ? try await irx.openTerminalInputLane(
+                        for: request,
+                        surfaceID: surfaceUUID
+                    )
+                    : try await iroh.openTerminalInputLane(
+                        for: request,
+                        surfaceID: surfaceUUID
+                    )
+            },
             artifactLaneProvider: { request, resourceID, offset in
                 irxEnabled
                     ? try await irx.openArtifactLane(

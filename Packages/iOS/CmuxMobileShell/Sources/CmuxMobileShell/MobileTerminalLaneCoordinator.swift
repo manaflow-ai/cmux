@@ -4,6 +4,11 @@ import Foundation
 
 /// Owns independent terminal lanes keyed by peer and mounted surface.
 actor MobileTerminalLaneCoordinator {
+    enum LaneMode: Equatable, Sendable {
+        case output
+        case inputOnly
+    }
+
     enum FrameDisposition: Sendable {
         case accepted(outputReady: Bool)
         case suspendUntilAuthoritativeOutput
@@ -26,9 +31,26 @@ actor MobileTerminalLaneCoordinator {
     struct Configuration: Sendable {
         let request: CmxByteTransportRequest
         let surfaceID: String
+        let mode: LaneMode = .output
         let cursor: @Sendable () async -> UInt64?
         let consume: @Sendable (MobileTerminalLaneOutputFrame) async -> FrameDisposition
         let readinessChanged: @Sendable (Bool) async -> Void
+
+        init(
+            request: CmxByteTransportRequest,
+            surfaceID: String,
+            mode: LaneMode = .output,
+            cursor: @escaping @Sendable () async -> UInt64?,
+            consume: @escaping @Sendable (MobileTerminalLaneOutputFrame) async -> FrameDisposition,
+            readinessChanged: @escaping @Sendable (Bool) async -> Void
+        ) {
+            self.request = request
+            self.surfaceID = surfaceID
+            self.mode = mode
+            self.cursor = cursor
+            self.consume = consume
+            self.readinessChanged = readinessChanged
+        }
     }
 
     private struct LaneKey: Hashable, Sendable {
@@ -76,11 +98,16 @@ actor MobileTerminalLaneCoordinator {
     private static let maximumOpenAttempts = 3
 
     private let provider: MobileTerminalLaneProvider
+    private let inputOnlyProvider: MobileTerminalLaneProvider?
     private var entriesByKey: [LaneKey: Entry] = [:]
     private var focusedKeyBySurfaceID: [String: LaneKey] = [:]
 
-    init(provider: @escaping MobileTerminalLaneProvider) {
+    init(
+        provider: @escaping MobileTerminalLaneProvider,
+        inputOnlyProvider: MobileTerminalLaneProvider? = nil
+    ) {
         self.provider = provider
+        self.inputOnlyProvider = inputOnlyProvider
     }
 
     func ensure(_ configuration: Configuration) async {
@@ -198,7 +225,10 @@ actor MobileTerminalLaneCoordinator {
             let configuration = entry.configuration
             let requestedCursor = await configuration.cursor()
             do {
-                let lane = try await provider(
+                let laneProvider = configuration.mode == .inputOnly
+                    ? (inputOnlyProvider ?? provider)
+                    : provider
+                let lane = try await laneProvider(
                     configuration.request,
                     configuration.surfaceID,
                     requestedCursor
