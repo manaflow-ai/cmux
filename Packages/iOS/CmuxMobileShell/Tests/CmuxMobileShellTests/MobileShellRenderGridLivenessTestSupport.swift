@@ -326,6 +326,11 @@ actor LivenessHostRouter {
         replayTexts.append(contentsOf: texts)
     }
 
+    /// Replace the pending screen snapshot as the host terminal changes offline.
+    func replaceReplayText(_ text: String) {
+        replayTexts = [text]
+    }
+
     func enqueueReplayPayload(text: String?, sequence: UInt64?) {
         replayPayloads.append((text: text, sequence: sequence, renderGrid: nil))
     }

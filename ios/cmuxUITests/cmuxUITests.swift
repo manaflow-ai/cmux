@@ -23,6 +23,12 @@ final class cmuxUITests: XCTestCase {
             ),
             "dev"
         )
+        XCTAssertEqual(
+            mockHostInstanceTag(
+                testBundleIdentifier: "dev.cmux.ios.uitests.xctrunner"
+            ),
+            "dev"
+        )
         XCTAssertNotEqual(mockHostInstanceTag(), "uitests")
     }
 
@@ -7292,6 +7298,43 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testOpenTerminalCatchesUpAfterReconnect() async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port)
+        defer { app.terminate() }
+        assertTerminalRow(0, label: "$ cmux ios status", in: app)
+
+        let before = XCTAttachment(screenshot: app.screenshot())
+        before.name = "terminal-before-reconnect"
+        before.lifetime = .keepAlways
+        add(before)
+
+        // The connection remains healthy, but its visible contents are stale.
+        // Exercise the actual session menu action without leaving the terminal.
+        let nextSubscription = await server.prepareTerminalReconnect(
+            lines: ["output generated during reconnect", "same terminal, current output"]
+        )
+        tapCompactToolbarTitleMenu(app.buttons["MobileWorkspaceTitleMenu"], in: app)
+        tapMenuItem(app.buttons["MobileWorkspaceTitleReconnectMenuItem"], in: app)
+        let reconnected = await server.waitForRequest(
+            method: "mobile.events.subscribe",
+            minimumCount: nextSubscription,
+            timeout: 20
+        )
+        XCTAssertTrue(reconnected, "The open terminal must reconnect to its host")
+        assertTerminalRow(0, label: "output generated during reconnect", in: app)
+        assertTerminalRow(1, label: "same terminal, current output", in: app)
+
+        let after = XCTAttachment(screenshot: app.screenshot())
+        after.name = "terminal-updated-after-reconnect"
+        after.lifetime = .keepAlways
+        add(after)
+    }
+
+    @MainActor
     private func keyboardFrameAfterFocus(
         in app: XCUIApplication,
         overlap: CGFloat,
@@ -7590,6 +7633,11 @@ final class cmuxUITests: XCTestCase {
     @MainActor
     private func openSelectedWorkspaceIfNeeded(_ app: XCUIApplication) throws {
         grantNotificationAuthorizationIfRequested()
+        let whatsNewContinue = app.buttons["MobileWhatsNewSheet"].firstMatch
+        if whatsNewContinue.waitForExistence(timeout: 4) {
+            tap(whatsNewContinue, in: app)
+            XCTAssertTrue(whatsNewContinue.waitForNonExistence(timeout: 4))
+        }
         if app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 8) {
             return
         }
@@ -9859,6 +9907,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     private var eventSubscriptionStreamIDsByConnection:
         [ObjectIdentifier: Set<String>] = [:]
     private var replayCounts: [String: Int] = [:]
+    private var terminalLinesOnNextSubscription: [String]?
     private var terminalScrollRequestsReceived = 0
     private var streamOffset: UInt64 = 1
     private var terminalPasteRequestReached = false
@@ -9999,6 +10048,16 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
                 connection.cancel()
             }
             self.connections.removeAll()
+        }
+    }
+
+    func prepareTerminalReconnect(lines: [String]) async -> Int {
+        await withCheckedContinuation { continuation in
+            queue.async {
+                self.terminalLinesOnNextSubscription = lines
+                let nextSubscription = self.requestCountsByMethod["mobile.events.subscribe", default: 0] + 1
+                continuation.resume(returning: nextSubscription)
+            }
         }
     }
 
@@ -10406,6 +10465,13 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         case "terminal.create":
             result = createTerminalResult(params: params)
         case "mobile.events.subscribe":
+            if let lines = terminalLinesOnNextSubscription {
+                terminalLinesOnNextSubscription = nil
+                if let workspaceIndex = workspaces.firstIndex(where: { $0.id == selectedWorkspaceID }),
+                   let terminalIndex = workspaces[workspaceIndex].terminals.firstIndex(where: { $0.id == selectedTerminalID }) {
+                    workspaces[workspaceIndex].terminals[terminalIndex].lines = lines
+                }
+            }
             let streamID = params["stream_id"] as? String ?? "events"
             let alreadySubscribed = eventSubscriptionStreamIDsByConnection[
                 connectionID,
@@ -10511,6 +10577,10 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
             "mac_device_id": "ui-test-mac",
             "mac_display_name": "UI Test Mac",
             "mac_instance_tag": macInstanceTag,
+            "mac_client_namespace": macInstanceTag == "dev"
+                ? "mac:com.cmuxterm.app.debug"
+                : "mac:com.cmuxterm.app.debug.\(macInstanceTag)",
+            "mac_app_version": "0.64.23",
             "routes": [],
             "terminal_fidelity": "render_grid",
             "capabilities": capabilities,
@@ -10649,7 +10719,11 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
             "workspace_id": workspaceID,
             "surface_id": terminal.id,
             "seq": streamOffset,
-            "data_b64": bytes.base64EncodedString(),
+            // This is the complete terminal contents, not an incremental byte
+            // tail. Match the host's VT snapshot fallback so replay replaces
+            // the mounted renderer instead of appending a second transcript.
+            "snapshot_format": "ghostty.active.vt",
+            "snapshot_data_b64": bytes.base64EncodedString(),
             "columns": 80,
             "rows": 24,
         ]
@@ -10925,8 +10999,8 @@ private final class AgentModelsCatalogHTTPServer: @unchecked Sendable {
 
 /// Maps the XCUITest bundle back to the target app's tagged DEBUG build scope.
 /// Tagged builds override the test bundle identifier with the app identifier;
-/// ordinary UI tests retain their reserved `uitests` identifier and map to the
-/// production policy's `dev` fallback.
+/// Ordinary UI tests retain their reserved `uitests` identifier and map to the
+/// development policy's `dev` fallback.
 private func mockHostInstanceTag(
     testBundleIdentifier: String? = Bundle(for: cmuxUITests.self).bundleIdentifier
 ) -> String {

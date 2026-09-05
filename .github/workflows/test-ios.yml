@@ -429,6 +429,16 @@ jobs:
             exit "$status"
           done
 
+      - name: Upload iOS test results
+        if: ${{ always() && env.IOS_DERIVED_DATA != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ios-test-results-${{ matrix.family }}
+          path: |
+            ${{ env.IOS_DERIVED_DATA }}/Logs/Test/*.xcresult
+            ${{ env.IOS_DERIVED_DATA }}/logs/*.log
+          retention-days: 7
+
   ios-tests:
     name: ios-tests
     # Aggregate gate for this workflow's iOS suites. Add this check to the branch

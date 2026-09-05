@@ -203,13 +203,13 @@ import Testing
             effectiveConnectionStatus: .unavailable,
             connectionRequiresReauth: true
         ))
-        // An active reconnect needs no manual entry, and a healthy
-        // connection offers none.
+        // An active reconnect owns recovery. A connected session can still
+        // have stale terminal contents and needs a manual refresh entry.
         #expect(!WorkspaceDetailView.canReconnectFromTitleMenu(
             effectiveConnectionStatus: .reconnecting,
             connectionRequiresReauth: false
         ))
-        #expect(!WorkspaceDetailView.canReconnectFromTitleMenu(
+        #expect(WorkspaceDetailView.canReconnectFromTitleMenu(
             effectiveConnectionStatus: .connected,
             connectionRequiresReauth: false
         ))
