@@ -12,6 +12,7 @@ final class TerminalCmdClickUITests: XCTestCase {
         case log
         case altScreenLog = "alt_screen_log"
         case osc8
+        case plainURL = "url"
     }
 
     private struct SetupData {
@@ -216,6 +217,37 @@ final class TerminalCmdClickUITests: XCTestCase {
         XCTAssertTrue(
             openedURLs.contains(expectedURL),
             "Expected stationary OSC 8 cmd-click to open \(expectedURL). opened=\(openedURLs)"
+        )
+    }
+
+    func testStationaryCmdClickPlainURLWithMouseReportingOpensURL() throws {
+        let app = launchApp(
+            displayMode: .raw,
+            lineFormat: .plainURL,
+            captureOpenPaths: false,
+            captureHoverDiagnostics: false,
+            mouseReporting: true
+        )
+        defer { app.terminate() }
+
+        let setup = try waitForReadySetup()
+        XCTAssertEqual(
+            setup.payload["mouseReportingCaptured"] as? String,
+            "1",
+            "Expected the fixture to enable terminal mouse reporting before the click. payload=\(setup.payload)"
+        )
+        let expectedURL = "https://github.com"
+        let result = try runCommand(action: "stationary_cmd_click_token")
+        XCTAssertEqual(
+            result["lastCommandSucceeded"] as? String,
+            "1",
+            "Expected Cmd-click to open a plain URL while mouse reporting is active. result=\(result)"
+        )
+
+        let openedURLs = waitForCapturedOpenPaths(timeout: 5.0, path: openURLCapturePath)
+        XCTAssertTrue(
+            openedURLs.contains(expectedURL),
+            "Expected Cmd-click to emit the plain URL while mouse reporting is active. opened=\(openedURLs)"
         )
     }
 
@@ -845,7 +877,8 @@ final class TerminalCmdClickUITests: XCTestCase {
         openSupportedFilesInCmux: Bool = false,
         openMarkdownInCmuxViewer: Bool? = nil,
         quicklookOverride: String? = nil,
-        viewportOffsetDelta: Int? = nil
+        viewportOffsetDelta: Int? = nil,
+        mouseReporting: Bool = false
     ) -> XCUIApplication {
         let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_TAG"] = "ui-test-terminal-cmd-click"
@@ -857,6 +890,9 @@ final class TerminalCmdClickUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_TERMINAL_CMD_CLICK_FILE_NAME"] = fileName
         app.launchEnvironment["CMUX_UI_TEST_TERMINAL_CMD_CLICK_DISPLAY_MODE"] = displayMode.rawValue
         app.launchEnvironment["CMUX_UI_TEST_TERMINAL_CMD_CLICK_LINE_FORMAT"] = lineFormat.rawValue
+        if mouseReporting {
+            app.launchEnvironment["CMUX_UI_TEST_TERMINAL_CMD_CLICK_MOUSE_REPORTING"] = "1"
+        }
         app.launchEnvironment["CMUX_UI_TEST_OPEN_SUPPORTED_FILES_IN_CMUX"] = openSupportedFilesInCmux ? "1" : "0"
         if !displaySuffix.isEmpty {
             app.launchEnvironment["CMUX_UI_TEST_TERMINAL_CMD_CLICK_DISPLAY_SUFFIX"] = displaySuffix
@@ -878,7 +914,7 @@ final class TerminalCmdClickUITests: XCTestCase {
         if captureOpenPaths {
             app.launchEnvironment["CMUX_UI_TEST_CAPTURE_OPEN_PATH"] = openCapturePath
         }
-        if lineFormat == .osc8 {
+        if lineFormat == .osc8 || lineFormat == .plainURL {
             app.launchEnvironment["CMUX_UI_TEST_CAPTURE_OPEN_URL_PATH"] = openURLCapturePath
         }
         if captureHoverDiagnostics {
