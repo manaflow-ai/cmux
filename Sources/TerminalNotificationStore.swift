@@ -1386,7 +1386,7 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
 
-    private struct NotificationCooldownReservation: Sendable {
+    struct NotificationCooldownReservation: Sendable {
         let key: String
         let previousDate: Date?
     }
@@ -1510,7 +1510,7 @@ final class TerminalNotificationStore: ObservableObject {
             globalConfigPath: cmuxConfigStore?.globalConfigPath
         )
     }
-    private struct NotificationFocusState {
+    struct NotificationFocusState {
         let isAppFocused: Bool
         let isActiveTab: Bool
         let isFocusedSurface: Bool
@@ -1520,25 +1520,6 @@ final class TerminalNotificationStore: ObservableObject {
 
     /// Resolves focus and ownership once for both policy admission and the
     /// apply-time external-delivery gate, preventing those paths from drifting.
-    private func notificationFocusState(
-        tabId: UUID,
-        surfaceId: UUID?
-    ) -> NotificationFocusState {
-        let appDelegate = AppDelegate.shared
-        let context = appDelegate?.contextContainingTabId(tabId)
-        let tabManager = context?.tabManager
-            ?? appDelegate?.tabManagerFor(tabId: tabId)
-            ?? appDelegate?.tabManager
-        let focusedSurfaceId = tabManager?.focusedSurfaceId(for: tabId)
-        return NotificationFocusState(
-            isAppFocused: AppFocusState.isAppFocused(),
-            isActiveTab: tabManager?.selectedTabId == tabId,
-            isFocusedSurface: surfaceId == nil || focusedSurfaceId == surfaceId,
-            workspace: tabManager?.workspacesById[tabId],
-            cmuxConfigStore: context?.cmuxConfigStore
-        )
-    }
-
     @discardableResult
     private func applyNotification(
         request: TerminalNotificationPolicyRequest,
@@ -1579,7 +1560,7 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     @discardableResult
-    private func applyNotification(
+    func applyNotification(
         request: TerminalNotificationPolicyRequest,
         effects: TerminalNotificationPolicyEffects,
         now: Date,
@@ -1591,6 +1572,10 @@ final class TerminalNotificationStore: ObservableObject {
     ) -> Bool {
         guard inFlightPolicyRequests.claim(policyRequestId) else { return false }
         guard let request = notificationPolicyRequestAtLiveOwner(request) else {
+            restoreCooldownReservation(cooldownReservation)
+            return false
+        }
+        guard AgentJournalLifecycleCenter.notificationRequestIsCurrent(request) else {
             restoreCooldownReservation(cooldownReservation)
             return false
         }

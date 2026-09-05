@@ -21,6 +21,7 @@ import tempfile
 import time
 from pathlib import Path
 
+from agent_notification_test_utils import notification_view, resolution_view
 from claude_teams_test_utils import resolve_cmux_cli
 from test_codex_feed_hooks import (
     FAKE_SURFACE_ID,
@@ -28,19 +29,24 @@ from test_codex_feed_hooks import (
     FakeCmuxSocket,
 )
 
-EXPECTED_NOTIFY_COMMAND = (
-    f"notify_target_async {FAKE_WORKSPACE_ID} {FAKE_SURFACE_ID} "
-    "Codex|Permission|shell needs approval|c=needs-permission;p=0;a=codex;s=needsInput"
-)
-EXPECTED_CLEAR_COMMAND = (
-    f"clear_notifications --tab={FAKE_WORKSPACE_ID} --panel={FAKE_SURFACE_ID}"
-)
+EXPECTED_NOTIFY = {
+    "kind": "agent.approval.requested", "source": "codex",
+    "workspace_id": FAKE_WORKSPACE_ID, "surface_id": FAKE_SURFACE_ID,
+    "title": "Codex", "subtitle": "Permission", "body": "shell needs approval",
+    "category": "needs-permission", "pending_work": False,
+    "request_identity": "approval-tool-1",
+}
+EXPECTED_RESOLUTION = {
+    "workspace_id": FAKE_WORKSPACE_ID, "surface_id": FAKE_SURFACE_ID,
+    "request_identity": "approval-tool-1",
+}
 
 
 def codex_payload(event: str) -> dict:
     return {
         "session_id": "codex-permission-prompt",
         "turn_id": "turn-1",
+        "tool_use_id": "approval-tool-1",
         "cwd": "/tmp/project",
         "hook_event_name": event,
         "tool_name": "shell",
@@ -64,6 +70,7 @@ def run_feed_hook_capture(
     surface_delivery_target: tuple[str, str] | None = None,
     method_delays: dict[str, float] | None = None,
     settle_seconds: float = 0,
+    payload: dict | None = None,
 ) -> tuple[dict, list, float]:
     """Runs `cmux hooks feed --source codex` and returns (stdout JSON,
     ordered received frames, elapsed seconds)."""
@@ -94,7 +101,7 @@ def run_feed_hook_capture(
                 "--event",
                 event,
             ],
-            input=json.dumps(codex_payload(event)),
+            input=json.dumps(payload if payload is not None else codex_payload(event)),
             capture_output=True,
             text=True,
             check=False,
@@ -128,6 +135,10 @@ def raw_commands(frames: list) -> list[str]:
     ]
 
 
+def notification_views(frames: list) -> list[dict]:
+    return [view for command in raw_commands(frames) if (view := notification_view(command)) is not None]
+
+
 def frame_index(frames: list, predicate) -> int:
     for index, frame in enumerate(frames):
         if predicate(frame):
@@ -143,15 +154,15 @@ def test_permission_request_sends_gated_notification_before_feed_push(
     )
     if stdout != {}:
         raise AssertionError(f"PermissionRequest must stay non-blocking: {stdout!r}")
-    commands = raw_commands(frames)
-    if EXPECTED_NOTIFY_COMMAND not in commands:
+    commands = notification_views(frames)
+    if EXPECTED_NOTIFY not in commands:
         raise AssertionError(
             f"missing gated permission notification, got raw commands {commands!r}"
         )
     notify_index = frame_index(
         frames,
         lambda frame: "raw" in frame
-        and strip_capability_prefix(frame["raw"]) == EXPECTED_NOTIFY_COMMAND,
+        and notification_view(strip_capability_prefix(frame["raw"])) == EXPECTED_NOTIFY,
     )
     feed_index = frame_index(frames, lambda frame: frame.get("method") == "feed.push")
     if feed_index == -1:
@@ -163,21 +174,21 @@ def test_permission_request_sends_gated_notification_before_feed_push(
         )
 
 
-def test_post_tool_use_clears_pane_before_feed_push(cli_path: str, root: Path) -> None:
+def test_post_tool_use_resolves_exact_request_before_feed_push(cli_path: str, root: Path) -> None:
     stdout, frames, _ = run_feed_hook_capture(
         cli_path, root / "cmux-clear.sock", "PostToolUse"
     )
     if stdout != {}:
         raise AssertionError(f"PostToolUse must stay non-blocking: {stdout!r}")
-    commands = raw_commands(frames)
-    if EXPECTED_CLEAR_COMMAND not in commands:
+    commands = [view for command in raw_commands(frames) if (view := resolution_view(command)) is not None]
+    if EXPECTED_RESOLUTION not in commands:
         raise AssertionError(
             f"missing resolved-approval clear, got raw commands {commands!r}"
         )
     clear_index = frame_index(
         frames,
         lambda frame: "raw" in frame
-        and strip_capability_prefix(frame["raw"]) == EXPECTED_CLEAR_COMMAND,
+        and resolution_view(strip_capability_prefix(frame["raw"])) == EXPECTED_RESOLUTION,
     )
     feed_index = frame_index(frames, lambda frame: frame.get("method") == "feed.push")
     if feed_index == -1:
@@ -199,10 +210,22 @@ def test_pre_tool_use_sends_no_attention_command(cli_path: str, root: Path) -> N
     offenders = [
         command
         for command in raw_commands(frames)
-        if command.startswith("notify_target_async") or command.startswith("clear_notifications")
+        if notification_view(command) is not None or resolution_view(command) is not None
+        or command.startswith("notify_target_async") or command.startswith("clear_notifications")
     ]
     if offenders:
         raise AssertionError(f"PreToolUse must not touch notifications: {offenders!r}")
+
+
+def test_native_request_identity_aliases_share_semantic_key(cli_path: str, root: Path) -> None:
+    for alias in ("toolUseID", "toolCallId", "requestId"):
+        payload = codex_payload("PermissionRequest")
+        payload[alias] = payload.pop("tool_use_id")
+        _, frames, _ = run_feed_hook_capture(
+            cli_path, root / f"cmux-alias-{alias}.sock", "PermissionRequest", payload=payload
+        )
+        if notification_views(frames) != [EXPECTED_NOTIFY]:
+            raise AssertionError(f"native identity alias {alias} was lost: {frames!r}")
 
 
 def test_permission_notification_is_acknowledged_before_hook_returns(
@@ -218,7 +241,7 @@ def test_permission_notification_is_acknowledged_before_hook_returns(
     )
     if stdout != {}:
         raise AssertionError(f"PermissionRequest must stay non-blocking: {stdout!r}")
-    if EXPECTED_NOTIFY_COMMAND not in raw_commands(frames):
+    if EXPECTED_NOTIFY not in notification_views(frames):
         raise AssertionError(f"missing gated permission notification: {frames!r}")
     if elapsed < delay - 0.1:
         raise AssertionError(
@@ -246,7 +269,7 @@ def test_permission_notification_survives_slow_authentication(
     )
     if stdout != {}:
         raise AssertionError(f"PermissionRequest must stay non-blocking: {stdout!r}")
-    if EXPECTED_NOTIFY_COMMAND not in raw_commands(frames):
+    if EXPECTED_NOTIFY not in notification_views(frames):
         raise AssertionError(
             "notification was dropped behind a slow authentication handshake: "
             f"{frames!r}"
@@ -275,16 +298,13 @@ def test_permission_notification_targets_rehomed_pane(cli_path: str, root: Path)
         raise AssertionError(f"hook did not probe the live delivery target: {frames!r}")
     if resolve_frame.get("params", {}).get("surface_id") != FAKE_SURFACE_ID:
         raise AssertionError(f"probe must carry the ambient surface identity: {resolve_frame!r}")
-    expected = (
-        f"notify_target_async {live_workspace} {live_surface} "
-        "Codex|Permission|shell needs approval|c=needs-permission;p=0;a=codex;s=needsInput"
-    )
-    commands = raw_commands(frames)
+    expected = dict(EXPECTED_NOTIFY, workspace_id=live_workspace, surface_id=live_surface)
+    commands = notification_views(frames)
     if expected not in commands:
         raise AssertionError(
             f"notification did not target the re-homed pane: {commands!r}"
         )
-    stale = [c for c in commands if c.startswith(f"notify_target_async {FAKE_WORKSPACE_ID}")]
+    stale = [c for c in commands if c["workspace_id"] == FAKE_WORKSPACE_ID]
     if stale:
         raise AssertionError(f"notification used stale ambient identities: {stale!r}")
 
@@ -307,7 +327,7 @@ def test_stalled_live_target_probe_does_not_starve_notification(
     )
     if stdout != {}:
         raise AssertionError(f"PermissionRequest must stay non-blocking: {stdout!r}")
-    if EXPECTED_NOTIFY_COMMAND not in raw_commands(frames):
+    if EXPECTED_NOTIFY not in notification_views(frames):
         raise AssertionError(
             f"a stalled live-target probe starved the notification: {frames!r}"
         )
@@ -326,8 +346,9 @@ def main() -> int:
         root = Path(td)
         try:
             test_permission_request_sends_gated_notification_before_feed_push(cli_path, root)
-            test_post_tool_use_clears_pane_before_feed_push(cli_path, root)
+            test_post_tool_use_resolves_exact_request_before_feed_push(cli_path, root)
             test_pre_tool_use_sends_no_attention_command(cli_path, root)
+            test_native_request_identity_aliases_share_semantic_key(cli_path, root)
             test_permission_notification_is_acknowledged_before_hook_returns(cli_path, root)
             test_permission_notification_survives_slow_authentication(cli_path, root)
             test_permission_notification_targets_rehomed_pane(cli_path, root)

@@ -12,6 +12,8 @@ missing.
 
 from __future__ import annotations
 
+from agent_notification_test_utils import message_presentations
+
 import glob
 import json
 import os
@@ -320,7 +322,7 @@ def main() -> int:
         return 1
 
     # 1. localSent true -> bridged into a cmux notification, no lifecycle flip.
-    message = "build failed: 2 auth tests"
+    message = "build failed: alpha|beta, 2 auth tests"
     proc, commands, workspace_id, surface_id = run_push_notification_hook(
         cli_path,
         push_payload(
@@ -332,7 +334,7 @@ def main() -> int:
         print("FAIL: push-notification (sent) hook exited nonzero")
         print(f"stdout={proc.stdout!r} stderr={proc.stderr!r} commands={commands!r}")
         return 1
-    notify_commands = [line for line in commands if line.startswith("notify_target_async ")]
+    notify_commands = message_presentations(commands)
     expected = f"notify_target_async {workspace_id} {surface_id} Claude Code||{message}"
     if notify_commands != [expected]:
         print("FAIL: expected exactly one bridged notification for localSent=true")
@@ -357,7 +359,7 @@ def main() -> int:
         print("FAIL: push-notification (skipped) hook exited nonzero")
         print(f"stdout={proc.stdout!r} stderr={proc.stderr!r} commands={commands!r}")
         return 1
-    if any(line.startswith("notify_target_async ") for line in commands):
+    if bool(message_presentations(commands)):
         print("FAIL: skipped PushNotification must not create a cmux notification")
         print(f"commands={commands!r}")
         return 1
@@ -372,7 +374,7 @@ def main() -> int:
         print(f"stdout={proc.stdout!r} stderr={proc.stderr!r} commands={commands!r}")
         return 1
     expected = f"notify_target_async {workspace_id} {surface_id} Claude Code||fallback delivery"
-    if [line for line in commands if line.startswith("notify_target_async ")] != [expected]:
+    if message_presentations(commands) != [expected]:
         print("FAIL: missing tool_response should fail open and bridge the message")
         print(f"expected={expected!r} commands={commands!r}")
         return 1
@@ -392,7 +394,7 @@ def main() -> int:
         print(f"stdout={proc.stdout!r} stderr={proc.stderr!r} commands={commands!r}")
         return 1
     expected = f"notify_target_async {workspace_id} {surface_id} Claude Code||null reason delivery"
-    if [line for line in commands if line.startswith("notify_target_async ")] != [expected]:
+    if message_presentations(commands) != [expected]:
         print("FAIL: JSON-null disabledReason should fail open and bridge the message")
         print(f"expected={expected!r} commands={commands!r}")
         return 1
@@ -414,7 +416,7 @@ def main() -> int:
         print(f"stdout={proc.stdout!r} stderr={proc.stderr!r} commands={commands!r}")
         return 1
     expected = f"notify_target_async {workspace_id} {surface_id} Claude Code||local channel unavailable"
-    if [line for line in commands if line.startswith("notify_target_async ")] != [expected]:
+    if message_presentations(commands) != [expected]:
         print("FAIL: localSent=false without a skip reason should still bridge")
         print(f"expected={expected!r} commands={commands!r}")
         return 1
@@ -431,7 +433,7 @@ def main() -> int:
         print("FAIL: push-notification (config_off) hook exited nonzero")
         print(f"stdout={proc.stdout!r} stderr={proc.stderr!r} commands={commands!r}")
         return 1
-    if any(line.startswith("notify_target_async ") for line in commands):
+    if bool(message_presentations(commands)):
         print("FAIL: config_off PushNotification must not create a cmux notification")
         print(f"commands={commands!r}")
         return 1
@@ -444,7 +446,7 @@ def main() -> int:
         print("FAIL: unresolved push-notification hook exited nonzero")
         print(f"stdout={proc.stdout!r} stderr={proc.stderr!r} commands={commands!r}")
         return 1
-    notify_commands = [line for line in commands if line.startswith("notify_target_async ")]
+    notify_commands = message_presentations(commands)
     if notify_commands:
         print("FAIL: unresolved PushNotification must not notify a focused fallback surface")
         print(f"workspace={workspace_id!r} recorded={recorded_surface_id!r} focused={focused_surface_id!r}")
@@ -465,9 +467,9 @@ def main() -> int:
         return 1
     expected_body = "x" * 239 + "…"
     expected = f"notify_target_async {workspace_id} {surface_id} Claude Code||{expected_body}"
-    if [line for line in commands if line.startswith("notify_target_async ")] != [expected]:
+    if message_presentations(commands) != [expected]:
         print("FAIL: oversized PushNotification body should be truncated to 240 chars")
-        actual = [line for line in commands if line.startswith("notify_target_async ")]
+        actual = message_presentations(commands)
         print(f"expected len={len(expected)} got={[len(a) for a in actual]}")
         return 1
 

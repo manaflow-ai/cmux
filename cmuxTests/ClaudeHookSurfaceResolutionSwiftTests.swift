@@ -445,23 +445,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         }
     }
 
-    final class MockSocketServerState: @unchecked Sendable {
-        private let lock = NSLock()
-        private var commands: [String] = []
 
-        func append(_ command: String) {
-            lock.lock()
-            commands.append(command)
-            lock.unlock()
-        }
-
-        func snapshot() -> [String] {
-            lock.lock()
-            let value = commands
-            lock.unlock()
-            return value
-        }
-    }
 
     func makeClaudeHookContext(name: String) throws -> ClaudeHookContext {
         let root = FileManager.default.temporaryDirectory

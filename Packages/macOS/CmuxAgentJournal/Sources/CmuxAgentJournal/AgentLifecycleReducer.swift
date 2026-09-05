@@ -59,7 +59,8 @@ public struct AgentLifecycleReducer: Sendable {
             // lifecycle-bearing event alone, independent of delivery order.
             return false
         }
-        if let previous, event.sequence <= previous.lastSequence {
+        if let previous, event.draft.occurredAtMs < previous.lastOccurredAtMs
+            || (event.draft.occurredAtMs == previous.lastOccurredAtMs && event.sequence <= previous.lastSequence) {
             // Duplicate or out-of-order stale arrival: the newest
             // lifecycle-bearing event by journal sequence already governs
             // this session.
@@ -89,9 +90,9 @@ public struct AgentLifecycleReducer: Sendable {
         switch draft.kind {
         case .sessionStarted:
             return (.unknown, false)
-        case .turnStarted:
+        case .turnStarted, .attentionResolved:
             return (.running, false)
-        case .turnCompleted:
+        case .turnCompleted, .idleObserved:
             return (draft.pendingWork ? .running : .idle, false)
         case .approvalRequested, .questionRequested, .planReviewRequested:
             return (.needsInput, false)
@@ -104,7 +105,7 @@ public struct AgentLifecycleReducer: Sendable {
             // state-changed events are observations.
             guard let declared = draft.declaredPhase else { return nil }
             return (declared, previous?.ended ?? false)
-        case .childSpawned, .childCompleted, .childFailed:
+        case .childSpawned, .childCompleted, .childFailed, .messagePublished:
             return nil
         }
     }
