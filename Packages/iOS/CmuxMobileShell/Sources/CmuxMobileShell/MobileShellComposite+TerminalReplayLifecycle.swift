@@ -136,7 +136,9 @@ extension MobileShellComposite {
             deliverDemonstrationTerminalReplay(surfaceID: surfaceID)
             return
         }
-        guard remoteClient != nil else {
+        guard remoteClient != nil,
+              runtime?.supportsServerPushEvents == false
+                || terminalEventSubscriptionIsValidated else {
             terminalColdReplayNeedsBarrierUpgradeSurfaceIDs.insert(surfaceID)
             return
         }
