@@ -47,6 +47,26 @@ import Testing
         #expect(rows[1].context.isNested)
     }
 
+    @Test @MainActor func loadingMoreHistoryPreservesTheExpandedGroupIdentity() async throws {
+        let items = (0...notificationFeedProjectionInitialRowWindow).map {
+            item("event-\($0)", age: TimeInterval($0))
+        }
+        let projection = await makeProjection(for: items)
+        let groupID = try #require(projection.sections.first?.rows.first?.disclosure?.groupID)
+        projection.toggleGroup(groupID)
+        #expect(projection.hasMoreRows)
+
+        projection.extendRowWindow()
+        await projection.waitForPendingRebuild()
+
+        let rows = try #require(projection.sections.first).rows
+        #expect(rows.count == items.count)
+        #expect(rows.first?.disclosure?.groupID == groupID)
+        #expect(rows.first?.disclosure?.isExpanded == true)
+        #expect(rows.last?.id == items.last?.id)
+        #expect(!projection.hasMoreRows)
+    }
+
     @Test func nestedRowsPreserveUniqueTitlesIncludingTitleOnlyNotifications() throws {
         let latest = NotificationFeedRowModel(item: item("latest", age: 0))
         let titleOnly = NotificationFeedRowModel(item: item(
