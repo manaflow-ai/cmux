@@ -12,6 +12,7 @@ import {
 } from "../services/vms/images/resolver";
 import { VM_IMAGE_SIZE_NAMES, pickVmImageSizeForMemory, vmImageSize } from "../services/vms/images/sizes";
 import { VmImageConfigError } from "../services/vms/errors";
+import manifestJson from "../services/vms/images/manifest.json";
 
 function captureImageConfigError(fn: () => unknown): VmImageConfigError {
   try {
@@ -23,15 +24,14 @@ function captureImageConfigError(fn: () => unknown): VmImageConfigError {
   throw new Error("expected VmImageConfigError to be thrown");
 }
 
-// The resolver must follow the currently promoted manifest ladder. Deriving
-// this fixture from the flagged defaults keeps a valid image promotion from
-// becoming a false test failure. The consistency test below still protects
-// the two-kind, one-snapshot-per-size contract and the version suffixes.
-type ManifestEntry = ReturnType<typeof listVmImageKindDefaults>[number];
+// Base and desktop images can be promoted independently. Read the expected
+// defaults from the manifest, then exercise the resolver against each kind.
+type ManifestEntry = (typeof manifestJson.images)[number];
 const defaultsBySize = (kind: VmImageKind): Record<string, ManifestEntry> =>
   Object.fromEntries(
-    listVmImageKindDefaults("freestyle", kind)
-      .filter((entry) => entry.size !== undefined)
+    manifestJson.images
+      .filter((entry) => entry.provider === "freestyle" && entry.kind === kind
+        && entry.defaultForKind && entry.size !== undefined)
       .map((entry) => [entry.size!.name, entry]),
   );
 const ladderDefaults = {
@@ -49,10 +49,13 @@ test("the promoted Freestyle ladder is complete and internally consistent", () =
     const base = ladderDefaults.base[size];
     expect(desktop).toBeDefined();
     expect(base).toBeDefined();
-    expect(desktop!.imageId).toBe(base!.imageId);
-    expect(desktop!.version).toBe(`${ladderVersion}-${size}`);
-   expect(base!.version).toBe(`${ladderVersion}-${size}-base`);
- }
+    expect(desktop!.size).toEqual(vmImageSize(size));
+    expect(base!.size).toEqual(vmImageSize(size));
+    for (const kind of ["desktop", "base"] as const) {
+      const defaults = listVmImageKindDefaults("freestyle", kind);
+      expect(defaults.filter((entry) => entry.size?.name === size)).toHaveLength(1);
+    }
+  }
 });
 // cmux's validated pre-ladder public-platform devbox: still listed (base only,
 // size-less) so stored rows and explicit requests keep resolving, no longer a
@@ -76,13 +79,13 @@ describe("VM image resolver: request by kind", () => {
     for (const stale of [retiredBetaSnapshot, legacySnapshot, "sh-ops-override", ""]) {
       expect(
         resolveVmImage("freestyle", undefined, { ...deployed, FREESTYLE_SANDBOX_SNAPSHOT: stale }, { kind: "base" }),
-      ).toMatchObject({ image: ladder.sm, imageVersion: `${ladderVersion}-sm-base`, kind: "base" });
+      ).toMatchObject({ image: ladderDefaults.base.sm.imageId, imageVersion: ladderDefaults.base.sm.version, kind: "base" });
       expect(
         resolveVmImage("freestyle", undefined, { ...deployed, FREESTYLE_SANDBOX_SNAPSHOT: stale }, { kind: "desktop" }),
       ).toMatchObject({ image: ladder.sm, imageVersion: `${ladderVersion}-sm`, kind: "desktop" });
       expect(resolveVmImage("freestyle", undefined, { FREESTYLE_SANDBOX_SNAPSHOT: stale })).toMatchObject({
-        image: ladder.sm,
-        imageVersion: `${ladderVersion}-sm-base`,
+        image: ladderDefaults.base.sm.imageId,
+        imageVersion: ladderDefaults.base.sm.version,
       });
     }
   });
@@ -101,8 +104,8 @@ describe("VM image resolver: request by kind", () => {
     // rule), and a request with neither image nor kind gets the base one.
     expect(resolveVmImage("freestyle", undefined, deployed, { kind: "base" })).toMatchObject({
       provider: "freestyle",
-      image: ladder.sm,
-      imageVersion: `${ladderVersion}-sm-base`,
+      image: ladderDefaults.base.sm.imageId,
+      imageVersion: ladderDefaults.base.sm.version,
       kind: "base",
       size: vmImageSize("sm"),
     });
@@ -114,25 +117,23 @@ describe("VM image resolver: request by kind", () => {
       size: vmImageSize("sm"),
     });
     expect(resolveVmImage("freestyle", undefined, {})).toMatchObject({
-      image: ladder.sm,
-      imageVersion: `${ladderVersion}-sm-base`,
+      image: ladderDefaults.base.sm.imageId,
+      imageVersion: ladderDefaults.base.sm.version,
       kind: "base",
     });
     expect(resolveVmImage("freestyle", undefined, deployed)).toMatchObject({
-      image: ladder.sm,
-      imageVersion: `${ladderVersion}-sm-base`,
+      image: ladderDefaults.base.sm.imageId,
+      imageVersion: ladderDefaults.base.sm.version,
       kind: "base",
     });
     expect(listVmImageKinds("freestyle", deployed)).toEqual([
       { kind: "desktop", image: ladder.sm, size: vmImageSize("sm") },
-      { kind: "base", image: ladder.sm, size: vmImageSize("sm") },
+      { kind: "base", image: ladderDefaults.base.sm.imageId, size: vmImageSize("sm") },
     ]);
   });
 
   test("the plan's memory picks the smallest ladder size that fits, for both kinds", () => {
-    // One snapshot per size: the machine boots at its shape with nothing to
-    // resize. Desktop and base share the snapshot id per size and differ only
-    // in the manifest version (and kind).
+    // Each kind selects its own promoted snapshot at the requested shape.
     const expectations: Array<[number, keyof typeof ladder]> = [
       [512, "sm"],
       [4096, "sm"],
@@ -150,8 +151,8 @@ describe("VM image resolver: request by kind", () => {
     for (const [memoryMb, sizeName] of expectations) {
       expect(pickVmImageSizeForMemory(memoryMb)?.name).toBe(sizeName);
       expect(resolveVmImage("freestyle", undefined, deployed, { kind: "base", memoryMb })).toMatchObject({
-        image: ladder[sizeName],
-        imageVersion: `${ladderVersion}-${sizeName}-base`,
+        image: ladderDefaults.base[sizeName].imageId,
+        imageVersion: ladderDefaults.base[sizeName].version,
         kind: "base",
         size: vmImageSize(sizeName),
       });
@@ -162,7 +163,7 @@ describe("VM image resolver: request by kind", () => {
         size: vmImageSize(sizeName),
       });
       expect(resolveVmImage("freestyle", undefined, {}, { memoryMb })).toMatchObject({
-        image: ladder[sizeName],
+        image: ladderDefaults.base[sizeName].imageId,
         kind: "base",
       });
     }
@@ -173,7 +174,7 @@ describe("VM image resolver: request by kind", () => {
     }
     expect(listVmImageKinds("freestyle", deployed, { memoryMb: 20480 })).toEqual([
       { kind: "desktop", image: ladder.lgx, size: vmImageSize("lgx") },
-      { kind: "base", image: ladder.lgx, size: vmImageSize("lgx") },
+      { kind: "base", image: ladderDefaults.base.lgx.imageId, size: vmImageSize("lgx") },
     ]);
   });
 
@@ -206,27 +207,31 @@ describe("VM image resolver: request by kind", () => {
     expect(report.operator.allowedImages).toContain(ladder.sm);
   });
 
-  test("an image listed under two kinds resolves to the entry of the requested kind", () => {
-    // A client-requested image naming a snapshot shared by both kinds must not
-    // be rejected as "a desktop image, not a base image".
-    for (const [sizeName, snapshot] of Object.entries(ladder) as Array<[keyof typeof ladder, string]>) {
-      expect(resolveVmImage("freestyle", snapshot, deployed, { kind: "base" })).toMatchObject({
-        imageVersion: `${ladderVersion}-${sizeName}-base`,
+  test("an image listed for one kind resolves to the entry of that kind", () => {
+    // Base and desktop promotions may use different snapshots. An explicit
+    // image still pins its own size and must match the requested kind.
+    for (const sizeName of VM_IMAGE_SIZE_NAMES) {
+      const desktop = ladderDefaults.desktop[sizeName];
+      const base = ladderDefaults.base[sizeName];
+      expect(resolveVmImage("freestyle", base.imageId, deployed, { kind: "base" })).toMatchObject({
+        image: base.imageId,
+        imageVersion: base.version,
         kind: "base",
         size: vmImageSize(sizeName),
       });
-      expect(resolveVmImage("freestyle", snapshot, deployed, { kind: "desktop" })).toMatchObject({
-        imageVersion: `${ladderVersion}-${sizeName}`,
+      expect(resolveVmImage("freestyle", desktop.imageId, deployed, { kind: "desktop" })).toMatchObject({
+        image: desktop.imageId,
+        imageVersion: desktop.version,
         kind: "desktop",
         size: vmImageSize(sizeName),
       });
       // An explicit image pins its own size: the plan's memory does not re-pick it.
-      expect(resolveVmImage("freestyle", snapshot, deployed, { kind: "base", memoryMb: 65536 })).toMatchObject({
-        image: snapshot,
+      expect(resolveVmImage("freestyle", base.imageId, deployed, { kind: "base", memoryMb: 65536 })).toMatchObject({
+        image: base.imageId,
         size: vmImageSize(sizeName),
       });
     }
-    expect(resolveVmImage("freestyle", `${ladderVersion}-lg`, deployed, { kind: "desktop" })).toMatchObject({
+    expect(resolveVmImage("freestyle", ladderDefaults.desktop.lg.version, deployed, { kind: "desktop" })).toMatchObject({
       image: ladder.lg,
       kind: "desktop",
     });
@@ -284,7 +289,7 @@ describe("VM image resolver: request by kind", () => {
     // Only the ladder is flagged default; the legacy bakes and the retired
     // beta entry never are.
     const served = listVmImageKinds("freestyle", deployed).map((entry) => entry.image);
-    expect(served).toEqual([ladder.sm, ladder.sm]);
+    expect(served).toEqual([ladder.sm, ladderDefaults.base.sm.imageId]);
     expect(served).not.toContain(retiredBetaSnapshot);
     expect(served).not.toContain(legacySnapshot);
     expect(served).not.toContain(legacyDesktopSnapshot);
@@ -294,16 +299,16 @@ describe("VM image resolver: request by kind", () => {
 describe("VM image resolver", () => {
   test("local dev uses the manifest default", () => {
     // `bun dev` boots the same ladder production does, with no env var to
-    // copy around; at the paid plan's memory that is the xl snapshot.
+    // copy around; at the paid plan's memory that is the lgx snapshot.
     expect(resolveVmImage("freestyle", undefined, {})).toMatchObject({
       provider: "freestyle",
-      image: ladder.sm,
-      imageVersion: `${ladderVersion}-sm-base`,
+      image: ladderDefaults.base.sm.imageId,
+      imageVersion: ladderDefaults.base.sm.version,
     });
     expect(resolveVmImage("freestyle", undefined, {}, { memoryMb: 20480 })).toMatchObject({
       provider: "freestyle",
-      image: ladder.lgx,
-      imageVersion: `${ladderVersion}-lgx-base`,
+      image: ladderDefaults.base.lgx.imageId,
+      imageVersion: ladderDefaults.base.lgx.version,
     });
   });
 
@@ -340,7 +345,7 @@ describe("provider inference from explicit images", () => {
   });
 
   test("manifest versions infer their provider too", () => {
-    expect(inferVmProviderForImage(`${ladderVersion}-xl-base`)).toBe("freestyle");
+    expect(inferVmProviderForImage(ladderDefaults.base.xl.version)).toBe("freestyle");
     expect(inferVmProviderForImage(legacyVersion)).toBe("freestyle");
   });
 

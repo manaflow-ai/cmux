@@ -16,6 +16,9 @@ const MANIFEST_BASE_DEFAULT = (manifestJson.images as Array<{
   defaultForKind?: boolean;
   size?: { name: string };
 }>).find((entry) => (entry.kind ?? "base") === "base" && entry.defaultForKind && entry.size?.name === PRO_PLAN_SIZE)!;
+const MANIFEST_DESKTOP_DEFAULT = manifestJson.images.find((entry) =>
+  entry.provider === "freestyle" && entry.kind === "desktop"
+    && entry.defaultForKind && entry.size?.name === PRO_PLAN_SIZE)!;
 
 const getUser = mock(async () => null);
 const runVmWorkflow = mock(async () => {
@@ -590,7 +593,7 @@ describe("VM REST auth", () => {
     );
     expect(payload.limits.imageKinds.map((entry) => entry.kind)).toEqual(["desktop", "base"]);
     expect(payload.limits.imageKinds.map((entry) => entry.image)).toEqual([
-      MANIFEST_BASE_DEFAULT.imageId,
+      MANIFEST_DESKTOP_DEFAULT.imageId,
       MANIFEST_BASE_DEFAULT.imageId,
     ]);
     for (const entry of payload.limits.imageKinds) {
