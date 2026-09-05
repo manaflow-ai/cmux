@@ -19772,6 +19772,19 @@ impl App {
         {
             return true;
         }
+        if let TerminalInput::Mouse(mouse) = input
+            && Self::mouse_opens_cmux_context_menu(mouse)
+            && self.pointer_route_phase == PointerRoutePhase::PaintPending
+            && !self.session.has_pending_mutations()
+            && !self.session.remote_tree_is_stale()
+            && self.mux_recovery_generation.load(Ordering::Acquire) == 0
+        {
+            // A paint-only boundary does not change hit geometry or resource
+            // ownership. A cmux-owned menu press can cross it without
+            // waiting for the terminal bitmap to repaint. Draw and topology
+            // boundaries remain fail-closed below.
+            return true;
+        }
         match input {
             TerminalInput::FrontendAction { action, .. }
                 if action_is_frontend_local(*action) || *action == Action::Detach =>
