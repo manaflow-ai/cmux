@@ -394,6 +394,7 @@ struct SidebarTreePointerTopology {
     active_surface_resource_id: Option<TabPublicId>,
     active_surface_kind: Option<SurfaceKind>,
     active_surface_content_id: Option<ContentPublicId>,
+    active_surface_terminal_id: Option<TerminalPublicId>,
     workspace_ids: Vec<WorkspaceId>,
     workspace_keys: Vec<Option<String>>,
     workspace_resource_ids: Vec<Option<WorkspacePublicId>>,
@@ -614,6 +615,7 @@ fn sidebar_tree_pointer_topology(tree: &TreeView) -> SidebarTreePointerTopology 
     let active_surface_resource_id = active_tab.and_then(|tab| tab.public_id.clone());
     let active_surface_kind = active_tab.map(|tab| tab.kind);
     let active_surface_content_id = active_tab.and_then(|tab| tab.content_id.clone());
+    let active_surface_terminal_id = active_tab.and_then(|tab| tab.terminal_id.clone());
     let mut topology = SidebarTreePointerTopology {
         workspace_revision: tree.workspace_revision,
         pane_revision: tree.pane_revision,
@@ -626,6 +628,7 @@ fn sidebar_tree_pointer_topology(tree: &TreeView) -> SidebarTreePointerTopology 
         active_surface_resource_id,
         active_surface_kind,
         active_surface_content_id,
+        active_surface_terminal_id,
         workspace_ids: Vec::new(),
         workspace_keys: Vec::new(),
         workspace_resource_ids: Vec::new(),
@@ -806,6 +809,10 @@ impl SidebarTreePointerTopology {
                 self.active_surface_content_id.as_ref(),
                 other.active_surface_content_id.as_ref(),
             )
+            && strict_identity_matches(
+                self.active_surface_terminal_id.as_ref(),
+                other.active_surface_terminal_id.as_ref(),
+            )
     }
 
     fn geometry_changes(&self, other: &Self) -> Vec<ScreenGeometryChange> {
@@ -908,6 +915,7 @@ struct ActiveSurfaceOwner {
     public_id: Option<TabPublicId>,
     kind: SurfaceKind,
     content_id: Option<ContentPublicId>,
+    terminal_id: Option<TerminalPublicId>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -17705,6 +17713,7 @@ impl App {
             public_id: tab.public_id.clone(),
             kind: tab.kind,
             content_id: tab.content_id.clone(),
+            terminal_id: tab.terminal_id.clone(),
         })
     }
 
@@ -55427,6 +55436,45 @@ mod tests {
         app.replace_tree(next);
 
         assert!(app.drag.is_none(), "a content replacement must retire Files capture");
+        assert!(app.active_pointer_buttons.is_empty());
+        assert!(app.canceled_pointer_buttons.contains(&MouseButton::Left));
+    }
+
+    #[test]
+    fn active_surface_terminal_replacement_fences_unpinned_files_capture_with_same_route_ids() {
+        let mux = Mux::new(
+            "active-surface-terminal-files-capture-boundary-test",
+            SurfaceOptions::default(),
+        );
+        let mut app = test_app(Session::Local(mux));
+        let mut previous = notify_tree(11, false);
+        let tab = &mut previous.workspaces_mut()[0].screens[0].panes[0].tabs[0];
+        tab.public_id =
+            Some(TabPublicId::parse("tab_00000000000000000000000000000041".to_string()).unwrap());
+        tab.terminal_id = Some(
+            TerminalPublicId::parse("term_00000000000000000000000000000041".to_string()).unwrap(),
+        );
+        app.tree = previous.clone();
+        app.rebuild_tab_locations();
+        app.drag = Some(Drag::FilesScrollbar {
+            track: Rect { x: 20, y: 1, width: 1, height: 4 },
+            total_rows: 8,
+            visible_rows: 4,
+            anchor_y: 2,
+            anchor_offset: 0,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+
+        let mut next = previous;
+        next.workspaces_mut()[0].screens[0].panes[0].tabs[0].terminal_id = Some(
+            TerminalPublicId::parse("term_00000000000000000000000000000042".to_string()).unwrap(),
+        );
+        app.replace_tree(next);
+
+        assert!(
+            app.drag.is_none(),
+            "a terminal replacement must retire Files capture even when route ids are unchanged"
+        );
         assert!(app.active_pointer_buttons.is_empty());
         assert!(app.canceled_pointer_buttons.contains(&MouseButton::Left));
     }
