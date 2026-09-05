@@ -39368,8 +39368,7 @@ mod tests {
         assert!(app.encode_buf.is_empty(), "Option-right-click must bypass PTY mouse reporting");
         assert!(app.drag.is_none());
         assert!(app.menu.is_some(), "Option-right-click must open the cmux context menu");
-        app.handle_mouse(event(MouseEventKind::Up(MouseButton::Right), KeyModifiers::ALT))
-            .unwrap();
+        app.handle_mouse(event(MouseEventKind::Up(MouseButton::Right), KeyModifiers::ALT)).unwrap();
         app.menu = None;
 
         app.handle_mouse(event(MouseEventKind::Down(MouseButton::Left), KeyModifiers::NONE))
