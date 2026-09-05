@@ -267,13 +267,9 @@ Set these Vercel environment variables per production/staging environment:
   deployment. See "Model plane".
 - `CMUX_VM_CODEROUTER_ENV_ENABLED`, local-dev only. `0` creates unwired machines with no
   coderouter env or edge rule. Never set it in production or staging.
-- `CMUX_VM_PRIVATE_NETWORK_ENABLED`, private networking rollback switch. Unset/`1`: new
-  Freestyle machines join their owner's VPC, open no public inbound port, and are
-  attached at their private VPC address through the owner's WireGuard tunnel. `0`: later
-  creates revert to the public-IPv6 posture (inbound 1337 open). Machines keep working
-  across a flip either way, because reachability is resolved from the addresses each
-  machine actually holds. Existing tunnel reads and revokes also remain available during
-  the rollback; they use the recorded VPC identity and never create a replacement network.
+- `CMUX_VM_PRIVATE_NETWORK_ENABLED`, fail-closed private networking switch. Unset/`1`:
+  Freestyle machines join their owner's VPC and open no public inbound port. `0`: new
+  machine creation and tunnel enrollment stop. The switch never selects public ingress.
 - `CMUX_VM_ALLOWED_ORIGINS`, optional comma-separated extra origins allowed for cookie mutations.
 - `FREESTYLE_API_KEY`, the normal Freestyle provider credential. A complete
   `FREESTYLE_STACK_ACCESS_TOKEN` plus `FREESTYLE_TEAM_ID` pair is the supported
@@ -464,17 +460,15 @@ needs a customer-verified domain), so the daemon is reached directly at a VM add
 
 **Private networking is the default.** Every Freestyle machine joins the one VPC that
 belongs to its owner (provisioned on first create, slug `cmux-net-<hash>`); the owner's
-computers join the same VPC over WireGuard tunnels (`/api/vm/tunnel`, `cmux vpn up`). The
-route is then the VM's private address. The client prefers the VPC IPv4 address and uses the
-VPC IPv6 address when IPv4 is absent, for example `ws://10.40.0.7:1337/v1/link` or
-`ws://[fd00:40::7]:1337/v1/link`. This matches the tunnel's stable IPv4 subnet route and
-avoids a stale IPv6 member route after a VM is added. Creates state outbound-only firewall
-rules: no public inbound port at all. The VPC's single members-reach-each-other rule is what
-admits the owner's other machines and tunnels to the daemon port. Machines created before
-private networking (or while `CMUX_VM_PRIVATE_NETWORK_ENABLED=0`) keep the older posture:
-inbound 1337 open and the route at the stable public IPv6. The daemon binds dual-stack
-(`[::]:1337`), re-asserted on every attach-time heal, which is also what makes the VPC address
-reachable.
+computers join the same VPC over WireGuard tunnels (`/api/vm/tunnel`). The app starts a
+user-space WireGuard hub for terminal and metadata traffic. The Network Extension starts
+only when a browser or webview needs the private network. The
+route is then the VM's *private* address — `ws://[<vpc ipv6>]:1337/v1/link` — and creates
+state outbound-only firewall rules: no public inbound port at all. The VPC's single
+members-reach-each-other rule is what admits the owner's other machines and tunnels to the
+daemon port. A machine with no private address fails closed. The daemon binds dual-stack
+(`[::]:1337`), re-asserted on every attach-time heal, which is also what makes the VPC
+address reachable.
 The Noise handshake encrypts and authenticates the session end to end, so carrier TLS is not
 required; the route token exists only for the lease ledger. Creates take no ports field and
 no create-time env; the guest's model-plane env is the same for every machine and baked at
@@ -491,25 +485,20 @@ the root layout they are baked around.
 `{"transport":"cmux-remote","clientCapabilities":[...]}` returns
 `{route, token, session, daemonBuild?, invitation?}` where `invitation` is a single-use
 `cmux://enroll/…` URI minted only when the caller's device is not enrolled. The client
-connects with `cmux-tui remote connect <route> --invite-file …`, then
+connects with `cmux-tui remote connect <route> --invite-file …` through the user-space
+WireGuard hub, then
 `POST /api/vm/[id]/cmux-remote/approve {invitationId}` approves the pending claim (poll
-until `state` is `approved`). The legacy websocket/SSH attach (`attach-endpoint` without a
+inside one provider-side wait command until `state` is `approved`). The legacy websocket/SSH attach (`attach-endpoint` without a
 transport, `POST /api/vm/[id]/sessions`) answers `409 vm_attach_transport_unsupported` with
 `details.supportedTransports: ["cmux-remote"]`. `cmux vm shell`, `cmux vm new`,
 `cmux vm base open` and the Machines panel all drive this from the Mac.
 See docs/cloud-cmux-tui-daemon.md for the design.
 
 Freestyle machines run the cmux-tui daemon and only the `cmux-remote`
-transport. For machines on the owner's private VPC, the route is the VPC IPv4
-address when present, otherwise the VPC IPv6 address. A legacy machine without a
-VPC, or a machine created while `CMUX_VM_PRIVATE_NETWORK_ENABLED=0`, uses its
-stable public IPv6 instead. The platform has no HTTP ingress proxy to arbitrary
-VM ports, so the carrier is plain ws and the daemon's Noise enrollment gates
-sessions. The backend writes only a hash of attach tokens to Postgres; raw
-tokens are returned once to the Mac client. Machines created by the old
-cmuxd-remote drivers cannot serve this transport and need recreation. Freestyle's
-provider SSH proxy is a separate unmanaged diagnostic path and is never a silent
-fallback for a managed attach.
+transport. The route is the VM's private VPC address. The app carries it through
+user-space WireGuard. The daemon's Noise enrollment gates sessions. The backend writes
+only a hash of attach tokens to Postgres; raw tokens are returned once to the Mac client.
+Machines created by the old cmuxd-remote drivers need recreation on the private network.
 
 Operational note: before rollout, verify the deployed provider, create switch,
 image manifest, and credential presence with

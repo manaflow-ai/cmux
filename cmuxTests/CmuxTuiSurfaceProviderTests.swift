@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 #if canImport(cmux_DEV)
@@ -5,6 +6,8 @@ import Testing
 #elseif canImport(cmux)
 @testable import cmux
 #endif
+
+typealias CMUXCLI = CmuxTuiRemoteRouting
 
 /// The cmux-tui provider's pure parts: snapshot → resources, the argv it hands the
 /// client, the URLs it opens, and the client identity paths it shares with the CLI.
@@ -512,6 +515,26 @@ import Testing
         #expect(CmuxTuiSnapshotParser.localhostPort(fromURL: "not a url") == nil)
     }
 
+    @Test func privateBrowserURLPreservesTheVisibleURL() throws {
+        #expect(
+            CmuxTuiSurfaceProvider.privateBrowserURL(
+                "http://localhost:5173/docs/page?q=one#result",
+                privateAddress: "10.16.4.9"
+            ) == "http://10.16.4.9:5173/docs/page?q=one#result"
+        )
+        #expect(
+            CmuxTuiSurfaceProvider.privateBrowserURL(
+                "https://127.0.0.1:8443/path",
+                privateAddress: "fd98:deb9:4c94::8"
+            ) == "https://[fd98:deb9:4c94::8]:8443/path"
+        )
+        #expect(CmuxTuiSurfaceProvider.privateBrowserURL("https://cmux.com", privateAddress: "10.0.0.2") == nil)
+        #expect(
+            CmuxTuiSurfaceProvider.privateDesktopURL(privateAddress: "10.16.4.9")
+                == "http://10.16.4.9:6901/vnc.html?path=websockify&autoconnect=1&resize=remote&reconnect=1&reconnect_delay=2000"
+        )
+    }
+
     @Test func snapshotListsEveryWorkspaceIncludingEmptyOnes() {
         let workspaces = CmuxTuiSnapshotParser.workspaces(fromSnapshot: Self.sessionSnapshot)
         #expect(workspaces == [
@@ -868,9 +891,17 @@ import Testing
 
     @Test func clientArgvIsExact() {
         #expect(CloudTuiCommandLine.linkArguments(route: "wss://m.vm.cmux.sh/v1/link?t=1", deviceName: "cmux-mac", stateDir: "/s", inviteFilePath: "/i") ==
-            ["remote", "connect", "wss://m.vm.cmux.sh/v1/link?t=1", "--device-name", "cmux-mac", "--state-dir", "/s", "--headless", "--json", "--invite-file", "/i"])
+            ["remote", "connect", "wss://m.vm.cmux.sh/v1/link?t=1", "--device-name", "cmux-mac", "--state-dir", "/s", "--headless", "--json", "--exit-with-parent", "--invite-file", "/i"])
         #expect(CloudTuiCommandLine.linkArguments(route: "r", deviceName: "d", stateDir: "/s", inviteFilePath: nil) ==
-            ["remote", "connect", "r", "--device-name", "d", "--state-dir", "/s", "--headless", "--json"])
+            ["remote", "connect", "r", "--device-name", "d", "--state-dir", "/s", "--headless", "--json", "--exit-with-parent"])
+        // A private-network machine dials through the app's WireGuard hub. Both long-lived
+        // helper processes must also stop if their app parent exits without cleanup.
+        #expect(CloudTuiCommandLine.linkArguments(route: "ws://[fd00::10]:1337/v1/link", deviceName: "d", stateDir: "/s", inviteFilePath: "/i", wireguardHubSocket: "/h.sock") ==
+            ["remote", "connect", "ws://[fd00::10]:1337/v1/link", "--device-name", "d", "--state-dir", "/s", "--headless", "--json", "--exit-with-parent", "--invite-file", "/i", "--wireguard-hub", "/h.sock"])
+        #expect(CloudTuiCommandLine.linkArguments(route: "r", deviceName: "d", stateDir: "/s", inviteFilePath: nil, wireguardHubSocket: "") ==
+            ["remote", "connect", "r", "--device-name", "d", "--state-dir", "/s", "--headless", "--json", "--exit-with-parent"])
+        #expect(CloudTuiCommandLine.wireGuardHubArguments(configPath: "/w/cmux-app.conf", socketPath: "/w/hub-1.sock") ==
+            ["wg", "hub", "--config", "/w/cmux-app.conf", "--socket", "/w/hub-1.sock", "--exit-with-parent"])
         #expect(CloudTuiCommandLine.snapshotArguments(socketPath: "/k.sock") == ["--socket", "/k.sock", "--json", "session", "current", "snapshot"])
         #expect(CloudTuiCommandLine.eventsArguments(socketPath: "/k.sock") == ["--socket", "/k.sock", "--jsonl", "session", "current", "events"])
         #expect(CloudTuiCommandLine.runArguments(socketPath: "/k.sock", workspaceID: "ws_main", command: ["claude", "-p", "fix it"]) ==
@@ -930,21 +961,6 @@ import Testing
         #expect(CloudTuiClientPaths.deviceName(hostName: "Austin's MacBook.local").hasPrefix("cmux-Austin-s-MacBook"))
     }
 
-    @Test func portEndpointsAreReusedUntilTheyExpire() {
-        var cache = SurfacePortEndpointCache(ttl: 60)
-        let t0 = Date(timeIntervalSince1970: 1_000)
-        #expect(cache.openURL(port: 6901, now: t0) == nil)
-        cache.store(openURL: "https://m-6901.vm.cmux.sh/?bl_preview_token=t1", port: 6901, now: t0)
-        #expect(cache.openURL(port: 6901, now: t0.addingTimeInterval(59)) == "https://m-6901.vm.cmux.sh/?bl_preview_token=t1")
-        #expect(cache.openURL(port: 3000, now: t0) == nil, "one entry per port")
-        #expect(cache.openURL(port: 6901, now: t0.addingTimeInterval(60)) == nil, "gone at ttl")
-        cache.store(openURL: "https://m-6901.vm.cmux.sh/?bl_preview_token=t2", port: 6901, now: t0.addingTimeInterval(60))
-        #expect(cache.openURL(port: 6901, now: t0.addingTimeInterval(61))?.hasSuffix("t2") == true)
-        cache.invalidate(port: 6901)
-        #expect(cache.openURL(port: 6901, now: t0.addingTimeInterval(61)) == nil)
-        #expect(SurfacePortEndpointCache.defaultTTL < 7 * 24 * 60 * 60, "well inside the preview token's 7-day life")
-    }
-
     @Test @MainActor func optimisticPanePlaceholdersLabelAndEscape() {
         #expect(CmuxTuiSurfaceProvider.paneLabel(machineID: "vivid-newt", port: 6901, desktop: true) == "vivid-newt · Desktop")
         #expect(CmuxTuiSurfaceProvider.paneLabel(machineID: "vivid-newt", port: 3000, desktop: false) == "vivid-newt:3000")
@@ -998,6 +1014,124 @@ import Testing
         let eof = CloudLinkFirstValue<String>()
         eof.resolve(nil)
         #expect(await eof.result == nil, "finished without a value reads as nil")
+    }
+
+    @Test func cancellingLinkCommandStopsItsChildBeforeReturning() async throws {
+        let pidFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-cloud-command-\(UUID().uuidString.lowercased()).pid")
+        defer { try? FileManager.default.removeItem(at: pidFile) }
+        let link = CloudMachineLink(
+            machineID: "test-machine",
+            clientURL: URL(fileURLWithPath: "/bin/sh"),
+            paths: CloudTuiClientPaths()
+        )
+        let task = Task {
+            try await link.run(
+                arguments: ["-c", "echo $$ > '\(pidFile.path)'; exec /bin/sleep 30"],
+                timeout: .seconds(60)
+            )
+        }
+        for _ in 0..<200 where !FileManager.default.fileExists(atPath: pidFile.path) {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let rawPID = try String(contentsOf: pidFile, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let pid = try #require(Int32(rawPID))
+        defer { _ = Darwin.kill(pid, SIGKILL) }
+
+        task.cancel()
+        do {
+            _ = try await task.value
+            Issue.record("a cancelled link command must throw")
+        } catch is CancellationError {
+            // Expected.
+        } catch {
+            Issue.record("a cancelled link command returned \(error) instead of CancellationError")
+        }
+        #expect(Darwin.kill(pid, 0) == -1 && errno == ESRCH, "the child must be reaped before run returns")
+    }
+
+    @Test func cancellingLinkConnectStopsItsChildBeforeReturning() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-cloud-connect-cancel-\(UUID().uuidString.lowercased())", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let pidFile = root.appendingPathComponent("link.pid")
+        let client = root.appendingPathComponent("fake-cmux-tui")
+        try """
+        #!/bin/sh
+        echo $$ > '\(pidFile.path)'
+        exec /bin/sleep 30
+        """.write(to: client, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: client.path)
+        let link = CloudMachineLink(
+            machineID: "test-machine",
+            clientURL: client,
+            paths: CloudTuiClientPaths(home: root)
+        )
+        let task = Task {
+            try await link.connect(route: "ws://10.0.0.1:1337/v1/link", session: "main", invitationURI: nil)
+        }
+        for _ in 0..<200 where !FileManager.default.fileExists(atPath: pidFile.path) {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let pid = try #require(Int32(try String(contentsOf: pidFile, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines)))
+        defer { _ = Darwin.kill(pid, SIGKILL) }
+
+        task.cancel()
+        do {
+            _ = try await task.value
+            Issue.record("a cancelled link connect must throw")
+        } catch is CancellationError {
+            // Expected.
+        } catch {
+            Issue.record("a cancelled link connect returned \(error) instead of CancellationError")
+        }
+        #expect(Darwin.kill(pid, 0) == -1 && errno == ESRCH, "the link child must be reaped before connect returns")
+    }
+
+    @Test func disconnectStopsLinkAndEventChildrenBeforeReturning() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-cloud-disconnect-\(UUID().uuidString.lowercased())", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let linkPIDFile = root.appendingPathComponent("link.pid")
+        let eventPIDFile = root.appendingPathComponent("event.pid")
+        let client = root.appendingPathComponent("fake-cmux-tui")
+        try """
+        #!/bin/sh
+        if [ "$1" = "remote" ]; then
+          echo $$ > '\(linkPIDFile.path)'
+          echo '{"event":"connection-snapshot","local_socket":"/tmp/fake-cloud-link.sock","connection":{}}'
+        else
+          echo $$ > '\(eventPIDFile.path)'
+        fi
+        exec /bin/sleep 30
+        """.write(to: client, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: client.path)
+        let link = CloudMachineLink(
+            machineID: "test-machine",
+            clientURL: client,
+            paths: CloudTuiClientPaths(home: root)
+        )
+        _ = try await link.connect(route: "ws://10.0.0.1:1337/v1/link", session: "main", invitationURI: nil)
+        for _ in 0..<200 where !FileManager.default.fileExists(atPath: eventPIDFile.path) {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let linkPID = try #require(Int32(try String(contentsOf: linkPIDFile, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines)))
+        let eventPID = try #require(Int32(try String(contentsOf: eventPIDFile, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines)))
+        defer {
+            _ = Darwin.kill(linkPID, SIGKILL)
+            _ = Darwin.kill(eventPID, SIGKILL)
+        }
+
+        await link.disconnect()
+
+        #expect(Darwin.kill(linkPID, 0) == -1 && errno == ESRCH, "disconnect must reap the link child")
+        #expect(Darwin.kill(eventPID, 0) == -1 && errno == ESRCH, "disconnect must reap the event child")
     }
 
     @Test func displayTabsPointWorkspacesAtTheMachineScreen() throws {

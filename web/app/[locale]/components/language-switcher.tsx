@@ -1,45 +1,30 @@
 "use client";
 
-import { useEffect, useRef } from "react";
 import { useLocale } from "next-intl";
-import { useRouter, usePathname } from "../../../i18n/navigation";
 import { locales, localeNames, type Locale } from "../../../i18n/routing";
 
 export function LanguageSwitcher() {
   const locale = useLocale() as Locale;
-  const router = useRouter();
-  const pathname = usePathname();
-  const pendingLocale = useRef<Locale | null>(null);
-
-  useEffect(() => {
-    if (pendingLocale.current !== locale) return;
-
-    // Locale changes can pass through the instant-navigation cache (and the
-    // default-locale redirect from /en to /). Refresh after next-intl has
-    // committed the new locale so server-rendered content and metadata come
-    // from the same locale as the URL.
-    pendingLocale.current = null;
-    router.refresh();
-  }, [locale, router]);
 
   function onChange(e: React.ChangeEvent<HTMLSelectElement>) {
     const newLocale = e.target.value as Locale;
-    const qs = typeof window !== "undefined"
-      ? window.location.search + window.location.hash
-      : "";
-
-    // next-intl prefixes every locale change with /en, then the proxy
-    // canonicalizes English back to /. That redirect can reuse the instant
-    // navigation shell before the new server tree is available. Navigate to
-    // the canonical English URL directly so the document, metadata, and
-    // messages are loaded together.
-    if (newLocale === "en") {
-      window.location.replace(canonicalEnglishPath(pathname) + qs);
-      return;
-    }
-
-    pendingLocale.current = newLocale;
-    router.replace(pathname + qs, { locale: newLocale });
+    const currentPathname = window.location.pathname;
+    const currentLocale = locales.find((candidate) =>
+      currentPathname === `/${candidate}` || currentPathname.startsWith(`/${candidate}/`),
+    );
+    const currentPrefix = currentLocale ? `/${currentLocale}` : "";
+    const pathname = currentPathname === currentPrefix
+      ? "/"
+      : currentPrefix.length > 0 && currentPathname.startsWith(`${currentPrefix}/`)
+        ? currentPathname.slice(currentPrefix.length)
+        : currentPathname;
+    const prefix = newLocale === "en" ? "" : `/${newLocale}`;
+    const localizedPathname = pathname === "/" ? prefix || "/" : `${prefix}${pathname}`;
+    // Keep next-intl's locale cookie in sync before the full navigation. This
+    // prevents the default-locale route from immediately redirecting back to
+    // the previous locale while the server renders the fresh document.
+    document.cookie = `NEXT_LOCALE=${newLocale}; Path=/; Max-Age=31536000; SameSite=Lax`;
+    window.location.href = localizedPathname + window.location.search + window.location.hash;
   }
 
   return (
@@ -74,18 +59,4 @@ export function LanguageSwitcher() {
       </select>
     </div>
   );
-}
-
-function canonicalEnglishPath(pathname: string): string {
-  if (typeof window === "undefined") return pathname;
-
-  const browserPathname = window.location.pathname;
-  const localePrefix = locales.find(
-    (locale) =>
-      browserPathname === `/${locale}` ||
-      browserPathname.startsWith(`/${locale}/`),
-  );
-  if (!localePrefix) return pathname;
-
-  return browserPathname.slice(localePrefix.length + 1) || "/";
 }

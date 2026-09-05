@@ -228,6 +228,11 @@ public abstract class GeneratedCmuxClient {
         return Tree.fromWire(result);
     }
 
+    public final MachineListeningTcpResult machineListeningTcp() throws CmuxException {
+        Object result = execute(Commands.MACHINE_LISTENING_TCP, Map.of());
+        return MachineListeningTcpResult.fromWire(result);
+    }
+
     public final MachineUsageResult machineUsage() throws CmuxException {
         Object result = execute(Commands.MACHINE_USAGE, Map.of());
         return MachineUsageResult.fromWire(result);
