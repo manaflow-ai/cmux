@@ -188,6 +188,7 @@ public actor IrxEndpointSupervisor {
         guard await gate.isCurrent(rotationGeneration) else { return }
         guard !deactivated else { return }
         guard let driver, !driver.isClosed() else { return }
+        let endpointGeneration = generation
         for credential in credentials {
             guard await gate.isCurrent(rotationGeneration) else { return }
             do {
@@ -198,7 +199,12 @@ public actor IrxEndpointSupervisor {
                         authToken: credential.token
                     )
                 )
-                guard await gate.isCurrent(rotationGeneration) else { return }
+                guard await gate.isCurrent(rotationGeneration),
+                      !deactivated,
+                      generation == endpointGeneration,
+                      let currentDriver = self.driver,
+                      !currentDriver.isClosed()
+                else { return }
                 installedRelayURLs.insert(credential.relayURL)
                 journal.record(
                     "endpoint", "relay-credential-rotated",
