@@ -1,6 +1,5 @@
 public import CMUXMobileCore
 internal import Foundation
-internal import os
 
 /// Emits one bounded latency observation when a connectivity phase completes.
 ///
@@ -35,7 +34,33 @@ public final class MobileNetworkOutcomeReporter: Sendable {
     private struct State: Sendable {
         var starts: [Key: Start] = [:]
         var connectStarts: [UInt32?: [Start]] = [:]
+        var readinessStarts: [UInt32?: Start] = [:]
         var hostAuthStarts: [UInt32?: Start] = [:]
+    }
+
+    private final class StateStore: @unchecked Sendable {
+        private let queue = DispatchQueue(label: "com.cmux.mobile-network-outcomes")
+        private var state = State()
+
+        func enqueue(
+            _ event: DiagnosticEvent,
+            emit: @escaping @Sendable (Observation) -> Void
+        ) {
+            queue.async { [self] in
+                guard let observation = MobileNetworkOutcomeReporter.observe(event, state: &state) else {
+                    return
+                }
+                emit(observation)
+            }
+        }
+
+        func drain() async {
+            await withCheckedContinuation { continuation in
+                queue.async {
+                    continuation.resume()
+                }
+            }
+        }
     }
 
     private static let pendingStartLifetimeNanos: UInt64 = 5 * 60 * 1_000_000_000
@@ -52,21 +77,22 @@ public final class MobileNetworkOutcomeReporter: Sendable {
     }
 
     private let emitter: any AnalyticsEmitting
-    private let state = OSAllocatedUnfairLock(initialState: State())
+    private let state = StateStore()
 
     public init(emitter: any AnalyticsEmitting) {
         self.emitter = emitter
     }
 
-    /// Considers one diagnostic event without doing I/O or spawning a task.
+    /// Queues one diagnostic event without blocking the diagnostic event tap.
     public func ingest(_ event: DiagnosticEvent) {
-        guard let observation = state.withLock({ state in
-            Self.observe(event, state: &state)
-        }) else { return }
-        emitter.capture(Self.eventName, Self.properties(for: observation))
+        let emitter = self.emitter
+        state.enqueue(event) { observation in
+            emitter.capture(Self.eventName, Self.properties(for: observation))
+        }
     }
 
     public func flush() async {
+        await state.drain()
         await emitter.flush()
     }
 
@@ -103,6 +129,10 @@ public final class MobileNetworkOutcomeReporter: Sendable {
             }
             if !retained.isEmpty { result[entry.key] = retained }
         }
+        state.readinessStarts = state.readinessStarts.filter { _, start in
+            event.tNanos >= start.tNanos
+                && event.tNanos - start.tNanos <= Self.pendingStartLifetimeNanos
+        }
         state.hostAuthStarts = state.hostAuthStarts.filter { _, start in
             event.tNanos >= start.tNanos
                 && event.tNanos - start.tNanos <= Self.pendingStartLifetimeNanos
@@ -120,6 +150,13 @@ public final class MobileNetworkOutcomeReporter: Sendable {
 
         case .pairOk, .pairFail, .pairUnreachable:
             let start = Self.takeUniqueConnectStart(surface: event.surface, state: &state)
+            if event.code == .pairOk, let surface = event.surface {
+                Self.storeReadinessStart(
+                    Start(tNanos: event.tNanos, transport: transport ?? start?.transport),
+                    surface: surface,
+                    state: &state
+                )
+            }
             return Self.terminal(
                 phase: .pairing,
                 event: event,
@@ -179,7 +216,8 @@ public final class MobileNetworkOutcomeReporter: Sendable {
             )
 
         case .rpcReady:
-            let start = Self.takeUniqueConnectStart(surface: event.surface, state: &state)
+            let start = state.readinessStarts.removeValue(forKey: event.surface)
+                ?? Self.takeUniqueConnectStart(surface: event.surface, state: &state)
             return Self.terminal(
                 phase: .rpcReady,
                 event: event,
@@ -329,6 +367,19 @@ public final class MobileNetworkOutcomeReporter: Sendable {
             return nil
         }
         return starts[0]
+    }
+
+    private static func storeReadinessStart(
+        _ start: Start,
+        surface: UInt32,
+        state: inout State
+    ) {
+        if state.readinessStarts[surface] == nil,
+           state.readinessStarts.count >= Self.maxPendingCorrelationKeys,
+           let oldest = state.readinessStarts.min(by: { $0.value.tNanos < $1.value.tNanos })?.key {
+            state.readinessStarts.removeValue(forKey: oldest)
+        }
+        state.readinessStarts[surface] = start
     }
 
     private static func storeHostAuthStart(

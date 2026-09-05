@@ -62,6 +62,26 @@ private struct NetworkOutcomeTestConsent: AnalyticsConsentProviding {
         #expect(event?.properties["user_usable"] == .bool(true))
     }
 
+    @Test func pairingAndRpcReadyEachEmitTerminalLatency() async {
+        let uploader = RecordingAnalyticsUploader()
+        let emitter = AnalyticsEmitter(
+            uploader: uploader,
+            consent: NetworkOutcomeTestConsent(isTelemetryEnabled: true),
+            anonymousID: "local-install"
+        )
+        let reporter = MobileNetworkOutcomeReporter(emitter: emitter)
+
+        reporter.ingest(DiagnosticEvent(code: .connect, tNanos: 1_000_000_000, surface: 4))
+        reporter.ingest(DiagnosticEvent(code: .pairOk, tNanos: 2_000_000_000, surface: 4))
+        reporter.ingest(DiagnosticEvent(code: .rpcReady, tNanos: 3_000_000_000, surface: 4))
+        await reporter.flush()
+
+        let values = await uploader.uploadedEvents
+        #expect(values.map { $0.properties["phase"] } == [.string("pairing"), .string("rpc_ready")])
+        #expect(values[1].properties["duration_ms"] == .int(1_000))
+        #expect(values[1].properties["user_usable"] == .bool(true))
+    }
+
     @Test func rpcReadyUsesExistingMeasuredDuration() {
         let properties = MobileNetworkOutcomeReporter.properties(for: DiagnosticEvent(
             code: .rpcReady,
