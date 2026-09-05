@@ -39,8 +39,10 @@ struct NewMachineModelTests {
     @Test func sizeLabelsDescribeMemoryAndDisk() {
         #expect(MachineSizeOption(memoryMb: 4096)?.title == "4 GB RAM")
         #expect(MachineSizeOption(memoryMb: 4096)?.detail == "16 GB disk included")
+        #expect(MachineSizeOption(memoryMb: 4096)?.diskTitle == "16 GB")
         #expect(MachineSizeOption(memoryMb: 8192)?.title == "8 GB RAM")
         #expect(MachineSizeOption(memoryMb: 8192)?.detail == "32 GB disk included")
+        #expect(MachineSizeOption(memoryMb: 8192)?.menuTitle == "8 GB RAM · 32 GB disk")
         #expect(MachineSizeOption(memoryMb: 16384)?.title == "16 GB RAM")
         #expect(MachineSizeOption(memoryMb: 16384)?.detail == "64 GB disk included")
         #expect(MachineSizeOption(memoryMb: 24576)?.title == "24 GB RAM")
@@ -51,9 +53,9 @@ struct NewMachineModelTests {
         #expect(MachineSizeOption(memoryMb: 65536)?.detail == "128 GB disk included")
     }
 
-    @Test func serverOptionsAreUsedInPickerOrder() {
+    @Test func serverOptionsAreSortedAndDeduplicated() {
         let plan = MachinePlanSnapshot(activeCount: 0, maxActiveVms: 50, planId: "pro")
-        let (model, _) = makeModel(plan: plan, memoryOptionsMb: [8192, 16384])
+        let (model, _) = makeModel(plan: plan, memoryOptionsMb: [16384, 8192, 8192])
         #expect(model.memoryOptions == [8192, 16384])
         #expect(model.memoryMb == 8192)
     }
