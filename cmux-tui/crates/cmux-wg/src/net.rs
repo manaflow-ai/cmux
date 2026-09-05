@@ -9,7 +9,7 @@
 //! datagram, a command, a stream write, the WireGuard timer tick, or the
 //! deadline smoltcp asks for.
 
-use std::collections::hash_map::RandomState;
+use std::collections::{VecDeque, hash_map::RandomState};
 use std::fmt;
 use std::hash::{BuildHasher, Hasher};
 use std::io;
@@ -62,6 +62,10 @@ const TIMER_TICK: Duration = Duration::from_millis(250);
 const TCP_TIMEOUT: Duration = Duration::from_secs(60);
 /// Largest datagram or packet buffer: the UDP payload maximum.
 const BUFFER_BYTES: usize = 65_535;
+/// UDP send readiness is edge-triggered by Tokio. Keep datagrams that arrive
+/// while the socket is temporarily unwritable and retry them on the next
+/// driver pass instead of silently losing a handshake.
+const UDP_SEND_QUEUE_DEPTH: usize = 64;
 /// The ephemeral port range (IANA 49152-65535); allocation starts at a random
 /// port inside it and wraps, as a real stack does.
 const FIRST_EPHEMERAL_PORT: u16 = 49_152;
@@ -90,6 +94,8 @@ pub enum WgError {
     ListenerBusy(u16),
     /// The tunnel has been shut down.
     Shutdown,
+    /// No WireGuard handshake completed before the startup deadline.
+    HandshakeTimeout(Duration),
     /// smoltcp refused the operation.
     Stack(String),
 }
@@ -108,6 +114,9 @@ impl fmt::Display for WgError {
             Self::ConnectionRefused(remote) => write!(formatter, "{remote} refused the connection"),
             Self::ListenerBusy(port) => write!(formatter, "port {port} already has a listener"),
             Self::Shutdown => formatter.write_str("the tunnel is shut down"),
+            Self::HandshakeTimeout(timeout) => {
+                write!(formatter, "no WireGuard handshake completed within {timeout:?}")
+            }
             Self::Stack(detail) => write!(formatter, "tcp stack: {detail}"),
         }
     }
@@ -243,6 +252,27 @@ impl WgNet {
             .await
             .map_err(|_| WgError::Shutdown)?;
         reply_rx.await.map_err(|_| WgError::Shutdown)
+    }
+
+    /// Wait until the peer completes a WireGuard handshake.
+    ///
+    /// Starting the driver only proves that the local UDP socket and the
+    /// userspace stack are alive. A hub must also prove that its peer can be
+    /// reached before it advertises a ready SOCKS socket. The driver sends an
+    /// initial handshake during startup, so polling this value is a bounded
+    /// end-to-end readiness check.
+    pub async fn wait_for_handshake(&self, timeout: Duration) -> Result<Duration, WgError> {
+        let deadline = tokio::time::Instant::now() + timeout;
+        loop {
+            if let Some(age) = self.time_since_last_handshake().await? {
+                return Ok(age);
+            }
+            let now = tokio::time::Instant::now();
+            if now >= deadline {
+                return Err(WgError::HandshakeTimeout(timeout));
+            }
+            tokio::time::sleep_until(deadline.min(now + Duration::from_millis(100))).await;
+        }
     }
 
     /// Stop the driver and wait for it to exit. Open connections are reset.
@@ -446,6 +476,7 @@ struct Driver {
     epoch: std::time::Instant,
     next_port: u16,
     scratch: Vec<u8>,
+    pending_udp: VecDeque<(Vec<u8>, SocketAddr)>,
 }
 
 enum Event {
@@ -523,6 +554,7 @@ impl Driver {
             epoch,
             next_port: random_ephemeral_port(),
             scratch: vec![0u8; BUFFER_BYTES + 32],
+            pending_udp: VecDeque::new(),
         })
     }
 
@@ -540,6 +572,7 @@ impl Driver {
         let mut datagram = vec![0u8; BUFFER_BYTES];
 
         self.initiate_handshake();
+        self.flush_pending_udp();
         self.service();
 
         loop {
@@ -585,15 +618,40 @@ impl Driver {
                 Event::Wake | Event::StackDeadline => {}
                 Event::Tick => self.update_timers(),
             }
+            self.flush_pending_udp();
             self.service();
+            self.flush_pending_udp();
         }
     }
 
-    fn send_to_peer(&self, packet: &[u8]) {
+    fn send_to_peer(&mut self, packet: &[u8]) {
         if let Some(peer) = self.peer {
-            // WireGuard tolerates loss; a momentarily unwritable UDP socket
-            // drops the datagram rather than blocking the driver.
-            let _ = self.udp.try_send_to(packet, peer);
+            match self.udp.try_send_to(packet, peer) {
+                Ok(_) => {}
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                    if self.pending_udp.len() < UDP_SEND_QUEUE_DEPTH {
+                        self.pending_udp.push_back((packet.to_vec(), peer));
+                    }
+                }
+                Err(error) => {
+                    eprintln!("wireguard UDP send to {peer} failed: {error}");
+                }
+            }
+        }
+    }
+
+    fn flush_pending_udp(&mut self) {
+        while let Some((packet, peer)) = self.pending_udp.front() {
+            match self.udp.try_send_to(packet, *peer) {
+                Ok(_) => {
+                    self.pending_udp.pop_front();
+                }
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => break,
+                Err(error) => {
+                    eprintln!("wireguard UDP send to {peer} failed: {error}");
+                    self.pending_udp.pop_front();
+                }
+            }
         }
     }
 

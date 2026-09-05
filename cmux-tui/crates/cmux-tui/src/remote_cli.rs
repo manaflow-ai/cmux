@@ -54,6 +54,7 @@ use crate::remote_runtime::{
 use crate::session::{RemoteSession, Session};
 
 const DEFAULT_STARTUP_TIMEOUT: Duration = Duration::from_secs(90);
+const WIREGUARD_HUB_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 const ENROLLMENT_APPROVAL_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const MAX_RPC_STDIN_LINE_BYTES: usize = 16 * 1024 * 1024;
 const MAX_CLIENT_RELAY_ROUTES: usize = 4;
@@ -1729,6 +1730,9 @@ fn run_wg(args: &[String]) -> anyhow::Result<()> {
     let owner = flags.exit_with_parent.then(current_parent_process_id);
     let async_runtime = tokio_runtime()?;
     let net = start_wireguard(&async_runtime, &flags.config)?;
+    async_runtime.block_on(net.wait_for_handshake(WIREGUARD_HUB_HANDSHAKE_TIMEOUT)).map_err(
+        |error| anyhow!(catalog().remote_client.wireguard_start_failed(&error.to_string())),
+    )?;
     let hub = async_runtime
         .block_on(cmux_remote::wireguard_hub::serve_wireguard_hub(net, flags.socket))
         .map_err(|error| {
