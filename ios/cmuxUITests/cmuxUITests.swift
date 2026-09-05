@@ -21,13 +21,13 @@ final class cmuxUITests: XCTestCase {
             mockHostInstanceTag(
                 testBundleIdentifier: "dev.cmux.ios.uitests"
             ),
-            "default"
+            "dev"
         )
         XCTAssertEqual(
             mockHostInstanceTag(
                 testBundleIdentifier: "dev.cmux.ios.uitests.xctrunner"
             ),
-            "default"
+            "dev"
         )
         XCTAssertNotEqual(mockHostInstanceTag(), "uitests")
     }
@@ -10520,6 +10520,9 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
             "mac_device_id": "ui-test-mac",
             "mac_display_name": "UI Test Mac",
             "mac_instance_tag": macInstanceTag,
+            "mac_client_namespace": macInstanceTag == "dev"
+                ? "mac:com.cmuxterm.app.debug"
+                : "mac:com.cmuxterm.app.debug.\(macInstanceTag)",
             "mac_app_version": "0.64.23",
             "routes": [],
             "terminal_fidelity": "render_grid",
@@ -10935,21 +10938,21 @@ private final class AgentModelsCatalogHTTPServer: @unchecked Sendable {
 
 /// Maps the XCUITest bundle back to the target app's tagged DEBUG build scope.
 /// Tagged builds override the test bundle identifier with the app identifier;
-/// Ordinary UI tests retain their reserved `uitests` identifier and target the
-/// untagged app, whose compatibility policy admits official Mac builds.
+/// Ordinary UI tests retain their reserved `uitests` identifier and map to the
+/// development policy's `dev` fallback.
 private func mockHostInstanceTag(
     testBundleIdentifier: String? = Bundle(for: cmuxUITests.self).bundleIdentifier
 ) -> String {
     let runnerSuffix = ".xctrunner"
-    guard let testBundleIdentifier else { return "default" }
+    guard let testBundleIdentifier else { return "dev" }
     let appBundleIdentifier = testBundleIdentifier.hasSuffix(runnerSuffix)
         ? String(testBundleIdentifier.dropLast(runnerSuffix.count))
         : testBundleIdentifier
-    guard appBundleIdentifier != "dev.cmux.ios.uitests" else { return "default" }
+    guard appBundleIdentifier != "dev.cmux.ios.uitests" else { return "dev" }
     return MobileIOSBuildScope.current(
         infoDictionary: nil,
         bundleIdentifier: appBundleIdentifier
-    )?.value ?? "default"
+    )?.value ?? "dev"
 }
 
 private extension XCUIApplication {
