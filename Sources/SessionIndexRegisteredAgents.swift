@@ -1,4 +1,5 @@
 import Foundation
+import CmuxAgentSessionStore
 
 struct GrokSessionRoot: Sendable, Hashable {
     let sessionsRoot: String
@@ -379,6 +380,51 @@ extension SessionIndexStore {
         offset: Int,
         limit: Int
     ) async -> [SessionEntry] {
+        await loadFileBackedRegisteredAgentEntries(
+            registration: registration,
+            needle: needle,
+            cwdFilter: cwdFilter,
+            offset: offset,
+            limit: limit
+        )
+    }
+
+    nonisolated static func loadRegisteredAgentEntries(
+        registration: CmuxVaultAgentRegistration,
+        needle: String,
+        cwdFilter: String?,
+        offset: Int,
+        limit: Int,
+        errorBag: ErrorBag = ErrorBag(),
+        ampSessionRepository: any AmpHookSessionReading
+    ) async -> [SessionEntry] {
+        if case .cmuxHookStore = registration.sessionIdSource {
+            return await loadCmuxHookStoreEntries(
+                registration: registration,
+                needle: needle,
+                cwdFilter: cwdFilter,
+                offset: offset,
+                limit: limit,
+                errorBag: errorBag,
+                repository: ampSessionRepository
+            )
+        }
+        return await loadFileBackedRegisteredAgentEntries(
+            registration: registration,
+            needle: needle,
+            cwdFilter: cwdFilter,
+            offset: offset,
+            limit: limit
+        )
+    }
+
+    nonisolated private static func loadFileBackedRegisteredAgentEntries(
+        registration: CmuxVaultAgentRegistration,
+        needle: String,
+        cwdFilter: String?,
+        offset: Int,
+        limit: Int
+    ) async -> [SessionEntry] {
         if registration.id == CmuxVaultAgentRegistration.builtInAntigravity.id {
             return loadAntigravityHistoryEntries(
                 registration: registration,
@@ -674,7 +720,7 @@ extension SessionIndexStore {
         switch registration.sessionIdSource {
         case .argvOption:
             needsNativeSessionID = true
-        case .piSessionFile, .grokSessionDirectory, .persistedStore:
+        case .piSessionFile, .grokSessionDirectory, .persistedStore, .cmuxHookStore:
             needsNativeSessionID = false
         }
         forEachJSONLine(url: url, maxBytes: 512 * 1024) { object in
