@@ -242,6 +242,12 @@ extension CMUXCLI {
     /// stay alive until that split lands; it is closed right after.
     static let vmPlainTerminalPlaceholderCommand = "sleep 60"
 
+    /// Backend code the control plane returns when a machine refuses the legacy
+    /// `vm.ssh_info` attach because it runs cmux-tui only. A forced SSH request treats
+    /// it as "use the managed cmux-remote route instead", never as a hard failure
+    /// (`shouldFallbackFromForcedSSH` in cmux.swift).
+    static let vmAttachTransportUnsupportedCode = "vm_attach_transport_unsupported"
+
     /// True when `workspaceRaw` (a UUID or handle) is the selected workspace of the
     /// window in question. Unknown (socket error, no such workspace) reads as false:
     /// when in doubt, do not move focus.
