@@ -63,12 +63,50 @@ extension TerminalWindowPortalLifecycleTests {
         )
     }
 
+    /// Hiding a hosted surface changes what the overlay paints even though
+    /// every frame stayed put, because `hostedFramesLikelyToOccludeDividers`
+    /// drops hidden and windowless surfaces and the overlay paints a segment
+    /// only where one of those rects crosses the divider centerline. A hidden
+    /// entry keeps its frame by design, so a frames-only comparison comes back
+    /// equal here and leaves divider pixels that should be gone.
+    @MainActor
+    func testHidingHostedViewWithoutMovingItRepaintsDividerOverlay() throws {
+        let fixture = try makeDividerOverlayFixture()
+        defer { fixture.tearDown() }
+
+        settleDividerOverlay(portal: fixture.portal, anchor: fixture.anchor)
+        let frameBeforeHide = fixture.hostedView.frame
+
+        let before = RemoteTmuxSizingDiagnostics.dividerOverlayRepaintCount
+        _ = fixture.portal.updateEntryVisibility(
+            forHostedId: ObjectIdentifier(fixture.hostedView),
+            visibleInUI: false
+        )
+        fixture.portal.synchronizeHostedViewForAnchor(fixture.anchor, syncLayout: false)
+
+        XCTAssertTrue(
+            fixture.hostedView.isHidden,
+            "Expected the hosted view to be hidden for this test to mean anything"
+        )
+        XCTAssertEqual(
+            fixture.hostedView.frame,
+            frameBeforeHide,
+            "Hiding must not move the frame, or this test would pass for the wrong reason"
+        )
+        XCTAssertGreaterThan(
+            RemoteTmuxSizingDiagnostics.dividerOverlayRepaintCount - before,
+            0,
+            "Hiding a hosted view must invalidate the divider overlay even with an unchanged frame"
+        )
+    }
+
     // MARK: - Fixture
 
     struct DividerOverlayFixture {
         let portal: WindowTerminalPortal
         let anchor: NSView
         let contentView: NSView
+        let hostedView: GhosttySurfaceScrollView
         let tearDown: () -> Void
     }
 
@@ -97,6 +135,7 @@ extension TerminalWindowPortalLifecycleTests {
             portal: portal,
             anchor: anchor,
             contentView: contentView,
+            hostedView: surface.hostedView,
             tearDown: {
                 NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
                 window.orderOut(nil)
