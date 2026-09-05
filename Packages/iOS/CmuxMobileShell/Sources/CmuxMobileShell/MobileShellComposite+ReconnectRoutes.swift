@@ -271,7 +271,10 @@ extension MobileShellComposite {
     /// The dial order for one stored Mac, honoring the user's connection-method
     /// choice. With the default automatic method this is exactly
     /// ``storedReconnectRoutes(_:supportedKinds:preferNonLoopback:tailscaleRequirement:)``
-    /// without a preference.
+    /// without a preference. A pre-Iroh automatic pairing may retain a
+    /// migration grant and no Iroh identity; that exact legacy route remains
+    /// available until the Mac publishes an Iroh route or the user selects a
+    /// different method.
     func orderedReconnectRoutes(
         for mac: MobilePairedMac,
         supportedKinds: [CmxAttachTransportKind]

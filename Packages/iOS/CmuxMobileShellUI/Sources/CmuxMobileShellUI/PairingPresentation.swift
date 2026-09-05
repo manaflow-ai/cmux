@@ -12,13 +12,22 @@ enum PairingPresentation: Equatable {
     /// directly.
     case tailscaleSetup
 
+    /// Replaces the selected Computer's existing Tailscale route. The QR
+    /// scanner opens immediately, while the manual form remains available if
+    /// the user needs it.
+    case tailscaleReplacement
+
     /// Approval for an externally supplied attach ticket whose compatibility
     /// level differs from this iPhone. This is not a manual-pairing entrypoint.
     case versionApproval
 
     var showsScanner: Bool {
-        if case .scanner = self { return true }
-        return false
+        switch self {
+        case .scanner, .tailscaleReplacement:
+            return true
+        default:
+            return false
+        }
     }
 
     var showsManualPairingControls: Bool {
@@ -33,6 +42,8 @@ enum PairingPresentation: Equatable {
             entry.rawValue
         case .tailscaleSetup:
             "tailscale_setup"
+        case .tailscaleReplacement:
+            "tailscale_replacement"
         case .versionApproval:
             "version_approval"
         }

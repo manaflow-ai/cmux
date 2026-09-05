@@ -13,6 +13,14 @@ struct MobileRootPresentationStateTests {
         #expect(approval.analyticsEntry == "version_approval")
     }
 
+    @Test func tailscaleReplacementStartsScannerWithReplacementAnalytics() {
+        let replacement = PairingPresentation.tailscaleReplacement
+
+        #expect(replacement.showsScanner)
+        #expect(replacement.showsManualPairingControls)
+        #expect(replacement.analyticsEntry == "tailscale_replacement")
+    }
+
     @Test func introductionStartsTailscaleScannerWithoutAUsableAuthorization() {
         var state = MobileRootPresentationState()
 
