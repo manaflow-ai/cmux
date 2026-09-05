@@ -32,6 +32,32 @@ The sim app registers its own irx binding, mints a pair grant against the
 Mac's binding on first dial, and connects relay-only. Journal:
 `simctl get_app_container <udid> <bundle> data` + `Documents/irx-journal.jsonl`.
 
+## Physical INTERNAL journal
+
+For a live view of the iROH journal from the attached cmux INTERNAL phone, run
+this from the cmux checkout:
+
+```bash
+./scripts/stream-ios-logs.sh
+```
+
+The default target is Aziz's iPhone and `dev.cmux.app.internal`. The viewer
+subscribes to the `IrxJournal` OSLog NOTICE events, so it does not repeatedly
+copy the growing JSONL file and does not relaunch or mutate the app. Press
+Ctrl-C to stop. To include recent context before the live stream:
+
+```bash
+./scripts/stream-ios-logs.sh --tail-lines 100
+```
+
+The viewer resolves the CoreDevice identifier to the USB UDID required by
+`idevicesyslog`, then filters by the INTERNAL app's current process ID. This
+keeps logs from stale DEV bundles installed on the same phone out of the
+default stream. If INTERNAL is still starting, the command waits briefly for
+its process; use `--all` only when you intentionally want every cmux process.
+
+The stream uses `idevicesyslog`, available from `brew install libimobiledevice`.
+
 ## Soak
 
 ```bash
