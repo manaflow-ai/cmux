@@ -322,16 +322,16 @@ final class AgentJournalLifecycleCenter: Sendable {
         let id = UUID()
         let admissions = self.admissions
         defer { admissions.forget(id) }
-        return await withTaskCancellationHandler {
+        return await withTaskCancellationHandler(operation: {
             await withCheckedContinuation { continuation in
                 guard admissions.register(id, continuation: continuation) else { return }
                 if case .terminated = operations.yield(operation(id)) {
                     admissions.complete(id, accepted: false)
                 }
             }
-        } onCancel: {
+        }, onCancel: {
             admissions.cancel(id)
-        }
+        })
     }
 
     private static func defaultDatabaseURL(
