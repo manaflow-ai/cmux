@@ -307,7 +307,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                     let indexPath = dataSource.indexPath(for: item),
                     let cell = tableView.cellForRow(at: indexPath)
                 else { continue }
-                configure(cell, for: configuredItemsByID[item.id] ?? item)
+                configure(cell, for: item)
             }
             #if DEBUG
             recordPayloadApplyRoute(.reconfiguredInPlace(changedToApply.map(\.id)))
@@ -333,7 +333,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                     let indexPath = dataSource.indexPath(for: item),
                     let cell = tableView.cellForRow(at: indexPath)
                 else { continue }
-                configure(cell, for: configuredItemsByID[item.id] ?? item)
+                configure(cell, for: item)
             }
             UIView.performWithoutAnimation {
                 tableView.beginUpdates()
