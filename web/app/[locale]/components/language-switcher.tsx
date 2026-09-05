@@ -1,34 +1,32 @@
 "use client";
 
-import { useEffect, useRef } from "react";
 import { useLocale } from "next-intl";
-import { useRouter, usePathname } from "../../../i18n/navigation";
+import { getPathname, usePathname } from "../../../i18n/navigation";
 import { locales, localeNames, type Locale } from "../../../i18n/routing";
+
+function persistLocaleCookie(nextLocale: Locale) {
+  // as-needed default-locale URLs are unprefixed (`/`, not `/en`). Middleware
+  // otherwise keeps serving the previous NEXT_LOCALE (or Accept-Language)
+  // after the client URL has already changed.
+  document.cookie =
+    `NEXT_LOCALE=${encodeURIComponent(nextLocale)}; Path=/; Max-Age=31536000; SameSite=Lax`;
+}
 
 export function LanguageSwitcher() {
   const locale = useLocale() as Locale;
-  const router = useRouter();
   const pathname = usePathname();
-  const pendingLocale = useRef<Locale | null>(null);
-
-  useEffect(() => {
-    if (pendingLocale.current !== locale) return;
-
-    // Locale changes can pass through the instant-navigation cache (and the
-    // default-locale redirect from /en to /). Refresh after next-intl has
-    // committed the new locale so server-rendered content and metadata come
-    // from the same locale as the URL.
-    pendingLocale.current = null;
-    router.refresh();
-  }, [locale, router]);
 
   function onChange(e: React.ChangeEvent<HTMLSelectElement>) {
     const newLocale = e.target.value as Locale;
-    const qs = typeof window !== "undefined"
-      ? window.location.search + window.location.hash
-      : "";
-    pendingLocale.current = newLocale;
-    router.replace(pathname + qs, { locale: newLocale });
+    if (newLocale === locale) return;
+    const qs = window.location.search + window.location.hash;
+    persistLocaleCookie(newLocale);
+    // Full document navigation so html lang, title, and server-rendered copy
+    // all come from one request. Client navigation through the instant cache
+    // can keep the previous locale's shell after the `/en` → `/` redirect.
+    window.location.assign(
+      getPathname({ href: pathname, locale: newLocale }) + qs,
+    );
   }
 
   return (

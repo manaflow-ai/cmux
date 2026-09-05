@@ -1135,6 +1135,29 @@ describe("SEO middleware", () => {
     expect(invalidJapaneseQuality.status).toBe(200);
     expect(invalidJapaneseQuality.headers.get("location")).toBeNull();
 
+    const cookieKoreanHome = middleware(
+      requestFor("/", {
+        cookie: "NEXT_LOCALE=ko",
+        "accept-language": "en",
+      }),
+    );
+    expect(cookieKoreanHome.status).toBe(307);
+    expect(cookieKoreanHome.headers.get("location")).toBe(
+      "https://cmux.com/ko",
+    );
+
+    const cookieEnglishHome = middleware(
+      requestFor("/", {
+        cookie: "NEXT_LOCALE=en",
+        "accept-language": "ko,en;q=0.8",
+      }),
+    );
+    expect(cookieEnglishHome.status).toBe(200);
+    expect(cookieEnglishHome.headers.get("location")).toBeNull();
+    expect(cookieEnglishHome.headers.get("x-middleware-rewrite")).toBe(
+      "https://cmux.com/en",
+    );
+
     const cookieJapanese = middleware(
       requestFor("/pricing", {
         cookie: "NEXT_LOCALE=ja",
