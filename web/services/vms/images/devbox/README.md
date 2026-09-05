@@ -85,9 +85,9 @@ on 6901. The contract (`web/services/vms/images/desktop.ts`;
   `ARG CMUX_IMAGE_GHOSTTY_DEB_SHA256` before dpkg runs); the apt list is
   `ARG CMUX_IMAGE_DESKTOP_PACKAGES`. `devbox-image-common.ts` reads all three.
 
-A desktop image is a superset of a base one, so one Freestyle snapshot is
-registered under both kinds (`desktop` and `base`). `--no-desktop` bakes a
-shell-only snapshot.
+Desktop and base defaults use separate snapshots. `--no-desktop --kinds base`
+builds the shell-only base ladder; the verifier reads `/etc/cmux/image-stamp`
+and rejects a desktop snapshot passed as a base image.
 
 The Freestyle base slug is only the input to the cmux bake. The ids recorded in
 `manifest.json` are cmux-derived snapshots, created by baking cmux-tui and its
@@ -168,6 +168,10 @@ picks the smallest size whose memory covers the plan's `memoryMb`
 (`defaultMemoryMbForPlan`; today's default of 8 GiB lands on `md`), so
 the driver never resizes at create and nothing has to grow at boot. Snapshot
 slugs are `cmux-devbox-<size>` (`cmux-devbox` for `md`).
+
+Run `bun run devbox:manifest:check` before a promotion. It requires one
+validated default for every size in both ladders and checks the recorded CPU,
+memory, and disk values against `sizes.ts`.
 
 ### BusyBox probe
 
