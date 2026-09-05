@@ -9833,7 +9833,6 @@ impl Mux {
         // the incoming observation. Preserve it when a legacy event omits the
         // adapter or when a restart reconstructs the stronger durable row.
         let effective_agent = agent_adapter
-            .clone()
             .or_else(|| records.get(&terminal_id).and_then(|record| record.agent.clone()))
             .or_else(|| durable_stronger.as_ref().and_then(|projection| projection.agent.clone()));
         let socket_report_ignored = source == AgentSource::Socket
@@ -9863,7 +9862,7 @@ impl Mux {
                     state: agent_state,
                     source,
                     session: source_session,
-                    agent: effective_agent.clone(),
+                    agent: effective_agent,
                     updated_at_ms: now,
                 },
             },
