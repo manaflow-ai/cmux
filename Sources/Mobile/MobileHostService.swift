@@ -1364,7 +1364,7 @@ final class MobileHostService {
         authorization: MobileHostConnectionAuthorizationContext,
         artifactTransfers: MobileHostIrohArtifactTransferRegistry? = nil,
         independentEventWriter: (any MobileHostIndependentEventWriting)? = nil,
-        idleTimeoutNanoseconds: UInt64 = MobileHostConnection.defaultIdleTimeoutNanoseconds,
+        idleTimeoutNanoseconds: UInt64? = nil,
         promoteUsableSession: @escaping @Sendable () async -> Bool = { true },
         remoteControlDisabledByPolicy: @escaping @Sendable () -> Bool = {
             MobileRemoteControlPolicy.isDisabled
@@ -1395,7 +1395,8 @@ final class MobileHostService {
         let session = MobileHostConnection(
             id: id,
             transport: transport,
-            idleTimeoutNanoseconds: idleTimeoutNanoseconds,
+            idleTimeoutNanoseconds: idleTimeoutNanoseconds
+                ?? MobileHostConnection.defaultIdleTimeoutNanoseconds,
             independentEventWriter: independentEventWriter,
             authorizeRequest: { request in
                 await Self.connectionAuthorizationError(

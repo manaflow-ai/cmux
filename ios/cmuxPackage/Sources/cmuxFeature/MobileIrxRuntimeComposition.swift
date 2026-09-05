@@ -7,6 +7,29 @@ import CmuxMobileShellModel
 import CmuxMobileTransport
 public import Foundation
 
+/// A control lane is single-consumer per admitted session, while separate Mac
+/// sessions must remain independently claimable. The owner token lets a
+/// closing RPC client release only the claims it created.
+struct MobileIrxControlLaneClaims {
+    private var ownerBySession: [String: UUID] = [:]
+
+    mutating func claim(sessionID: String, ownerID: UUID) -> Bool {
+        if let existingOwner = ownerBySession[sessionID], existingOwner != ownerID {
+            return false
+        }
+        ownerBySession[sessionID] = ownerID
+        return true
+    }
+
+    mutating func release(ownerID: UUID) {
+        ownerBySession = ownerBySession.filter { $0.value != ownerID }
+    }
+
+    mutating func removeAll() {
+        ownerBySession.removeAll()
+    }
+}
+
 /// iOS composition root for the irx transport (the from-scratch iroh rebuild
 /// in `CmuxIrxTransport`). DEBUG-only, default-off: when `cmux.irx.enabled`
 /// (or `CMUX_IRX_ENABLED=1`) is set, cmuxApp routes ALL `.iroh` traffic here
