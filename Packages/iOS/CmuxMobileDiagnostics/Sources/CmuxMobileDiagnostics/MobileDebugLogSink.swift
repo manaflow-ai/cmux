@@ -14,6 +14,7 @@ public actor MobileDebugLogSink {
     private let startedAt: Date
     private let now: @Sendable () -> Date
     private var continuations: [UUID: AsyncStream<String>.Continuation] = [:]
+    private var appendObservers: [UUID: @Sendable (String) -> Void] = [:]
     private let fileURL: URL?
     private let fileHeader: String?
     private let maxFileBytes: Int
@@ -78,6 +79,23 @@ public actor MobileDebugLogSink {
         }
     }
 
+    /// Registers a synchronous observer for each line after it is timestamped
+    /// and before the append operation returns. This gives durable mirrors a
+    /// clear ordering point without depending on an unacknowledged stream
+    /// consumer.
+    @discardableResult
+    public func addLineObserver(
+        _ observer: @escaping @Sendable (String) -> Void
+    ) -> UUID {
+        let id = UUID()
+        appendObservers[id] = observer
+        return id
+    }
+
+    public func removeLineObserver(_ id: UUID) {
+        appendObservers[id] = nil
+    }
+
     deinit {
         if let fileHandle {
             try? fileHandle.close()
@@ -116,6 +134,14 @@ public actor MobileDebugLogSink {
                 continuation.yield(line)
             }
             appendToFile(line)
+            // Free-text mirrors are part of the shareable export only when the
+            // verbose file itself is enabled. Structured DiagnosticLog events
+            // remain separately persisted regardless of this opt-in.
+            if fileLoggingEnabled {
+                for observer in appendObservers.values {
+                    observer(line)
+                }
+            }
         }
     }
 
@@ -138,6 +164,102 @@ public actor MobileDebugLogSink {
     /// durable record for crash diagnosis and is not truncated.
     public func clear() {
         buffer.removeAll(keepingCapacity: true)
+    }
+
+    /// Captures every durable verbose generation while actor ownership keeps
+    /// appends and rotation from changing the files mid-read. The active file
+    /// is returned first, followed by its rotated generation.
+    public func snapshotPersistedLogData() -> [Data]? {
+        guard let fileURL else { return [] }
+        var snapshots: [Data] = []
+        for generation in [
+            fileURL,
+            URL(fileURLWithPath: fileURL.path + ".1"),
+        ] where FileManager.default.fileExists(atPath: generation.path) {
+            guard let data = try? Data(contentsOf: generation) else { return nil }
+            snapshots.append(data)
+        }
+        return snapshots
+    }
+
+    func isFileLoggingEnabled() -> Bool {
+        fileLoggingEnabled
+    }
+
+    /// Removes the durable verbose-log generations while keeping logging in the
+    /// same state. DEBUG builds reopen a fresh file immediately; Release builds
+    /// reopen only when the user has enabled verbose logging.
+    @discardableResult
+    public func clearPersistedLog() -> Bool {
+        let shouldReopen = fileLoggingEnabled
+        closeFileHandle()
+        guard let fileURL else {
+            fileLoggingEnabled = false
+            fileBytesWritten = 0
+            return false
+        }
+
+        let fileManager = FileManager.default
+        var didRemoveEverything = true
+        for generation in [
+            fileURL,
+            URL(fileURLWithPath: fileURL.path + ".1"),
+        ] where fileManager.fileExists(atPath: generation.path) {
+            do {
+                try fileManager.removeItem(at: generation)
+            } catch {
+                didRemoveEverything = false
+            }
+        }
+        guard didRemoveEverything else {
+            // The active generation may have been removed before a later
+            // archive failed. Reopen or recreate it without rotating away the
+            // archive that could not be deleted.
+            if let restoredLogFile = Self.openExistingLogFile(at: fileURL, header: fileHeader) {
+                fileBytesWritten = restoredLogFile.byteCount
+                if shouldReopen {
+                    fileHandle = restoredLogFile.fileHandle
+                    fileLoggingEnabled = true
+                    #if DEBUG
+                    if crashCaptureInstalled {
+                        MobileDebugLogCrashCapture.updateLogFileDescriptor(
+                            restoredLogFile.fileHandle.fileDescriptor
+                        )
+                    }
+                    #endif
+                } else {
+                    try? restoredLogFile.fileHandle.close()
+                    fileHandle = nil
+                    fileLoggingEnabled = false
+                }
+            } else {
+                fileLoggingEnabled = false
+                fileBytesWritten = 0
+            }
+            return false
+        }
+
+        guard shouldReopen else {
+            fileLoggingEnabled = false
+            fileBytesWritten = 0
+            return true
+        }
+        guard let openedLogFile = Self.openLogFile(at: fileURL, header: fileHeader) else {
+            fileLoggingEnabled = false
+            fileBytesWritten = 0
+            return false
+        }
+        fileHandle = openedLogFile.fileHandle
+        fileBytesWritten = openedLogFile.byteCount
+        fileLoggingEnabled = true
+        #if DEBUG
+        if crashCaptureInstalled {
+            MobileDebugLogCrashCapture.updateLogFileDescriptor(
+                openedLogFile.fileHandle.fileDescriptor
+            )
+        }
+        #endif
+        return true
     }
 
     /// A live stream of every line appended after subscription.
@@ -172,6 +294,34 @@ public actor MobileDebugLogSink {
             let fileHandle = try FileHandle(forWritingTo: fileURL)
             var byteCount = 0
             if let header {
+                let headerData = Data("\(header)\n".utf8)
+                try fileHandle.write(contentsOf: headerData)
+                byteCount = headerData.count
+            }
+            return (fileHandle: fileHandle, byteCount: byteCount)
+        } catch {
+            return nil
+        }
+    }
+
+    /// Opens the active generation without rotating or removing any existing
+    /// generation. Clear failure recovery uses this path so an archive that
+    /// could not be deleted remains available for export.
+    private static func openExistingLogFile(
+        at fileURL: URL,
+        header: String?
+    ) -> (fileHandle: FileHandle, byteCount: Int)? {
+        let fileManager = FileManager.default
+        do {
+            if !fileManager.fileExists(atPath: fileURL.path) {
+                guard fileManager.createFile(atPath: fileURL.path, contents: nil) else {
+                    return nil
+                }
+            }
+            let fileHandle = try FileHandle(forWritingTo: fileURL)
+            let size = try fileHandle.seekToEnd()
+            var byteCount = Int(clamping: size)
+            if byteCount == 0, let header {
                 let headerData = Data("\(header)\n".utf8)
                 try fileHandle.write(contentsOf: headerData)
                 byteCount = headerData.count

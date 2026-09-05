@@ -90,4 +90,49 @@ import Testing
         let received = await iterator.next()
         #expect(received?.hasSuffix("streamed") == true)
     }
+
+    @Test func observersFollowFileLoggingOptIn() async throws {
+        let logURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-mobile-debug-observer-\(UUID().uuidString)")
+            .appendingPathComponent("cmux-debug.log")
+        defer {
+            try? FileManager.default.removeItem(at: logURL.deletingLastPathComponent())
+        }
+        try FileManager.default.createDirectory(
+            at: logURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let observed = LineCollector()
+        let sink = MobileDebugLogSink(
+            fileURL: logURL,
+            fileHeader: "h",
+            startsFileLoggingEnabled: false
+        )
+        await sink.addLineObserver { line in
+            observed.append(line)
+        }
+
+        await sink.append("disabled")
+        #expect(observed.values().isEmpty)
+        #expect(await sink.setFileLogging(enabled: true))
+        await sink.append("enabled")
+        #expect(observed.values().contains { $0.hasSuffix("enabled") })
+    }
+
+    private final class LineCollector: @unchecked Sendable {
+        private let lock = NSLock()
+        private var lines: [String] = []
+
+        func append(_ line: String) {
+            lock.lock()
+            lines.append(line)
+            lock.unlock()
+        }
+
+        func values() -> [String] {
+            lock.lock()
+            defer { lock.unlock() }
+            return lines
+        }
+    }
 }
