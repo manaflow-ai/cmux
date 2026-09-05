@@ -76,9 +76,10 @@ pub use resource_store::{
     ResourceWorkspaceLedger,
 };
 use resource_store::{
-    apply_resource_patch, create_resource_schema, initialize_resource_mutation_retention,
-    migrate_resource_agent_projections, migrate_resource_browser_metadata,
-    migrate_resource_mutations_to_session_scope, migrate_resource_tabs_to_multiview,
+    apply_resource_patch, complete_terminal_close_patch, create_resource_schema,
+    initialize_resource_mutation_retention, migrate_resource_agent_projections,
+    migrate_resource_browser_metadata, migrate_resource_mutations_to_session_scope,
+    migrate_resource_tabs_to_multiview, repair_dangling_terminal_resources,
     resource_tabs_needs_multiview_normalization, validate_resource_invariants,
 };
 pub use session_journal::{
@@ -2671,11 +2672,13 @@ impl WorkspaceRegistry {
         }
         {
             let tx = connection.unchecked_transaction()?;
+            create_session_journal_schema(&tx)?;
             create_resource_effect_schema(&tx)?;
             create_journal_extensions_schema(&tx)?;
             recover_resource_effects(&tx)?;
             initialize_resource_input_receipt_retention(&tx)?;
             initialize_resource_mutation_retention(&tx)?;
+            repair_dangling_terminal_resources(&tx)?;
             tx.commit()?;
         }
         let stored_name = required_meta(&connection, "session_name")?;
@@ -3099,6 +3102,9 @@ impl WorkspaceRegistry {
         let fingerprint = terminal_close_fingerprint(mutation, terminal_id, expected_incarnation)?;
         let resource_result_json = canonical_json(resource_result)?;
         let tx = self.connection.transaction()?;
+        let terminal_batch = [(terminal_id.to_string(), expected_incarnation.map(str::to_string))];
+        let (patch, resource_deltas) =
+            complete_terminal_close_patch(&tx, &terminal_batch, patch, resource_deltas)?;
         if let Some(terminal) = terminal_replay(&tx, mutation, &fingerprint)? {
             tx.commit()?;
             return Ok(TerminalResourceCloseCommit::TerminalReplay(terminal));
@@ -3146,7 +3152,7 @@ impl WorkspaceRegistry {
             .ok_or_else(|| anyhow::anyhow!("resource revision exhausted"))?;
         let sqlite_revision =
             i64::try_from(revision).context("resource revision exceeds SQLite range")?;
-        apply_resource_patch(&tx, patch, sqlite_revision)?;
+        apply_resource_patch(&tx, &patch, sqlite_revision)?;
         tx.execute(
             "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
             [revision.to_string()],
@@ -3172,9 +3178,9 @@ impl WorkspaceRegistry {
             &mutation.origin,
             &mutation.id,
             OPERATION,
-            Some(patch),
+            Some(&patch),
             resource_result,
-            resource_deltas,
+            &resource_deltas,
         )?;
         resource_store::prune_resource_mutations(&tx)?;
         let resource =
