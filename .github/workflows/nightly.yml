@@ -446,7 +446,10 @@ jobs:
               ./scripts/install-cmux-tui-client.sh "$app" \
               --require-capability wireguard-hub
           else
-            cmux_tui_commit="$(git log -1 --format=%H -- cmux-tui ghostty .github/workflows/cmux-tui-artifacts.yml .github/workflows/cmux-tui-build-package.yml)"
+            # actions/checkout is depth 1 here, so a bare `git log -1 -- cmux-tui` would answer
+            # HEAD. The resolver deepens as needed and may bundle the newest *published*
+            # client when the latest cmux-tui commit has no artifacts yet (it warns when it does).
+            cmux_tui_commit="$(./scripts/ci/resolve-cmux-tui-client-commit.sh --max-fallback 5)"
             test -n "$cmux_tui_commit"
             ./scripts/install-cmux-tui-client.sh \
               "$app" \
