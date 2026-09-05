@@ -59,15 +59,13 @@ public enum IrxAdmission {
         let startedAt = DispatchTime.now()
         let control = try await connection.openLane(IrxLaneDescriptor(lane: .control))
         try await control.writer.writeControlFrame(IrxHello(grant: grantJWS))
-        let admit: IrxAdmit?
-        do {
-            admit = try await withIrxDeadline(deadline, onTimeout: {
-                await connection.close(code: .admissionTimeout, origin: .transport)
-            }) {
-                try await control.reader.readControlFrame(IrxAdmit.self)
+        let admit = try await withIrxDeadline(deadline, onTimeout: {
+            await connection.close(code: .admissionTimeout, origin: .transport)
+        }) {
+            guard let admit = try await control.reader.readControlFrame(IrxAdmit.self) else {
+                throw IrxConnectionError.closed(await connection.termination())
             }
-        } catch {
-            admit = nil
+            return admit
         }
         guard let admit else {
             // A stalled QUIC read can outlive the deadline and ignore task

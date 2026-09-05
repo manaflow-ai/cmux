@@ -824,10 +824,16 @@ actor MobileCoreRPCSession {
                     await self?.transportDidClose(connectionID: connectionID)
                     return
                 }
-                // Deferred transports may not expose their native connection
-                // until activation finishes. Keep the watcher alive so the
-                // later connection generation is still observed.
-                try? await Task.sleep(for: .milliseconds(100))
+                guard let readiness = candidate as?
+                    any CmxByteTransportClosureObservationReadiness else {
+                    return
+                }
+                // Deferred transports signal activation once. This avoids a
+                // permanent 100 ms polling task for transports that never
+                // expose native closure observation.
+                guard await readiness.waitUntilTransportClosureObservationIsReady() else {
+                    return
+                }
             }
         }
 

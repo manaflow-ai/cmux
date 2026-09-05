@@ -22,6 +22,7 @@ public actor IrxControlByteTransport: CmxByteTransport {
     private var lastConnection: IrxConnection?
     private var connectInFlight: Task<(IrxConnection, IrxLaneStream), any Error>?
     private var isClosed = false
+    private var closureObservationReadyWaiters: [CheckedContinuation<Void, Never>] = []
 
     /// Creates a control-lane transport, optionally releasing its owner claim
     /// when the lane closes.
@@ -56,6 +57,7 @@ public actor IrxControlByteTransport: CmxByteTransport {
 
     public func close() async {
         isClosed = true
+        resumeClosureObservationReadyWaiters()
         connectInFlight?.cancel()
         connectInFlight = nil
         guard let (_, lane) = pair else { return }
@@ -91,7 +93,16 @@ public actor IrxControlByteTransport: CmxByteTransport {
         }
         lastConnection = established.0
         pair = established
+        resumeClosureObservationReadyWaiters()
         return established
+    }
+
+    private func resumeClosureObservationReadyWaiters() {
+        let waiters = closureObservationReadyWaiters
+        closureObservationReadyWaiters.removeAll(keepingCapacity: false)
+        for waiter in waiters {
+            waiter.resume()
+        }
     }
 }
 
@@ -115,6 +126,20 @@ extension IrxControlByteTransport: CmxByteTransportClosureObserving {
         }, cancel: {
             Task { await connection.cancelClosureObservation(observationID: observationID) }
         })
+    }
+}
+
+extension IrxControlByteTransport: CmxByteTransportClosureObservationReadiness {
+    public func waitUntilTransportClosureObservationIsReady() async -> Bool {
+        guard pair == nil, !isClosed else { return pair != nil }
+        await withCheckedContinuation { continuation in
+            if pair != nil || isClosed {
+                continuation.resume()
+            } else {
+                closureObservationReadyWaiters.append(continuation)
+            }
+        }
+        return pair != nil
     }
 }
 

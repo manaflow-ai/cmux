@@ -472,6 +472,13 @@ public protocol CmxByteTransportClosureObserving: CmxByteTransport {
     func transportClosureObservation() async -> CmxTransportClosureObservation?
 }
 
+/// Optional activation notification for deferred transports. A watcher can
+/// wait once for the native transport to appear without polling forever.
+public protocol CmxByteTransportClosureObservationReadiness: CmxByteTransport {
+    /// Returns whether the activated transport supports closure observation.
+    func waitUntilTransportClosureObservationIsReady() async -> Bool
+}
+
 /// Independently framed server-event bytes delivered outside the RPC control stream.
 public typealias CmxIndependentEventByteStream = AsyncThrowingStream<Data, any Error>
 

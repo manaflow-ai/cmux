@@ -223,6 +223,10 @@ public actor IrxConnection {
     }
 
     private func finishClosureWaiters() {
+        // Native closure can race registration. Mark the terminal state before
+        // draining waiters so a waiter registered after the watcher fires
+        // completes immediately instead of hanging forever.
+        closedFlag = true
         let waiters = closureWaiters
         closureWaiters.removeAll(keepingCapacity: false)
         cancelledClosureWaiters.removeAll(keepingCapacity: false)

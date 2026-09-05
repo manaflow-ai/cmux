@@ -269,7 +269,7 @@ public actor IrxPeerEngine {
                     return
                 }
             }
-            _ = try? await self.ensureSession(trigger: "foreground")
+            _ = try? await self.ensureSession(explicit: true, trigger: "foreground")
         }
     }
 

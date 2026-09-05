@@ -1237,6 +1237,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var renderGridLivenessProbeTask: Task<Void, Never>?
     private var renderGridLivenessProbeID: UUID?
     private var renderGridLivenessConsecutiveProbeFailures = 0
+    private var renderGridLivenessLaneRepairAttempts = 0
     var lastTerminalEventAt: Date?
     @ObservationIgnored var terminalInputAckResubscribeRetryTask: Task<Void, Never>?
     @ObservationIgnored var terminalInputAckResubscribeRetryTaskID: UUID?
@@ -13824,6 +13825,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         renderGridLivenessProbeTask = nil
         renderGridLivenessProbeID = nil
         renderGridLivenessConsecutiveProbeFailures = 0
+        renderGridLivenessLaneRepairAttempts = 0
     }
 
     /// Single ownership point for the liveness clock the watchdog reads.
@@ -13838,6 +13840,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func recordTerminalEventStreamLiveness() {
         lastTerminalEventAt = runtime?.now() ?? Date()
         renderGridLivenessConsecutiveProbeFailures = 0
+        renderGridLivenessLaneRepairAttempts = 0
     }
 
     #if DEBUG
@@ -13964,13 +13967,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 // stream stalled. Keep the shared Iroh session, whose other
                 // lanes may still carry terminal input and keepalives, and
                 // restart only the event listener.
+                self.renderGridLivenessLaneRepairAttempts += 1
+                let laneRepairAttempts = self.renderGridLivenessLaneRepairAttempts
+                let escalate = laneRepairAttempts >= 2
+                if escalate {
+                    self.renderGridLivenessLaneRepairAttempts = 0
+                }
                 MobileDebugLog.anchormux(
-                    "sync.liveness event_lane_repair transport_alive silentMs=\(silentMs)"
+                    "sync.liveness event_lane_repair transport_alive attempts=\(laneRepairAttempts) escalate=\(escalate) silentMs=\(silentMs)"
                 )
                 self.resyncTerminalOutput(
-                    reason: "liveness_event_lane",
+                    reason: escalate ? "liveness_event_lane_escalated" : "liveness_event_lane",
                     restartEventStream: true,
-                    recoversConnectionOnSubscriptionFailure: false
+                    recoversConnectionOnSubscriptionFailure: escalate
                 )
                 return
             }
