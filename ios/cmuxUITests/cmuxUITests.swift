@@ -21,7 +21,13 @@ final class cmuxUITests: XCTestCase {
             mockHostInstanceTag(
                 testBundleIdentifier: "dev.cmux.ios.uitests"
             ),
-            "dev"
+            "default"
+        )
+        XCTAssertEqual(
+            mockHostInstanceTag(
+                testBundleIdentifier: "dev.cmux.ios.uitests.xctrunner"
+            ),
+            "default"
         )
         XCTAssertNotEqual(mockHostInstanceTag(), "uitests")
     }
@@ -10514,6 +10520,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
             "mac_device_id": "ui-test-mac",
             "mac_display_name": "UI Test Mac",
             "mac_instance_tag": macInstanceTag,
+            "mac_app_version": "0.64.23",
             "routes": [],
             "terminal_fidelity": "render_grid",
             "capabilities": capabilities,
@@ -10928,21 +10935,21 @@ private final class AgentModelsCatalogHTTPServer: @unchecked Sendable {
 
 /// Maps the XCUITest bundle back to the target app's tagged DEBUG build scope.
 /// Tagged builds override the test bundle identifier with the app identifier;
-/// ordinary UI tests retain their reserved `uitests` identifier and map to the
-/// production policy's `dev` fallback.
+/// Ordinary UI tests retain their reserved `uitests` identifier and target the
+/// untagged app, whose compatibility policy admits official Mac builds.
 private func mockHostInstanceTag(
     testBundleIdentifier: String? = Bundle(for: cmuxUITests.self).bundleIdentifier
 ) -> String {
     let runnerSuffix = ".xctrunner"
-    guard let testBundleIdentifier else { return "dev" }
+    guard let testBundleIdentifier else { return "default" }
     let appBundleIdentifier = testBundleIdentifier.hasSuffix(runnerSuffix)
         ? String(testBundleIdentifier.dropLast(runnerSuffix.count))
         : testBundleIdentifier
-    guard appBundleIdentifier != "dev.cmux.ios.uitests" else { return "dev" }
+    guard appBundleIdentifier != "dev.cmux.ios.uitests" else { return "default" }
     return MobileIOSBuildScope.current(
         infoDictionary: nil,
         bundleIdentifier: appBundleIdentifier
-    )?.value ?? "dev"
+    )?.value ?? "default"
 }
 
 private extension XCUIApplication {
