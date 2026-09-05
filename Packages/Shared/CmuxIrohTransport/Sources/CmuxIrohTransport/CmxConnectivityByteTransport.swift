@@ -5,6 +5,7 @@ import Foundation
 actor CmxConnectivityByteTransport:
     CmxByteTransport,
     CmxByteTransportClosureObserving,
+    CmxByteTransportClosureObservationReadiness,
     CmxByteTransportLivenessObserving,
     CmxByteTransportContinuityIdentifying,
     CmxByteTransportDiagnosticSessionIdentifying,
@@ -17,6 +18,7 @@ actor CmxConnectivityByteTransport:
     private var lastSession: (any CmxConnectivitySession)?
     private var ownsControlSession = false
     private var closed = false
+    private var closureObservationReadyWaiters: [CheckedContinuation<Void, Never>] = []
 
     init(request: CmxByteTransportRequest, engine: CmxConnectivityEngine) {
         self.request = request
@@ -37,6 +39,7 @@ actor CmxConnectivityByteTransport:
         ownsControlSession = true
         session = connected
         lastSession = connected
+        resumeClosureObservationReadyWaiters()
     }
 
     func receive() async throws -> Data? {
@@ -72,6 +75,7 @@ actor CmxConnectivityByteTransport:
     func close() async {
         guard !closed else { return }
         closed = true
+        resumeClosureObservationReadyWaiters()
         session = nil
         await releaseOwnedControlSession(
             reason: .controlOwnerReleased,
@@ -95,6 +99,18 @@ actor CmxConnectivityByteTransport:
         }, cancel: {
             Task { await session.cancelClosureObservation(observationID: observationID) }
         })
+    }
+
+    func waitUntilTransportClosureObservationIsReady() async -> Bool {
+        guard session == nil, !closed else { return session != nil }
+        await withCheckedContinuation { continuation in
+            if session != nil || closed {
+                continuation.resume()
+            } else {
+                closureObservationReadyWaiters.append(continuation)
+            }
+        }
+        return session != nil
     }
 
     func isTransportClosed() async -> Bool {
@@ -125,5 +141,13 @@ actor CmxConnectivityByteTransport:
             reason: reason,
             failure: failure
         )
+    }
+
+    private func resumeClosureObservationReadyWaiters() {
+        let waiters = closureObservationReadyWaiters
+        closureObservationReadyWaiters.removeAll(keepingCapacity: false)
+        for waiter in waiters {
+            waiter.resume()
+        }
     }
 }
