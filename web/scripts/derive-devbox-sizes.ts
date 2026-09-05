@@ -46,7 +46,7 @@ const fs = (() => {
 const master = process.argv[2];
 const slugPrefix = process.argv[3];
 if (!master || master.startsWith("--") || !slugPrefix || slugPrefix.startsWith("--")) {
-  throw new Error("usage: bun scripts/derive-devbox-sizes.ts <master-snapshot-id> <slug-prefix> [--sizes sm,md,lg,xl,2xl] [--out <json>] [--replace-slug]");
+  throw new Error("usage: bun scripts/derive-devbox-sizes.ts <master-snapshot-id> <slug-prefix> [--sizes sm,md,lg,lgx,xl,2xl] [--out <json>] [--replace-slug]");
 }
 const requested = (argValue("--sizes") ?? VM_IMAGE_SIZE_NAMES.join(",")).split(",").map((s) => s.trim()).filter(Boolean);
 for (const name of requested) {
