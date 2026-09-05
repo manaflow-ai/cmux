@@ -173,7 +173,13 @@ def _source_contains_cef(source_root: Path) -> bool:
             stderr=subprocess.DEVNULL,
             text=True,
         )
-    except (OSError, subprocess.CalledProcessError):
+    except (OSError, subprocess.CalledProcessError) as error:
+        # A real checkout whose source inventory cannot be inspected is not
+        # evidence of a fallback build. Synthetic unit-test roots have no Git
+        # metadata and may still use the marker-based path above.
+        git_metadata = source_root / ".git"
+        if git_metadata.exists():
+            raise VerificationError("could not inspect the checked-out source tree") from error
         return False
     return any(line.strip() for line in completed.stdout.splitlines())
 

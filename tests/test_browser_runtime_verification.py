@@ -156,6 +156,19 @@ def test_stale_cef_bundle_without_cef_source_is_rejected() -> None:
             raise AssertionError("a stale CEF bundle must not pass a fallback build")
 
 
+def test_git_source_inventory_failure_is_rejected() -> None:
+    with tempfile.TemporaryDirectory() as temp_dir:
+        root = Path(temp_dir)
+        (root / ".git").mkdir()
+        app = make_app(root, cef=False)
+        try:
+            module.verify_artifact(app=app, source_root=root, expected_sha=None)
+        except module.VerificationError as error:
+            assert "inspect" in str(error)
+        else:
+            raise AssertionError("an unreadable Git source inventory must fail closed")
+
+
 def test_bundle_provenance_sha_mismatch_is_rejected() -> None:
     expected = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
     wrong = "0" * 40 if expected != "0" * 40 else "1" * 40
