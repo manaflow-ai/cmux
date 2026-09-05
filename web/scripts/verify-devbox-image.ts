@@ -116,7 +116,11 @@ const DAEMON_CHECKS: readonly string[] = [
   "pgrep -f 'cmux-tui server [s]tart' >/dev/null && echo daemon-running",
   `env HOME=/root /root/.cmux/bin/cmux-tui server status --session ${CMUX_TUI_SESSION} >/dev/null && echo daemon-status-ok`,
   "awk '$2 ~ /:0539$/ && $4 == \"0A\" { found=1 } END { exit !found }' /proc/net/tcp /proc/net/tcp6 && echo daemon-port-1337-ok",
-  "test \"$(readlink /usr/local/bin/cmux-tui)\" = /root/.cmux/bin/cmux-tui && echo cmux-tui-symlink-ok",
+  // The real file lives on a world-readable path; root's canonical path and
+  // /usr/local/bin are symlinks to it, so the uid-1000 work user can run the
+  // same pinned build from any shell (SSH, desktop, `vm ssh`).
+  "test \"$(readlink /usr/local/bin/cmux-tui)\" = /usr/local/lib/cmux/cmux-tui && test \"$(readlink /root/.cmux/bin/cmux-tui)\" = /usr/local/lib/cmux/cmux-tui && echo cmux-tui-symlink-ok",
+  `sudo -n -u ${DEVBOX_DESKTOP_USER} env -i HOME=${DEVBOX_DESKTOP_HOME} PATH=/usr/local/bin:/usr/bin:/bin cmux-tui --version >/dev/null && echo cmux-tui-work-user-ok`,
   `test -s ${REMOTE_IDENTITY} && echo daemon-identity-present`,
   `test "$(cat /etc/cmux/daemon-instance-id)" = "$(${INSTANCE_ID})" && echo daemon-identity-bound-to-this-instance`,
   `test -s /etc/cmux/bake-instance-id && test "$(cat /etc/cmux/bake-instance-id)" != "$(${INSTANCE_ID})" && echo builder-instance-differs`,

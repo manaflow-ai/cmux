@@ -80,6 +80,24 @@ describe("cmux-tui install and daemon commands", () => {
     expect(command.endsWith("'/root/.cmux/bin/cmux-tui' --version")).toBe(true);
   });
 
+  // Regression: the binary lived only under /root (mode 700), so `cmux-tui` was
+  // "command not found" for the uid-1000 work user (`ubuntu`) in every SSH and
+  // desktop shell, even though /usr/local/bin/cmux-tui existed: the symlink
+  // pointed into root's home. The real file must live on a world-readable path,
+  // with root's canonical path and /usr/local/bin both symlinked to it.
+  test("installs the binary on a world-readable path so the uid-1000 work user can run it", () => {
+    const command = cmuxTuiInstallCommand({ url: URL, sha256: SHA, commit: COMMIT, builtAt: null });
+    expect(command).toContain("mkdir -p '/usr/local/lib/cmux' '/root/.cmux/bin'");
+    expect(command).toContain(`'${SHA}' '/usr/local/lib/cmux/cmux-tui' | sha256sum -c >/dev/null 2>&1; then :; else`);
+    expect(command).toContain(`-o '/usr/local/lib/cmux/cmux-tui.tmp' '${URL}'`);
+    expect(command).toContain("chmod 755 '/usr/local/lib/cmux/cmux-tui.tmp' && mv -f '/usr/local/lib/cmux/cmux-tui.tmp' '/usr/local/lib/cmux/cmux-tui'");
+    expect(command).toContain("ln -sfn '/usr/local/lib/cmux/cmux-tui' '/root/.cmux/bin/cmux-tui'");
+    expect(command).toContain("ln -sfn '/usr/local/lib/cmux/cmux-tui' /usr/local/bin/cmux-tui");
+    // Nothing is fetched into or executed from a path only root can traverse.
+    expect(command).not.toContain("/root/.cmux/bin/cmux-tui.tmp");
+    expect(command.endsWith("'/root/.cmux/bin/cmux-tui' --version")).toBe(true);
+  });
+
   // Regression: `sha256sum -c -s` is BusyBox-only. GNU coreutils (the xfce-vnc desktop
   // image) rejects `-s` ("invalid option -- 's'"), which failed every create with a 502.
   test("the pin check never uses the BusyBox-only sha256sum -s flag", () => {
