@@ -4,16 +4,19 @@ import { unauthorized, verifyRequest } from "../vms/auth";
 import { authProviderErrorResponse } from "../vms/authErrors";
 import { jsonResponse } from "../vms/routeHelpers";
 import { irohExpectedError } from "../iroh/errors";
+import { parseBindingRequestProof } from "../iroh/routeHandler";
+import { verifyIrohSessionRequest } from "../iroh/sessionAuth";
 import {
   ConnectivityAuthority,
-  ConnectivityAuthorityRuntime,
   type ConnectivityAuthorityShape,
 } from "./authority";
+import { ConnectivityAuthorityRuntime } from "./authorityRuntime";
 
 const MAX_SYNC_BODY_BYTES = 1_024;
 
 type ConnectivityRouteDependencies = {
   readonly verify?: typeof verifyRequest;
+  readonly verifySession?: typeof verifyIrohSessionRequest;
   readonly authority?: ConnectivityAuthorityShape;
   readonly runtime?: Layer.Layer<ConnectivityAuthority, never, never>;
 };
@@ -38,33 +41,51 @@ async function handleConnectivitySyncMethod(
   dependencies: ConnectivityRouteDependencies,
 ): Promise<Response> {
   const verify = dependencies.verify ?? verifyRequest;
-  let user: Awaited<ReturnType<typeof verifyRequest>>;
-  try {
-    user = await verify(request, { allowCookie: false });
-  } catch (error) {
-    return authProviderErrorResponse(error, `connectivity.${method}.auth`);
-  }
+  const verifySession = dependencies.verifySession ?? verifyIrohSessionRequest;
+  const user = await authenticateConnectivity(request, method, verify, verifySession);
+  if (user instanceof Response) return user;
   if (!user) return unauthorized();
 
   const body = await readSyncBody(request);
   if (!body.ok) return body.response;
+  const bindingProof = parseBindingRequestProof(request, body.bytes);
+  if (bindingProof instanceof Response) return bindingProof;
+  const clientNamespace = request.headers.get("x-cmux-app-namespace")?.trim() ?? "legacy";
+  if (!/^[A-Za-z0-9._:-]{1,255}$/.test(clientNamespace)) {
+    return jsonResponse({ error: "invalid_client_namespace" }, 400);
+  }
+  if (user.clientNamespace && user.clientNamespace !== clientNamespace) {
+    return jsonResponse({ error: "client_namespace_mismatch" }, 403);
+  }
 
   try {
     const response = dependencies.authority
       ? method === "sync"
-        ? await Effect.runPromise(dependencies.authority.sync(user.id, body.value))
-        : await Effect.runPromise(dependencies.authority.syncScoped(user.id, body.value))
+        ? await Effect.runPromise(dependencies.authority.sync(
+          user.id,
+          body.value,
+          undefined,
+          clientNamespace,
+          bindingProof,
+        ))
+        : await Effect.runPromise(dependencies.authority.syncScoped(
+          user.id,
+          body.value,
+          undefined,
+          clientNamespace,
+          bindingProof,
+        ))
       : method === "sync"
         ? await Effect.runPromise(
           Effect.gen(function* () {
             const authority = yield* ConnectivityAuthority;
-            return yield* authority.sync(user.id, body.value);
+            return yield* authority.sync(user.id, body.value, undefined, clientNamespace, bindingProof);
           }).pipe(Effect.provide(dependencies.runtime ?? ConnectivityAuthorityRuntime)),
         )
         : await Effect.runPromise(
           Effect.gen(function* () {
             const authority = yield* ConnectivityAuthority;
-            return yield* authority.syncScoped(user.id, body.value);
+            return yield* authority.syncScoped(user.id, body.value, undefined, clientNamespace, bindingProof);
           }).pipe(Effect.provide(dependencies.runtime ?? ConnectivityAuthorityRuntime)),
         );
     return connectivityJsonResponse(response, 200);
@@ -76,8 +97,36 @@ async function handleConnectivitySyncMethod(
   }
 }
 
+async function authenticateConnectivity(
+  request: Request,
+  method: "sync" | "syncScoped",
+  verify: typeof verifyRequest,
+  verifySession: typeof verifyIrohSessionRequest,
+): Promise<{ readonly id: string; readonly clientNamespace?: string } | null | Response> {
+  const session = verifySession(request);
+  if (session.ok) {
+    return {
+      id: session.identity.accountId,
+      ...(session.identity.clientNamespace
+        ? { clientNamespace: session.identity.clientNamespace }
+        : {}),
+    };
+  }
+  if (session.error !== "missing") {
+    return jsonResponse(
+      { error: session.error === "not_configured" ? "iroh_session_not_configured" : "iroh_session_invalid" },
+      session.error === "not_configured" ? 503 : 401,
+    );
+  }
+  try {
+    return await verify(request, { allowCookie: false });
+  } catch (error) {
+    return authProviderErrorResponse(error, `connectivity.${method}.auth`);
+  }
+}
+
 async function readSyncBody(request: Request): Promise<
-  | { readonly ok: true; readonly value: unknown }
+  | { readonly ok: true; readonly value: unknown; readonly bytes: Uint8Array }
   | { readonly ok: false; readonly response: Response }
 > {
   if (
@@ -131,6 +180,7 @@ async function readSyncBody(request: Request): Promise<
     return {
       ok: true,
       value: JSON.parse(bytes.toString("utf8")),
+      bytes: new Uint8Array(bytes),
     };
   } catch {
     return { ok: false, response: jsonResponse({ error: "invalid_json" }, 400) };

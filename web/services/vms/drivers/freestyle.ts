@@ -461,6 +461,7 @@ async function withFreestyleTunnelMutation<T>(slug: string, operation: () => Pro
  * tunnels by slug, so a conflict is a durable idempotency signal, not a reason
  * to return a retryable 502 or create a second device identity.
  */
+// oxlint-disable-next-line complexity -- Provider create, conflict reconciliation, attachment repair, and key rotation must stay ordered.
 export async function createOrReuseFreestyleTunnel(
   tunnels: FreestyleTunnelOperations,
   options: CreateProviderTunnelOptions,
@@ -1315,6 +1316,7 @@ export class FreestyleProvider implements VMProvider {
     return withVmSpan(
       "cmux.vm.provider.open_cmux_remote",
       spanAttributes(vmId, "open_cmux_remote"),
+      // oxlint-disable-next-line complexity -- Remote attach keeps readiness healing, enrollment, and invitation ordering explicit.
       async (span) => {
         try {
           const fs = this.deps.client(CMUX_TUI_INSTALL_TIMEOUT_MS + EXEC_OVERHEAD_TIMEOUT_MS);

@@ -46,6 +46,7 @@ import {
   unauthorized,
   verifyRequestIdentity,
 } from "../../../../services/vms/auth";
+import { verifyIrohSessionRequest } from "../../../../services/iroh/sessionAuth";
 
 
 const MAX_BODY_BYTES = 4 * 1_024;
@@ -139,6 +140,7 @@ const productionDeps: RelayTokenDeps = {
     process.env.VERCEL === "1" && process.env.VERCEL_ENV !== "preview",
 };
 
+// oxlint-disable-next-line complexity -- Relay issuance has intentionally ordered auth, proof, policy, rate-limit, and credential gates.
 export async function handleRelayTokenRequest(
   request: Request,
   deps: RelayTokenDeps,
@@ -164,15 +166,30 @@ export async function handleRelayTokenRequest(
   }
 
   let user: { readonly id: string } | null;
-  try {
-    user = await deps.verifyRequest(request);
-  } catch (error) {
-    return relayErrorResponse(relayAuthenticationError(error));
+  let sessionNamespace: string | undefined;
+  const session = verifyIrohSessionRequest(request);
+  if (session.ok) {
+    user = { id: session.identity.accountId };
+    sessionNamespace = session.identity.clientNamespace;
+  } else if (session.error !== "missing") {
+    return jsonResponse(
+      { error: session.error === "not_configured" ? "iroh_session_not_configured" : "iroh_session_invalid" },
+      session.error === "not_configured" ? 503 : 401,
+    );
+  } else {
+    try {
+      user = await deps.verifyRequest(request);
+    } catch (error) {
+      return relayErrorResponse(relayAuthenticationError(error));
+    }
   }
   if (!user) return unauthorized();
   const clientNamespace = request.headers.get("x-cmux-app-namespace") ?? "legacy";
   if (!/^[A-Za-z0-9._:-]{1,255}$/.test(clientNamespace)) {
     return jsonResponse({ error: "invalid_client_namespace" }, 400);
+  }
+  if (sessionNamespace && sessionNamespace !== clientNamespace) {
+    return jsonResponse({ error: "client_namespace_mismatch" }, 403);
   }
   const proofRequest = request.clone();
 

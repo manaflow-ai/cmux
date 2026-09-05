@@ -127,6 +127,16 @@ export const accountDeletionTombstones = pgTable(
 );
 
 /**
+ * Pre-seeded transaction-fence buckets used by runtimes that cannot call
+ * PostgreSQL advisory locks, such as Cloudflare Hyperdrive. Keys are bounded
+ * hashes of application lock names, never user-visible data.
+ */
+export const accountMutationFences = pgTable("account_mutation_fences", {
+  lockKey: text("lock_key").primaryKey(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
  * The last server-configured relay catalog accepted by this database.
  * Persisting its complete non-secret body lets activation enforce add-before-
  * remove rotation under the same lock that prevents sequence rollback.

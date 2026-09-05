@@ -6,10 +6,11 @@ import Foundation
 import OSLog
 
 /// macOS composition root for the irx transport (the from-scratch iroh
-/// rebuild in `CmuxIrxTransport`). DEBUG-only and default-off: when
-/// `cmux.irx.enabled` is set (or `CMUX_IRX_ENABLED=1`), this runtime owns the
-/// app's iroh identity slot and the legacy `MobileHostIrohRuntime` stays
-/// dormant, so the two stacks can never fight over the broker binding.
+/// rebuild in `CmuxIrxTransport`). The irx runtime is the default path. An
+/// explicit `cmux.irx.enabled=false` remains a remote-revert switch, and while
+/// irx is enabled this runtime owns the app's iroh identity slot while the
+/// legacy `MobileHostIrohRuntime` stays dormant, so the two stacks can never
+/// fight over the broker binding.
 @MainActor
 final class MobileHostIrxRuntime {
     static let shared = MobileHostIrxRuntime()
@@ -311,6 +312,17 @@ final class MobileHostIrxRuntime {
                         guard let auth else { return nil }
                         let session = try await auth.authenticatedSessionSnapshot()
                         return (session.accessToken, session.refreshToken)
+                    },
+                    sessionTicketProvider: { [weak broker] in
+                        guard let broker else { return nil }
+                        return try await broker.ensureSessionTicket()
+                    },
+                    sessionTicketInvalidator: { [weak broker] in
+                        await broker?.invalidateSessionTicket()
+                    },
+                    mintProofProvider: { [weak broker] endpointID in
+                        guard let broker else { return nil }
+                        return try await broker.makeControlPlaneMintProof(endpointID: endpointID)
                     },
                     handlers: .init(
                         onRelayPasses: { [weak self, weak broker, weak supervisor, weak pilot] pushed in

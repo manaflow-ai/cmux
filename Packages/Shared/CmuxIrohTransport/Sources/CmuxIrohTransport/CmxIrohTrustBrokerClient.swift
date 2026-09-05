@@ -1,6 +1,8 @@
 public import CMUXMobileCore
 public import Foundation
 
+private let cmxIrohSessionTicketHeader = "x-cmux-iroh-session-ticket"
+
 private func cmxIsSafeClientNamespace(_ value: String) -> Bool {
     (1 ... 255).contains(value.utf8.count)
         && value.utf8.allSatisfy {
@@ -201,7 +203,60 @@ struct CmxIrohURLSessionTransport: CmxIrohHTTPTransport {
 /// Authenticated client for endpoint registration, discovery, grants, and relay tokens.
 private struct DiscoverySnapshotChanged: Error {}
 
+/// The proof fields carried by a control-plane relay-mint request. The
+/// account Durable Object converts these into the normal HTTP proof headers,
+/// preserving endpoint-key authorization on the socket shortcut.
+public struct CmxIrohControlPlaneRequestProof: Equatable, Sendable {
+    public let bindingID: String
+    public let timestamp: String
+    public let signature: String
+
+    public init(bindingID: String, timestamp: String, signature: String) {
+        self.bindingID = bindingID
+        self.timestamp = timestamp
+        self.signature = signature
+    }
+}
+
 public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
+    private struct SessionResponse: Decodable, Sendable {
+        let ticket: String
+        let sessionId: String
+        let accountId: String
+        let expiresAt: Date
+        let renewAfter: Date
+    }
+
+    private struct SessionState: Sendable {
+        let ticket: String
+        let sessionID: String
+        let accountID: String
+        let expiresAt: Date
+        var renewAfter: Date
+        var nextRenewAttempt: Date
+    }
+
+    private enum RequestAuthorization: Sendable {
+        case stack(CmxIrohBrokerCredentials)
+        case session(String)
+    }
+
+    private struct SessionBootstrapBody: Encodable {
+        let deviceID: String
+        let appInstanceID: String
+        let clientNamespace: String
+        let tag: String
+        let platform: CmxIrohPlatform
+
+        private enum CodingKeys: String, CodingKey {
+            case deviceID = "deviceId"
+            case appInstanceID = "appInstanceId"
+            case clientNamespace
+            case tag
+            case platform
+        }
+    }
+
     private struct ConnectivitySyncRequest: Encodable {
         let protocolVersion: Int
         let knownRevision: UInt64?
@@ -287,6 +342,10 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
     private let clientNamespace: String
     private var bindingAuthorization: CmxIrohBindingRequestAuthorization?
     private let discoveryScope: CmxConnectivityDiscoveryScope?
+    private let sessionConfiguration: CmxIrohSessionConfiguration?
+    private var sessionState: SessionState?
+    private var sessionUnsupported = false
+    private var sessionRefreshInFlight: Task<String?, any Error>?
 
     /// Creates a client that rejects cleartext non-loopback API origins.
     public init(
@@ -295,6 +354,7 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         clientNamespace: String,
         bindingAuthorization: CmxIrohBindingRequestAuthorization? = nil,
         discoveryScope: CmxConnectivityDiscoveryScope? = nil,
+        sessionConfiguration: CmxIrohSessionConfiguration? = nil,
         requestTimeout: TimeInterval = 10,
         backpressureMode: CmxIrohBrokerBackpressureMode = .automatic
     ) throws {
@@ -304,6 +364,7 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
             clientNamespace: clientNamespace,
             bindingAuthorization: bindingAuthorization,
             discoveryScope: discoveryScope,
+            sessionConfiguration: sessionConfiguration,
             transport: CmxIrohURLSessionTransport(),
             requestTimeout: requestTimeout,
             backpressureMode: backpressureMode
@@ -317,6 +378,7 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         clientNamespace: String,
         bindingAuthorization: CmxIrohBindingRequestAuthorization? = nil,
         discoveryScope: CmxConnectivityDiscoveryScope? = nil,
+        sessionConfiguration: CmxIrohSessionConfiguration? = nil,
         transport: any CmxIrohHTTPTransport,
         requestTimeout: TimeInterval = 10,
         backpressureMode: CmxIrohBrokerBackpressureMode = .automatic
@@ -325,6 +387,7 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
               cmxIsSafeClientNamespace(clientNamespace),
               bindingAuthorization?.clientNamespace == nil
                 || bindingAuthorization?.clientNamespace == clientNamespace,
+              sessionConfiguration.map(Self.isValidSessionConfiguration) ?? true,
               requestTimeout > 0 else {
             throw CmxIrohTrustBrokerClientError.invalidBaseURL
         }
@@ -335,6 +398,7 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         self.clientNamespace = clientNamespace
         self.bindingAuthorization = bindingAuthorization
         self.discoveryScope = discoveryScope
+        self.sessionConfiguration = sessionConfiguration
         switch backpressureMode {
         case .automatic:
             backpressureGate = CmxIrohBrokerBackpressureGate()
@@ -359,6 +423,80 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
     /// Returns the binding ID represented by the retained request proof.
     public func bindingAuthorizationID() async -> String? {
         bindingAuthorization?.bindingID
+    }
+
+    /// Signs the exact body and path used by a control-plane request. The
+    /// returned fields are safe to serialize into the control-plane proof
+    /// envelope; the ordinary HTTP path uses the same signer internally.
+    public func makeControlPlaneRequestProof(
+        method: String,
+        path: String,
+        body: Data,
+        timestamp: Int64 = Int64(Date().timeIntervalSince1970)
+    ) throws -> CmxIrohControlPlaneRequestProof? {
+        guard let bindingAuthorization else { return nil }
+        let signature = try bindingAuthorization.signer.signBrokerRequest(
+            bindingID: bindingAuthorization.bindingID,
+            method: method,
+            path: path,
+            timestamp: timestamp,
+            body: body
+        )
+        return CmxIrohControlPlaneRequestProof(
+            bindingID: bindingAuthorization.bindingID,
+            timestamp: String(timestamp),
+            signature: signature
+        )
+    }
+
+    /// Returns the current account-scoped Cloudflare session ticket, opening or
+    /// renewing it when needed. `nil` means this client was constructed
+    /// without session configuration or the configured origin does not expose
+    /// the session endpoint yet, in which case callers use the legacy Stack
+    /// credential path.
+    ///
+    /// The operation is single-flight inside this actor. A reconnect storm can
+    /// therefore share one bootstrap or renewal request instead of asking
+    /// Stack for a token pair once per socket or broker operation.
+    public func ensureSessionTicket() async throws -> String? {
+        guard sessionConfiguration != nil, !sessionUnsupported else { return nil }
+        let now = Date()
+        if let sessionState,
+           sessionState.expiresAt.timeIntervalSince(now) > 5,
+           (now < sessionState.renewAfter || now < sessionState.nextRenewAttempt) {
+            return sessionState.ticket
+        }
+        if let sessionRefreshInFlight {
+            return try await sessionRefreshInFlight.value
+        }
+        let task = Task<String?, any Error> { [weak self] in
+            guard let self else { return nil }
+            return try await self.refreshSessionTicket()
+        }
+        sessionRefreshInFlight = task
+        defer { sessionRefreshInFlight = nil }
+        return try await task.value
+    }
+
+    /// Invalidates the in-memory ticket after a server-side 401. The next
+    /// request performs one fresh bootstrap using the Stack session.
+    public func invalidateSessionTicket() {
+        sessionState = nil
+    }
+
+    private static func isValidSessionConfiguration(
+        _ configuration: CmxIrohSessionConfiguration
+    ) -> Bool {
+        func valid(_ value: String, maximum: Int = 255) -> Bool {
+            !value.isEmpty && value.utf8.count <= maximum
+                && !value.unicodeScalars.contains {
+                    $0.value < 0x20 || $0.value == 0x7f
+                }
+        }
+        return valid(configuration.deviceID)
+            && valid(configuration.appInstanceID)
+            && valid(configuration.clientNamespace)
+            && valid(configuration.tag)
     }
 
     public func issueChallenge(
@@ -788,11 +926,250 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         )
     }
 
+    private func refreshSessionTicket() async throws -> String? {
+        guard let configuration = sessionConfiguration else { return nil }
+        let now = Date()
+
+        // Renew before opening a second session. The old ticket remains usable
+        // while a transient network failure is retried, so an outage does not
+        // turn every ordinary broker request into a Stack Auth request.
+        if let current = sessionState,
+           current.expiresAt.timeIntervalSince(now) > 5 {
+            do {
+                let (data, response) = try await performSessionHTTP(
+                    path: "v1/iroh/session/renew",
+                    method: "POST",
+                    body: nil,
+                    ticket: current.ticket,
+                    credentials: nil
+                )
+                if response.statusCode == 404 || response.statusCode == 405 {
+                    sessionUnsupported = true
+                    return nil
+                }
+                if response.statusCode == 401 {
+                    sessionState = nil
+                } else if response.statusCode >= 500 || response.statusCode == 429 {
+                    // The current ticket is still valid. Do not turn a
+                    // transient Worker/DO outage into a Stack bootstrap storm.
+                    sessionState?.nextRenewAttempt = now.addingTimeInterval(30)
+                    return current.ticket
+                } else {
+                    guard (200 ... 299).contains(response.statusCode) else {
+                        throw sessionHTTPError(data: data, response: response)
+                    }
+                    return try installSessionResponse(data, now: now)
+                }
+            } catch let error as CmxIrohTrustBrokerClientError {
+                if current.expiresAt.timeIntervalSince(now) > 5,
+                   error.isConnectivity {
+                    sessionState?.nextRenewAttempt = now.addingTimeInterval(30)
+                    return current.ticket
+                }
+                throw error
+            }
+        }
+
+        let pair = try await sessionCredentialPair()
+        guard let pair else {
+            throw CmxIrohTrustBrokerClientError.missingAuthentication
+        }
+        let body = try JSONEncoder().encode(SessionBootstrapBody(
+            deviceID: configuration.deviceID,
+            appInstanceID: configuration.appInstanceID,
+            clientNamespace: configuration.clientNamespace,
+            tag: configuration.tag,
+            platform: configuration.platform
+        ))
+        let (data, response): (Data, HTTPURLResponse)
+        do {
+            (data, response) = try await performSessionHTTP(
+                path: "v1/iroh/session",
+                method: "POST",
+                body: body,
+                ticket: nil,
+                credentials: pair
+            )
+        } catch let error as CmxIrohTrustBrokerClientError {
+            throw error
+        }
+        if response.statusCode == 404 || response.statusCode == 405 {
+            // A staging Vercel origin predating the Worker simply has no
+            // session route. Mark it once and retain the old authenticated
+            // transport until that origin is migrated.
+            sessionUnsupported = true
+            return nil
+        }
+        guard (200 ... 299).contains(response.statusCode) else {
+            throw sessionHTTPError(data: data, response: response)
+        }
+        return try installSessionResponse(data, now: now)
+    }
+
+    private func sessionCredentialPair() async throws -> CmxIrohBrokerCredentials? {
+        do {
+            return try await tokenSource.credentialPair()
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            throw CmxIrohTrustBrokerClientError.connectivity(
+                (error as? URLError).map(CmxIrohBrokerConnectivityCause.init)
+            )
+        }
+    }
+
+    private func installSessionResponse(_ data: Data, now: Date) throws -> String {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .custom(CmxIrohISO8601Date.decode)
+        guard let response = try? decoder.decode(SessionResponse.self, from: data),
+              cmxIsSafeBrokerHeaderValue(response.ticket),
+              response.sessionId.utf8.count <= 128,
+              !response.accountId.isEmpty,
+              response.expiresAt.timeIntervalSince(now) > 5,
+              response.renewAfter < response.expiresAt,
+              response.renewAfter > now.addingTimeInterval(-60) else {
+            throw CmxIrohTrustBrokerClientError.invalidResponse
+        }
+        sessionState = SessionState(
+            ticket: response.ticket,
+            sessionID: response.sessionId,
+            accountID: response.accountId,
+            expiresAt: response.expiresAt,
+            renewAfter: response.renewAfter,
+            nextRenewAttempt: response.renewAfter
+        )
+        return response.ticket
+    }
+
+    private func performSessionHTTP(
+        path: String,
+        method: String,
+        body: Data?,
+        ticket: String?,
+        credentials: CmxIrohBrokerCredentials?
+    ) async throws -> (Data, HTTPURLResponse) {
+        let url = try makeURL(path: path, queryItems: [])
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.timeoutInterval = requestTimeout
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue(clientNamespace, forHTTPHeaderField: "X-Cmux-App-Namespace")
+        if let ticket {
+            guard cmxIsSafeBrokerHeaderValue(ticket) else {
+                throw CmxIrohTrustBrokerClientError.invalidAuthentication
+            }
+            request.setValue(ticket, forHTTPHeaderField: cmxIrohSessionTicketHeader)
+        }
+        if let credentials {
+            guard cmxIsSafeBrokerHeaderValue(credentials.accessToken),
+                  cmxIsSafeBrokerHeaderValue(credentials.refreshToken) else {
+                throw CmxIrohTrustBrokerClientError.invalidAuthentication
+            }
+            request.setValue(
+                "Bearer \(credentials.accessToken)",
+                forHTTPHeaderField: "Authorization"
+            )
+            request.setValue(
+                credentials.refreshToken,
+                forHTTPHeaderField: "X-Stack-Refresh-Token"
+            )
+        }
+        if let body {
+            request.httpBody = body
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        }
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await transport.data(for: request)
+        } catch let error as URLError where Self.isConnectivityFailure(error.code) {
+            throw CmxIrohTrustBrokerClientError.connectivity(
+                CmxIrohBrokerConnectivityCause(error)
+            )
+        }
+        guard let http = response as? HTTPURLResponse else {
+            throw CmxIrohTrustBrokerClientError.nonHTTPResponse
+        }
+        guard http.url == url else {
+            throw CmxIrohTrustBrokerClientError.invalidResponse
+        }
+        return (data, http)
+    }
+
+    private func makeURL(path: String, queryItems: [URLQueryItem]) throws -> URL {
+        let pathURL = baseURL.appendingPathComponent(path)
+        guard var components = URLComponents(
+            url: pathURL,
+            resolvingAgainstBaseURL: false
+        ) else {
+            throw CmxIrohTrustBrokerClientError.invalidResponse
+        }
+        components.queryItems = queryItems.isEmpty ? nil : queryItems
+        guard let url = components.url else {
+            throw CmxIrohTrustBrokerClientError.invalidResponse
+        }
+        return url
+    }
+
+    private func sessionHTTPError(
+        data: Data,
+        response: HTTPURLResponse
+    ) -> CmxIrohTrustBrokerClientError {
+        let payload = try? JSONDecoder().decode(CmxIrohTrustBrokerError.self, from: data)
+        let code = payload.map { value in
+            value.source.map { "\(value.error):\($0.rawValue)" } ?? value.error
+        }
+        return .rejected(statusCode: response.statusCode, code: code)
+    }
+
     private func performRequest<Response: Decodable & Sendable>(
         path: String,
         method: String,
         body: Data?,
         queryItems: [URLQueryItem] = []
+    ) async throws -> Response {
+        if sessionConfiguration != nil, !sessionUnsupported {
+            if let ticket = try await ensureSessionTicket() {
+                do {
+                    return try await performAuthenticatedRequest(
+                        path: path,
+                        method: method,
+                        body: body,
+                        queryItems: queryItems,
+                        authorization: .session(ticket)
+                    )
+                } catch let error as CmxIrohTrustBrokerClientError
+                    where Self.isUnauthorizedRejection(error) {
+                    // A revoked or expired ticket is repaired once. The
+                    // server-side session epoch and the endpoint proof still
+                    // gate the retried request; this is not a blind retry.
+                    sessionState = nil
+                    guard let replacement = try await ensureSessionTicket() else {
+                        throw error
+                    }
+                    return try await performAuthenticatedRequest(
+                        path: path,
+                        method: method,
+                        body: body,
+                        queryItems: queryItems,
+                        authorization: .session(replacement)
+                    )
+                }
+            }
+        }
+        return try await performLegacyRequest(
+            path: path,
+            method: method,
+            body: body,
+            queryItems: queryItems
+        )
+    }
+
+    private func performLegacyRequest<Response: Decodable & Sendable>(
+        path: String,
+        method: String,
+        body: Data?,
+        queryItems: [URLQueryItem]
     ) async throws -> Response {
         // Build the request from ONE credential snapshot. Reading access then
         // refresh through two independent calls lets a force refresh land
@@ -827,7 +1204,7 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
                 method: method,
                 body: body,
                 queryItems: queryItems,
-                credentials: pair
+                authorization: .stack(pair)
             )
         } catch let error as CmxIrohTrustBrokerClientError
             where Self.isUnauthorizedRejection(error) {
@@ -851,7 +1228,7 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
                 method: method,
                 body: body,
                 queryItems: queryItems,
-                credentials: recovered
+                authorization: .stack(recovered)
             )
         }
     }
@@ -868,30 +1245,32 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         method: String,
         body: Data?,
         queryItems: [URLQueryItem],
-        credentials: CmxIrohBrokerCredentials
+        authorization: RequestAuthorization
     ) async throws -> Response {
-        let accessToken = credentials.accessToken
-        let refreshToken = credentials.refreshToken
-        guard cmxIsSafeBrokerHeaderValue(accessToken),
-              cmxIsSafeBrokerHeaderValue(refreshToken) else {
-            throw CmxIrohTrustBrokerClientError.invalidAuthentication
-        }
-        let pathURL = baseURL.appendingPathComponent(path)
-        guard var components = URLComponents(
-            url: pathURL,
-            resolvingAgainstBaseURL: false
-        ) else {
-            throw CmxIrohTrustBrokerClientError.invalidResponse
-        }
-        components.queryItems = queryItems.isEmpty ? nil : queryItems
-        guard let url = components.url else {
-            throw CmxIrohTrustBrokerClientError.invalidResponse
-        }
+        let url = try makeURL(path: path, queryItems: queryItems)
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.timeoutInterval = requestTimeout
-        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-        request.setValue(refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
+        switch authorization {
+        case let .stack(credentials):
+            guard cmxIsSafeBrokerHeaderValue(credentials.accessToken),
+                  cmxIsSafeBrokerHeaderValue(credentials.refreshToken) else {
+                throw CmxIrohTrustBrokerClientError.invalidAuthentication
+            }
+            request.setValue(
+                "Bearer \(credentials.accessToken)",
+                forHTTPHeaderField: "Authorization"
+            )
+            request.setValue(
+                credentials.refreshToken,
+                forHTTPHeaderField: "X-Stack-Refresh-Token"
+            )
+        case let .session(ticket):
+            guard cmxIsSafeBrokerHeaderValue(ticket) else {
+                throw CmxIrohTrustBrokerClientError.invalidAuthentication
+            }
+            request.setValue(ticket, forHTTPHeaderField: cmxIrohSessionTicketHeader)
+        }
         request.setValue(clientNamespace, forHTTPHeaderField: "X-Cmux-App-Namespace")
         if let bindingAuthorization,
            path != "api/devices/iroh/challenge",

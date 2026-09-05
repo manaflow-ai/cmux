@@ -829,18 +829,24 @@ export interface CtlDeps {
 export interface CtlConnectInput {
   sessionId: string;
   expiresAt?: number;
-  bearer: string;
+  /** Legacy Stack access token. New sockets carry a verified session ticket
+   * instead, so the DO never needs to retain a Stack credential. */
+  bearer?: string;
   /** Stack refresh token: the web API's native auth (parseNativeStackTokens)
    * requires BOTH the bearer and x-stack-refresh-token; a bearer alone 401s. */
   refresh?: string;
+  /** Account-scoped Iroh session ticket, minted by the Worker after one Stack
+   * verification. */
+  sessionTicket?: string;
   namespace?: string;
 }
 
 /** Stored per-socket credentials under BEARER_PREFIX. Serialized as JSON;
  * a bare-string value (pre-refresh deploys) is read as bearer-only. */
 interface StoredCtlCredentials {
-  bearer: string;
+  bearer?: string;
   refresh?: string;
+  sessionTicket?: string;
 }
 
 function encodeStoredCredentials(input: StoredCtlCredentials): string {
@@ -852,11 +858,16 @@ function decodeStoredCredentials(raw: string | undefined): StoredCtlCredentials 
   try {
     const parsed: unknown = JSON.parse(raw);
     if (typeof parsed === "object" && parsed !== null
-      && typeof (parsed as { bearer?: unknown }).bearer === "string") {
+      && (typeof (parsed as { bearer?: unknown }).bearer === "string"
+        || typeof (parsed as { sessionTicket?: unknown }).sessionTicket === "string")) {
       const refresh = (parsed as { refresh?: unknown }).refresh;
+      const sessionTicket = (parsed as { sessionTicket?: unknown }).sessionTicket;
       return {
-        bearer: (parsed as { bearer: string }).bearer,
+        ...(typeof (parsed as { bearer?: unknown }).bearer === "string"
+          ? { bearer: (parsed as { bearer: string }).bearer }
+          : {}),
         ...(typeof refresh === "string" ? { refresh } : {}),
+        ...(typeof sessionTicket === "string" ? { sessionTicket } : {}),
       };
     }
   } catch {
@@ -868,7 +879,20 @@ function decodeStoredCredentials(raw: string | undefined): StoredCtlCredentials 
 const DISCOVERY_PATH = "/api/devices/iroh";
 const MINT_PATH = "/api/relay/token";
 
-function upstreamHeaders(credentials: StoredCtlCredentials, namespace: string | undefined, json: boolean): Record<string, string> {
+function upstreamHeaders(
+  credentials: StoredCtlCredentials,
+  namespace: string | undefined,
+  json: boolean,
+): Record<string, string> {
+  if (credentials.sessionTicket) {
+    return {
+      "x-cmux-iroh-session-ticket": credentials.sessionTicket,
+      accept: "application/json",
+      ...(json ? { "content-type": "application/json" } : {}),
+      ...(namespace ? { "x-cmux-app-namespace": namespace } : {}),
+    };
+  }
+  if (!credentials.bearer) return {};
   return {
     authorization: `Bearer ${credentials.bearer}`,
     ...(credentials.refresh ? { "x-stack-refresh-token": credentials.refresh } : {}),
@@ -884,6 +908,7 @@ export class ControlPlaneCore {
   // ---- Connection lifecycle ----
 
   async handleConnect(socket: CtlSocket, input: CtlConnectInput): Promise<void> {
+    if (!input.bearer && !input.sessionTicket) return;
     socket.setAttachment({
       sessionId: input.sessionId,
       ...(input.expiresAt !== undefined ? { expiresAt: input.expiresAt } : {}),
@@ -892,8 +917,9 @@ export class ControlPlaneCore {
     await this.deps.storage.put(
       BEARER_PREFIX + input.sessionId,
       encodeStoredCredentials({
-        bearer: input.bearer,
+        ...(input.bearer ? { bearer: input.bearer } : {}),
         ...(input.refresh ? { refresh: input.refresh } : {}),
+        ...(input.sessionTicket ? { sessionTicket: input.sessionTicket } : {}),
       }),
     );
     const now = this.deps.now();
@@ -1183,20 +1209,21 @@ export class ControlPlaneCore {
     const endpointId = frame.payload.endpointId;
     if (!endpointId || endpointId.length > MAX_ENDPOINT_ID_CHARS) return;
     const rev = (await this.deps.storage.get<number>(REV_KEY)) ?? 0;
-    await this.mintAndSend(socket, attachment, endpointId, rev);
+    await this.mintAndSend(socket, attachment, endpointId, rev, frame.payload.proof);
   }
 
-  /** Replicate the Swift client's own mint (POST api/relay/token with bearer
-   * auth and body {"endpointId"}; see CmxIrohTrustBrokerClient
-   * issueRelayBootstrap) using THIS socket's stored token, with one immediate
-   * retry on connection-level failure. Phase A ignores any proof on the
-   * message: the broker authorizes the endpoint from its registration state.
-   * The reply goes to this socket only. */
+  /** Replicate the Swift client's own mint (POST api/relay/token with the
+   * socket's session ticket and body {"endpointId"}; see
+   * CmxIrohTrustBrokerClient issueRelayBootstrap) using THIS socket's stored
+   * credentials, with one immediate retry on connection-level failure. A
+   * current endpoint proof, when present, is forwarded unchanged so direct
+   * and compatibility backends enforce the same binding authorization. */
   private async mintAndSend(
     socket: CtlSocket,
     attachment: CtlAttachment,
     endpointId: string,
     rev: number,
+    proof?: FluffyProof,
   ): Promise<void> {
     // A revoked device keeps its socket and may see the directory, but never
     // fresh relay credentials. Non-retryable: only an un-revoke (or asking for
@@ -1224,10 +1251,20 @@ export class ControlPlaneCore {
       ));
       return;
     }
+    const body = JSON.stringify({ endpointId });
     const result = await this.upstreamOnceRetry(MINT_PATH, {
       method: "POST",
-      headers: upstreamHeaders(credentials, attachment.namespace, true),
-      body: JSON.stringify({ endpointId }),
+      headers: {
+        ...upstreamHeaders(credentials, attachment.namespace, true),
+        ...(proof
+          ? {
+            "x-cmux-iroh-binding-id": proof.bindingId,
+            "x-cmux-iroh-request-time": proof.timestamp,
+            "x-cmux-iroh-request-signature": proof.signature,
+          }
+          : {}),
+      },
+      body,
     });
     if (result === null) {
       this.sendFrame(socket, attachment, errorFrame(
@@ -1595,14 +1632,11 @@ export class ControlPlaneCore {
     if (credentials === undefined) return null;
     const result = await this.upstreamOnceRetry(DISCOVERY_PATH, {
       method: "GET",
-      // The control-plane socket is authenticated with the account's Stack
-      // bearer, but it does not hold the endpoint private key needed to sign
-      // a binding-request proof.  Discovery is intentionally account-scoped
-      // here, so use the legacy namespace compatibility mode.  The returned
-      // directory is still protected by the socket's account bearer and the
-      // DO's per-account routing, while the app's own namespace remains on
-      // mutation/relay requests.
-      headers: upstreamHeaders(credentials, "legacy", false),
+      // The request is generated inside the already-authenticated account DO,
+      // which passes an in-process trust flag to the direct adapter. It may
+      // retain the socket namespace for the correct directory projection; no
+      // client-supplied endpoint header is used as authorization.
+      headers: upstreamHeaders(credentials, attachment.namespace ?? "legacy", false),
     });
     if (result === null || result.status < 200 || result.status >= 300) return null;
     return directoryPayloadFromDiscovery(result.json);

@@ -1,15 +1,11 @@
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
-import * as Layer from "effect/Layer";
 import {
   IrohDatabaseError,
   type IrohExpectedError,
 } from "../iroh/errors";
-import {
-  IrohTrustBroker,
-  IrohTrustBrokerRuntime,
-  type IrohTrustBrokerShape,
-} from "../iroh/trustBroker";
+import type { IrohTrustBrokerShape } from "../iroh/trustBroker";
+import type { IrohBindingRequestProof } from "../iroh/crypto";
 import {
   CONNECTIVITY_PROTOCOL_VERSION,
   SCOPED_CONNECTIVITY_PROTOCOL_VERSION,
@@ -47,11 +43,15 @@ export type ConnectivityAuthorityShape = {
     userId: string,
     raw: unknown,
     now?: Date,
+    clientNamespace?: string,
+    bindingProof?: IrohBindingRequestProof,
   ) => Effect.Effect<ConnectivitySyncResponse, IrohExpectedError>;
   readonly syncScoped: (
     userId: string,
     raw: unknown,
     now?: Date,
+    clientNamespace?: string,
+    bindingProof?: IrohBindingRequestProof,
   ) => Effect.Effect<ScopedConnectivitySyncResponse, IrohExpectedError>;
 };
 
@@ -64,13 +64,13 @@ export function makeConnectivityAuthority(
   broker: Pick<IrohTrustBrokerShape, "discoverComplete" | "discoverScoped">,
 ): ConnectivityAuthorityShape {
   return {
-    sync: (userId, raw, now = new Date()) => Effect.gen(function* () {
+    sync: (userId, raw, now = new Date(), clientNamespace = "legacy", bindingProof) => Effect.gen(function* () {
       const request = yield* Effect.try({
         try: () => parseConnectivitySyncRequest(raw),
         catch: (error) => error as IrohExpectedError,
       });
       const snapshot = yield* parseDiscoverySnapshot(
-        yield* broker.discoverComplete(userId, now),
+        yield* broker.discoverComplete(userId, now, clientNamespace, bindingProof),
       );
       const changed = request.known_revision !== snapshot.revision;
       return {
@@ -82,13 +82,13 @@ export function makeConnectivityAuthority(
         ...(changed ? { snapshot, snapshot_complete: true as const } : {}),
       };
     }),
-    syncScoped: (userId, raw, now = new Date()) => Effect.gen(function* () {
+    syncScoped: (userId, raw, now = new Date(), clientNamespace = "legacy", bindingProof) => Effect.gen(function* () {
       const request = yield* Effect.try({
         try: () => parseScopedConnectivitySyncRequest(raw),
         catch: (error) => error as IrohExpectedError,
       });
       const snapshot = yield* parseDiscoverySnapshot(
-        yield* broker.discoverScoped(userId, request.discovery_scope, now),
+        yield* broker.discoverScoped(userId, request.discovery_scope, now, clientNamespace, bindingProof),
       );
       const changed = request.known_revision !== snapshot.revision;
       return {
@@ -138,14 +138,3 @@ function discoverySnapshot(value: unknown): ConnectivityDiscoverySnapshot {
   }
   return snapshot as ConnectivityDiscoverySnapshot;
 }
-
-export const ConnectivityAuthorityLive = Layer.effect(
-  ConnectivityAuthority,
-  Effect.gen(function* () {
-    return makeConnectivityAuthority(yield* IrohTrustBroker);
-  }),
-);
-
-export const ConnectivityAuthorityRuntime = ConnectivityAuthorityLive.pipe(
-  Layer.provide(IrohTrustBrokerRuntime),
-);

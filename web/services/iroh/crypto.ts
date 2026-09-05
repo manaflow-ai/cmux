@@ -287,7 +287,7 @@ export function verifyPairGrant(
   if (token.length > 16_384) throw new IrohInvalidInputError({ code: "invalid_pair_grant" });
   const parts = token.split(".");
   if (parts.length !== 3) throw new IrohInvalidInputError({ code: "invalid_pair_grant" });
-  const header = decodeJson(parts[0], "invalid_pair_grant");
+  const header = decodeJson(parts[0]!, "invalid_pair_grant");
   assertExactKeys(header, ["alg", "typ", "kid"], "invalid_pair_grant_header");
   if (header.alg !== "EdDSA" || header.typ !== IROH_PAIR_GRANT_TYP || typeof header.kid !== "string") {
     throw new IrohForbiddenError({ code: "invalid_pair_grant_header" });
@@ -299,10 +299,10 @@ export function verifyPairGrant(
     null,
     Buffer.from(`${parts[0]}.${parts[1]}`, "ascii"),
     publicKey,
-    decodeCanonicalBase64url(parts[2], 64, "invalid_pair_grant"),
+    decodeCanonicalBase64url(parts[2]!, 64, "invalid_pair_grant"),
   );
   if (!valid) throw new IrohForbiddenError({ code: "invalid_pair_grant_signature" });
-  const claims = decodeJson(parts[1], "invalid_pair_grant") as unknown as PairGrantClaims;
+  const claims = decodeJson(parts[1]!, "invalid_pair_grant") as unknown as PairGrantClaims;
   validatePairGrantClaims(claims, expected);
   return claims;
 }
@@ -319,7 +319,7 @@ export function verifyEndpointAttestation(
   if (parts.length !== 3) {
     throw new IrohInvalidInputError({ code: "invalid_endpoint_attestation" });
   }
-  const header = decodeJson(parts[0], "invalid_endpoint_attestation");
+  const header = decodeJson(parts[0]!, "invalid_endpoint_attestation");
   assertExactKeys(header, ["alg", "typ", "kid"], "invalid_endpoint_attestation_header");
   if (
     header.alg !== "EdDSA" ||
@@ -337,13 +337,13 @@ export function verifyEndpointAttestation(
     null,
     Buffer.from(`${parts[0]}.${parts[1]}`, "ascii"),
     publicKey,
-    decodeCanonicalBase64url(parts[2], 64, "invalid_endpoint_attestation"),
+    decodeCanonicalBase64url(parts[2]!, 64, "invalid_endpoint_attestation"),
   );
   if (!valid) {
     throw new IrohForbiddenError({ code: "invalid_endpoint_attestation_signature" });
   }
   const claims = decodeJson(
-    parts[1],
+    parts[1]!,
     "invalid_endpoint_attestation",
   ) as unknown as EndpointAttestationClaims;
   validateEndpointAttestationClaims(claims, expected);

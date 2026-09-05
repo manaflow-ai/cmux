@@ -1,205 +1,216 @@
-# cmux-presence
+# cmux presence and Iroh control worker
 
-Realtime device presence and connectivity invalidation service. One
-`TeamPresence` Durable Object per team owns presence, and one separately named
-object per verified user owns revision-only connectivity invalidations. Hosts
-announce heartbeats; clients subscribe to explicit online/offline transitions.
-Design, decision memo, and client integration: `docs/presence-service.md`.
+This Worker is the public HTTP/WebSocket edge for cmux device presence and the
+Iroh control plane. It uses one Durable Object per Stack account for ordered
+control operations and keeps the existing Aurora PostgreSQL database as the
+durable source of truth. It does not carry Iroh peer packets, QUIC, or relay
+traffic.
 
-## API
+## Request ownership
 
-All `/v1` routes require `Authorization: Bearer <Stack access token>` and
-accept optional team scoping via `X-Cmux-Team-Id` or `?teamId=` (must be a
-team the caller belongs to; defaults to the selected team, then the
-solo-account user id).
-
-| Route | Method | Purpose |
+| Route | Auth at the edge | Owner after the edge |
 | --- | --- | --- |
-| `/healthz` | GET | liveness (no auth) |
-| `/v1/presence/heartbeat` | POST | announce an app instance; `{deviceId, platform, tag?, displayName?, capabilities?, stopping?}`; `stopping: true` is a clean-shutdown goodbye |
-| `/v1/presence/snapshot` | GET | one-shot presence map |
-| `/v1/presence/subscribe` | GET | WebSocket upgrade or SSE stream: `snapshot` first, then `online` / `offline` / `seen` events |
-| `/v1/connectivity/subscribe` | GET | quiet WebSocket isolated by the verified Stack user; carries only route-revision invalidations |
-| `/v1/connectivity/invalidate` | POST | backend-only publication of `{revision}` to every connected Mac and iPhone for the verified Stack user |
-| `/v1/control/socket` | GET | account control-plane WebSocket (`AccountControlPlane` DO, one per verified Stack user): revisioned `directory` / `hint_update` / `relay_passes` / `snapshot_complete` facts per the frozen `schemas/control-plane/` contract |
+| `/healthz` | none | Worker |
+| `/v1/iroh/session` | one Stack identity lookup (`/users/me`) | account DO, which mints a ticket |
+| `/v1/iroh/session/renew` | existing signed ticket only | account DO |
+| `/v1/iroh/session/revoke-all` | one Stack identity lookup | account DO epoch fence |
+| `/api/devices/iroh*` | ticket signature and account epoch | account DO, then direct Iroh adapter or compatibility origin |
+| `/api/relay/*` | ticket signature and account epoch | account DO, then direct relay adapter or compatibility origin |
+| `/api/connectivity/v2|v3/sync` | ticket signature and account epoch | account DO, then direct connectivity adapter or compatibility origin |
+| `/v1/control/socket` | ticket at WebSocket upgrade | account DO, which owns the socket |
+| other `/v1` routes | existing Stack verification/cache | their existing presence/reply DO |
 
-The heartbeat response returns `heartbeatIntervalMs` (15s) and
-`offlineTimeoutMs` (45s); hosts should follow the returned cadence rather than
-hardcoding it. An instance that misses heartbeats for the timeout window is
-flipped offline by the Durable Object alarm with `reason: "timeout"`.
+The public URL is the Worker. A client never addresses a Durable Object
+directly. The Worker derives `control:user:<Stack user id>` from a verified
+identity and forwards to that object.
 
-Every server boundary reduces Iroh routes to the EndpointID plus an exact
-managed relay URL. Direct addresses and private-network hints remain on the
-device or move endpoint-to-endpoint after admission. Existing LAN, Tailscale,
-and custom-network route bodies pass through unchanged for compatibility.
+## Session authentication and Stack call budget
 
-Presence still sends the full sanitized route body in `online`, `routes`, and
-snapshot frames. Current iOS clients write that body into their paired-Mac store
-and reconnect without a registry round trip. Replacing it with a routes-changed
-signal requires a new client protocol plus an authenticated fetch or local
-rendezvous path, so that protocol change is intentionally separate.
+Current clients send the Stack access and refresh pair once to
+`POST /v1/iroh/session`. The Worker verifies only identity, caches that result
+briefly, and the account DO returns a signed 15-minute HMAC ticket. The ticket
+contains the account, session id, epoch, expiry, renewal time, and the exact
+client metadata (device, app instance, namespace, tag, and platform).
 
-Devices are owner-bound, mirroring the registry route: the first authenticated
-user to announce a `deviceId` owns it, and a heartbeat for that device from a
-different team member is rejected with `403 device_owner_mismatch`, so a
-co-member cannot forge another member's device online or goodbye it offline.
+Ordinary challenge, registration, discovery, revoke, pairing, relay-token,
+preference, connectivity, and control-socket requests carry only
+`X-Cmux-Iroh-Session-Ticket`. The Worker and DO verify the signature locally,
+check the account and namespace, and check the stored session plus revocation
+epoch. They do not call Stack for each request or WebSocket message.
 
-Connectivity invalidation is separate from team presence because Iroh routes
-belong to the personal Stack account even when two devices select different
-teams. The worker derives a dedicated Durable Object id from the verified user
-id, pins that same id in every socket attachment, and accepts only one bounded
-wire shape: `{type:"connectivity.invalidate", protocolVersion:1, revision, at}`.
-No route, binding, endpoint, or path data crosses this channel. Mac and iPhone
-use the revision only to fetch and atomically install the complete
-`/api/connectivity/v2/sync` snapshot. Delivery is best-effort, so sleeping
-devices and reordered frames affect refresh latency rather than correctness.
-Publication also requires the server-only
-`X-Cmux-Connectivity-Publisher-Secret`, matched against the Worker's
-`CONNECTIVITY_INVALIDATION_SECRET`; a native client access token cannot forge
-a revision.
+The client renews before expiry through `POST /v1/iroh/session/renew`, which is
+ticket-only and single-flighted. A temporary Worker/DO outage keeps the current
+ticket in memory and retries renewal later. A 401, expired ticket, account
+switch, or explicit revocation clears it and requires a fresh bootstrap. Old
+app builds that still send Stack credentials are upgraded at the edge into a
+ticket, so their credentials do not enter the DO or direct backend.
 
-The control plane (`/v1/control/socket`) is the successor channel: instead of
-a bare revision nudge, one `AccountControlPlane` Durable Object per verified
-Stack user streams the facts themselves. On `hello` the DO replies `hello_ack`
-and streams each fact as it becomes ready: `directory` (proxied server-side
-from `GET api/devices/iroh` with the connection's own bearer token, one
-immediate retry on connection-level failure), `relay_passes` when the hello
-asked for them (proxied from `POST api/relay/token`, body `{"endpointId"}`),
-then `snapshot_complete` carrying the account route revision. A `hello` whose
-`haveRev` equals the current revision skips the directory body
-(`resumedFromRev`). While sockets are connected a 60s alarm re-fetches
-discovery and broadcasts `hint_update`/`directory` deltas; `publish_hint` is
-an instant-propagation announcement fanned out to the account's other sockets
-and confirmed against broker truth a few seconds later (phase A never writes
-hints upstream — hint registration stays the Mac's own signed HTTPS flow).
-Upstream failures produce `error` frames with `retryable`, never a dropped
-socket; cached facts keep serving. The DO holds no credentials of its own:
-every upstream call uses the connecting socket's bearer, stored per-socket and
-deleted at close/expiry, with stream lifetime capped at token expiry like the
-other subscribe routes. Wire contract: `schemas/control-plane/*.schema.json`
-with generated types in `src/generated/controlPlane.ts` (regenerated by
-`scripts/gen-control-plane-types.sh`, drift-guarded in CI). The Vercel origin
-is the optional var `CMUX_WEB_BASE_URL` (default `https://cmux.com`).
+Endpoint binding proofs remain required for non-legacy endpoint mutations and
+relay issuance. The session ticket answers “which account is this?”; the
+Ed25519 binding proof answers “which registered endpoint may perform this
+operation?”.
 
-## Develop
+## Direct backend and the existing database
+
+Set `CMUX_IROH_BACKEND_MODE=direct` only when the `HYPERDRIVE` binding is
+configured. In direct mode the account DO invokes the existing Iroh,
+connectivity, relay-policy, and repository code with an injected database
+provider. No Vercel request is made and no Stack request is made after session
+bootstrap.
+
+Hyperdrive is a managed Cloudflare bridge and connection pool to Aurora. It is
+not D1, a cache of application records, or a second database. The Worker uses a
+fresh `postgres.js` client for each request/transaction; Hyperdrive pools the
+origin connection. Query-result caching stays disabled for these permission,
+mutation, and read-after-write paths.
+
+The current Vercel database path authenticates to Aurora with AWS IAM/OIDC.
+Hyperdrive needs a stable database connection credential, so production
+provisioning has one explicit prerequisite: create a least-privilege Postgres
+role for this Worker, allow its private network path, and rotate its password
+through the Hyperdrive configuration. Do not copy an expiring Vercel OIDC token
+into Hyperdrive.
+
+Hyperdrive does not provide PostgreSQL advisory locks. An advisory lock is a
+named turnstile held by a database session until its transaction ends. Both
+Worker and Vercel repositories therefore take a pre-seeded
+`account_mutation_fences` bucket row with `FOR UPDATE`; Vercel's hybrid path
+also keeps its advisory fast path. The row query fails closed if the seed
+migration is missing. This preserves cross-writer serialization without
+changing the application tables or introducing Redis.
+
+The SQL migration is
+`web/db/migrations/20260904120000_account_mutation_fences/migration.sql` and
+must run against the same Aurora database before direct writes are enabled.
+
+## Optional Iroh Services RCAN minter
+
+The RCAN minter is an optional external credential vending service. It receives
+an approved EndpointID and returns a short-lived signed capability for an Iroh
+Services relay. It is not a relay, does not carry terminal traffic, and is not
+needed by the self-hosted managed-relay path.
+
+The code uses it only when both `CMUX_IROH_MINT_URL` and
+`CMUX_IROH_MINT_HMAC_SECRET_B64` are configured. The direct Worker can issue
+our self-hosted relay JWT locally with `CMUX_RELAY_JWT_PRIVATE_KEY_PEM`, so the
+RCAN service can remain untouched unless an environment audit proves that a
+production client still depends on it. If the optional service is configured
+and unavailable, only that external credential path fails; registration and
+discovery do not depend on it.
+
+## Observability
+
+Both Wrangler configs enable Workers Observability. The Worker and account DO:
+
+- accept or generate a bounded `X-Cmux-Request-Id` and return it;
+- emit structured operation, status, backend, latency, revision, and session
+  metadata to Workers Logs;
+- add `Server-Timing` for the DO/backend leg;
+- send bounded, redacted exceptions to the configured `SENTRY_DSN` using the
+  Sentry envelope API; and
+- report detached connectivity-invalidation failures instead of adding them
+  to the registration round trip.
+
+Bearer tokens, refresh tokens, HMAC keys, private relay credentials, raw
+pairing material, and complete endpoint identifiers are never logged. Set
+`SENTRY_DSN` on every production or isolated dev Worker. Missing telemetry is
+non-fatal.
+
+## Configuration and rollout
+
+Production `wrangler.toml` is intentionally fail-closed with
+`CMUX_IROH_BACKEND_MODE = "direct"`. Add the Hyperdrive resource after it is
+provisioned:
+
+```toml
+[[hyperdrive]]
+binding = "HYPERDRIVE"
+id = "<existing-aurora-hyperdrive-config-id>"
+```
+
+The dev config stays in compatibility mode until a separate staging
+Hyperdrive config is available. `CMUX_WEB_BASE_URL` is used only in that
+compatibility mode and defaults to the production web origin.
+
+Before enabling direct mode:
+
+1. Audit production for `CMUX_IROH_MINT_URL` and its HMAC secret without
+   printing their values.
+2. Inventory every Iroh table writer, including retention and scheduled jobs.
+3. Apply the mutation-fence migration to Aurora.
+4. Create the least-privilege Worker DB role and private TLS/network route.
+5. Create the Hyperdrive config with response caching disabled and attach its
+   id to the production and staging Wrangler configs.
+6. Provision the Worker secrets below and put the same session key in the web
+   deployment while compatibility mode is still enabled.
+7. Run a canary challenge → register → discover → relay-token → revoke flow,
+   compare normalized responses with the existing service, and measure p50/p95
+   latency plus error and Stack-call counts.
+8. Point new iOS builds at `https://presence.cmux.dev`, soak with the old web
+   routes healthy, then remove compatibility only after the dashboards are
+   clean.
+
+Required Worker secrets (set once per Worker):
+
+```text
+STACK_PROJECT_ID
+STACK_PUBLISHABLE_CLIENT_KEY
+IROH_SESSION_SIGNING_KEY
+CONNECTIVITY_INVALIDATION_SECRET
+SENTRY_DSN
+CMUX_IROH_LAN_DISCOVERY_SECRET_B64
+CMUX_IROH_ACCOUNT_SUBJECT_SECRET_B64
+CMUX_IROH_GRANT_SIGNING_KEY_P8
+CMUX_IROH_GRANT_SIGNING_KID
+CMUX_IROH_GRANT_VERIFICATION_KEYS_JSON
+CMUX_RELAY_POLICY_KEY_ID
+CMUX_RELAY_POLICY_PRIVATE_KEY_PEM
+CMUX_RELAY_JWT_PRIVATE_KEY_PEM
+```
+
+The optional RCAN variables are `CMUX_IROH_MINT_URL`,
+`CMUX_IROH_MINT_HMAC_SECRET_B64`, and
+`CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER` (development only). The web
+compatibility deployment uses `CMUX_IROH_SESSION_SIGNING_KEY`, with the exact
+same value as the Worker's `IROH_SESSION_SIGNING_KEY`.
+
+## Development
 
 ```bash
 bun install
+bun run relay-catalog:check
 bun run typecheck
 bun test
-bun run dev    # wrangler dev; provide Stack config via .dev.vars or --var
+bunx wrangler deploy --dry-run --outdir dist
 ```
 
-`.dev.vars` (gitignored) or `--var` flags supply `STACK_PROJECT_ID` and
-`STACK_PUBLISHABLE_CLIENT_KEY` (dev Stack project values). The full local
-lifecycle proof, including real Stack sign-in and the alarm-driven timeout, is
-`scripts/local-proof.sh` (see header for required env).
+For local Worker development, put Stack values in the gitignored `.dev.vars`.
+`CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE` can provide a local
+Postgres connection for `wrangler dev`; it disables Hyperdrive pooling locally.
+Use `wrangler dev --remote` when testing the real Hyperdrive binding.
 
-## Deploy
+`./scripts/deploy-dev.sh <slug>` deploys an isolated workers.dev Worker with
+its own Durable Object namespace. It must not be used to overwrite the shared
+`cmux-presence-dev` or the production custom domain. The script provisions
+Stack and observability secrets from the shell or `.dev.vars` without printing
+them and prints the resulting URL for the tagged Mac+iOS dogfood build.
 
-Deploys run from `.github/workflows/presence.yml` via manual dispatch on
-main: `gh workflow run presence.yml` deploys production, and
-`gh workflow run presence.yml -f target=dev` deploys the shared
-`cmux-presence-dev` baseline, both with the repository's Cloudflare secrets
-(no personal Cloudflare account membership needed). `wrangler deploy` applies
-the `[[migrations]]` block atomically with the upload, so Durable Object
-storage classes can never lag the deployed code.
+## Deploy and rollback
 
-Required GitHub repository secrets:
+The manual GitHub workflow is `.github/workflows/presence.yml`. It runs the
+catalog check, typecheck, tests, and Wrangler dry-run before deploying. The
+`prod` target uses `wrangler.toml`; the `dev` target uses
+`wrangler.dev.toml`. Hyperdrive and database credentials are one-time account
+provisioning, not values committed to this repository.
 
-- `CLOUDFLARE_API_TOKEN`: API token with Workers Scripts:Edit on the account.
-- `CLOUDFLARE_ACCOUNT_ID`: the Cloudflare account id.
+To roll back application code, deploy the previous known-good Worker version
+or use Wrangler rollback. To roll back the database path, set the backend mode
+back to `compatibility` and keep `CMUX_WEB_BASE_URL` healthy. Do not delete the
+mutation-fence table during rollback; it is harmless to the Vercel advisory-lock
+runtime and is needed for the next direct attempt.
 
-The Worker secret `CONNECTIVITY_INVALIDATION_SECRET` and web server secret
-`CMUX_CONNECTIVITY_INVALIDATION_SECRET` must contain the same random value of
-at least 32 characters.
-
-One-time Worker secrets (survive deploys; production Stack project values):
-
-```bash
-bunx wrangler secret put STACK_PROJECT_ID
-bunx wrangler secret put STACK_PUBLISHABLE_CLIENT_KEY
-```
-
-Set `SENTRY_DSN` once for production and for each isolated dev Worker. The
-Worker sends application exceptions to this DSN using Sentry's envelope API;
-missing or unavailable telemetry never changes request behavior.
-
-```bash
-bunx wrangler secret put SENTRY_DSN
-```
-
-Optional plain var `STACK_API_URL` defaults to `https://api.stack-auth.com`.
-
-### Dev/staging instance
-
-A dev instance runs as `cmux-presence-dev` on the team Cloudflare account
-(the same one the regatta subrouter deploys to), configured with the dev
-Stack project's Worker secrets:
-
-```
-https://cmux-presence-dev.debussy.workers.dev
-```
-
-Redeploy it with `gh workflow run presence.yml -f target=dev` (or locally with
-`bunx wrangler deploy --config wrangler.dev.toml` if your Cloudflare login has
-the account); its `STACK_*` Worker secrets are already provisioned and survive
-deploys.
-
-> [!IMPORTANT]
-> Use `--config wrangler.dev.toml`, NOT `--name cmux-presence-dev`. The default
-> `wrangler.toml` carries the **production** `presence.cmux.dev` custom domain;
-> `--name` only overrides the worker name, so it inherits that route and STEALS
-> the production domain (detaching it from `cmux-presence`, which breaks prod
-> auth since the dev worker uses the dev Stack project). `wrangler.dev.toml` has
-> `workers_dev = true` and no custom domain, so the dev instance stays on its
-> own `*.workers.dev` URL.
-Point a dev Mac build at it with the `CMUX_PRESENCE_BASE_URL` env override or
-the `presenceServiceURL` defaults key, plus `presenceHeartbeatEnabled` (see
-`Sources/Cloud/PresenceSettings.swift`).
-
-### Working on the worker with several people at once
-
-`cmux-presence-dev` is a **single shared instance** — last deploy wins, and an
-unmerged feature (e.g. the paired-Mac backup, which only exists on its branch)
-lives ONLY on whoever deployed last. So don't push your branch onto the shared
-worker: get your own **isolated** one instead.
-
-```
-./scripts/deploy-dev.sh           # deploys cmux-presence-dev-<your-id>
-```
-
-Each `cmux-presence-dev-<slug>` is a separate worker with its **own Durable
-Object namespace**, so presence + paired-Mac-backup state is fully isolated per
-developer — multiple people dogfood worker changes simultaneously without
-clobbering each other or the shared baseline. Because Cloudflare secrets are
-scoped to each Worker, the script also provisions the new Worker with the dev
-Stack Auth values from your shell environment or `.dev.vars`
-(`STACK_PROJECT_ID`, `STACK_PUBLISHABLE_CLIENT_KEY`, and
-`CONNECTIVITY_INVALIDATION_SECRET`, plus optional `STACK_API_URL`); it refuses
-to deploy if those values are missing. Configure the web backend's
-`CMUX_CONNECTIVITY_INVALIDATION_SECRET` to the same value. The script prints the
-worker URL and the env var to export:
-
-```
-export CMUX_PRESENCE_BASE_URL=https://cmux-presence-dev-<slug>.<subdomain>.workers.dev
-```
-
-Point **every** build in your dogfood loop at it (the Mac that heartbeats AND the
-iPhone that subscribes/backs up must share one worker):
-
-- **Mac:** `CMUX_PRESENCE_BASE_URL` env, or `defaults write <tagged-bundle>
-  presenceServiceURL <url>`. Resolved by `PresenceSettings`.
-- **iOS:** a tapped device app sees no shell env, so the override is read from the
-  app's **Info.plist key `CMUXPresenceBaseURL`** (and from `presenceServiceURL`
-  UserDefaults / the `CMUX_PRESENCE_BASE_URL` launch env). Resolution precedence:
-  env → UserDefaults → Info.plist → Debug default. `ios/scripts/reload.sh` bakes
-  `$CMUX_PRESENCE_BASE_URL` into that Info.plist key (next to `CMUXDevTag`, via the
-  `CMUX_PRESENCE_BASE_URL` build setting in `ios/Config/Shared.xcconfig` +
-  `Info.plist`), so once it is exported a normally-tapped dev device build talks to
-  your worker. Empty by default, so release/TestFlight builds are unaffected.
-
-Leave `CMUX_PRESENCE_BASE_URL` unset to use the shared `cmux-presence-dev`
-baseline. The durable fix for any feature is to **merge it** — then it ships on
-prod via CI and anyone deploying dev from `main` carries it, no coordination
-needed.
+Dictionary: a control plane coordinates devices; a data plane carries Iroh
+peer/relay traffic; a Durable Object is one Cloudflare-owned stateful object;
+Hyperdrive is the pooled bridge to the existing SQL database; an advisory lock
+is a Postgres session turnstile; `FOR UPDATE` locks a selected database row;
+RCAN is a signed, narrowly scoped capability token.

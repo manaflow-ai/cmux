@@ -65,19 +65,19 @@ struct MobileIrohRuntimeCompositionTests {
         #expect(MobileIrohRuntimeComposition.resolvedBrokerBaseURL(
             apiBaseURL: "https://cmux.com",
             infoDictionary: ["CMUXIrohBrokerBaseURL": "  "]
-        )?.absoluteString == "https://cmux.com")
+        )?.absoluteString == "https://presence.cmux.dev")
 
         #expect(MobileIrohRuntimeComposition.resolvedBrokerBaseURL(
             apiBaseURL: "http://localhost:9450",
             infoDictionary: ["CMUXDevTag": "lane-a"]
-        )?.absoluteString == "https://cmux-staging.vercel.app")
+        )?.absoluteString == "https://cmux-presence-dev.debussy.workers.dev")
         #expect(MobileIrohRuntimeComposition.resolvedBrokerBaseURL(
             apiBaseURL: "http://localhost:9450",
             infoDictionary: [
                 "CMUXDevTag": "lane-a",
                 "CMUXAuthEnvironment": "production",
             ]
-        )?.absoluteString == "https://cmux.com")
+        )?.absoluteString == "https://presence.cmux.dev")
         #expect(MobileIrohRuntimeComposition.resolvedBrokerBaseURL(
             apiBaseURL: "https://cmux.com",
             infoDictionary: ["CMUXIrohBrokerBaseURL": ":// malformed"]
@@ -98,7 +98,7 @@ struct MobileIrohRuntimeCompositionTests {
                 "CMUXIrohBrokerBaseURL": "https://cmux-staging.vercel.app",
                 "CMUXDevTag": "internal",
             ]
-        )?.absoluteString == "https://cmux.com")
+        )?.absoluteString == "https://presence.cmux.dev")
     }
 
     @Test
@@ -109,7 +109,7 @@ struct MobileIrohRuntimeCompositionTests {
                 "CMUXIrohBrokerBaseURL": "https://cmux-staging.vercel.app",
             ],
             bundleIdentifier: "dev.cmux.app.internal"
-        )?.absoluteString == "https://cmux.com")
+        )?.absoluteString == "https://presence.cmux.dev")
     }
 
     @Test

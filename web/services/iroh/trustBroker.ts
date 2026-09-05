@@ -22,9 +22,8 @@ import {
 } from "./crypto";
 import {
   IrohTrustBrokerConfig,
-  IrohTrustBrokerConfigLive,
   type IrohTrustBrokerConfigShape,
-} from "./config";
+} from "./configCore";
 import {
   IrohConflictError,
   IrohConfigurationError,
@@ -58,7 +57,6 @@ import {
 import { canIOSBindingUseMac } from "./buildCompatibility";
 import {
   IrohRepository,
-  IrohRepositoryLive,
   type IrohBindingRecord,
   type IrohRepositoryShape,
 } from "./repository";
@@ -69,7 +67,6 @@ import {
 } from "./discoveryPagination";
 import {
   IrohRelayMinter,
-  IrohRelayMinterLive,
   type IrohRelayMinterShape,
 } from "./relayMinter";
 import {
@@ -78,7 +75,6 @@ import {
 } from "../relay/model";
 import {
   RelayRepository,
-  RelayRepositoryLive,
   type RelayRepositoryShape,
 } from "../relay/repository";
 import {
@@ -110,6 +106,10 @@ export type IrohTrustBrokerShape = {
     request?: unknown,
     clientNamespace?: string,
     bindingProof?: IrohBindingRequestProof,
+    /** True only after the Cloudflare session ticket was verified locally. */
+    accountSessionTrusted?: boolean,
+    knownCustomRelayURLs?: ReadonlySet<string>,
+    trustedCaller?: IrohBindingRecord,
   ) => Effect.Effect<unknown, IrohExpectedError>;
   readonly discoverComplete: (
     userId: string,
@@ -283,6 +283,7 @@ export function makeIrohTrustBroker(
     rawRequest?: unknown,
     clientNamespace = "legacy",
     bindingProof?: IrohBindingRequestProof,
+    accountSessionTrusted = false,
     knownCustomRelayURLs?: ReadonlySet<string>,
     trustedCaller?: IrohBindingRecord,
   ): Effect.Effect<unknown, IrohExpectedError> => Effect.gen(function* () {
@@ -290,7 +291,9 @@ export function makeIrohTrustBroker(
       ? legacyIrohDiscoveryRequest()
       : yield* parseEffect(() => parseIrohDiscoveryRequest(rawRequest));
     const caller = trustedCaller
-      ?? (yield* authorizeBinding(userId, bindingProof, clientNamespace, now));
+      ?? (accountSessionTrusted
+        ? undefined
+        : yield* authorizeBinding(userId, bindingProof, clientNamespace, now));
     yield* repository.pruneExpiredState({ userId, now });
     const snapshot = yield* repository.discoveryPage({
       userId,
@@ -525,6 +528,7 @@ export function makeIrohTrustBroker(
           { pageSize: "128" },
           decoded.payload.clientNamespace,
           undefined,
+          false,
           savedCustomRelayURLs,
           registration.binding,
         )) as Record<string, unknown>;
@@ -726,31 +730,6 @@ export function makeIrohTrustBroker(
     issueRelayToken,
   };
 }
-
-export const IrohTrustBrokerLive = Layer.effect(
-  IrohTrustBroker,
-  Effect.gen(function* () {
-    return makeIrohTrustBroker(
-      yield* IrohRepository,
-      yield* IrohRelayMinter,
-      yield* IrohTrustBrokerConfig,
-      yield* RelayRepository,
-    );
-  }),
-);
-
-const IrohRelayMinterWithConfig = IrohRelayMinterLive.pipe(
-  Layer.provide(IrohTrustBrokerConfigLive),
-);
-
-export const IrohTrustBrokerRuntime = IrohTrustBrokerLive.pipe(
-  Layer.provide(Layer.mergeAll(
-    IrohRepositoryLive,
-    RelayRepositoryLive,
-    IrohTrustBrokerConfigLive,
-    IrohRelayMinterWithConfig,
-  )),
-);
 
 function parseEffect<A>(run: () => A): Effect.Effect<A, IrohExpectedError> {
   return Effect.try({

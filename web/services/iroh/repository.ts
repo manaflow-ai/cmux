@@ -4,6 +4,11 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { cloudDb } from "../../db/client";
 import {
+  acquireMutationLock,
+  type MutationLockExecutor,
+  type MutationLockMode,
+} from "../../db/mutationLock";
+import {
   AccountDeletionMutationBlockedError,
   assertAccountDeletionUserMutationAllowed,
 } from "../account/deletionLock";
@@ -212,15 +217,26 @@ export class IrohRepository extends Context.Tag("cmux/IrohRepository")<
   IrohRepositoryShape
 >() {}
 
-export const IrohRepositoryLive = Layer.succeed(IrohRepository, makeLiveRepository());
+export const IrohRepositoryLive = Layer.succeed(
+  IrohRepository,
+  makeIrohRepository(cloudDb, { lockMode: "hybrid" }),
+);
 
-function makeLiveRepository(): IrohRepositoryShape {
+export function makeIrohRepository(
+  dbProvider: () => ReturnType<typeof cloudDb>,
+  options: { readonly lockMode?: MutationLockMode } = {},
+): IrohRepositoryShape {
+  const lockMode = options.lockMode ?? "advisory";
+  const lock = (tx: CloudDbTransaction, key: string) =>
+    acquireMutationLock(tx as unknown as MutationLockExecutor, key, lockMode);
+  const assertMutationAllowed = (tx: CloudDbTransaction, userId: string) =>
+    assertIrohUserMutationAllowed(tx, userId, { lockMode });
   return {
     issueChallenge: (input) => repositoryEffect("issue_challenge", async () => {
-      const db = cloudDb();
+      const db = dbProvider();
       return await db.transaction(async (tx) => {
-        await assertIrohUserMutationAllowed(tx, input.userId);
-        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:challenge:${input.userId}`}, 0))`);
+        await assertMutationAllowed(tx, input.userId);
+        await lock(tx, `iroh:challenge:${input.userId}`);
         // The register gate rejects a challenge whose createdAt is strictly
         // below the slot's registeredAt high-water mark. Both are millisecond
         // wall clocks, so two serialized mints can carry EQUAL timestamps; a
@@ -231,7 +247,7 @@ function makeLiveRepository(): IrohRepositoryShape {
         // (insert, reincarnation, and heartbeat paths alike), so if each new
         // challenge is strictly newer than every prior challenge for its slot,
         // the strict `<` gate is exact. All mints for a user serialize under
-        // the per-user challenge advisory lock above, so this read cannot race
+        // the per-user mutation fence above, so this read cannot race
         // another mint for the same slot.
         const [priorChallenge] = await tx
           .select({ createdAt: irohRegistrationChallenges.createdAt })
@@ -272,7 +288,7 @@ function makeLiveRepository(): IrohRepositoryShape {
     }),
 
     findChallenge: (userId, challengeId) => repositoryEffect("find_challenge", async () => {
-      const [challenge] = await cloudDb()
+      const [challenge] = await dbProvider()
         .select()
         .from(irohRegistrationChallenges)
         .where(and(
@@ -284,13 +300,14 @@ function makeLiveRepository(): IrohRepositoryShape {
     }),
 
     consumeChallengeAndRegister: (input) => repositoryEffect("register_binding", async () => {
-      const db = cloudDb();
+      const db = dbProvider();
+      // oxlint-disable-next-line complexity -- This transaction keeps challenge consumption, slot adoption, revocation, and revision writes atomic.
       return await db.transaction(async (tx) => {
         const accountPrivatePathHints = [...input.payload.pathHints];
-        await assertIrohUserMutationAllowed(tx, input.userId);
-        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:binding:${input.userId}`}, 0))`);
-        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:endpoint:${input.payload.endpointId}`}, 0))`);
-        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:slot:${input.userId}:${input.payload.clientNamespace}:${input.payload.deviceId}:${input.payload.tag}`}, 0))`);
+        await assertMutationAllowed(tx, input.userId);
+        await lock(tx, `iroh:binding:${input.userId}`);
+        await lock(tx, `iroh:endpoint:${input.payload.endpointId}`);
+        await lock(tx, `iroh:slot:${input.userId}:${input.payload.clientNamespace}:${input.payload.deviceId}:${input.payload.tag}`);
         const [challenge] = await tx
           .select()
           .from(irohRegistrationChallenges)
@@ -379,7 +396,7 @@ function makeLiveRepository(): IrohRepositoryShape {
         }
 
         // Reject a stale challenge minted before the slot's current registration.
-        // Challenges resolve under the slot advisory lock, so two registrations
+        // Challenges resolve under the slot mutation fence, so two registrations
         // for one slot serialize; without this gate an older challenge that lost
         // the race (issued before the row's last registeredAt) could still land
         // second and overwrite — or reincarnate away — the newer incarnation,
@@ -557,9 +574,10 @@ function makeLiveRepository(): IrohRepositoryShape {
     }),
 
     discoveryPage: (input) => repositoryEffect("discovery_page", async () => {
-      return await cloudDb().transaction(async (tx) => {
-        await assertIrohUserMutationAllowed(tx, input.userId);
-        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:binding:${input.userId}`}, 0))`);
+      // oxlint-disable-next-line complexity -- Discovery pagination must keep cursor generation, caller visibility, and revision reads in one transaction.
+      return await dbProvider().transaction(async (tx) => {
+        await assertMutationAllowed(tx, input.userId);
+        await lock(tx, `iroh:binding:${input.userId}`);
         const [existingState] = await tx
           .select({
             generation: irohAccountSecurityStates.lanDiscoveryGeneration,
@@ -651,14 +669,14 @@ function makeLiveRepository(): IrohRepositoryShape {
     }),
 
     discoverySnapshot: (input) => repositoryEffect("discovery_snapshot", async () => {
-      return await cloudDb().transaction(async (tx) => {
+      return await dbProvider().transaction(async (tx) => {
         const clientNamespace = input.clientNamespace ?? "legacy";
-        await assertIrohUserMutationAllowed(tx, input.userId);
+        await assertMutationAllowed(tx, input.userId);
         // Registration, revocation, pruning, and this read share one account
         // lock. The complete connectivity snapshot therefore observes one
         // committed binding set and revision, even when public discovery spans
         // several pages.
-        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:binding:${input.userId}`}, 0))`);
+        await lock(tx, `iroh:binding:${input.userId}`);
         const [existingState] = await tx
           .select({
             generation: irohAccountSecurityStates.lanDiscoveryGeneration,
@@ -766,8 +784,8 @@ function makeLiveRepository(): IrohRepositoryShape {
 
     findActiveBindings: (userId, bindingIds) => repositoryEffect("find_bindings", async () => {
       if (bindingIds.length === 0) return [];
-      return await cloudDb().transaction(async (tx) => {
-        await assertIrohUserMutationAllowed(tx, userId);
+      return await dbProvider().transaction(async (tx) => {
+        await assertMutationAllowed(tx, userId);
         return await tx
           .select()
           .from(irohEndpointBindings)
@@ -782,7 +800,7 @@ function makeLiveRepository(): IrohRepositoryShape {
     findBindingForRevocationProof: (userId, bindingId) => repositoryEffect(
       "find_binding_for_revocation_proof",
       async () => {
-        const [binding] = await cloudDb()
+        const [binding] = await dbProvider()
           .select()
           .from(irohEndpointBindings)
           .where(and(
@@ -797,7 +815,7 @@ function makeLiveRepository(): IrohRepositoryShape {
     findActiveBindingByEndpoint: (userId, endpointId) => repositoryEffect(
       "find_binding_by_endpoint",
       async () => {
-        const [binding] = await cloudDb()
+        const [binding] = await dbProvider()
           .select()
           .from(irohEndpointBindings)
           .where(and(
@@ -811,9 +829,10 @@ function makeLiveRepository(): IrohRepositoryShape {
     ),
 
     revokeBinding: (input) => repositoryEffect("revoke_binding", async () => {
-      return await cloudDb().transaction(async (tx) => {
-        await assertIrohUserMutationAllowed(tx, input.userId);
-        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:binding:${input.userId}`}, 0))`);
+      // oxlint-disable-next-line complexity -- Revocation encodes the cross-device authorization matrix and revision update atomically.
+      return await dbProvider().transaction(async (tx) => {
+        await assertMutationAllowed(tx, input.userId);
+        await lock(tx, `iroh:binding:${input.userId}`);
         const [binding] = await tx
           .select()
           .from(irohEndpointBindings)
@@ -952,9 +971,9 @@ function makeLiveRepository(): IrohRepositoryShape {
     }),
 
     pruneExpiredState: (input) => repositoryEffect("prune_expired_state", async () => {
-      await cloudDb().transaction(async (tx) => {
-        await assertIrohUserMutationAllowed(tx, input.userId);
-        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:binding:${input.userId}`}, 0))`);
+      await dbProvider().transaction(async (tx) => {
+        await assertMutationAllowed(tx, input.userId);
+        await lock(tx, `iroh:binding:${input.userId}`);
         const bindings = await tx
           .select({
             id: irohEndpointBindings.id,
@@ -1071,13 +1090,13 @@ function makeLiveRepository(): IrohRepositoryShape {
 
     pruneExpiredStateGlobally: (input) => repositoryEffect(
       "prune_expired_state_globally",
-      () => drainIrohRetention(input),
+      () => drainIrohRetention({ ...input, dbProvider }),
     ),
 
     finalizeEndpointAttestation: (input) => repositoryEffect("finalize_endpoint_attestation", async () => {
-      await cloudDb().transaction(async (tx) => {
-        await assertIrohUserMutationAllowed(tx, input.userId);
-        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:binding:${input.userId}`}, 0))`);
+      await dbProvider().transaction(async (tx) => {
+        await assertMutationAllowed(tx, input.userId);
+        await lock(tx, `iroh:binding:${input.userId}`);
         const [binding] = await tx
           .select()
           .from(irohEndpointBindings)
@@ -1101,10 +1120,10 @@ function makeLiveRepository(): IrohRepositoryShape {
     }),
 
     recordPairGrant: (input) => repositoryEffect("record_pair_grant", async () => {
-      await cloudDb().transaction(async (tx) => {
-        await assertIrohUserMutationAllowed(tx, input.userId);
-        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:binding:${input.userId}`}, 0))`);
-        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:pair-grant:${input.userId}`}, 0))`);
+      await dbProvider().transaction(async (tx) => {
+        await assertMutationAllowed(tx, input.userId);
+        await lock(tx, `iroh:binding:${input.userId}`);
+        await lock(tx, `iroh:pair-grant:${input.userId}`);
         const peers = await tx
           .select()
           .from(irohEndpointBindings)
@@ -1146,10 +1165,10 @@ function makeLiveRepository(): IrohRepositoryShape {
     }),
 
     reserveRelayIssuance: (input) => repositoryEffect("reserve_relay_issuance", async () => {
-      return await cloudDb().transaction(async (tx) => {
-        await assertIrohUserMutationAllowed(tx, input.userId);
-        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:binding:${input.userId}`}, 0))`);
-        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:relay:${input.userId}`}, 0))`);
+      return await dbProvider().transaction(async (tx) => {
+        await assertMutationAllowed(tx, input.userId);
+        await lock(tx, `iroh:binding:${input.userId}`);
+        await lock(tx, `iroh:relay:${input.userId}`);
         const [binding] = await tx
           .select()
           .from(irohEndpointBindings)
@@ -1202,9 +1221,9 @@ function makeLiveRepository(): IrohRepositoryShape {
     }),
 
     completeRelayIssuance: (input) => repositoryEffect("complete_relay_issuance", async () => {
-      return await cloudDb().transaction(async (tx) => {
-        await assertIrohUserMutationAllowed(tx, input.userId);
-        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:binding:${input.userId}`}, 0))`);
+      return await dbProvider().transaction(async (tx) => {
+        await assertMutationAllowed(tx, input.userId);
+        await lock(tx, `iroh:binding:${input.userId}`);
         const [issuance] = await tx
           .select()
           .from(irohRelayTokenIssuances)
@@ -1261,8 +1280,8 @@ function makeLiveRepository(): IrohRepositoryShape {
     }),
 
     failRelayIssuance: (input) => repositoryEffect("fail_relay_issuance", async () => {
-      await cloudDb().transaction(async (tx) => {
-        await assertIrohUserMutationAllowed(tx, input.userId);
+      await dbProvider().transaction(async (tx) => {
+        await assertMutationAllowed(tx, input.userId);
         await tx
           .update(irohRelayTokenIssuances)
           .set({ status: "failed", completedAt: input.completedAt, failureCode: input.failureCode.slice(0, 64) })
@@ -1394,6 +1413,7 @@ async function drainIrohRetention(input: {
   readonly now: Date;
   readonly maxRows?: number;
   readonly maxDurationMs?: number;
+  readonly dbProvider: () => ReturnType<typeof cloudDb>;
 }): Promise<IrohRetentionResult> {
   const maxRows = retentionBudget(
     input.maxRows,
@@ -1415,7 +1435,7 @@ async function drainIrohRetention(input: {
   const operations: readonly RetentionBatchOperation[] = [
     {
       category: "revokedHints",
-      run: (limit) => runRetentionBatch(async (tx) => await tx.execute(sql`
+      run: (limit) => runRetentionBatch(input.dbProvider, async (tx) => await tx.execute(sql`
         with candidates as materialized (
           select id
           from iroh_endpoint_bindings
@@ -1444,7 +1464,7 @@ async function drainIrohRetention(input: {
     },
     {
       category: "expiredHints",
-      run: (limit) => runRetentionBatch(async (tx) => await tx.execute(sql`
+      run: (limit) => runRetentionBatch(input.dbProvider, async (tx) => await tx.execute(sql`
         with candidates as materialized (
           select id
           from iroh_endpoint_bindings
@@ -1496,7 +1516,7 @@ async function drainIrohRetention(input: {
     },
     {
       category: "expiredChallenges",
-      run: (limit) => runRetentionBatch(async (tx) => await tx.execute(sql`
+      run: (limit) => runRetentionBatch(input.dbProvider, async (tx) => await tx.execute(sql`
         with candidates as materialized (
           select id
           from iroh_registration_challenges
@@ -1515,7 +1535,7 @@ async function drainIrohRetention(input: {
     },
     {
       category: "consumedChallenges",
-      run: (limit) => runRetentionBatch(async (tx) => await tx.execute(sql`
+      run: (limit) => runRetentionBatch(input.dbProvider, async (tx) => await tx.execute(sql`
         with candidates as materialized (
           select id
           from iroh_registration_challenges
@@ -1534,7 +1554,7 @@ async function drainIrohRetention(input: {
     },
     {
       category: "relayAudits",
-      run: (limit) => runRetentionBatch(async (tx) => await tx.execute(sql`
+      run: (limit) => runRetentionBatch(input.dbProvider, async (tx) => await tx.execute(sql`
         with candidates as materialized (
           select id
           from iroh_relay_token_issuances
@@ -1553,7 +1573,7 @@ async function drainIrohRetention(input: {
     },
     {
       category: "pairGrantAudits",
-      run: (limit) => runRetentionBatch(async (tx) => await tx.execute(sql`
+      run: (limit) => runRetentionBatch(input.dbProvider, async (tx) => await tx.execute(sql`
         with candidates as materialized (
           select id
           from iroh_pair_grant_issuances
@@ -1572,7 +1592,7 @@ async function drainIrohRetention(input: {
     },
     {
       category: "revokedBindings",
-      run: (limit) => runRetentionBatch(async (tx) => await tx.execute(sql`
+      run: (limit) => runRetentionBatch(input.dbProvider, async (tx) => await tx.execute(sql`
         with candidates as materialized (
           select binding.id
           from iroh_endpoint_bindings as binding
@@ -1636,14 +1656,20 @@ async function drainIrohRetention(input: {
       : null;
   const backlog = budgetExhausted === "time"
     ? true
-    : await irohRetentionBacklogExists(input.now, challengeRetentionCutoff, auditRetentionCutoff);
+    : await irohRetentionBacklogExists(
+      input.dbProvider,
+      input.now,
+      challengeRetentionCutoff,
+      auditRetentionCutoff,
+    );
   return { rowsProcessed, batches, backlog, budgetExhausted, byCategory };
 }
 
 async function runRetentionBatch(
+  dbProvider: () => ReturnType<typeof cloudDb>,
   execute: (tx: CloudDbTransaction) => Promise<unknown>,
 ): Promise<number> {
-  return await cloudDb().transaction(async (tx) => {
+  return await dbProvider().transaction(async (tx) => {
     const result = await execute(tx);
     const [row] = databaseRows(result);
     const affected = Number(row?.affected ?? 0);
@@ -1655,11 +1681,12 @@ async function runRetentionBatch(
 }
 
 async function irohRetentionBacklogExists(
+  dbProvider: () => ReturnType<typeof cloudDb>,
   now: Date,
   challengeRetentionCutoff: Date,
   auditRetentionCutoff: Date,
 ): Promise<boolean> {
-  const result = await cloudDb().execute(sql`
+  const result = await dbProvider().execute(sql`
     select (
       exists (
         select 1 from iroh_endpoint_bindings
@@ -1756,8 +1783,8 @@ function databaseConflict(cause: unknown): IrohConflictError | null {
   if (candidate.constraint === "iroh_endpoint_bindings_active_endpoint_unique") {
     return new IrohConflictError({ code: "endpoint_already_bound" });
   }
-  // The slot advisory lock (pg_advisory_xact_lock on iroh:slot:user:device:tag)
-  // serializes registrations for one slot, so the partial unique index on
+  // The slot mutation fence (the shared row fence plus the Vercel advisory
+  // fast path) serializes registrations for one slot, so the partial unique index on
   // (user, client namespace, device, tag) where revoked_at is null is
   // unreachable in practice.
   // Map it defensively anyway: without this branch a slot race would fall
@@ -1790,9 +1817,10 @@ function databaseCause(cause: unknown): {
 async function assertIrohUserMutationAllowed(
   tx: CloudDbTransaction,
   userId: string,
+  options: { readonly lockMode?: MutationLockMode } = {},
 ): Promise<void> {
   try {
-    await assertAccountDeletionUserMutationAllowed(tx, userId);
+    await assertAccountDeletionUserMutationAllowed(tx, userId, options);
   } catch (error) {
     if (error instanceof AccountDeletionMutationBlockedError) {
       throw new IrohConflictError({ code: "account_deletion_in_progress" });

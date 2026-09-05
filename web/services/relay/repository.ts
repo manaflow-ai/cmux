@@ -5,6 +5,11 @@ import * as Layer from "effect/Layer";
 
 import { cloudDb } from "../../db/client";
 import {
+  acquireMutationLock,
+  type MutationLockExecutor,
+  type MutationLockMode,
+} from "../../db/mutationLock";
+import {
   irohRelayCatalogState,
   irohRelayPreferences,
 } from "../../db/schema";
@@ -128,16 +133,24 @@ function rowPreference(row: {
   return { preference: parsed.data, revision: row.revision };
 }
 
-export const RelayRepositoryLive = Layer.succeed(RelayRepository, {
+export function makeRelayRepository(
+  dbProvider: () => ReturnType<typeof cloudDb>,
+  options: { readonly lockMode?: MutationLockMode } = {},
+): RelayRepositoryShape {
+  const lockMode = options.lockMode ?? "advisory";
+  const lock = (tx: unknown, key: string) => acquireMutationLock(
+    tx as MutationLockExecutor,
+    key,
+    lockMode,
+  );
+  return {
   acceptCatalog: ({ catalog, nowSeconds }) =>
     typedDbEffect(
       "acceptCatalog",
       async () => {
         const digest = relayCatalogDigest(catalog);
-        await cloudDb().transaction(async (tx) => {
-          await tx.execute(
-            sql`select pg_advisory_xact_lock(hashtextextended('cmux/iroh-relay-catalog', 0))`,
-          );
+        await dbProvider().transaction(async (tx) => {
+          await lock(tx, "cmux/iroh-relay-catalog");
           const [current] = await tx
             .select()
             .from(irohRelayCatalogState)
@@ -222,7 +235,7 @@ export const RelayRepositoryLive = Layer.succeed(RelayRepository, {
     typedDbEffect(
       "getPreference",
       async () => {
-        const [row] = await cloudDb()
+        const [row] = await dbProvider()
           .select()
           .from(irohRelayPreferences)
           .where(eq(irohRelayPreferences.accountId, accountId))
@@ -242,9 +255,9 @@ export const RelayRepositoryLive = Layer.succeed(RelayRepository, {
     typedDbEffect(
       "putPreference",
       async () => {
-        return await cloudDb().transaction(async (tx) => {
+        return await dbProvider().transaction(async (tx) => {
           try {
-            await assertAccountDeletionUserMutationAllowed(tx, accountId);
+            await assertAccountDeletionUserMutationAllowed(tx, accountId, { lockMode });
           } catch (cause) {
             if (cause instanceof AccountDeletionMutationBlockedError) {
               throw new RelayAccountDeletionBlockedError({
@@ -253,9 +266,7 @@ export const RelayRepositoryLive = Layer.succeed(RelayRepository, {
             }
             throw cause;
           }
-          await tx.execute(
-            sql`select pg_advisory_xact_lock(hashtextextended(${`cmux/iroh-relay-preference/${accountId}`}, 0))`,
-          );
+          await lock(tx, `cmux/iroh-relay-preference/${accountId}`);
           const [current] = await tx
             .select()
             .from(irohRelayPreferences)
@@ -302,7 +313,13 @@ export const RelayRepositoryLive = Layer.succeed(RelayRepository, {
         tagged(cause, "RelayAccountDeletionBlockedError") ||
         tagged(cause, "RelayPreferenceConflictError"),
     ),
-});
+  };
+}
+
+export const RelayRepositoryLive = Layer.succeed(
+  RelayRepository,
+  makeRelayRepository(cloudDb, { lockMode: "hybrid" }),
+);
 
 export async function runRelayRepositoryEffect<A, E>(
   program: Effect.Effect<A, E, RelayRepository>,

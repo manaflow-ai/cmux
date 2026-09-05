@@ -61,8 +61,10 @@ export function isValidEndpointId(value: string): boolean {
 // `createPrivateKey` (not free) runs only when the configured key changes.
 let cached: { pem: string; key: KeyObject } | null = null;
 
-export function relaySigningKey(): KeyObject | null {
-  const pem = process.env.CMUX_RELAY_JWT_PRIVATE_KEY_PEM;
+export function relaySigningKey(
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+): KeyObject | null {
+  const pem = environment.CMUX_RELAY_JWT_PRIVATE_KEY_PEM;
   if (!pem || !pem.includes("BEGIN")) return null;
   if (cached && cached.pem === pem) return cached.key;
   try {

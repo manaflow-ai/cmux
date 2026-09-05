@@ -5,7 +5,11 @@
 name = "cmux-presence-dev"
 main = "src/index.ts"
 compatibility_date = "2026-05-01"
+compatibility_flags = ["nodejs_compat"]
 workers_dev = true
+
+[alias]
+"../../db/client" = "./src/hyperdriveDb.ts"
 
 [observability]
 enabled = true
@@ -15,6 +19,15 @@ enabled = true
 # control-plane DO must proxy discovery/mint upstream calls there too.
 [vars]
 CMUX_WEB_BASE_URL = "https://cmux-staging.vercel.app"
+CMUX_IROH_BACKEND_MODE = "compatibility"
+# IROH_SESSION_SIGNING_KEY is provisioned as a secret. While the compatibility
+# adapter is active, the same value must be configured on the web deployment.
+
+# A staging Hyperdrive can be attached after the production DB role is proven.
+# Keep this config in compatibility mode until that canary is complete:
+# [[hyperdrive]]
+# binding = "HYPERDRIVE"
+# id = "<staging-aurora-hyperdrive-config-id>"
 
 [[durable_objects.bindings]]
 name = "TEAM_PRESENCE"

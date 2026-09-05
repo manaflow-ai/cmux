@@ -613,7 +613,7 @@ public struct CTLMintRequestPayload: Codable, Equatable {
 /// authorizes via the bearer-authenticated socket and confirms hints by re-fetching
 /// discovery)
 // MARK: - PurpleProof
-public struct PurpleProof: Codable, Equatable {
+public struct PurpleProof: Codable, Equatable, Sendable {
     public let bindingID: String
     /// base64 Ed25519 signature by the endpoint key
     public let signature: String

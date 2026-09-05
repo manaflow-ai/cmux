@@ -78,10 +78,21 @@ public actor IrxControlPlaneClient {
     }
 
     private let configuration: Configuration
-    /// Stack token pair: the worker's upstream proxy needs BOTH the access
-    /// token (Authorization) and the refresh token (x-stack-refresh-token);
-    /// the web API's native auth rejects a bearer alone.
+    /// Legacy Stack token pair. New clients provide a session-ticket provider
+    /// and only use this pair when the configured origin predates the session
+    /// route.
     private let tokenPair: @Sendable () async throws -> (access: String, refresh: String)?
+    /// Supplies the account-scoped Cloudflare ticket for a socket upgrade.
+    /// Bootstrap and renewal are single-flighted by the broker actor.
+    private let sessionTicketProvider: (@Sendable () async throws -> String?)?
+    /// Clears the broker's cached ticket after the server rejects or revokes
+    /// it. Network failures do not call this, so transient outages cannot
+    /// turn the reconnect loop into a Stack Auth request storm.
+    private let sessionTicketInvalidator: (@Sendable () async -> Void)?
+    /// Signs the exact relay-token body for a socket mint request. The proof
+    /// is optional during cold start, when the HTTPS registration path is still
+    /// arming the retained binding authorization.
+    private let mintProofProvider: (@Sendable (_ endpointID: String) async throws -> PurpleProof?)?
     private let journal: IrxJournal
     private let handlers: Handlers
     private let cursorCache: IrxDiskCache<IrxControlPlaneCursor>
@@ -136,6 +147,47 @@ public actor IrxControlPlaneClient {
     /// that outlives that interval is a zombie WebSocket, not a healthy idle
     /// connection, so bound it and let `run()` own reconnect/backoff.
     private static let receiveTimeout: Duration = .seconds(90)
+
+    /// URLSession's WebSocket convenience initializer requires a WebSocket
+    /// scheme. The public control-plane configuration deliberately uses the
+    /// ordinary HTTPS origin shared with the HTTP broker, so translate it at
+    /// the transport boundary instead of making every caller know about the
+    /// wire scheme. Reject unrelated schemes before they reach URLSession.
+    static func webSocketURL(from url: URL) -> URL? {
+        guard var components = URLComponents(
+            url: url,
+            resolvingAgainstBaseURL: false
+        ), let rawScheme = components.scheme else {
+            return nil
+        }
+        switch rawScheme.lowercased() {
+        case "https":
+            components.scheme = "wss"
+        case "http":
+            components.scheme = "ws"
+        case "wss", "ws":
+            break
+        default:
+            return nil
+        }
+        return components.url
+    }
+
+    /// URLSession exposes an HTTP response for a rejected WebSocket upgrade,
+    /// and a policy-violation close for an already-open socket revoked by the
+    /// account DO. Only those explicit auth signals invalidate the cached
+    /// ticket. Transport errors and other policy closes keep it intact.
+    static func shouldInvalidateSessionTicket(
+        httpStatusCode: Int?,
+        closeCode: Int?,
+        closeReason: Data?
+    ) -> Bool {
+        if httpStatusCode == 401 { return true }
+        guard closeCode == URLSessionWebSocketTask.CloseCode.policyViolation.rawValue else {
+            return false
+        }
+        return closeReason.flatMap { String(data: $0, encoding: .utf8) } == "session revoked"
+    }
 
     private struct ReceiveTimeout: Error, Sendable {}
 
@@ -202,11 +254,17 @@ public actor IrxControlPlaneClient {
     public init(
         configuration: Configuration,
         tokenPair: @escaping @Sendable () async throws -> (access: String, refresh: String)?,
+        sessionTicketProvider: (@Sendable () async throws -> String?)? = nil,
+        sessionTicketInvalidator: (@Sendable () async -> Void)? = nil,
+        mintProofProvider: (@Sendable (_ endpointID: String) async throws -> PurpleProof?)? = nil,
         handlers: Handlers,
         journal: IrxJournal
     ) {
         self.configuration = configuration
         self.tokenPair = tokenPair
+        self.sessionTicketProvider = sessionTicketProvider
+        self.sessionTicketInvalidator = sessionTicketInvalidator
+        self.mintProofProvider = mintProofProvider
         self.handlers = handlers
         self.journal = journal
         decoder = Self.makeDecoder()
@@ -285,15 +343,47 @@ public actor IrxControlPlaneClient {
     }
 
     private func connectAndServe(generation: UInt64) async throws {
-        guard let tokens = try await tokenPair() else {
+        let tokens: (access: String, refresh: String)?
+        let sessionTicket: String?
+        if let sessionTicketProvider {
+            // A provider error means the already-established session could
+            // not be renewed. Do not fall back to Stack here: doing so turns a
+            // Worker outage into one Stack request per reconnect and recreates
+            // the rate-limit storm this lane is designed to remove. `nil` is
+            // the explicit compatibility signal for an origin that has no
+            // session route yet.
+            sessionTicket = try await sessionTicketProvider()
+        } else {
+            sessionTicket = nil
+        }
+        if sessionTicket == nil {
+            tokens = try await tokenPair()
+        } else {
+            tokens = nil
+        }
+        guard sessionTicket != nil || tokens != nil else {
             throw IrxConnectionError.closed(nil)
         }
         guard generation == loopGeneration, !Task.isCancelled else {
             throw CancellationError()
         }
-        var request = URLRequest(url: configuration.socketURL)
-        request.setValue("Bearer \(tokens.access)", forHTTPHeaderField: "Authorization")
-        request.setValue(tokens.refresh, forHTTPHeaderField: "x-stack-refresh-token")
+        guard let socketURL = Self.webSocketURL(from: configuration.socketURL) else {
+            journal.record(
+                "control-plane", "socket-url-invalid",
+                ["scheme": configuration.socketURL.scheme ?? "-"]
+            )
+            throw IrxConnectionError.closed(nil)
+        }
+        var request = URLRequest(url: socketURL)
+        if let sessionTicket {
+            request.setValue(
+                sessionTicket,
+                forHTTPHeaderField: "x-cmux-iroh-session-ticket"
+            )
+        } else if let tokens {
+            request.setValue("Bearer \(tokens.access)", forHTTPHeaderField: "Authorization")
+            request.setValue(tokens.refresh, forHTTPHeaderField: "x-stack-refresh-token")
+        }
         // The DO borrows this connection's identity for its upstream
         // discovery fetches; without the namespace the broker serves the
         // release-scoped view and per-tag isolation hides every dev-tagged
@@ -313,36 +403,54 @@ public actor IrxControlPlaneClient {
             }
         }
 
-        // Hello v2: the generated hello fields plus optional client info
-        // (device, platform, version, capabilities); old servers ignore the
-        // extra keys.
-        let hello = IrxCtlHelloV2(
-            endpointID: configuration.endpointIDHex,
-            haveRev: cursorCache.load()?.haveRev,
-            wantPasses: configuration.wantPasses,
-            clientInfo: configuration.clientInfo
-        )
-        let helloData = try JSONEncoder().encode(hello)
-        try await task.send(.string(String(decoding: helloData, as: UTF8.self)))
-        journal.record(
-            "control-plane", "hello-sent",
-            ["have_rev": cursorCache.load()?.haveRev.map(String.init) ?? "-"]
-        )
+        do {
+            // Hello v2: the generated hello fields plus optional client info
+            // (device, platform, version, capabilities); old servers ignore
+            // the extra keys.
+            let hello = IrxCtlHelloV2(
+                endpointID: configuration.endpointIDHex,
+                haveRev: cursorCache.load()?.haveRev,
+                wantPasses: configuration.wantPasses,
+                clientInfo: configuration.clientInfo
+            )
+            let helloData = try JSONEncoder().encode(hello)
+            try await task.send(.string(String(decoding: helloData, as: UTF8.self)))
+            journal.record(
+                "control-plane", "hello-sent",
+                ["have_rev": cursorCache.load()?.haveRev.map(String.init) ?? "-"]
+            )
 
-        while !Task.isCancelled && generation == loopGeneration {
-            let message = try await receive(from: task)
-            guard generation == loopGeneration, socket === task else { return }
-            // Record transport activity before consumer handlers run. The
-            // exact generation/socket guard prevents an old receive loop from
-            // refreshing the replacement's liveness.
-            lastActivityAt = .now
-            let data: Data
-            switch message {
-            case .string(let text): data = Data(text.utf8)
-            case .data(let raw): data = raw
-            @unknown default: continue
+            while !Task.isCancelled && generation == loopGeneration {
+                let message = try await receive(from: task)
+                guard generation == loopGeneration, socket === task else { return }
+                // Record transport activity before consumer handlers run. The
+                // exact generation/socket guard prevents an old receive loop
+                // from refreshing the replacement's liveness.
+                lastActivityAt = .now
+                let data: Data
+                switch message {
+                case .string(let text): data = Data(text.utf8)
+                case .data(let raw): data = raw
+                @unknown default: continue
+                }
+                await route(data, generation: generation, socket: task)
             }
-            await route(data, generation: generation, socket: task)
+        } catch {
+            let responseStatus = (task.response as? HTTPURLResponse)?.statusCode
+            if sessionTicket != nil,
+               Self.shouldInvalidateSessionTicket(
+                   httpStatusCode: responseStatus,
+                   closeCode: task.closeCode.rawValue,
+                   closeReason: task.closeReason
+               ) {
+                await sessionTicketInvalidator?()
+                journal.record(
+                    "control-plane", "session-ticket-invalidated",
+                    ["status": responseStatus.map(String.init) ?? "-",
+                     "close": String(task.closeCode.rawValue)]
+                )
+            }
+            throw error
         }
     }
 
@@ -600,10 +708,11 @@ public actor IrxControlPlaneClient {
     /// relay_passes fact; the HTTPS autopilot stays as the fallback minter.
     public func requestMint() async {
         guard let socket else { return }
+        let proof = try? await mintProofProvider?(configuration.endpointIDHex)
         let frame = CTLMintRequest(
             payload: CTLMintRequestPayload(
                 endpointID: configuration.endpointIDHex,
-                proof: nil
+                proof: proof ?? nil
             ),
             type: .mintRequest,
             v: 1

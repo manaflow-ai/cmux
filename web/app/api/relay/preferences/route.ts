@@ -28,6 +28,7 @@ import {
   type AuthedUser,
 } from "../../../../services/vms/auth";
 import { relayAuthenticationError } from "../../../../services/relay/errors";
+import { verifyIrohSessionRequest } from "../../../../services/iroh/sessionAuth";
 
 
 const MAX_BODY_BYTES = 32 * 1_024;
@@ -66,10 +67,39 @@ async function authenticatedAccount(
   deps: RelayPreferenceDeps,
 ): Promise<AuthedUser | Response> {
   let user: AuthedUser | null;
-  try {
-    user = await deps.verifyRequest(request);
-  } catch (error) {
-    throw relayAuthenticationError(error);
+  const session = verifyIrohSessionRequest(request);
+  if (session.ok) {
+    // The ticket is already account-authenticated, but its namespace is still
+    // an authorization claim and must not be replaced by a caller header.
+    const requestedNamespace = request.headers.get("x-cmux-app-namespace") ?? "legacy";
+    if (session.identity.clientNamespace
+      && session.identity.clientNamespace !== requestedNamespace) {
+      return jsonResponse({ error: "client_namespace_mismatch" }, 403);
+    }
+    user = {
+      id: session.identity.accountId,
+      displayName: null,
+      primaryEmail: null,
+      billingCustomerType: "user",
+      billingTeamId: session.identity.accountId,
+      selectedTeamId: null,
+      teams: [],
+      teamIds: [],
+      userBillingPlanId: null,
+      billingPlanId: null,
+      billingSeats: null,
+    };
+  } else if (session.error !== "missing") {
+    return jsonResponse(
+      { error: session.error === "not_configured" ? "iroh_session_not_configured" : "iroh_session_invalid" },
+      session.error === "not_configured" ? 503 : 401,
+    );
+  } else {
+    try {
+      user = await deps.verifyRequest(request);
+    } catch (error) {
+      throw relayAuthenticationError(error);
+    }
   }
   if (!user) return unauthorized();
   await runRelayEffect(enforceRelayRateLimit({

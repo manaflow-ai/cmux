@@ -1,24 +1,7 @@
-import * as Context from "effect/Context";
-import * as Layer from "effect/Layer";
 import { env } from "../../app/env";
+import { configLayer, IrohTrustBrokerConfig, type IrohTrustBrokerConfigShape } from "./configCore";
 
-export type IrohTrustBrokerConfigShape = {
-  readonly lanDiscoverySecretBase64?: string;
-  readonly accountSubjectSecretBase64?: string;
-  readonly grantSigningPrivateKeyPem?: string;
-  readonly grantSigningKid?: string;
-  readonly grantVerificationKeysJson?: string;
-  readonly relayMinterUrl?: string;
-  readonly relayMinterHmacSecretBase64?: string;
-  readonly relayMinterInsecureLoopbackOptIn: boolean;
-  readonly deploymentEnvironment: string;
-  readonly isVercelDeployment: boolean;
-};
-
-export class IrohTrustBrokerConfig extends Context.Tag("cmux/IrohTrustBrokerConfig")<
-  IrohTrustBrokerConfig,
-  IrohTrustBrokerConfigShape
->() {}
+export { IrohTrustBrokerConfig, type IrohTrustBrokerConfigShape } from "./configCore";
 
 export function irohTrustBrokerConfigFromEnv(): IrohTrustBrokerConfigShape {
   return {
@@ -36,8 +19,4 @@ export function irohTrustBrokerConfigFromEnv(): IrohTrustBrokerConfigShape {
   };
 }
 
-export const IrohTrustBrokerConfigLive = Layer.succeed(
-  IrohTrustBrokerConfig,
-  irohTrustBrokerConfigFromEnv(),
-);
-
+export const IrohTrustBrokerConfigLive = configLayer(irohTrustBrokerConfigFromEnv());

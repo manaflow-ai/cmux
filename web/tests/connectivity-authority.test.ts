@@ -117,6 +117,32 @@ describe("Connectivity authority", () => {
     expect(completeCalls).toBe(1);
   });
 
+  test("forwards the endpoint binding proof to complete discovery", async () => {
+    let receivedProof: unknown;
+    const authority = makeConnectivityAuthority({
+      discoverComplete: (_userId, _now, _namespace, proof) => {
+        receivedProof = proof;
+        return Effect.succeed(snapshot);
+      },
+      discoverScoped: () => Effect.succeed(snapshot),
+    });
+    const proof = {
+      bindingId: "123e4567-e89b-42d3-a456-426614174000",
+      method: "POST",
+      path: "api/connectivity/v2/sync",
+      timestampSeconds: 1_700_000_000,
+      bodySha256: "a".repeat(64),
+      signature: "A".repeat(86),
+    };
+
+    await Effect.runPromise(authority.sync("user-a", {
+      protocol_version: 2,
+      known_revision: null,
+    }, new Date(), "bundle", proof));
+
+    expect(receivedProof).toEqual(proof);
+  });
+
   test("omits an unchanged snapshot and identifies backend revision reset", async () => {
     const authority = makeConnectivityAuthority(snapshotBroker());
 
@@ -217,6 +243,120 @@ describe("Connectivity authority", () => {
       revision: 7,
       changed: true,
     });
+  });
+
+  test("parses and forwards a binding proof from the sync request body", async () => {
+    let receivedProof: unknown;
+    const authority = {
+      sync: (_userId: string, _raw: unknown, _now?: Date, _namespace?: string, proof?: unknown) => {
+        receivedProof = proof;
+        return Effect.succeed({
+          protocol_version: 2 as const,
+          revision: 7,
+          changed: false,
+          reset: false,
+        });
+      },
+      syncScoped: () => Effect.die(new Error("unexpected scoped sync")),
+    };
+    const response = await handleConnectivitySync(new Request(
+      "https://cmux.test/api/connectivity/v2/sync",
+      {
+        method: "POST",
+        headers: {
+          authorization: "Bearer test-access",
+          "content-type": "application/json",
+          "x-cmux-app-namespace": "bundle",
+          "x-cmux-iroh-binding-id": "123e4567-e89b-42d3-a456-426614174000",
+          "x-cmux-iroh-request-time": "1700000000",
+          "x-cmux-iroh-request-signature": "A".repeat(86),
+        },
+        body: JSON.stringify({ protocol_version: 2, known_revision: null }),
+      },
+    ), { verify: async () => USER, authority });
+
+    expect(response.status).toBe(200);
+    expect(receivedProof).toMatchObject({
+      bindingId: "123e4567-e89b-42d3-a456-426614174000",
+      method: "POST",
+      path: "api/connectivity/v2/sync",
+      timestampSeconds: 1_700_000_000,
+      signature: "A".repeat(86),
+    });
+    expect((receivedProof as { bodySha256: string }).bodySha256).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  test("uses a valid Iroh session ticket without invoking Stack auth", async () => {
+    let stackCalls = 0;
+    const authority = makeConnectivityAuthority(snapshotBroker());
+    const response = await handleConnectivitySync(syncRequest(null), {
+      verify: async () => {
+        stackCalls += 1;
+        return USER;
+      },
+      verifySession: () => ({
+        ok: true,
+        identity: {
+          accountId: USER.id,
+          sessionId: "session-1",
+          epoch: 0,
+          issuedAt: 1,
+          expiresAt: 2_000_000_000,
+          renewAt: 1_500_000_000,
+          scope: "iroh.control.v1" as const,
+        },
+      }),
+      authority,
+    });
+
+    expect(response.status).toBe(200);
+    expect(stackCalls).toBe(0);
+  });
+
+  test("binds a session ticket to the requested app namespace", async () => {
+    let authorityCalled = false;
+    const response = await handleConnectivitySync(new Request(
+      "https://cmux.test/api/connectivity/v2/sync",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-cmux-app-namespace": "other.app",
+        },
+        body: JSON.stringify({ protocol_version: 2, known_revision: null }),
+      },
+    ), {
+      verify: async () => USER,
+      verifySession: () => ({
+        ok: true,
+        identity: {
+          accountId: USER.id,
+          sessionId: "session-namespaced",
+          epoch: 0,
+          issuedAt: 1,
+          expiresAt: 2_000_000_000,
+          renewAt: 1_500_000_000,
+          scope: "iroh.control.v1" as const,
+          clientNamespace: "com.cmux.app",
+        },
+      }),
+      authority: {
+        sync: () => {
+          authorityCalled = true;
+          return Effect.succeed({
+            protocol_version: 2 as const,
+            revision: 0,
+            changed: false,
+            reset: false,
+          });
+        },
+        syncScoped: () => Effect.die(new Error("unexpected scoped sync")),
+      },
+    });
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: "client_namespace_mismatch" });
+    expect(authorityCalled).toBe(false);
   });
 
   test("rejects malformed and oversized sync requests before authority work", async () => {

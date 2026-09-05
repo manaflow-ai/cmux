@@ -22,6 +22,33 @@ struct IrxCtlListAuthWireTests {
         return decoder
     }()
 
+    @Test func webSocketURLConvertsHTTPSOriginAtTheTransportBoundary() throws {
+        let https = try #require(URL(string: "https://presence.example/v1/control/socket"))
+        let http = try #require(URL(string: "http://127.0.0.1:8787/v1/control/socket"))
+        let wss = try #require(URL(string: "wss://presence.example/v1/control/socket"))
+        let ftp = try #require(URL(string: "ftp://presence.example/v1/control/socket"))
+
+        #expect(IrxControlPlaneClient.webSocketURL(from: https)?.scheme == "wss")
+        #expect(IrxControlPlaneClient.webSocketURL(from: http)?.scheme == "ws")
+        #expect(IrxControlPlaneClient.webSocketURL(from: wss)?.scheme == "wss")
+        #expect(IrxControlPlaneClient.webSocketURL(from: ftp) == nil)
+    }
+
+    @Test func sessionTicketInvalidationOnlyFollowsExplicitAuthSignals() {
+        #expect(IrxControlPlaneClient.shouldInvalidateSessionTicket(
+            httpStatusCode: 401, closeCode: nil, closeReason: nil))
+        #expect(IrxControlPlaneClient.shouldInvalidateSessionTicket(
+            httpStatusCode: nil,
+            closeCode: 1008,
+            closeReason: Data("session revoked".utf8)))
+        #expect(!IrxControlPlaneClient.shouldInvalidateSessionTicket(
+            httpStatusCode: 503, closeCode: nil, closeReason: nil))
+        #expect(!IrxControlPlaneClient.shouldInvalidateSessionTicket(
+            httpStatusCode: nil,
+            closeCode: 1008,
+            closeReason: Data("other policy".utf8)))
+    }
+
     @Test func ackFrameShape() throws {
         let data = try IrxControlPlaneClient.encodedAck(
             rev: 42, appliedAt: Date(timeIntervalSince1970: 1_787_000_000))

@@ -9,11 +9,15 @@ import { enforceBrowserMutationProtection, jsonResponse } from "../vms/routeHelp
 import { irohExpectedError } from "./errors";
 import {
   IrohTrustBroker,
-  IrohTrustBrokerRuntime,
   type IrohTrustBrokerShape,
 } from "./trustBroker";
+import { IrohTrustBrokerRuntime } from "./trustBrokerRuntime";
 import type { IrohBindingRequestProof } from "./crypto";
 import { parseIrohDiscoveryRequest } from "./discoveryPagination";
+import {
+  verifyIrohSessionRequest,
+  type IrohSessionIdentity,
+} from "./sessionAuth";
 
 const MAX_BODY_BYTES = 64 * 1_024;
 const INVALIDATION_TIMEOUT_MS = 750;
@@ -48,17 +52,48 @@ export async function handleIrohRoute(
   operation: IrohRouteOperation,
   dependencies: RouteDependencies = {},
 ): Promise<Response> {
-  // Identity only: the broker needs the user id, and local token verification
-  // keeps the ~100 req/s registration traffic off Stack's per-request API
-  // budget. Pair grants, revocation, and relay tokens are rare and sensitive,
-  // so they still ask Stack and refuse a revoked session immediately.
+  // A Cloudflare-issued session ticket is the normal path. It is verified
+  // locally and carries the already-authenticated account id, so ordinary
+  // Iroh requests never spend another Stack call. A present-but-invalid ticket
+  // fails closed instead of falling through to a different auth mechanism.
+  const session = verifyIrohSessionRequest(request);
+  if (session.ok) {
+    return handleIrohRouteWithIdentity(request, operation, {
+      ...dependencies,
+      verifiedUserID: session.identity.accountId,
+      verifiedSession: session.identity,
+    });
+  }
+  if (session.error !== "missing") {
+    return jsonResponse(
+      { error: session.error === "not_configured" ? "iroh_session_not_configured" : "iroh_session_invalid" },
+      session.error === "not_configured" ? 503 : 401,
+    );
+  }
+  return handleIrohRouteWithIdentity(request, operation, dependencies);
+}
+
+// oxlint-disable-next-line complexity -- The compatibility handler preserves the security-check and body-validation order for every Iroh operation.
+async function handleIrohRouteWithIdentity(
+  request: Request,
+  operation: IrohRouteOperation,
+  dependencies: RouteDependencies & {
+    readonly verifiedUserID?: string;
+    readonly verifiedSession?: IrohSessionIdentity;
+  } = {},
+): Promise<Response> {
+  // A ticket-authenticated request is authorized by local signature, expiry,
+  // endpoint proof, and database state, so it makes no Stack call. The Stack
+  // requirement below applies only to legacy requests without a session ticket.
   const verify = dependencies.verify ?? verifyRequestIdentity;
   let user: { readonly id: string } | null;
   try {
-    user = await verify(request, {
-      allowCookie: false,
-      requireStackSession: requiresStackSession(operation),
-    });
+    user = dependencies.verifiedUserID
+      ? { id: dependencies.verifiedUserID }
+      : await verify(request, {
+        allowCookie: false,
+        requireStackSession: requiresStackSession(operation),
+      });
   } catch (error) {
     // A Stack Auth throttle or outage is not the caller's fault. Answering 401
     // told every host that its credentials were rejected, and the irx host
@@ -71,6 +106,10 @@ export async function handleIrohRoute(
   const clientNamespace = request.headers.get("x-cmux-app-namespace") ?? "legacy";
   if (!/^[A-Za-z0-9._:-]{1,255}$/.test(clientNamespace)) {
     return jsonResponse({ error: "invalid_client_namespace" }, 400);
+  }
+  if (dependencies.verifiedSession?.clientNamespace
+    && dependencies.verifiedSession.clientNamespace !== clientNamespace) {
+    return jsonResponse({ error: "client_namespace_mismatch" }, 403);
   }
 
   if (operation !== "discover") {
@@ -104,6 +143,7 @@ export async function handleIrohRoute(
           bodyResult.value,
           clientNamespace,
           bindingProof,
+          Boolean(dependencies.verifiedSession),
         ),
       )
       : await Effect.runPromise(
@@ -116,6 +156,7 @@ export async function handleIrohRoute(
             bodyResult.value,
             clientNamespace,
             bindingProof,
+            Boolean(dependencies.verifiedSession),
           );
         }).pipe(Effect.provide(dependencies.runtime ?? IrohTrustBrokerRuntime)),
       );
@@ -152,6 +193,7 @@ export async function handleIrohRoute(
     return jsonResponse({ error: "iroh_internal_error" }, 500);
   }
 }
+
 
 function mutationRevision(
   operation: IrohRouteOperation,
@@ -231,6 +273,7 @@ function invoke(
   body: unknown,
   clientNamespace: string,
   bindingProof: IrohBindingRequestProof | undefined,
+  accountSessionTrusted: boolean,
 ) {
   switch (operation) {
     case "challenge":
@@ -244,6 +287,7 @@ function invoke(
         body,
         clientNamespace,
         bindingProof,
+        accountSessionTrusted,
       );
     case "endpoint_attestation":
       return broker.issueEndpointAttestation(userId, body, undefined, clientNamespace, bindingProof);

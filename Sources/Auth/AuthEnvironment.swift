@@ -392,7 +392,7 @@ enum AuthEnvironment {
                 environment: environment,
                 isDebugBuild: debugBuild
             ) == .production {
-            return validatedIrohBrokerURL("https://cmux.com")
+            return validatedIrohBrokerURL("https://presence.cmux.dev")
         }
         if let overridden = environment["CMUX_IROH_BROKER_BASE_URL"]?
            .trimmingCharacters(in: .whitespacesAndNewlines),
@@ -422,7 +422,7 @@ enum AuthEnvironment {
                 environment: environment,
                 isDebugBuild: isDebugBuild
             ) == .production {
-            return validatedIrohBrokerURL("https://cmux.com")
+            return validatedIrohBrokerURL("https://presence.cmux.dev")
         }
         if let explicit = environment["CMUX_IROH_BROKER_BASE_URL"]?
             .trimmingCharacters(in: .whitespacesAndNewlines),
@@ -430,8 +430,8 @@ enum AuthEnvironment {
             return validatedIrohBrokerURL(explicit)
         }
         let fallback = isDebugBuild
-            ? "https://cmux-staging.vercel.app"
-            : "https://cmux.com"
+            ? "https://cmux-presence-dev.debussy.workers.dev"
+            : "https://presence.cmux.dev"
         return validatedIrohBrokerURL(fallback)
     }
 

@@ -18,11 +18,11 @@
 //   GET  /v1/replies?macDeviceId=…        pending replies for one Mac
 //   POST /v1/replies/ack                  remove processed replies
 //
-// Auth on every /v1 route: `Authorization: Bearer <Stack access token>` plus
-// optional `X-Cmux-Team-Id` / `?teamId=` team scoping, verified in auth.ts the
-// same way web/app/api verifies native callers. The worker resolves the team,
-// derives the per-team Durable Object from the VERIFIED team id, and forwards;
-// the DO never sees unauthenticated input.
+// Legacy presence and backup routes use `Authorization: Bearer <Stack access
+// token>` plus optional team scoping. Current Iroh control routes bootstrap
+// once with that bearer, then use a signed session ticket at the edge and the
+// account Durable Object for every ordinary request. The DO never sees
+// unauthenticated input.
 
 import {
   bearerToken,
@@ -30,6 +30,7 @@ import {
   requestedTeamIdFromRequest,
   resolveTeamId,
   tokenExpiryMs,
+  verifyIdentityRequest,
   verifyRequest,
   type AuthedUser,
   type AuthEnv,
@@ -51,13 +52,22 @@ import {
   parsePhoneReplyAck,
 } from "./replies";
 import { captureSentryException } from "./sentry";
-
+import {
+  IROH_SESSION_TICKET_HEADER,
+  parseIrohSessionClientContext,
+  sessionClientContextFromClaims,
+  sessionClientNamespaceMatches,
+  sessionTicketFromRequest,
+  verifyIrohSessionTicket,
+  type IrohSessionVerification,
+} from "./irohSession";
 export { TeamPresence, AccountControlPlane };
 
 export interface Env extends AuthEnv, ControlPlaneEnv {
   TEAM_PRESENCE: DurableObjectNamespace<TeamPresence>;
   ACCOUNT_CONTROL_PLANE: DurableObjectNamespace<AccountControlPlane>;
   CONNECTIVITY_INVALIDATION_SECRET?: string;
+  IROH_SESSION_SIGNING_KEY?: string;
 }
 
 function json(body: unknown, status = 200): Response {
@@ -69,6 +79,109 @@ function json(body: unknown, status = 200): Response {
 
 function unauthorized(): Response {
   return json({ error: "unauthorized" }, 401);
+}
+
+function sessionVerificationError(
+  error: Extract<IrohSessionVerification, { readonly ok: false }>["error"],
+): Response {
+  // Configuration state is an operator concern, not an authentication detail
+  // for callers. Keep the retryable 503 distinct while using the normal
+  // session error vocabulary for malformed or expired tickets.
+  return error === "not_configured"
+    ? json({ error: "session_unavailable" }, 503)
+    : json({ error: `session_${error}` }, 401);
+}
+
+const IROH_CONTROL_PATHS = new Map<string, ReadonlySet<string>>([
+  ["/api/devices/iroh", new Set(["GET", "DELETE"])],
+  ["/api/devices/iroh/challenge", new Set(["POST"])],
+  ["/api/devices/iroh/register", new Set(["POST"])],
+  ["/api/devices/iroh/pair-grants", new Set(["POST"])],
+  ["/api/devices/iroh/endpoint-attestations", new Set(["POST"])],
+  ["/api/devices/iroh/relay-token", new Set(["POST"])],
+  ["/api/relay/token", new Set(["POST"])],
+  ["/api/relay/preferences", new Set(["GET", "PUT"])],
+  ["/api/connectivity/v2/sync", new Set(["POST"])],
+  ["/api/connectivity/v3/sync", new Set(["POST"])],
+]);
+
+function accountControlStub(env: Env, accountId: string): DurableObjectStub<AccountControlPlane> {
+  return env.ACCOUNT_CONTROL_PLANE.get(
+    env.ACCOUNT_CONTROL_PLANE.idFromName(`control:user:${accountId}`),
+  );
+}
+
+/** Upgrade a pre-session client at the edge. This path is only for old app
+ * builds that still send Stack credentials on every Iroh request. Stack is
+ * still verified (through the short identity cache), then the account DO
+ * mints the same local ticket used by current clients. The credentials are
+ * removed before the request enters the DO, so even the compatibility lane
+ * has one authorization authority and direct mode does not need Stack tokens.
+ */
+async function upgradeLegacyIrohRequest(
+  env: Env,
+  accountId: string,
+  requestId: string,
+): Promise<string | Response> {
+  const headers = new Headers();
+  headers.set("x-control-account-id", accountId);
+  headers.set("content-type", "application/json");
+  headers.set("x-cmux-request-id", requestId);
+  const opened = await accountControlStub(env, accountId).fetch(new Request(
+    "https://cmux.internal/_internal/iroh/session/open",
+    { method: "POST", headers, body: "{}" },
+  ));
+  if (!opened.ok) return opened;
+  let payload: unknown;
+  try {
+    payload = await opened.json();
+  } catch {
+    return json({ error: "session_invalid_response" }, 503);
+  }
+  if (typeof payload !== "object" || payload === null || Array.isArray(payload)
+    || typeof (payload as { ticket?: unknown }).ticket !== "string") {
+    return json({ error: "session_invalid_response" }, 503);
+  }
+  return (payload as { ticket: string }).ticket;
+}
+
+function requestID(request: Request): string {
+  const supplied = request.headers.get("x-cmux-request-id")?.trim();
+  return supplied && /^[A-Za-z0-9._:-]{1,128}$/.test(supplied)
+    ? supplied
+    : crypto.randomUUID();
+}
+
+function validSessionOpenBody(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  // Keep the public bootstrap parser identical to the DO's internal renewal
+  // parser. A partial client context is ambiguous and must not mint a ticket
+  // whose namespace/account binding is weaker than the advertised contract.
+  return parseIrohSessionClientContext(value) !== null;
+}
+
+async function readSessionOpenBody(request: Request): Promise<Record<string, unknown> | null> {
+  const length = request.headers.get("content-length");
+  if (length !== null && (!/^\d+$/.test(length) || Number(length) > 8 * 1_024)) return null;
+  const bytes = new Uint8Array(await request.arrayBuffer());
+  if (bytes.byteLength > 8 * 1_024) return null;
+  try {
+    const value: unknown = JSON.parse(new TextDecoder().decode(bytes));
+    return validSessionOpenBody(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+const MAX_IROH_CONTROL_BODY_BYTES = 64 * 1_024;
+
+async function readIrohControlBody(request: Request): Promise<ArrayBuffer | null> {
+  const length = request.headers.get("content-length");
+  if (length !== null && (!/^\d+$/.test(length) || Number(length) > MAX_IROH_CONTROL_BODY_BYTES)) {
+    return null;
+  }
+  const bytes = await request.arrayBuffer();
+  return bytes.byteLength <= MAX_IROH_CONTROL_BODY_BYTES ? bytes : null;
 }
 
 /** The account-scoped connectivity DO: one instance per Stack user, owning the
@@ -99,6 +212,116 @@ const worker = {
 
     if (url.pathname === "/healthz") {
       return json({ ok: true, service: "cmux-presence" });
+    }
+
+    // Iroh session bootstrap is the one control-plane request that carries a
+    // Stack bearer. Identity-only verification deliberately does not resolve
+    // team membership: Iroh state is scoped to the personal Stack user.
+    if (url.pathname === "/v1/iroh/session") {
+      if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
+      const user = await verifyIdentityRequest(request, env);
+      if (!user) return unauthorized();
+      const body = await readSessionOpenBody(request);
+      if (body === null) return json({ error: "invalid_request" }, 400);
+      const headers = new Headers();
+      headers.set("x-control-account-id", user.id);
+      headers.set("content-type", "application/json");
+      headers.set("x-cmux-request-id", requestID(request));
+      return accountControlStub(env, user.id).fetch(new Request(
+        "https://cmux.internal/_internal/iroh/session/open",
+        { method: "POST", headers, body: JSON.stringify(body) },
+      ));
+    }
+
+    if (url.pathname === "/v1/iroh/session/renew") {
+      if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
+      const ticket = sessionTicketFromRequest(request);
+      if (!ticket) return json({ error: "session_required" }, 401);
+      // Renewal is ticket-only. The existing signed ticket and the account DO
+      // epoch are the proof of the already-authenticated session; requiring a
+      // second Stack request here would reintroduce the reconnect storm this
+      // endpoint is meant to eliminate. A ticket that has expired must use the
+      // bootstrap route, which performs the one Stack identity check.
+      const ticketVerification = await verifyIrohSessionTicket(
+        env.IROH_SESSION_SIGNING_KEY,
+        ticket,
+        Date.now(),
+      );
+      if (!ticketVerification.ok) return sessionVerificationError(ticketVerification.error);
+      const headers = new Headers();
+      headers.set("x-control-account-id", ticketVerification.claims.accountId);
+      headers.set(IROH_SESSION_TICKET_HEADER, ticket);
+      if (ticketVerification.claims.clientNamespace) {
+        headers.set("x-cmux-app-namespace", ticketVerification.claims.clientNamespace);
+      }
+      headers.set("x-cmux-request-id", requestID(request));
+      return accountControlStub(env, ticketVerification.claims.accountId).fetch(new Request(
+        "https://cmux.internal/_internal/iroh/session/renew",
+        { method: "POST", headers },
+      ));
+    }
+
+    if (url.pathname === "/v1/iroh/session/revoke-all") {
+      if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
+      const user = await verifyIdentityRequest(request, env);
+      if (!user) return unauthorized();
+      const headers = new Headers();
+      headers.set("x-control-account-id", user.id);
+      headers.set("x-cmux-request-id", requestID(request));
+      return accountControlStub(env, user.id).fetch(new Request(
+        "https://cmux.internal/_internal/iroh/session/revoke-all",
+        { method: "POST", headers },
+      ));
+    }
+
+    // All Iroh HTTP control operations share the same account DO. The edge
+    // verifies only the ticket signature and derives the object id from its
+    // claims, so ordinary challenge/discovery/mint traffic never calls Stack.
+    const irohMethods = IROH_CONTROL_PATHS.get(url.pathname);
+    if (irohMethods) {
+      if (!irohMethods.has(request.method)) return json({ error: "method_not_allowed" }, 405);
+      let ticket = sessionTicketFromRequest(request);
+      let accountId: string;
+      if (ticket) {
+        const verification = await verifyIrohSessionTicket(
+          env.IROH_SESSION_SIGNING_KEY,
+          ticket,
+          Date.now(),
+        );
+        if (!verification.ok) {
+          return sessionVerificationError(verification.error);
+        }
+        accountId = verification.claims.accountId;
+      } else {
+        // Pre-session app builds are upgraded once at the edge. A present but
+        // invalid ticket never falls through to this branch, so an attacker
+        // cannot turn a malformed bearer into a different auth mechanism.
+        const user = await verifyIdentityRequest(request, env);
+        if (!user) return unauthorized();
+        accountId = user.id;
+        const upgraded = await upgradeLegacyIrohRequest(env, accountId, requestID(request));
+        if (upgraded instanceof Response) return upgraded;
+        ticket = upgraded;
+      }
+      if (!ticket) return json({ error: "session_required" }, 401);
+      const headers = new Headers(request.headers);
+      // These are deliberately rebuilt rather than forwarded. A caller cannot
+      // choose an account id or smuggle a Stack credential into the DO.
+      headers.delete("authorization");
+      headers.delete("x-stack-refresh-token");
+      headers.delete("cookie");
+      headers.set("x-control-account-id", accountId);
+      headers.set(IROH_SESSION_TICKET_HEADER, ticket);
+      headers.set("x-cmux-request-id", requestID(request));
+      const init: RequestInit = { method: request.method, headers };
+      if (request.method !== "GET" && request.method !== "HEAD") {
+        const body = await readIrohControlBody(request);
+        if (body === null) return json({ error: "request_too_large" }, 413);
+        init.body = body;
+      }
+      return accountControlStub(env, accountId).fetch(
+        new Request(request.url, init),
+      );
     }
 
     if (url.pathname === "/v1/connectivity/subscribe") {
@@ -134,13 +357,34 @@ const worker = {
       if (namespace && !/^[A-Za-z0-9._:-]{1,255}$/.test(namespace)) {
         return json({ error: "invalid_client_namespace" }, 400);
       }
-      const user = await verifyRequest(request, env);
-      if (!user) return unauthorized();
       const headers = new Headers(request.headers);
-      headers.set("x-control-account-id", user.id);
-      const stub = env.ACCOUNT_CONTROL_PLANE.get(
-        env.ACCOUNT_CONTROL_PLANE.idFromName(`control:user:${user.id}`),
-      );
+      const ticket = sessionTicketFromRequest(request);
+      let accountId: string;
+      if (ticket) {
+        const verified = await verifyIrohSessionTicket(
+          env.IROH_SESSION_SIGNING_KEY,
+          ticket,
+          Date.now(),
+        );
+        if (!verified.ok) return sessionVerificationError(verified.error);
+        accountId = verified.claims.accountId;
+        const context = sessionClientContextFromClaims(verified.claims);
+        if (!sessionClientNamespaceMatches(context, namespace)) {
+          return json({ error: "client_namespace_mismatch" }, 403);
+        }
+        headers.delete("authorization");
+        headers.delete("x-stack-refresh-token");
+        headers.delete("cookie");
+        headers.set(IROH_SESSION_TICKET_HEADER, ticket);
+      } else {
+        // Compatibility path for pre-session clients. New clients never take
+        // this branch after their bootstrap succeeds.
+        const user = await verifyRequest(request, env);
+        if (!user) return unauthorized();
+        accountId = user.id;
+      }
+      headers.set("x-control-account-id", accountId);
+      const stub = accountControlStub(env, accountId);
       return stub.fetch(new Request(request.url, { method: "GET", headers }));
     }
 

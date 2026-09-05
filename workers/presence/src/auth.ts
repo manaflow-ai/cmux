@@ -49,6 +49,10 @@ interface CacheEntry {
 // Isolate-global; resets whenever the isolate is recycled, which only costs an
 // extra Stack round trip.
 const authCache = new Map<string, CacheEntry>();
+/** Identity-only cache used by the Iroh session bootstrap.  It deliberately
+ * avoids the membership-list request: the account Durable Object is keyed by
+ * the verified Stack user id, so team resolution is unnecessary on this path. */
+const identityCache = new Map<string, CacheEntry>();
 
 /** Cache deadline for a verified token: short TTL, never past the token's own
  * expiry. Pure for tests. */
@@ -147,12 +151,30 @@ function stackHeaders(env: AuthEnv, accessToken: string): Record<string, string>
   };
 }
 
-async function fetchStackUser(env: AuthEnv, accessToken: string): Promise<AuthedUser | null> {
+async function fetchStackUser(
+  env: AuthEnv,
+  accessToken: string,
+  includeTeams = true,
+): Promise<AuthedUser | null> {
   const apiUrl = (env.STACK_API_URL ?? "https://api.stack-auth.com").replace(/\/$/, "");
   const headers = stackHeaders(env, accessToken);
 
   const meResponse = await fetch(`${apiUrl}/api/v1/users/me`, { headers });
-  if (!meResponse.ok) return null;
+  if (!meResponse.ok) {
+    // Keep the token out of logs, but leave an attributable status for Worker
+    // tails/Sentry when a Stack project key or access token drifts.
+    const failureBody = await meResponse.clone().json().catch(() => null) as {
+      code?: unknown;
+      error?: unknown;
+    } | null;
+    console.warn("stack identity verification rejected", {
+      endpoint: "users/me",
+      status: meResponse.status,
+      code: typeof failureBody?.code === "string" ? failureBody.code.slice(0, 100) : undefined,
+      error: typeof failureBody?.error === "string" ? failureBody.error.slice(0, 100) : undefined,
+    });
+    return null;
+  }
   const me = (await meResponse.json()) as {
     id?: unknown;
     selected_team_id?: unknown;
@@ -167,10 +189,20 @@ async function fetchStackUser(env: AuthEnv, accessToken: string): Promise<Authed
         ? me.selected_team.id
         : null;
 
+  if (!includeTeams) {
+    return { id: userId, selectedTeamId, teamIds: [] };
+  }
+
   // Membership list, equivalent to the web side's `user.listTeams()`. A
   // failure here fails closed (no cross-team access on a partial view).
   const teamsResponse = await fetch(`${apiUrl}/api/v1/teams?user_id=me`, { headers });
-  if (!teamsResponse.ok) return null;
+  if (!teamsResponse.ok) {
+    console.warn("stack team verification rejected", {
+      endpoint: "teams",
+      status: teamsResponse.status,
+    });
+    return null;
+  }
   const teams = (await teamsResponse.json()) as { items?: unknown };
   const teamIds = Array.isArray(teams.items)
     ? [
@@ -183,6 +215,43 @@ async function fetchStackUser(env: AuthEnv, accessToken: string): Promise<Authed
     : [];
 
   return { id: userId, selectedTeamId, teamIds };
+}
+
+/**
+ * Verify only the Stack identity needed to open an account-scoped Iroh
+ * session.  This intentionally performs one `/users/me` call rather than the
+ * `/users/me` + `/teams` pair used by team-scoped presence routes.  Results are
+ * cached with the same expiry fence as full auth, so a reconnect or a ticket
+ * renewal does not turn into a Stack request storm.
+ */
+export async function verifyIdentityRequest(
+  request: Request,
+  env: AuthEnv,
+): Promise<AuthedUser | null> {
+  if (!env.STACK_PROJECT_ID || !env.STACK_PUBLISHABLE_CLIENT_KEY) return null;
+  const token = bearerToken(request);
+  if (!token) return null;
+
+  const now = Date.now();
+  const expMs = tokenExpiryMs(token);
+  if (expMs !== null && expMs <= now) return null;
+  const cacheKey = await sha256Hex(token);
+  const cached = identityCache.get(cacheKey);
+  if (cached && cached.expiresAt > now) return cached.user;
+  identityCache.delete(cacheKey);
+
+  const user = await fetchStackUser(env, token, false);
+  if (identityCache.size >= AUTH_CACHE_MAX_ENTRIES) {
+    const oldest = identityCache.keys().next().value;
+    if (oldest !== undefined) identityCache.delete(oldest);
+  }
+  const expiresAt = user
+    ? cacheDeadline(now, expMs)
+    : expMs === null
+      ? now + AUTH_NEGATIVE_CACHE_TTL_MS
+      : Math.min(now + AUTH_NEGATIVE_CACHE_TTL_MS, expMs);
+  identityCache.set(cacheKey, { user, expiresAt });
+  return user;
 }
 
 /** Verify the caller. Returns the resolved user or null when unauthenticated
