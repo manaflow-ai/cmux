@@ -654,6 +654,7 @@ public actor AppLog {
         self.supplementalAppLogURLs = supplementalAppLogURLs
         self.flushSupplementalAppLog = flushSupplementalAppLog
         self.supplementalAppLogSnapshot = supplementalAppLogSnapshot
+        Self.removeStaleExportArchives()
         let started = formatter.string(from: now())
         if let appFileURL {
             appFile = LogFile(
@@ -786,65 +787,146 @@ public actor AppLog {
     /// this in the worker task keeps the settings task cancellable while the
     /// actor still prevents structured writes and rotation during each read.
     private func captureExportInputs() async -> ExportInputs? {
-        guard let appGenerations = snapshotData(for: appFile?.url),
-              let networkGenerations = snapshotData(for: networkFile?.url) else {
+        guard let snapshotDirectory = Self.makeSnapshotDirectory() else { return nil }
+        guard let appGenerations = snapshotFiles(
+            for: appFile?.url,
+            into: snapshotDirectory,
+            prefix: "app"
+        ), let networkGenerations = snapshotFiles(
+            for: networkFile?.url,
+            into: snapshotDirectory,
+            prefix: "network"
+        ) else {
+            try? FileManager.default.removeItem(at: snapshotDirectory)
             return nil
         }
-        let supplementalGenerations: [Data]
+        let supplementalGenerations: [URL]
         if let snapshot = await supplementalAppLogSnapshot() {
-            supplementalGenerations = snapshot
+            guard let files = Self.writeSnapshots(
+                snapshot,
+                into: snapshotDirectory,
+                prefix: "supplemental"
+            ) else {
+                try? FileManager.default.removeItem(at: snapshotDirectory)
+                return nil
+            }
+            supplementalGenerations = files
         } else {
             let supplementalURLs = supplementalAppLogURLs()
             if supplementalURLs.isEmpty {
-                guard !Task.isCancelled else { return nil }
+                guard !Task.isCancelled else {
+                    try? FileManager.default.removeItem(at: snapshotDirectory)
+                    return nil
+                }
                 supplementalGenerations = []
             } else {
-                guard let fallback = snapshotData(for: supplementalURLs) else { return nil }
+                guard let fallback = snapshotFiles(
+                    for: supplementalURLs,
+                    into: snapshotDirectory,
+                    prefix: "supplemental"
+                ) else {
+                    try? FileManager.default.removeItem(at: snapshotDirectory)
+                    return nil
+                }
                 supplementalGenerations = fallback
             }
         }
         return ExportInputs(
             appGenerations: appGenerations,
             networkGenerations: networkGenerations,
-            supplementalGenerations: supplementalGenerations
+            supplementalGenerations: supplementalGenerations,
+            snapshotDirectory: snapshotDirectory
         )
     }
 
-    /// Reads generations while AppLog actor ownership prevents append and
-    /// rotation from changing the file set. Reads are chunked so cancellation
-    /// is observed between filesystem calls.
-    private func snapshotData(for fileURL: URL?) -> [Data]? {
+    /// Copies generations while AppLog actor ownership prevents append and
+    /// rotation from changing the file set. Copies are chunked so cancellation
+    /// is observed between filesystem calls and the detached writer never
+    /// retains all log bytes at once.
+    private func snapshotFiles(
+        for fileURL: URL?,
+        into directory: URL,
+        prefix: String
+    ) -> [URL]? {
         guard let fileURL else { return nil }
-        return snapshotData(for: Self.logFileURLs(for: fileURL))
+        return snapshotFiles(
+            for: Self.logFileURLs(for: fileURL),
+            into: directory,
+            prefix: prefix
+        )
     }
 
-    private func snapshotData(for fileURLs: [URL]) -> [Data]? {
-        var snapshots: [Data] = []
+    private func snapshotFiles(
+        for fileURLs: [URL],
+        into directory: URL,
+        prefix: String
+    ) -> [URL]? {
+        var snapshots: [URL] = []
         snapshots.reserveCapacity(fileURLs.count)
-        for fileURL in fileURLs {
+        for (index, fileURL) in fileURLs.enumerated() {
             guard !Task.isCancelled,
-                  FileManager.default.fileExists(atPath: fileURL.path),
-                  let data = Self.readDataInChunks(from: fileURL) else {
+                  FileManager.default.fileExists(atPath: fileURL.path) else {
                 return nil
             }
-            snapshots.append(data)
+            let destination = directory.appendingPathComponent("\(prefix)-\(index).log")
+            guard Self.copyFile(from: fileURL, to: destination) else { return nil }
+            snapshots.append(destination)
         }
         return snapshots
     }
 
-    private static func readDataInChunks(from fileURL: URL) -> Data? {
-        do {
-            let handle = try FileHandle(forReadingFrom: fileURL)
-            defer { try? handle.close() }
-            var data = Data()
-            while !Task.isCancelled {
-                let chunk = try handle.read(upToCount: 64 * 1024) ?? Data()
-                if chunk.isEmpty { return data }
-                data.append(chunk)
+    private static func writeSnapshots(
+        _ snapshots: [Data],
+        into directory: URL,
+        prefix: String
+    ) -> [URL]? {
+        var files: [URL] = []
+        files.reserveCapacity(snapshots.count)
+        for (index, data) in snapshots.enumerated() {
+            guard !Task.isCancelled else { return nil }
+            let destination = directory.appendingPathComponent("\(prefix)-\(index).log")
+            do {
+                try data.write(to: destination, options: .atomic)
+                files.append(destination)
+            } catch {
+                return nil
             }
-            return nil
+        }
+        return files
+    }
+
+    private static func makeSnapshotDirectory() -> URL? {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-diagnostics-snapshot-\(UUID().uuidString)")
+        do {
+            try FileManager.default.createDirectory(
+                at: directory,
+                withIntermediateDirectories: true
+            )
+            return directory
         } catch {
             return nil
+        }
+    }
+
+    private static func copyFile(from source: URL, to destination: URL) -> Bool {
+        do {
+            let sourceHandle = try FileHandle(forReadingFrom: source)
+            defer { try? sourceHandle.close() }
+            guard FileManager.default.createFile(atPath: destination.path, contents: nil) else {
+                return false
+            }
+            let destinationHandle = try FileHandle(forWritingTo: destination)
+            defer { try? destinationHandle.close() }
+            while !Task.isCancelled {
+                let chunk = try sourceHandle.read(upToCount: 64 * 1024) ?? Data()
+                if chunk.isEmpty { return true }
+                try destinationHandle.write(contentsOf: chunk)
+            }
+            return false
+        } catch {
+            try? FileManager.default.removeItem(at: destination)
+            return false
         }
     }
 
@@ -855,13 +937,18 @@ public actor AppLog {
     public func clear() async -> Bool {
         let acknowledgement = Acknowledgement()
         ingress.enqueue(.clear(acknowledgement))
-        return await acknowledgement.wait(timeoutNanoseconds: Self.drainWaitTimeoutNanoseconds)
+        let didClear = await acknowledgement.wait(timeoutNanoseconds: Self.drainWaitTimeoutNanoseconds)
+        if didClear {
+            Self.removeStaleExportArchives()
+        }
+        return didClear
     }
 
     private struct ExportInputs: Sendable {
-        let appGenerations: [Data]
-        let networkGenerations: [Data]
-        let supplementalGenerations: [Data]
+        let appGenerations: [URL]
+        let networkGenerations: [URL]
+        let supplementalGenerations: [URL]
+        let snapshotDirectory: URL
     }
 
     /// Resolves the settings task independently from the detached ZIP writer.
@@ -908,77 +995,74 @@ public actor AppLog {
     /// checks cancellation and a monotonic deadline so a slow filesystem cannot
     /// keep the settings task occupied indefinitely.
     private static func writeExportArchive(inputs: ExportInputs) -> URL? {
+        defer { try? FileManager.default.removeItem(at: inputs.snapshotDirectory) }
         let deadline = DispatchTime.now().uptimeNanoseconds &+ exportTimeoutNanoseconds
-        guard !Task.isCancelled else { return nil }
-        guard let appData = mergedData(
+        guard !Task.isCancelled,
+              let writer = StreamingZipWriter() else {
+            return nil
+        }
+        var completed = false
+        defer {
+            if !completed { writer.abort() }
+        }
+        guard streamMergedEntry(
+            name: "\(Self.exportDirectoryName)/\(Self.exportAppFileName)",
             generations: inputs.appGenerations,
             additionalGenerations: inputs.supplementalGenerations,
+            writer: writer,
             deadlineNanoseconds: deadline
-        ), !hasExpired(deadline) else {
-            return nil
-        }
-        guard let networkData = mergedData(
+        ), streamMergedEntry(
+            name: "\(Self.exportDirectoryName)/\(Self.exportNetworkFileName)",
             generations: inputs.networkGenerations,
+            writer: writer,
             deadlineNanoseconds: deadline
-        ), !hasExpired(deadline), !Task.isCancelled else {
+        ), !hasExpired(deadline),
+              let archiveURL = writer.finish() else {
             return nil
         }
-        return writeZipArchive(entries: [
-            ("\(Self.exportDirectoryName)/\(Self.exportAppFileName)", appData),
-            ("\(Self.exportDirectoryName)/\(Self.exportNetworkFileName)", networkData),
-        ], deadlineNanoseconds: deadline)
+        completed = true
+        return archiveURL
     }
 
     private static func hasExpired(_ deadlineNanoseconds: UInt64) -> Bool {
         Task.isCancelled || DispatchTime.now().uptimeNanoseconds >= deadlineNanoseconds
     }
 
-    private static func mergedData(
-        generations: [Data],
-        additionalGenerations: [Data] = [],
+    private static func streamMergedEntry(
+        name: String,
+        generations: [URL],
+        additionalGenerations: [URL] = [],
+        writer: StreamingZipWriter,
         deadlineNanoseconds: UInt64
-    ) -> Data? {
-        var merged = Data()
-        for data in generations.reversed() {
-            guard !hasExpired(deadlineNanoseconds) else {
-                return nil
-            }
-            if !merged.isEmpty, merged.last != 0x0A {
-                merged.append(0x0A)
-            }
-            merged.append(data)
-        }
-        let existingTextLines = String(decoding: merged, as: UTF8.self)
-            .split(whereSeparator: \.isNewline)
-        var existingLines = Set(existingTextLines.map(String.init))
-        var existingMirroredLines = Set(existingTextLines.compactMap { line -> String? in
-            guard let opening = line.firstIndex(of: "[") else { return nil }
-            let remainder = line[opening...]
-            guard remainder.contains("] ") else { return nil }
-            return String(remainder)
-        })
-        for data in additionalGenerations.reversed() {
-            guard !hasExpired(deadlineNanoseconds) else {
-                return nil
-            }
-            for line in data.split(separator: 0x0A, omittingEmptySubsequences: true) {
-                guard !hasExpired(deadlineNanoseconds) else { return nil }
-                let lineData = Data(line)
-                let lineString = String(decoding: lineData, as: UTF8.self)
-                guard !existingLines.contains(lineString),
-                      !existingMirroredLines.contains(lineString) else {
-                    continue
-                }
-                if !merged.isEmpty, merged.last != 0x0A {
-                    merged.append(0x0A)
-                }
-                merged.append(contentsOf: lineData)
-                merged.append(0x0A)
-                existingLines.insert(lineString)
-                existingMirroredLines.insert(lineString)
+    ) -> Bool {
+        guard writer.beginEntry(name), !hasExpired(deadlineNanoseconds) else { return false }
+        var lastByte: UInt8?
+        var lineCollector = LineCollector(enabled: !additionalGenerations.isEmpty)
+        for fileURL in generations.reversed() {
+            guard streamFile(
+                fileURL,
+                to: writer,
+                lineCollector: &lineCollector,
+                lastByte: &lastByte,
+                deadlineNanoseconds: deadlineNanoseconds
+            ) else { return false }
+            if lastByte != 0x0A {
+                guard writer.append(Data([0x0A])) else { return false }
+                lineCollector.consume(Data([0x0A]))
+                lastByte = 0x0A
             }
         }
-        return merged
+        lineCollector.finish()
+        for fileURL in additionalGenerations.reversed() {
+            guard streamLines(
+                fileURL,
+                to: writer,
+                lineCollector: &lineCollector,
+                lastByte: &lastByte,
+                deadlineNanoseconds: deadlineNanoseconds
+            ) else { return false }
+        }
+        return writer.finishEntry()
     }
 
     private struct ZipEntry {
@@ -988,94 +1072,297 @@ public actor AppLog {
         let localHeaderOffset: UInt32
     }
 
-    /// Writes a minimal ZIP32 archive using the store method. Logs are already
-    /// bounded by AppLog's retention policy, and avoiding a second compression
-    /// pass keeps export responsive on older iPhones.
-    private static func writeZipArchive(
-        entries: [(name: String, data: Data)],
-        deadlineNanoseconds: UInt64
-    ) -> URL? {
-        let directory = FileManager.default.temporaryDirectory
-        let archiveURL = directory.appendingPathComponent(
-            "cmux-diagnostics-\(UUID().uuidString).zip"
-        )
-        var archive = Data()
-        var centralEntries: [ZipEntry] = []
-        centralEntries.reserveCapacity(entries.count)
+    /// Streams stored ZIP entries directly to disk. Data descriptors allow
+    /// each log member to be written without first materializing its merged
+    /// contents in a second in-memory buffer.
+    private final class StreamingZipWriter {
+        private struct ActiveEntry {
+            let name: String
+            let localHeaderOffset: UInt32
+            var byteCount: UInt64 = 0
+            var checksum: UInt32 = 0xffff_ffff
+        }
 
-        for entry in entries {
-            guard !hasExpired(deadlineNanoseconds),
-                  let nameData = entry.name.data(using: .utf8),
-                  entry.data.count <= Int(UInt32.max),
-                  archive.count <= Int(UInt32.max) else {
+        private let archiveURL: URL
+        private let handle: FileHandle
+        private var offset: UInt64 = 0
+        private var activeEntry: ActiveEntry?
+        private var centralEntries: [ZipEntry] = []
+
+        init?() {
+            archiveURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-diagnostics-\(UUID().uuidString).zip")
+            guard FileManager.default.createFile(atPath: archiveURL.path, contents: nil),
+                  let handle = try? FileHandle(forWritingTo: archiveURL) else {
                 return nil
             }
-            let offset = UInt32(archive.count)
-            let checksum = crc32(entry.data)
-            appendUInt32(0x0403_4b50, to: &archive)
-            appendUInt16(20, to: &archive) // version needed to extract
-            appendUInt16(0x0800, to: &archive) // UTF-8 names
-            appendUInt16(0, to: &archive) // stored, no compression
-            appendUInt16(0, to: &archive) // DOS time
-            appendUInt16(0, to: &archive) // DOS date
-            appendUInt32(checksum, to: &archive)
-            appendUInt32(UInt32(entry.data.count), to: &archive)
-            appendUInt32(UInt32(entry.data.count), to: &archive)
-            appendUInt16(UInt16(nameData.count), to: &archive)
-            appendUInt16(0, to: &archive) // extra field length
-            archive.append(nameData)
-            archive.append(entry.data)
+            self.handle = handle
+        }
+
+        func beginEntry(_ name: String) -> Bool {
+            guard activeEntry == nil,
+                  let nameData = name.data(using: .utf8),
+                  nameData.count <= Int(UInt16.max),
+                  offset <= UInt64(UInt32.max) else {
+                return false
+            }
+            var header = Data()
+            appendUInt32(0x0403_4b50, to: &header)
+            appendUInt16(20, to: &header) // version needed to extract
+            appendUInt16(0x0008, to: &header) // data descriptor follows
+            appendUInt16(0, to: &header) // stored, no compression
+            appendUInt16(0, to: &header) // DOS time
+            appendUInt16(0, to: &header) // DOS date
+            appendUInt32(0, to: &header) // CRC follows in descriptor
+            appendUInt32(0, to: &header)
+            appendUInt32(0, to: &header)
+            appendUInt16(UInt16(nameData.count), to: &header)
+            appendUInt16(0, to: &header) // extra field length
+            header.append(nameData)
+            guard write(header) else { return false }
+            activeEntry = ActiveEntry(
+                name: name,
+                localHeaderOffset: UInt32(offset - UInt64(header.count))
+            )
+            return true
+        }
+
+        func append(_ data: Data) -> Bool {
+            guard var activeEntry,
+                  activeEntry.byteCount <= UInt64(UInt32.max) - UInt64(data.count),
+                  offset <= UInt64(UInt32.max) - UInt64(data.count),
+                  write(data) else {
+                return false
+            }
+            for byte in data {
+                let index = Int((activeEntry.checksum ^ UInt32(byte)) & 0xff)
+                activeEntry.checksum = (activeEntry.checksum >> 8) ^ crc32Table[index]
+            }
+            activeEntry.byteCount += UInt64(data.count)
+            self.activeEntry = activeEntry
+            return true
+        }
+
+        func finishEntry() -> Bool {
+            guard let activeEntry,
+                  activeEntry.byteCount <= UInt64(UInt32.max),
+                  offset <= UInt64(UInt32.max) else {
+                return false
+            }
+            var descriptor = Data()
+            appendUInt32(0x0807_4b50, to: &descriptor)
+            appendUInt32(~activeEntry.checksum, to: &descriptor)
+            appendUInt32(UInt32(activeEntry.byteCount), to: &descriptor)
+            appendUInt32(UInt32(activeEntry.byteCount), to: &descriptor)
+            guard write(descriptor) else { return false }
             centralEntries.append(ZipEntry(
-                name: entry.name,
-                byteCount: UInt32(entry.data.count),
-                crc32: checksum,
-                localHeaderOffset: offset
+                name: activeEntry.name,
+                byteCount: UInt32(activeEntry.byteCount),
+                crc32: ~activeEntry.checksum,
+                localHeaderOffset: activeEntry.localHeaderOffset
             ))
+            self.activeEntry = nil
+            return true
         }
 
-        guard archive.count <= Int(UInt32.max) else { return nil }
-        let centralDirectoryOffset = UInt32(archive.count)
-        for entry in centralEntries {
-            guard !hasExpired(deadlineNanoseconds),
-                  let nameData = entry.name.data(using: .utf8) else {
+        func finish() -> URL? {
+            guard activeEntry == nil,
+                  offset <= UInt64(UInt32.max) else {
                 return nil
             }
-            appendUInt32(0x0201_4b50, to: &archive)
-            appendUInt16(20, to: &archive) // version made by
-            appendUInt16(20, to: &archive) // version needed to extract
-            appendUInt16(0x0800, to: &archive)
-            appendUInt16(0, to: &archive)
-            appendUInt16(0, to: &archive)
-            appendUInt16(0, to: &archive)
-            appendUInt32(entry.crc32, to: &archive)
-            appendUInt32(entry.byteCount, to: &archive)
-            appendUInt32(entry.byteCount, to: &archive)
-            appendUInt16(UInt16(nameData.count), to: &archive)
-            appendUInt16(0, to: &archive) // extra field length
-            appendUInt16(0, to: &archive) // comment length
-            appendUInt16(0, to: &archive) // disk number
-            appendUInt16(0, to: &archive) // internal attributes
-            appendUInt32(0, to: &archive) // external attributes
-            appendUInt32(entry.localHeaderOffset, to: &archive)
-            archive.append(nameData)
+            let centralDirectoryOffset = UInt32(offset)
+            var centralDirectorySize: UInt64 = 0
+            for entry in centralEntries {
+                guard let nameData = entry.name.data(using: .utf8),
+                      nameData.count <= Int(UInt16.max) else {
+                    return nil
+                }
+                var central = Data()
+                appendUInt32(0x0201_4b50, to: &central)
+                appendUInt16(20, to: &central) // version made by
+                appendUInt16(20, to: &central) // version needed to extract
+                appendUInt16(0x0800, to: &central)
+                appendUInt16(0, to: &central)
+                appendUInt16(0, to: &central)
+                appendUInt16(0, to: &central)
+                appendUInt32(entry.crc32, to: &central)
+                appendUInt32(entry.byteCount, to: &central)
+                appendUInt32(entry.byteCount, to: &central)
+                appendUInt16(UInt16(nameData.count), to: &central)
+                appendUInt16(0, to: &central) // extra field length
+                appendUInt16(0, to: &central) // comment length
+                appendUInt16(0, to: &central) // disk number
+                appendUInt16(0, to: &central) // internal attributes
+                appendUInt32(0, to: &central) // external attributes
+                appendUInt32(entry.localHeaderOffset, to: &central)
+                central.append(nameData)
+                guard write(central) else { return nil }
+                centralDirectorySize += UInt64(central.count)
+            }
+            guard centralDirectorySize <= UInt64(UInt32.max),
+                  offset <= UInt64(UInt32.max) else {
+                return nil
+            }
+            var end = Data()
+            appendUInt32(0x0605_4b50, to: &end)
+            appendUInt16(0, to: &end) // disk number
+            appendUInt16(0, to: &end) // central directory disk
+            appendUInt16(UInt16(centralEntries.count), to: &end)
+            appendUInt16(UInt16(centralEntries.count), to: &end)
+            appendUInt32(UInt32(centralDirectorySize), to: &end)
+            appendUInt32(centralDirectoryOffset, to: &end)
+            appendUInt16(0, to: &end) // archive comment length
+            guard write(end) else { return nil }
+            try? handle.close()
+            return archiveURL
         }
 
-        let centralDirectorySize = UInt32(archive.count) - centralDirectoryOffset
-        appendUInt32(0x0605_4b50, to: &archive)
-        appendUInt16(0, to: &archive) // disk number
-        appendUInt16(0, to: &archive) // central directory disk
-        appendUInt16(UInt16(centralEntries.count), to: &archive)
-        appendUInt16(UInt16(centralEntries.count), to: &archive)
-        appendUInt32(centralDirectorySize, to: &archive)
-        appendUInt32(centralDirectoryOffset, to: &archive)
-        appendUInt16(0, to: &archive) // archive comment length
+        func abort() {
+            try? handle.close()
+            try? FileManager.default.removeItem(at: archiveURL)
+        }
 
-        guard !hasExpired(deadlineNanoseconds) else { return nil }
+        private func write(_ data: Data) -> Bool {
+            do {
+                try handle.write(contentsOf: data)
+                offset += UInt64(data.count)
+                return true
+            } catch {
+                return false
+            }
+        }
+    }
+
+    private struct LineCollector {
+        private var lines: Set<String>?
+        private var mirroredLines: Set<String>?
+        private var pending = Data()
+
+        init(enabled: Bool) {
+            lines = enabled ? [] : nil
+            mirroredLines = enabled ? [] : nil
+        }
+
+        mutating func consume(_ data: Data) {
+            guard lines != nil else { return }
+            for byte in data {
+                if byte == 0x0A {
+                    record(pending)
+                    pending.removeAll(keepingCapacity: true)
+                } else {
+                    pending.append(byte)
+                }
+            }
+        }
+
+        mutating func finish() {
+            guard !pending.isEmpty else { return }
+            record(pending)
+            pending.removeAll(keepingCapacity: true)
+        }
+
+        mutating func shouldAppend(_ line: Data) -> Bool {
+            guard !line.isEmpty else { return false }
+            let value = String(decoding: line, as: UTF8.self)
+            guard !(lines?.contains(value) ?? false),
+                  !(mirroredLines?.contains(value) ?? false) else {
+                return false
+            }
+            record(line)
+            return true
+        }
+
+        private mutating func record(_ line: Data) {
+            guard !line.isEmpty, lines != nil else { return }
+            let value = String(decoding: line, as: UTF8.self)
+            lines?.insert(value)
+            if let opening = value.firstIndex(of: "[") {
+                let remainder = value[opening...]
+                if remainder.contains("] ") {
+                    mirroredLines?.insert(String(remainder))
+                }
+            }
+        }
+    }
+
+    private static func streamFile(
+        _ fileURL: URL,
+        to writer: StreamingZipWriter,
+        lineCollector: inout LineCollector,
+        lastByte: inout UInt8?,
+        deadlineNanoseconds: UInt64
+    ) -> Bool {
         do {
-            try archive.write(to: archiveURL, options: .atomic)
-            return archiveURL
+            let handle = try FileHandle(forReadingFrom: fileURL)
+            defer { try? handle.close() }
+            while !hasExpired(deadlineNanoseconds) {
+                let chunk = try handle.read(upToCount: 64 * 1024) ?? Data()
+                if chunk.isEmpty { return true }
+                guard writer.append(chunk) else { return false }
+                lineCollector.consume(chunk)
+                lastByte = chunk.last
+            }
+            return false
         } catch {
-            return nil
+            return false
+        }
+    }
+
+    private static func streamLines(
+        _ fileURL: URL,
+        to writer: StreamingZipWriter,
+        lineCollector: inout LineCollector,
+        lastByte: inout UInt8?,
+        deadlineNanoseconds: UInt64
+    ) -> Bool {
+        do {
+            let handle = try FileHandle(forReadingFrom: fileURL)
+            defer { try? handle.close() }
+            var pending = Data()
+            func appendPendingLine() -> Bool {
+                guard lineCollector.shouldAppend(pending) else {
+                    pending.removeAll(keepingCapacity: true)
+                    return true
+                }
+                if lastByte != 0x0A, !writer.append(Data([0x0A])) { return false }
+                guard writer.append(pending), writer.append(Data([0x0A])) else { return false }
+                lastByte = 0x0A
+                pending.removeAll(keepingCapacity: true)
+                return true
+            }
+            while !hasExpired(deadlineNanoseconds) {
+                let chunk = try handle.read(upToCount: 64 * 1024) ?? Data()
+                if chunk.isEmpty {
+                    return pending.isEmpty || appendPendingLine()
+                }
+                for byte in chunk {
+                    if byte == 0x0A {
+                        guard appendPendingLine() else { return false }
+                    } else {
+                        pending.append(byte)
+                    }
+                }
+            }
+            return false
+        } catch {
+            return false
+        }
+    }
+
+    private static func removeStaleExportArchives() {
+        let fileManager = FileManager.default
+        let directory = fileManager.temporaryDirectory
+        guard let names = try? fileManager.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ) else { return }
+        for url in names {
+            let name = url.lastPathComponent
+            guard name.hasPrefix("cmux-diagnostics-") else { continue }
+            if name.hasSuffix(".zip") || name.hasPrefix("cmux-diagnostics-snapshot-") {
+                try? fileManager.removeItem(at: url)
+            }
         }
     }
 
