@@ -4121,7 +4121,7 @@ final class cmuxUITests: XCTestCase {
                     return .zero
                 }
 
-                let timestamp = try renderedFrame(matching: #"\d+\s+\w+\s+ago"#)
+                let timestamp = try renderedFrame(matching: #"\d+\s+\w+\.?\s+ago"#)
                 let computer = try renderedFrame(matching: "Studio")
                 XCTAssertEqual(computer.maxX, timestamp.maxX, accuracy: 3,
                                "Computer metadata must stay trailing even when it wraps below the source")
