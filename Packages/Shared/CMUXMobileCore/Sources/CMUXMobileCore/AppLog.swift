@@ -213,6 +213,8 @@ public actor AppLog {
     /// the export task's timeout/cancellation path without ever resuming a
     /// continuation twice.
     private final class Acknowledgement: @unchecked Sendable {
+        // lint:allow lock - synchronous acknowledgement resolution is required
+        // for cancellation and timeout races across producer tasks.
         private let lock = NSLock()
         private var continuation: CheckedContinuation<Bool, Never>?
         private var result: Bool?
@@ -275,6 +277,8 @@ public actor AppLog {
             var finished = false
         }
 
+        // lint:allow lock - synchronous admission is required for nonisolated
+        // producers; the lock is held only while updating a bounded queue.
         private let lock = NSLock()
         private var state = State()
         private let maxBufferedEntries: Int

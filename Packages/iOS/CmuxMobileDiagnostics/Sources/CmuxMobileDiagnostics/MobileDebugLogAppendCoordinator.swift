@@ -15,6 +15,8 @@ final class MobileDebugLogAppendCoordinator: @unchecked Sendable {
     }
 
     private final class Acknowledgement: @unchecked Sendable {
+        // lint:allow lock - synchronous acknowledgement resolution is required
+        // for cancellation and timeout races across producer tasks.
         private let lock = NSLock()
         private var continuation: CheckedContinuation<Bool, Never>?
         private var result: Bool?
@@ -72,6 +74,8 @@ final class MobileDebugLogAppendCoordinator: @unchecked Sendable {
             var finished = false
         }
 
+        // lint:allow lock - synchronous admission is required for nonisolated
+        // producers; the lock protects only a bounded in-memory queue.
         private let lock = NSLock()
         private var state = State()
         private let maxBufferedEntries: Int
