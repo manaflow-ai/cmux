@@ -10,9 +10,12 @@ struct MobileIrxControlLaneClaimsTests {
         let firstOwner = UUID()
         let secondOwner = UUID()
 
-        #expect(claims.claim(sessionID: "session-a", ownerID: firstOwner))
-        #expect(!claims.claim(sessionID: "session-a", ownerID: secondOwner))
-        #expect(claims.claim(sessionID: "session-a", ownerID: firstOwner))
+        let initialClaim = claims.claim(sessionID: "session-a", ownerID: firstOwner)
+        #expect(initialClaim)
+        let competingClaim = claims.claim(sessionID: "session-a", ownerID: secondOwner)
+        #expect(!competingClaim)
+        let retainedClaim = claims.claim(sessionID: "session-a", ownerID: firstOwner)
+        #expect(retainedClaim)
     }
 
     @Test
@@ -21,13 +24,17 @@ struct MobileIrxControlLaneClaimsTests {
         let firstOwner = UUID()
         let secondOwner = UUID()
 
-        #expect(claims.claim(sessionID: "session-a", ownerID: firstOwner))
-        #expect(claims.claim(sessionID: "session-b", ownerID: secondOwner))
+        let firstClaim = claims.claim(sessionID: "session-a", ownerID: firstOwner)
+        #expect(firstClaim)
+        let secondClaim = claims.claim(sessionID: "session-b", ownerID: secondOwner)
+        #expect(secondClaim)
 
         claims.release(ownerID: firstOwner)
 
-        #expect(claims.claim(sessionID: "session-a", ownerID: secondOwner))
-        #expect(!claims.claim(sessionID: "session-b", ownerID: firstOwner))
+        let releasedClaim = claims.claim(sessionID: "session-a", ownerID: secondOwner)
+        #expect(releasedClaim)
+        let competingClaim = claims.claim(sessionID: "session-b", ownerID: firstOwner)
+        #expect(!competingClaim)
     }
 
     @Test
@@ -36,12 +43,16 @@ struct MobileIrxControlLaneClaimsTests {
         let firstOwner = UUID()
         let secondOwner = UUID()
 
-        #expect(claims.claim(sessionID: "session-a", ownerID: firstOwner))
-        #expect(claims.claim(sessionID: "session-b", ownerID: secondOwner))
+        let firstClaim = claims.claim(sessionID: "session-a", ownerID: firstOwner)
+        #expect(firstClaim)
+        let secondClaim = claims.claim(sessionID: "session-b", ownerID: secondOwner)
+        #expect(secondClaim)
 
         claims.removeAll()
 
-        #expect(claims.claim(sessionID: "session-a", ownerID: secondOwner))
-        #expect(claims.claim(sessionID: "session-b", ownerID: firstOwner))
+        let firstReclaimed = claims.claim(sessionID: "session-a", ownerID: secondOwner)
+        #expect(firstReclaimed)
+        let secondReclaimed = claims.claim(sessionID: "session-b", ownerID: firstOwner)
+        #expect(secondReclaimed)
     }
 }

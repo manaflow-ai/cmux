@@ -32,7 +32,9 @@ public struct NotificationFeedPreviewView: View {
         } else {
             items = makeNotificationFeedPreviewFixtureItems(referenceDate: referenceDate)
         }
-        _items = State(initialValue: items)
+        _items = State(initialValue: UITestConfig.notificationFeedGroupPreviewEnabled
+            ? Self.addingHistory(to: items)
+            : items)
     }
 
     /// The preview fixture's production-style tab and feed body.
@@ -272,6 +274,45 @@ public struct NotificationFeedPreviewView: View {
         )
     }
 
+}
+
+private extension NotificationFeedPreviewView {
+    static func addingHistory(
+        to items: [MobileNotificationFeedItem]
+    ) -> [MobileNotificationFeedItem] {
+        guard let latest = items.first, items.count > 2 else { return items }
+        let history = [
+            MobileNotificationFeedItem(
+                macDeviceID: latest.macDeviceID,
+                notificationID: "group-title-only",
+                macDisplayName: latest.macDisplayName,
+                remoteWorkspaceID: latest.remoteWorkspaceID,
+                remoteSurfaceID: latest.remoteSurfaceID,
+                title: items[1].title,
+                body: "",
+                createdAt: latest.createdAt.addingTimeInterval(-60),
+                isRead: false,
+                workspaceTitle: latest.workspaceTitle,
+                surfaceTitle: latest.surfaceTitle,
+                connectionStatus: .connected
+            ),
+            MobileNotificationFeedItem(
+                macDeviceID: latest.macDeviceID,
+                notificationID: "group-older",
+                macDisplayName: latest.macDisplayName,
+                remoteWorkspaceID: latest.remoteWorkspaceID,
+                remoteSurfaceID: latest.remoteSurfaceID,
+                title: latest.title,
+                body: items[2].body,
+                createdAt: latest.createdAt.addingTimeInterval(-120),
+                isRead: true,
+                workspaceTitle: latest.workspaceTitle,
+                surfaceTitle: latest.surfaceTitle,
+                connectionStatus: .connected
+            ),
+        ]
+        return [latest] + history + items.dropFirst()
+    }
 }
 
 private func makeNotificationFeedPreviewFixtureItems(referenceDate: Date) -> [MobileNotificationFeedItem] {
