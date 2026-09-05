@@ -1772,6 +1772,30 @@ public final class MobileIrohRuntimeComposition:
             throw CmxIrohClientRuntimeError.inactive
         }
         let deviceID = cmxCanonicalDeviceID(durableDeviceID)
+        // The cached relay catalog is independent of the account-scoped
+        // identity and binding reads below. Start it immediately so a cold
+        // activation overlaps secure-storage work instead of adding another
+        // serial keychain read before the runtime can start.
+        // Keep this independent read unstructured so a fallible identity or
+        // binding lookup below can return immediately after cancelling it.
+        // Structured `async let` would implicitly await the cache read while
+        // unwinding an activation failure, turning an unrelated slow secure
+        // store into a failure-path stall.
+        let cachedManagedRelayURLsTask = Task { [
+            relayPolicyCache,
+            relayPolicyTrustRoot,
+            now
+        ] in
+            guard let relayPolicyTrustRoot,
+                  let cachedPolicy = try? await relayPolicyCache.load(
+                      trustRoot: relayPolicyTrustRoot,
+                      now: now()
+                  ) else {
+                return []
+            }
+            return Set(cachedPolicy.relays.map(\.url))
+        }
+        defer { cachedManagedRelayURLsTask.cancel() }
         let appInstanceID = try await appInstances.appInstanceID(
             accountID: accountID,
             tag: tag
@@ -1794,16 +1818,7 @@ public final class MobileIrohRuntimeComposition:
                 && $0.endpointID == endpointID
                 && $0.identityGeneration == identity.generation
         } ?? false
-        let cachedManagedRelayURLs: Set<String>
-        if let relayPolicyTrustRoot,
-           let cachedPolicy = try? await relayPolicyCache.load(
-               trustRoot: relayPolicyTrustRoot,
-               now: now()
-           ) {
-            cachedManagedRelayURLs = Set(cachedPolicy.relays.map(\.url))
-        } else {
-            cachedManagedRelayURLs = []
-        }
+        let cachedManagedRelayURLs = await cachedManagedRelayURLsTask
         let cachedRelay: CmxIrohRelayTokenResponse?
         if let cachedBinding, bindingMatches {
             lastKnownBindingID = cachedBinding.bindingID
