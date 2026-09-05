@@ -1,6 +1,7 @@
 use super::*;
 use crate::JournalIngress;
 use crate::resource::TerminalPublicId;
+use serde_json::json;
 
 /// Completed pure mutations keep a finite exactly-once replay window. Pruning
 /// runs in batches, so a live registry may temporarily retain the interval as
@@ -2229,6 +2230,137 @@ pub(crate) fn validate_registry_screen_projection(
     }
     let layout_pane_refs = layout_panes.iter().collect::<HashSet<_>>();
     validate_registry_viewport(&screen.viewport, &screen.layout, &layout_pane_refs, &layout_splits)
+}
+
+pub(super) fn complete_terminal_close_patch(
+    transaction: &Transaction<'_>,
+    terminals: &[(String, Option<String>)],
+    patch: &ResourcePatch,
+    deltas: &Value,
+) -> anyhow::Result<(ResourcePatch, Value)> {
+    let mut patch = patch.clone();
+    let mut deltas = deltas.clone();
+    let changes = deltas
+        .as_array_mut()
+        .context("terminal close resource deltas are not an array")?;
+
+    for (terminal_id, expected_incarnation) in terminals {
+        let Some(public_id) = transaction
+            .query_row(
+                "SELECT public_id FROM resource_terminals
+                 WHERE terminal_id = ?1 AND deleted_revision IS NULL",
+                [terminal_id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+        else {
+            continue;
+        };
+        let public_id = TerminalPublicId::parse(public_id)?;
+        if patch.changes.iter().any(|change| {
+            matches!(
+                change,
+                ResourceChange::TombstoneTerminal { public_id: candidate, .. }
+                    if candidate == &public_id
+            )
+        }) {
+            continue;
+        }
+
+        patch.changes.push(ResourceChange::TombstoneTerminal {
+            public_id: public_id.clone(),
+            expected_incarnation: expected_incarnation.clone(),
+        });
+        changes.push(json!({
+            "kind": "delete",
+            "sequence": changes.len(),
+            "resource": "terminal",
+            "id": public_id,
+        }));
+    }
+
+    validate_resource_patch(&patch)?;
+    Ok((patch, deltas))
+}
+
+/// Repair terminal rows left live by older close implementations. This is a
+/// load-time migration for the durable invariant: a terminal resource is live
+/// only while both its host and identity ledger are live. Repairs reuse the
+/// affected host/identity revision where possible and advance the resource
+/// revision only when the existing rows require it; no public journal event is
+/// synthesized for historical corruption.
+pub(super) fn repair_dangling_terminal_resources(
+    transaction: &Transaction<'_>,
+) -> anyhow::Result<()> {
+    let current_revision = current_resource_revision(transaction)?;
+    let dangling = {
+        let mut statement = transaction.prepare(
+            "SELECT rt.public_id, rt.terminal_id, rt.updated_revision,
+                    h.lifecycle, h.deleted_revision, ri.deleted_revision
+             FROM resource_terminals rt
+             JOIN resource_identities ri ON ri.public_id = rt.public_id
+             LEFT JOIN terminal_hosts h ON h.terminal_id = rt.terminal_id
+             WHERE (rt.deleted_revision IS NULL AND (
+                        h.terminal_id IS NULL OR h.lifecycle = 'tombstoned'
+                    ))
+                OR (rt.deleted_revision IS NULL AND ri.deleted_revision IS NOT NULL)
+                OR (rt.deleted_revision IS NOT NULL AND ri.deleted_revision IS NULL)"
+        )?;
+        statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, Option<i64>>(4)?,
+                    row.get::<_, Option<i64>>(5)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?
+    };
+    if dangling.is_empty() {
+        return Ok(());
+    }
+
+    let repair_revision = dangling.iter().try_fold(current_revision, |revision, row| {
+        let (_, _, updated_revision, _, host_deleted, identity_deleted) = row;
+        let host_deleted =
+            host_deleted.as_ref().and_then(|value| u64::try_from(*value).ok()).unwrap_or(0);
+        let identity_deleted = identity_deleted
+            .as_ref()
+            .and_then(|value| u64::try_from(*value).ok())
+            .unwrap_or(0);
+        Ok::<_, anyhow::Error>(
+            revision.max((*updated_revision).try_into()?).max(host_deleted).max(identity_deleted),
+        )
+    })?;
+    let sqlite_revision = i64::try_from(repair_revision)
+        .context("resource repair revision exceeds SQLite integer range")?;
+
+    for (public_id, _, _, _, _, _) in &dangling {
+        transaction.execute(
+            "UPDATE resource_terminals
+             SET lifecycle = 'tombstoned', updated_revision = ?1,
+                 deleted_revision = COALESCE(deleted_revision, ?1)
+             WHERE public_id = ?2",
+            params![sqlite_revision, public_id],
+        )?;
+        transaction.execute(
+            "UPDATE resource_identities
+             SET updated_revision = ?1,
+                 deleted_revision = COALESCE(deleted_revision, ?1)
+             WHERE public_id = ?2",
+            params![sqlite_revision, public_id],
+        )?;
+    }
+    if repair_revision != current_revision {
+        transaction.execute(
+            "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
+            [repair_revision.to_string()],
+        )?;
+    }
+    Ok(())
 }
 
 pub(super) fn apply_resource_patch(
