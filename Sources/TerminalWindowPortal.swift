@@ -1442,20 +1442,22 @@ final class WindowTerminalPortal: NSObject {
         markDividerOverlayNeedingDisplay()
     }
 
-    /// Repaints the overlay when the geometry it draws from has moved.
+    /// Repaints the overlay when what it would paint has changed.
     ///
     /// `SplitDividerOverlayView.draw` walks the whole window view tree from
     /// `contentView` before it consults `dirtyRect`, so an invalidation that
-    /// changes nothing still costs a full traversal. `shouldRenderOverlay`
-    /// paints a segment only where a portal-hosted surface crosses the divider
-    /// centerline, and those rects come from the hosted views this signature
-    /// fingerprints, so nothing the overlay can draw moves without moving the
-    /// signature. The signature excludes the window's origin, so a titlebar
-    /// drag stays free.
+    /// changes nothing still costs a full traversal. The comparison asks the
+    /// overlay for its own render inputs rather than reusing the portal's
+    /// geometry signature, because the two are not the same set: the overlay
+    /// paints a segment only where a hosted surface crosses the divider
+    /// centerline, and it drops hidden and windowless surfaces when deciding
+    /// that. Dragging a divider resizes the surfaces beside it, and both
+    /// bounds and those frames are window-relative, so moving the window by
+    /// its titlebar still costs nothing.
     private func refreshDividerOverlayIfGeometryChanged() {
-        let signature = externalGeometrySignature()
-        guard lastDividerOverlaySignature != signature else { return }
-        lastDividerOverlaySignature = signature
+        let inputs = dividerOverlayView.renderInputs()
+        guard lastDividerOverlayRenderInputs != inputs else { return }
+        lastDividerOverlayRenderInputs = inputs
         markDividerOverlayNeedingDisplay()
     }
 
@@ -1478,10 +1480,11 @@ final class WindowTerminalPortal: NSObject {
         paneSwapOverlayView.needsDisplay = true
     }
 
-    /// Geometry the divider overlay was last painted for. Separate from
-    /// `lastHierarchySyncSignature`, which the layout-sync path owns and
-    /// updates on its own schedule.
-    private var lastDividerOverlaySignature: ExternalGeometrySignature?
+    /// Render inputs the divider overlay was last painted for. Deliberately
+    /// not `ExternalGeometrySignature`: that one answers a different question
+    /// for the layout-sync path, and its contents are tuned for terminating
+    /// the sync echo chain.
+    private var lastDividerOverlayRenderInputs: SplitDividerOverlayView.RenderInputs?
 
     /// Set while `synchronizeAllHostedViews` is walking its entries, so the
     /// per-entry syncs skip the geometry comparison and the batch pays for it
@@ -2594,7 +2597,12 @@ final class WindowTerminalPortal: NSObject {
         }
 #endif
 
-        if !deferDividerOverlay { ensureDividerOverlayOnTop() }
+        if !deferDividerOverlay {
+            ensureDividerOverlayOnTop()
+            if !isBatchSynchronizingHostedViews {
+                refreshDividerOverlayIfGeometryChanged()
+            }
+        }
     }
 
     private func updatePresentationState(
