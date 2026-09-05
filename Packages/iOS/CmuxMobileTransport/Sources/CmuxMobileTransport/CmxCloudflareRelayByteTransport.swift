@@ -24,11 +24,15 @@ public enum CmxCloudflareRelayByteTransportError: Error, Equatable, Sendable {
 /// already re-synchronizes frames from arbitrarily-chunked bytes) needs no
 /// changes to use it.
 ///
-/// `connect()` waits for a WebSocket pong before returning, so a caller that
-/// awaits it before publishing a route (see
-/// `MobileHostCloudflareRelayRuntime`) never advertises a route the relay
-/// hasn't actually accepted yet — unlike a plain `.resume()`, which only
-/// starts the handshake.
+/// `connect()` starts the WebSocket handshake via `.resume()` and returns
+/// immediately — it does NOT block on a native WebSocket control-frame
+/// ping/pong roundtrip to confirm the connection. `URLSessionWebSocketTask
+/// .sendPing(_:)`'s completion handler does not reliably fire against this
+/// Worker (confirmed: a standard `ws`-library ping to the same URL/token gets
+/// a pong immediately, but `sendPing` hangs indefinitely), so waiting on it
+/// would block forever. A caller that needs a stronger liveness signal before
+/// trusting the connection should read the relay DO's own application-level
+/// ping/pong text frames via `receive()` instead of relying on this method.
 public actor CmxCloudflareRelayByteTransport: CmxByteTransport {
     private let request: URLRequest
     private let session: URLSession
@@ -57,19 +61,6 @@ public actor CmxCloudflareRelayByteTransport: CmxByteTransport {
         let newTask = session.webSocketTask(with: request)
         task = newTask
         newTask.resume()
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-            newTask.sendPing { error in
-                if let error {
-                    continuation.resume(
-                        throwing: CmxCloudflareRelayByteTransportError.connectionFailed(
-                            String(describing: error)
-                        )
-                    )
-                } else {
-                    continuation.resume()
-                }
-            }
-        }
     }
 
     public func receive() async throws -> Data? {

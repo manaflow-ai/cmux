@@ -16,11 +16,15 @@ import { bearerToken } from "./auth";
 import {
   CONTROL_REFRESH_INTERVAL_MS,
   ControlPlaneCore,
+  liveRelayPresenceEntries,
   MAX_CONTROL_SUBSCRIBERS_PER_ACCOUNT,
+  parseRelayPresenceAnnouncement,
   parseRevocationRequest,
+  RELAY_PRESENCE_PREFIX,
   type CtlAttachment,
   type CtlSocket,
   type CtlStorage,
+  type RelayPresenceRecord,
 } from "./controlPlane";
 
 export interface ControlPlaneEnv {
@@ -130,6 +134,39 @@ export class AccountControlPlane extends DurableObject<ControlPlaneEnv> {
       const result = await this.core.handleRevocation(parsed);
       return json({ ok: true, ...result }, 200);
     }
+
+    // Relay presence: the Mac announces itself (POST, on a cadence, while its
+    // Cloudflare relay `/host` leg is up) and a signed-in device on the same
+    // account lists it (GET) to auto-discover and dial the relay with no QR
+    // scan or manual entry. Same trust model as revocation above — the
+    // account identity is the verified header, never client input.
+    if (new URL(request.url).pathname === "/v1/control/relay-presence") {
+      const accountId = request.headers.get("x-control-account-id")?.trim();
+      if (!accountId) return json({ error: "account_required" }, 403);
+      if (request.method === "POST") {
+        let body: unknown;
+        try {
+          body = await request.json();
+        } catch {
+          return json({ error: "invalid_request" }, 400);
+        }
+        const parsed = parseRelayPresenceAnnouncement(body);
+        if (parsed === null) return json({ error: "invalid_request" }, 400);
+        const record: RelayPresenceRecord = {
+          lastSeenAt: Date.now(),
+          ...(parsed.displayName !== undefined ? { displayName: parsed.displayName } : {}),
+        };
+        await this.ctx.storage.put(RELAY_PRESENCE_PREFIX + parsed.macDeviceId, record);
+        return json({ ok: true }, 200);
+      }
+      if (request.method === "GET") {
+        const rows = await this.ctx.storage.list<RelayPresenceRecord>({ prefix: RELAY_PRESENCE_PREFIX });
+        const devices = liveRelayPresenceEntries(rows, Date.now());
+        return json({ devices }, 200);
+      }
+      return json({ error: "method_not_allowed" }, 405);
+    }
+
     if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
       return json({ error: "websocket_required" }, 400);
     }

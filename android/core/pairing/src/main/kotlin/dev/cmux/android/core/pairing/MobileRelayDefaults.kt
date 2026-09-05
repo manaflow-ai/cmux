@@ -16,7 +16,11 @@ object MobileRelayDefaults {
     const val BASE_URL_ENV_KEY = "CMUX_PRESENCE_BASE_URL"
 
     /** The dev/staging worker — same instance the Mac's Debug builds use. */
-    const val DEBUG_DEFAULT_BASE_URL = "https://cmux-presence-dev.debussy.workers.dev"
+    // NOTE: pointed at an isolated personal dev worker while the shared
+    // cmux-presence-dev instance doesn't yet have the relay code deployed.
+    // Point back at cmux-presence-dev.debussy.workers.dev once that's live
+    // or before merging this file.
+    const val DEBUG_DEFAULT_BASE_URL = "https://cmux-presence-dev-aniruddha-relay-test.aniruddha-murali.workers.dev"
 
     /** The production presence worker. */
     const val PRODUCTION_BASE_URL = "https://presence.cmux.dev"

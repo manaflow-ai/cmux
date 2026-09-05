@@ -9,9 +9,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
@@ -21,7 +19,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
-import dev.cmux.android.feature.pairing.BuildConfig
 
 @Composable
 fun PairingScannerScreen(
@@ -38,41 +35,25 @@ fun PairingScannerScreen(
     Box(modifier = Modifier.fillMaxSize()) {
         when (val s = state) {
             is PairingState.Idle, is PairingState.Scanning -> {
-                if (BuildConfig.DEBUG) {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(16.dp),
-                        ) {
-                            CircularProgressIndicator()
-                            DebugUrlInput(
-                                accessToken = viewModel.debugAccessToken,
-                                onSubmit = { url, port -> viewModel.onQrCodeScanned(url, port) },
-                                onDirectConnect = { port -> viewModel.connectDirect(port) },
-                            )
-                        }
-                    }
-                } else {
-                    CameraQrScanner(
-                        onQrDetected = { viewModel.onQrCodeScanned(it) },
-                        modifier = Modifier.fillMaxSize(),
+                CameraQrScanner(
+                    onQrDetected = { viewModel.onQrCodeScanned(it) },
+                    modifier = Modifier.fillMaxSize(),
+                )
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text(
+                        "Scan the QR code in cmux Pairing settings",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
                     )
-                    Column(
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .padding(24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        Text(
-                            "Scan the QR code in cmux Pairing settings",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                    }
-                    if (state is PairingState.Idle) {
-                        LaunchedEffect(Unit) { viewModel.startScanning() }
-                    }
+                }
+                if (state is PairingState.Idle) {
+                    LaunchedEffect(Unit) { viewModel.startScanning() }
                 }
             }
             is PairingState.Connecting -> {
@@ -102,71 +83,6 @@ fun PairingScannerScreen(
                     }
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun DebugUrlInput(
-    accessToken: String?,
-    onSubmit: (String, Int?) -> Unit,
-    onDirectConnect: (Int) -> Unit,
-) {
-    var url by remember { mutableStateOf("") }
-    var portText by remember { mutableStateOf("") }
-    val clipboardManager = LocalClipboardManager.current
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        // Token display — copy this then run: CMUX_TAG=<tag> ./scripts/mobile-dev-auth.sh <token>
-        if (accessToken != null) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text(
-                    "[DEBUG] Token: ${accessToken.take(12)}…",
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.weight(1f),
-                )
-                OutlinedButton(onClick = { clipboardManager.setText(AnnotatedString(accessToken)) }) {
-                    Text("Copy")
-                }
-            }
-        }
-        // Direct connect — skips QR, connects to 10.0.2.2 on the given port
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            OutlinedTextField(
-                value = portText,
-                onValueChange = { portText = it.filter { c -> c.isDigit() } },
-                modifier = Modifier.weight(1f),
-                label = { Text("[DEBUG] Port (emulator)") },
-                singleLine = true,
-                placeholder = { Text("58465") },
-            )
-            Button(onClick = {
-                onDirectConnect(portText.toIntOrNull() ?: 58465)
-            }) { Text("Connect") }
-        }
-        // Fallback: paste raw QR URL
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            OutlinedTextField(
-                value = url,
-                onValueChange = { url = it },
-                modifier = Modifier.weight(1f),
-                label = { Text("[DEBUG] Paste QR URL") },
-                singleLine = true,
-            )
-            OutlinedButton(
-                onClick = {
-                    if (url.isNotBlank()) onSubmit(url.trim(), portText.toIntOrNull())
-                },
-                enabled = url.isNotBlank(),
-            ) { Text("QR") }
         }
     }
 }

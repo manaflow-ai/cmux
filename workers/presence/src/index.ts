@@ -19,6 +19,12 @@
 //                                               relays opaque binary frames
 //                                               between the two once both
 //                                               legs are on the same account
+//   POST /v1/control/relay-presence       Mac announces itself while its
+//                                         relay /host leg is up
+//                                         ({macDeviceId, displayName?})
+//   GET  /v1/control/relay-presence       list this account's Macs currently
+//                                         reachable over the relay (for
+//                                         post-sign-in auto-discovery, no QR)
 //   POST /v1/replies                      park one phone inline-notification reply
 //   GET  /v1/replies?macDeviceId=…        pending replies for one Mac
 //   POST /v1/replies/ack                  remove processed replies
@@ -176,6 +182,36 @@ export default {
         method: "POST",
         headers,
         body: JSON.stringify(parsed),
+      }));
+    }
+
+    if (url.pathname === "/v1/control/relay-presence") {
+      // Relay presence: the Mac announces itself here on a cadence while its
+      // Cloudflare relay /host leg is up (POST), and a signed-in device on
+      // the same account lists it (GET) to auto-discover and dial the relay
+      // with no QR scan or manual entry. Same verified-account trust model as
+      // /v1/control/devices/revoke — the account id is the verified header,
+      // never client input, and the DO is the account-scoped storage.
+      if (request.method !== "GET" && request.method !== "POST") {
+        return json({ error: "method_not_allowed" }, 405);
+      }
+      const user = await verifyRequest(request, env);
+      if (!user) return unauthorized();
+      const headers = new Headers();
+      headers.set("x-control-account-id", user.id);
+      const stub = env.ACCOUNT_CONTROL_PLANE.get(
+        env.ACCOUNT_CONTROL_PLANE.idFromName(`control:user:${user.id}`),
+      );
+      if (request.method === "GET") {
+        return stub.fetch(new Request(request.url, { method: "GET", headers }));
+      }
+      const body = await readBoundedJson(request, 1_024);
+      if (!body.ok) return json({ error: "invalid_request" }, body.status);
+      headers.set("content-type", "application/json");
+      return stub.fetch(new Request(request.url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body.value),
       }));
     }
 

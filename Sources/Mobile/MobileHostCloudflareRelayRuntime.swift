@@ -36,6 +36,11 @@ final class MobileHostCloudflareRelayRuntime {
     /// Retry cadence while not yet ready to dial (signed out, or identity not
     /// available yet) — steady, not part of the failure backoff ladder.
     private static let notReadyRetryNanoseconds: UInt64 = 5 * 1_000_000_000
+    /// Presence re-announce cadence while the `/host` leg is up. A Mac that
+    /// stops announcing (crash, sleep, network loss) is detected by absence
+    /// — see `RELAY_PRESENCE_TTL_MS` on the worker — so this must stay well
+    /// under that TTL.
+    private static let presenceHeartbeatNanoseconds: UInt64 = 30 * 1_000_000_000
 
     private weak var auth: AuthCoordinator?
     private var desiredActive = false
@@ -88,6 +93,57 @@ final class MobileHostCloudflareRelayRuntime {
         return try? await auth.currentTokens().accessToken
     }
 
+    /// Re-announces this Mac to the account's relay-presence directory every
+    /// `presenceHeartbeatNanoseconds` while the `/host` leg is up, so a
+    /// signed-in Android/phone app can auto-discover and dial it with no QR
+    /// scan or manual entry. Best-effort: a failed announce is retried on the
+    /// next tick, never surfaced as a connection failure — presence is a
+    /// discovery aid, not required for the relay itself to work.
+    private func runPresenceHeartbeat(macDeviceID: String) async {
+        while !Task.isCancelled {
+            if let bearerToken = await currentAccessToken() {
+                await Self.announcePresence(macDeviceID: macDeviceID, bearerToken: bearerToken)
+            }
+            try? await Task.sleep(nanoseconds: Self.presenceHeartbeatNanoseconds)
+        }
+    }
+
+    private static func announcePresence(macDeviceID: String, bearerToken: String) async {
+        guard let url = controlPlaneURL(path: "/v1/control/relay-presence") else {
+            return
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 10
+        request.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "content-type")
+        var body: [String: Any] = ["macDeviceId": macDeviceID]
+        if let displayName = MobileHostIdentity.instanceDisplayName(), !displayName.isEmpty {
+            body["displayName"] = displayName
+        }
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        do {
+            _ = try await URLSession.shared.data(for: request)
+        } catch {
+            mobileHostCloudflareRelayLog.info(
+                "mobile host cloudflare relay presence announce failed: \(String(describing: error), privacy: .public)"
+            )
+        }
+    }
+
+    /// An `https://.../<path>` URL against the resolved control-plane origin
+    /// (same resolution as the relay's own `/host`/`/client` legs, but kept as
+    /// a plain HTTPS request rather than a WebSocket upgrade).
+    private static func controlPlaneURL(path: String) -> URL? {
+        guard let base = resolvedBaseURL(),
+              var components = URLComponents(url: base, resolvingAgainstBaseURL: false) else {
+            return nil
+        }
+        let trimmedPath = components.path.hasSuffix("/") ? String(components.path.dropLast()) : components.path
+        components.path = trimmedPath + path
+        return components.url
+    }
+
     private func runLoop(generation currentGeneration: UUID) async {
         var backoffNanoseconds = Self.minBackoffNanoseconds
         while !Task.isCancelled, generation == currentGeneration, desiredActive {
@@ -123,6 +179,10 @@ final class MobileHostCloudflareRelayRuntime {
                 MobileHostPublicStatusCache.update(cloudflareRelayRoute: route)
             }
 
+            let presenceTask = Task { [weak self] in
+                await self?.runPresenceHeartbeat(macDeviceID: macDeviceID)
+            }
+
             _ = await MobileHostService.acceptTransport(
                 transport,
                 authorization: .stackBearer,
@@ -133,6 +193,7 @@ final class MobileHostCloudflareRelayRuntime {
                     return await self.isCurrentGeneration(currentGeneration)
                 }
             )
+            presenceTask.cancel()
             MobileHostPublicStatusCache.update(cloudflareRelayRoute: nil)
 
             guard generation == currentGeneration, desiredActive else {

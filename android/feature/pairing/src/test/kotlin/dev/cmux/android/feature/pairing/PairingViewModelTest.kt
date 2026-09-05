@@ -29,6 +29,7 @@ class PairingViewModelTest {
 
     private val pairedMacStore = mockk<PairedMacStore>(relaxed = true)
     private val tokenStore = mockk<StackAuthTokenStore>(relaxed = true)
+    private val relayPairingConnector = mockk<RelayPairingConnector>(relaxed = true)
     private val testDispatcher = StandardTestDispatcher()
 
     @BeforeEach
@@ -36,22 +37,24 @@ class PairingViewModelTest {
         Dispatchers.setMain(testDispatcher)
     }
 
+    private fun viewModel() = PairingViewModel(pairedMacStore, tokenStore, relayPairingConnector)
+
     @Test
     fun `initial state is Idle`() = runTest {
-        val vm = PairingViewModel(pairedMacStore, tokenStore)
+        val vm = viewModel()
         assertEquals(PairingState.Idle, vm.state.value)
     }
 
     @Test
     fun `startScanning transitions to Scanning`() = runTest {
-        val vm = PairingViewModel(pairedMacStore, tokenStore)
+        val vm = viewModel()
         vm.startScanning()
         assertEquals(PairingState.Scanning, vm.state.value)
     }
 
     @Test
     fun `invalid QR URL transitions to Error`() = runBlocking {
-        val vm = PairingViewModel(pairedMacStore, tokenStore)
+        val vm = viewModel()
         vm.startScanning()
         vm.onQrCodeScanned("https://not-a-cmux-url.com")
         awaitState<PairingState.Error>(vm)
@@ -60,7 +63,7 @@ class PairingViewModelTest {
 
     @Test
     fun `reset from Error returns to Idle`() = runBlocking {
-        val vm = PairingViewModel(pairedMacStore, tokenStore)
+        val vm = viewModel()
         vm.startScanning()
         vm.onQrCodeScanned("invalid")
         awaitState<PairingState.Error>(vm)
@@ -71,7 +74,7 @@ class PairingViewModelTest {
 
     @Test
     fun `onQrCodeScanned with loopback route sets Error state`() = runBlocking {
-        val vm = PairingViewModel(pairedMacStore, tokenStore)
+        val vm = viewModel()
         vm.startScanning()
         val url = "cmux-ios://attach?v=2&r=127.0.0.1:58465"
         vm.onQrCodeScanned(url)
@@ -81,9 +84,39 @@ class PairingViewModelTest {
 
     @Test
     fun `DecodeError maps to Error state`() = runBlocking {
-        val vm = PairingViewModel(pairedMacStore, tokenStore)
+        val vm = viewModel()
         vm.onQrCodeScanned("cmux-ios://attach?v=999&r=100.64.1.2:58465")
         awaitState<PairingState.Error>(vm)
         assertTrue(vm.state.value is PairingState.Error)
+    }
+
+    @Test
+    fun `connectViaRelay with blank device id sets Error state without calling the connector`() = runBlocking {
+        val vm = viewModel()
+        vm.connectViaRelay("   ")
+        awaitState<PairingState.Error>(vm)
+        assertTrue(vm.state.value is PairingState.Error)
+        coVerify(exactly = 0) { relayPairingConnector.connect(any(), any()) }
+    }
+
+    @Test
+    fun `connectViaRelay success is reflected in Success state`() = runBlocking {
+        coEvery { tokenStore.getAccessToken() } returns "token-123"
+        coEvery { relayPairingConnector.connect("mac-1", "token-123") } returns
+            RelayConnectResult.Success(macDeviceId = "mac-1", displayName = "Studio")
+        val vm = viewModel()
+        vm.connectViaRelay("mac-1")
+        awaitState<PairingState.Success>(vm)
+        assertEquals(PairingState.Success("Studio"), vm.state.value)
+    }
+
+    @Test
+    fun `connectViaRelay without sign-in sets Error state without calling the connector`() = runBlocking {
+        coEvery { tokenStore.getAccessToken() } returns null
+        val vm = viewModel()
+        vm.connectViaRelay("mac-1")
+        awaitState<PairingState.Error>(vm)
+        assertTrue(vm.state.value is PairingState.Error)
+        coVerify(exactly = 0) { relayPairingConnector.connect(any(), any()) }
     }
 }

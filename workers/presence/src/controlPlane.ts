@@ -786,6 +786,78 @@ export function parseRevocationRequest(value: unknown): RevocationRequest | null
   return { endpointId: value.endpointId, revoked: value.revoked };
 }
 
+// ---- Relay presence (Mac announces itself over the Cloudflare mobile
+// pairing relay; a signed-in device on the SAME account discovers it with no
+// QR scan or manual entry — see MobileHostCloudflareRelayRuntime on the Mac
+// side and RelayPresenceClient/RelayPairingConnector on Android) ----
+
+export const RELAY_PRESENCE_PREFIX = "ctl:relay:";
+const MAX_MAC_DEVICE_ID_CHARS = 128;
+const MAX_RELAY_DISPLAY_NAME_CHARS = 128;
+
+/** A Mac stops announcing (crash, sleep, network loss) is detected by
+ * absence, not an explicit withdrawal: the Mac re-announces every ~30s while
+ * its relay `/host` leg is up (see MobileHostCloudflareRelayRuntime), and a
+ * listing older than this is treated as gone. Generous relative to the
+ * heartbeat cadence so one missed beat doesn't flap a live Mac out of view. */
+export const RELAY_PRESENCE_TTL_MS = 90_000;
+
+export interface RelayPresenceAnnouncement {
+  macDeviceId: string;
+  displayName?: string;
+}
+
+/** Strict body parse for POST /v1/control/relay-presence. The account
+ * identity NEVER rides in this body — the worker derives the DO from the
+ * verified Stack user id, exactly like device revocation. */
+export function parseRelayPresenceAnnouncement(value: unknown): RelayPresenceAnnouncement | null {
+  if (!isObject(value)) return null;
+  if (!hasOnlyKeys(value, ["macDeviceId"], ["displayName"])) return null;
+  if (typeof value.macDeviceId !== "string"
+    || value.macDeviceId.length === 0
+    || value.macDeviceId.length > MAX_MAC_DEVICE_ID_CHARS) return null;
+  if ("displayName" in value
+    && value.displayName !== undefined
+    && (typeof value.displayName !== "string" || value.displayName.length > MAX_RELAY_DISPLAY_NAME_CHARS)) {
+    return null;
+  }
+  return {
+    macDeviceId: value.macDeviceId,
+    ...(typeof value.displayName === "string" ? { displayName: value.displayName } : {}),
+  };
+}
+
+/** Stored shape under RELAY_PRESENCE_PREFIX + macDeviceId. */
+export interface RelayPresenceRecord {
+  displayName?: string;
+  lastSeenAt: number;
+}
+
+export interface RelayPresenceEntry {
+  macDeviceId: string;
+  displayName?: string;
+}
+
+/** Filter the account's stored relay-presence rows down to the ones still
+ * within the TTL window. Pure so the expiry rule is unit-testable without a
+ * DO. `rows` keys are the FULL storage keys (including the prefix), matching
+ * what DurableObjectStorage.list returns. */
+export function liveRelayPresenceEntries(
+  rows: ReadonlyMap<string, RelayPresenceRecord>,
+  now: number,
+): RelayPresenceEntry[] {
+  const entries: RelayPresenceEntry[] = [];
+  for (const [key, record] of rows) {
+    if (!key.startsWith(RELAY_PRESENCE_PREFIX)) continue;
+    if (now - record.lastSeenAt > RELAY_PRESENCE_TTL_MS) continue;
+    entries.push({
+      macDeviceId: key.slice(RELAY_PRESENCE_PREFIX.length),
+      ...(record.displayName !== undefined ? { displayName: record.displayName } : {}),
+    });
+  }
+  return entries;
+}
+
 export interface CtlSocket {
   send(data: string): void;
   close(code?: number, reason?: string): void;

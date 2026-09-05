@@ -7,12 +7,11 @@ import dev.cmux.android.core.auth.StackAuthTokenStore
 import dev.cmux.android.core.pairing.AttachRoute
 import dev.cmux.android.core.pairing.AttachTicket
 import dev.cmux.android.core.pairing.AttachTicketDecoder
-import dev.cmux.android.core.pairing.MobileRelayDefaults
 import dev.cmux.android.core.pairing.PairedMacStore
+import dev.cmux.android.core.pairing.RelayConnectResult
+import dev.cmux.android.core.pairing.RelayPairingConnector
 import dev.cmux.android.core.rpc.MobileCoreRpcSession
 import dev.cmux.android.core.transport.TcpByteTransport
-import dev.cmux.android.core.transport.WebSocketByteTransport
-import dev.cmux.android.feature.pairing.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -36,37 +35,24 @@ sealed interface PairingState {
 class PairingViewModel @Inject constructor(
     private val pairedMacStore: PairedMacStore,
     private val tokenStore: StackAuthTokenStore,
+    private val relayPairingConnector: RelayPairingConnector,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow<PairingState>(PairingState.Idle)
     val state: StateFlow<PairingState> = _state.asStateFlow()
 
-    /** In DEBUG builds, the current Stack Auth access token for use with mobile-dev-auth.sh. */
-    val debugAccessToken: String? get() = if (BuildConfig.DEBUG) tokenStore.getAccessToken() else null
-
     fun startScanning() {
         _state.value = PairingState.Scanning
     }
 
-    /** DEBUG: connect directly to the emulator host without scanning a QR code. */
-    fun connectDirect(port: Int = DEFAULT_PORT) {
-        viewModelScope.launch(Dispatchers.IO) {
-            val ticket = AttachTicket(
-                routes = listOf(AttachRoute(AttachRoute.RouteKind.LOOPBACK, EMULATOR_HOST, port)),
-                macUserId = null,
-            )
-            connectAndPair(ticket, debugPortOverride = port)
-        }
-    }
-
-    fun onQrCodeScanned(rawUrl: String, debugPortOverride: Int? = null) {
+    fun onQrCodeScanned(rawUrl: String) {
         viewModelScope.launch(Dispatchers.IO) {
             when (val decoded = AttachTicketDecoder.decode(rawUrl)) {
                 is AttachTicketDecoder.Result.Error -> {
                     _state.value = PairingState.Error("Invalid QR: ${decoded.reason}")
                 }
                 is AttachTicketDecoder.Result.Success -> {
-                    connectAndPair(decoded.ticket, debugPortOverride)
+                    connectAndPair(decoded.ticket)
                 }
             }
         }
@@ -75,11 +61,10 @@ class PairingViewModel @Inject constructor(
     /**
      * DEBUG: pair through the Cloudflare relay using a Mac device id copied
      * from the Mac's Debug menu (or `list-workspaces` over its debug CLI),
-     * instead of scanning a QR code. The relay-transport equivalent of
-     * [connectDirect] — Android has no scanned-QR bootstrap for this route
-     * kind yet, since [AttachTicketDecoder]'s v4 grammar requires the device
-     * id up front (it is the relay's routing key, unlike the TCP routes
-     * `mobile.host.status` can resolve post-connect).
+     * instead of scanning a QR code — Android has no scanned-QR bootstrap for
+     * this route kind yet, since [AttachTicketDecoder]'s v4 grammar requires
+     * the device id up front (it is the relay's routing key, unlike the TCP
+     * routes `mobile.host.status` can resolve post-connect).
      */
     fun connectViaRelay(macDeviceId: String) {
         viewModelScope.launch(Dispatchers.IO) {
@@ -97,10 +82,10 @@ class PairingViewModel @Inject constructor(
         }
     }
 
-    private suspend fun connectAndPair(ticket: AttachTicket, debugPortOverride: Int? = null) {
+    private suspend fun connectAndPair(ticket: AttachTicket) {
         val relayRoute = ticket.routes.firstOrNull { it.kind == AttachRoute.RouteKind.CLOUDFLARE_RELAY }
         if (relayRoute != null) {
-            connectViaRelayRoute(ticket, relayRoute)
+            connectViaRelayRoute(relayRoute)
             return
         }
 
@@ -112,12 +97,8 @@ class PairingViewModel @Inject constructor(
             }
 
         // In emulator: always connect to 10.0.2.2 regardless of route kind.
-        // The Mac debug build's TCP mobile server uses an ephemeral port when
-        // Iroh already occupies 58465/UDP, so debugPortOverride lets the user
-        // specify the actual port shown by `lsof -i TCP -a -p $(pgrep cmux) | grep LISTEN`.
         val host = if (isEmulator()) EMULATOR_HOST else route.host
-        val port = debugPortOverride?.takeIf { isEmulator() && it > 0 }
-            ?: if (isEmulator() || route.port <= 0) DEFAULT_PORT else route.port
+        val port = if (isEmulator() || route.port <= 0) DEFAULT_PORT else route.port
 
         _state.value = PairingState.Connecting(host, port)
 
@@ -144,11 +125,11 @@ class PairingViewModel @Inject constructor(
     /**
      * Unlike the TCP path, the relay Worker requires a valid Stack bearer
      * token to open the WebSocket at all (auth happens on the upgrade, not
-     * per-RPC), so `mobile.host.status` is unreachable while signed out —
-     * this is a deliberate behavior difference from the TCP fallback, not a
-     * bug: see MobileHostCloudflareRelayRuntime / the relay worker route.
+     * per-RPC), so this is unreachable while signed out — a deliberate
+     * behavior difference from the TCP fallback, not a bug: see
+     * MobileHostCloudflareRelayRuntime / the relay worker route.
      */
-    private suspend fun connectViaRelayRoute(ticket: AttachTicket, route: AttachRoute) {
+    private suspend fun connectViaRelayRoute(route: AttachRoute) {
         val macDeviceId = route.host
         val accessToken = tokenStore.getAccessToken()
         if (accessToken.isNullOrBlank()) {
@@ -158,26 +139,9 @@ class PairingViewModel @Inject constructor(
 
         _state.value = PairingState.Connecting(macDeviceId, 0)
 
-        try {
-            val transport = WebSocketByteTransport(
-                relayUrl = MobileRelayDefaults.clientRelayUrl(macDeviceId, isDebug = BuildConfig.DEBUG),
-                accessToken = accessToken,
-            )
-            val session = MobileCoreRpcSession(transport)
-            session.connect()
-
-            val statusResponse = session.sendRequest("mobile.host.status")
-            val result = statusResponse["result"]?.jsonObject
-            val resolvedMacDeviceId = result?.get("mac_device_id")?.jsonPrimitive?.content
-                ?.takeIf { it.isNotBlank() } ?: macDeviceId
-            val displayName = result?.get("mac_display_name")?.jsonPrimitive?.content
-
-            pairedMacStore.save(ticket, resolvedMacDeviceId, displayName, macDeviceId, 0)
-
-            session.disconnect()
-            _state.value = PairingState.Success(displayName)
-        } catch (e: Exception) {
-            _state.value = PairingState.Error("Connection failed: ${e.message}")
+        _state.value = when (val result = relayPairingConnector.connect(macDeviceId, accessToken)) {
+            is RelayConnectResult.Success -> PairingState.Success(result.displayName)
+            is RelayConnectResult.Error -> PairingState.Error("Connection failed: ${result.message}")
         }
     }
 
