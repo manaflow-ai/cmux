@@ -52,8 +52,46 @@ const INTERACTIVE_WRITE_QUEUE_BYTES: usize = 8 * 1024 * 1024;
 pub(crate) const REMOTE_CONTROL_MESSAGE_MAX_BYTES: usize = REMOTE_SESSION_MESSAGE_MAX_BYTES;
 const REMOTE_FRAME_LOG_MAX_ENTRIES: usize = 16 * 1024;
 const REMOTE_FRAME_LOG_MAX_BYTES: usize = 2 * 1024 * 1024;
+const REMOTE_FRAME_DUMP_MAX_FILES: usize = 32;
+const REMOTE_FRAME_DUMP_MAX_BYTES: u64 = 8 * 1024 * 1024;
 const REMOTE_TERMINAL_DIMENSION_MAX: u64 = 10_000;
 const REMOTE_TERMINAL_CELL_MAX: u64 = 1024 * 1024;
+
+#[cfg(unix)]
+#[derive(Debug, Clone, Copy)]
+struct PrivateDumpEmissionBudget {
+    remaining_files: usize,
+    remaining_bytes: u64,
+}
+
+#[cfg(unix)]
+impl PrivateDumpEmissionBudget {
+    fn new() -> Self {
+        Self::with_limits(REMOTE_FRAME_DUMP_MAX_FILES, REMOTE_FRAME_DUMP_MAX_BYTES)
+    }
+
+    fn with_limits(maximum_files: usize, maximum_bytes: u64) -> Self {
+        Self { remaining_files: maximum_files, remaining_bytes: maximum_bytes }
+    }
+
+    fn can_fit(&self, bytes: u64) -> bool {
+        self.remaining_files > 0 && bytes <= self.remaining_bytes
+    }
+
+    fn has_capacity(&self) -> bool {
+        self.remaining_files > 0 && self.remaining_bytes > 0
+    }
+
+    fn reserve(&mut self, bytes: u64) -> bool {
+        if !self.can_fit(bytes) {
+            return false;
+        }
+        self.remaining_files = self.remaining_files.saturating_sub(1);
+        self.remaining_bytes = self.remaining_bytes.saturating_sub(bytes);
+        true
+    }
+}
+
 const INTERACTIVE_LATENCY_BUCKET_UPPER_US: [u64; 18] = [
     50,
     100,
@@ -3643,24 +3681,809 @@ impl Drop for RemoteSession {
         let Some(dir) = self.frame_dump_dir.as_deref() else {
             return;
         };
-        let _ = fs::create_dir_all(dir);
-        let logs = self.frame_logs.lock().unwrap();
-        let mut entries_by_surface: HashMap<SurfaceId, Vec<&str>> = HashMap::new();
-        for entry in &logs.entries {
-            entries_by_surface.entry(entry.surface).or_default().push(&entry.line);
+        #[cfg(not(unix))]
+        {
+            // Secure descriptor-relative file creation is not available in
+            // this implementation. Do not emit secret-bearing dumps through
+            // path-based APIs on unsupported targets.
+            crate::client_log::error(
+                "mux-dump",
+                &format!(
+                    "CMUX_MUX_DEBUG_MIRROR_DUMP={} is unsupported on this platform; no dump was written",
+                    dir.display()
+                ),
+            );
+            return;
         }
-        for surface in self.surfaces.lock().unwrap().values() {
-            let path = dir.join(format!("mirror-{}.txt", surface.id));
-            let _ = fs::write(path, dump_mirror(surface));
-            let frames = dir.join(format!("frames-{}.log", surface.id));
-            if let Ok(file) = fs::File::create(frames) {
-                let mut writer = io::BufWriter::new(file);
-                for line in entries_by_surface.get(&surface.id).into_iter().flatten() {
-                    let _ = writeln!(writer, "{line}");
+        #[cfg(unix)]
+        {
+            let directory = match private_dump_directory(dir) {
+                Ok(directory) => directory,
+                Err(error) => {
+                    crate::client_log::error(
+                        "mux-dump",
+                        &format!(
+                            "cannot use CMUX_MUX_DEBUG_MIRROR_DUMP={}: {error}; choose a directory owned by the current user with mode 0700",
+                            dir.display()
+                        ),
+                    );
+                    return;
                 }
+            };
+            let logs = self.frame_logs.lock().unwrap();
+            let mut entries_by_surface: HashMap<SurfaceId, Vec<&str>> = HashMap::new();
+            for entry in &logs.entries {
+                entries_by_surface.entry(entry.surface).or_default().push(&entry.line);
+            }
+            // A session can retain more surfaces than the directory's final
+            // retention set. Bound the amount emitted during teardown too;
+            // the final prune below still accounts for dumps from other
+            // sessions and concurrent writers.
+            let mut emission_budget = PrivateDumpEmissionBudget::new();
+            let mut emission_budget_exhausted = false;
+            for surface in self.surfaces.lock().unwrap().values() {
+                if !emission_budget.has_capacity() {
+                    emission_budget_exhausted = true;
+                    break;
+                }
+                let mirror_name = format!("mirror-{}.txt", surface.id);
+                let mirror = dump_mirror(surface);
+                let mirror_bytes = mirror.len() as u64;
+                // Reserve before opening the temporary file so failed writes
+                // cannot turn teardown into an unbounded retry loop.
+                if emission_budget.reserve(mirror_bytes) {
+                    if let Err(error) = write_private_dump(&directory, &mirror_name, |file| {
+                        file.write_all(mirror.as_bytes())
+                    }) {
+                        crate::client_log::error(
+                            "mux-dump",
+                            &format!("cannot write private dump {mirror_name}: {error}"),
+                        );
+                    }
+                } else {
+                    emission_budget_exhausted = true;
+                }
+                let frames_name = format!("frames-{}.log", surface.id);
+                let frame_bytes = entries_by_surface
+                    .get(&surface.id)
+                    .into_iter()
+                    .flatten()
+                    .fold(0_u64, |total, line| {
+                        total.saturating_add((line.len() as u64).saturating_add(1))
+                    });
+                if emission_budget.reserve(frame_bytes) {
+                    if let Err(error) = write_private_dump(&directory, &frames_name, |file| {
+                        for line in entries_by_surface.get(&surface.id).into_iter().flatten() {
+                            writeln!(file, "{line}")?;
+                        }
+                        Ok(())
+                    }) {
+                        crate::client_log::error(
+                            "mux-dump",
+                            &format!("cannot write private dump {frames_name}: {error}"),
+                        );
+                    }
+                } else {
+                    emission_budget_exhausted = true;
+                }
+            }
+            if emission_budget_exhausted {
+                crate::client_log::error(
+                    "mux-dump",
+                    "private dump emission budget exhausted; later surface dumps were skipped",
+                );
+            }
+            if let Err(error) = prune_dump_files(&directory.output) {
+                crate::client_log::error(
+                    "mux-dump",
+                    &format!("cannot enforce private dump retention: {error}"),
+                );
             }
         }
     }
+}
+
+#[cfg(unix)]
+#[derive(Debug)]
+struct PrivateDumpDirectory {
+    output: fs::File,
+    temporary: fs::File,
+}
+
+#[cfg(unix)]
+fn private_dump_directory(path: &Path) -> io::Result<PrivateDumpDirectory> {
+    use std::ffi::CString;
+    use std::os::fd::{AsRawFd, FromRawFd};
+    use std::os::unix::ffi::OsStrExt;
+    let path = normalize_dump_path(path)?;
+    let start = if path.is_absolute() { "/" } else { "." };
+    let start = CString::new(start).unwrap();
+    let fd =
+        unsafe { libc::open(start.as_ptr(), libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC) };
+    if fd < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let mut directory = unsafe { fs::File::from_raw_fd(fd) };
+    for component in path.components() {
+        use std::path::Component;
+        let Component::Normal(component) = component else {
+            if matches!(component, Component::ParentDir) {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "dump path must not contain '..'",
+                ));
+            }
+            continue;
+        };
+        validate_dump_directory(&directory, false)?;
+        let component =
+            CString::new(component.as_bytes()).map_err(|_| io::ErrorKind::InvalidInput)?;
+        let next = unsafe {
+            libc::openat(
+                directory.as_raw_fd(),
+                component.as_ptr(),
+                libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+            )
+        };
+        let next = if next >= 0 {
+            next
+        } else {
+            let error = io::Error::last_os_error();
+            if error.kind() != io::ErrorKind::NotFound {
+                return Err(error);
+            }
+            if unsafe { libc::mkdirat(directory.as_raw_fd(), component.as_ptr(), 0o700) } != 0 {
+                let error = io::Error::last_os_error();
+                if error.raw_os_error() != Some(libc::EEXIST) {
+                    return Err(error);
+                }
+            }
+            let next = unsafe {
+                libc::openat(
+                    directory.as_raw_fd(),
+                    component.as_ptr(),
+                    libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+                )
+            };
+            if next < 0 {
+                return Err(io::Error::last_os_error());
+            }
+            next
+        };
+        directory = unsafe { fs::File::from_raw_fd(next) };
+    }
+    validate_dump_directory(&directory, true)?;
+    let output = open_private_child_directory(&directory, ".cmux-dump-files")?;
+    let temporary = open_private_child_directory(&output, ".cmux-dump-tmp")?;
+    prune_stale_dump_temps(&temporary)?;
+    prune_dump_files(&output)?;
+    Ok(PrivateDumpDirectory { output, temporary })
+}
+
+#[cfg(unix)]
+fn normalize_dump_path(path: &Path) -> io::Result<PathBuf> {
+    use std::path::Component;
+
+    if path.components().any(|component| matches!(component, Component::ParentDir)) {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "dump path must not contain '..'"));
+    }
+    let mut existing = path.to_path_buf();
+    let mut missing = Vec::new();
+    loop {
+        match fs::symlink_metadata(&existing) {
+            Ok(_) => break,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error),
+        }
+        let Some(name) = existing.file_name().map(ToOwned::to_owned) else {
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                "dump path has no existing ancestor",
+            ));
+        };
+        missing.push(name);
+        if !existing.pop() {
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                "dump path has no existing ancestor",
+            ));
+        }
+        if existing.as_os_str().is_empty() {
+            existing.push(".");
+            break;
+        }
+    }
+    let mut normalized = fs::canonicalize(existing)?;
+    for component in missing.into_iter().rev() {
+        normalized.push(component);
+    }
+    Ok(normalized)
+}
+
+#[cfg(unix)]
+fn open_private_child_directory(parent: &fs::File, name: &str) -> io::Result<fs::File> {
+    use std::ffi::CString;
+    use std::os::fd::{AsRawFd, FromRawFd};
+
+    let name = CString::new(name).map_err(|_| io::ErrorKind::InvalidInput)?;
+    let mut descriptor = unsafe {
+        libc::openat(
+            parent.as_raw_fd(),
+            name.as_ptr(),
+            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+        )
+    };
+    if descriptor < 0 {
+        let error = io::Error::last_os_error();
+        if error.kind() != io::ErrorKind::NotFound {
+            return Err(error);
+        }
+        if unsafe { libc::mkdirat(parent.as_raw_fd(), name.as_ptr(), 0o700) } != 0 {
+            let error = io::Error::last_os_error();
+            if error.raw_os_error() != Some(libc::EEXIST) {
+                return Err(error);
+            }
+        }
+        descriptor = unsafe {
+            libc::openat(
+                parent.as_raw_fd(),
+                name.as_ptr(),
+                libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+            )
+        };
+        if descriptor < 0 {
+            return Err(io::Error::last_os_error());
+        }
+    }
+    let directory = unsafe { fs::File::from_raw_fd(descriptor) };
+    validate_dump_directory(&directory, true)?;
+    Ok(directory)
+}
+
+#[cfg(unix)]
+fn validate_dump_directory(directory: &fs::File, private: bool) -> io::Result<()> {
+    use std::os::unix::fs::MetadataExt;
+    let metadata = directory.metadata()?;
+    let trusted_owner = metadata.uid() == unsafe { libc::geteuid() } || metadata.uid() == 0;
+    let sticky = metadata.mode() & 0o1000 != 0;
+    if !trusted_owner
+        || (!private && metadata.mode() & 0o022 != 0 && !sticky)
+        || (private && metadata.mode() & 0o077 != 0)
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "dump directory component is not private or trusted",
+        ));
+    }
+    reject_extended_acl(directory)
+}
+
+#[cfg(unix)]
+struct DirectoryStream(*mut libc::DIR);
+
+#[cfg(unix)]
+impl Drop for DirectoryStream {
+    fn drop(&mut self) {
+        unsafe {
+            libc::closedir(self.0);
+        }
+    }
+}
+
+#[cfg(unix)]
+struct DumpDirectoryLock<'a> {
+    directory: &'a fs::File,
+}
+
+#[cfg(unix)]
+impl Drop for DumpDirectoryLock<'_> {
+    fn drop(&mut self) {
+        use std::os::fd::AsRawFd;
+
+        unsafe {
+            libc::flock(self.directory.as_raw_fd(), libc::LOCK_UN);
+        }
+    }
+}
+
+#[cfg(unix)]
+fn lock_dump_directory(directory: &fs::File) -> io::Result<DumpDirectoryLock<'_>> {
+    use std::os::fd::AsRawFd;
+
+    // Dumping is best-effort. Never let a stalled peer holding this advisory
+    // lock block session teardown or directory cleanup.
+    if unsafe { libc::flock(directory.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
+        return Ok(DumpDirectoryLock { directory });
+    }
+    Err(io::Error::last_os_error())
+}
+
+#[cfg(unix)]
+fn prune_stale_dump_temps(directory: &fs::File) -> io::Result<()> {
+    use std::ffi::CString;
+    use std::os::fd::{AsRawFd, FromRawFd};
+
+    let _directory_lock = lock_dump_directory(directory)?;
+    let uid = unsafe { libc::geteuid() };
+    let duplicate = unsafe { libc::dup(directory.as_raw_fd()) };
+    if duplicate < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let stream = unsafe { libc::fdopendir(duplicate) };
+    if stream.is_null() {
+        unsafe { libc::close(duplicate) };
+        return Err(io::Error::last_os_error());
+    }
+    let stream = DirectoryStream(stream);
+    // `dup` shares the directory cursor. Reset each scan so a prior pass on
+    // this descriptor cannot hide entries that were created later.
+    unsafe { libc::rewinddir(stream.0) };
+    loop {
+        let entry = unsafe { libc::readdir(stream.0) };
+        if entry.is_null() {
+            break;
+        }
+        let name = unsafe { std::ffi::CStr::from_ptr((*entry).d_name.as_ptr()) };
+        let name_bytes = name.to_bytes();
+        let is_dump_temp = (name_bytes.starts_with(b".mirror-")
+            || name_bytes.starts_with(b".frames-"))
+            && name_bytes.windows(b".tmp-".len()).any(|part| part == b".tmp-");
+        if !is_dump_temp {
+            continue;
+        }
+        let mut metadata = std::mem::MaybeUninit::<libc::stat>::uninit();
+        if unsafe {
+            libc::fstatat(
+                directory.as_raw_fd(),
+                name.as_ptr(),
+                metadata.as_mut_ptr(),
+                libc::AT_SYMLINK_NOFOLLOW,
+            )
+        } != 0
+        {
+            continue;
+        }
+        let metadata = unsafe { metadata.assume_init() };
+        if metadata.st_mode & libc::S_IFMT != libc::S_IFREG
+            || metadata.st_uid != uid
+            || metadata.st_nlink != 1
+        {
+            continue;
+        }
+        let descriptor = unsafe {
+            libc::openat(
+                directory.as_raw_fd(),
+                name.as_ptr(),
+                libc::O_RDWR | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC,
+            )
+        };
+        if descriptor < 0 {
+            continue;
+        }
+        let candidate = unsafe { fs::File::from_raw_fd(descriptor) };
+        if unsafe { libc::flock(candidate.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+            let error = io::Error::last_os_error();
+            if error.raw_os_error() == Some(libc::EWOULDBLOCK) {
+                continue;
+            }
+            return Err(error);
+        }
+        let name = CString::new(name_bytes).map_err(|_| io::ErrorKind::InvalidInput)?;
+        let status = unsafe { libc::unlinkat(directory.as_raw_fd(), name.as_ptr(), 0) };
+        if status != 0 {
+            let error = io::Error::last_os_error();
+            if error.kind() != io::ErrorKind::NotFound {
+                return Err(error);
+            }
+        }
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn is_private_dump_name(name: &[u8]) -> bool {
+    [(&b"mirror-"[..], &b".txt"[..]), (&b"frames-"[..], &b".log"[..])].into_iter().any(
+        |(prefix, suffix)| {
+            name.strip_prefix(prefix)
+                .and_then(|name| name.strip_suffix(suffix))
+                .is_some_and(|id| !id.is_empty() && id.iter().all(|byte| byte.is_ascii_digit()))
+        },
+    )
+}
+
+#[cfg(unix)]
+fn prune_dump_files(directory: &fs::File) -> io::Result<()> {
+    prune_dump_files_with_limits(
+        directory,
+        REMOTE_FRAME_DUMP_MAX_FILES,
+        REMOTE_FRAME_DUMP_MAX_BYTES,
+    )
+}
+
+#[cfg(unix)]
+fn prune_dump_files_with_limits(
+    directory: &fs::File,
+    maximum_files: usize,
+    maximum_bytes: u64,
+) -> io::Result<()> {
+    use std::os::fd::{AsRawFd, FromRawFd};
+
+    let _directory_lock = lock_dump_directory(directory)?;
+    struct DumpFile {
+        name: Vec<u8>,
+        modified: (u64, u32),
+        bytes: u64,
+    }
+
+    let duplicate = unsafe { libc::dup(directory.as_raw_fd()) };
+    if duplicate < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let stream = unsafe { libc::fdopendir(duplicate) };
+    if stream.is_null() {
+        unsafe { libc::close(duplicate) };
+        return Err(io::Error::last_os_error());
+    }
+    let stream = DirectoryStream(stream);
+    // `dup` shares the directory cursor. Reset each scan so a prior pass on
+    // this descriptor cannot hide entries that were created later.
+    unsafe { libc::rewinddir(stream.0) };
+    let mut dumps = Vec::new();
+    loop {
+        let entry = unsafe { libc::readdir(stream.0) };
+        if entry.is_null() {
+            break;
+        }
+        let name = unsafe { std::ffi::CStr::from_ptr((*entry).d_name.as_ptr()) };
+        let name_bytes = name.to_bytes();
+        if !is_private_dump_name(name_bytes) {
+            continue;
+        }
+        let mut metadata = std::mem::MaybeUninit::<libc::stat>::uninit();
+        if unsafe {
+            libc::fstatat(
+                directory.as_raw_fd(),
+                name.as_ptr(),
+                metadata.as_mut_ptr(),
+                libc::AT_SYMLINK_NOFOLLOW,
+            )
+        } != 0
+        {
+            continue;
+        }
+        let metadata = unsafe { metadata.assume_init() };
+        if metadata.st_mode & libc::S_IFMT != libc::S_IFREG
+            || metadata.st_uid != unsafe { libc::geteuid() }
+        {
+            continue;
+        }
+        let modified = if metadata.st_nlink == 1 {
+            let descriptor = unsafe {
+                libc::openat(
+                    directory.as_raw_fd(),
+                    name.as_ptr(),
+                    libc::O_WRONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC,
+                )
+            };
+            if descriptor >= 0 {
+                let file = unsafe { fs::File::from_raw_fd(descriptor) };
+                unsafe { libc::fchmod(file.as_raw_fd(), 0o600) };
+                file.metadata()
+                    .ok()
+                    .and_then(|metadata| metadata.modified().ok())
+                    .and_then(|modified| modified.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|modified| (modified.as_secs(), modified.subsec_nanos()))
+                    .unwrap_or((0, 0))
+            } else {
+                (0, 0)
+            }
+        } else {
+            // Count a hard-linked managed entry toward retention limits, but
+            // do not open it for writing or chmod it. Those operations would
+            // change the file visible through the other hard-link entries.
+            let descriptor = unsafe {
+                libc::openat(
+                    directory.as_raw_fd(),
+                    name.as_ptr(),
+                    libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC,
+                )
+            };
+            if descriptor >= 0 {
+                let file = unsafe { fs::File::from_raw_fd(descriptor) };
+                file.metadata()
+                    .ok()
+                    .and_then(|metadata| metadata.modified().ok())
+                    .and_then(|modified| modified.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|modified| (modified.as_secs(), modified.subsec_nanos()))
+                    .unwrap_or((0, 0))
+            } else {
+                (0, 0)
+            }
+        };
+        dumps.push(DumpFile {
+            name: name_bytes.to_vec(),
+            modified,
+            bytes: metadata.st_size.max(0) as u64,
+        });
+        dumps.sort_by(|left, right| {
+            left.modified.cmp(&right.modified).then_with(|| left.name.cmp(&right.name))
+        });
+        if dumps.len() > maximum_files {
+            let dump = dumps.remove(0);
+            delete_dump_file(directory, &dump.name)?;
+        }
+    }
+    // A directory can contain files close to the maximum `u64` file size.
+    // Sum in a wider type so the byte cap cannot wrap before it is enforced.
+    let maximum_bytes = u128::from(maximum_bytes);
+    let mut total_bytes = dumps.iter().map(|dump| u128::from(dump.bytes)).sum::<u128>();
+    while total_bytes > maximum_bytes {
+        let dump = dumps.remove(0);
+        delete_dump_file(directory, &dump.name)?;
+        total_bytes = total_bytes.saturating_sub(u128::from(dump.bytes));
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn delete_dump_file(directory: &fs::File, name: &[u8]) -> io::Result<()> {
+    use std::os::fd::AsRawFd;
+
+    let name = std::ffi::CString::new(name)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid dump file name"))?;
+    let status = unsafe { libc::unlinkat(directory.as_raw_fd(), name.as_ptr(), 0) };
+    if status != 0 {
+        let error = io::Error::last_os_error();
+        if error.raw_os_error() != Some(libc::ENOENT) {
+            return Err(error);
+        }
+    }
+    Ok(())
+}
+
+// These values come from Darwin's sys/acl.h. `acl_get_tag_type` returns an
+// `acl_tag_t`, whose extended allow and deny values are 1 and 2. They are
+// separate from the ACL type value (0x100) and the entry selectors (0/-1).
+// Darwin exposes this tag accessor, rather than a separate entry-type API.
+#[cfg(target_os = "macos")]
+const MACOS_ACL_TYPE_EXTENDED: libc::c_int = 0x0000_0100;
+
+#[cfg(target_os = "macos")]
+const MACOS_ACL_FIRST_ENTRY: libc::c_int = 0;
+
+#[cfg(target_os = "macos")]
+const MACOS_ACL_NEXT_ENTRY: libc::c_int = -1;
+
+#[cfg(all(target_os = "macos", test))]
+const MACOS_ACL_EXTENDED_ALLOW: libc::c_int = 1;
+
+#[cfg(target_os = "macos")]
+const MACOS_ACL_EXTENDED_DENY: libc::c_int = 2;
+
+#[cfg(target_os = "macos")]
+fn reject_extended_acl(directory: &fs::File) -> io::Result<()> {
+    use std::os::fd::AsRawFd;
+
+    unsafe extern "C" {
+        fn acl_get_fd_np(fd: libc::c_int, acl_type: libc::c_int) -> *mut libc::c_void;
+        fn acl_get_entry(
+            acl: *mut libc::c_void,
+            entry_id: libc::c_int,
+            entry: *mut *mut libc::c_void,
+        ) -> libc::c_int;
+        fn acl_get_tag_type(entry: *mut libc::c_void, tag: *mut libc::c_int) -> libc::c_int;
+        fn acl_free(object: *mut libc::c_void) -> libc::c_int;
+    }
+
+    struct Acl(*mut libc::c_void);
+    impl Drop for Acl {
+        fn drop(&mut self) {
+            unsafe { acl_free(self.0) };
+        }
+    }
+
+    let acl = unsafe { acl_get_fd_np(directory.as_raw_fd(), MACOS_ACL_TYPE_EXTENDED) };
+    if acl.is_null() {
+        let error = io::Error::last_os_error();
+        if matches!(
+            error.raw_os_error(),
+            Some(libc::ENOENT)
+                | Some(libc::ENOATTR)
+                | Some(libc::ENOTSUP)
+                | Some(libc::EOPNOTSUPP)
+                | Some(libc::ENOSYS)
+        ) {
+            return Ok(());
+        }
+        return Err(error);
+    }
+    let acl = Acl(acl);
+    let mut entry = std::ptr::null_mut();
+    let mut entry_id = MACOS_ACL_FIRST_ENTRY;
+    loop {
+        let status = unsafe { acl_get_entry(acl.0, entry_id, &mut entry) };
+        if status != 0 {
+            let error = io::Error::last_os_error();
+            if error.raw_os_error() == Some(libc::EINVAL) {
+                return Ok(());
+            }
+            return Err(error);
+        }
+        let mut tag = 0;
+        if unsafe { acl_get_tag_type(entry, &mut tag) } != 0 {
+            return Err(io::Error::last_os_error());
+        }
+        if !macos_dump_acl_tag_is_safe(tag) {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "dump directory ACL grants access; remove allow entries or choose another directory",
+            ));
+        }
+        entry_id = MACOS_ACL_NEXT_ENTRY;
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn macos_dump_acl_tag_is_safe(tag: libc::c_int) -> bool {
+    tag == MACOS_ACL_EXTENDED_DENY
+}
+
+#[cfg(target_os = "linux")]
+fn reject_extended_acl(directory: &fs::File) -> io::Result<()> {
+    use std::os::fd::AsRawFd;
+
+    let size = unsafe { libc::flistxattr(directory.as_raw_fd(), std::ptr::null_mut(), 0) };
+    if size < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    if size == 0 {
+        return Ok(());
+    }
+    let mut names = vec![0u8; size as usize];
+    let read =
+        unsafe { libc::flistxattr(directory.as_raw_fd(), names.as_mut_ptr().cast(), names.len()) };
+    if read < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    for name in names[..read as usize].split(|byte| *byte == 0) {
+        if name == b"system.posix_acl_access" || name == b"system.posix_acl_default" {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "dump directory has a POSIX ACL",
+            ));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(all(unix, not(target_os = "macos"), not(target_os = "linux")))]
+fn reject_extended_acl(_directory: &fs::File) -> io::Result<()> {
+    Err(io::Error::new(
+        io::ErrorKind::PermissionDenied,
+        "cannot validate dump directory ACLs on this Unix target",
+    ))
+}
+
+#[cfg(not(unix))]
+fn reject_extended_acl(_directory: &fs::File) -> io::Result<()> {
+    Ok(())
+}
+
+#[cfg(unix)]
+fn private_dump_file(directory: &fs::File, name: &str) -> io::Result<fs::File> {
+    use std::ffi::CString;
+    use std::os::fd::{AsRawFd, FromRawFd};
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+    let _directory_lock = lock_dump_directory(directory)?;
+    let name = CString::new(name)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid dump file name"))?;
+    let descriptor = unsafe {
+        libc::openat(
+            directory.as_raw_fd(),
+            name.as_ptr(),
+            libc::O_WRONLY
+                | libc::O_CREAT
+                | libc::O_EXCL
+                | libc::O_NOFOLLOW
+                | libc::O_NONBLOCK
+                | libc::O_CLOEXEC,
+            0o600,
+        )
+    };
+    if descriptor < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let file = unsafe { fs::File::from_raw_fd(descriptor) };
+    // Claim the temporary file before any validation work. The stale-temp
+    // reaper uses the same advisory lock and must never see this file as idle
+    // while it is being prepared for a dump.
+    if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let metadata = file.metadata()?;
+    if !metadata.is_file() || metadata.uid() != unsafe { libc::geteuid() } || metadata.nlink() != 1
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "dump target is not a private user-owned regular file",
+        ));
+    }
+    // Exclusive creation means an existing hard link or symlink is never
+    // opened, and no previously existing file is truncated.
+    file.set_permissions(fs::Permissions::from_mode(0o600))?;
+    Ok(file)
+}
+
+#[cfg(unix)]
+fn write_private_dump<F>(
+    directory: &PrivateDumpDirectory,
+    name: &str,
+    write_contents: F,
+) -> io::Result<()>
+where
+    F: FnOnce(&mut fs::File) -> io::Result<()>,
+{
+    use std::ffi::CString;
+    use std::os::fd::AsRawFd;
+
+    let final_name = CString::new(name)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid dump file name"))?;
+    static NEXT_TEMP_ID: AtomicU64 = AtomicU64::new(1);
+    let mut temp_name = None;
+    let mut file = None;
+    for _ in 0..16 {
+        let id = NEXT_TEMP_ID.fetch_add(1, Ordering::Relaxed);
+        let candidate = format!(".{name}.tmp-{}-{id}", unsafe { libc::getpid() });
+        match private_dump_file(&directory.temporary, &candidate) {
+            Ok(candidate_file) => {
+                temp_name = Some(CString::new(candidate).expect("generated temp name is valid"));
+                file = Some(candidate_file);
+                break;
+            }
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        }
+    }
+    let temp_name = temp_name.ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            "could not allocate a private dump temporary file",
+        )
+    })?;
+    let mut file = file.expect("temporary file is present when its name is present");
+    let result = write_contents(&mut file).and_then(|()| file.sync_all());
+    if let Err(error) = result {
+        unsafe {
+            libc::unlinkat(directory.temporary.as_raw_fd(), temp_name.as_ptr(), 0);
+        }
+        return Err(error);
+    }
+    let _output_lock = match lock_dump_directory(&directory.output) {
+        Ok(lock) => lock,
+        Err(error) => {
+            unsafe {
+                libc::unlinkat(directory.temporary.as_raw_fd(), temp_name.as_ptr(), 0);
+            }
+            return Err(error);
+        }
+    };
+    let status = unsafe {
+        libc::renameat(
+            directory.temporary.as_raw_fd(),
+            temp_name.as_ptr(),
+            directory.output.as_raw_fd(),
+            final_name.as_ptr(),
+        )
+    };
+    if status != 0 {
+        let error = io::Error::last_os_error();
+        unsafe {
+            libc::unlinkat(directory.temporary.as_raw_fd(), temp_name.as_ptr(), 0);
+        }
+        return Err(error);
+    }
+    Ok(())
 }
 
 fn parse_kitty_image_aliases(
@@ -4497,6 +5320,435 @@ mod tests {
                 .is_err()
             );
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_dump_directory_is_private_when_created() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("dumps");
+        let directory = private_dump_directory(&path).unwrap();
+
+        assert_eq!(directory.output.metadata().unwrap().permissions().mode() & 0o777, 0o700);
+        assert_eq!(directory.temporary.metadata().unwrap().permissions().mode() & 0o777, 0o700);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn relative_dump_path_with_new_directory_has_a_current_directory_ancestor() {
+        let normalized = normalize_dump_path(Path::new("new-private-dumps")).unwrap();
+
+        assert!(normalized.ends_with("new-private-dumps"));
+        assert!(normalized.is_absolute());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_dump_directory_rejects_writable_ancestor_without_sticky_bit() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = tempfile::tempdir().unwrap();
+        fs::set_permissions(root.path(), fs::Permissions::from_mode(0o777)).unwrap();
+        let path = root.path().join("dumps");
+
+        let error = private_dump_directory(&path).unwrap_err();
+
+        assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+        assert!(!path.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_dump_directory_prunes_stale_temporary_dumps() {
+        let root = tempfile::tempdir().unwrap();
+        let dump_path = root.path().join("dumps");
+        let directory = private_dump_directory(&dump_path).unwrap();
+        drop(directory);
+        let stale_path =
+            dump_path.join(".cmux-dump-files/.cmux-dump-tmp/.mirror-1.txt.tmp-99999999-1");
+        fs::write(&stale_path, b"partial secret").unwrap();
+
+        let _directory = private_dump_directory(&dump_path).unwrap();
+
+        assert!(!stale_path.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_dump_pruning_enforces_file_and_byte_caps_oldest_first() {
+        use std::os::unix::ffi::OsStrExt;
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = tempfile::tempdir().unwrap();
+        let dump_path = root.path().join("dumps");
+        let directory = private_dump_directory(&dump_path).unwrap();
+        let files = [
+            ("mirror-1.txt", b"old-".as_slice(), 1_i64),
+            ("frames-1.log", b"middle".as_slice(), 2_i64),
+            ("mirror-2.txt", b"new-".as_slice(), 3_i64),
+        ];
+        for (name, contents, modified) in files {
+            let path = dump_path.join(".cmux-dump-files").join(name);
+            fs::write(&path, contents).unwrap();
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+            let path = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
+            let times = [
+                libc::timespec { tv_sec: modified, tv_nsec: 0 },
+                libc::timespec { tv_sec: modified, tv_nsec: 0 },
+            ];
+            assert_eq!(
+                unsafe { libc::utimensat(libc::AT_FDCWD, path.as_ptr(), times.as_ptr(), 0) },
+                0
+            );
+        }
+
+        prune_dump_files_with_limits(&directory.output, 2, 10).unwrap();
+
+        let output_path = dump_path.join(".cmux-dump-files");
+        assert!(!output_path.join("mirror-1.txt").exists());
+        assert!(output_path.join("frames-1.log").exists());
+        assert!(output_path.join("mirror-2.txt").exists());
+        let retained = fs::read_dir(&output_path)
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| is_private_dump_name(entry.file_name().as_os_str().as_bytes()))
+            .collect::<Vec<_>>();
+        assert_eq!(retained.len(), 2);
+        let bytes = retained.iter().map(|entry| entry.metadata().unwrap().len()).sum::<u64>();
+        assert_eq!(bytes, 10);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_dump_pruning_counts_hard_linked_entries_toward_file_cap() {
+        let root = tempfile::tempdir().unwrap();
+        let dump_path = root.path().join("dumps");
+        let directory = private_dump_directory(&dump_path).unwrap();
+        let linked_dump = dump_path.join(".cmux-dump-files/mirror-1.txt");
+        let external_link = root.path().join("linked-dump-backup.txt");
+        let other_dump = dump_path.join(".cmux-dump-files/frames-1.log");
+        fs::write(&linked_dump, b"linked").unwrap();
+        fs::hard_link(&linked_dump, &external_link).unwrap();
+        fs::write(&other_dump, b"other").unwrap();
+
+        prune_dump_files_with_limits(&directory.output, 1, 1024).unwrap();
+
+        assert!(!linked_dump.exists());
+        assert_eq!(fs::read(&external_link).unwrap(), b"linked");
+        assert!(other_dump.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_dump_emission_budget_enforces_file_and_byte_caps() {
+        let mut budget = PrivateDumpEmissionBudget::with_limits(2, 10);
+
+        assert!(budget.reserve(4));
+        assert_eq!(budget.remaining_files, 1);
+        assert_eq!(budget.remaining_bytes, 6);
+
+        assert!(budget.reserve(6));
+        assert_eq!(budget.remaining_files, 0);
+        assert_eq!(budget.remaining_bytes, 0);
+        assert!(!budget.reserve(0));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_dump_directory_preserves_locked_temporary_dumps() {
+        let root = tempfile::tempdir().unwrap();
+        let dump_path = root.path().join("dumps");
+        let directory = private_dump_directory(&dump_path).unwrap();
+        let name = ".mirror-1.txt.tmp-99999999-1";
+        let active = private_dump_file(&directory.temporary, name).unwrap();
+        let temp_path = dump_path.join(".cmux-dump-files/.cmux-dump-tmp").join(name);
+
+        let next_directory = private_dump_directory(&dump_path).unwrap();
+        assert!(temp_path.exists());
+        drop(active);
+        drop(next_directory);
+
+        let _directory = private_dump_directory(&dump_path).unwrap();
+        assert!(!temp_path.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_dump_file_skips_when_directory_lock_is_held() {
+        use std::os::fd::AsRawFd;
+
+        let root = tempfile::tempdir().unwrap();
+        let dump_path = root.path().join("dumps");
+        let directory = private_dump_directory(&dump_path).unwrap();
+        let temporary_path = dump_path.join(".cmux-dump-files/.cmux-dump-tmp");
+        let temp_path = temporary_path.join(".mirror-1.txt.tmp-99999999-1");
+        assert_eq!(unsafe { libc::flock(directory.temporary.as_raw_fd(), libc::LOCK_EX) }, 0);
+        let temporary = fs::File::open(&temporary_path).unwrap();
+        let error = private_dump_file(&temporary, ".mirror-1.txt.tmp-99999999-1").unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::WouldBlock);
+        assert!(!temp_path.exists());
+        assert_eq!(unsafe { libc::flock(directory.temporary.as_raw_fd(), libc::LOCK_UN) }, 0);
+        let file = private_dump_file(&temporary, ".mirror-1.txt.tmp-99999999-1").unwrap();
+        assert!(temp_path.exists());
+        drop(file);
+        drop(temporary);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_dump_directory_preserves_unowned_matching_files() {
+        let root = tempfile::tempdir().unwrap();
+        let dump_path = root.path().join("dumps");
+        let unrelated_path = dump_path.join(".mirror-notes.tmp-99999999-backup");
+        let directory = private_dump_directory(&dump_path).unwrap();
+        drop(directory);
+        fs::write(&unrelated_path, b"user data").unwrap();
+
+        let _directory = private_dump_directory(&dump_path).unwrap();
+
+        assert_eq!(fs::read(&unrelated_path).unwrap(), b"user data");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_dump_directory_normalizes_symlink_components() {
+        use std::os::unix::fs::PermissionsExt;
+        use std::os::unix::fs::symlink;
+
+        let root = tempfile::tempdir().unwrap();
+        let target = root.path().join("target");
+        fs::create_dir(&target).unwrap();
+        let link = root.path().join("link");
+        symlink(&target, &link).unwrap();
+
+        let directory = private_dump_directory(&link.join("dumps")).unwrap();
+
+        assert_eq!(directory.output.metadata().unwrap().permissions().mode() & 0o777, 0o700);
+        assert!(target.join("dumps").is_dir());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_dump_acl_accepts_deny_and_rejects_allow_entries() {
+        assert!(macos_dump_acl_tag_is_safe(MACOS_ACL_EXTENDED_DENY));
+        assert!(!macos_dump_acl_tag_is_safe(MACOS_ACL_EXTENDED_ALLOW));
+        assert!(!macos_dump_acl_tag_is_safe(99));
+    }
+
+    #[cfg(target_os = "macos")]
+    fn macos_set_text_acl(path: &Path, rule: &str) {
+        let status =
+            std::process::Command::new("chmod").args(["+a", rule]).arg(path).status().unwrap();
+        assert!(status.success(), "chmod failed with {status}");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_dump_acl_matches_system_textual_rules() {
+        let deny_root = tempfile::tempdir().unwrap();
+        macos_set_text_acl(deny_root.path(), "everyone deny write");
+        let deny_directory = fs::File::open(deny_root.path()).unwrap();
+        assert!(reject_extended_acl(&deny_directory).is_ok());
+
+        let allow_root = tempfile::tempdir().unwrap();
+        macos_set_text_acl(allow_root.path(), "everyone allow read");
+        let allow_directory = fs::File::open(allow_root.path()).unwrap();
+        let error = reject_extended_acl(&allow_directory).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+    }
+
+    #[cfg(target_os = "macos")]
+    fn macos_dump_directory_with_acl(tags: &[libc::c_int]) -> (tempfile::TempDir, fs::File) {
+        use std::os::fd::AsRawFd;
+
+        unsafe extern "C" {
+            fn acl_init(count: libc::c_int) -> *mut libc::c_void;
+            fn acl_create_entry(
+                acl: *mut *mut libc::c_void,
+                entry: *mut *mut libc::c_void,
+            ) -> libc::c_int;
+            fn acl_set_tag_type(entry: *mut libc::c_void, tag: libc::c_int) -> libc::c_int;
+            fn acl_set_fd_np(
+                fd: libc::c_int,
+                acl: *mut libc::c_void,
+                acl_type: libc::c_int,
+            ) -> libc::c_int;
+            fn acl_free(object: *mut libc::c_void) -> libc::c_int;
+        }
+
+        struct Acl(*mut libc::c_void);
+        impl Drop for Acl {
+            fn drop(&mut self) {
+                unsafe { acl_free(self.0) };
+            }
+        }
+
+        let root = tempfile::tempdir().unwrap();
+        let directory = fs::File::open(root.path()).unwrap();
+        let mut acl = Acl(unsafe { acl_init(tags.len() as libc::c_int) });
+        assert!(!acl.0.is_null());
+        for &tag in tags {
+            let mut entry = std::ptr::null_mut();
+            assert_eq!(unsafe { acl_create_entry(&mut acl.0, &mut entry) }, 0);
+            assert_eq!(unsafe { acl_set_tag_type(entry, tag) }, 0);
+        }
+        assert_eq!(
+            unsafe { acl_set_fd_np(directory.as_raw_fd(), acl.0, MACOS_ACL_TYPE_EXTENDED) },
+            0
+        );
+        (root, directory)
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_dump_acl_accepts_a_deny_only_acl() {
+        let (_root, directory) = macos_dump_directory_with_acl(&[MACOS_ACL_EXTENDED_DENY]);
+        assert!(reject_extended_acl(&directory).is_ok());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_dump_acl_rejects_an_allow_after_a_deny() {
+        let (_root, directory) =
+            macos_dump_directory_with_acl(&[MACOS_ACL_EXTENDED_DENY, MACOS_ACL_EXTENDED_ALLOW]);
+        let error = reject_extended_acl(&directory).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_dump_acl_advances_through_repeated_deny_entries() {
+        use std::time::{Duration, Instant};
+
+        if std::env::var_os("CMUX_MACOS_ACL_CHILD").is_some() {
+            let (_root, directory) =
+                macos_dump_directory_with_acl(&[MACOS_ACL_EXTENDED_DENY, MACOS_ACL_EXTENDED_DENY]);
+            assert!(reject_extended_acl(&directory).is_ok());
+            return;
+        }
+
+        let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+            .arg("--nocapture")
+            .arg("macos_dump_acl_advances_through_repeated_deny_entries")
+            .env("CMUX_MACOS_ACL_CHILD", "1")
+            .spawn()
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            if let Some(status) = child.try_wait().unwrap() {
+                assert!(status.success(), "ACL child exited with {status}");
+                return;
+            }
+            if Instant::now() >= deadline {
+                let _ = child.kill();
+                let _ = child.wait();
+                panic!("ACL scan did not advance through all entries");
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn opened_dump_directory_is_stable_across_path_replacement() {
+        let root = tempfile::tempdir().unwrap();
+        let dump_path = root.path().join("dumps");
+        let directory = private_dump_directory(&dump_path).unwrap();
+        let original = root.path().join("original");
+        fs::rename(&dump_path, &original).unwrap();
+        fs::create_dir(&dump_path).unwrap();
+
+        write_private_dump(&directory, "mirror.txt", |file| file.write_all(b"secret")).unwrap();
+
+        assert_eq!(fs::read(original.join(".cmux-dump-files/mirror.txt")).unwrap(), b"secret");
+        assert!(!dump_path.join(".cmux-dump-files/mirror.txt").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_dump_write_failure_preserves_previous_dump_and_cleans_temp() {
+        let root = tempfile::tempdir().unwrap();
+        let dump_path = root.path().join("dumps");
+        let directory = private_dump_directory(&dump_path).unwrap();
+        let final_path = dump_path.join(".cmux-dump-files/mirror.txt");
+        fs::write(&final_path, b"previous").unwrap();
+
+        let error = write_private_dump(&directory, "mirror.txt", |_file| {
+            Err(io::Error::other("simulated dump failure"))
+        })
+        .unwrap_err();
+
+        assert_eq!(error.kind(), io::ErrorKind::Other);
+        assert_eq!(fs::read(&final_path).unwrap(), b"previous");
+        assert!(
+            fs::read_dir(dump_path.join(".cmux-dump-files")).unwrap().filter_map(Result::ok).all(
+                |entry| {
+                    entry.file_name() == "mirror.txt" || entry.file_name() == ".cmux-dump-tmp"
+                }
+            )
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_dump_replacement_does_not_modify_hard_linked_previous_dump() {
+        let root = tempfile::tempdir().unwrap();
+        let dump_path = root.path().join("dumps");
+        let directory = private_dump_directory(&dump_path).unwrap();
+        let final_path = dump_path.join(".cmux-dump-files/mirror.txt");
+        let linked_path = dump_path.join(".cmux-dump-files/mirror-backup.txt");
+        fs::write(&final_path, b"previous").unwrap();
+        fs::hard_link(&final_path, &linked_path).unwrap();
+
+        write_private_dump(&directory, "mirror.txt", |file| file.write_all(b"replacement"))
+            .unwrap();
+
+        assert_eq!(fs::read(&final_path).unwrap(), b"replacement");
+        assert_eq!(fs::read(&linked_path).unwrap(), b"previous");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_dump_file_rejects_existing_hard_link_without_truncation() {
+        let root = tempfile::tempdir().unwrap();
+        let dump_path = root.path().join("dumps");
+        let directory = private_dump_directory(&dump_path).unwrap();
+        let final_path = dump_path.join(".cmux-dump-files/mirror.txt");
+        let linked_path = dump_path.join(".cmux-dump-files/mirror-backup.txt");
+        fs::write(&final_path, b"previous").unwrap();
+        fs::hard_link(&final_path, &linked_path).unwrap();
+
+        let error = private_dump_file(&directory.output, "mirror.txt").unwrap_err();
+
+        assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(fs::read(&final_path).unwrap(), b"previous");
+        assert_eq!(fs::read(&linked_path).unwrap(), b"previous");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_dump_rename_failure_preserves_previous_directory_and_cleans_temp() {
+        let root = tempfile::tempdir().unwrap();
+        let dump_path = root.path().join("dumps");
+        let directory = private_dump_directory(&dump_path).unwrap();
+        let final_path = dump_path.join(".cmux-dump-files/mirror.txt");
+        fs::create_dir(&final_path).unwrap();
+
+        let error =
+            write_private_dump(&directory, "mirror.txt", |file| file.write_all(b"replacement"))
+                .unwrap_err();
+
+        assert!(matches!(error.raw_os_error(), Some(libc::EISDIR) | Some(libc::ENOTEMPTY)));
+        assert!(final_path.is_dir());
+        assert!(
+            fs::read_dir(dump_path.join(".cmux-dump-files")).unwrap().filter_map(Result::ok).all(
+                |entry| {
+                    entry.file_name() == "mirror.txt" || entry.file_name() == ".cmux-dump-tmp"
+                }
+            )
+        );
     }
 
     #[test]
