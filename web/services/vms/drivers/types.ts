@@ -68,6 +68,12 @@ export type VMHandle = {
 
 export type CreateOptions = {
   image: string; // provider-specific template/snapshot identifier
+  /**
+   * The machine's generated three-word name, shown in the provider's own
+   * console so it matches what cmux shows. Cosmetic: providers that name
+   * machines uniquely must not fail the create over it.
+   */
+  displayName?: string;
   providerMetadata?: Record<string, unknown>;
   /**
    * Name of a persistent volume to mount as the machine's home directory. Providers that
@@ -77,14 +83,14 @@ export type CreateOptions = {
   homeVolume?: string;
   /**
    * Machine size as memory in MB (vCPUs scale with memory on providers that size
-   * this way). Providers without sizing ignore it.
+   * this way). Providers without sizing ignore it. Storage is resized separately
+   * through the grow-only resize operation.
    */
   memoryMb?: number;
   /**
-   * The snapshot's own shape when the image is a sized ladder entry
-   * (services/vms/images/sizes.ts): the machine boots at the shape that was
-   * sold and the driver must not read it back or resize. Absent for size-less
-   * images, which are grown to `memoryMb`.
+   * The snapshot's own CPU and memory shape when the image is a sized ladder
+   * entry (services/vms/images/sizes.ts). Disk remains grow-only after create.
+   * Absent for size-less images, which are grown to `memoryMb`.
    */
   imageSize?: { readonly name: string; readonly cpu: number; readonly memoryMb: number; readonly storageMb: number } | null;
   /**
@@ -188,7 +194,11 @@ export type AttachTransport = "ssh" | "websocket" | "cmux-remote";
  */
 export type CmuxRemoteEndpoint = {
   transport: "cmux-remote";
-  /** `wss://<host>/v1/link?<provider-token>` — carries the ingress token, so it is never embedded in an invitation. */
+  /**
+   * Provider-reachable daemon route, normally `ws://[ipv6]:1337/v1/link` for Freestyle.
+   * A provider may return a token-bearing gateway URL, but the client must treat `route`
+   * as opaque and never construct or append credentials to it.
+   */
   route: string;
   /** Ingress token (hashed into the lease ledger, never persisted raw). */
   token: string;
@@ -283,6 +293,13 @@ export type ExecOptions = {
   readonly providerMetadata?: Record<string, unknown>;
 };
 
+/** Grow-only resources accepted by a provider resize operation. */
+export type VMResizeOptions = {
+  readonly cpu?: number;
+  readonly memoryMb?: number;
+  readonly storageMb?: number;
+};
+
 export type SnapshotRef = {
   id: string;
   createdAt: number;
@@ -294,6 +311,8 @@ export interface VmCapabilities {
   readonly snapshot: boolean;
   readonly restore: boolean;
   readonly fork: boolean;
+  /** The provider can mint a browser preview URL for a machine port. */
+  readonly ports: boolean;
 }
 
 /** A private network that every machine belonging to one user shares. */
@@ -310,7 +329,7 @@ export type ProviderNetwork = {
  * A WireGuard tunnel: one of the owner's computers as a member of their
  * private network.
  *
- * `clientConfig` is a complete `wg-quick` config whose `PrivateKey` is blank —
+ * `clientConfig` is WireGuard configuration text whose `PrivateKey` is blank —
  * cmux always supplies its own public key, so the provider never mints (or
  * sees) a private key, and the client fills its own in from its keystore.
  */
@@ -326,6 +345,18 @@ export type ProviderTunnel = {
   /** The tunnel's address inside the attached network, i.e. what the VMs see. */
   readonly addressV4: string | null;
   readonly addressV6: string | null;
+};
+
+/**
+ * Result of enrolling a client tunnel. `created` describes the provider
+ * resource, not the database row: a provider slug conflict can recover an
+ * orphaned tunnel that already exists. `rotated` says that its client key was
+ * replaced during that recovery.
+ */
+export type ProviderTunnelCreateResult = {
+  readonly tunnel: ProviderTunnel;
+  readonly created: boolean;
+  readonly rotated: boolean;
 };
 
 export type CreateProviderTunnelOptions = {
@@ -356,7 +387,7 @@ export interface VMPrivateNetworking {
   /** Delete a network. Must succeed when it is already gone. */
   deleteNetwork(networkId: string): Promise<void>;
   /** Create a tunnel with the network already attached. */
-  createTunnel(options: CreateProviderTunnelOptions): Promise<ProviderTunnel>;
+  createTunnel(options: CreateProviderTunnelOptions): Promise<ProviderTunnelCreateResult>;
   /**
    * Read a tunnel back with its address inside `networkId`, re-attaching the
    * network if the attachment is missing. Null when the tunnel is gone at the
@@ -383,8 +414,9 @@ export interface VMProvider {
   readonly privateNetworking?: VMPrivateNetworking;
   /**
    * Optional-operation support. A driver that implements `snapshot`/`restore` only to
-   * throw NotImplementedError declares that here; `fork` defaults to whether the method
-   * exists. Everything omitted defaults to supported.
+   * throw NotImplementedError declares that here; `fork` and `ports` default
+   * to whether their methods exist. Everything omitted defaults to supported where a
+   * legacy client needs that compatibility behavior.
    */
   readonly capabilities?: Partial<VmCapabilities>;
 
@@ -407,6 +439,8 @@ export interface VMProvider {
   /// Live CPU/memory/disk for the Cloud panel's activity view. Must not wake a
   /// sleeping machine.
   getStats?(vmId: string): Promise<VMStats>;
+  /** Grow one or more VM resources. Freestyle currently uses storage only. */
+  resize?(vmId: string, options: VMResizeOptions): Promise<void>;
 
   pause(vmId: string): Promise<void>;
   resume(vmId: string): Promise<VMHandle>;
@@ -434,9 +468,10 @@ export interface VMProvider {
   // VmAttachTransportUnsupportedError before reaching the provider.
   readonly attachTransports?: readonly AttachTransport[];
 
-  // Returns a live attach endpoint the client can dial into: cmuxd-remote WebSocket PTY
-  // with a short-lived one-use lease, or SSH. Every current driver is cmux-remote only
-  // and throws here; the seam stays for a provider that serves a raw PTY again.
+  // Returns a live legacy attach endpoint the client can dial into: a raw WebSocket
+  // PTY with a short-lived one-use lease, or SSH. The current Freestyle driver is
+  // cmux-remote only and throws here; the seam remains for a future provider that
+  // explicitly supports a legacy raw transport.
   openAttach(vmId: string, options?: AttachOptions): Promise<AttachEndpoint>;
 
   // Optional: attach through the cmux-tui remote daemon in the VM (see CmuxRemoteEndpoint).

@@ -547,7 +547,7 @@ public struct CMUXMobileRootScene: View {
         // never race the root view's async policy push and admit a Mac under
         // a stale floor. The root view still refreshes from the network and
         // pushes updates.
-        store.macCompatPolicy = macCompatCenter.policy
+        store.applyMacCompatibilityPolicy(macCompatCenter.policy)
         #endif
         return store
     }

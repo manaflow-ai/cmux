@@ -14,6 +14,9 @@ public struct WorkspaceShellCompactNavigationPolicy {
     /// - Parameters:
     ///   - currentPath: The current navigation path.
     ///   - selectedWorkspaceID: The newly selected workspace, or `nil` to clear.
+    ///   - listIsAuthoritative: Whether the visible list reflects a healthy
+    ///     connection. A transient cleared selection during recovery keeps the
+    ///     current detail mounted until a healthy list confirms the change.
     /// - Returns: The path to apply. Stays empty when the user is at the root,
     ///   clears when the authoritative selection clears, and retargets when the
     ///   store selects a different workspace. Transient workspace-list omissions
@@ -21,13 +24,14 @@ public struct WorkspaceShellCompactNavigationPolicy {
     public func pathForSelectionChange<ID: Hashable>(
         currentPath: [ID],
         selectedWorkspaceID: ID?,
-        visibleWorkspaceIDs: Set<ID> = []
+        visibleWorkspaceIDs: Set<ID> = [],
+        listIsAuthoritative: Bool = true
     ) -> [ID] {
         guard !currentPath.isEmpty else {
             return currentPath
         }
         guard let selectedWorkspaceID else {
-            return []
+            return listIsAuthoritative ? [] : currentPath
         }
         guard currentPath.last != selectedWorkspaceID else {
             return currentPath
@@ -80,10 +84,14 @@ public struct WorkspaceShellCompactNavigationPolicy {
     /// terminal arrives. If the authoritative selection has moved away, pop or
     /// remap to the selected visible workspace so deleted workspaces do not stay
     /// mounted from a stale route snapshot.
+    /// - Parameter listIsAuthoritative: Whether the visible list reflects a
+    ///   healthy connection. A list hole during recovery keeps the current
+    ///   detail route mounted; a healthy list can still pop a confirmed removal.
     public func pathForVisibleWorkspaceIDsChange<ID: Hashable>(
         currentPath: [ID],
         visibleWorkspaceIDs: Set<ID>,
-        selectedWorkspaceID: ID?
+        selectedWorkspaceID: ID?,
+        listIsAuthoritative: Bool = true
     ) -> [ID] {
         guard let currentDetailID = currentPath.last else {
             return currentPath
@@ -97,6 +105,9 @@ public struct WorkspaceShellCompactNavigationPolicy {
         if let selectedWorkspaceID,
            visibleWorkspaceIDs.contains(selectedWorkspaceID) {
             return [selectedWorkspaceID]
+        }
+        guard listIsAuthoritative else {
+            return currentPath
         }
         return currentPath.filter { visibleWorkspaceIDs.contains($0) }
     }

@@ -9,24 +9,48 @@ struct CloudTuiCommandLine: Sendable {
     /// `remote connect <route> --device-name … --state-dir … --headless --json [--invite-file …]`:
     /// a headless link whose stdout carries `connection-snapshot` JSON lines with the
     /// local mux socket path (`remote_cli.rs` `connect_with_flags`).
-    static func linkArguments(route: String, deviceName: String, stateDir: String, inviteFilePath: String?) -> [String] {
-        var arguments = ["remote", "connect", route, "--device-name", deviceName, "--state-dir", stateDir, "--headless", "--json"]
+    /// `--wireguard-hub <socket>` makes the client dial the route through the app's
+    /// in-process WireGuard hub (``CloudWireGuardHub``) instead of the OS network stack;
+    /// it is added only for routes inside the private Cloud VM network.
+    static func linkArguments(route: String, deviceName: String, stateDir: String, inviteFilePath: String?, wireguardHubSocket: String? = nil) -> [String] {
+        var arguments = [
+            "remote", "connect", route,
+            "--device-name", deviceName,
+            "--state-dir", stateDir,
+            "--headless", "--json", "--exit-with-parent",
+        ]
         if let inviteFilePath, !inviteFilePath.isEmpty {
             arguments += ["--invite-file", inviteFilePath]
         }
+        if let wireguardHubSocket, !wireguardHubSocket.isEmpty {
+            arguments += ["--wireguard-hub", wireguardHubSocket]
+        }
         return arguments
     }
+
+    /// `wg hub --config <wg-quick file> --socket <unix path>`: the one process that owns the
+    /// app's WireGuard tunnel and serves SOCKS5 to every link on this Mac.
+    static func wireGuardHubArguments(configPath: String, socketPath: String) -> [String] {
+        ["wg", "hub", "--config", configPath, "--socket", socketPath, "--exit-with-parent"]
+    }
+
+    /// The probe capability a client advertises when it understands `--wireguard-hub`.
+    static let wireGuardHubCapability = "wireguard-hub"
 
     /// Whole-session public snapshot (`session current snapshot`, `--json`).
     static func snapshotArguments(socketPath: String) -> [String] {
         ["--socket", socketPath, "--json", "session", "current", "snapshot"]
     }
 
-    /// Live delta stream (`session current events`, `--jsonl`): one JSON line per
-    /// session transaction. The app only uses it as a change signal and re-reads the
-    /// snapshot, so the delta body is never interpreted.
-    static func eventsArguments(socketPath: String) -> [String] {
-        ["--socket", socketPath, "--jsonl", "session", "current", "events"]
+    /// Live delta stream (`session current events`, `--jsonl`). A cursor lets a
+    /// restarted reader resume from the last accepted revision instead of
+    /// creating a blind polling gap.
+    static func eventsArguments(socketPath: String, cursor: CloudVMCursor? = nil) -> [String] {
+        var arguments = ["--socket", socketPath, "--jsonl", "session", "current", "events"]
+        if let cursor {
+            arguments += ["--generation", cursor.generation, "--revision", String(cursor.revision)]
+        }
+        return arguments
     }
 
     /// `workspace <ws_id> run -- <argv…>`: a new terminal in that cmux-tui workspace
@@ -89,8 +113,16 @@ struct CloudTuiCommandLine: Sendable {
 
     /// `workspace <ws_id> rename --name <name>` (verified live: the positional
     /// form is `usage.invalid`; the name rides the `--name` flag).
-    static func renameWorkspaceArguments(socketPath: String, workspaceID: String, name: String) -> [String] {
-        ["--socket", socketPath, "--json", "workspace", workspaceID, "rename", "--name", name]
+    static func renameWorkspaceArguments(
+        socketPath: String,
+        workspaceID: String,
+        name: String,
+        expectedRevision: UInt64? = nil
+    ) -> [String] {
+        var arguments = ["--socket", socketPath, "--json"]
+        if let expectedRevision { arguments += ["--expected-revision", String(expectedRevision)] }
+        arguments += ["workspace", workspaceID, "rename", "--name", name]
+        return arguments
     }
 
     /// `terminal <term_id> write --text <text>` (spec `terminal.input.write`): the bytes
@@ -119,6 +151,22 @@ struct CloudTuiCommandLine: Sendable {
         if let timeoutMs, timeoutMs > 0 {
             arguments += ["--timeout-ms", String(timeoutMs)]
         }
+        return arguments
+    }
+
+    /// `tab <tab_id> rename --name <name>`: set or clear the user label on one
+    /// view of a terminal (spec `tab.rename`). The daemon persists it in its
+    /// registry and broadcasts `tab-renamed`, so every attached client sees it.
+    /// The empty string is the protocol's explicit clear value.
+    static func renameTabArguments(
+        socketPath: String,
+        tabID: String,
+        name: String,
+        expectedRevision: UInt64? = nil
+    ) -> [String] {
+        var arguments = ["--socket", socketPath, "--json"]
+        if let expectedRevision { arguments += ["--expected-revision", String(expectedRevision)] }
+        arguments += ["tab", tabID, "rename", "--name", name]
         return arguments
     }
 
@@ -177,6 +225,17 @@ struct CloudTuiCommandLine: Sendable {
             socketPath: socketPath,
             request: ["id": 1, "cmd": "identify"]
         )
+    }
+
+    /// Lists the VM host's listening TCP sockets through the authenticated
+    /// cmux-tui link. This is part of the private data path, not VM provider
+    /// exec or the web control plane.
+    static func listeningPortsArguments(socketPath: String) -> [String]? {
+        [
+            "--socket", socketPath,
+            "--json", "raw", "command",
+            "--request-json", #"{"cmd":"machine-listening-tcp","id":1}"#,
+        ]
     }
 
     /// Encodes one private JSON command through the CLI's raw command bridge.

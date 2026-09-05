@@ -1,6 +1,20 @@
 {
   "billingRecovery": {
-    "message": "If we found an account, check your email for next steps"
+    "message": "If we found an account, check your email for next steps",
+    "metaTitle": "Connect your Founder purchase",
+    "metaDescription": "Use the email from your Founder purchase to create or recover your cmux account.",
+    "eyebrow": "Founder access",
+    "title": "Connect your Founder purchase",
+    "body": "Use the email from your Founder purchase. We will send a secure sign-in link that creates or recovers the cmux account for that purchase.",
+    "differentEmail": "Already have a cmux account with another email? Reply to your Founder welcome email. We will verify both addresses and move access safely.",
+    "formAriaLabel": "Connect a Founder purchase",
+    "emailLabel": "Purchase email",
+    "emailPlaceholder": "you@example.com",
+    "submit": "Send sign-in link",
+    "submitting": "Sending...",
+    "success": "If we found a purchase or account, check your email for next steps.",
+    "error": "We could not send the request. Try again later.",
+    "backToHome": "Back to cmux"
   },
   "vmDesktop": {
     "invalidTitle": "This desktop link isn't valid",
@@ -16,12 +30,14 @@
         "snapshot": "This Cloud VM does not support saved VM state.",
         "restore": "This Cloud VM kind does not support restoring saved VM state.",
         "fork": "This Cloud VM does not support copying to a new VM.",
+        "openPort": "This Cloud VM cannot expose machine ports as preview URLs.",
         "default": "This Cloud VM does not support the requested operation."
       },
       "action": {
         "snapshot": "Do not retry. Work on this machine kind is kept on its persistent home volume.",
         "restore": "Do not retry. Work on this machine kind is kept on its persistent home volume.",
         "fork": "Do not retry. Create a new VM with `cmux vm new`.",
+        "openPort": "Do not retry. Reach the service from inside the machine (`cmux vm exec`), or use a machine kind that can open ports.",
         "default": "Do not retry. Run `cmux vm ls` to see your machines, or contact support if you believe this is wrong."
       }
     },
@@ -29,6 +45,11 @@
       "title": "cmux Pro required",
       "message": "Cloud VMs require a cmux Pro plan.",
       "action": "Upgrade to cmux Pro at {upgradeUrl} to create Cloud VMs."
+    },
+    "sharedResource": {
+      "message": "The shared Cloud VM {resource} pool is full.",
+      "action": "Delete an unused Cloud VM, then retry.",
+      "oversizedAction": "Request a smaller Cloud VM {resource} size that fits within the shared pool."
     }
   },
   "ios": {
@@ -145,6 +166,8 @@
   "dashboard": {
     "nav": {
       "brand": "cmux",
+      "cloudGroup": "cloud",
+      "cloudDevices": "Mac access",
       "vaultGroup": "vault",
       "vaultOverview": "overview",
       "vaultSessions": "sessions",
@@ -161,6 +184,9 @@
     "home": {
       "title": "dashboard",
       "description": "choose a product dashboard.",
+      "cloudName": "Cloud Mac access",
+      "cloudDescription": "review and revoke the Macs that can reach your private Cloud VM network.",
+      "cloudLink": "manage Mac access",
       "vaultName": "vault",
       "vaultDescription": "browse synced agent sessions and manage cli access.",
       "vaultLink": "open vault",
@@ -170,6 +196,31 @@
       "iosAppName": "iOS app",
       "iosAppDescription": "install the cmux iOS app via TestFlight (beta access).",
       "iosLink": "open iOS app"
+    },
+    "cloud": {
+      "title": "Cloud Mac access",
+      "description": "These Macs have WireGuard access to your private Cloud VM network. iPhone and Iroh pairing records are separate.",
+      "empty": "No Mac has enrolled for Cloud VM access.",
+      "cmux": "cmux build",
+      "access": "network access",
+      "lastContact": "last control-plane contact",
+      "deviceId": "device ID",
+      "unknown": "unknown",
+      "none": "none",
+      "purpose": {
+        "terminal": "terminal",
+        "browser": "browser VPN"
+      },
+      "rename": "rename",
+      "revoke": "revoke",
+      "renameTitle": "Rename this Mac",
+      "nameLabel": "Name",
+      "cancel": "cancel",
+      "save": "save",
+      "renameError": "Could not rename this Mac.",
+      "revokeTitle": "Revoke {name}?",
+      "revokeBody": "This signs the Mac out and removes all of its Cloud VM network access.",
+      "revokeError": "Could not revoke this Mac."
     },
     "coderouter": {
       "metaTitle": "coderouter — cmux",
@@ -750,6 +801,7 @@
     "metaDescriptionNoVault": "cmux is a free, open source macOS terminal for AI coding agents. Upgrade to Pro for isolated Cloud VMs. Enterprise adds SSO and self-hosting.",
     "metaDescriptionNoVaultShort": "cmux is a free, open source macOS terminal. Pro adds isolated Cloud VMs; Enterprise adds SSO and self-hosting.",
     "title": "Pricing",
+    "alreadyPaid": "Already paid? Connect your purchase",
     "perMonth": "/mo",
     "perMonthBilledYearly": "/mo, billed yearly",
     "perUserMonth": "/user/mo",
@@ -783,7 +835,7 @@
       "featuresLead": "Everything in Free, plus:",
       "features": [
         "Cloud agents on Cloud VMs in isolated remote sandboxes",
-        "Up to 50 Cloud VMs, each with 5 vCPU, 20 GB RAM, and 200 GB disk",
+        "Up to 50 Cloud VMs, all sharing a total pool of 5 vCPU, 20 GB RAM, and 200 GB disk; each VM starts at 8 GB RAM and 32 GB disk, with sizes from 4 to 64 GB RAM available as capacity allows",
         "Unlimited workspaces",
         "The cmux iOS app and email support"
       ],
@@ -881,10 +933,10 @@
           "enterprise": "Custom"
         },
         {
-          "label": "Cloud VM size",
+          "label": "Resources shared across Cloud VMs",
           "free": "false",
-          "pro": "5 vCPU, 20 GB RAM, 200 GB disk",
-          "team": "5 vCPU, 20 GB RAM, 200 GB disk",
+          "pro": "5 vCPU, 20 GB RAM, 200 GB disk total; default VM size 8 GB RAM and 32 GB disk, with sizes from 4 to 64 GB RAM available as capacity allows",
+          "team": "Per user: 5 vCPU, 20 GB RAM, and 200 GB disk total; default VM size 8 GB RAM and 32 GB disk, with sizes from 4 to 64 GB RAM available as capacity allows",
           "enterprise": "Custom"
         },
         {
@@ -963,7 +1015,7 @@
         },
         {
           "q": "What are Cloud VMs?",
-          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro and Team include up to 50 machines per user, each with 5 vCPU, 20 GB of RAM, and 200 GB of disk."
+          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro includes up to 50 machines sharing a total pool of 5 vCPU, 20 GB of RAM, and 200 GB of disk. Team includes up to 50 machines per user, with the same shared pool for each user. The default VM size is 8 GB RAM and 32 GB disk; sizes from 4 to 64 GB RAM are available as capacity allows. New VM disks start at 32 GB and can grow within the shared pool."
         },
         {
           "q": "What is cmux Vault?",
@@ -976,7 +1028,7 @@
         },
         {
           "q": "How does billing work?",
-          "a": "Pro is $50/mo, or $40/mo when billed annually (a 20% savings). Team is $60/user/mo, or $48/user/mo when billed annually. Paid plans include up to 50 Cloud VMs per user, with no metering or overages. The terminal and local agents stay free."
+          "a": "Pro is $50/mo, or $40/mo when billed annually (a 20% savings). Team is $60/user/mo, or $48/user/mo when billed annually. Paid plans include up to 50 Cloud VMs per user. Each user's VMs share a total of 5 vCPU, 20 GB of RAM, and 200 GB of disk, with no metering or overages. The terminal and local agents stay free."
         },
         {
           "q": "Can I self-host the cloud?",
@@ -2216,7 +2268,12 @@
           "snappingEnabled": "Snap pane drags and resizes to neighbor edges and the pane gap. Hold Command to suspend snapping for one gesture."
         },
         "fileEditor": {
-          "wordWrap": "Wrap long lines at the editor's right edge instead of scrolling horizontally."
+          "wordWrap": "Wrap long lines at the editor's right edge instead of scrolling horizontally.",
+          "syntaxHighlighting": "Color source tokens in the built-in file editor.",
+          "lineNumbers": "Show a line-number gutter in the built-in file editor.",
+          "indentGuides": "Draw vertical indent guides in the built-in file editor.",
+          "currentLineHighlight": "Highlight the caret's line when the selection is empty.",
+          "tabWidth": "Width of a tab stop, in columns, for indentation and indent guides."
         },
         "sidebar": {
           "notificationMessageLineLimit": "Maximum lines shown for the latest notification below each workspace title.",
@@ -2255,7 +2312,7 @@
       "shortcutsWhenBooleanKeys": "boolean keys. An unknown or absent key reads as false; the literals true and false are also accepted.",
       "shortcutsWhenTypedKeys": "typed keys for comparisons: the right sidebar's active mode (a string) plus pane and workspace counts (integers).",
       "shortcutsWhenOperators": "boolean operators, typed comparisons, regex match, and list membership. Comparisons bind tighter than && and ||.",
-      "shortcutsWhenExample": "For example, this makes Ctrl+1–9 select workspaces everywhere except when the right sidebar is focused (leaving Ctrl+1–5 free for the sidebar's mode switcher), and scopes surface selection to the Find sidebar when the workspace has multiple panes:"
+      "shortcutsWhenExample": "For example, this makes Ctrl+1–9 select workspaces everywhere except when the right sidebar is focused (leaving the Ctrl+digit tab shortcuts free for the sidebar's mode switcher), and scopes surface selection to the Find sidebar when the workspace has multiple panes:"
     },
     "customCommands": {
       "title": "Custom Commands",
@@ -3296,6 +3353,9 @@
     "metaTitle": "cmux Pro is active",
     "title": "cmux Pro is active",
     "body": "We created or upgraded your account with {email}. You can open cmux now or add more sign-in methods.",
+    "purchaseComplete": "You're all set",
+    "proLabel": "Pro plan",
+    "dashboardLink": "Go to dashboard",
     "emailLabel": "Purchase email",
     "whatUnlockedTitle": "What you unlocked",
     "openCmux": "Open cmux",
@@ -5425,6 +5485,28 @@
         "body": "See your plan, invoices, and cancellation.",
         "action": "Manage plan"
       }
+    }
+  },
+  "PublicationApi": {
+    "invalid_email": {
+      "message": "Enter a valid email address.",
+      "action": "The recipient must sign in with this verified email."
+    },
+    "invalid_expiry": {
+      "message": "The grant expiry must be a future date.",
+      "action": "Use an ISO 8601 date or omit expiresAt."
+    },
+    "public_confirmation_required": {
+      "message": "Public access requires confirmation.",
+      "action": "Review the hostname, VM, and port, then send confirmPublic: true."
+    },
+    "organization_slug": {
+      "message": "The organization slug is invalid or already reserved.",
+      "action": "Use 1 to 19 lowercase letters or digits, with single hyphens. An existing organization keeps its reserved slug."
+    },
+    "grant_body": {
+      "message": "Publication email grant",
+      "action": "Send email and optional expiresAt."
     }
   }
 }

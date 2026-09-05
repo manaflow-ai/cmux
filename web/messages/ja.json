@@ -1,6 +1,20 @@
 {
   "billingRecovery": {
-    "message": "アカウントが見つかった場合は、メールで次の手順をご確認ください"
+    "message": "アカウントが見つかった場合は、メールで次の手順をご確認ください",
+    "metaTitle": "Founder 購入を接続",
+    "metaDescription": "Founder 購入時のメールアドレスを使って cmux アカウントを作成または復元します。",
+    "eyebrow": "Founder アクセス",
+    "title": "Founder 購入を接続",
+    "body": "Founder 購入時に使ったメールアドレスを入力してください。その購入に紐づく cmux アカウントを作成または復元するための安全なサインインリンクを送信します。",
+    "differentEmail": "別のメールアドレスで cmux アカウントをすでにお持ちですか？Founder のウェルカムメールに返信してください。両方のアドレスを確認して、安全にアクセスを移行します。",
+    "formAriaLabel": "Founder 購入を接続",
+    "emailLabel": "購入時のメールアドレス",
+    "emailPlaceholder": "you@example.com",
+    "submit": "サインインリンクを送信",
+    "submitting": "送信中…",
+    "success": "購入またはアカウントが見つかった場合は、メールで次の手順をお知らせします。",
+    "error": "リクエストを送信できませんでした。しばらくしてから再試行してください。",
+    "backToHome": "cmux に戻る"
   },
   "vmDesktop": {
     "invalidTitle": "このデスクトップリンクは無効です",
@@ -16,12 +30,14 @@
         "snapshot": "この Cloud VM は保存済み状態に対応していません。",
         "restore": "この Cloud VM 種別では保存済み状態の復元に対応していません。",
         "fork": "この Cloud VM は新しい VM へのコピーに対応していません。",
+        "openPort": "この Cloud VM ではマシンのポートをプレビュー URL として公開できません。",
         "default": "この Cloud VM は要求された操作に対応していません。"
       },
       "action": {
         "snapshot": "再試行しても解決しません。このマシン種別では作業が永続ホームボリュームに保存されます。",
         "restore": "再試行しても解決しません。このマシン種別では作業が永続ホームボリュームに保存されます。",
         "fork": "再試行しても解決しません。`cmux vm new` で新しい VM を作成してください。",
+        "openPort": "再試行しても解決しません。マシン内から（`cmux vm exec`）アクセスするか、ポートを公開できるマシン種別を使ってください。",
         "default": "再試行しても解決しません。`cmux vm ls` でマシンを確認するか、問題が続く場合はサポートに連絡してください。"
       }
     },
@@ -29,6 +45,11 @@
       "title": "cmux Pro が必要です",
       "message": "Cloud VM を利用するには cmux Pro プランが必要です。",
       "action": "{upgradeUrl} で cmux Pro にアップグレードすると Cloud VM を作成できます。"
+    },
+    "sharedResource": {
+      "message": "共有 Cloud VM の {resource} リソースプールが上限に達しています。",
+      "action": "使用していない Cloud VM を削除してから、もう一度お試しください。",
+      "oversizedAction": "共有プールに収まる、より小さい Cloud VM の {resource} サイズを指定してください。"
     }
   },
   "ios": {
@@ -145,6 +166,8 @@
   "dashboard": {
     "nav": {
       "brand": "cmux",
+      "cloudGroup": "クラウド",
+      "cloudDevices": "Macアクセス",
       "vaultGroup": "vault",
       "vaultOverview": "概要",
       "vaultSessions": "セッション",
@@ -161,6 +184,9 @@
     "home": {
       "title": "ダッシュボード",
       "description": "プロダクトのダッシュボードを選択します。",
+      "cloudName": "Cloud Macアクセス",
+      "cloudDescription": "プライベートCloud VMネットワークに接続できるMacを確認し、アクセスを取り消します。",
+      "cloudLink": "Macアクセスを管理",
       "vaultName": "vault",
       "vaultDescription": "同期済みエージェントセッションの閲覧とCLIアクセスの管理を行います。",
       "vaultLink": "vaultを開く",
@@ -170,6 +196,31 @@
       "iosAppName": "iOSアプリ",
       "iosAppDescription": "TestFlight（ベータ版）で cmux iOS アプリをインストール。",
       "iosLink": "iOSアプリを開く"
+    },
+    "cloud": {
+      "title": "Cloud Macアクセス",
+      "description": "これらのMacはプライベートCloud VMネットワークへのWireGuardアクセスを持っています。iPhoneとIrohのペアリング記録は別に管理されます。",
+      "empty": "Cloud VMアクセスが登録されたMacはありません。",
+      "cmux": "cmuxビルド",
+      "access": "ネットワークアクセス",
+      "lastContact": "最後のコントロールプレーン接続",
+      "deviceId": "デバイスID",
+      "unknown": "不明",
+      "none": "なし",
+      "purpose": {
+        "terminal": "ターミナル",
+        "browser": "ブラウザVPN"
+      },
+      "rename": "名前を変更",
+      "revoke": "アクセスを取り消す",
+      "renameTitle": "このMacの名前を変更",
+      "nameLabel": "名前",
+      "cancel": "キャンセル",
+      "save": "保存",
+      "renameError": "このMacの名前を変更できませんでした。",
+      "revokeTitle": "{name}のアクセスを取り消しますか？",
+      "revokeBody": "このMacをサインアウトし、すべてのCloud VMネットワークアクセスを削除します。",
+      "revokeError": "このMacのアクセスを取り消せませんでした。"
     },
     "coderouter": {
       "metaTitle": "coderouter — cmux",
@@ -750,6 +801,7 @@
     "metaDescriptionNoVault": "cmux はAIコーディングエージェント向けの無料・オープンソースの macOS ターミナルです。Pro では分離された Cloud VM が使えます。Enterprise は SSO とセルフホストに対応します。",
     "metaDescriptionNoVaultShort": "cmux は無料・オープンソースの macOS ターミナルです。Pro では Cloud VM を利用でき、Enterprise では SSO とセルフホストに対応します。",
     "title": "料金",
+    "alreadyPaid": "購入済みですか？購入を接続する",
     "perMonth": "/月",
     "perMonthBilledYearly": "/月（年払い）",
     "perUserMonth": "/ユーザー/月",
@@ -783,7 +835,7 @@
       "featuresLead": "Free のすべてに加えて:",
       "features": [
         "分離されたリモートサンドボックスの Cloud VM 上で動くクラウドエージェント",
-        "最大 50 台の Cloud VM、各 5 vCPU / 20 GB RAM / 200 GB ディスク",
+        "最大 50 台の Cloud VM、すべての VM で合計 5 vCPU / 20 GB RAM / 200 GB ディスクを共有。標準サイズは 8 GB RAM / 32 GB ディスクで、容量の範囲内で RAM 4～64 GB のサイズを選べます",
         "ワークスペースは無制限",
         "cmux iOS アプリとメールサポート"
       ],
@@ -881,10 +933,10 @@
           "enterprise": "カスタム"
         },
         {
-          "label": "Cloud VM のサイズ",
+          "label": "Cloud VM 間で共有するリソース",
           "free": "false",
-          "pro": "5 vCPU / 20 GB RAM / 200 GB ディスク",
-          "team": "5 vCPU / 20 GB RAM / 200 GB ディスク",
+          "pro": "合計 5 vCPU / 20 GB RAM / 200 GB ディスク。標準 VM サイズは 8 GB RAM / 32 GB ディスクで、容量の範囲内で RAM 4～64 GB を選択できます",
+          "team": "ユーザーごとに合計 5 vCPU / 20 GB RAM / 200 GB ディスク。標準 VM サイズは 8 GB RAM / 32 GB ディスクで、容量の範囲内で RAM 4～64 GB を選択できます",
           "enterprise": "カスタム"
         },
         {
@@ -963,7 +1015,7 @@
         },
         {
           "q": "Cloud VM とは何ですか?",
-          "a": "クラウド上の永続的な Linux マシンで、使い捨て（cattle）ではなくペットです。Zen of cmux のとおり、マシンはソリューションではなくプリミティブです。ファイル、インストールしたツール、状態はそのまま保持され、その上に構築したものはあなたのものです。エージェントはそこでリポジトリをクローンし、コマンドを実行し、プルリクエストを開くため、お使いの Mac には触れません。Pro と Team ではユーザーごとに最大 50 台のマシン（各 5 vCPU / 20 GB RAM / 200 GB ディスク）を利用できます。"
+          "a": "クラウド上の永続的な Linux マシンで、使い捨て（cattle）ではなくペットです。Zen of cmux のとおり、マシンはソリューションではなくプリミティブです。ファイル、インストールしたツール、状態はそのまま保持され、その上に構築したものはあなたのものです。エージェントはそこでリポジトリをクローンし、コマンドを実行し、プルリクエストを開くため、お使いの Mac には触れません。Pro では最大 50 台のマシンで合計 5 vCPU、20 GB の RAM、200 GB のディスクを共有します。Team では、ユーザーごとに最大 50 台のマシンと同じ共有プールが含まれます。標準 VM サイズは 8 GB RAM / 32 GB ディスクで、容量の範囲内で RAM 4～64 GB のサイズを選べます。新しい VM のディスクは 32 GB で開始し、共有プールの範囲内で拡張できます。"
         },
         {
           "q": "cmux Vault とは何ですか?",
@@ -976,7 +1028,7 @@
         },
         {
           "q": "課金はどのように行われますか?",
-          "a": "Pro は月払いで $50/月、年払いでは $40/月（20%割引）です。Team は月払いで $60/ユーザー/月、年払いでは $48/ユーザー/月です。有料プランではユーザーごとに最大 50 台の Cloud VM を利用でき、従量課金や超過料金はありません。ターミナルとローカルエージェントは無料のままです。"
+          "a": "Pro は月払いで $50/月、年払いでは $40/月（20%割引）です。Team は月払いで $60/ユーザー/月、年払いでは $48/ユーザー/月です。有料プランではユーザーごとに最大 50 台の Cloud VM を利用できます。各ユーザーの VM は合計 5 vCPU、20 GB の RAM、200 GB のディスクを共有し、従量課金や超過料金はありません。ターミナルとローカルエージェントは無料のままです。"
         },
         {
           "q": "クラウドをセルフホストできますか?",
@@ -2139,7 +2191,12 @@
           "snappingEnabled": "ペインのドラッグやリサイズを隣のペインの端や間隔にスナップします。Commandキーを押している間はスナップを一時停止します。"
         },
         "fileEditor": {
-          "wordWrap": "横スクロールする代わりに、エディタの右端で長い行を折り返します。"
+          "wordWrap": "長い行を横スクロールせずにエディタの右端で折り返します。",
+          "syntaxHighlighting": "組み込みファイルエディタでソースのトークンに色を付けます。",
+          "lineNumbers": "組み込みファイルエディタに行番号ガターを表示します。",
+          "indentGuides": "組み込みファイルエディタに縦のインデントガイドを描画します。",
+          "currentLineHighlight": "選択範囲が空のとき、キャレットのある行をハイライトします。",
+          "tabWidth": "インデントとインデントガイドに使用するタブストップの幅（桁数）。"
         },
         "sidebar": {
           "notificationMessageLineLimit": "各ワークスペースタイトルの下に表示する最新通知の最大行数です。",
@@ -2178,7 +2235,7 @@
       "shortcutsWhenBooleanKeys": "boolean キー。未知または存在しないキーは false として扱われ、リテラル true / false も使えます。",
       "shortcutsWhenTypedKeys": "比較用の型付きキー。右サイドバーのアクティブモード（文字列）と、ペイン数・ワークスペース数（整数）です。",
       "shortcutsWhenOperators": "boolean 演算子、型付き比較、正規表現マッチ、リスト所属。比較は && や || より強く結合します。",
-      "shortcutsWhenExample": "例えば次の設定では、右サイドバーにフォーカスがある場合を除いて Ctrl+1–9 でワークスペースを選択し（Ctrl+1–5 はサイドバーのモード切り替えに残します）、ワークスペースに複数のペインがあるときはサーフェス選択を Find サイドバーに限定します。"
+      "shortcutsWhenExample": "例えば次の設定では、右サイドバーにフォーカスがある場合を除いて Ctrl+1–9 でワークスペースを選択し（Ctrl+数字 はサイドバーのモード切り替えに残します）、ワークスペースに複数のペインがあるときはサーフェス選択を Find サイドバーに限定します。"
     },
     "customCommands": {
       "title": "カスタムコマンド",
@@ -3206,6 +3263,9 @@
     "metaTitle": "cmux Pro が有効になりました",
     "title": "cmux Pro が有効になりました",
     "body": "{email} のアカウントを作成またはアップグレードしました。cmux を開くか、サインイン方法を追加できます。",
+    "purchaseComplete": "準備ができました",
+    "proLabel": "Pro プラン",
+    "dashboardLink": "ダッシュボードへ",
     "emailLabel": "購入メールアドレス",
     "whatUnlockedTitle": "利用できるようになった機能",
     "openCmux": "cmux を開く",
@@ -5335,6 +5395,28 @@
         "body": "プラン、請求書、解約を確認できます。",
         "action": "プランを管理"
       }
+    }
+  },
+  "PublicationApi": {
+    "invalid_email": {
+      "message": "有効なメールアドレスを入力してください。",
+      "action": "受信者は、この確認済みメールアドレスでサインインする必要があります。"
+    },
+    "invalid_expiry": {
+      "message": "アクセス許可の有効期限には将来の日時を指定してください。",
+      "action": "ISO 8601形式の日時を使うか、expiresAtを省略してください。"
+    },
+    "public_confirmation_required": {
+      "message": "公開アクセスには確認が必要です。",
+      "action": "ホスト名、VM、ポートを確認してから、confirmPublic: trueを送信してください。"
+    },
+    "organization_slug": {
+      "message": "組織のスラッグが無効か、すでに予約されています。",
+      "action": "小文字の英数字と単一のハイフンを使い、1〜19文字にしてください。既存の組織は予約済みのスラッグを使用します。"
+    },
+    "grant_body": {
+      "message": "公開ポートのメールアクセス許可",
+      "action": "emailと、必要に応じてexpiresAtを送信してください。"
     }
   }
 }

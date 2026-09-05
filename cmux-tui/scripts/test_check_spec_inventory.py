@@ -263,6 +263,9 @@ fn attached_event_json() {
 fn tree_delta_json() {}
 fn render_state_json() {}
 fn browser_state_json() {}
+fn complete_daemon_shutdown_after_ack() {
+    let _ = json!({"event": "daemon-shutdown"});
+}
 """
             )
             mux.write_text(
@@ -282,6 +285,7 @@ impl TreeDeltaKind {
                             "notification": {
                                 "streams": ["subscribe", "attach-byte"]
                             },
+                            "daemon-shutdown": {"streams": ["control"]},
                         }
                     }
                 )
@@ -296,6 +300,7 @@ impl TreeDeltaKind {
                     {
                         "bell": {"subscribe"},
                         "notification": {"subscribe", "attach-byte"},
+                        "daemon-shutdown": {"control"},
                     },
                 )
 

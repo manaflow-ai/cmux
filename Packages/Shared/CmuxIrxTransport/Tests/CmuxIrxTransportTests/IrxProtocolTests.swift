@@ -154,3 +154,49 @@ struct IrxIdentityTests {
         try? FileManager.default.removeItem(at: dir)
     }
 }
+
+@Suite("endpoint path policy")
+struct IrxEndpointPathPolicyTests {
+    @Test("automatic dials carry direct candidates and relay-only dials strip them")
+    func dialAddressPolicy() throws {
+        let identity = IrxIdentity(
+            privateKeyData: Data(repeating: 7, count: 32),
+            deviceID: "device-a",
+            appInstanceID: "instance-a"
+        )
+        let directAddresses = ["127.0.0.1:58470", "[::1]:58470"]
+        let automatic = IrxEndpointSupervisor(
+            configuration: IrxEndpointConfiguration(
+                identity: identity,
+                pathMode: .automatic,
+                initialRemoteBiStreams: 0,
+                initialRemoteUniStreams: 0
+            ),
+            journal: IrxJournal(subsystem: "dev.cmux.tests", category: "irx-paths")
+        )
+        let relayOnly = IrxEndpointSupervisor(
+            configuration: IrxEndpointConfiguration(
+                identity: identity,
+                pathMode: .relayOnly,
+                initialRemoteBiStreams: 0,
+                initialRemoteUniStreams: 0
+            ),
+            journal: IrxJournal(subsystem: "dev.cmux.tests", category: "irx-paths")
+        )
+
+        #expect(
+            try automatic.dialAddress(
+                peerEndpointIDHex: identity.endpointIDHex,
+                relayURL: "https://relay.example.com/",
+                directAddresses: directAddresses
+            ).directAddresses() == directAddresses
+        )
+        #expect(
+            try relayOnly.dialAddress(
+                peerEndpointIDHex: identity.endpointIDHex,
+                relayURL: "https://relay.example.com/",
+                directAddresses: directAddresses
+            ).directAddresses().isEmpty
+        )
+    }
+}

@@ -404,14 +404,14 @@ struct MachinesPanelView: View {
 
     /// ＋ on a free plan at its ceiling is the upgrade moment: open the Pro flow
     /// instead of launching a create that the backend would only paywall.
-    /// Otherwise the New Machine sheet collects name, kind, and size, and its
+    /// Otherwise the New Machine sheet collects the base-machine size, and its
     /// Create runs the same `cmux vm new` path the CLI and palette use. The
     /// create itself shows up here as a pending row (`viewModel.pendingCreates`),
     /// never as panel chrome tied to this view's lifetime.
     private func requestNewMachine() {
         NewMachineSheetPresenter.shared.presentNewMachine(
             plan: viewModel.plan,
-            imageKinds: viewModel.imageKinds,
+            memoryOptionsMb: viewModel.memoryOptionsMb,
             preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow,
             coordinator: viewModel.createCoordinator
         )
@@ -704,6 +704,7 @@ struct MachineRowActions {
     let runCommand: @MainActor (String, [String]) -> Void
     let confirmDelete: @MainActor (String) -> Void
     let promptRename: @MainActor (String, String?) -> Void
+    let resizeDisk: @MainActor (String, Int) -> Void
     /// A locked (free-window-expired) machine routes here instead of a doomed
     /// connect; the backend enforces the same boundary with 402s.
     let promptUpgrade: @MainActor () -> Void
@@ -744,6 +745,12 @@ struct MachineRowActions {
             },
             promptRename: { id, currentLabel in
                 presentRenamePrompt(id: id, currentLabel: currentLabel, onWillMutate: onWillMutate, onDidMutate: onDidMutate)
+            },
+            resizeDisk: { id, gib in
+                onWillMutate(String(format: String(localized: "machines.operation.resizeDisk", defaultValue: "Increasing %@ disk to %d GiB…"), id, gib))
+                if !launch(arguments: ["vm", "resize", id, "--disk", "\(gib)G"], onDidMutate: onDidMutate) {
+                    onDidMutate()
+                }
             },
             promptUpgrade: {
                 ProUpgradePresenter.present()
@@ -832,13 +839,13 @@ struct MachineRowActions {
             arguments: arguments,
             successTitle: successTitle,
             presentOutputOnSuccess: presentOutputOnSuccess,
-            onCancellationReady: onCancellationReady
-        ) { completion in
+            onCancellationReady: onCancellationReady,
+            onCompletion: { completion in
             if completion.terminationStatus == 0 {
                 onSuccess?()
             }
             onDidMutate()
-        }
+        })
     }
 
     @MainActor

@@ -7,12 +7,14 @@
         "snapshot": "لا يدعم Cloud VM هذا حالة VM المحفوظة.",
         "restore": "لا يدعم هذا النوع من Cloud VM استعادة حالة VM المحفوظة.",
         "fork": "لا يدعم Cloud VM هذا النسخ إلى VM جديد.",
+        "openPort": "لا يستطيع موفّر Cloud VM هذا إتاحة منافذ الجهاز كعناوين URL للمعاينة.",
         "default": "لا يدعم Cloud VM هذا العملية المطلوبة."
       },
       "action": {
         "snapshot": "لا تعاود المحاولة. يُحفظ العمل على هذا النوع من الأجهزة في وحدة التخزين المنزلية الدائمة.",
         "restore": "لا تعاود المحاولة. يُحفظ العمل على هذا النوع من الأجهزة في وحدة التخزين المنزلية الدائمة.",
         "fork": "لا تعاود المحاولة. أنشئ VM جديدًا باستخدام `cmux vm new`.",
+        "openPort": "لا تعاود المحاولة. صِل إلى الخدمة من داخل الجهاز باستخدام `cmux vm exec`، أو استخدم نوع جهاز يدعم فتح المنافذ.",
         "default": "لا تعاود المحاولة. شغّل `cmux vm ls` أو تواصل مع الدعم إذا اعتقدت أن هذا خطأ."
       }
     },
@@ -20,6 +22,11 @@
       "title": "يتطلب cmux Pro",
       "message": "تتطلب أجهزة Cloud VM خطة cmux Pro.",
       "action": "قم بالترقية إلى cmux Pro عبر {upgradeUrl} لإنشاء أجهزة Cloud VM."
+    },
+    "sharedResource": {
+      "message": "امتلأ تجمع موارد {resource} المشترك لأجهزة Cloud VM.",
+      "action": "احذف جهاز Cloud VM غير مستخدم ثم أعد المحاولة.",
+      "oversizedAction": "اطلب حجم {resource} أصغر لجهاز Cloud VM ليتسع في التجمع المشترك."
     }
   },
   "billingRecovery": {
@@ -1181,6 +1188,14 @@
         "shortcuts": {
           "when": "مسندات سياق اختيارية لكل إجراء (عبارات `when` على نمط VS Code)، مفهرسة بمعرّف إجراء cmux. كل قيمة هي تعبير منطقي فوق مفاتيح السياق، مدمجة باستخدام ! و && و || والأقواس. المفاتيح المنطقية: sidebarFocus و browserFocus و markdownFocus و filePreviewTextEditorFocus و simulatorFocus و terminalFocus و commandPaletteVisible و terminalFindVisible و workspaceCanvasLayout. تدعم المفاتيح المصنّفة المقارنات: السلسلة النصية sidebarMode (files أو find أو sessions أو feed أو dock) والعددان الصحيحان paneCount و workspaceCount. عوامل المقارنة هي == و != و =~ (تعبير نمطي) و < و <= و > و >= و `in [a, b]`؛ المفتاح غير المعروف أو الغائب يُقرأ على أنه false. تُقبل أيضًا القيمتان المنطقيتان الحرفيتان true و false؛ و`key == false` تكافئ `!key`. لا يعمل اختصار الإجراء (ولا يتعارض مع اختصارات أخرى) إلا عندما تكون العبارة صحيحة. أمثلة: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } يحدد مساحات العمل بواسطة Ctrl+1–9 في كل مكان ما عدا عندما يكون الشريط الجانبي الأيمن مركزًا؛ { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } يقصر الارتباط على الشريط الجانبي للبحث عندما تحتوي مساحة العمل على عدة ألواح.",
           "showModifierHoldHints": "إظهار شرائح تلميحات الاختصارات أثناء الضغط باستمرار على Cmd أو Control."
+        },
+        "fileEditor": {
+          "wordWrap": "لف الأسطر الطويلة عند الحافة اليمنى للمحرر بدلًا من التمرير أفقيًا.",
+          "syntaxHighlighting": "لوّن الرموز البرمجية في محرر الملفات المدمج.",
+          "lineNumbers": "اعرض هامش أرقام الأسطر في محرر الملفات المدمج.",
+          "indentGuides": "ارسم أدلة مسافة بادئة عمودية في محرر الملفات المدمج.",
+          "currentLineHighlight": "ميّز سطر المؤشر عندما لا يوجد تحديد.",
+          "tabWidth": "عرض علامة التبويب بالأعمدة المستخدمة للمسافة البادئة وأدلة المسافة البادئة."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

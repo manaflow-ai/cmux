@@ -85,9 +85,15 @@ on 6901. The contract (`web/services/vms/images/desktop.ts`;
   `ARG CMUX_IMAGE_GHOSTTY_DEB_SHA256` before dpkg runs); the apt list is
   `ARG CMUX_IMAGE_DESKTOP_PACKAGES`. `devbox-image-common.ts` reads all three.
 
-A desktop image is a superset of a base one, so one Freestyle snapshot is
-registered under both kinds (`desktop` and `base`). `--no-desktop` bakes a
-shell-only snapshot.
+Desktop and base defaults use separate snapshots. `--no-desktop --kinds base`
+builds the shell-only base ladder; the verifier reads `/etc/cmux/image-stamp`
+and rejects a desktop snapshot passed as a base image.
+
+The Freestyle base slug is only the input to the cmux bake. The ids recorded in
+`manifest.json` are cmux-derived snapshots, created by baking cmux-tui and its
+contract first, then resizing and re-booting each shape. Never point a machine
+at a raw `freestyle/*` base, because it has no cmux-tui state or startup
+contract.
 
 Reaching it: the Freestyle driver's `openPort(vmId, 6901)` (the app's
 Displays row, `cmux vm open <m>:desktop`) returns
@@ -99,6 +105,21 @@ auth of its own, so a machine outside a private network gets an error, not
 a public URL. `desktopWrapper.ts` stays the seam for a future public TLS
 edge. The daemon still runs as root, so root shells get `DISPLAY` but not
 the session bus.
+
+## Terminal capabilities (`cmux-terminfo.src`)
+
+Daemon-spawned shells get the TERM the Mac exports (`xterm-256color`, or
+`xterm-ghostty` when passed through) plus `COLORTERM=truecolor`, but
+programs resolve TERM against the guest's terminfo. Stock ncurses
+`xterm-256color` advertises no truecolor (`Tc`) or styled underlines (`Su`)
+and emits SGR 90 for `setaf 8`, which the cmux renderer shows as invisible
+ghost text. `cmux-terminfo.src` is the app's `Resources/terminfo-overlay`
+(Ghostty's entry under both names, bright colors 8-15 as `38;5;n`) as
+`infocmp -x` source; the bake compiles it into `/etc/terminfo`, ahead of
+`/lib` and `/usr/share` in ncurses' search order, before seeding ble.sh's
+per-TERM tput caches. Regenerate it from a cmux checkout with the command in
+its header when the overlay changes; `vm-devbox-image.test.ts` compiles and
+queries it, and `verify-devbox-image.ts` proves the same on a fresh machine.
 
 ## Session daemon: cmux-tui
 
@@ -137,15 +158,36 @@ bills and caps:
 | `sm` | 2 | 4 GiB | 16 GB | `freestyle/ubuntu-sm` |
 | `md` | 4 | 8 GiB | 32 GB | `freestyle/ubuntu` |
 | `lg` | 8 | 16 GiB | 64 GB | `freestyle/ubuntu-lg` |
+| `lgx` | 12 | 24 GiB | 96 GB | derived snapshot |
 | `xl` | 16 | 32 GiB | 128 GB | `freestyle/ubuntu-xl` |
 | `2xl` | 32 | 64 GiB | 128 GB | `freestyle/ubuntu-2xl` |
 
 The manifest records one entry per kind and size (`size: { name, cpu,
 memoryMb, storageMb }`), each the default for its kind+size. The resolver
 picks the smallest size whose memory covers the plan's `memoryMb`
-(`defaultMemoryMbForPlan`; today's paid default of 24 GiB lands on `xl`), so
+(`defaultMemoryMbForPlan`; today's default of 8 GiB lands on `md`), so
 the driver never resizes at create and nothing has to grow at boot. Snapshot
 slugs are `cmux-devbox-<size>` (`cmux-devbox` for `md`).
+
+Run `bun run devbox:manifest:check` before a promotion. It requires one
+validated default for every size in both ladders and checks the recorded CPU,
+memory, and disk values against `sizes.ts`.
+
+### BusyBox probe
+
+`freestyle/busybox` is not a supported machine image. It has only BusyBox
+utilities and no systemd or cmux devbox contract. To measure whether a future
+shell-only image can run cmux-tui, use the disposable probe:
+
+```bash
+FREESTYLE_API_KEY=... bun run devbox:probe:busybox --fx
+```
+
+The probe installs the pinned static cmux-tui build, starts the daemon, runs the
+small `fx` binary, records RSS, and deletes the VM. It never writes the image
+manifest. A BusyBox result becomes a product option only after a separate
+cmux-derived bake passes the same daemon, persistence, and attach checks as the
+Ubuntu ladder.
 
 ## Promote: bake, verify, derive sizes, record (one command)
 
@@ -157,7 +199,7 @@ it. `promote-devbox-image.ts` is the only sanctioned writer:
 
 ```bash
 # from web/, with the Freestyle key in env
-FREESTYLE_API_KEY=... bun run devbox:promote -- freestyle                     # bake -> verify -> sm,md,lg,xl,2xl -> manifest
+FREESTYLE_API_KEY=... bun run devbox:promote -- freestyle                     # bake -> verify -> sm,md,lg,lgx,xl,2xl -> manifest
 FREESTYLE_API_KEY=... bun run devbox:promote -- freestyle --sizes lg,xl       # a subset of the ladder
 FREESTYLE_API_KEY=... bun run devbox:promote -- freestyle --sizes none        # one size-less entry (pre-ladder behaviour)
 FREESTYLE_API_KEY=... bun run devbox:promote -- freestyle --image sh-…        # verify + derive + record an existing bake
