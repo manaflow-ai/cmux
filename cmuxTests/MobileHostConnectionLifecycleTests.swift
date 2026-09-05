@@ -189,6 +189,62 @@ extension MobileHostAuthorizationTests {
         service.debugResetMobileLifecycleStateForTesting()
     }
 
+    @Test func testIrohTransportCanDisableTheControlIdleTimeout() async throws {
+        let service = MobileHostService.shared
+        service.debugResetMobileLifecycleStateForTesting()
+        let registry = MobileHostConnectionRegistry.shared
+        for connection in registry.removeAll() {
+            await connection.close(reason: "test setup")
+        }
+        defer {
+            service.debugResetMobileLifecycleStateForTesting()
+        }
+
+        let expiringTransport = ScriptedMobileHostByteTransport()
+        let authorization = try irohAdmissionContext()
+        let expiringTask = Task {
+            await MobileHostService.acceptTransport(
+                expiringTransport,
+                authorization: authorization,
+                idleTimeoutNanoseconds: 1_000_000,
+                isCurrent: { true }
+            )
+        }
+        await waitForMobileHostConnectionCount(1)
+        try await expiringTransport.enqueue(Self.mobileHostStatusFrame(id: "expiring"))
+        _ = await expiringTransport.waitForSentBufferCount(1)
+        await expiringTransport.waitForCloseCount(1)
+        #expect(
+            await expiringTask.value == CmxIrohAdmittedConnectionExit(
+                lifecycle: .controlReadFailed,
+                failure: .timedOut
+            )
+        )
+
+        let persistentTransport = ScriptedMobileHostByteTransport()
+        let persistentTask = Task {
+            await MobileHostService.acceptTransport(
+                persistentTransport,
+                authorization: authorization,
+                idleTimeoutNanoseconds: 0,
+                isCurrent: { true }
+            )
+        }
+        await waitForMobileHostConnectionCount(1)
+        try await persistentTransport.enqueue(Self.mobileHostStatusFrame(id: "persistent"))
+        _ = await persistentTransport.waitForSentBufferCount(1)
+        try await Task.sleep(nanoseconds: 25_000_000)
+
+        #expect(await persistentTransport.observedCloseCount() == 0)
+        #expect(registry.count == 1)
+
+        await persistentTransport.finishReceiving()
+        _ = await persistentTask.value
+        for connection in registry.removeAll() {
+            await connection.close(reason: "test cleanup")
+        }
+    }
+
     @Test func testMobileHostPublishesUsableSessionOnlyAfterWorkspaceAndEventReadiness() async throws {
         CmuxEventBus.shared.resetForTesting()
         defer { CmuxEventBus.shared.resetForTesting() }

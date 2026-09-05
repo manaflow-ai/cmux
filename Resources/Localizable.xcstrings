@@ -9499,6 +9499,23 @@
         }
       }
     },
+    "agent.generic.notification.body.taskReportedError": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The task reported an error"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タスクがエラーを報告しました"
+          }
+        }
+      }
+    },
     "agent.generic.notification.body.waitingForInput": {
       "extractionState": "manual",
       "localizations": {
@@ -9529,6 +9546,131 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ エラー"
+          }
+        }
+      }
+    },
+    "agent.generic.notification.status.interrupted": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تمت المقاطعة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prekinuto"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afbrudt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unterbrochen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interrupted"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interrumpido"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interrompu"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interrotto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中断"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានផ្អាក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "중단됨"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avbrutt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przerwano"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interrompido"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Прервано"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ถูกขัดจังหวะ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kesildi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перервано"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已中断"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已中斷"
           }
         }
       }
@@ -41711,13 +41853,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage:\n  cmux cloud domains [list]\n  cmux cloud domains zones\n  cmux cloud domains verify <domain>\n  cmux cloud domains publish <vm> <port> [--domain <hostname>] [--access personal|team|public] [--team <id>]\n  cmux cloud domains access <hostname> <personal|team|public> [--team <id>]\n  cmux cloud domains rm <hostname>\n\nVerify a domain you own first: `verify` prints the DNS records to add, then run it\nagain to complete. `publish --domain` then accepts that domain or any one-label child.\nGenerated names need no verification. Add `--json` to any command for stable JSON output."
+            "value": "Usage:\n  cmux cloud domains [list]\n  cmux cloud domains zones\n  cmux cloud domains verify <domain>\n  cmux cloud domains publish <vm> <port> [--domain <hostname>] [--access personal|team|public] [--team <id>] [--org-slug <slug>] [--yes]\n  cmux cloud domains access <hostname> <personal|team|public> [--team <id>] [--yes]\n  cmux cloud domains grant <hostname> <email> [--expires <ISO-date>]\n  cmux cloud domains ungrant <hostname> <email>\n  cmux cloud domains grants <hostname>\n  cmux cloud domains rm <hostname>\n\nVerify a domain you own first: `verify` prints the DNS records to add, then run it\nagain to complete. `publish --domain` then accepts that domain or any one-label child.\nGenerated names use <vm>--<organization>--<port>.cmux.sh and need no verification.\nAccess defaults to the owning team or personal owner. Email grants apply to one port only.\nPublic access requires confirmation; --yes confirms it for scripts. Add --json for JSON output."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用方法:\n  cmux cloud domains [list]\n  cmux cloud domains zones\n  cmux cloud domains verify <domain>\n  cmux cloud domains publish <vm> <port> [--domain <hostname>] [--access personal|team|public] [--team <id>]\n  cmux cloud domains access <hostname> <personal|team|public> [--team <id>]\n  cmux cloud domains rm <hostname>\n\nまず所有するドメインを検証します。`verify` は追加する DNS レコードを表示し、再実行すると検証が完了します。\nその後 `publish --domain` でそのドメインまたは 1 ラベル下のサブドメインを使用できます。\n生成ドメインには検証は不要です。安定した JSON 出力を得るには、各コマンドに `--json` を追加します。"
+            "value": "使用方法:\n  cmux cloud domains [list]\n  cmux cloud domains zones\n  cmux cloud domains verify <domain>\n  cmux cloud domains publish <vm> <port> [--domain <hostname>] [--access personal|team|public] [--team <id>] [--org-slug <slug>] [--yes]\n  cmux cloud domains access <hostname> <personal|team|public> [--team <id>] [--yes]\n  cmux cloud domains grant <hostname> <email> [--expires <ISO-date>]\n  cmux cloud domains ungrant <hostname> <email>\n  cmux cloud domains grants <hostname>\n  cmux cloud domains rm <hostname>\n\nカスタムドメインは先にverifyを実行し、表示されたDNSレコードを追加した後、もう一度verifyを実行して所有権確認を完了してください。\npublish --domainには確認済みドメイン、またはその直下1階層のサブドメインを指定できます。\n生成される名前は<vm>--<organization>--<port>.cmux.shで、DNS確認は不要です。\n既定のアクセス権は所有チームまたは個人所有者です。メールのアクセス許可は1つのポートにのみ適用されます。\n公開アクセスには確認が必要です。スクリプトでは--yesで確認できます。JSON出力には--jsonを追加してください。"
           }
         }
       }
@@ -46549,6 +46691,131 @@
           "stringUnit": {
             "state": "translated",
             "value": "Mosh 終端傳輸：\n  --transport <ssh|mosh>  互動式終端傳輸方式（預設：ssh）\n\nSSH 管理遠端功能，Mosh 只承載終端。如果本機或遠端缺少 Mosh，cmux 會說明原因並使用 SSH。\n\n範例：\n  cmux ssh dev@my-host --transport mosh"
+          }
+        }
+      }
+    },
+    "cli.hooks.amp.alreadyUpToDate": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خطافات Amp محدثة بالفعل في %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp kuke su već ažurirane na %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp-hooks er allerede opdateret på %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp-Hooks sind unter %@ bereits aktuell"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp hooks already up to date at %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los hooks de Amp ya están actualizados en %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les hooks Amp sont déjà à jour dans %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gli hook di Amp sono già aggiornati in %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ の Amp フックはすでに最新です"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hook របស់ Amp នៅ %@ ទាន់សម័យរួចហើយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@의 Amp 훅은 이미 최신 상태입니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp-hooks er allerede oppdatert på %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hooki Amp w %@ są już aktualne"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os hooks do Amp já estão atualizados em %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хуки Amp в %@ уже обновлены"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ฮุก Amp ที่ %@ เป็นเวอร์ชันล่าสุดแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ konumundaki Amp kancaları zaten güncel"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хуки Amp у %@ вже оновлено"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 中的 Amp Hook 已是最新版本"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 中的 Amp Hook 已是最新版本"
           }
         }
       }
@@ -165945,6 +166212,23 @@
         }
       }
     },
+    "rightSidebar.tabs.customize": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Customize Tabs…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブをカスタマイズ…"
+          }
+        }
+      }
+    },
     "rightSidebar.toggle.tooltip": {
       "extractionState": "manual",
       "localizations": {
@@ -166790,6 +167074,256 @@
         }
       }
     },
+    "sessionIndex.amp.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جلسة Amp"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp sesija"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp-session"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp-Sitzung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp session"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sesión de Amp"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session Amp"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sessione Amp"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp セッション"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សម័យ Amp"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp 세션"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp-økt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sesja Amp"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sessão do Amp"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сеанс Amp"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เซสชัน Amp"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp oturumu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сеанс Amp"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp 会话"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp 工作階段"
+          }
+        }
+      }
+    },
+    "sessionIndex.amp.titleInDirectory": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جلسة Amp في %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp sesija u %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp-session i %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp-Sitzung in %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp session in %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sesión de Amp en %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session Amp dans %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sessione Amp in %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp セッション（%@）"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សម័យ Amp នៅក្នុង %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@의 Amp 세션"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp-økt i %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sesja Amp w %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sessão do Amp em %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сеанс Amp в %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เซสชัน Amp ใน %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ içindeki Amp oturumu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сеанс Amp у %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 中的 Amp 会话"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 中的 Amp 工作階段"
+          }
+        }
+      }
+    },
     "sessionIndex.directory.unknown": {
       "extractionState": "manual",
       "localizations": {
@@ -166849,6 +167383,131 @@
           "stringUnit": {
             "state": "translated",
             "value": "볼트가 비어 있습니다"
+          }
+        }
+      }
+    },
+    "sessionIndex.error.ampStoreRead": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سجل الجلسات غير متاح"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Historija sesija nije dostupna"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sessionshistorikken er ikke tilgængelig"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Sitzungsverlauf ist nicht verfügbar"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session history is unavailable"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El historial de sesiones no está disponible"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’historique des sessions est indisponible"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La cronologia delle sessioni non è disponibile"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッション履歴を利用できません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចប្រើប្រវត្តិសម័យបានទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세션 기록을 사용할 수 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Økthistorikken er utilgjengelig"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Historia sesji jest niedostępna"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O histórico de sessões não está disponível"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "История сеансов недоступна"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถใช้ประวัติเซสชันได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oturum geçmişi kullanılamıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Історія сеансів недоступна"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会话历史记录不可用"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作階段歷史記錄無法使用"
           }
         }
       }
@@ -180355,22 +181014,124 @@
     "settings.automation.amp.note": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يثبّت cmux خطافات Amp ويحدّثها تلقائيًا في طرفيات cmux. ولا تنفّذ أي إجراء خارج طرفيات cmux. عند تعطيلها، تظل إضافة Amp المثبّتة غير نشطة دون الحاجة إلى إزالتها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux automatski instalira i osvježava Amp hookove u cmux terminalima. Izvan cmux terminala ne rade ništa. Kada je onemogućeno, instalirani Amp dodatak ostaje neaktivan bez potrebe za uklanjanjem."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux installerer og opdaterer automatisk Amp-hooks i cmux-terminaler. De gør intet uden for cmux-terminaler. Når funktionen er deaktiveret, forbliver det installerede Amp-plugin inaktivt uden at skulle fjernes."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux installiert und aktualisiert Amp-Hooks automatisch in cmux-Terminals. Außerhalb von cmux-Terminals bleiben sie ohne Wirkung. Wenn die Integration deaktiviert ist, bleibt das installierte Amp-Plugin inaktiv und muss nicht entfernt werden."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hooks must be installed with `cmux hooks amp install`. They no-op outside cmux terminals. When disabled, the installed Amp plugin stays inactive without needing to be removed."
+            "value": "cmux installs and refreshes Amp hooks automatically in cmux terminals. They no-op outside cmux terminals. When disabled, the installed Amp plugin stays inactive without needing to be removed."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux instala y actualiza automáticamente los hooks de Amp en los terminales de cmux. Fuera de los terminales de cmux, no hacen nada. Al desactivarlos, el plugin de Amp instalado permanece inactivo sin necesidad de eliminarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux installe et actualise automatiquement les hooks Amp dans les terminaux cmux. Ils restent sans effet en dehors des terminaux cmux. Lorsque cette option est désactivée, le plugin Amp installé reste inactif sans qu’il soit nécessaire de le supprimer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux installa e aggiorna automaticamente gli hook di Amp nei terminali cmux. Al di fuori dei terminali cmux non eseguono alcuna operazione. Quando l’integrazione è disattivata, il plugin Amp installato rimane inattivo senza dover essere rimosso."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "フックは`cmux hooks amp install`でインストールする必要があります。cmuxターミナル外では動作しません。無効にすると、インストール済みAmpプラグインは削除せずに停止状態に保たれます。"
+            "value": "cmuxターミナルでは、cmuxがAmpフックを自動的にインストールして更新します。cmuxターミナル外では動作しません。無効にすると、インストール済みのAmpプラグインは削除しなくても停止状態になります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ដំឡើង និងធ្វើឱ្យ Amp hooks ថ្មីដោយស្វ័យប្រវត្តិនៅក្នុងស្ថានីយ cmux។ វាមិនធ្វើអ្វីនៅក្រៅស្ថានីយ cmux ទេ។ នៅពេលបិទ កម្មវិធីបន្ថែម Amp ដែលបានដំឡើងនឹងនៅតែអសកម្ម ដោយមិនចាំបាច់លុបចេញ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "`cmux hooks amp install`로 훅을 설치해야 합니다. cmux 터미널 외부에서는 작동하지 않습니다. 비활성화하면 설치된 Amp 플러그인은 제거하지 않고도 비활성 상태로 유지됩니다."
+            "value": "cmux 터미널에서는 cmux가 Amp 훅을 자동으로 설치하고 갱신합니다. cmux 터미널 외부에서는 작동하지 않습니다. 비활성화하면 설치된 Amp 플러그인을 제거하지 않아도 비활성 상태로 유지됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux installerer og oppdaterer Amp-hooks automatisk i cmux-terminaler. De gjør ingenting utenfor cmux-terminaler. Når integrasjonen er deaktivert, forblir den installerte Amp-utvidelsen inaktiv uten at den må fjernes."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux automatycznie instaluje i odświeża hooki Amp w terminalach cmux. Poza terminalami cmux nie wykonują one żadnych działań. Po wyłączeniu zainstalowana wtyczka Amp pozostaje nieaktywna i nie trzeba jej usuwać."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux instala e atualiza automaticamente os hooks do Amp nos terminais do cmux. Fora dos terminais do cmux, eles não realizam nenhuma ação. Quando a integração é desativada, o plugin do Amp instalado permanece inativo sem precisar ser removido."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux автоматически устанавливает и обновляет хуки Amp в терминалах cmux. Вне терминалов cmux они ничего не делают. Когда интеграция отключена, установленный плагин Amp остаётся неактивным, и удалять его не требуется."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux จะติดตั้งและอัปเดตฮุกของ Amp โดยอัตโนมัติในเทอร์มินัล cmux ฮุกเหล่านี้จะไม่ทำงานนอกเทอร์มินัล cmux เมื่อปิดใช้งาน ปลั๊กอิน Amp ที่ติดตั้งไว้จะยังคงไม่ทำงานโดยไม่จำเป็นต้องลบออก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux, Amp kancalarını cmux terminallerinde otomatik olarak yükler ve yeniler. Bu kancalar cmux terminalleri dışında işlem yapmaz. Devre dışı bırakıldığında yüklü Amp eklentisi kaldırılması gerekmeden etkisiz kalır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux автоматично встановлює та оновлює хуки Amp у терміналах cmux. Поза терміналами cmux вони не виконують жодних дій. Коли інтеграцію вимкнено, встановлений плагін Amp залишається неактивним, і видаляти його не потрібно."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 会在 cmux 终端中自动安装并刷新 Amp 钩子。这些钩子在 cmux 终端之外不会执行任何操作。禁用后，已安装的 Amp 插件会保持非活动状态，无需将其移除。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 會在 cmux 終端機中自動安裝並更新 Amp 掛鉤。這些掛鉤在 cmux 終端機之外不會執行任何動作。停用後，已安裝的 Amp 外掛程式會維持非作用中狀態，無須將其移除。"
           }
         }
       }
@@ -221938,6 +222699,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "pt"
+          }
+        }
+      }
+    },
+    "settings.sidebar.rightTabs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Right Sidebar Tabs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右サイドバーのタブ"
+          }
+        }
+      }
+    },
+    "settings.sidebar.rightTabs.moveDown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move %@ Down"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@を下に移動"
+          }
+        }
+      }
+    },
+    "settings.sidebar.rightTabs.moveUp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move %@ Up"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@を上に移動"
+          }
+        }
+      }
+    },
+    "settings.sidebar.rightTabs.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose which tabs the right sidebar shows and their order. The ⌃1–⌃9 shortcuts follow the visible order."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右サイドバーに表示するタブとその順序を選択します。⌃1〜⌃9 のショートカットは表示順に従います。"
           }
         }
       }
@@ -287336,16 +288165,874 @@
     "machines.new.size.label": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حجم الجهاز"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Veličina mašine"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maskinstørrelse"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maschinengröße"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Size"
+            "value": "Machine size"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tamaño de la máquina"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Taille de la machine"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dimensioni macchina"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サイズ"
+            "value": "マシンサイズ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទំហំម៉ាស៊ីន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "머신 크기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maskinstørrelse"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rozmiar maszyny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tamanho da máquina"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Размер машины"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ขนาดเครื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Makine boyutu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Розмір машини"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "机器大小"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "機器大小"
+          }
+        }
+      }
+    },
+    "machines.new.size.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اختر ملف الذاكرة والقرص لهذا الجهاز."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odaberite profil memorije i diska za ovu mašinu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vælg maskinens hukommelses- og diskprofil."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wählen Sie das Speicher- und Festplattenprofil für diese Maschine."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose the memory and disk profile for this machine."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elige el perfil de memoria y disco de esta máquina."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisissez le profil de mémoire et de disque de cette machine."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scegli il profilo di memoria e disco per questa macchina."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このマシンのメモリとディスク構成を選択します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ជ្រើសរើសទម្រង់អង្គចងចាំ និងថាសសម្រាប់ម៉ាស៊ីននេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 머신의 메모리 및 디스크 프로필을 선택하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Velg minne- og diskprofil for denne maskinen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wybierz profil pamięci i dysku dla tej maszyny."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escolha o perfil de memória e disco desta máquina."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выберите профиль памяти и диска для этой машины."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เลือกโปรไฟล์หน่วยความจำและดิสก์สำหรับเครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu makine için bellek ve disk profilini seçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Виберіть профіль пам’яті й диска для цієї машини."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择此机器的内存和磁盘配置。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選擇此機器的記憶體與磁碟設定。"
+          }
+        }
+      }
+    },
+    "machines.new.size.required": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مطلوب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obavezno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Påkrævet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erforderlich"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Required"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obligatorio"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Requis"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obbligatorio"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "必須"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ត្រូវការ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "필수"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Påkrevd"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wymagane"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obrigatório"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обязательно"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "จำเป็น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gerekli"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обов’язково"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "必填"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "必填"
+          }
+        }
+      }
+    },
+    "machines.new.size.accessibilityLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حجم الذاكرة العشوائية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Veličina RAM-a"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RAM-størrelse"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RAM-Größe"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RAM size"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tamaño de RAM"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Taille de la RAM"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dimensione RAM"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RAM サイズ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទំហំ RAM"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RAM 크기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RAM-størrelse"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rozmiar RAM"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tamanho da RAM"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Размер ОЗУ"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ขนาด RAM"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RAM boyutu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Розмір ОЗП"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内存大小"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "記憶體大小"
+          }
+        }
+      }
+    },
+    "machines.new.size.menu": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$d GB ذاكرة · قرص %2$d GB"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$d GB RAM · %2$d GB disk"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$d GB RAM · %2$d GB disk"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$d GB RAM · %2$d GB Festplatte"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$d GB RAM · %2$d GB disk"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$d GB de RAM · %2$d GB de disco"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$d Go de RAM · disque de %2$d Go"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$d GB di RAM · %2$d GB di disco"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RAM %1$d GB · ディスク %2$d GB"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$d GB RAM · ថាស %2$d GB"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RAM %1$dGB · 디스크 %2$dGB"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$d GB RAM · %2$d GB disk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$d GB RAM · dysk %2$d GB"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$d GB de RAM · disco de %2$d GB"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$d ГБ ОЗУ · диск %2$d ГБ"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RAM %1$d GB · ดิสก์ %2$d GB"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$d GB RAM · %2$d GB disk"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$d ГБ ОЗП · диск %2$d ГБ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$d GB 内存 · %2$d GB 磁盘"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$d GB 記憶體 · %2$d GB 磁碟"
+          }
+        }
+      }
+    },
+    "machines.new.size.ram": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الذاكرة العشوائية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RAM"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RAM"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RAM"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RAM"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RAM"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RAM"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RAM"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RAM"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RAM"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RAM"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RAM"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RAM"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RAM"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ОЗУ"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RAM"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RAM"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ОЗП"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内存"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "記憶體"
+          }
+        }
+      }
+    },
+    "machines.new.size.disk": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "القرص"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disk"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disk"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Festplatte"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disk"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disco"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disque"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disco"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ディスク"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ថាស"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "디스크"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dysk"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disco"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Диск"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ดิสก์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disk"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Диск"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "磁盘"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "磁碟"
           }
         }
       }
@@ -291128,7 +292815,168 @@
           }
         }
       }
+    },
+    "cli.cloud.domains.confirmPublic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Public access lets anyone open %@ (VM %@, port %@). Continue? [y/N]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "公開すると誰でも%@（VM %@、ポート%@）にアクセスできます。続けますか？[y/N]"
+          }
+        }
+      }
+    },
+    "cli.cloud.domains.publicCancelled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Public access was not enabled."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "公開アクセスは有効になっていません。"
+          }
+        }
+      }
     }
   },
+    "browser.chromium.automation.commandTimedOut": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Timed out waiting for Chromium CDP command"}},"ja":{"stringUnit":{"state":"translated","value":"ChromiumのCDPコマンドを待機中にタイムアウトしました"}}}},
+    "browser.chromium.automation.documentScriptTimedOut": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Timed out registering Chromium document script"}},"ja":{"stringUnit":{"state":"translated","value":"Chromiumのドキュメントスクリプト登録中にタイムアウトしました"}}}},
+    "browser.chromium.automation.invalidCookiePayload": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Invalid cookie payload"}},"ja":{"stringUnit":{"state":"translated","value":"Cookieペイロードが無効です"}}}},
+    "browser.chromium.automation.javascriptTimedOut": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Timed out waiting for JavaScript result"}},"ja":{"stringUnit":{"state":"translated","value":"JavaScriptの結果を待機中にタイムアウトしました"}}}},
+    "browser.chromium.automation.malformedCookies": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Chromium returned malformed cookies"}},"ja":{"stringUnit":{"state":"translated","value":"Chromiumから不正なCookieが返されました"}}}},
+    "browser.chromium.automation.navigationTimedOut": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Timed out waiting for Chromium navigation"}},"ja":{"stringUnit":{"state":"translated","value":"Chromiumのナビゲーションを待機中にタイムアウトしました"}}}},
+    "browser.chromium.automation.noCommandResult": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Chromium returned no CDP command result"}},"ja":{"stringUnit":{"state":"translated","value":"ChromiumからCDPコマンドの結果が返されませんでした"}}}},
+    "browser.chromium.automation.noJavaScriptValue": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Chromium returned no JavaScript value"}},"ja":{"stringUnit":{"state":"translated","value":"ChromiumからJavaScriptの値が返されませんでした"}}}},
+    "browser.chromium.automation.noScreenshot": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Chromium returned no screenshot"}},"ja":{"stringUnit":{"state":"translated","value":"Chromiumからスクリーンショットが返されませんでした"}}}},
+    "browser.chromium.automation.operationEnded": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Chromium operation ended without a result"}},"ja":{"stringUnit":{"state":"translated","value":"結果がないままChromium操作が終了しました"}}}},
+    "browser.chromium.automation.screenshotTimedOut": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Timed out waiting for Chromium screenshot"}},"ja":{"stringUnit":{"state":"translated","value":"Chromiumのスクリーンショットを待機中にタイムアウトしました"}}}},
+    "browser.chromium.cdp.commandEncodingFailed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Could not encode CDP command"}},"ja":{"stringUnit":{"state":"translated","value":"CDPコマンドをエンコードできませんでした"}}}},
+    "browser.chromium.cdp.connectionClosed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"CDP connection closed"}},"ja":{"stringUnit":{"state":"translated","value":"CDP接続が閉じられました"}}}},
+    "browser.chromium.cdp.endpointUnavailable": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"CDP endpoint is unavailable"}},"ja":{"stringUnit":{"state":"translated","value":"CDPエンドポイントを利用できません"}}}},
+    "browser.chromium.cdp.javaScriptEvaluationFailed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"JavaScript evaluation failed"}},"ja":{"stringUnit":{"state":"translated","value":"JavaScriptの評価に失敗しました"}}}},
+    "browser.chromium.cdp.malformedNavigationHistory": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Chromium returned malformed navigation history"}},"ja":{"stringUnit":{"state":"translated","value":"Chromiumから不正なナビゲーション履歴が返されました"}}}},
+    "browser.chromium.cdp.navigationStreamEnded": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Chromium navigation stream ended"}},"ja":{"stringUnit":{"state":"translated","value":"Chromiumのナビゲーションストリームが終了しました"}}}},
+    "browser.chromium.cdp.noPageTarget": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Chromium has no page target"}},"ja":{"stringUnit":{"state":"translated","value":"Chromiumにページターゲットがありません"}}}},
+    "browser.chromium.cdp.noPageWebSocket": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Chromium has no page websocket"}},"ja":{"stringUnit":{"state":"translated","value":"ChromiumにページWebSocketがありません"}}}},
+    "browser.chromium.cdp.rendererExited": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Chromium renderer exited (%lld)"}},"ja":{"stringUnit":{"state":"translated","value":"Chromiumレンダラーが終了しました（%lld）"}}}},
+    "browser.chromium.cdp.startupTimedOut": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Timed out waiting for Chromium"}},"ja":{"stringUnit":{"state":"translated","value":"Chromiumの起動を待機中にタイムアウトしました"}}}},
+    "browser.chromium.cdp.unknownError": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Unknown CDP error"}},"ja":{"stringUnit":{"state":"translated","value":"不明なCDPエラー"}}}},
+    "browser.chromium.error.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Chromium unavailable"}},"ja":{"stringUnit":{"state":"translated","value":"Chromiumを利用できません"}}}},
+    "browser.engine.error.browserOnly": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"A browser engine can only be selected when creating a browser pane or surface."}},"ja":{"stringUnit":{"state":"translated","value":"ブラウザエンジンを選択できるのはブラウザペインまたはサーフェスの作成時だけです"}}}},
+    "browser.engine.error.invalid": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Choose WebKit or Chromium for the browser engine."}},"ja":{"stringUnit":{"state":"translated","value":"ブラウザエンジンとしてWebKitまたはChromiumを選択してください"}}}},
+    "browser.focus.error.chromiumHostUnavailable": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Chromium browser host is not in a visible window"}},"ja":{"stringUnit":{"state":"translated","value":"Chromiumブラウザホストが表示可能なウィンドウにありません"}}}},
+    "browser.import.automation.error.chromiumCookiesUnsupported": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Cookie import into Chromium is not available yet. Open a WebKit browser pane or set WebKit as the default engine and try again."}},"ja":{"stringUnit":{"state":"translated","value":"Chromium への Cookie インポートにはまだ対応していません。WebKit ブラウザペインを開くか、既定のエンジンに WebKit を設定して再試行してください。"}}}},
+    "browser.import.warning.chromiumCookiesUnsupported": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Cookies were not imported because Chromium uses an isolated cookie store. Select WebKit as the destination engine and try again."}},"ja":{"stringUnit":{"state":"translated","value":"Chromium は Cookie ストアを分離しているため、Cookie をインポートしませんでした。宛先エンジンに WebKit を選択して再試行してください。"}}}},
+    "browser.navigation.error.unsupportedAction": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Unsupported browser navigation action"}},"ja":{"stringUnit":{"state":"translated","value":"サポートされていないブラウザナビゲーション操作です"}}}},
+    "browser.viewport.error.chromiumTimedOut": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Timed out setting Chromium viewport"}},"ja":{"stringUnit":{"state":"translated","value":"Chromiumビューポートの設定がタイムアウトしました"}}}},
+    "browser.viewport.error.layoutUnavailable": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Browser viewport layout is unavailable"}},"ja":{"stringUnit":{"state":"translated","value":"ブラウザのビューポートレイアウトを利用できません"}}}},
+    "browser.viewport.error.unsupportedEngine": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Page zoom is not supported for Chromium browser panes"}},"ja":{"stringUnit":{"state":"translated","value":"Chromiumブラウザペインではページズームをサポートしていません"}}}},
+    "cli.browser.engine.error.browserOnly": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"A browser engine can only be selected when creating a browser pane or surface."}},"ja":{"stringUnit":{"state":"translated","value":"ブラウザエンジンを選択できるのはブラウザペインまたはサーフェスの作成時だけです"}}}},
+    "cli.browser.engine.error.invalid": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Choose WebKit or Chromium for the browser engine."}},"ja":{"stringUnit":{"state":"translated","value":"ブラウザエンジンとしてWebKitまたはChromiumを選択してください"}}}},
+    "cli.browser.engine.error.navigateUnsupported": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"--engine is only supported when browser open creates a new pane; omit the surface selector"}},"ja":{"stringUnit":{"state":"translated","value":"--engine は browser open が新しいペインを作成する場合のみ使用できます。サーフェスセレクターを省略してください"}}}},
+    "cli.browser.engine.error.urlOnly": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"--engine is only supported when opening a browser URL"}},"ja":{"stringUnit":{"state":"translated","value":"--engine はブラウザURLを開く場合のみ使用できます"}}}},
+    "cli.browser.engine.flagDescription": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Rendering engine (browser only)"}},"ja":{"stringUnit":{"state":"translated","value":"レンダリングエンジン（ブラウザのみ）"}}}},
+    "cli.browser.engine.option": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"[--engine <webkit|chromium>]"}},"ja":{"stringUnit":{"state":"translated","value":"[--engine <webkit|chromium>]"}}}},
+    "cli.browser.error.cookieReadFailed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Could not read browser cookies"}},"ja":{"stringUnit":{"state":"translated","value":"ブラウザのCookieを読み取れませんでした"}}}},
+    "cli.browser.error.cookieWriteFailed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Could not write browser cookies"}},"ja":{"stringUnit":{"state":"translated","value":"ブラウザのCookieを書き込めませんでした"}}}},
+    "cli.browser.error.navigationFailed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Browser navigation failed"}},"ja":{"stringUnit":{"state":"translated","value":"ブラウザのナビゲーションに失敗しました"}}}},
+    "cli.browser.error.screenshotFailed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Browser screenshot failed"}},"ja":{"stringUnit":{"state":"translated","value":"ブラウザのスクリーンショットに失敗しました"}}}},
+    "cli.open.error.unknownFlag": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"open: unknown flag '%@'. Usage: cmux open <path-or-url>... [--engine <webkit|chromium>] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>] [--focus true|false] [--no-focus]"}},"ja":{"stringUnit":{"state":"translated","value":"open: 不明なフラグ '%@'。使い方: cmux open <path-or-url>... [--engine <webkit|chromium>] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>] [--focus true|false] [--no-focus]"}}}},
+    "cloudTree.terminal.open": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Open in a pane"}},"ja":{"stringUnit":{"state":"translated","value":"ペインで開いています"}}}},
+    "command.cloudVM.open.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Open Cloud VM"}},"ja":{"stringUnit":{"state":"translated","value":"Cloud VM を開く"}}}},
+    "debug.menu.splitButtonLayoutDebug": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Split Button Layout Debug…"}},"ja":{"stringUnit":{"state":"translated","value":"分割ボタンレイアウトのデバッグ…"}}}},
+    "debug.splitButtonLayout.alwaysHover": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Always Show Hover State"}},"ja":{"stringUnit":{"state":"translated","value":"ホバー状態を常に表示"}}}},
+    "debug.splitButtonLayout.backdropOptions": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Backdrop Options"}},"ja":{"stringUnit":{"state":"translated","value":"背景オプション"}}}},
+    "debug.splitButtonLayout.caretSegment": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Caret Segment"}},"ja":{"stringUnit":{"state":"translated","value":"キャレットセグメント"}}}},
+    "debug.splitButtonLayout.cloudPreview": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Cloud Split Button"}},"ja":{"stringUnit":{"state":"translated","value":"クラウド分割ボタン"}}}},
+    "debug.splitButtonLayout.hoverSegment": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Forced Hover Segment"}},"ja":{"stringUnit":{"state":"translated","value":"強制ホバーセグメント"}}}},
+    "debug.splitButtonLayout.hoverSegment.both": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Both"}},"ja":{"stringUnit":{"state":"translated","value":"両方"}}}},
+    "debug.splitButtonLayout.hoverSegment.caret": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Caret"}},"ja":{"stringUnit":{"state":"translated","value":"キャレット"}}}},
+    "debug.splitButtonLayout.hoverSegment.plus": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Plus"}},"ja":{"stringUnit":{"state":"translated","value":"プラス"}}}},
+    "debug.splitButtonLayout.inUse": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"In Use"}},"ja":{"stringUnit":{"state":"translated","value":"使用中"}}}},
+    "debug.splitButtonLayout.innerPadding": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Inner Padding and Width"}},"ja":{"stringUnit":{"state":"translated","value":"内側の余白と幅"}}}},
+    "debug.splitButtonLayout.liveNote": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Changes apply live."}},"ja":{"stringUnit":{"state":"translated","value":"変更はライブで反映されます。"}}}},
+    "debug.splitButtonLayout.option.controlBackground": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"controlBackgroundColor"}},"ja":{"stringUnit":{"state":"translated","value":"controlBackgroundColor"}}}},
+    "debug.splitButtonLayout.option.hidden": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Hidden"}},"ja":{"stringUnit":{"state":"translated","value":"非表示"}}}},
+    "debug.splitButtonLayout.option.precompositedBar": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Pre-composited barBackground"}},"ja":{"stringUnit":{"state":"translated","value":"合成済み barBackground"}}}},
+    "debug.splitButtonLayout.option.precompositedPane": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Pre-composited paneBackground"}},"ja":{"stringUnit":{"state":"translated","value":"合成済み paneBackground"}}}},
+    "debug.splitButtonLayout.option.rawBar": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"barBackground (tab chrome)"}},"ja":{"stringUnit":{"state":"translated","value":"barBackground（タブクローム）"}}}},
+    "debug.splitButtonLayout.option.rawPane": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Raw paneBackground (opaque)"}},"ja":{"stringUnit":{"state":"translated","value":"未加工 paneBackground（不透明）"}}}},
+    "debug.splitButtonLayout.option.translucentChrome": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Translucent chrome"}},"ja":{"stringUnit":{"state":"translated","value":"半透明クローム"}}}},
+    "debug.splitButtonLayout.option.windowBackground": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"windowBackgroundColor"}},"ja":{"stringUnit":{"state":"translated","value":"windowBackgroundColor"}}}},
+    "debug.splitButtonLayout.padding.bottom": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Bottom"}},"ja":{"stringUnit":{"state":"translated","value":"下"}}}},
+    "debug.splitButtonLayout.padding.leading": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Leading"}},"ja":{"stringUnit":{"state":"translated","value":"前"}}}},
+    "debug.splitButtonLayout.padding.top": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Top"}},"ja":{"stringUnit":{"state":"translated","value":"上"}}}},
+    "debug.splitButtonLayout.padding.trailing": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Trailing"}},"ja":{"stringUnit":{"state":"translated","value":"後"}}}},
+    "debug.splitButtonLayout.plusClicks": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Plus clicks: %d"}},"ja":{"stringUnit":{"state":"translated","value":"プラスのクリック数: %d"}}}},
+    "debug.splitButtonLayout.plusSegment": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Plus Segment"}},"ja":{"stringUnit":{"state":"translated","value":"プラスセグメント"}}}},
+    "debug.splitButtonLayout.resetPadding": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Reset Padding and Widths"}},"ja":{"stringUnit":{"state":"translated","value":"余白と幅をリセット"}}}},
+    "debug.splitButtonLayout.sectionWidth": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Section Width"}},"ja":{"stringUnit":{"state":"translated","value":"セクション幅"}}}},
+    "debug.splitButtonLayout.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Button Backdrop Color"}},"ja":{"stringUnit":{"state":"translated","value":"ボタン背景色"}}}},
+    "debug.splitButtonLayout.width.caretOffset": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Caret Width Offset"}},"ja":{"stringUnit":{"state":"translated","value":"キャレット幅オフセット"}}}},
+    "debug.splitButtonLayout.width.plusOffset": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Plus Width Offset"}},"ja":{"stringUnit":{"state":"translated","value":"プラス幅オフセット"}}}},
+    "debug.splitButtonLayout.windowTitle": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Split Button Layout"}},"ja":{"stringUnit":{"state":"translated","value":"分割ボタンレイアウト"}}}},
+    "settings.browser.chromiumExtensions": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Chromium Extensions"}},"ja":{"stringUnit":{"state":"translated","value":"Chromium 拡張機能"}}}},
+    "settings.browser.chromiumExtensions.subtitle": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Unpacked extension directories loaded into Chromium browser panes. One absolute path per line; each directory must contain a manifest.json. Applies when the next pane starts."}},"ja":{"stringUnit":{"state":"translated","value":"Chromium ブラウザペインに読み込むパッケージ化されていない拡張機能のディレクトリ。1 行につき絶対パス 1 件で、各ディレクトリに manifest.json が必要です。次のペイン起動時に適用されます。"}}}},
+    "settings.browser.engine": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Default Browser Engine"}},"ja":{"stringUnit":{"state":"translated","value":"デフォルトブラウザエンジン"}}}},
+    "settings.browser.engine.auto": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Auto (Match Default Browser)"}},"ja":{"stringUnit":{"state":"translated","value":"自動（既定のブラウザに合わせる）"}}}},
+    "settings.browser.engine.chromium": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Chromium"}},"ja":{"stringUnit":{"state":"translated","value":"Chromium"}}}},
+    "settings.browser.engine.subtitle.auto": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"New browser panes use Chromium when your default browser is Chromium-based (Chrome, Edge, Brave, Arc…), otherwise WebKit."}},"ja":{"stringUnit":{"state":"translated","value":"既定のブラウザが Chromium 系（Chrome、Edge、Brave、Arc など）の場合は新しいブラウザペインに Chromium を使用し、それ以外は WebKit を使用します。"}}}},
+    "settings.browser.engine.subtitle.chromium": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Use a managed out-of-process Chromium runtime for new browser panes."}},"ja":{"stringUnit":{"state":"translated","value":"新しいブラウザペインで管理対象の別プロセスChromiumランタイムを使用します。"}}}},
+    "settings.browser.engine.subtitle.webkit": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Use the built-in WebKit engine for new browser panes."}},"ja":{"stringUnit":{"state":"translated","value":"新しいブラウザペインで内蔵WebKitエンジンを使用します。"}}}},
+    "settings.browser.engine.webkit": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"WebKit"}},"ja":{"stringUnit":{"state":"translated","value":"WebKit"}}}},
+    "settings.browser.remoteDebuggingPort": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Chromium Remote Debugging Port"}},"ja":{"stringUnit":{"state":"translated","value":"Chromiumリモートデバッグポート"}}}},
+    "settings.browser.remoteDebuggingPort.subtitleOff": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Off by default. Chromium panes still use private CDP internally; no external endpoint is exposed."}},"ja":{"stringUnit":{"state":"translated","value":"デフォルトはオフです。Chromiumペインは内部で非公開CDPを使用しますが、外部エンドポイントは公開されません。"}}}},
+    "settings.browser.remoteDebuggingPort.subtitleOn": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"New panes request http://127.0.0.1:%lld. If busy, cmux chooses another loopback port; CLI JSON reports the actual Playwright endpoint."}},"ja":{"stringUnit":{"state":"translated","value":"新しいペインではhttp://127.0.0.1:%lldを要求します。使用中の場合は別のループバックポートを使用し、CLIのJSONに実際のPlaywrightエンドポイントが表示されます。"}}}},
+    "settings.search.alias.setting.browser.chromium-extensions": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"browser.chromiumExtensionDirectories chrome extension unpacked load-extension addon plugin"}},"ja":{"stringUnit":{"state":"translated","value":"browser.chromiumExtensionDirectories Chrome 拡張機能 アンパック load-extension アドオン プラグイン"}}}},
+    "settings.search.alias.setting.browser.engine": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"browser.defaultEngine auto match default browser webkit chromium chrome rendering engine out of process"}},"ja":{"stringUnit":{"state":"translated","value":"browser.defaultEngine 自動 既定のブラウザ WebKit Chromium Chrome レンダリング エンジン 別プロセス"}}}},
+    "settings.search.alias.setting.browser.remote-debugging-port": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"browser.remoteDebuggingPort cdp devtools protocol playwright puppeteer loopback localhost attach"}},"ja":{"stringUnit":{"state":"translated","value":"browser.remoteDebuggingPort CDP DevTools プロトコル Playwright Puppeteer ループバック localhost 接続"}}}},
+    "titlebar.cloudVM.accessibilityLabel": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"Cloud VM"}},"bs":{"stringUnit":{"state":"translated","value":"Cloud VM"}},"da":{"stringUnit":{"state":"translated","value":"cloud-VM"}},"de":{"stringUnit":{"state":"translated","value":"Cloud-VM"}},"en":{"stringUnit":{"state":"translated","value":"cloud VM"}},"es":{"stringUnit":{"state":"translated","value":"Cloud VM"}},"fr":{"stringUnit":{"state":"translated","value":"Cloud VM"}},"it":{"stringUnit":{"state":"translated","value":"Cloud VM"}},"ja":{"stringUnit":{"state":"translated","value":"Cloud VM"}},"km":{"stringUnit":{"state":"translated","value":"Cloud VM"}},"ko":{"stringUnit":{"state":"translated","value":"Cloud VM"}},"nb":{"stringUnit":{"state":"translated","value":"Cloud VM"}},"pl":{"stringUnit":{"state":"translated","value":"Cloud VM"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Cloud VM"}},"ru":{"stringUnit":{"state":"translated","value":"Cloud VM"}},"th":{"stringUnit":{"state":"translated","value":"Cloud VM"}},"tr":{"stringUnit":{"state":"translated","value":"Cloud VM"}},"uk":{"stringUnit":{"state":"translated","value":"Cloud VM"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"Cloud VM"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"Cloud VM"}}}},
+    "titlebar.cloudVM.menu.accessibilityLabel": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"Cloud VM Menu"}},"bs":{"stringUnit":{"state":"translated","value":"Cloud VM Menu"}},"da":{"stringUnit":{"state":"translated","value":"Cloud VM Menu"}},"de":{"stringUnit":{"state":"translated","value":"Cloud VM Menu"}},"en":{"stringUnit":{"state":"translated","value":"Cloud VM Menu"}},"es":{"stringUnit":{"state":"translated","value":"Cloud VM Menu"}},"fr":{"stringUnit":{"state":"translated","value":"Cloud VM Menu"}},"it":{"stringUnit":{"state":"translated","value":"Cloud VM Menu"}},"ja":{"stringUnit":{"state":"translated","value":"Cloud VM メニュー"}},"km":{"stringUnit":{"state":"translated","value":"Cloud VM Menu"}},"ko":{"stringUnit":{"state":"translated","value":"Cloud VM Menu"}},"nb":{"stringUnit":{"state":"translated","value":"Cloud VM Menu"}},"pl":{"stringUnit":{"state":"translated","value":"Cloud VM Menu"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Cloud VM Menu"}},"ru":{"stringUnit":{"state":"translated","value":"Cloud VM Menu"}},"th":{"stringUnit":{"state":"translated","value":"Cloud VM Menu"}},"tr":{"stringUnit":{"state":"translated","value":"Cloud VM Menu"}},"uk":{"stringUnit":{"state":"translated","value":"Cloud VM Menu"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"Cloud VM Menu"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"Cloud VM Menu"}}}},
+    "titlebar.cloudVM.menu.tooltip": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"Cloud VM actions"}},"bs":{"stringUnit":{"state":"translated","value":"Cloud VM actions"}},"da":{"stringUnit":{"state":"translated","value":"Cloud VM actions"}},"de":{"stringUnit":{"state":"translated","value":"Cloud VM actions"}},"en":{"stringUnit":{"state":"translated","value":"Cloud VM actions"}},"es":{"stringUnit":{"state":"translated","value":"Cloud VM actions"}},"fr":{"stringUnit":{"state":"translated","value":"Cloud VM actions"}},"it":{"stringUnit":{"state":"translated","value":"Cloud VM actions"}},"ja":{"stringUnit":{"state":"translated","value":"Cloud VM アクション"}},"km":{"stringUnit":{"state":"translated","value":"Cloud VM actions"}},"ko":{"stringUnit":{"state":"translated","value":"Cloud VM actions"}},"nb":{"stringUnit":{"state":"translated","value":"Cloud VM actions"}},"pl":{"stringUnit":{"state":"translated","value":"Cloud VM actions"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Cloud VM actions"}},"ru":{"stringUnit":{"state":"translated","value":"Cloud VM actions"}},"th":{"stringUnit":{"state":"translated","value":"Cloud VM actions"}},"tr":{"stringUnit":{"state":"translated","value":"Cloud VM actions"}},"uk":{"stringUnit":{"state":"translated","value":"Cloud VM actions"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"Cloud VM actions"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"Cloud VM actions"}}}},
+    "titlebar.cloudVM.tooltip": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"Open Cloud VM"}},"bs":{"stringUnit":{"state":"translated","value":"Open Cloud VM"}},"da":{"stringUnit":{"state":"translated","value":"Open Cloud VM"}},"de":{"stringUnit":{"state":"translated","value":"Open Cloud VM"}},"en":{"stringUnit":{"state":"translated","value":"Open Cloud VM"}},"es":{"stringUnit":{"state":"translated","value":"Open Cloud VM"}},"fr":{"stringUnit":{"state":"translated","value":"Open Cloud VM"}},"it":{"stringUnit":{"state":"translated","value":"Open Cloud VM"}},"ja":{"stringUnit":{"state":"translated","value":"Cloud VM を開く"}},"km":{"stringUnit":{"state":"translated","value":"Open Cloud VM"}},"ko":{"stringUnit":{"state":"translated","value":"Open Cloud VM"}},"nb":{"stringUnit":{"state":"translated","value":"Open Cloud VM"}},"pl":{"stringUnit":{"state":"translated","value":"Open Cloud VM"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Open Cloud VM"}},"ru":{"stringUnit":{"state":"translated","value":"Open Cloud VM"}},"th":{"stringUnit":{"state":"translated","value":"Open Cloud VM"}},"tr":{"stringUnit":{"state":"translated","value":"Open Cloud VM"}},"uk":{"stringUnit":{"state":"translated","value":"Open Cloud VM"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"Open Cloud VM"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"Open Cloud VM"}}}},
+    "cloudTunnel.vpnConfiguration.name": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"cmux Cloud"}},"ja":{"stringUnit":{"state":"translated","value":"cmux Cloud"}}}},
+    "cloudTunnel.error.backendUnavailable": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This cmux build does not include the signed Network Extension required for browser access."}},"ja":{"stringUnit":{"state":"translated","value":"この cmux ビルドには、ブラウザアクセスに必要な署名済み Network Extension が含まれていません。"}}}},
+    "cloudTunnel.error.notSignedIn": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Sign in to cmux Cloud first (`cmux auth login`), then retry."}},"ja":{"stringUnit":{"state":"translated","value":"まず cmux Cloud にサインイン（`cmux auth login`）してから再試行してください。"}}}},
+    "cloudTunnel.error.rebootRequired": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"macOS needs a restart to finish installing the cmux Cloud Tunnel extension."}},"ja":{"stringUnit":{"state":"translated","value":"cmux クラウドトンネル機能拡張のインストールを完了するには macOS の再起動が必要です。"}}}},
+    "cloudTunnel.error.appNotInApplicationsFolder": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"macOS only loads the cmux Cloud Tunnel extension from the Applications folder. Move cmux.app to /Applications and retry."}},"ja":{"stringUnit":{"state":"translated","value":"macOS は「アプリケーション」フォルダにある cmux からのみクラウドトンネル機能拡張を読み込みます。cmux.app を /Applications に移動して再試行してください。"}}}},
+    "cloudTunnel.error.startFailed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The tunnel could not start: %@"}},"ja":{"stringUnit":{"state":"translated","value":"トンネルを開始できませんでした: %@"}}}},
+    "cloudTunnel.error.deadlineExceeded": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The tunnel did not come up in time."}},"ja":{"stringUnit":{"state":"translated","value":"トンネルが時間内に接続されませんでした。"}}}},
+    "cloudTunnel.error.linkDropped": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"macOS reported the VPN as disconnected before it came up."}},"ja":{"stringUnit":{"state":"translated","value":"接続が確立する前に macOS が VPN の切断を報告しました。"}}}},
+    "cloudTunnel.error.linkStatusUnavailable": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"VPN status updates stopped arriving."}},"ja":{"stringUnit":{"state":"translated","value":"VPN の状態更新が届かなくなりました。"}}}},
+    "cloudTunnel.error.genericFailure": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"cmux could not start the Cloud VPN. Try again."}},"ja":{"stringUnit":{"state":"translated","value":"cmux はクラウド VPN を開始できませんでした。もう一度お試しください。"}}}},
+    "cloudTunnel.error.vpnConfiguration": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"macOS rejected the VPN configuration (code %d)."}},"ja":{"stringUnit":{"state":"translated","value":"macOS が VPN 構成を拒否しました（コード %d）。"}}}},
+    "cloudTunnel.error.activationCanceled": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The request to load the cmux Cloud Tunnel extension was canceled."}},"ja":{"stringUnit":{"state":"translated","value":"cmux クラウドトンネル機能拡張の読み込み要求がキャンセルされました。"}}}},
+    "cloudTunnel.error.activationNotAllowed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"macOS did not allow the cmux Cloud Tunnel extension to load. Allow it in System Settings › General › Login Items & Extensions, then retry."}},"ja":{"stringUnit":{"state":"translated","value":"macOS が cmux クラウドトンネル機能拡張の読み込みを許可しませんでした。「システム設定」›「一般」›「ログイン項目と機能拡張」で許可してから再試行してください。"}}}},
+    "cloudTunnel.error.activationFailed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"macOS could not load the cmux Cloud Tunnel extension (code %d)."}},"ja":{"stringUnit":{"state":"translated","value":"macOS が cmux クラウドトンネル機能拡張を読み込めませんでした（コード %d）。"}}}},
+    "cli.vpn.appManaged.bringingUp": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Bringing the tunnel up (app-managed, no sudo needed)…"}},"ja":{"stringUnit":{"state":"translated","value":"トンネルを接続しています（アプリ管理、sudo 不要）…"}}}},
+    "cli.vpn.appManaged.needsApproval": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"macOS needs your approval to load the cmux Cloud Tunnel extension. Open System Settings › General › Login Items & Extensions › Network Extensions, allow cmux, then return here (waiting up to 10 minutes)…"}},"ja":{"stringUnit":{"state":"translated","value":"cmux クラウドトンネル機能拡張を読み込むには macOS での承認が必要です。「システム設定」›「一般」›「ログイン項目と機能拡張」›「ネットワーク機能拡張」で cmux を許可してからここに戻ってください（最大 10 分待機します）…"}}}},
+    "cli.vpn.appManaged.pinned": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Pinned up until `cmux vpn down`. Otherwise cmux starts the tunnel when you open a Cloud machine and stops it when no Cloud sessions remain."}},"ja":{"stringUnit":{"state":"translated","value":"`cmux vpn down` を実行するまで接続を維持します。通常は、クラウドマシンを開くと cmux がトンネルを開始し、クラウドセッションがなくなると停止します。"}}}},
+    "cli.vpn.appManaged.hostsHint": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Internal hostnames: run `cmux vpn hosts` to map <machine>.internal in /etc/hosts (needs sudo)."}},"ja":{"stringUnit":{"state":"translated","value":"内部ホスト名: <machine>.internal を /etc/hosts に登録するには `cmux vpn hosts` を実行してください（sudo が必要）。"}}}},
+    "cli.vpn.status.state.starting": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Tunnel: starting"}},"ja":{"stringUnit":{"state":"translated","value":"トンネル: 開始中"}}}},
+    "cli.vpn.status.state.awaitingApproval": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Tunnel: waiting for approval in System Settings › General › Login Items & Extensions"}},"ja":{"stringUnit":{"state":"translated","value":"トンネル: 「システム設定」›「一般」›「ログイン項目と機能拡張」での承認を待っています"}}}},
+    "cli.vpn.status.state.failed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Tunnel: failed (%@)"}},"ja":{"stringUnit":{"state":"translated","value":"トンネル: 失敗（%@）"}}}},
+    "cli.vpn.status.downAppManaged": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Tunnel: down (starts automatically when you open a Cloud machine)"}},"ja":{"stringUnit":{"state":"translated","value":"トンネル: 切断（クラウドマシンを開くと自動的に開始されます）"}}}},
+    "cli.vpn.status.notSetUpAppManaged": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Tunnel: not set up (enrolls automatically when you open a Cloud machine)"}},"ja":{"stringUnit":{"state":"translated","value":"トンネル: 未設定（クラウドマシンを開くと自動的に登録されます）"}}}},
+    "cli.vpn.status.pinned": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Pinned up by `cmux vpn up`; run `cmux vpn down` to release."}},"ja":{"stringUnit":{"state":"translated","value":"`cmux vpn up` により接続が固定されています。解除するには `cmux vpn down` を実行してください。"}}}},
+    "cli.vpn.status.autoManaged": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The tunnel starts automatically when you open a Cloud machine and stops when no Cloud sessions remain."}},"ja":{"stringUnit":{"state":"translated","value":"トンネルはクラウドマシンを開くと自動的に開始し、クラウドセッションがなくなると停止します。"}}}},
+    "cloudTunnel.error.startCancelled": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The tunnel start was cancelled."}},"ja":{"stringUnit":{"state":"translated","value":"トンネルの開始がキャンセルされました。"}}}},
+    "cloudTree.link.tunnelStarting": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This Mac's tunnel to your Cloud VM network is still starting; the machine reconnects on its own."}},"ja":{"stringUnit":{"state":"translated","value":"この Mac からクラウド VM ネットワークへのトンネルはまだ開始中です。マシンは自動的に再接続します。"}}}},
+    "cloudTree.link.tunnelAwaitingApproval": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"macOS is waiting for you to allow the cmux Cloud Tunnel extension in System Settings › General › Login Items & Extensions."}},"ja":{"stringUnit":{"state":"translated","value":"macOS は「システム設定」›「一般」›「ログイン項目と機能拡張」で cmux クラウドトンネル機能拡張を許可するのを待っています。"}}}},
+    "cloudTree.link.tunnelFailed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This Mac's tunnel to your Cloud VM network could not start: %@"}},"ja":{"stringUnit":{"state":"translated","value":"この Mac からクラウド VM ネットワークへのトンネルを開始できませんでした: %@"}}}},
+    "cloudTree.link.tunnelOffAppManaged": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This Mac's tunnel to your Cloud VM network is down; reopen the machine to start it."}},"ja":{"stringUnit":{"state":"translated","value":"この Mac からクラウド VM ネットワークへのトンネルは切断されています。マシンを再度開くと開始されます。"}}}},
+    "cloudTunnel.error.configurationNotInstalled": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The VPN configuration was not saved before the tunnel was started."}},"ja":{"stringUnit":{"state":"translated","value":"トンネルの開始前に VPN 構成が保存されていませんでした。"}}}},
   "version": "1.0"
 }

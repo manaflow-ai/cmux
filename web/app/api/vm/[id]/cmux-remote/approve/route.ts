@@ -12,8 +12,8 @@ import { parseLenientObjectBody } from "../../../../../../services/vms/routeInpu
  * Approves the cmux-tui device enrollment that a prior `attach-endpoint`
  * (`transport: "cmux-remote"`) invited. The control plane is the daemon owner: it
  * minted the invitation for this authenticated user, so approving the pending claim
- * is the honest encoding of "the web tier already authenticated this device". Returns
- * `state: "pending"` until the client has connected with the invitation; callers poll.
+ * is the honest encoding of "the web tier already authenticated this device". One
+ * request waits for the claim inside the VM and then approves it.
  */
 export async function POST(
   request: Request,

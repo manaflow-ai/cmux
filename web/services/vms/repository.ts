@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, asc, count, desc, eq, gt, inArray, isNotNull, isNull, lt, ne, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, ne, or, sql } from "drizzle-orm";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -12,6 +12,8 @@ import {
   cloudVmBillingGrants,
   cloudVmLeases,
   cloudVmNetworks,
+  cloudVmAccessGrants,
+  cloudVmAccessGrantSessions,
   cloudVmSessions,
   cloudVmTunnels,
   cloudVmTunnelEnrollmentLocks,
@@ -76,6 +78,8 @@ export type CloudVmAccessLeaseRow = CloudVmLeaseRow & {
 };
 export type CloudVmSessionRow = typeof cloudVmSessions.$inferSelect;
 export type CloudVmNetworkRow = typeof cloudVmNetworks.$inferSelect;
+export type CloudVmAccessGrantRow = typeof cloudVmAccessGrants.$inferSelect;
+export type CloudVmAccessGrantSessionRow = typeof cloudVmAccessGrantSessions.$inferSelect;
 export type CloudVmTunnelRow = typeof cloudVmTunnels.$inferSelect;
 export type CloudVmTunnelEnrollmentLockRow = typeof cloudVmTunnelEnrollmentLocks.$inferSelect;
 export type CloudVmLeaseKind = typeof cloudVmLeases.$inferInsert.kind;
@@ -145,10 +149,58 @@ export type VmRepositoryShape = {
     readonly cidrV6?: string | null;
   }) => Effect.Effect<CloudVmNetworkRow, VmDatabaseError>;
   readonly deleteNetwork?: (id: string) => Effect.Effect<void, VmDatabaseError>;
+  readonly findAccessGrant?: (input: {
+    readonly userId: string;
+    readonly accessGrantId?: string;
+    readonly deviceId?: string;
+  }) => Effect.Effect<CloudVmAccessGrantRow | null, VmDatabaseError>;
+  readonly findBlockingRevokedAccessGrant?: (input: {
+    readonly userId: string;
+    readonly deviceId: string;
+    readonly stackSessionId: string;
+    readonly sessionIssuedAt: Date;
+  }) => Effect.Effect<CloudVmAccessGrantRow | null, VmDatabaseError>;
+  readonly listUserAccessGrants?: (userId: string) => Effect.Effect<CloudVmAccessGrantRow[], VmDatabaseError>;
+  readonly upsertAccessGrant?: (input: {
+    readonly userId: string;
+    readonly deviceId: string;
+    readonly reportedName?: string | null;
+    readonly modelIdentifier?: string | null;
+    readonly osVersion?: string | null;
+    readonly architecture?: string | null;
+    readonly cmuxVersion?: string | null;
+    readonly cmuxBuild?: string | null;
+    readonly cmuxChannel?: string | null;
+  }) => Effect.Effect<CloudVmAccessGrantRow, VmDatabaseError>;
+  readonly upsertAccessGrantSession?: (input: {
+    readonly accessGrantId: string;
+    readonly userId: string;
+    readonly stackSessionId: string;
+    readonly sessionIssuedAt: Date;
+  }) => Effect.Effect<void, VmDatabaseError>;
+  readonly listAccessGrantSessionIds?: (accessGrantId: string) => Effect.Effect<string[], VmDatabaseError>;
+  readonly renameAccessGrant?: (input: {
+    readonly id: string;
+    readonly userId: string;
+    readonly displayName: string | null;
+  }) => Effect.Effect<CloudVmAccessGrantRow | null, VmDatabaseError>;
+  readonly listAccessGrantTunnels?: (accessGrantId: string) => Effect.Effect<CloudVmTunnelRow[], VmDatabaseError>;
+  readonly claimAccessGrantMutation?: (input: {
+    readonly id: string;
+    readonly leaseId: string;
+    readonly now: Date;
+    readonly leaseExpiresAt: Date;
+  }) => Effect.Effect<boolean, VmDatabaseError>;
+  readonly releaseAccessGrantMutation?: (input: {
+    readonly id: string;
+    readonly leaseId: string;
+  }) => Effect.Effect<void, VmDatabaseError>;
+  readonly revokeAccessGrant?: (id: string) => Effect.Effect<boolean, VmDatabaseError>;
   /** The live (unrevoked) tunnel row for one of the owner's devices. */
   readonly findTunnel?: (input: {
     readonly userId: string;
     readonly deviceFingerprint: string;
+    readonly tunnelPurpose: "terminal" | "browser";
   }) => Effect.Effect<CloudVmTunnelRow | null, VmDatabaseError>;
   readonly listUserTunnels?: (userId: string) => Effect.Effect<CloudVmTunnelRow[], VmDatabaseError>;
   readonly insertTunnel?: (input: {
@@ -156,7 +208,9 @@ export type VmRepositoryShape = {
     readonly networkId: string;
     readonly provider: ProviderId;
     readonly providerTunnelId: string;
+    readonly accessGrantId: string;
     readonly deviceFingerprint: string;
+    readonly tunnelPurpose: "terminal" | "browser";
     readonly deviceName?: string | null;
     readonly clientPublicKey: string;
     readonly addressV4?: string | null;
@@ -1081,6 +1135,210 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
       await db.delete(cloudVmNetworks).where(eq(cloudVmNetworks.id, id));
     }),
 
+  findAccessGrant: (input) =>
+    dbEffect("findAccessGrant", async () => {
+      const db = cloudDb();
+      const selector = input.accessGrantId
+        ? eq(cloudVmAccessGrants.id, input.accessGrantId)
+        : input.deviceId
+          ? eq(cloudVmAccessGrants.deviceId, input.deviceId)
+          : sql`false`;
+      const [row] = await db
+        .select()
+        .from(cloudVmAccessGrants)
+        .where(and(
+          eq(cloudVmAccessGrants.userId, input.userId),
+          selector,
+          isNull(cloudVmAccessGrants.revokedAt),
+        ))
+        .limit(1);
+      return row ?? null;
+    }),
+
+  findBlockingRevokedAccessGrant: (input) =>
+    dbEffect("findBlockingRevokedAccessGrant", async () => {
+      const db = cloudDb();
+      const [result] = await db
+        .select({ accessGrant: cloudVmAccessGrants })
+        .from(cloudVmAccessGrants)
+        .leftJoin(
+          cloudVmAccessGrantSessions,
+          eq(cloudVmAccessGrantSessions.accessGrantId, cloudVmAccessGrants.id),
+        )
+        .where(and(
+          eq(cloudVmAccessGrants.userId, input.userId),
+          isNotNull(cloudVmAccessGrants.revokedAt),
+          or(
+            eq(cloudVmAccessGrantSessions.stackSessionId, input.stackSessionId),
+            and(
+              eq(cloudVmAccessGrants.deviceId, input.deviceId),
+              gte(cloudVmAccessGrants.revokedAt, input.sessionIssuedAt),
+            ),
+          ),
+        ))
+        .orderBy(desc(cloudVmAccessGrants.revokedAt))
+        .limit(1);
+      return result?.accessGrant ?? null;
+    }),
+
+  listUserAccessGrants: (userId) =>
+    dbEffect("listUserAccessGrants", async () => {
+      const db = cloudDb();
+      return await db
+        .select()
+        .from(cloudVmAccessGrants)
+        .where(and(
+          eq(cloudVmAccessGrants.userId, userId),
+          isNull(cloudVmAccessGrants.revokedAt),
+        ))
+        .orderBy(desc(cloudVmAccessGrants.lastControlPlaneAt));
+    }),
+
+  upsertAccessGrant: (input) =>
+    dbEffect("upsertAccessGrant", async () => {
+      const db = cloudDb();
+      const now = new Date();
+      const [row] = await db
+        .insert(cloudVmAccessGrants)
+        .values({
+          userId: input.userId,
+          deviceId: input.deviceId,
+          reportedName: input.reportedName ?? null,
+          modelIdentifier: input.modelIdentifier ?? null,
+          osVersion: input.osVersion ?? null,
+          architecture: input.architecture ?? null,
+          cmuxVersion: input.cmuxVersion ?? null,
+          cmuxBuild: input.cmuxBuild ?? null,
+          cmuxChannel: input.cmuxChannel ?? null,
+          lastControlPlaneAt: now,
+        })
+        .onConflictDoUpdate({
+          target: [cloudVmAccessGrants.userId, cloudVmAccessGrants.deviceId],
+          targetWhere: sql`${cloudVmAccessGrants.revokedAt} is null`,
+          set: {
+            reportedName: input.reportedName ?? null,
+            modelIdentifier: input.modelIdentifier ?? null,
+            osVersion: input.osVersion ?? null,
+            architecture: input.architecture ?? null,
+            cmuxVersion: input.cmuxVersion ?? null,
+            cmuxBuild: input.cmuxBuild ?? null,
+            cmuxChannel: input.cmuxChannel ?? null,
+            lastControlPlaneAt: now,
+            updatedAt: now,
+          },
+        })
+        .returning();
+      if (!row) throw new Error("upsertAccessGrant returned no row");
+      return row;
+    }),
+
+  upsertAccessGrantSession: (input) =>
+    dbEffect("upsertAccessGrantSession", async () => {
+      const db = cloudDb();
+      const now = new Date();
+      await db
+        .insert(cloudVmAccessGrantSessions)
+        .values({
+          accessGrantId: input.accessGrantId,
+          userId: input.userId,
+          stackSessionId: input.stackSessionId,
+          sessionIssuedAt: input.sessionIssuedAt,
+          lastSeenAt: now,
+        })
+        .onConflictDoUpdate({
+          target: [cloudVmAccessGrantSessions.accessGrantId, cloudVmAccessGrantSessions.stackSessionId],
+          set: { sessionIssuedAt: input.sessionIssuedAt, lastSeenAt: now },
+        });
+    }),
+
+  listAccessGrantSessionIds: (accessGrantId) =>
+    dbEffect("listAccessGrantSessionIds", async () => {
+      const db = cloudDb();
+      const rows = await db
+        .select({ stackSessionId: cloudVmAccessGrantSessions.stackSessionId })
+        .from(cloudVmAccessGrantSessions)
+        .where(eq(cloudVmAccessGrantSessions.accessGrantId, accessGrantId));
+      return rows.map((row) => row.stackSessionId);
+    }),
+
+  renameAccessGrant: (input) =>
+    dbEffect("renameAccessGrant", async () => {
+      const db = cloudDb();
+      const [row] = await db
+        .update(cloudVmAccessGrants)
+        .set({ displayName: input.displayName, updatedAt: new Date() })
+        .where(and(
+          eq(cloudVmAccessGrants.id, input.id),
+          eq(cloudVmAccessGrants.userId, input.userId),
+          isNull(cloudVmAccessGrants.revokedAt),
+        ))
+        .returning();
+      return row ?? null;
+    }),
+
+  listAccessGrantTunnels: (accessGrantId) =>
+    dbEffect("listAccessGrantTunnels", async () => {
+      const db = cloudDb();
+      return await db
+        .select()
+        .from(cloudVmTunnels)
+        .where(and(
+          eq(cloudVmTunnels.accessGrantId, accessGrantId),
+          isNull(cloudVmTunnels.revokedAt),
+        ))
+        .orderBy(asc(cloudVmTunnels.createdAt));
+    }),
+
+  claimAccessGrantMutation: (input) =>
+    dbEffect("claimAccessGrantMutation", async () => {
+      const db = cloudDb();
+      const rows = await db
+        .update(cloudVmAccessGrants)
+        .set({
+          mutationLeaseId: input.leaseId,
+          mutationLeaseExpiresAt: input.leaseExpiresAt,
+          updatedAt: input.now,
+        })
+        .where(and(
+          eq(cloudVmAccessGrants.id, input.id),
+          isNull(cloudVmAccessGrants.revokedAt),
+          or(
+            isNull(cloudVmAccessGrants.mutationLeaseId),
+            lt(cloudVmAccessGrants.mutationLeaseExpiresAt, input.now),
+            eq(cloudVmAccessGrants.mutationLeaseId, input.leaseId),
+          ),
+        ))
+        .returning({ id: cloudVmAccessGrants.id });
+      return rows.length > 0;
+    }),
+
+  releaseAccessGrantMutation: (input) =>
+    dbEffect("releaseAccessGrantMutation", async () => {
+      const db = cloudDb();
+      await db
+        .update(cloudVmAccessGrants)
+        .set({
+          mutationLeaseId: null,
+          mutationLeaseExpiresAt: null,
+          updatedAt: new Date(),
+        })
+        .where(and(
+          eq(cloudVmAccessGrants.id, input.id),
+          eq(cloudVmAccessGrants.mutationLeaseId, input.leaseId),
+        ));
+    }),
+
+  revokeAccessGrant: (id) =>
+    dbEffect("revokeAccessGrant", async () => {
+      const db = cloudDb();
+      const rows = await db
+        .update(cloudVmAccessGrants)
+        .set({ revokedAt: new Date(), updatedAt: new Date() })
+        .where(and(eq(cloudVmAccessGrants.id, id), isNull(cloudVmAccessGrants.revokedAt)))
+        .returning({ id: cloudVmAccessGrants.id });
+      return rows.length > 0;
+    }),
+
   findTunnel: (input) =>
     dbEffect("findTunnel", async () => {
       const db = cloudDb();
@@ -1090,6 +1348,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
         .where(and(
           eq(cloudVmTunnels.userId, input.userId),
           eq(cloudVmTunnels.deviceFingerprint, input.deviceFingerprint),
+          eq(cloudVmTunnels.tunnelPurpose, input.tunnelPurpose),
           isNull(cloudVmTunnels.revokedAt),
         ))
         .limit(1);
@@ -1116,7 +1375,9 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
           networkId: input.networkId,
           provider: input.provider,
           providerTunnelId: input.providerTunnelId,
+          accessGrantId: input.accessGrantId,
           deviceFingerprint: input.deviceFingerprint,
+          tunnelPurpose: input.tunnelPurpose,
           deviceName: input.deviceName ?? null,
           clientPublicKey: input.clientPublicKey,
           addressV4: input.addressV4 ?? null,
