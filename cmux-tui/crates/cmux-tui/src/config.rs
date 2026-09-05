@@ -4529,12 +4529,8 @@ pub fn load() -> Config {
     } else if let Some(requested) =
         raw.sidebar.profile.as_deref().map(str::trim).filter(|id| !id.is_empty())
     {
-        if let Some(profile) = config
-            .sidebar
-            .profiles
-            .iter()
-            .find(|profile| profile.id == requested)
-            .cloned()
+        if let Some(profile) =
+            config.sidebar.profiles.iter().find(|profile| profile.id == requested).cloned()
         {
             select_sidebar_profile(&mut config, &profile);
         } else {
