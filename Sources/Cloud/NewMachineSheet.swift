@@ -70,13 +70,10 @@ struct NewMachineSheet: View {
                     Text(selectedSize.menuTitle)
                 }
                 .pickerStyle(.menu)
+                .labelsHidden()
                 .accessibilityIdentifier("NewMachineSheet.size")
                 .accessibilityLabel(String(localized: "machines.new.size.accessibilityLabel", defaultValue: "RAM size"))
                 .accessibilityValue(selectedSize.menuTitle)
-
-                Text(selectedSize.detail)
-                    .cmuxFont(size: 11)
-                    .foregroundStyle(.secondary)
             }
         }
         .accessibilityIdentifier("NewMachineSheet.sizeSection")
@@ -169,8 +166,9 @@ struct NewMachineSheet: View {
 /// These views are preview-only. The sheet uses the first variation: the native menu.
 private struct NewMachinePickerVariationsPreview: View {
     @State private var selectedMemoryMb = 8192
+    var viewportHeight: CGFloat = 820
 
-    private static let sizes = [4096, 8192, 16384, 24576, 32768, 65536]
+    private static let sizes = NewMachineModel.memoryOptionsMb
         .compactMap { MachineSizeOption(memoryMb: $0) }
 
     private var selectedSize: MachineSizeOption {
@@ -216,15 +214,19 @@ private struct NewMachinePickerVariationsPreview: View {
                         Text(selectedSize.menuTitle)
                     }
                     .pickerStyle(.menu)
+                    .labelsHidden()
                 }
 
                 variation(2) {
                     Picker(selection: $selectedMemoryMb) {
-                        sizeOptions
+                        ForEach(Self.sizes, id: \.memoryMb) { size in
+                            Text(size.title).tag(size.memoryMb)
+                        }
                     } label: {
                         Text(selectedSize.menuTitle)
                     }
                     .pickerStyle(.segmented)
+                    .labelsHidden()
                 }
 
                 variation(3) {
@@ -234,6 +236,7 @@ private struct NewMachinePickerVariationsPreview: View {
                         Text(selectedSize.menuTitle)
                     }
                     .pickerStyle(.radioGroup)
+                    .labelsHidden()
                 }
 
                 variation(4) {
@@ -298,7 +301,7 @@ private struct NewMachinePickerVariationsPreview: View {
                     Picker(selection: $selectedMemoryMb) {
                         sizeOptions
                     } label: {
-                        Text(selectedSize.menuTitle)
+                        Text(String(localized: "machines.new.size.label", defaultValue: "Machine size"))
                     }
                 }
 
@@ -320,9 +323,10 @@ private struct NewMachinePickerVariationsPreview: View {
                     }
                 }
             }
+            .frame(width: 588, alignment: .leading)
             .padding()
         }
-        .frame(width: 620, height: 820)
+        .frame(width: 620, height: viewportHeight)
     }
 
     @ViewBuilder
