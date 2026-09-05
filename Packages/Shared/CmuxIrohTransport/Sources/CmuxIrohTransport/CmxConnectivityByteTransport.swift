@@ -102,7 +102,10 @@ actor CmxConnectivityByteTransport:
     }
 
     func waitUntilTransportClosureObservationIsReady() async -> Bool {
-        guard session == nil, !closed else { return session != nil }
+        guard !closed else { return false }
+        if let session {
+            return !(await session.isClosed())
+        }
         await withCheckedContinuation { continuation in
             if session != nil || closed {
                 continuation.resume()
@@ -110,7 +113,8 @@ actor CmxConnectivityByteTransport:
                 closureObservationReadyWaiters.append(continuation)
             }
         }
-        return session != nil
+        guard !closed, let session else { return false }
+        return !(await session.isClosed())
     }
 
     func isTransportClosed() async -> Bool {
