@@ -137,6 +137,7 @@ extension Workspace {
         controller.start()
         if remoteControllerConnectionState == .connected {
             _ = reattachPersistentRemotePTYPanels()
+            drainPendingRemotePTYSessionCleanups()
         }
     }
 
@@ -159,6 +160,7 @@ extension Workspace {
             if remoteControllerIsReady {
                 let reattached = reattachPersistentRemotePTYPanels(requestedSurfaceId: surfaceId, restartEndedSessions: true)
                 didRespawnTerminal = surfaceId.map(reattached.contains) ?? !reattached.isEmpty
+                drainPendingRemotePTYSessionCleanups()
             }
         } else if let startupCommand = effectiveRemoteTerminalStartupCommand(from: configuration),
                   !startupCommand.isEmpty,
@@ -186,7 +188,16 @@ extension Workspace {
             if didRespawnTerminal || !shouldRespawnSurface { trackRemoteTerminalSurface(reconnectingSurfaceId) }
         }
         if reconnectingSurfaceId != nil, remoteControllerIsReady { return didRespawnTerminal }
-        guard remoteConnectionState != .connecting, remoteConnectionState != .reconnecting else { return didRespawnTerminal }
+        // A persistent PTY wrapper can publish a retrying presentation after
+        // its old controller has already been detached. In that state the
+        // presentation is not evidence that a controller/transition is still
+        // in flight; allow the explicit reconnect to recreate the owner.
+        let controllerRestartRequired = remoteSessionController == nil &&
+            remoteSessionTransitionTask == nil
+        guard controllerRestartRequired ||
+            (remoteConnectionState != .connecting && remoteConnectionState != .reconnecting) else {
+            return didRespawnTerminal
+        }
         configureRemoteConnection(configuration, autoConnect: true)
         return didRespawnTerminal
     }

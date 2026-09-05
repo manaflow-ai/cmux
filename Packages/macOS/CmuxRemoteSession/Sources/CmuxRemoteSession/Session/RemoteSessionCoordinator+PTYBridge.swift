@@ -28,17 +28,87 @@ extension RemoteSessionCoordinator {
     public func closePTYSession(sessionID: String, timeout: TimeInterval = 8.0) throws {
         let deadline = DispatchTime.now() + max(0, timeout)
         try runOnControllerQueue(timeout: timeout) {
-            guard self.daemonReady, self.proxyLease != nil else {
-                throw NSError(domain: "cmux.remote.pty", code: 2, userInfo: [
-                    NSLocalizedDescriptionKey: "remote daemon is not ready",
-                ])
-            }
-            try self.proxyBroker.closePTY(
-                configuration: self.configuration,
-                sessionID: sessionID.trimmingCharacters(in: .whitespacesAndNewlines),
+            try self.closePTYSessionLocked(
+                sessionID: sessionID,
                 deadline: deadline
             )
         }
+    }
+
+    /// Closes one persistent PTY session without blocking the caller's
+    /// Swift-concurrency worker. The coordinator queue performs the legacy
+    /// synchronous RPC and resumes this operation when it completes.
+    ///
+    /// - Parameters:
+    ///   - sessionID: Persistent PTY session to terminate.
+    ///   - timeout: Maximum duration granted to the daemon-side close.
+    /// - Throws: The same readiness or daemon error as
+    ///   ``closePTYSession(sessionID:timeout:)``.
+    public func closePTYSessionAsync(
+        sessionID: String,
+        timeout: TimeInterval = 8.0
+    ) async throws {
+        let normalizedSessionID = sessionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let timeoutMilliseconds = Self.ptyCloseTimeoutMilliseconds(timeout)
+        let gate = RemotePTYAsyncCloseOperationGate()
+        try await withCheckedThrowingContinuation {
+            (continuation: CheckedContinuation<Void, any Error>) in
+            queue.async { [self] in
+                guard gate.begin() else { return }
+                let deadline = DispatchTime.now() + max(0, timeout)
+                do {
+                    try closePTYSessionLocked(
+                        sessionID: normalizedSessionID,
+                        deadline: deadline
+                    )
+                    if gate.complete() {
+                        continuation.resume()
+                    }
+                } catch {
+                    if gate.complete() {
+                        continuation.resume(throwing: error)
+                    }
+                }
+            }
+            Task { [clock, gate] in
+                guard (try? await clock.sleep(forMilliseconds: timeoutMilliseconds)) != nil else {
+                    return
+                }
+                guard gate.timeoutBeforeStart() else { return }
+                continuation.resume(throwing: Self.ptyQueueHandoffTimedOutError())
+            }
+        }
+    }
+
+    private static func ptyCloseTimeoutMilliseconds(_ timeout: TimeInterval) -> Int {
+        guard timeout.isFinite else { return Int.max }
+        let milliseconds = max(0, timeout * 1_000).rounded(.up)
+        guard milliseconds < Double(Int.max) else { return Int.max }
+        return Int(milliseconds)
+    }
+
+    private static func ptyQueueHandoffTimedOutError() -> NSError {
+        NSError(domain: "cmux.remote.pty", code: 8, userInfo: [
+            // Reuse the existing localized PTY-timeout wording; code 8 is the
+            // distinct machine-readable queue-handoff classification.
+            NSLocalizedDescriptionKey: "timed out waiting for remote PTY operation",
+        ])
+    }
+
+    private func closePTYSessionLocked(
+        sessionID: String,
+        deadline: DispatchTime
+    ) throws {
+        guard daemonReady, proxyLease != nil else {
+            throw NSError(domain: "cmux.remote.pty", code: 2, userInfo: [
+                NSLocalizedDescriptionKey: "remote daemon is not ready",
+            ])
+        }
+        try proxyBroker.closePTY(
+            configuration: configuration,
+            sessionID: sessionID.trimmingCharacters(in: .whitespacesAndNewlines),
+            deadline: deadline
+        )
     }
 
     /// Returns the serialized lifecycle decision for one persistent PTY session.
