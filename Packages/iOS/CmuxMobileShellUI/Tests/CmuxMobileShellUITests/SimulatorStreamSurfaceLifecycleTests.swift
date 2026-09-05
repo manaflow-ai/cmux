@@ -127,6 +127,28 @@ import Testing
             workspaceSearchNavigationPath: [workspaceA],
             notificationSearchNavigationPath: [workspaceB]
         ) == workspaceA)
+        // Split navigation always presents the detail column's selection,
+        // regardless of the sidebar destination or a presented search.
+        #expect(WorkspaceShellView.visibleSimulatorStreamWorkspaceID(
+            selectedPrimaryTab: .notifications,
+            searchScope: .workspaces,
+            usesCompactStack: false,
+            selectedWorkspaceID: workspaceA,
+            compactNavigationPath: [],
+            notificationNavigationPath: [workspaceB],
+            workspaceSearchNavigationPath: [],
+            notificationSearchNavigationPath: []
+        ) == workspaceA)
+        #expect(WorkspaceShellView.visibleSimulatorStreamWorkspaceID(
+            selectedPrimaryTab: .search,
+            searchScope: .notifications,
+            usesCompactStack: false,
+            selectedWorkspaceID: workspaceA,
+            compactNavigationPath: [],
+            notificationNavigationPath: [],
+            workspaceSearchNavigationPath: [],
+            notificationSearchNavigationPath: [workspaceB]
+        ) == workspaceA)
     }
 
     private func simulatorDescriptor(workspaceID: String) -> MobileSimulatorPanelDescriptor {
