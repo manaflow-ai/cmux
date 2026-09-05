@@ -173,6 +173,7 @@ export function sharedResourceCapacityForMaxActiveVms(
   };
 }
 
+/** Return whether an operator environment flag uses a recognized false value. */
 function isFalseFlag(value: string | undefined): boolean {
   if (value === undefined) return false;
   return ["0", "false", "no", "off", "disabled"].includes(value.trim().toLowerCase());

@@ -290,7 +290,7 @@ Set these Vercel environment variables per production/staging environment:
 - To enforce exactly 50 active VMs for every paid plan, set `CMUX_VM_PAID_MAX_ACTIVE_VMS=50` in
   the Vercel environment. This operator brake intentionally overrides Team seat multiplication.
 - `CMUX_VM_SHARED_CPU_LIMIT_ENABLED`, optional temporary shared CPU-pool brake. Unset/`1` keeps
-  the advertised 5-vCPU-per-50-VM pool; set to `0` in a Vercel environment to remove only that
+  the advertised pool of 5 vCPU per 50 active VMs; set to `0` in a Vercel environment to remove only that
   CPU reservation while the per-user/per-seat 50-VM allowance remains enforced. Redeploy after
   changing the variable.
 - Stack Auth environment variables.

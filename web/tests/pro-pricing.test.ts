@@ -122,12 +122,12 @@ describe("pricing copy matches the plan policy", () => {
   });
 
   test("the shared pool scales by paid seat and sums every resource claim", () => {
-    expect(sharedResourceCapacityForMaxActiveVms(PAID_MAX_ACTIVE_VMS_DEFAULT)).toEqual({
+    expect(sharedResourceCapacityForMaxActiveVms(PAID_MAX_ACTIVE_VMS_DEFAULT, {})).toEqual({
       vcpus: PLAN_SHARED_VCPU,
       memoryMb: PLAN_SHARED_MEMORY_MB,
       diskMb: PLAN_SHARED_DISK_MB,
     });
-    expect(sharedResourceCapacityForMaxActiveVms(PAID_MAX_ACTIVE_VMS_DEFAULT * 2)).toEqual({
+    expect(sharedResourceCapacityForMaxActiveVms(PAID_MAX_ACTIVE_VMS_DEFAULT * 2, {})).toEqual({
       vcpus: PLAN_SHARED_VCPU * 2,
       memoryMb: PLAN_SHARED_MEMORY_MB * 2,
       diskMb: PLAN_SHARED_DISK_MB * 2,
