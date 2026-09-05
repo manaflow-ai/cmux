@@ -165,13 +165,13 @@ describe("Iroh build compatibility", () => {
     }))).toBe(true);
   });
 
-  test("compat-test DEV lane enforces the same minimum-version cases", () => {
+  test("internal DEV lane enforces the same minimum-version cases", () => {
     const ios = binding({
       platform: "ios",
-      tag: "compat-test",
-      clientNamespace: "dev.cmux.ios.compat-test",
+      tag: "internal",
+      clientNamespace: "dev.cmux.ios.internal",
     });
-    const mac = (appVersion: string | null, tag = "compat-test") => binding({
+    const mac = (appVersion: string | null, tag = "internal") => binding({
       platform: "mac",
       tag,
       clientNamespace: `mac:com.cmuxterm.app.debug.${tag}`,

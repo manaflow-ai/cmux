@@ -456,7 +456,7 @@ describe("App Store directory partition", () => {
   });
 });
 
-describe("compat-test DEV directory partition", () => {
+describe("internal DEV directory partition", () => {
   function responseFor(...bindings: {
     endpointId: string;
     clientNamespace: string;
@@ -478,12 +478,12 @@ describe("compat-test DEV directory partition", () => {
     harness.serveDiscovery(() => responseFor(
       {
         endpointId: ENDPOINT_A,
-        clientNamespace: "mac:com.cmuxterm.app.debug.compat-test",
+        clientNamespace: "mac:com.cmuxterm.app.debug.internal",
         appVersion: "0.64.22-nightly.3359013153901+1",
       },
       {
         endpointId: ENDPOINT_B,
-        clientNamespace: "mac:com.cmuxterm.app.debug.compat-test",
+        clientNamespace: "mac:com.cmuxterm.app.debug.internal",
         appVersion: "0.64.22-nightly.3359013153900+1",
       },
       {
@@ -493,11 +493,11 @@ describe("compat-test DEV directory partition", () => {
       },
       {
         endpointId: "d".repeat(64),
-        clientNamespace: "mac:com.cmuxterm.app.debug.compat-test",
+        clientNamespace: "mac:com.cmuxterm.app.debug.internal",
       },
     ));
 
-    const ios = await harness.connect("ios", { namespace: "dev.cmux.ios.compat-test" });
+    const ios = await harness.connect("ios", { namespace: "dev.cmux.ios.internal" });
     await harness.hello(ios, {
       endpointId: "i".repeat(64),
       haveRev: null,

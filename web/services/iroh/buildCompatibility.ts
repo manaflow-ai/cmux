@@ -15,10 +15,10 @@ const APP_STORE_MIN_NIGHTLY_BASE = [0, 64, 22] as const;
 const APP_STORE_MIN_NIGHTLY_BUILD = BigInt("3359013153901");
 
 /** Explicit opt-in DEV lane for exercising the retirement gate end to end.
- * Normal DEV tags are unchanged; only compat-test is constrained. Keep this
+ * Normal DEV tags are unchanged; only internal is constrained. Keep this
  * section mirrored in the presence worker's control-plane filter. */
 export const DEVELOPMENT_BUILD_CONSTRAINTS = {
-  "compat-test": {
+  internal: {
     requireReportedVersion: true,
     stableMinVersion: null,
     nightly: { minBaseVersion: [0, 64, 22] as const, minBuild: BigInt("3359013153901") },

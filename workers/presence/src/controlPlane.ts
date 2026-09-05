@@ -130,7 +130,7 @@ const APP_STORE_MIN_NIGHTLY_BUILD = 3_359_013_153_901n;
 /** Mirrors DEVELOPMENT_BUILD_CONSTRAINTS in web/services/iroh/buildCompatibility.ts.
  * Only the explicitly named DEV tag is constrained; ordinary DEV tags retain
  * their existing behavior. */
-const DEVELOPMENT_COMPATIBILITY_TEST_TAG = "compat-test";
+const DEVELOPMENT_COMPATIBILITY_TEST_TAG = "internal";
 const DEVELOPMENT_MIN_NIGHTLY_BASE = [0, 64, 22] as const;
 const DEVELOPMENT_MIN_NIGHTLY_BUILD = 3_359_013_153_901n;
 
