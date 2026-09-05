@@ -20,6 +20,10 @@ export function LanguageSwitcher() {
         : currentPathname;
     const prefix = newLocale === "en" ? "" : `/${newLocale}`;
     const localizedPathname = pathname === "/" ? prefix || "/" : `${prefix}${pathname}`;
+    // Keep next-intl's locale cookie in sync before the full navigation. This
+    // prevents the default-locale route from immediately redirecting back to
+    // the previous locale while the server renders the fresh document.
+    document.cookie = `NEXT_LOCALE=${newLocale}; Path=/; Max-Age=31536000; SameSite=Lax`;
     window.location.href = localizedPathname + window.location.search + window.location.hash;
   }
 
