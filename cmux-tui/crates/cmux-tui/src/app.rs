@@ -34968,7 +34968,9 @@ mod tests {
         );
         app.focus_rail(RailKind::Workspace);
         app.sync_layout((120, 31));
-        assert_eq!(app.sidebar_layout.ordered[0].rect.height, 23);
+        // The profile strip consumes one row. The split solver partitions the
+        // remaining 29 rows, so a 3:1 split gives the first child 22 rows.
+        assert_eq!(app.sidebar_layout.ordered[0].rect.height, 22);
 
         app.activate_sidebar_profile(0);
         app.sync_layout((120, 31));
@@ -49066,7 +49068,15 @@ mod tests {
             .iter()
             .find_map(|(rect, hit)| (*hit == super::Hit::SidebarFilterInput).then_some(*rect))
             .unwrap();
-        terminal.backend_mut().assert_cursor_position((input.x + 4, input.y));
+        // The slash is part of the rendered control, so the terminal cursor
+        // is one cell after the visible query text. Derive the expected
+        // column from the same width-aware projection used by the renderer.
+        let (_, cursor_col) = app
+            .sidebar_files
+            .visible_filter_text_and_cursor(input.width.saturating_sub(1) as usize);
+        terminal
+            .backend_mut()
+            .assert_cursor_position((input.x + 1 + cursor_col as u16, input.y));
 
         app.files_rail_selection =
             super::FilesRailSelection::Action(SidebarActionTarget::Run(Action::NewTab));
@@ -51352,7 +51362,7 @@ mod tests {
             Rect { x: 2, y: 2, width: 8, height: 1 },
             super::Hit::RecoverableWorkspace {
                 index: 0,
-                token: sidebar_profile_token(&workspaces[0].id),
+                token: sidebar_profile_token(&workspaces[1].id),
             },
         ));
         app.open_context_menu(2, 2);
