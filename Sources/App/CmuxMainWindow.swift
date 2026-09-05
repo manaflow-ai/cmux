@@ -95,6 +95,16 @@ func configureCmuxMainWindowDragBehavior(_ window: NSWindow) {
 
 @MainActor
 final class CmuxMainWindow: NSWindow {
+    private let workspaceSwitchSignposts = WorkspaceSwitchSignposts()
+
+    override func becomeKey() {
+        let switchInterval = workspaceSwitchSignposts.begin(
+            "ws.switch.window-become-key",
+            "window=\(identifier?.rawValue ?? "unknown")"
+        )
+        super.becomeKey()
+        workspaceSwitchSignposts.end(switchInterval)
+    }
 
     /// No content may resize this window past the attached display union. The content view
     /// hosts AppKit subtrees whose subviews carry REQUIRED autoresizing-mask

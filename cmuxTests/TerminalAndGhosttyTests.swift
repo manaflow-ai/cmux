@@ -6014,6 +6014,77 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         XCTAssertFalse(hosted.isHidden, "Portal should unhide after geometry is usable")
     }
 
+    func testPortalSignalsWhenLayoutAndRebindMakeDestinationPresentable() {
+        let window = makeTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 700, height: 420)
+        )
+        defer { window.orderOut(nil) }
+
+        let portal = makeTrackedPortal(window: window)
+        realizeWindowLayout(window)
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let anchor = NSView(frame: .zero)
+        contentView.addSubview(anchor)
+        let hosted = GhosttySurfaceScrollView(
+            surfaceView: GhosttyNSView(frame: .zero)
+        )
+        let presentation = expectation(
+            description: "portal becomes presentable after geometry settles"
+        )
+        presentation.expectedFulfillmentCount = 3
+        presentation.assertForOverFulfill = true
+        let observer = NotificationCenter.default.addObserver(
+            forName: Notification.Name("cmux.terminalPortalDidBecomePresentable"),
+            object: hosted,
+            queue: .main
+        ) { _ in
+            presentation.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        portal.bind(hostedView: hosted, to: anchor, visibleInUI: true)
+        XCTAssertTrue(hosted.isHidden)
+
+        anchor.frame = NSRect(x: 40, y: 40, width: 180, height: 80)
+        portal.synchronizeHostedViewForAnchor(anchor)
+        drainMainQueue()
+        drainMainQueue()
+
+        let reboundAnchor = NSView(
+            frame: NSRect(x: 260, y: 40, width: 180, height: 80)
+        )
+        contentView.addSubview(reboundAnchor)
+        portal.bind(hostedView: hosted, to: reboundAnchor, visibleInUI: true)
+        portal.synchronizeHostedViewForAnchor(reboundAnchor)
+        drainMainQueue()
+        drainMainQueue()
+
+        // Workspace selection can hide and reveal the same portal entry before
+        // its deferred geometry pass runs. The reveal must still produce a new
+        // presentation edge for the active switch transaction.
+        _ = portal.updateEntryVisibility(
+            forHostedId: ObjectIdentifier(hosted),
+            visibleInUI: false
+        )
+        _ = portal.updateEntryVisibility(
+            forHostedId: ObjectIdentifier(hosted),
+            visibleInUI: true
+        )
+        drainMainQueue()
+        drainMainQueue()
+
+        wait(for: [presentation], timeout: 0.1)
+        XCTAssertFalse(hosted.isHidden)
+
+        portal.synchronizeHostedViewForAnchor(anchor)
+        drainMainQueue()
+        drainMainQueue()
+    }
+
     func testScheduledExternalGeometrySyncRefreshesAncestorLayoutShift() {
         let window = makeTestWindow(
             contentRect: NSRect(x: 0, y: 0, width: 700, height: 420)
