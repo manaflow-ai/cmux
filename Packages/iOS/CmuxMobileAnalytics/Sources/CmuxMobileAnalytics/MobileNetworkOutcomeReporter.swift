@@ -35,7 +35,7 @@ public final class MobileNetworkOutcomeReporter: Sendable {
     private struct State: Sendable {
         var starts: [Key: Start] = [:]
         var connectStarts: [Start] = []
-        var hostAuthStarts: [Start] = []
+        var hostAuthStarts: [UInt32?: Start] = [:]
     }
 
     private static let pendingStartLifetimeNanos: UInt64 = 5 * 60 * 1_000_000_000
@@ -99,9 +99,9 @@ public final class MobileNetworkOutcomeReporter: Sendable {
             event.tNanos < start.tNanos
                 || event.tNanos - start.tNanos > Self.pendingStartLifetimeNanos
         }
-        state.hostAuthStarts.removeAll { start in
-            event.tNanos < start.tNanos
-                || event.tNanos - start.tNanos > Self.pendingStartLifetimeNanos
+        state.hostAuthStarts = state.hostAuthStarts.filter { _, start in
+            event.tNanos >= start.tNanos
+                && event.tNanos - start.tNanos <= Self.pendingStartLifetimeNanos
         }
         let transport = Self.transport(for: event)
         switch event.code {
@@ -136,10 +136,10 @@ public final class MobileNetworkOutcomeReporter: Sendable {
             )
             let start = state.starts.removeValue(forKey: key)
             if event.code == .transportDialConnected {
-                Self.appendBounded(Start(
+                Self.storeHostAuthStart(Start(
                     tNanos: event.tNanos,
                     transport: transport ?? start?.transport
-                ), to: &state.hostAuthStarts)
+                ), surface: event.surface, state: &state)
             }
             return Self.terminal(
                 phase: .transportDial,
@@ -150,7 +150,7 @@ public final class MobileNetworkOutcomeReporter: Sendable {
             )
 
         case .hostAuthenticated, .hostAuthenticationFailed:
-            let start = state.hostAuthStarts.isEmpty ? nil : state.hostAuthStarts.removeFirst()
+            let start = state.hostAuthStarts.removeValue(forKey: event.surface)
             return Self.terminal(
                 phase: .hostAuth,
                 event: event,
@@ -281,6 +281,19 @@ public final class MobileNetworkOutcomeReporter: Sendable {
             starts.removeFirst()
         }
         starts.append(start)
+    }
+
+    private static func storeHostAuthStart(
+        _ start: Start,
+        surface: UInt32?,
+        state: inout State
+    ) {
+        if state.hostAuthStarts[surface] == nil,
+           state.hostAuthStarts.count >= Self.maxPendingStarts,
+           let oldest = state.hostAuthStarts.min(by: { $0.value.tNanos < $1.value.tNanos })?.key {
+            state.hostAuthStarts.removeValue(forKey: oldest)
+        }
+        state.hostAuthStarts[surface] = start
     }
 
     private static func observation(
