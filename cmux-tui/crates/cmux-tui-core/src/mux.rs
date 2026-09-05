@@ -23954,7 +23954,7 @@ mod tests {
         )
         .unwrap();
 
-        mux.apply_agent_hook_record(&ingress, 1).unwrap();
+        mux.append_journal_ingress(&ingress, "test", "agent-adapter-history").unwrap();
         assert_eq!(mux.list_agents(Some(surface.id), None)[0].agent.as_deref(), Some("codex"));
         assert_eq!(
             mux.list_agent_history(Some(surface.id), None)[0].agent.as_deref(),
