@@ -9,10 +9,13 @@ export function LanguageSwitcher() {
   function onChange(e: React.ChangeEvent<HTMLSelectElement>) {
     const newLocale = e.target.value as Locale;
     const currentPathname = window.location.pathname;
-    const currentPrefix = `/${locale}`;
+    const currentLocale = locales.find((candidate) =>
+      currentPathname === `/${candidate}` || currentPathname.startsWith(`/${candidate}/`),
+    );
+    const currentPrefix = currentLocale ? `/${currentLocale}` : "";
     const pathname = currentPathname === currentPrefix
       ? "/"
-      : currentPathname.startsWith(`${currentPrefix}/`)
+      : currentPrefix.length > 0 && currentPathname.startsWith(`${currentPrefix}/`)
         ? currentPathname.slice(currentPrefix.length)
         : currentPathname;
     const prefix = newLocale === "en" ? "" : `/${newLocale}`;
