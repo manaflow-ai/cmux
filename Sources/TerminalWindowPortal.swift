@@ -667,6 +667,11 @@ final class WindowTerminalPortal: NSObject {
     /// drain on the next main-queue turn instead.
     private var pendingDeferredSurfaceRefreshes: [ObjectIdentifier: String] = [:]
     private var hasDeferredSurfaceRefreshScheduled = false
+    /// Keeps renderer size writes closed until the portal commits the final
+    /// frame after a native window resize.
+    private var liveResizeEndPending = false
+    private var liveResizePhaseActive = false
+    private var liveResizeEndedWhileNativeResize = false
     private var hasExternalGeometrySyncScheduled = false
     private var pendingExternalGeometrySyncRequiresImmediate = false
     /// True while some request since the last executed pass asked for the
@@ -783,6 +788,19 @@ final class WindowTerminalPortal: NSObject {
 
         let center = NotificationCenter.default
         geometryObservers.append(center.addObserver(
+            forName: NSWindow.willStartLiveResizeNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.selfFrameWriteDepth == 0 else { return }
+                self.liveResizeEndPending = false
+                self.liveResizeEndedWhileNativeResize = false
+                self.liveResizePhaseActive = true
+                self.setHostedViewsWindowLiveResizeActive(true)
+            }
+        })
+        geometryObservers.append(center.addObserver(
             forName: NSWindow.didResizeNotification,
             object: window,
             queue: nil
@@ -820,6 +838,9 @@ final class WindowTerminalPortal: NSObject {
 #endif
                 guard let self, self.selfFrameWriteDepth == 0 else { return }
                 if self.isWindowLiveResizeActive {
+                    guard !self.liveResizeEndedWhileNativeResize else { return }
+                    self.liveResizePhaseActive = true
+                    self.setHostedViewsWindowLiveResizeActive(true)
                     // Live resize: run the pass INSIDE this tick so hosted
                     // frames commit together with the window's new size. The
                     // pass forces subtree layout first (fresh anchor frames)
@@ -843,6 +864,9 @@ final class WindowTerminalPortal: NSObject {
         ) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self, self.selfFrameWriteDepth == 0 else { return }
+                self.liveResizeEndPending = true
+                self.liveResizePhaseActive = true
+                self.setHostedViewsWindowLiveResizeActive(true)
                 self.scheduleExternalGeometrySynchronize()
             }
         })
@@ -930,6 +954,12 @@ final class WindowTerminalPortal: NSObject {
         if isWindowLiveResizeActiveOverrideForTesting { return true }
 #endif
         return hostView.inLiveResize || window?.inLiveResize == true
+    }
+
+    private func setHostedViewsWindowLiveResizeActive(_ active: Bool) {
+        for entry in entriesByHostedId.values {
+            entry.hostedView?.setWindowLiveResizeActive(active)
+        }
     }
 
     /// The portal whose sync pass is currently on the stack, if any. A
@@ -1117,6 +1147,23 @@ final class WindowTerminalPortal: NSObject {
                     self?.scheduleExternalGeometrySynchronize(forceImmediate: false)
                 }
             }
+        }
+        let nativeResizeActive = isWindowLiveResizeActive
+        if !nativeResizeActive {
+            liveResizeEndedWhileNativeResize = false
+        }
+        let endingLiveResize = liveResizeEndPending
+        if endingLiveResize {
+            liveResizeEndPending = false
+            liveResizePhaseActive = false
+            liveResizeEndedWhileNativeResize = nativeResizeActive
+            setHostedViewsWindowLiveResizeActive(false)
+        } else if !nativeResizeActive {
+            liveResizePhaseActive = false
+            setHostedViewsWindowLiveResizeActive(false)
+        } else {
+            liveResizePhaseActive = true
+            setHostedViewsWindowLiveResizeActive(true)
         }
         // Content-based echo cut. A sync pass lays out hosted split views
         // and writes hostView.frame, and the notifications those emit can
@@ -1495,6 +1542,7 @@ final class WindowTerminalPortal: NSObject {
             if let restoredMask = preAdoptionAutoresizingMaskByHostedId.removeValue(forKey: hostedId) {
                 hostedView.autoresizingMask = restoredMask
             }
+            hostedView.clearWindowLiveResizeStateForPortal()
             if hostedView.superview === hostView {
                 hostedView.removeFromSuperview()
             }
@@ -2371,6 +2419,9 @@ final class WindowTerminalPortal: NSObject {
     }
 
     func tearDown() {
+        liveResizeEndPending = false
+        liveResizePhaseActive = false
+        liveResizeEndedWhileNativeResize = false
         removeGeometryObservers()
         for hostedId in Array(entriesByHostedId.keys) {
             detachHostedView(withId: hostedId)
