@@ -228,17 +228,13 @@ public actor CmxIrohClientSession {
         if closed || cancelledClosureWaiters.remove(observationID) != nil {
             return
         }
-        await withTaskCancellationHandler(operation: {
-            await withCheckedContinuation { continuation in
-                if closed || cancelledClosureWaiters.remove(observationID) != nil {
-                    continuation.resume()
-                } else {
-                    closureWaiters[observationID] = continuation
-                }
+        await withCheckedContinuation { continuation in
+            if closed || cancelledClosureWaiters.remove(observationID) != nil {
+                continuation.resume()
+            } else {
+                closureWaiters[observationID] = continuation
             }
-        }, onCancel: {
-            Task { await self.cancelClosureObservation(observationID: observationID) }
-        })
+        }
     }
 
     /// Cancels one complete-connection observation without closing the

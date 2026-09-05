@@ -108,20 +108,32 @@ public enum IrxAdmission {
         journal: IrxJournal
     ) async -> (IrxAdmittedPeerInfo, IrxLaneStream, String)? {
         do {
-            let control = try await withIrxDeadline(deadline, onTimeout: {
-                await connection.close(code: .admissionTimeout, origin: .local)
-            }) {
+            let controlResult = try await withIrxDeadlineResult(deadline) {
                 await connection.acceptLane()
+            }
+            let control: IrxLaneStream?
+            switch controlResult {
+            case .operation(let value):
+                control = value
+            case .timeout:
+                await connection.close(code: .admissionTimeout, origin: .local)
+                return nil
             }
             guard let control, control.descriptor.lane == .control else {
                 journal.record("admission", "rejected", ["code": IrxCloseCode.malformedHello.rawValue])
                 await connection.close(code: .malformedHello, origin: .local)
                 return nil
             }
-            let hello = try await withIrxDeadline(deadline, onTimeout: {
-                await connection.close(code: .admissionTimeout, origin: .local)
-            }) {
+            let helloResult = try await withIrxDeadlineResult(deadline) {
                 try await control.reader.readControlFrame(IrxHello.self)
+            }
+            let hello: IrxHello?
+            switch helloResult {
+            case .operation(let value):
+                hello = value
+            case .timeout:
+                await connection.close(code: .admissionTimeout, origin: .local)
+                return nil
             }
             guard let hello, hello.proto == IrxProtocol.alpn else {
                 journal.record("admission", "rejected", ["code": IrxCloseCode.protocolMismatch.rawValue])

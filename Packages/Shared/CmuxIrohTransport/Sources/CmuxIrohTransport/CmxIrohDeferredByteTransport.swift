@@ -62,7 +62,6 @@ actor CmxIrohDeferredByteTransport:
             resumeClosureObservationReadyWaiters()
         } catch {
             connectTask = nil
-            resumeClosureObservationReadyWaiters()
             throw error
         }
     }
