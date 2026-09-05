@@ -61,8 +61,8 @@ enum SidebarWorkspaceListMetrics {
     static let rowVerticalPadding: CGFloat = 8
     static let rowOuterHorizontalPadding: CGFloat = 6
     static let rowContentHorizontalPadding: CGFloat = 10
-    static let topScrimHeight: CGFloat = firstRowTopOffset + 20
-    static let bottomScrimHeight: CGFloat = topScrimHeight
+    static let topScrimHeight: CGFloat = firstRowTopOffset
+    static let bottomScrimHeight: CGFloat = firstRowTopOffset + 20
 
     static var trailingAccessoryRightEdgeOffset: CGFloat {
         rowOuterHorizontalPadding + rowContentHorizontalPadding
