@@ -5399,6 +5399,26 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn private_dump_pruning_counts_hard_linked_entries_toward_file_cap() {
+        let root = tempfile::tempdir().unwrap();
+        let dump_path = root.path().join("dumps");
+        let directory = private_dump_directory(&dump_path).unwrap();
+        let linked_dump = dump_path.join(".cmux-dump-files/mirror-1.txt");
+        let external_link = root.path().join("linked-dump-backup.txt");
+        let other_dump = dump_path.join(".cmux-dump-files/frames-1.log");
+        fs::write(&linked_dump, b"linked").unwrap();
+        fs::hard_link(&linked_dump, &external_link).unwrap();
+        fs::write(&other_dump, b"other").unwrap();
+
+        prune_dump_files_with_limits(&directory.output, 1, 1024).unwrap();
+
+        assert!(!linked_dump.exists());
+        assert_eq!(fs::read(&external_link).unwrap(), b"linked");
+        assert!(other_dump.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn private_dump_emission_budget_enforces_file_and_byte_caps() {
         let mut budget = PrivateDumpEmissionBudget::with_limits(2, 10);
 
