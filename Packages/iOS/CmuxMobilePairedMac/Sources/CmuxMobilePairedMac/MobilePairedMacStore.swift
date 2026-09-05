@@ -944,13 +944,12 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                     WHERE mac_device_id = ?
                       AND owner_key = ?
                       AND kind = ?
-                      AND endpoint_json IN (?, ?);
+                      AND endpoint_json = ?;
                 """, binding: [
                     .text(macDeviceID),
                     .text(ownerKey),
                     .text(route.kind.rawValue),
                     .text(encodedEndpoint),
-                    .text(Self.routeRemovalWildcardEndpoint),
                 ])
                 // The preceding passive refresh intentionally filtered this
                 // endpoint because its tombstone was still present. Reinsert

@@ -431,6 +431,15 @@ extension MobilePairedMacStore {
             macDeviceID: macDeviceID,
             ownerKey: ownerKey
         )
+        let explicitlyGrantedKeys = Set<String>(
+            try fetchLegacyTailscaleRoutes(
+                macDeviceID: macDeviceID,
+                ownerKey: ownerKey
+            ).compactMap { route in
+                guard let endpoint = try? Self.encodeRouteEndpoint(route) else { return nil }
+                return "\(route.kind.rawValue)\u{1F}\(endpoint)"
+            }
+        )
 
         var statement: OpaquePointer?
         defer { sqlite3_finalize(statement) }
@@ -456,12 +465,15 @@ extension MobilePairedMacStore {
                 pairedMacStoreLog.warning("dropping unparsable route row")
                 continue
             }
-            if let endpoint = try? Self.encodeRouteEndpoint(route),
-               (removedKeys.contains("\(route.kind.rawValue)\u{1F}\(endpoint)")
-                || removedKeys.contains(
+            if let endpoint = try? Self.encodeRouteEndpoint(route) {
+                let key = "\(route.kind.rawValue)\u{1F}\(endpoint)"
+                let wildcardKey =
                     "\(route.kind.rawValue)\u{1F}\(MobilePairedMacStore.routeRemovalWildcardEndpoint)"
-                )) {
-                continue
+                if removedKeys.contains(key)
+                    || (removedKeys.contains(wildcardKey)
+                        && !explicitlyGrantedKeys.contains(key)) {
+                    continue
+                }
             }
             routes.append(route)
         }

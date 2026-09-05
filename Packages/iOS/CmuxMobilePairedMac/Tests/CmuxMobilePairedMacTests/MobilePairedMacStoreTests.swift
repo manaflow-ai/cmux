@@ -441,6 +441,17 @@ import Testing
         let restored = try #require(await store.activeMac(stackUserID: "user-1"))
         #expect(restored.routes.contains(iroh))
         #expect(restored.routes.contains(tailscaleRoutes[0]))
+
+        try await store.upsert(
+            macDeviceID: "churn-mac",
+            displayName: "Churn Mac",
+            routes: [iroh] + tailscaleRoutes,
+            markActive: true,
+            stackUserID: "user-1",
+            now: Date(timeIntervalSince1970: 4)
+        )
+        let refreshed = try #require(await store.activeMac(stackUserID: "user-1"))
+        #expect(refreshed.routes == [iroh, tailscaleRoutes[0]])
     }
 
     @Test func userGrantSurvivesAuthenticatedIrohPublication() async throws {
