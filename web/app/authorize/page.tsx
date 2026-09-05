@@ -41,7 +41,6 @@ export default async function AuthorizePage({
             autoCapitalize="none"
             autoComplete="one-time-code"
             autoCorrect="off"
-            autoFocus
             className="h-11 w-full rounded-md border border-neutral-800 bg-neutral-950 px-3 font-mono text-sm outline-none placeholder:text-neutral-700 focus:border-neutral-600"
             id="code"
             name="code"

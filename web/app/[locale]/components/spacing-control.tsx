@@ -245,6 +245,7 @@ function Row({ label, value, onChange, min = 0, max = 128, step = 1, unit = "px"
         max={max}
         step={step}
         value={value}
+        aria-label={label}
         onChange={(e) => onChange(parseFloat(e.target.value))}
         className="w-28 accent-blue-500 cursor-pointer"
       />

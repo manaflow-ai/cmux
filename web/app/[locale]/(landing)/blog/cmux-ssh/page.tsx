@@ -69,6 +69,7 @@ export default async function CmuxSshPage({
         src="/blog/cmux-ssh-image-upload.mp4"
         width={1824}
         height={1080}
+        aria-label={t("title")}
         autoPlay
         loop
         muted

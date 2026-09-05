@@ -53,6 +53,7 @@ export default function CmdShiftUPage() {
         src="/blog/cmd-shift-u.mp4"
         width={1824}
         height={1080}
+        aria-label={t("title")}
         autoPlay
         loop
         muted
