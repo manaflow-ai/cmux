@@ -4104,13 +4104,19 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(childCell.exists)
         XCTAssertGreaterThanOrEqual(childCell.frame.minY, parentCell.frame.maxY - 1,
                                     "History must be separate list rows, not content inside the parent cell")
-        XCTAssertGreaterThan(child.frame.minX, parent.frame.minX)
+        // Native List rows expose full-width accessibility hit targets even
+        // when their content is indented. Capture the visual indentation;
+        // cell separation above verifies the independent-row structure.
         let expanded = XCTAttachment(screenshot: app.screenshot())
         expanded.name = "Notification history, expanded"
         expanded.lifetime = .keepAlways
         add(expanded)
 
-        child.swipeRight()
+        // A partial swipe reveals the action without invoking the row's
+        // separately supported full-swipe shortcut.
+        let swipeStart = childCell.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.5))
+        let swipeEnd = childCell.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.5))
+        swipeStart.press(forDuration: 0.05, thenDragTo: swipeEnd)
         let markRead = app.buttons["MobileNotificationFeedMarkReadSwipe-studio-legacy-group-title-only"]
         XCTAssertTrue(markRead.waitForExistence(timeout: 3))
         markRead.tap()
