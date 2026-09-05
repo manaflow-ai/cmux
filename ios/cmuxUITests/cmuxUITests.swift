@@ -7236,6 +7236,42 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testOpenTerminalCatchesUpAfterReconnect() async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port)
+        defer { app.terminate() }
+        assertTerminalRow(0, label: "$ cmux ios status", in: app)
+
+        let before = XCTAttachment(screenshot: app.screenshot())
+        before.name = "terminal-before-reconnect"
+        before.lifetime = .keepAlways
+        add(before)
+
+        // The terminal stays onscreen while its transport is replaced. The
+        // host changes its snapshot at registration, after an early replay
+        // would already have captured the old output.
+        let nextSubscription = await server.disconnectForTerminalReconnect(
+            lines: ["output generated during reconnect", "same terminal, current output"]
+        )
+        let reconnected = await server.waitForRequest(
+            method: "mobile.events.subscribe",
+            minimumCount: nextSubscription,
+            timeout: 20
+        )
+        XCTAssertTrue(reconnected, "The open terminal must reconnect to its host")
+        assertTerminalRow(0, label: "output generated during reconnect", in: app)
+        assertTerminalRow(1, label: "same terminal, current output", in: app)
+
+        let after = XCTAttachment(screenshot: app.screenshot())
+        after.name = "terminal-updated-after-reconnect"
+        after.lifetime = .keepAlways
+        add(after)
+    }
+
+    @MainActor
     private func keyboardFrameAfterFocus(
         in app: XCUIApplication,
         overlap: CGFloat,
@@ -9803,6 +9839,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     private var eventSubscriptionStreamIDsByConnection:
         [ObjectIdentifier: Set<String>] = [:]
     private var replayCounts: [String: Int] = [:]
+    private var terminalLinesOnNextSubscription: [String]?
     private var terminalScrollRequestsReceived = 0
     private var streamOffset: UInt64 = 1
     private var terminalPasteRequestReached = false
@@ -9943,6 +9980,21 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
                 connection.cancel()
             }
             self.connections.removeAll()
+        }
+    }
+
+    func disconnectForTerminalReconnect(lines: [String]) async -> Int {
+        await withCheckedContinuation { continuation in
+            queue.async {
+                self.terminalLinesOnNextSubscription = lines
+                let nextSubscription = self.requestCountsByMethod["mobile.events.subscribe", default: 0] + 1
+                for connection in self.connections {
+                    connection.cancel()
+                }
+                self.connections.removeAll()
+                self.eventSubscriptionStreamIDsByConnection.removeAll()
+                continuation.resume(returning: nextSubscription)
+            }
         }
     }
 
@@ -10350,6 +10402,13 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         case "terminal.create":
             result = createTerminalResult(params: params)
         case "mobile.events.subscribe":
+            if let lines = terminalLinesOnNextSubscription {
+                terminalLinesOnNextSubscription = nil
+                if let workspaceIndex = workspaces.firstIndex(where: { $0.id == selectedWorkspaceID }),
+                   let terminalIndex = workspaces[workspaceIndex].terminals.firstIndex(where: { $0.id == selectedTerminalID }) {
+                    workspaces[workspaceIndex].terminals[terminalIndex].lines = lines
+                }
+            }
             let streamID = params["stream_id"] as? String ?? "events"
             let alreadySubscribed = eventSubscriptionStreamIDsByConnection[
                 connectionID,
