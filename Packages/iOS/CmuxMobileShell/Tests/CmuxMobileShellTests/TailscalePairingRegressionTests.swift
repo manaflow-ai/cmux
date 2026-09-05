@@ -257,6 +257,45 @@ import Testing
         #expect(await router.authorization(for: "workspace.list").isEmpty)
     }
 
+    @Test func scannerInputRejectsNonPairingPayload() async throws {
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(
+                router: LivenessHostRouter(),
+                box: TransportBox()
+            ),
+            now: { Self.fixedNow },
+            supportedRouteKinds: [.tailscale]
+        )
+        let store = makeStore(runtime: runtime)
+        store.pairingCode = "https://example.com/not-a-cmux-pairing-code"
+
+        let result = await store.connectPairingInput(allowPreview: false)
+
+        #expect(result == .failed)
+        #expect(store.connectionState == .disconnected)
+        #expect(store.connectionError?.isEmpty == false)
+    }
+
+    @Test func replacementPairingRejectsDifferentMacIdentity() async throws {
+        let router = LivenessHostRouter()
+        let box = TransportBox()
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(router: router, box: box),
+            now: { Self.fixedNow },
+            supportedRouteKinds: [.tailscale]
+        )
+        let store = makeStore(runtime: runtime)
+        store.pairingCode = currentQRCode()
+
+        let result = await store.connectPairingInput(
+            allowPreview: false,
+            pairedMacDeviceID: "another-mac"
+        )
+
+        #expect(result == .failed)
+        #expect(store.connectionState == .disconnected)
+    }
+
     private func makeStore(
         runtime: any MobileSyncRuntime,
         pairedMacStore: (any MobilePairedMacStoring)? = nil,

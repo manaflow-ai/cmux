@@ -22,7 +22,7 @@ struct PairingView: View {
     let versionWarning: String?
     let connectPairingCode: () async -> MobilePairingURLConnectionResult
     let acceptVersionWarning: () async -> MobilePairingURLConnectionResult
-    let connectManualHost: (String, String, Int) async -> Void
+    let connectManualHost: (String, String, Int) async -> MobilePairingURLConnectionResult
     let cancelPairing: () -> Void
     let cancel: () -> Void
     let onPairingResult: ((MobilePairingURLConnectionResult) -> Void)?
@@ -48,7 +48,7 @@ struct PairingView: View {
         versionWarning: String?,
         connectPairingCode: @escaping () async -> MobilePairingURLConnectionResult,
         acceptVersionWarning: @escaping () async -> MobilePairingURLConnectionResult,
-        connectManualHost: @escaping (String, String, Int) async -> Void,
+        connectManualHost: @escaping (String, String, Int) async -> MobilePairingURLConnectionResult,
         cancelPairing: @escaping () -> Void,
         cancel: @escaping () -> Void,
         onPairingResult: ((MobilePairingURLConnectionResult) -> Void)? = nil
@@ -438,7 +438,8 @@ struct PairingView: View {
         }
 
         startPairingTask {
-            await connectManualHost(deviceName, trimmedHost, parsedPort)
+            let result = await connectManualHost(deviceName, trimmedHost, parsedPort)
+            onPairingResult?(result)
         }
     }
 

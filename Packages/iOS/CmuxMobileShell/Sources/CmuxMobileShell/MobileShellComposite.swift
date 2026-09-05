@@ -2628,7 +2628,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     /// Connect using the current pairing input, accepting either a code or pairing URL.
-    public func connectPairingInput() async -> MobilePairingURLConnectionResult {
+    public func connectPairingInput(
+        allowPreview: Bool = true,
+        pairedMacDeviceID: String? = nil,
+        instanceTag: String? = nil
+    ) async -> MobilePairingURLConnectionResult {
         let trimmedCode = pairingCode.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedCode.isEmpty else {
             return .failed
@@ -2636,7 +2640,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if CmxPairingURLScheme(urlString: trimmedCode) != nil {
             // The pairing input field is an explicit in-app code entry (scan
             // or paste), the act that authorizes a compatibility Tailscale dial.
-            return await connectPairingURLResult(trimmedCode, userEnteredPairingCode: true)
+            return await connectPairingURLResult(
+                trimmedCode,
+                acceptedVersionWarning: false,
+                userEnteredPairingCode: true,
+                pairedMacDeviceID: pairedMacDeviceID,
+                instanceTagExpectation: Self.pairingInstanceTagExpectation(instanceTag)
+            )
+        }
+        guard allowPreview else {
+            applyPairingValidationFailure(.invalidCode)
+            connectionState = .disconnected
+            macConnectionStatus = .unavailable
+            clearRemoteConnectionContext()
+            return .failed
         }
         connectPreviewHost()
         return .connected
@@ -2650,11 +2667,30 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         port: Int,
         pairedMacDeviceID: String? = nil
     ) async {
+        _ = await connectManualHost(
+            name: name,
+            host: host,
+            port: port,
+            pairedMacDeviceID: pairedMacDeviceID,
+            recordsPairingAttempt: true
+        )
+    }
+
+    /// Connect to a manually-entered host and return the terminal pairing
+    /// result so presentation surfaces can dismiss only after success.
+    public func connectManualHostResult(
+        name: String,
+        host: String,
+        port: Int,
+        pairedMacDeviceID: String? = nil,
+        instanceTag: String? = nil
+    ) async -> MobilePairingURLConnectionResult {
         await connectManualHost(
             name: name,
             host: host,
             port: port,
             pairedMacDeviceID: pairedMacDeviceID,
+            instanceTagExpectation: Self.pairingInstanceTagExpectation(instanceTag),
             recordsPairingAttempt: true
         )
     }
@@ -2667,7 +2703,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         instanceTagExpectation: MobileMacInstanceTagExpectation = .adopt,
         recordsPairingAttempt: Bool,
         ifStillCurrent: (() -> Bool)? = nil
-    ) async {
+    ) async -> MobilePairingURLConnectionResult {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let normalizedHost = MobileShellRouteAuthPolicy.normalizedManualHost(host) else {
             if recordsPairingAttempt {
@@ -2685,7 +2721,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 "failure_phase": .string("validation"),
                 "is_first_pair": .bool(!hasKnownPairedMac),
             ])
-            return
+            return .failed
         }
         guard (1...65535).contains(port) else {
             if recordsPairingAttempt {
@@ -2703,7 +2739,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 "failure_phase": .string("validation"),
                 "is_first_pair": .bool(!hasKnownPairedMac),
             ])
-            return
+            return .failed
         }
 
         guard let directRoute = try? Self.manualHostRoute(
@@ -2728,7 +2764,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 "failure_phase": .string("validation"),
                 "is_first_pair": .bool(!hasKnownPairedMac),
             ])
-            return
+            return .failed
         }
 
         let isLoopbackRoute = MobileShellRouteAuthPolicy.routeIsLoopback(directRoute)
@@ -2754,7 +2790,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 "failure_phase": .string("validation"),
                 "is_first_pair": .bool(!hasKnownPairedMac),
             ])
-            return
+            return .failed
         }
 
         // A fresh manual attempt is an explicit user action, so a numeric
@@ -2784,7 +2820,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     "failure_phase": .string("validation"),
                     "is_first_pair": .bool(!hasKnownPairedMac),
                 ])
-                return
+                return .failed
             }
         } else {
             userTailscalePairingAuthorization = nil
@@ -2823,7 +2859,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 phase: "preflight",
                 routes: manualRoutes
             ) == .proceed else {
-                return
+                return .superseded
             }
         }
         do {
@@ -2836,10 +2872,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             )
             guard isCurrentPairingAttempt(attemptID),
                   ifStillCurrent?() ?? true else {
-                return
+                return .superseded
             }
             if let sameRouteProbeClient {
-                guard remoteClient === sameRouteProbeClient else { return }
+                guard remoteClient === sameRouteProbeClient else { return .superseded }
                 preparePairingConnectionAttempt()
             }
             let noThrowFailure = try await connect(
@@ -2853,45 +2889,49 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 instanceTagExpectation: instanceTagExpectation,
                 ifStillCurrent: ifStillCurrent
             )
-            guard isCurrentPairingAttempt(attemptID) else { return }
+            guard isCurrentPairingAttempt(attemptID) else { return .superseded }
             if connectionState == .connected {
                 // `connect()` persists the manual pairing, while Settings,
                 // the Mac picker, and the task composer read the shared
                 // in-memory list. Refresh it before dismissing PairingView so
                 // those surfaces can use the new Mac immediately.
                 await loadPairedMacs()
-                guard isCurrentPairingAttempt(attemptID) else { return }
+                guard isCurrentPairingAttempt(attemptID) else { return .superseded }
                 recordPairingSucceeded()
+                return .connected
             } else {
                 // `connect()` returned without connecting and already set a
                 // specific error; record without overwriting that message.
                 recordFailureForCurrentConnectionError(phase: "connect", category: noThrowFailure)
+                return .failed
             }
         } catch is CancellationError {
-            guard isCurrentPairingAttempt(attemptID) else { return }
+            guard isCurrentPairingAttempt(attemptID) else { return .superseded }
             if sameRouteProbeClient.map({ remoteClient === $0 }) == true {
-                return
+                return .superseded
             }
             connectionState = .disconnected
             macConnectionStatus = .unavailable
             clearRemoteConnectionContext()
+            return .failed
         } catch {
-            guard isCurrentPairingAttempt(attemptID) else { return }
+            guard isCurrentPairingAttempt(attemptID) else { return .superseded }
             mobileShellLog.error("manual host pairing failed: \(String(describing: error), privacy: .private)")
             // A definitive auth failure (expired/invalid token after the
             // refresh-then-retry in the RPC layer already gave up) must drive the
             // re-auth prompt, not the generic "could not connect / Retry" banner.
             if disconnectForAuthorizationFailureIfNeeded(error) {
-                return
+                return .failed
             }
             let category = MobilePairingFailureCategory.classify(error: error, route: activeRoute ?? directRoute)
             applyPairingFailure(category, phase: "connect")
             if sameRouteProbeClient.map({ remoteClient === $0 }) == true {
-                return
+                return .failed
             }
             connectionState = .disconnected
             macConnectionStatus = .unavailable
             clearRemoteConnectionContext()
+            return .failed
         }
     }
 
@@ -4796,6 +4836,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         )
     }
 
+    static func pairingInstanceTagExpectation(
+        _ instanceTag: String?
+    ) -> MobileMacInstanceTagExpectation {
+        guard let instanceTag, !instanceTag.isEmpty else { return .adopt }
+        return .require(instanceTag)
+    }
+
     @discardableResult
     public func connectPairingURL(_ rawValue: String? = nil) async -> Bool {
         await connectPairingURLResult(rawValue).didConnect
@@ -4822,7 +4869,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func connectPairingURLResult(
         _ rawValue: String? = nil,
         acceptedVersionWarning: Bool,
-        userEnteredPairingCode: Bool = false
+        userEnteredPairingCode: Bool = false,
+        pairedMacDeviceID: String? = nil,
+        instanceTagExpectation: MobileMacInstanceTagExpectation = .adopt
     ) async -> MobilePairingURLConnectionResult {
         MobileDebugLog.shared.append(
             "pairing.qr_connect.begin user_entered=\(userEnteredPairingCode) accepted_version_warning=\(acceptedVersionWarning)"
@@ -4967,7 +5016,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard isCurrentPairingAttempt(attemptID) else { return .superseded }
             let noThrowFailure = try await connect(
                 ticket: ticket,
-                userTailscalePairingAuthorizations: userTailscalePairingAuthorizations
+                userTailscalePairingAuthorizations: userTailscalePairingAuthorizations,
+                pairedMacDeviceID: pairedMacDeviceID,
+                instanceTagExpectation: instanceTagExpectation
             )
             guard isCurrentPairingAttempt(attemptID) else { return .superseded }
             if connectionState == .connected && activeTicket != nil {
@@ -5081,7 +5132,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// authentication only after the accepted pairing flow reaches a terminal
     /// state.
     @discardableResult
-    public func acceptPairingVersionWarning() async -> MobilePairingURLConnectionResult {
+    public func acceptPairingVersionWarning(
+        pairedMacDeviceID: String? = nil,
+        instanceTag: String? = nil
+    ) async -> MobilePairingURLConnectionResult {
         guard let rawURL = pendingPairingVersionWarningURL else {
             clearPairingVersionWarning()
             return .failed
@@ -5091,7 +5145,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return await connectPairingURLResult(
             rawURL,
             acceptedVersionWarning: true,
-            userEnteredPairingCode: wasUserEntered
+            userEnteredPairingCode: wasUserEntered,
+            pairedMacDeviceID: pairedMacDeviceID,
+            instanceTagExpectation: Self.pairingInstanceTagExpectation(instanceTag)
         )
     }
 

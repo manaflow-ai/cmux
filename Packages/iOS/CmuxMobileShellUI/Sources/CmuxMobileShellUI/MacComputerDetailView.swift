@@ -290,10 +290,27 @@ struct MacComputerDetailView: View {
                 connectionError: store.connectionError,
                 connectionErrorGuidance: store.connectionErrorGuidance,
                 versionWarning: store.pairingVersionWarning,
-                connectPairingCode: { await store.connectPairingInput() },
-                acceptVersionWarning: { await store.acceptPairingVersionWarning() },
+                connectPairingCode: {
+                    await store.connectPairingInput(
+                        allowPreview: false,
+                        pairedMacDeviceID: macDeviceID,
+                        instanceTag: instanceTag
+                    )
+                },
+                acceptVersionWarning: {
+                    await store.acceptPairingVersionWarning(
+                        pairedMacDeviceID: macDeviceID,
+                        instanceTag: instanceTag
+                    )
+                },
                 connectManualHost: { name, host, port in
-                    await store.connectManualHost(name: name, host: host, port: port)
+                    await store.connectManualHostResult(
+                        name: name,
+                        host: host,
+                        port: port,
+                        pairedMacDeviceID: macDeviceID,
+                        instanceTag: instanceTag
+                    )
                 },
                 cancelPairing: { store.cancelPairing() },
                 cancel: { showsAddTailscaleConnection = false },
