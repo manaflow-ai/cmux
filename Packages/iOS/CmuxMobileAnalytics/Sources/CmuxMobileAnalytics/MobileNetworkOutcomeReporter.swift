@@ -450,6 +450,8 @@ public final class MobileNetworkOutcomeReporter: Sendable {
              .transportDialCancelled, .hostAuthenticated, .hostAuthenticationFailed,
              .rpcReady, .recoveryStarted, .recoverySucceeded, .recoveryFailed,
              .endpointStarting, .endpointActive, .endpointFailed,
+             .relayPolicyRefreshStarted, .relayPolicyRefreshSucceeded,
+             .relayPolicyRefreshFailed,
              .discoverySucceeded, .discoveryFailed:
             true
         default:
