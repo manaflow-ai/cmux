@@ -18,7 +18,6 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
 
     /// Keep route-removal suppression bounded while retaining ample history for
     /// normal Tailscale endpoint churn. Explicit pairing can restore any route.
-    static let routeRemovalTombstoneLimit = 256
 
     private let dbPath: String
     // `nonisolated(unsafe)` only so the (Swift 6 nonisolated) `deinit` can close
@@ -758,10 +757,6 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 ownerKey: ownerKey,
                 endpoint: removed.endpoint
             )
-            try compactRouteRemovalTombstones(
-                macDeviceID: macDeviceID,
-                ownerKey: ownerKey
-            )
             try upsertMacRow(
                 macDeviceID: macDeviceID,
                 ownerKey: ownerKey,
@@ -918,10 +913,6 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                     currentRoutes.append(disclosed)
                 }
             }
-            try compactRouteRemovalTombstones(
-                macDeviceID: macDeviceID,
-                ownerKey: ownerKey
-            )
             try exec(
                 "DELETE FROM mac_routes WHERE mac_device_id = ? AND owner_key = ?;",
                 binding: [.text(macDeviceID), .text(ownerKey)]
