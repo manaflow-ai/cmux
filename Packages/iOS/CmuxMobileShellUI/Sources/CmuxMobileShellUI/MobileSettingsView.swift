@@ -952,11 +952,13 @@ private struct MobileSettingsDiagnosticsSection: View {
                     // AppLog barrier below includes every pre-clear line.
                     let verboseLogWasEnabled = irohSettingsModel?.verboseLogEnabled == true
                     let didClearVerboseLog = await MobileDebugLog.shared.clearPersistedLog()
-                    if verboseLogWasEnabled && !didClearVerboseLog {
-                        await irohSettingsModel?.setVerboseLog(false)
+                    if !didClearVerboseLog {
+                        if verboseLogWasEnabled {
+                            await irohSettingsModel?.setVerboseLog(false)
+                        }
                         exportErrorMessage = L10n.string(
                             "mobile.settings.diagnostics.clear.failed",
-                            defaultValue: "Couldn’t reopen verbose logging after clearing. Logging was turned off; check available storage and try again."
+                            defaultValue: "Couldn’t clear the verbose connection logs. Check available storage and try again."
                         )
                     }
                     await irohSettingsModel?.clearDiagnosticReport()

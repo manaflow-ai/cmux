@@ -27695,7 +27695,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Couldn’t reopen verbose logging after clearing. Logging was turned off; check available storage and try again."
+            "value": "Couldn’t clear the verbose connection logs. Check available storage and try again."
           }
         },
         "ja": {
