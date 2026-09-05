@@ -30550,7 +30550,7 @@ mod tests {
 
     use cmux_tui_core::resource::{
         ContentPublicId, FrontendProjectionPublicId, PanePublicId, ScreenPublicId, TabPublicId,
-        WorkspacePublicId,
+        TerminalPublicId, WorkspacePublicId,
     };
     use cmux_tui_core::{
         AgentSource, AgentState, BrowserFrame, BrowserStatus, Direction, LayoutUndoError, Mux,
