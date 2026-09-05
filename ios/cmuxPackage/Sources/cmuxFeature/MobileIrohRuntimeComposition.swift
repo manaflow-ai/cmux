@@ -262,6 +262,11 @@ public final class MobileIrohRuntimeComposition:
     private var selectedPathObservationTask: Task<Void, Never>?
     private var irohSettingsContinuations: [UUID: AsyncStream<CmxIrohSettingsSnapshot>.Continuation] = [:]
     private var observedAuthState: MobileIrohAuthState?
+    /// `nil` is a valid auth state, so ``observedAuthState`` alone cannot
+    /// distinguish a cold launch that has not been reconciled from a launch
+    /// that has already observed signed-out auth. Keep that distinction so a
+    /// stale endpoint identity is wiped before the first signed-in session.
+    private var hasObservedAuthState = false
     private var observedAccountID: String? { observedAuthState?.accountID }
     private var activeAccountID: String?
     private let diagnosticArchive = DiagnosticReportArchive.defaultArchive()
@@ -587,6 +592,7 @@ public final class MobileIrohRuntimeComposition:
             connectivityInvalidationSubscriber = nil
         }
         authObservationTask?.cancel()
+        hasObservedAuthState = false
         authObservationTask = Task { @MainActor [weak self, weak auth] in
             guard let auth else { return }
             await self?.startNetworkPathObservation({ [weak self] in
@@ -1096,7 +1102,7 @@ public final class MobileIrohRuntimeComposition:
         let fallbackAccountID = activeAccountID
             ?? observedAccountID
             ?? lastKnownBindingAccountID
-        observedAuthState = MobileIrohAuthState(accountID: nil)
+        recordObservedAuthState(MobileIrohAuthState(accountID: nil))
         lifecycleRevision &+= 1
         let revision = lifecycleRevision
         let previous = transitionTask
@@ -1236,7 +1242,7 @@ public final class MobileIrohRuntimeComposition:
         }
         guard authStateRequiresReconcile(state) else { return }
         let previousObservedAccountID = observedAccountID
-        observedAuthState = state
+        recordObservedAuthState(state)
         let transition = scheduleReconcile(
             targetAccountID: state.accountID,
             eraseAccountState: state.accountID == nil
@@ -1256,7 +1262,7 @@ public final class MobileIrohRuntimeComposition:
         guard authStateRequiresReconcile(state) else { return }
         let accountID = state.accountID
         let previousObservedAccountID = observedAccountID
-        observedAuthState = state
+        recordObservedAuthState(state)
         _ = scheduleReconcile(
             targetAccountID: accountID,
             eraseAccountState: accountID == nil
@@ -1278,7 +1284,7 @@ public final class MobileIrohRuntimeComposition:
         }
         guard authStateRequiresReconcile(state) else { return }
         let previousObservedAccountID = observedAccountID
-        observedAuthState = state
+        recordObservedAuthState(state)
         _ = scheduleReconcile(
             targetAccountID: accountID,
             eraseAccountState: accountID == nil
@@ -1289,6 +1295,11 @@ public final class MobileIrohRuntimeComposition:
     }
 
     private func authStateRequiresReconcile(_ state: MobileIrohAuthState) -> Bool {
+        // The first observation must always reconcile, including a signed-out
+        // `nil` state. Without this guard, a cold launch starts with both
+        // values nil and skips `wipeLocalState()`, retaining a stale endpoint
+        // identity until a later account transition.
+        guard hasObservedAuthState else { return true }
         guard observedAuthState == state else { return true }
         guard let accountID = state.accountID else { return false }
         guard runtime == nil, transitionTask == nil else { return false }
@@ -2179,6 +2190,11 @@ public final class MobileIrohRuntimeComposition:
         }
         await appInstances.deactivate()
         clearRelayPolicyRuntimeState()
+    }
+
+    private func recordObservedAuthState(_ state: MobileIrohAuthState) {
+        observedAuthState = state
+        hasObservedAuthState = true
     }
 
     private func enqueueFallbackRevocation(

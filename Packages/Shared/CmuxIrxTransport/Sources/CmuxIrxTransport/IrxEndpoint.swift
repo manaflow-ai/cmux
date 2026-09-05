@@ -108,6 +108,18 @@ public actor IrxEndpointSupervisor {
         return driver.addr().relayUrl()
     }
 
+    /// Returns the endpoint's current direct candidates. Iroh owns candidate
+    /// discovery and NAT traversal; IRX only exposes the observed values so
+    /// the host can publish safe public hints and the client can seed the
+    /// authenticated LAN fallback. The relay-only policy deliberately returns
+    /// no candidates.
+    public func localDirectAddresses() -> [String] {
+        guard configuration.pathMode != .relayOnly,
+              let driver,
+              !driver.isClosed() else { return [] }
+        return driver.addr().directAddresses()
+    }
+
     /// One accepted inbound connection, routed by the ALPN the dialer spoke.
     public enum AcceptedInbound: Sendable {
         case irx(IrxConnection)

@@ -13,7 +13,6 @@ public import Foundation
 public actor IrxControlByteTransport: CmxByteTransport {
     /// The asynchronous factory used to obtain an admitted QUIC connection and control lane.
     public typealias Establish = @Sendable () async throws -> (IrxConnection, IrxLaneStream)
-
     /// Called once when this transport releases its control lane.
     public typealias OnClose = @Sendable () async -> Void
 
