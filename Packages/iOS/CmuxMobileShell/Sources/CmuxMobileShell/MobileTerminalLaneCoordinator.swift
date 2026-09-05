@@ -31,7 +31,7 @@ actor MobileTerminalLaneCoordinator {
     struct Configuration: Sendable {
         let request: CmxByteTransportRequest
         let surfaceID: String
-        let mode: LaneMode = .output
+        let mode: LaneMode
         let cursor: @Sendable () async -> UInt64?
         let consume: @Sendable (MobileTerminalLaneOutputFrame) async -> FrameDisposition
         let readinessChanged: @Sendable (Bool) async -> Void
