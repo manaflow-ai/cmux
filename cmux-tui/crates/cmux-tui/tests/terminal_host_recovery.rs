@@ -698,7 +698,9 @@ fn tabless_terminal_close_tombstones_every_resource_row_and_restarts() {
         terminals.as_array().unwrap().iter().any(|terminal| terminal["id"] == surviving_terminal),
         "surviving terminal disappeared after tab-less close: {terminals}"
     );
-    assert!(!terminals.as_array().unwrap().iter().any(|terminal| terminal["id"] == closing_terminal));
+    assert!(
+        !terminals.as_array().unwrap().iter().any(|terminal| terminal["id"] == closing_terminal)
+    );
 
     let stop = Command::new(bin())
         .args(["--json", "--session", &harness.session, "server", "stop", "--socket"])
@@ -721,7 +723,9 @@ fn tabless_terminal_close_tombstones_every_resource_row_and_restarts() {
         restarted.as_array().unwrap().iter().any(|terminal| terminal["id"] == surviving_terminal),
         "surviving terminal did not recover after restart: {restarted}"
     );
-    assert!(!restarted.as_array().unwrap().iter().any(|terminal| terminal["id"] == closing_terminal));
+    assert!(
+        !restarted.as_array().unwrap().iter().any(|terminal| terminal["id"] == closing_terminal)
+    );
 }
 
 #[test]

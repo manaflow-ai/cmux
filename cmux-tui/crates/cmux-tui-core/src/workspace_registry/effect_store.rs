@@ -1054,8 +1054,7 @@ impl WorkspaceRegistry {
         let outcome_json = canonical_json(&outcome)?;
         let generation = self.generation.clone();
         let tx = self.connection.transaction()?;
-        let (patch, deltas) =
-            complete_terminal_close_patch(&tx, terminals, patch, deltas)?;
+        let (patch, deltas) = complete_terminal_close_patch(&tx, terminals, patch, deltas)?;
 
         let (workspace_revision, terminal_batch) = if let Some(close) = workspace_close {
             if let Some(active_workspace) = close.active_workspace.as_ref() {

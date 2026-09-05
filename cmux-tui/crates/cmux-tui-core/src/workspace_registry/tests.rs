@@ -3852,9 +3852,7 @@ fn startup_repairs_legacy_terminal_close_dangling_resource_rows() {
         let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
         commit_terminal_topology(&mut registry, "seed-terminal-close-dangling");
         let mutation = WorkspaceMutation::new("legacy-host-only-close", "legacy-client").unwrap();
-        registry
-            .close_terminal(&mutation, None, Some(0), TERMINAL_ONE, None)
-            .unwrap();
+        registry.close_terminal(&mutation, None, Some(0), TERMINAL_ONE, None).unwrap();
         let topology = registry.resource_topology_snapshot().unwrap();
         assert_eq!(topology.revision, 1);
         assert_eq!(topology.terminals.len(), 1);

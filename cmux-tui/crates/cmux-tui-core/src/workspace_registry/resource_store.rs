@@ -2240,9 +2240,8 @@ pub(super) fn complete_terminal_close_patch(
 ) -> anyhow::Result<(ResourcePatch, Value)> {
     let mut patch = patch.clone();
     let mut deltas = deltas.clone();
-    let changes = deltas
-        .as_array_mut()
-        .context("terminal close resource deltas are not an array")?;
+    let changes =
+        deltas.as_array_mut().context("terminal close resource deltas are not an array")?;
 
     for (terminal_id, expected_incarnation) in terminals {
         let Some(public_id) = transaction
@@ -2304,7 +2303,7 @@ pub(super) fn repair_dangling_terminal_resources(
                         h.terminal_id IS NULL OR h.lifecycle = 'tombstoned'
                     ))
                 OR (rt.deleted_revision IS NULL AND ri.deleted_revision IS NOT NULL)
-                OR (rt.deleted_revision IS NOT NULL AND ri.deleted_revision IS NULL)"
+                OR (rt.deleted_revision IS NOT NULL AND ri.deleted_revision IS NULL)",
         )?;
         statement
             .query_map([], |row| {
@@ -2327,10 +2326,8 @@ pub(super) fn repair_dangling_terminal_resources(
         let (_, _, updated_revision, _, host_deleted, identity_deleted) = row;
         let host_deleted =
             host_deleted.as_ref().and_then(|value| u64::try_from(*value).ok()).unwrap_or(0);
-        let identity_deleted = identity_deleted
-            .as_ref()
-            .and_then(|value| u64::try_from(*value).ok())
-            .unwrap_or(0);
+        let identity_deleted =
+            identity_deleted.as_ref().and_then(|value| u64::try_from(*value).ok()).unwrap_or(0);
         Ok::<_, anyhow::Error>(
             revision.max((*updated_revision).try_into()?).max(host_deleted).max(identity_deleted),
         )
