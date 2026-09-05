@@ -589,6 +589,34 @@ private final class SplitDividerOverlayView: NSView {
         }
     }
 
+    /// Everything `draw` reads to decide which divider pixels it paints.
+    ///
+    /// Deliberately sourced from the same helper the draw path uses, so the
+    /// repaint gate cannot drift from the drawing. Gating on the portal's
+    /// hosted-frame signature instead was wrong for exactly that reason: that
+    /// signature records frames, while this filters on visibility as well, so
+    /// hiding a surface without moving it compared equal and left stale
+    /// divider pixels. A hidden entry keeps its frame by design, which makes
+    /// that the ordinary case rather than a corner one.
+    struct RenderInputs: Equatable {
+        let bounds: NSRect
+        let occludingHostedFrames: [NSRect]
+    }
+
+    func renderInputs() -> RenderInputs {
+        RenderInputs(
+            bounds: bounds,
+            occludingHostedFrames: hostedFramesLikelyToOccludeDividers()
+        )
+    }
+
+    /// `overlayDividerColor` resolves each split view's `dividerColor` against
+    /// the current appearance, which no geometry comparison can see.
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
+
     private func shouldRenderOverlay(for segment: DividerSegment, hostedFrames: [NSRect]) -> Bool {
         // Draw only when a hosted surface actually intrudes across the divider centerline.
         // This preserves tiny-pane visibility fixes without darkening regular dividers.
@@ -1272,20 +1300,22 @@ final class WindowTerminalPortal: NSObject {
         markDividerOverlayNeedingDisplay()
     }
 
-    /// Repaints the overlay when the geometry it draws from has moved.
+    /// Repaints the overlay when what it would paint has changed.
     ///
     /// `SplitDividerOverlayView.draw` walks the whole window view tree from
     /// `contentView` before it consults `dirtyRect`, so an invalidation that
-    /// changes nothing still costs a full traversal. `shouldRenderOverlay`
-    /// paints a segment only where a portal-hosted surface crosses the divider
-    /// centerline, and those rects come from the hosted views this signature
-    /// fingerprints, so nothing the overlay can draw moves without moving the
-    /// signature. The signature excludes the window's origin, so a titlebar
-    /// drag stays free.
+    /// changes nothing still costs a full traversal. The comparison asks the
+    /// overlay for its own render inputs rather than reusing the portal's
+    /// geometry signature, because the two are not the same set: the overlay
+    /// paints a segment only where a hosted surface crosses the divider
+    /// centerline, and it drops hidden and windowless surfaces when deciding
+    /// that. Dragging a divider resizes the surfaces beside it, and both
+    /// bounds and those frames are window-relative, so moving the window by
+    /// its titlebar still costs nothing.
     private func refreshDividerOverlayIfGeometryChanged() {
-        let signature = externalGeometrySignature()
-        guard lastDividerOverlaySignature != signature else { return }
-        lastDividerOverlaySignature = signature
+        let inputs = dividerOverlayView.renderInputs()
+        guard lastDividerOverlayRenderInputs != inputs else { return }
+        lastDividerOverlayRenderInputs = inputs
         markDividerOverlayNeedingDisplay()
     }
 
@@ -1296,10 +1326,11 @@ final class WindowTerminalPortal: NSObject {
         dividerOverlayView.needsDisplay = true
     }
 
-    /// Geometry the divider overlay was last painted for. Separate from
-    /// `lastHierarchySyncSignature`, which the layout-sync path owns and
-    /// updates on its own schedule.
-    private var lastDividerOverlaySignature: ExternalGeometrySignature?
+    /// Render inputs the divider overlay was last painted for. Deliberately
+    /// not `ExternalGeometrySignature`: that one answers a different question
+    /// for the layout-sync path, and its contents are tuned for terminating
+    /// the sync echo chain.
+    private var lastDividerOverlayRenderInputs: SplitDividerOverlayView.RenderInputs?
 
     /// Set while `synchronizeAllHostedViews` is walking its entries, so the
     /// per-entry syncs skip the geometry comparison and the batch pays for it
