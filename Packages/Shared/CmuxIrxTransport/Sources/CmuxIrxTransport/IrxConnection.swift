@@ -347,7 +347,7 @@ public actor IrxConnection {
                 try? await Task.sleep(for: interval)
             }
             guard !Task.isCancelled else { return }
-            let seq = await self.nextPingSeq()
+            let seq = self.nextPingSeq()
             let sentAt = DispatchTime.now()
             let activeLane = lane
             do {
@@ -378,7 +378,7 @@ public actor IrxConnection {
                         "path": self.selectedPathDescription(),
                     ]
                 )
-                await self.notePong()
+                self.notePong()
                 strikes = 0
             } catch {
                 guard !Task.isCancelled else { return }
