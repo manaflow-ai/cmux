@@ -22,6 +22,11 @@
       "title": "需要 cmux Pro",
       "message": "雲端虛擬機需要 cmux Pro 方案。",
       "action": "請前往 {upgradeUrl} 升級至 cmux Pro 以建立雲端虛擬機。"
+    },
+    "sharedResource": {
+      "message": "共用 Cloud VM 的 {resource} 資源池已滿。",
+      "action": "刪除未使用的 Cloud VM，然後再試一次。",
+      "oversizedAction": "要求較小的 Cloud VM {resource} 大小，使其符合共用資源池。"
     }
   },
   "billingRecovery": {

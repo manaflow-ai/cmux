@@ -18,6 +18,23 @@ import UIKit
 /// gradient's frame tracks `bounds` (whose origin IS the content offset) to
 /// stay glued to the visible viewport rather than scrolling with the content.
 final class AccessoryEdgeFadeScrollView: UIScrollView {
+    /// Extra vertical room for UIKit's Liquid Glass press/lift presentation.
+    ///
+    /// A glass button keeps its hit frame while the system draws the held
+    /// material slightly beyond that frame. The shortcut row is only as tall
+    /// as its buttons, so a row-sized mask clips the top and bottom of that
+    /// transient presentation. The overscan is symmetric to keep the button
+    /// centerline fixed while leaving the horizontal fade boundary unchanged.
+    nonisolated static let heldGlassVerticalOverscan: CGFloat = 8
+
+    /// Returns the mask frame that preserves a held glass button's vertical lift.
+    nonisolated static func maskBounds(
+        for bounds: CGRect,
+        verticalOverscan: CGFloat = heldGlassVerticalOverscan
+    ) -> CGRect {
+        bounds.insetBy(dx: 0, dy: -max(0, verticalOverscan))
+    }
+
     /// Width in points of the leading fade band, and the scroll distance over
     /// which the fade ramps from nothing to full strength. Sized near one
     /// button width (`accessoryButtonMinWidth` is 32) so a key dissolves over
@@ -56,6 +73,10 @@ final class AccessoryEdgeFadeScrollView: UIScrollView {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
+        // The mask below is the horizontal viewport boundary. Allow the
+        // system's held-state glass lift to render into the vertical overscan
+        // instead of applying UIScrollView's default bounds clip first.
+        clipsToBounds = false
         layer.mask = fadeMask
     }
 
@@ -77,7 +98,7 @@ final class AccessoryEdgeFadeScrollView: UIScrollView {
         // so the gradient tracks finger-driven scrolling without trailing.
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        fadeMask.frame = bounds
+        fadeMask.frame = Self.maskBounds(for: bounds)
         fadeMask.colors = [
             UIColor(white: 0, alpha: edgeAlpha).cgColor,
             UIColor(white: 0, alpha: 1).cgColor,

@@ -4372,10 +4372,19 @@ struct CMUXCLI {
     // never pins an image id unless the person passes `--image`: a pinned id
     // that drifted from the web deploy's manifest failed every create with
     // `vm_image_config_error`.
-    /// `--size` spellings → memory in MB. Every plan sells exactly the plan
-    /// machine (5 vCPU / 20 GB / 200 GB), so 20g is the only preset; the
-    /// backend resolves any other size to the plan machine.
+    /// `--size` spellings → memory in MB. The supported base-image ladder is
+    /// 4 GB, 8 GB, 16 GB, 24 GB, 32 GB, and 64 GB of RAM, with disk sizes
+    /// following each image. Pricing separately describes 5 vCPU, 20 GB RAM,
+    /// and 200 GB disk as one pool shared across the plan's Cloud VMs.
     private static let cloudVMSizeAliases: [String: Int] = [
+        "4g": 4096, "4gb": 4096,
+        "8g": 8192, "8gb": 8192,
+        "16g": 16384, "16gb": 16384,
+        "24g": 24576, "24gb": 24576,
+        "32g": 32768, "32gb": 32768,
+        "64g": 65536, "64gb": 65536,
+        // Keep the prior preset parseable so scripts fail only at the server
+        // validation boundary, not in the client parser.
         "20g": 20480, "20gb": 20480,
     ]
     static func parseCloudVMSize(_ raw: String) -> Int? {
@@ -6108,7 +6117,7 @@ struct CMUXCLI {
                         throw CLIError(message: """
                             vm new: unknown size '\(sizeOpt)'.
 
-                            Sizes: 2g, 4g, 8g, 16g, 24g, 32g (or memory in MB).
+                            Sizes: 4g, 8g, 16g, 24g, 32g, 64g (or memory in MB).
                             Plans cap the largest size; `cmux vm ls` shows your plan.
                             """)
                     }
@@ -6128,7 +6137,7 @@ struct CMUXCLI {
                         Known flags:
                           --base            shell-only machine (no desktop, the default)
                           --desktop         machine with a screen (no image available yet)
-                          --size <2g|4g|8g|16g|24g|32g>
+                          --size <4g|8g|16g|24g|32g|64g>
                           --name <label>    display label (the id stays the address)
                           --image <image-id>  explicit image override (normally omit)
                           --provider <provider>
