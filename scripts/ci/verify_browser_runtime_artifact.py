@@ -74,7 +74,7 @@ def is_browser_engine_path(path: str) -> bool:
     lower = normalized.lower()
     # Keep clearly non-macOS documentation and standalone projects out of the
     # paid macOS runtime lane before applying the broader fail-closed rules.
-    if lower.startswith(("docs/", "design/", "plans/", "skills/", "web/", "webviews/", "cmux-tui/")):
+    if lower.startswith(("docs/", "design/", "plans/", "skills/", "web/", "cmux-tui/")):
         return False
     if lower in {"readme.md", "readme.txt", "license", "license.md"}:
         return False

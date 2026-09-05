@@ -209,6 +209,7 @@ def test_unknown_macos_app_and_guard_paths_fail_closed() -> None:
     assert module.is_browser_engine_path(".github/workflows/ci-status-fallback.yml")
     assert module.is_browser_engine_path(".github/actions/build-browser/action.yml")
     assert module.is_browser_engine_path("cmux-browser/overlay/chrome/browser/cmux_term/protocol.cc")
+    assert module.is_browser_engine_path("webviews/src/agent-session/shared/bridge.ts")
     assert module.is_browser_engine_path("config/browser.xcconfig")
     assert module.is_browser_engine_path("scripts/ci/verify_browser_runtime_artifact.py")
     assert not module.is_browser_engine_path("Packages/iOS/CmuxMobileBrowser/Sources/Mobile.swift")
