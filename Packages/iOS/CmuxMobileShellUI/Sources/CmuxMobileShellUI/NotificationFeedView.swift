@@ -156,25 +156,10 @@ private struct NotificationFeedList: View {
                         ForEach(notificationGroups(section.items)) { group in
                             if group.items.count == 1, let model = group.items.first {
                                 NotificationFeedRow(model: model, actions: actions)
+                                    .equatable()
                             } else {
-                                DisclosureGroup {
-                                    ForEach(Array(group.items.dropFirst())) { model in
-                                        NotificationFeedRow(model: model, actions: actions)
-                                            .equatable()
-                                    }
-                                } label: {
-                                    HStack {
-                                        Text(group.items[0].presentation.headline)
-                                            .font(.body.weight(.semibold))
-                                        Spacer()
-                                        Text("\(group.items.count) updates")
-                                            .font(.caption.weight(.semibold))
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    .padding(.vertical, 8)
-                                }
+                                NotificationFeedActivityRow(group: group, actions: actions)
                             }
-                            .equatable()
                         }
                         .disabled(hasStaleSourceSections)
                         .allowsHitTesting(!hasStaleSourceSections)
@@ -225,6 +210,48 @@ private struct NotificationFeedList: View {
 private struct NotificationFeedGroup: Identifiable {
     var items: [NotificationFeedRowModel]
     var id: MobileNotificationFeedItemID { items[0].id }
+}
+
+private struct NotificationFeedActivityRow: View {
+    let group: NotificationFeedGroup
+    let actions: NotificationFeedActions
+    @State private var isExpanded = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            NotificationFeedRow(model: group.items[0], actions: actions)
+                .equatable()
+
+            Button {
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.25)) {
+                    isExpanded.toggle()
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Text("\(group.items.count) updates")
+                    Image(systemName: "chevron.down")
+                        .rotationEffect(.degrees(isExpanded ? 180 : 0))
+                }
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .frame(minHeight: 44, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("MobileNotificationFeedGroupToggle-\(group.items[0].notificationID)")
+
+            if isExpanded {
+                ForEach(Array(group.items.dropFirst())) { model in
+                    Divider()
+                    NotificationFeedRow(model: model, actions: actions)
+                        .equatable()
+                }
+                .transition(.opacity)
+            }
+        }
+        .listRowBackground(Color.clear)
+    }
 }
 
 private struct NotificationFeedDayHeader: View {
