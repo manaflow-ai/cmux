@@ -3855,12 +3855,28 @@ fn startup_repairs_legacy_terminal_close_dangling_resource_rows() {
         registry.close_terminal(&mutation, None, Some(0), TERMINAL_ONE, None).unwrap();
         let topology = registry.resource_topology_snapshot().unwrap();
         assert_eq!(topology.revision, 1);
-        assert_eq!(topology.terminals.len(), 1);
+        let live_terminals: i64 = registry
+            .connection
+            .query_row(
+                "SELECT COUNT(*) FROM resource_terminals WHERE deleted_revision IS NULL",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(live_terminals, 1);
     }
 
     let reopened = WorkspaceRegistry::open(&root, "session").unwrap();
     let topology = reopened.resource_topology_snapshot().unwrap();
-    assert!(topology.terminals.is_empty(), "dangling terminal remained live: {topology:?}");
+    let live_terminals: i64 = reopened
+        .connection
+        .query_row(
+            "SELECT COUNT(*) FROM resource_terminals WHERE deleted_revision IS NULL",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(live_terminals, 0, "dangling terminal remained live: {topology:?}");
     let public_id = terminal_resource(TERMINAL_ONE);
     let (resource_deleted, identity_deleted): (Option<i64>, Option<i64>) = reopened
         .connection
