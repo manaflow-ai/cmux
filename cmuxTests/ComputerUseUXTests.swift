@@ -294,13 +294,10 @@ struct ComputerUseUXTests {
         #expect(!ComputerUseUXCoordinator.isComputerUseToolInvocation(unrelatedTool))
 
         var presentations: [ComputerUseOnboardingWindowController.StartingPoint] = []
-        var visible = false
         let presentationCoordinator = ComputerUseOnboardingCoordinator(
             presenter: { startingPoint in
                 presentations.append(startingPoint)
-                visible = true
-            },
-            isVisible: { visible }
+            }
         )
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(
@@ -421,12 +418,12 @@ struct ComputerUseUXTests {
 
         #expect(appCoordinator.presentOnboardingFromSettings(startingAt: .screenRecording))
         #expect(presentations == [.screenRecording])
+        #expect(appCoordinator.presentOnboardingFromSettings(startingAt: .accessibility))
         #expect(
-            !appCoordinator.presentOnboardingFromSettings(startingAt: .accessibility),
-            "a concurrent Settings request reuses the visible onboarding flow"
+            presentations == [.screenRecording, .accessibility],
+            "a deliberate Settings request honors a newly selected permission step"
         )
 
-        visible = false // The user dismissed the window.
         for event in events {
             appCoordinator.handleWorkstreamEvent(event)
         }

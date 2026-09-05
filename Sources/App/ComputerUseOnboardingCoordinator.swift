@@ -7,25 +7,18 @@
 final class ComputerUseOnboardingCoordinator {
     typealias StartingPoint = ComputerUseOnboardingWindowController.StartingPoint
     typealias Presenter = @MainActor (StartingPoint) -> Void
-    typealias Visibility = @MainActor () -> Bool
 
     private let presenter: Presenter
-    private let isVisible: Visibility
 
-    init(
-        presenter: @escaping Presenter,
-        isVisible: @escaping Visibility = { false }
-    ) {
+    init(presenter: @escaping Presenter) {
         self.presenter = presenter
-        self.isVisible = isVisible
     }
 
-    /// Handles the deliberate Settings permission/setup action. Main-actor
-    /// serialization plus the visibility check coalesces repeated clicks while
-    /// the existing onboarding window or companion is on screen.
+    /// Handles the deliberate Settings permission/setup action. Every request
+    /// reaches the existing presenter so a newly selected permission step is
+    /// honored even while onboarding is visible; agent events never call this.
     @discardableResult
     func requestFromSettings(startingAt startingPoint: StartingPoint) -> Bool {
-        guard !isVisible() else { return false }
         presenter(startingPoint)
         return true
     }

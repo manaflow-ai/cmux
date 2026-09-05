@@ -304,7 +304,6 @@ final class ComputerUseUXCoordinator {
     private func presentOnboardingWindow(
         startingAt startingPoint: ComputerUseOnboardingWindowController.StartingPoint
     ) {
-        guard onboardingWindowController?.isVisible != true else { return }
         userDefaults.set(true, forKey: ComputerUseOnboardingWindowController.seenDefaultsKey)
         let controller = onboardingWindowController ?? ComputerUseOnboardingWindowController(
             runtimeService: runtimeService,
@@ -321,9 +320,6 @@ final class ComputerUseUXCoordinator {
         let coordinator = ComputerUseOnboardingCoordinator(
             presenter: { [weak self] startingPoint in
                 self?.presentOnboardingWindow(startingAt: startingPoint)
-            },
-            isVisible: { [weak self] in
-                self?.onboardingWindowController?.isVisible == true
             }
         )
         onboardingCoordinator = coordinator

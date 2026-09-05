@@ -50,7 +50,9 @@ or permissions are not a reason to begin setup automatically.
   `CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL=1` only when a durable global entry is
   desired; it links the app-bundled document into the provider's own root
   (`~/.agents/skills/cmux-cua` for Codex or `~/.claude/skills/cmux-cua` for
-  Claude). Launch-time migration removes or retargets only links proven to be
+  Claude). The flag is a per-launch preference; once a verified managed link
+  exists, later launches preserve it. Launch-time migration removes or
+  retargets only links proven to be
   cmux-managed, including the legacy `cmux-computer-use` and `codex-cua`
   aliases. User-owned directories, unrelated symlinks, and project skills are
 preserved. A project or user-owned same-name skill keeps precedence, and no
@@ -60,8 +62,8 @@ and cwd collisions while the project skill keeps bare-name precedence;
 project mirrors that resolve to the bundled document remain one canonical
   identity. There is deliberately no plugin fallback or plugin manifest in
   this directory, because a manifest namespaces Codex's skill
-  (`cmux-cua:cmux-cua`) and qualifies it in Claude. Relaunching a cmux agent
-  only migrates links whose ownership is proven; use the normal user-owned
+  (`cmux-cua:cmux-cua`) and qualifies it in Claude. A cmux launch only
+  migrates links whose ownership is proven; use the normal user-owned
   skill installer or the explicit install flag for a durable picker entry.
   Paths with unproven ownership are left untouched for manual review.
 - While Computer Use is enabled, the helper daemon starts quietly at cmux

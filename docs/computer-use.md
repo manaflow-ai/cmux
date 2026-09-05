@@ -28,7 +28,9 @@ durable link. Claude's session skill directory is likewise opt-in. For users
 who want a durable Codex or Claude picker entry, set
 `CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL=1` explicitly; the wrapper then links
 only its own root (`~/.agents/skills/cmux-cua` for Codex or
-`~/.claude/skills/cmux-cua` for Claude). On each cmux launch, migration removes
+`~/.claude/skills/cmux-cua` for Claude). The flag is a per-launch preference;
+once a verified managed link exists, later launches preserve it. On each cmux
+launch, migration removes
 or retargets only links proven to point at a cmux app (including the legacy
 `cmux-computer-use` and `codex-cua` aliases); real directories, unrelated
 symlinks, and project skills are never overwritten or removed. Project and
