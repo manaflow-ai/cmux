@@ -81,41 +81,20 @@ export async function handleIrohRoute(
     return jsonResponse({ error: "invalid_client_namespace" }, 400);
   }
 
-  // The high-volume broker operations use locally verified access tokens, so
-  // this account-scoped gate runs before parsing or touching Postgres. It is
-  // also the backstop for old Macs and INTERNAL builds that cannot learn a new
-  // retry policy: one stuck client can exhaust its own operation budget, but it
-  // cannot turn a reconnect loop into unbounded Vercel traffic for the account.
-  const rateLimitResponse = await enforceNativeIngressRateLimit({
+  const rateLimitResponse = await enforceIrohIngressRateLimit(
     request,
-    route: `iroh.${operation}`,
-    ruleId: dependencies.rateLimitRuleId?.() ?? env.CMUX_IROH_RATE_LIMIT_ID,
-    rateLimitKey: `iroh:${user.id}:${clientNamespace}:${operation}`,
-    check: dependencies.checkRateLimit,
-    isVercel: dependencies.isVercel,
-  });
+    operation,
+    clientNamespace,
+    user.id,
+    dependencies,
+  );
   if (rateLimitResponse) return rateLimitResponse;
 
-  if (operation !== "discover") {
-    const mutationForbidden = enforceBrowserMutationProtection(request);
-    if (mutationForbidden) return mutationForbidden;
-  }
+  const mutationForbidden = enforceIrohMutationProtection(request, operation);
+  if (mutationForbidden) return mutationForbidden;
 
-  let bodyResult: Awaited<ReturnType<typeof readBoundedJson>> | undefined;
-  if (operation === "discover") {
-    const discovery = discoveryRequest(request);
-    if (!discovery.ok) return discovery.response;
-    bodyResult = {
-      ok: true,
-      value: discovery.value,
-      bytes: new Uint8Array(),
-    };
-  }
-
-  bodyResult ??= await readBoundedJson(request);
-  if (!bodyResult.ok) return bodyResult.response;
-  const bindingProof = parseBindingRequestProof(request, bodyResult.bytes);
-  if (bindingProof instanceof Response) return bindingProof;
+  const parsedRequest = await readIrohRequest(request, operation);
+  if (!parsedRequest.ok) return parsedRequest.response;
 
   try {
     const value = dependencies.broker
@@ -124,9 +103,9 @@ export async function handleIrohRoute(
           dependencies.broker,
           operation,
           user.id,
-          bodyResult.value,
+          parsedRequest.value,
           clientNamespace,
-          bindingProof,
+          parsedRequest.bindingProof,
         ),
       )
       : await Effect.runPromise(
@@ -136,9 +115,9 @@ export async function handleIrohRoute(
             broker,
             operation,
             user.id,
-            bodyResult.value,
+            parsedRequest.value,
             clientNamespace,
-            bindingProof,
+            parsedRequest.bindingProof,
           );
         }).pipe(Effect.provide(dependencies.runtime ?? IrohTrustBrokerRuntime)),
       );
@@ -174,6 +153,70 @@ export async function handleIrohRoute(
     console.error("iroh trust broker request failed", { operation, failure: "unexpected" });
     return jsonResponse({ error: "iroh_internal_error" }, 500);
   }
+}
+
+/**
+ * The account-scoped gate runs before parsing or touching Postgres. It is also
+ * the backstop for old Macs and INTERNAL builds that cannot learn a new retry
+ * policy, so one stuck client cannot turn a reconnect loop into unbounded
+ * Vercel traffic for the account.
+ */
+async function enforceIrohIngressRateLimit(
+  request: Request,
+  operation: IrohRouteOperation,
+  clientNamespace: string,
+  userID: string,
+  dependencies: RouteDependencies,
+): Promise<Response | null> {
+  return enforceNativeIngressRateLimit({
+    request,
+    route: `iroh.${operation}`,
+    ruleId: dependencies.rateLimitRuleId?.() ?? env.CMUX_IROH_RATE_LIMIT_ID,
+    rateLimitKey: `iroh:${userID}:${clientNamespace}:${operation}`,
+    check: dependencies.checkRateLimit,
+    isVercel: dependencies.isVercel,
+  });
+}
+
+function enforceIrohMutationProtection(
+  request: Request,
+  operation: IrohRouteOperation,
+): Response | null {
+  if (operation === "discover") return null;
+  return enforceBrowserMutationProtection(request);
+}
+
+type ParsedIrohRequest = {
+  readonly ok: true;
+  readonly value: unknown;
+  readonly bindingProof: IrohBindingRequestProof | undefined;
+} | {
+  readonly ok: false;
+  readonly response: Response;
+};
+
+async function readIrohRequest(
+  request: Request,
+  operation: IrohRouteOperation,
+): Promise<ParsedIrohRequest> {
+  let bodyResult: Awaited<ReturnType<typeof readBoundedJson>> | undefined;
+  if (operation === "discover") {
+    const discovery = discoveryRequest(request);
+    if (!discovery.ok) return discovery;
+    bodyResult = {
+      ok: true,
+      value: discovery.value,
+      bytes: new Uint8Array(),
+    };
+  }
+
+  bodyResult ??= await readBoundedJson(request);
+  if (!bodyResult.ok) return bodyResult;
+  const bindingProof = parseBindingRequestProof(request, bodyResult.bytes);
+  if (bindingProof instanceof Response) {
+    return { ok: false, response: bindingProof };
+  }
+  return { ok: true, value: bodyResult.value, bindingProof };
 }
 
 function mutationRevision(

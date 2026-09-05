@@ -13,6 +13,12 @@ public actor IrxRelayCredentialAutopilot {
     private let endpoint: IrxEndpointSupervisor
     private let journal: IrxJournal
     private var loop: Task<Void, Never>?
+    private let rotationGate = IrxRelayCredentialRotationGate()
+    /// A cancelled refresh task can still return from an in-flight broker
+    /// request. The generation prevents that old task from rotating relay
+    /// credentials or invoking registration after a newer foreground loop
+    /// owns the lifecycle.
+    private var loopGeneration: UInt64 = 0
     /// Runs after every successful rotation. Hosts re-register here so their
     /// advertised relay hint (server-capped at a 1h lifetime) never expires.
     public var onRotation: (@Sendable () async -> Void)?
@@ -43,13 +49,24 @@ public actor IrxRelayCredentialAutopilot {
     }
 
     /// Starts the refresh loop. Idempotent; cancelled by `stop()`.
-    public func start() {
+    public func start() async {
         guard loop == nil else { return }
-        loop = Task { await self.run() }
+        loopGeneration &+= 1
+        let generation = loopGeneration
+        let rotationGeneration = await rotationGate.begin()
+        guard generation == loopGeneration else { return }
+        loop = Task {
+            await self.run(
+                generation: generation,
+                rotationGeneration: rotationGeneration
+            )
+        }
         journal.record("credential-autopilot", "started")
     }
 
-    public func stop() {
+    public func stop() async {
+        loopGeneration &+= 1
+        await rotationGate.invalidate()
         loop?.cancel()
         loop = nil
         journal.record("credential-autopilot", "stopped")
@@ -57,17 +74,28 @@ public actor IrxRelayCredentialAutopilot {
 
     /// Foreground/resume kick: restart the loop so a suspension can never
     /// leave a stale sleep deadline in charge of renewal.
-    public func kick() {
+    public func kick() async {
+        loopGeneration &+= 1
+        let generation = loopGeneration
+        await rotationGate.invalidate()
+        let rotationGeneration = await rotationGate.begin()
+        guard generation == loopGeneration else { return }
         loop?.cancel()
-        loop = Task { await self.run() }
+        loop = Task {
+            await self.run(
+                generation: generation,
+                rotationGeneration: rotationGeneration
+            )
+        }
         journal.record("credential-autopilot", "kicked")
     }
 
-    private func run() async {
+    private func run(generation: UInt64, rotationGeneration: UInt64) async {
         var consecutiveFailures = 0
-        while !Task.isCancelled {
+        while !Task.isCancelled && generation == loopGeneration {
             let now = Date()
             let credentials = await broker.cachedRelayCredentials()
+            guard generation == loopGeneration, !Task.isCancelled else { return }
             if let soonest = credentials.map({
                 IrxRelayCredentialPolicy.refreshDate(
                     for: $0, jitter: Double.random(in: 0...10))
@@ -78,14 +106,25 @@ public actor IrxRelayCredentialAutopilot {
                     ["until_refresh_s": String(Int(wait))]
                 )
                 try? await Task.sleep(for: .seconds(wait))
-                if Task.isCancelled { return }
+                if Task.isCancelled || generation != loopGeneration { return }
             }
             do {
                 let minted = try await broker.mintRelayCredentials()
-                await endpoint.rotateCredentials(minted)
+                guard generation == loopGeneration, !Task.isCancelled else { return }
+                // Keep this check inside the endpoint-side mutation too: the
+                // actor can re-enter while the broker request above is
+                // suspended, after which an old loop must not rotate the
+                // endpoint owned by a newer lifecycle.
+                await endpoint.rotateCredentialsIfCurrent(
+                    minted,
+                    rotationGeneration: rotationGeneration,
+                    gate: rotationGate
+                )
+                guard generation == loopGeneration, !Task.isCancelled else { return }
                 await onRotation?()
                 consecutiveFailures = 0
             } catch {
+                if Task.isCancelled || generation != loopGeneration { return }
                 consecutiveFailures += 1
                 // `nil`, not `Date()`: with nothing cached there is no expiry
                 // to race, and passing the current time collapsed the delay to
@@ -108,6 +147,7 @@ public actor IrxRelayCredentialAutopilot {
                     ]
                 )
                 try? await Task.sleep(for: delay)
+                if Task.isCancelled || generation != loopGeneration { return }
             }
         }
     }
