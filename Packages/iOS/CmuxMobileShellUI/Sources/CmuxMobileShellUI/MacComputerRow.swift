@@ -359,6 +359,13 @@ struct MacComputerRow: View {
         if computer.isOlderDuplicate {
             line = "\(L10n.string("mobile.computers.olderPairing", defaultValue: "Older pairing")) · \(line)"
         }
+#if DEBUG
+        if computer.buildLabel?.hasPrefix("DEV") == true,
+           let reportedVersion = computer.reportedVersion,
+           !reportedVersion.isEmpty {
+            line = "Version: \(reportedVersion) · \(line)"
+        }
+#endif
         return line
     }
 

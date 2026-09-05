@@ -68,6 +68,8 @@ extension MacComputerSnapshot {
                 presence: presence,
                 buildLabel: summary?.buildLabel
                     ?? MacBuildChannel().label(bundleID: nil, tag: mac.instanceTag),
+                reportedVersion: MobileMacListAuthState.shared
+                    .entry(deviceID: mac.macDeviceID)?.appVersion,
                 routeDescription: method == .direct
                     ? directEndpoint
                     : method.routeKind.flatMap {
