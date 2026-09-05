@@ -34,7 +34,8 @@ public final class MobileNetworkOutcomeReporter: Sendable {
 
     private struct State: Sendable {
         var starts: [Key: Start] = [:]
-        var connectStart: Start?
+        var connectStarts: [Start] = []
+        var hostAuthStarts: [Start] = []
     }
 
     private static let pendingStartLifetimeNanos: UInt64 = 5 * 60 * 1_000_000_000
@@ -94,20 +95,22 @@ public final class MobileNetworkOutcomeReporter: Sendable {
             return event.tNanos >= start.tNanos
                 && event.tNanos - start.tNanos <= Self.pendingStartLifetimeNanos
         }
-        if let connectStart = state.connectStart,
-           event.tNanos < connectStart.tNanos
-               || event.tNanos - connectStart.tNanos > Self.pendingStartLifetimeNanos {
-            state.connectStart = nil
+        state.connectStarts.removeAll { start in
+            event.tNanos < start.tNanos
+                || event.tNanos - start.tNanos > Self.pendingStartLifetimeNanos
+        }
+        state.hostAuthStarts.removeAll { start in
+            event.tNanos < start.tNanos
+                || event.tNanos - start.tNanos > Self.pendingStartLifetimeNanos
         }
         let transport = Self.transport(for: event)
         switch event.code {
         case .connect:
-            state.connectStart = Start(tNanos: event.tNanos, transport: transport)
+            Self.appendBounded(Start(tNanos: event.tNanos, transport: transport), to: &state.connectStarts)
             return nil
 
         case .pairOk, .pairFail, .pairUnreachable:
-            let start = state.connectStart
-            state.connectStart = nil
+            let start = state.connectStarts.isEmpty ? nil : state.connectStarts.removeFirst()
             return Self.terminal(
                 phase: .pairing,
                 event: event,
@@ -133,10 +136,10 @@ public final class MobileNetworkOutcomeReporter: Sendable {
             )
             let start = state.starts.removeValue(forKey: key)
             if event.code == .transportDialConnected {
-                Self.storeStart(Start(
+                Self.appendBounded(Start(
                     tNanos: event.tNanos,
                     transport: transport ?? start?.transport
-                ), for: Key(phase: .hostAuth, correlation: nil), state: &state)
+                ), to: &state.hostAuthStarts)
             }
             return Self.terminal(
                 phase: .transportDial,
@@ -147,9 +150,7 @@ public final class MobileNetworkOutcomeReporter: Sendable {
             )
 
         case .hostAuthenticated, .hostAuthenticationFailed:
-            let start = state.starts.removeValue(
-                forKey: Key(phase: .hostAuth, correlation: nil)
-            )
+            let start = state.hostAuthStarts.isEmpty ? nil : state.hostAuthStarts.removeFirst()
             return Self.terminal(
                 phase: .hostAuth,
                 event: event,
@@ -159,8 +160,7 @@ public final class MobileNetworkOutcomeReporter: Sendable {
             )
 
         case .rpcReady:
-            let start = state.connectStart
-            state.connectStart = nil
+            let start = state.connectStarts.isEmpty ? nil : state.connectStarts.removeFirst()
             return Self.terminal(
                 phase: .rpcReady,
                 event: event,
@@ -274,6 +274,13 @@ public final class MobileNetworkOutcomeReporter: Sendable {
             state.starts.removeValue(forKey: oldest)
         }
         state.starts[key] = start
+    }
+
+    private static func appendBounded(_ start: Start, to starts: inout [Start]) {
+        if starts.count >= Self.maxPendingStarts {
+            starts.removeFirst()
+        }
+        starts.append(start)
     }
 
     private static func observation(
