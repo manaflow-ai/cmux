@@ -9620,6 +9620,32 @@ mod tests {
     }
 
     #[test]
+    fn sidebar_profile_request_selects_builtin_focus_layout() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let dir = std::env::temp_dir()
+            .join(format!("cmux-sidebar-builtin-profile-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("cmux-tui.json");
+        std::fs::write(&path, r#"{"sidebar":{"profile":"focus"}}"#).unwrap();
+        let old = std::env::var_os("CMUX_MUX_CONFIG");
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("CMUX_MUX_CONFIG", &path) };
+
+        let config = load();
+
+        restore_env_var("CMUX_MUX_CONFIG", old);
+        let _ = std::fs::remove_dir_all(&dir);
+
+        assert_eq!(config.sidebar.active_profile, "focus");
+        assert_eq!(config.sidebar.profiles.len(), 2);
+        assert!(
+            config.sidebar.views.iter().all(|view| !view.includes(SidebarResourceKind::Agents))
+        );
+        assert_eq!(config.sidebar.views, config.sidebar.profiles[1].views);
+        assert_eq!(config.sidebar.layout, config.sidebar.profiles[1].layout);
+    }
+
+    #[test]
     fn sidebar_view_paths_reject_ambiguous_hierarchies() {
         assert!(validate_sidebar_levels(&[]).is_err());
         assert!(
