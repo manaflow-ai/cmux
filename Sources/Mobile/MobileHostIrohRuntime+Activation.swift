@@ -339,6 +339,7 @@ extension MobileHostIrohRuntime {
                             authorization: .irohAdmission(session.peer),
                             artifactTransfers: artifactTransfers,
                             independentEventWriter: eventWriter,
+                            idleTimeoutNanoseconds: 0,
                             promoteUsableSession: {
                                 await session.markUsable()
                             },
