@@ -37,9 +37,8 @@
 #
 # CMUX_TUI_REMOTE_WS_BIND overrides the listener bind. Default: the IPv4
 # wildcard. Freestyle sets [::]:1337 (its systemd unit / a driver drop-in)
-# because those machines are reached at a private VPC address by default, or
-# directly at their public IPv6 on the legacy path; a dual-stack bind still
-# accepts IPv4.
+# because private Freestyle networks can assign either address family; a
+# dual-stack bind accepts both without public ingress.
 #
 # Desktop (container images only). On a Freestyle VM systemd's cmux-desktop
 # unit owns the desktop session (desktop/cmux-desktop.service); without

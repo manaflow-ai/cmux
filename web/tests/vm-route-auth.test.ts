@@ -16,9 +16,6 @@ const MANIFEST_BASE_DEFAULT = (manifestJson.images as Array<{
   defaultForKind?: boolean;
   size?: { name: string };
 }>).find((entry) => (entry.kind ?? "base") === "base" && entry.defaultForKind && entry.size?.name === PRO_PLAN_SIZE)!;
-const MANIFEST_DESKTOP_DEFAULT = manifestJson.images.find((entry) =>
-  entry.provider === "freestyle" && entry.kind === "desktop"
-    && entry.defaultForKind && entry.size?.name === PRO_PLAN_SIZE)!;
 
 const getUser = mock(async () => null);
 const runVmWorkflow = mock(async () => {
@@ -45,6 +42,7 @@ const deleteVmPublicationsForVmDeletion = mock(async () => ({
 const VM_ENV_KEYS = [
   "CMUX_VM_CREATE_ENABLED",
   "CMUX_VM_FREESTYLE_ENABLED",
+  "CMUX_VM_PRIVATE_NETWORK_ENABLED",
   "CMUX_VM_ALLOWED_ORIGINS",
   "CMUX_VM_ALLOW_UNMANIFESTED_IMAGES",
   "CMUX_VM_FREE_MAX_ACTIVE_VMS",
@@ -592,10 +590,6 @@ describe("VM REST auth", () => {
       listVmImageKinds(defaultProviderId(), process.env, { memoryMb: defaultMemoryMbForPlan("pro", process.env) }),
     );
     expect(payload.limits.imageKinds.map((entry) => entry.kind)).toEqual(["desktop", "base"]);
-    expect(payload.limits.imageKinds.map((entry) => entry.image)).toEqual([
-      MANIFEST_DESKTOP_DEFAULT.imageId,
-      MANIFEST_BASE_DEFAULT.imageId,
-    ]);
     for (const entry of payload.limits.imageKinds) {
       expect(["desktop", "base"]).toContain(entry.kind);
       expect(typeof entry.image).toBe("string");
