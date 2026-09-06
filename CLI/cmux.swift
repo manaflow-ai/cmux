@@ -41580,7 +41580,7 @@ struct CMUXTermMain {
         configureCLIStdioNoSIGPIPE()
 
         if shouldUseFacade() {
-            CmuxCommand.runFacade()
+            await CmuxCommand.runFacade()
             return
         }
 
