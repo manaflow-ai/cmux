@@ -2,7 +2,7 @@ import ArgumentParser
 import Darwin
 import Foundation
 
-struct CmuxCommand: ParsableCommand {
+struct CmuxCommand: AsyncParsableCommand {
     @OptionGroup var globals: GlobalOptions
 
     static let configuration = CommandConfiguration(
@@ -114,6 +114,7 @@ struct CmuxCommand: ParsableCommand {
             RespawnPaneCommand.self,
             DisplayMessageCommand.self,
             ReadScreenCommand.self,
+            ReadSelectionCommand.self,
             SendCommand.self,
             SendKeyCommand.self,
             SendPanelCommand.self,
@@ -161,6 +162,7 @@ struct CmuxCommand: ParsableCommand {
             IdentifyCommand.self,
             TriggerFlashCommand.self,
             RestoreCommand.self,
+            ForkCommand.self,
             RestoreSessionCommand.self,
             RPCCommand.self,
             SimulatorCommand.self,
@@ -180,6 +182,9 @@ struct CmuxCommand: ParsableCommand {
             VMTuiConnectCommand.self,
             VMTuiApproveCommand.self,
             VMSSHAttachTopLevelCommand.self,
+            AutomationCommand.self,
+            VPNCommand.self,
+            VaultCommand.self,
             TodoCommand.self,
             CommentsCommand.self,
             SidebarCommand.self,
@@ -220,10 +225,18 @@ struct CmuxCommand: ParsableCommand {
     /// Runs the facade while preserving the legacy CLI's exit-status contract
     /// for command-specific validation. ArgumentParser uses EX_USAGE (64) for
     /// `ValidationError`; cmux historically reports these selector errors as 1.
-    static func runFacade() {
+    static func runFacade() async {
         do {
             var command = try parseAsRoot()
-            try command.run()
+            // `parseAsRoot()` erases to `ParsableCommand`, so the async path has to
+            // be recovered by cast. Delegating commands are async because they call
+            // `CMUXCLI.run()`; the facade-native ones (`completion`, the candidate
+            // and tree dumps) stay synchronous.
+            if var asyncCommand = command as? AsyncParsableCommand {
+                try await asyncCommand.run()
+            } else {
+                try command.run()
+            }
         } catch let error as FacadeValidationError {
             CMUXCLIOutput.writeStandardError("Error: \(error.message)\n")
             CMUXCLIOutput.writeStandardError("\(usageString(for: error.command))\n")

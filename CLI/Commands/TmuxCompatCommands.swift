@@ -162,6 +162,16 @@ struct ReadScreenCommand: SharedLegacyFacadeCommand {
     static let configuration = CommandConfiguration(commandName: "read-screen", helpNames: [])
 }
 
+/// Shares `read-screen`'s surface selectors, but reads only the current
+/// selection, so it takes neither `--scrollback` nor `--lines`.
+struct ReadSelectionCommand: SharedLegacyFacadeCommand {
+    @Option(name: .customLong("workspace"), completion: workspaceCompletion) var workspaceID: String?
+    @Option(name: .customLong("surface"), completion: surfaceCompletion) var surfaceID: String?
+    @Option(name: .customLong("window"), completion: windowCompletion) var windowID: String?
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "read-selection", helpNames: [])
+}
+
 struct SendCommand: SharedLegacyFacadeCommand {
     @Option(name: .customLong("workspace"), completion: workspaceCompletion) var workspaceID: String?
     @Option(name: .customLong("surface"), completion: surfaceCompletion) var surfaceID: String?
