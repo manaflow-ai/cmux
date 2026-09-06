@@ -2,7 +2,8 @@
 # cmux devbox boot supervisor (/usr/local/bin/cmux-devbox-boot).
 #
 # Supervises the cmux-tui session daemon, the machine's only session daemon
-# (docs/cloud-cmux-tui-daemon.md). The Freestyle bake installs the pinned
+# (docs/cloud-cmux-tui-daemon.md), and, on a container image without systemd,
+# the desktop session (see "Desktop" below). The Freestyle bake installs the pinned
 # files.cmux.com build at /root/.cmux/bin/cmux-tui (sha256-verified; see
 # web/scripts/build-devbox-freestyle.ts) and this loop starts the daemon and
 # restarts it if it ever exits. On an image without the binary (the container
@@ -36,9 +37,19 @@
 #
 # CMUX_TUI_REMOTE_WS_BIND overrides the listener bind. Default: the IPv4
 # wildcard. Freestyle sets [::]:1337 (its systemd unit / a driver drop-in)
-# because those machines are reached directly at their public IPv6; a
-# dual-stack bind still accepts IPv4.
+# because private Freestyle networks can assign either address family; a
+# dual-stack bind accepts both without public ingress.
+#
+# Desktop (container images only). On a Freestyle VM systemd's cmux-desktop
+# unit owns the desktop session (desktop/cmux-desktop.service); without
+# systemd nothing else would, so this supervisor runs the same
+# cmux-desktop-boot loop as the work user (the uid-1000 account, else root)
+# and restarts it if it ever exits. The daemon loop below is untouched by it:
+# the desktop is a sibling process, never a child of the session daemon.
 BIN=/root/.cmux/bin/cmux-tui
+DESKTOP_BOOT=/usr/local/bin/cmux-desktop-boot
+DESKTOP_RUNTIME_DIR=/run/cmux-desktop
+DESKTOP_DISPLAY=:1
 # cmux-remote's default state dir for root on Linux; identity.json lives under sessions/<session>/auth.
 REMOTE_STATE_DIR=/root/.local/state/cmux/remote
 BOUND_INSTANCE_FILE=/etc/cmux/daemon-instance-id
@@ -51,6 +62,21 @@ instance_id() {
 }
 
 daemon_pid=""
+desktop_pid=""
+
+start_desktop() {
+  [ -x "$DESKTOP_BOOT" ] || return 0
+  [ -d /run/systemd/system ] && return 0
+  if [ -n "$desktop_pid" ] && kill -0 "$desktop_pid" 2>/dev/null; then return 0; fi
+  [ -n "$desktop_pid" ] && wait "$desktop_pid" 2>/dev/null
+  desktop_user=$(getent passwd 1000 | cut -d: -f1)
+  [ -n "$desktop_user" ] || desktop_user=root
+  desktop_home=$(getent passwd "$desktop_user" | cut -d: -f6)
+  mkdir -p "$DESKTOP_RUNTIME_DIR" && chown "$desktop_user" "$DESKTOP_RUNTIME_DIR" && chmod 0755 "$DESKTOP_RUNTIME_DIR"
+  runuser -u "$desktop_user" -- env HOME="$desktop_home" USER="$desktop_user" DISPLAY="$DESKTOP_DISPLAY" \
+    CMUX_DESKTOP_RUNTIME_DIR="$DESKTOP_RUNTIME_DIR" "$DESKTOP_BOOT" >>/var/log/cmux-desktop.log 2>&1 &
+  desktop_pid=$!
+}
 
 stop_daemon() {
   [ -n "$daemon_pid" ] || return 0
@@ -63,6 +89,7 @@ stop_daemon() {
 }
 
 while true; do
+  start_desktop
   if [ -x "$BIN" ]; then
     id=$(instance_id 2>/dev/null) || id=""
     if [ -n "$id" ] && [ -f "$BAKE_INSTANCE_FILE" ] && [ "$id" = "$(cat "$BAKE_INSTANCE_FILE")" ]; then
@@ -75,7 +102,10 @@ while true; do
       fi
       if [ -z "$daemon_pid" ] || ! kill -0 "$daemon_pid" 2>/dev/null; then
         [ -n "$daemon_pid" ] && wait "$daemon_pid" 2>/dev/null
-        (cd /root && exec env HOME=/root TERM=xterm-256color /root/.cmux/bin/cmux-tui server start --session cloud --remote-ws "${CMUX_TUI_REMOTE_WS_BIND:-0.0.0.0:1337}" --remote-ws-insecure-bind) &
+        # --remote-ws-trusted-carrier: the listener is reachable only inside the
+        # owner's private network, whose members are all authorized, so every
+        # link gets carrier authentication with no device enrollment.
+        (cd /root && exec env HOME=/root TERM=xterm-256color /root/.cmux/bin/cmux-tui server start --session cloud --remote-ws "${CMUX_TUI_REMOTE_WS_BIND:-0.0.0.0:1337}" --remote-ws-insecure-bind --remote-ws-trusted-carrier) &
         daemon_pid=$!
       fi
     fi

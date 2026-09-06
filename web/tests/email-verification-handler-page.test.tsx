@@ -33,12 +33,28 @@ const { default: StackHandlerPage } = await import(
   "../app/handler/[...stack]/page"
 );
 
-describe("email verification handler page", () => {
-  test("contains Stack's client-side session suspension", async () => {
+describe("Stack handler page", () => {
+  test("renders a loading state while Stack's client component suspends", async () => {
     const page = await StackHandlerPage({
       params: Promise.resolve({ stack: ["email-verification"] }),
     });
 
-    expect(renderToStaticMarkup(page)).toBe("");
+    expect(renderToStaticMarkup(page)).toContain('aria-busy="true"');
+  });
+
+  test("renders a loading state when any Stack handler path suspends", async () => {
+    const page = await StackHandlerPage({
+      params: Promise.resolve({ stack: ["team-invitation"] }),
+    });
+
+    expect(renderToStaticMarkup(page)).toContain('aria-busy="true"');
+  });
+
+  test("keeps an unlisted future handler path behind the same boundary", async () => {
+    const page = await StackHandlerPage({
+      params: Promise.resolve({ stack: ["future-handler"] }),
+    });
+
+    expect(renderToStaticMarkup(page)).toContain('aria-busy="true"');
   });
 });

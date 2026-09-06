@@ -457,7 +457,11 @@ enum AgentResumeCommandBuilder {
         includeWorkingDirectoryPrefix: Bool
     ) -> String {
         var commandParts: [String] = []
-        let environmentParts = launchEnvironmentParts(kind: kind, environment: launchCommand?.environment)
+        let environmentParts = launchEnvironmentParts(
+            kind: kind,
+            launchCommand: launchCommand,
+            customRegistration: customRegistration
+        )
         if !environmentParts.isEmpty {
             commandParts.append("env")
             commandParts.append(contentsOf: environmentParts)
@@ -479,8 +483,8 @@ enum AgentResumeCommandBuilder {
                 )
             }
             : commandParts
-        // Render the claude/codex executable as the wrapper shim token so the
-        // executed command routes through cmux's `claude`/`codex` wrapper
+        // Render managed-agent executables as wrapper shim tokens so the
+        // executed command routes through cmux's provider wrapper
         // (re-injecting the agent hooks) even when an `env`-prefixed invocation
         // would otherwise bypass the shell integration's PATH shim / shell
         // function and hit the user's real binary. Without this, an auto-resumed
@@ -489,19 +493,18 @@ enum AgentResumeCommandBuilder {
         // The token is POSIX-only, so token-bearing commands are wrapped in
         // `/bin/sh -c '…'` to parse consistently from any user's login shell.
         // https://github.com/manaflow-ai/cmux/issues/5639
+        let managedProviderKind = managedProviderKind(
+            kind: kind,
+            customRegistration: customRegistration
+        )
         let shellCommand: String
-        switch kind {
-        case .claude:
-            shellCommand = AgentResumeArgv.renderedPortableClaudeResumeShellCommand(
+        if let managedProviderKind {
+            shellCommand = AgentResumeArgv().renderedPortableManagedResumeShellCommand(
                 parts: sanitizedCommandParts,
+                kind: managedProviderKind,
                 quote: TerminalStartupShellQuoting.singleQuoted
             )
-        case .codex:
-            shellCommand = AgentResumeArgv.renderedPortableCodexResumeShellCommand(
-                parts: sanitizedCommandParts,
-                quote: TerminalStartupShellQuoting.singleQuoted
-            )
-        default:
+        } else {
             shellCommand = sanitizedCommandParts
                 .map(TerminalStartupShellQuoting.singleQuoted)
                 .joined(separator: " ")
@@ -537,11 +540,21 @@ enum AgentResumeCommandBuilder {
 
     private static func launchEnvironmentParts(
         kind: RestorableAgentKind,
-        environment: [String: String]?
+        launchCommand: AgentLaunchCommandSnapshot?,
+        customRegistration: CmuxVaultAgentRegistration?
     ) -> [String] {
-        guard let environment, !environment.isEmpty else {
-            return []
+        var environment = launchCommand?.environment ?? [:]
+        if let managedProviderKind = managedProviderKind(
+            kind: kind,
+            customRegistration: customRegistration
+        ) {
+            environment.merge(AgentResumeArgv().managedWrapperCustomExecutableEnvironment(
+                kind: managedProviderKind,
+                executablePath: launchCommand?.executablePath,
+                arguments: launchCommand?.arguments ?? []
+            )) { _, wrapperValue in wrapperValue }
         }
+        guard !environment.isEmpty else { return [] }
 
         var environmentParts: [String] = []
         var preservedClaudeAuthSelectionEnvironmentKeys: [String] = []
@@ -569,6 +582,16 @@ enum AgentResumeCommandBuilder {
             )
         }
         return environmentParts
+    }
+
+    private static func managedProviderKind(
+        kind: RestorableAgentKind,
+        customRegistration: CmuxVaultAgentRegistration?
+    ) -> String? {
+        if case .custom = kind {
+            return customRegistration?.registeredResumeKind?.rawValue
+        }
+        return kind.rawValue
     }
 
     fileprivate static func resumeArguments(
@@ -619,8 +642,7 @@ enum AgentResumeCommandBuilder {
             observedPermissionMode: observedPermissionMode
         )
     }
-
-    private static func forkArguments(
+    static func forkArguments(
         kind: RestorableAgentKind,
         sessionId: String,
         launchCommand: AgentLaunchCommandSnapshot?,
@@ -628,37 +650,35 @@ enum AgentResumeCommandBuilder {
         customRegistration: CmuxVaultAgentRegistration?,
         observedPermissionMode: String? = nil
     ) -> [String]? {
-        let forkArgv = AgentForkArgv()
-        switch forkArgv.launcherResolution(
-            launcher: launchCommand?.launcher,
-            sessionId: sessionId,
-            executablePath: launchCommand?.executablePath,
-            arguments: launchCommand?.arguments ?? []
-        ) {
-        case .resolved(let argv):
-            return argv
-        case .passthrough:
-            break
-        }
-
-        if case .custom = kind {
-            guard let customRegistration else { return nil }
-            let arguments = customForkArguments(
-                registration: customRegistration,
-                sessionId: sessionId,
-                launchCommand: launchCommand,
-                workingDirectory: workingDirectory
+        let customTemplate = customRegistration?.forkCommand.map { command in
+            AgentForkRequest.CustomTemplate(
+                command: command,
+                defaultExecutable: customRegistration?.defaultExecutable ?? kind.rawValue,
+                sessionDirectory: normalized(customRegistration?.sessionDirectory).map {
+                    ($0 as NSString).expandingTildeInPath
+                }
             )
-            return arguments.isEmpty ? nil : arguments
         }
-
-        return forkArgv.builtInKind(
+        return AgentForkRequest(
             kind: kind.rawValue,
-            sessionId: sessionId,
-            executablePath: launchCommand?.executablePath,
-            arguments: launchCommand?.arguments ?? [],
-            observedPermissionMode: observedPermissionMode
-        )
+            checkpointID: sessionId,
+            launchCommand: launchCommand.map {
+                AgentLaunchCommand(
+                    launcher: $0.launcher,
+                    executablePath: $0.executablePath,
+                    arguments: $0.arguments,
+                    workingDirectory: $0.workingDirectory,
+                    environment: $0.environment,
+                    verificationHome: $0.verificationHome,
+                    capturedAt: $0.capturedAt,
+                    source: $0.source
+                )
+            },
+            workingDirectory: workingDirectory,
+            observedPermissionMode: observedPermissionMode,
+            isCustomKind: kind.customAgentID != nil,
+            customTemplate: customTemplate
+        ).forkArguments()
     }
 
     private static func customResumeArguments(
@@ -676,22 +696,6 @@ enum AgentResumeCommandBuilder {
         )
     }
 
-    private static func customForkArguments(
-        registration: CmuxVaultAgentRegistration,
-        sessionId: String,
-        launchCommand: AgentLaunchCommandSnapshot?,
-        workingDirectory: String?
-    ) -> [String] {
-        guard let forkCommand = normalized(registration.forkCommand) else { return [] }
-        return customTemplateArguments(
-            template: forkCommand,
-            registration: registration,
-            sessionId: sessionId,
-            launchCommand: launchCommand,
-            workingDirectory: workingDirectory
-        )
-    }
-
     private static func customTemplateArguments(
         template: String,
         registration: CmuxVaultAgentRegistration,
@@ -699,8 +703,6 @@ enum AgentResumeCommandBuilder {
         launchCommand: AgentLaunchCommandSnapshot?,
         workingDirectory: String?
     ) -> [String] {
-        let templateParts = splitShellWords(template)
-        guard !templateParts.isEmpty else { return [] }
         let original = commandParts(
             launchCommand: launchCommand,
             fallbackExecutable: registration.defaultExecutable
@@ -708,95 +710,13 @@ enum AgentResumeCommandBuilder {
         let sessionDirectory = normalized(registration.sessionDirectory).map {
             ($0 as NSString).expandingTildeInPath
         }
-        let replacements: [String: String] = [
-            "sessionId": sessionId,
-            "sessionPath": sessionId,
-            "executable": original.executable,
-            "cwd": normalized(workingDirectory ?? launchCommand?.workingDirectory) ?? "",
-            "sessionDir": sessionDirectory ?? "",
-        ]
-        var resolved: [String] = []
-        for part in templateParts {
-            guard let value = resolveTemplatePart(part, replacements: replacements) else { return [] }
-            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { return [] }
-            resolved.append(trimmed)
-        }
-        return resolved
-    }
-
-    private static func resolveTemplatePart(
-        _ part: String,
-        replacements: [String: String]
-    ) -> String? {
-        var resolved = ""
-        var searchStart = part.startIndex
-        while let opening = part[searchStart...].range(of: "{{") {
-            resolved.append(contentsOf: part[searchStart..<opening.lowerBound])
-            guard let closing = part[opening.upperBound...].range(of: "}}") else {
-                resolved.append(contentsOf: part[opening.lowerBound...])
-                return resolved
-            }
-            let key = String(part[opening.upperBound..<closing.lowerBound])
-            if let replacement = replacements[key] {
-                if replacement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    return nil
-                }
-                resolved += replacement
-            } else {
-                resolved.append(contentsOf: part[opening.lowerBound..<closing.upperBound])
-            }
-            searchStart = closing.upperBound
-        }
-        resolved.append(contentsOf: part[searchStart...])
-        return resolved
-    }
-
-    private static func splitShellWords(_ command: String) -> [String] {
-        enum Quote {
-            case single
-            case double
-        }
-
-        var words: [String] = []
-        var current = ""
-        var quote: Quote?
-        var escaping = false
-
-        func finishWord() {
-            guard !current.isEmpty else { return }
-            words.append(current)
-            current = ""
-        }
-
-        for character in command {
-            if escaping {
-                current.append(character)
-                escaping = false
-                continue
-            }
-            if character == "\\" {
-                escaping = true
-                continue
-            }
-            switch (quote, character) {
-            case (.single, "'"), (.double, "\""):
-                quote = nil
-            case (nil, "'"):
-                quote = .single
-            case (nil, "\""):
-                quote = .double
-            case (nil, " "), (nil, "\t"), (nil, "\n"):
-                finishWord()
-            default:
-                current.append(character)
-            }
-        }
-        if escaping {
-            current.append("\\")
-        }
-        finishWord()
-        return words
+        return AgentLaunchTemplateRenderer().arguments(
+            template: template,
+            executable: original.executable,
+            sessionID: sessionId,
+            workingDirectory: workingDirectory ?? launchCommand?.workingDirectory,
+            sessionDirectory: sessionDirectory
+        ) ?? []
     }
 
     private static func resumeWithOption(
@@ -1088,10 +1008,11 @@ struct RestorableAgentSessionIndex: Sendable {
 
     /// Returns only the process entry keyed by this exact workspace/panel pair.
     ///
-    /// Unlike ``entry(workspaceId:panelId:)``, this does not use the panel-ID
-    /// compatibility fallback. Security-sensitive callers must not let a stale
-    /// workspace adopt a same-panel entry from another restored workspace, and
-    /// process teardown safety must never borrow a
+    /// Security-sensitive callers use this instead of the compatibility lookup
+    /// below so a stale workspace cannot adopt a same-panel entry from another
+    /// restored workspace. Unlike ``entry(workspaceId:panelId:)``, this does not
+    /// use the panel-ID compatibility fallback. Process teardown safety likewise
+    /// must never borrow a
     /// live scope from a panel's previous workspace after the surface moves.
     func exactEntry(workspaceId: UUID, panelId: UUID) -> Entry? {
         entriesByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)]

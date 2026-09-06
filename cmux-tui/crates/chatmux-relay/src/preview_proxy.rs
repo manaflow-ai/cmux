@@ -54,6 +54,12 @@ const PREVIEW_WS_MAX_MESSAGE_BYTES: usize = 16 * 1024 * 1024;
 /// reading must not make the relay retain an unbounded stream of CDP data.
 const PREVIEW_WS_QUEUE_CAPACITY: usize = 64;
 const PREVIEW_WS_QUEUE_BYTES: usize = 64 * 1024 * 1024;
+/// Maximum number of live client connections retained by one preview proxy.
+pub const PREVIEW_PROXY_CONNECTION_CAP: usize = 128;
+/// Maximum number of target upgrade copy tasks retained by one preview proxy.
+/// Upgraded sockets outlive their HTTP connection task, so they need a
+/// separate admission bound from the client connection cap.
+pub const PREVIEW_PROXY_UPGRADE_CAP: usize = 64;
 /// Maximum number of target-port listeners retained by one relay.
 /// Opening another target evicts the least-recently-used listener.
 pub const PREVIEW_PROXY_CAP: usize = 32;
@@ -386,6 +392,7 @@ struct ProxyShared {
     next_peer_id: AtomicU64,
     next_cdp_id: AtomicI64,
     shutdown: tokio::sync::watch::Receiver<bool>,
+    upgrade_slots: Arc<tokio::sync::Semaphore>,
     upgrades: Mutex<Vec<tokio::task::JoinHandle<()>>>,
 }
 
@@ -441,29 +448,33 @@ async fn spawn_proxy(target_port: u16, ring: Arc<ConsoleRing>) -> Result<ProxyRu
         next_peer_id: AtomicU64::new(1),
         next_cdp_id: AtomicI64::new(PROXY_CDP_ID_BASE),
         shutdown: stopped.clone(),
+        upgrade_slots: Arc::new(tokio::sync::Semaphore::new(PREVIEW_PROXY_UPGRADE_CAP)),
         upgrades: Mutex::new(Vec::new()),
     });
+    let connection_slots = Arc::new(tokio::sync::Semaphore::new(PREVIEW_PROXY_CONNECTION_CAP));
     let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
     let task = tokio::spawn(async move {
         let mut connections = tokio::task::JoinSet::new();
         let _ = ready_tx.send(());
         loop {
-            // Reap every connection that finished since the previous
-            // accept. `try_join_next` is non-blocking, so a busy listener
-            // cannot accumulate completed JoinSet entries indefinitely.
-            // Bound cleanup per turn so a stream of immediately-completing
-            // connections cannot starve the listener or shutdown signal.
-            for _ in 0..32 {
-                if connections.try_join_next().is_none() {
-                    break;
-                }
-            }
+            // Reap every connection that has finished since the previous
+            // accept. `try_join_next` is non-blocking, and no new connection
+            // is spawned during this drain, so the loop always reaches an
+            // empty set before accepting the next stream.
+            while connections.try_join_next().is_some() {}
             tokio::select! {
                 _ = stopped.changed() => break,
                 accepted = listener.accept() => {
                     let Ok((stream, _peer)) = accepted else { break };
+                    let Ok(connection_slot) = connection_slots.clone().try_acquire_owned() else {
+                        // This listener is local-only. Drop excess clients before
+                        // creating a task, so a connection flood cannot grow the
+                        // Tokio task set or consume all file descriptors.
+                        continue;
+                    };
                     let shared = Arc::clone(&shared);
                     connections.spawn(async move {
+                        let _connection_slot = connection_slot;
                         let io = hyper_util::rt::TokioIo::new(stream);
                         let service = hyper::service::service_fn(move |request| {
                             let shared = Arc::clone(&shared);
@@ -474,8 +485,7 @@ async fn spawn_proxy(target_port: u16, ring: Arc<ConsoleRing>) -> Result<ProxyRu
                 }
             }
         }
-        connections.abort_all();
-        while connections.join_next().await.is_some() {}
+        connections.shutdown().await;
         let upgrades = shared
             .upgrades
             .lock()
@@ -915,6 +925,9 @@ async fn forward_upgrade(
     shared: Arc<ProxyShared>,
     request: hyper::Request<hyper::body::Incoming>,
 ) -> hyper::Response<ProxyBody> {
+    let Ok(upgrade_slot) = Arc::clone(&shared.upgrade_slots).try_acquire_owned() else {
+        return text_response(503, "preview upgrade capacity exhausted");
+    };
     let (mut sender, _driver) = match connect_target(&shared).await {
         Ok(ready) => ready,
         Err(response) => return response,
@@ -936,6 +949,7 @@ async fn forward_upgrade(
     }
     let client_upgrade = hyper::upgrade::on(&mut response);
     let task = tokio::spawn(async move {
+        let _upgrade_slot = upgrade_slot;
         let (Ok(client), Ok(server)) = tokio::join!(client_upgrade, server_upgrade) else {
             return;
         };
@@ -997,6 +1011,9 @@ mod tests {
     use super::*;
     use futures_util::{SinkExt as _, StreamExt as _};
     use serde_json::Value;
+    use std::io;
+    use std::time::Duration;
+    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
     use tokio_tungstenite::tungstenite::Message;
 
     #[test]
@@ -1074,6 +1091,40 @@ mod tests {
         port
     }
 
+    async fn spawn_upgrade_target() -> u16 {
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.expect("target bind");
+        let port = listener.local_addr().expect("target addr").port();
+        tokio::spawn(async move {
+            loop {
+                let Ok((stream, _)) = listener.accept().await else { break };
+                tokio::spawn(async move {
+                    let io = hyper_util::rt::TokioIo::new(stream);
+                    let service = hyper::service::service_fn(|request| async move {
+                        let on_upgrade = hyper::upgrade::on(request);
+                        let response = hyper::Response::builder()
+                            .status(hyper::StatusCode::SWITCHING_PROTOCOLS)
+                            .header(hyper::header::UPGRADE, "websocket")
+                            .header(hyper::header::CONNECTION, "Upgrade")
+                            .body(full_body(Vec::new()))
+                            .expect("upgrade response");
+                        tokio::spawn(async move {
+                            if let Ok(upgraded) = on_upgrade.await {
+                                let _ = tokio::time::sleep(Duration::from_secs(30)).await;
+                                drop(upgraded);
+                            }
+                        });
+                        Ok::<_, std::convert::Infallible>(response)
+                    });
+                    let _ = hyper::server::conn::http1::Builder::new()
+                        .serve_connection(io, service)
+                        .with_upgrades()
+                        .await;
+                });
+            }
+        });
+        port
+    }
+
     async fn open_proxy(registry: &PreviewRegistry, target_port: u16) -> u16 {
         match registry.open(i64::from(target_port)).await.expect("preview_open") {
             wire::WorkspaceResultBody::PreviewOpen(result) => {
@@ -1100,6 +1151,32 @@ mod tests {
         let status = response.status();
         let headers = response.headers().clone();
         (status, headers, response.text().await.expect("body"))
+    }
+
+    async fn open_upgrade(port: u16, key: &str) -> tokio::net::TcpStream {
+        let mut stream = tokio::net::TcpStream::connect(("127.0.0.1", port))
+            .await
+            .expect("connect preview proxy");
+        let request = format!(
+            "GET /hmr HTTP/1.1\r\nHost: localhost\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n\r\n"
+        );
+        stream.write_all(request.as_bytes()).await.expect("write upgrade request");
+        let mut response = Vec::new();
+        let mut chunk = [0_u8; 512];
+        loop {
+            let read = tokio::time::timeout(Duration::from_secs(2), stream.read(&mut chunk))
+                .await
+                .expect("upgrade response timeout")
+                .expect("read upgrade response");
+            assert!(read > 0, "upgrade response ended before headers");
+            response.extend_from_slice(&chunk[..read]);
+            if response.windows(4).any(|window| window == b"\r\n\r\n") {
+                break;
+            }
+            assert!(response.len() < 8192, "upgrade response headers too large");
+        }
+        assert!(response.starts_with(b"HTTP/1.1 101"), "upgrade response: {response:?}");
+        stream
     }
 
     #[tokio::test]
@@ -1136,6 +1213,81 @@ mod tests {
         assert_eq!(open_proxy(&registry, target).await, proxy);
         registry.shutdown().await;
         assert!(tokio::net::TcpStream::connect(("127.0.0.1", proxy)).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn rejects_preview_connections_after_the_active_connection_cap() {
+        let registry = PreviewRegistry::new();
+        let target = spawn_target().await;
+        let proxy = open_proxy(&registry, target).await;
+        let mut held = Vec::with_capacity(PREVIEW_PROXY_CONNECTION_CAP);
+        for _ in 0..PREVIEW_PROXY_CONNECTION_CAP {
+            let mut stream = tokio::net::TcpStream::connect(("127.0.0.1", proxy))
+                .await
+                .expect("connect preview proxy");
+            stream
+                .write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\n")
+                .await
+                .expect("hold preview request open");
+            held.push(stream);
+        }
+        tokio::task::yield_now().await;
+
+        let mut rejected = tokio::net::TcpStream::connect(("127.0.0.1", proxy))
+            .await
+            .expect("connect over-cap preview client");
+        rejected
+            .write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
+            .await
+            .expect("write over-cap preview request");
+        let mut response = [0_u8; 1];
+        let read = tokio::time::timeout(Duration::from_secs(1), rejected.read(&mut response))
+            .await
+            .expect("over-cap preview client did not close");
+        match read {
+            Ok(0) => {}
+            Err(error) => assert!(matches!(
+                error.kind(),
+                io::ErrorKind::ConnectionReset | io::ErrorKind::UnexpectedEof
+            )),
+            Ok(bytes) => panic!("over-cap preview client received {bytes} bytes"),
+        }
+        drop(held);
+        registry.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn rejects_upgrades_after_the_copy_task_cap() {
+        let registry = PreviewRegistry::new();
+        let target = spawn_upgrade_target().await;
+        let proxy = open_proxy(&registry, target).await;
+        let mut held = Vec::with_capacity(PREVIEW_PROXY_UPGRADE_CAP);
+        for index in 0..PREVIEW_PROXY_UPGRADE_CAP {
+            held.push(open_upgrade(proxy, &format!("dGhlIHNhbXBsZSA{index:02}")).await);
+        }
+
+        let mut over_cap = tokio::net::TcpStream::connect(("127.0.0.1", proxy))
+            .await
+            .expect("connect over-cap upgrade");
+        over_cap
+            .write_all(
+                b"GET /hmr HTTP/1.1\r\nHost: localhost\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSA2NA==\r\nSec-WebSocket-Version: 13\r\n\r\n",
+            )
+            .await
+            .expect("write over-cap upgrade");
+        let mut response = [0_u8; 512];
+        let bytes = tokio::time::timeout(Duration::from_secs(2), over_cap.read(&mut response))
+            .await
+            .expect("over-cap response timeout")
+            .expect("read over-cap response");
+        assert!(
+            std::str::from_utf8(&response[..bytes])
+                .expect("response utf8")
+                .starts_with("HTTP/1.1 503")
+        );
+
+        drop(held);
+        registry.shutdown().await;
     }
 
     #[tokio::test]
@@ -1189,7 +1341,7 @@ mod tests {
         S: futures_util::Stream<Item = Result<Message, tungstenite::Error>> + Unpin,
     {
         loop {
-            let message = tokio::time::timeout(std::time::Duration::from_secs(10), socket.next())
+            let message = tokio::time::timeout(Duration::from_secs(10), socket.next())
                 .await
                 .unwrap_or_else(|_| panic!("no {what} within 10s"))
                 .unwrap_or_else(|| panic!("{what}: socket ended"))
@@ -1261,7 +1413,7 @@ mod tests {
         page.send(Message::text(network_done.to_string())).await.expect("network done");
         // Both also pipe to devtools (console first).
         assert!(next_text(&mut devtools, "console pipe").await.contains("consoleAPICalled"));
-        let tail = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        let tail = tokio::time::timeout(Duration::from_secs(10), async {
             loop {
                 let body = registry.tail(None).expect("tail");
                 let wire::WorkspaceResultBody::PreviewConsoleTail(result) = &body else {
@@ -1270,7 +1422,7 @@ mod tests {
                 if result.events.len() >= 2 {
                     break result.events.clone();
                 }
-                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                tokio::time::sleep(Duration::from_millis(50)).await;
             }
         })
         .await
@@ -1292,7 +1444,7 @@ mod tests {
 
         // Latest page connection wins; the earlier one gets a close frame.
         let mut replacement = connect_ws(proxy, "/__chatmux__/page").await;
-        let closed = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        let closed = tokio::time::timeout(Duration::from_secs(10), async {
             loop {
                 match page.next().await {
                     Some(Ok(Message::Close(frame))) => break frame,

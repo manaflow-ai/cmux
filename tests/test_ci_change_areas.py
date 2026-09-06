@@ -1,3 +1,4 @@
+# Keep CI change-area routing exercised when guard policy files change.
 #!/usr/bin/env python3
 """Behavioral tests for the CI path filter."""
 

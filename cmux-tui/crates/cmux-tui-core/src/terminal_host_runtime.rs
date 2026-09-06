@@ -33,8 +33,8 @@ use crate::terminal_host_protocol::{
     KITTY_IMAGE_ALIAS_COUNT_LEN, KITTY_IMAGE_ALIAS_ENCODED_LEN, LAUNCH_ACTIVATION_PROTOCOL_VERSION,
     MAX_FRAME_PAYLOAD, MAX_KITTY_IMAGE_ALIASES, MessageKind, PROTOCOL_VERSION,
     RESIZE_ACK_CANONICAL_CHANGED, TerminalExit, decode_host_launch_failure, decode_terminal_exit,
-    encode_host_launch_failure, encode_terminal_exit, read_frame, wait_for_native_child_status,
-    write_frame,
+    encode_host_launch_failure, encode_terminal_exit, read_frame,
+    wait_for_native_child_status_with_reap_result, write_frame,
 };
 
 const HOST_RECORD_VERSION: u32 = 4;
@@ -175,7 +175,7 @@ impl std::fmt::Debug for TerminalHostRecord {
 
 impl TerminalHostRecord {
     pub fn record_path(&self, root: &Path) -> PathBuf {
-        root.join(format!("{}.json", self.terminal_id))
+        crate::platform::normalize_filesystem_path(root.join(format!("{}.json", self.terminal_id)))
     }
 }
 
@@ -204,7 +204,7 @@ impl TerminalHostExitRecord {
     }
 
     pub fn record_path(&self, root: &Path) -> PathBuf {
-        root.join(format!("{}.exit", self.terminal_id))
+        crate::platform::normalize_filesystem_path(root.join(format!("{}.exit", self.terminal_id)))
     }
 }
 
@@ -508,6 +508,98 @@ mod unix {
         fn drop(&mut self) {
             if let Some(child) = self.child.as_mut() {
                 let _ = child.kill();
+                let _ = child.wait();
+            }
+        }
+    }
+
+    /// Own a PTY child until the host's reaper thread has taken responsibility
+    /// for it.  Every fallible setup step after `pty.spawn` keeps this guard
+    /// alive, so a failed reader, writer, callback, or thread setup cannot
+    /// leave the interactive child detached from its parent.
+    struct SpawnedPtyChild {
+        child: Option<Box<dyn cmux_pty::Child + Send + Sync>>,
+        process_groups: [Option<libc::pid_t>; 2],
+    }
+
+    fn validated_process_groups(
+        groups: impl IntoIterator<Item = Option<libc::pid_t>>,
+        host_group: libc::pid_t,
+    ) -> Vec<libc::pid_t> {
+        let mut valid = Vec::new();
+        for group in groups.into_iter().flatten() {
+            if group > 0 && group != host_group && !valid.contains(&group) {
+                valid.push(group);
+            }
+        }
+        valid
+    }
+
+    fn signal_validated_process_groups(
+        groups: impl IntoIterator<Item = Option<libc::pid_t>>,
+        host_group: libc::pid_t,
+        signal: libc::c_int,
+        mut send: impl FnMut(libc::pid_t, libc::c_int) -> bool,
+    ) -> bool {
+        let mut all_succeeded = true;
+        for group in validated_process_groups(groups, host_group) {
+            all_succeeded &= send(group, signal);
+        }
+        all_succeeded
+    }
+
+    impl SpawnedPtyChild {
+        fn new(
+            child: Box<dyn cmux_pty::Child + Send + Sync>,
+            process_group_leader: Option<libc::pid_t>,
+        ) -> Self {
+            let child_pid = child.process_id().and_then(|pid| libc::pid_t::try_from(pid).ok());
+            Self { child: Some(child), process_groups: [child_pid, process_group_leader] }
+        }
+
+        fn child(&self) -> &dyn cmux_pty::Child {
+            self.child.as_deref().expect("PTY child is present")
+        }
+
+        fn child_mut(&mut self) -> &mut (dyn cmux_pty::Child + Send + Sync) {
+            self.child.as_deref_mut().expect("PTY child is present")
+        }
+
+        fn wait_and_disarm(&mut self) -> TerminalExit {
+            let (exit, reaped) = wait_for_native_child_status_with_reap_result(self.child_mut());
+            if reaped {
+                self.disarm();
+            }
+            exit
+        }
+
+        fn disarm(&mut self) {
+            let _ = self.child.take();
+            self.process_groups = [None, None];
+        }
+    }
+
+    impl Drop for SpawnedPtyChild {
+        fn drop(&mut self) {
+            let host_group = unsafe { libc::getpgrp() };
+            let groups = validated_process_groups(self.process_groups, host_group);
+            let groups_signaled = signal_validated_process_groups(
+                groups.iter().copied().map(Some),
+                host_group,
+                libc::SIGKILL,
+                |group, signal| {
+                    // SAFETY: the group was returned by the PTY or child, is
+                    // positive, and is not the terminal-host process group.
+                    unsafe { libc::killpg(group, signal) == 0 }
+                },
+            );
+            if let Some(child) = self.child.as_deref_mut() {
+                // A valid process group already includes the child. Avoid a
+                // second direct PID signal unless group signaling failed, which
+                // could leave the child running while the guard waits below.
+                if groups.is_empty() || !groups_signaled {
+                    let _ = child.kill();
+                }
                 let _ = child.wait();
             }
         }
@@ -1688,7 +1780,9 @@ mod unix {
     }
 
     pub fn terminal_host_root(state_root: &Path, session: &str) -> PathBuf {
-        state_root.join(format!("terminal-hosts-{}", stable_token(session)))
+        crate::platform::normalize_filesystem_path(
+            state_root.join(format!("terminal-hosts-{}", stable_token(session))),
+        )
     }
 
     /// Strip every descriptor except the private bootstrap stdio before the
@@ -1778,7 +1872,8 @@ mod unix {
         let endpoint_root = PathBuf::from("/tmp").join(format!("cmux-th-{uid}"));
         prepare_private_dir(&endpoint_root)?;
         let endpoint = endpoint_root.join(format!("{terminal_hex}.sock"));
-        let record_path = root.join(format!("{terminal_hex}.json"));
+        let record_path =
+            crate::platform::normalize_filesystem_path(root.join(format!("{terminal_hex}.json")));
         if record_path.exists() || endpoint.exists() {
             anyhow::bail!("terminal host identity already exists");
         }
@@ -3352,8 +3447,31 @@ mod unix {
         frames
     }
 
-    fn snapshot_cwd(term: &Terminal, spawn_cwd: Option<&str>) -> Option<String> {
-        term.pwd().or_else(|| spawn_cwd.map(str::to_owned))
+    /// Persist a local spawn path with host-authenticated provenance. A host
+    /// can outlive its daemon, so a raw OSC 7 URL here would become the next
+    /// surface's inherited spawn directory after reattachment.
+    fn snapshot_cwd(
+        term: &Terminal,
+        spawn_cwd: Option<&str>,
+        owner_token: &CapabilityToken,
+        protocol_version: u16,
+    ) -> Option<String> {
+        // OSC 7 is terminal-controlled metadata and cannot prove that a path
+        // belongs to this host. Use only the authenticated spawn fallback.
+        let _ = term;
+        let path = spawn_cwd.and_then(crate::platform::spawn_cwd_to_local_path)?;
+        // Only the negotiated current protocol understands authenticated
+        // provenance markers. Treat legacy and unknown values as legacy wire
+        // format so peers never receive a marker they cannot decode.
+        if protocol_version != PROTOCOL_VERSION {
+            return Some(path.to_string_lossy().into_owned());
+        }
+        Some(format!(
+            "{}{}:{}",
+            crate::platform::SNAPSHOT_SPAWN_CWD_PREFIX,
+            encode_hex(owner_token.as_bytes()),
+            path.to_string_lossy()
+        ))
     }
 
     impl HostShared {
@@ -4568,7 +4686,7 @@ mod unix {
     }
 
     fn terminal_host_publication_lock_path(root: &Path) -> PathBuf {
-        root.join(TERMINAL_HOST_PUBLICATION_LOCK_FILE)
+        crate::platform::normalize_filesystem_path(root.join(TERMINAL_HOST_PUBLICATION_LOCK_FILE))
     }
 
     fn validate_terminal_host_publication_lock(
@@ -4877,9 +4995,11 @@ mod unix {
         if let Some(cwd) = launch.cwd.as_deref() {
             command.cwd(cwd);
         }
-        let cmux_pty::SpawnedPty { master, mut child } = pty.spawn(command)?;
-        let pid = child.process_id();
-        let killer = child.clone_killer();
+        let cmux_pty::SpawnedPty { master, child } = pty.spawn(command)?;
+        let process_group_leader = master.process_group_leader();
+        let mut child = SpawnedPtyChild::new(child, process_group_leader);
+        let pid = child.child().process_id();
+        let killer = child.child().clone_killer();
         let pty_poll_fd = master.as_raw_fd().context("open terminal-host PTY poll fd")?;
         let mut pty_reader = master.try_clone_reader()?;
         let pty_writer = master.take_writer()?;
@@ -5141,7 +5261,7 @@ mod unix {
                         child_host.termination_started.load(Ordering::Acquire);
                     let pty_drained = child_host.pty_drained.load(Ordering::Acquire);
                     if escalation_complete || (!termination_started && pty_drained) {
-                        let exit = wait_for_native_child_status(child.as_mut());
+                        let exit = child.wait_and_disarm();
                         child_host.child_reaped.store(true, Ordering::Release);
                         drop(signal);
                         *child_host.child_exit.0.lock().unwrap() = Some(exit);
@@ -5164,7 +5284,7 @@ mod unix {
             } else {
                 // Native Unix PTYs always expose a PID and support waitid;
                 // retain a conservative fallback for alternate backends.
-                let exit = wait_for_native_child_status(child.as_mut());
+                let exit = child.wait_and_disarm();
                 child_host.child_reaped.store(true, Ordering::Release);
                 child_host.mark_child_waitable();
                 let mut exited = child_host.child_exit.0.lock().unwrap();
@@ -5353,7 +5473,12 @@ mod unix {
                     colors: colors.clone(),
                     pid: host.pid,
                     command: host.command.clone(),
-                    cwd: snapshot_cwd(&term, host.cwd.as_deref()),
+                    cwd: snapshot_cwd(
+                        &term,
+                        host.cwd.as_deref(),
+                        &host.owner_token,
+                        selected_version,
+                    ),
                 },
                 colors,
                 snapshot_sequence,
@@ -6159,6 +6284,7 @@ mod unix {
     #[cfg(test)]
     mod tests {
         use super::*;
+        use cmux_pty::Child;
 
         fn test_kitty_state() -> KittyReplayState {
             KittyReplayState {
@@ -6220,6 +6346,75 @@ mod unix {
             fn clone_killer(&self) -> Box<dyn ChildKiller + Send + Sync> {
                 Box::new(Self)
             }
+        }
+
+        #[derive(Debug)]
+        struct GuardTestChild {
+            kills: Arc<AtomicUsize>,
+        }
+
+        impl ChildKiller for GuardTestChild {
+            fn kill(&mut self) -> std::io::Result<()> {
+                self.kills.fetch_add(1, Ordering::Relaxed);
+                Ok(())
+            }
+
+            fn clone_killer(&self) -> Box<dyn ChildKiller + Send + Sync> {
+                Box::new(Self { kills: Arc::clone(&self.kills) })
+            }
+        }
+
+        impl Child for GuardTestChild {
+            fn try_wait(&mut self) -> std::io::Result<Option<cmux_pty::ExitStatus>> {
+                Ok(Some(cmux_pty::ExitStatus::with_exit_code(0)))
+            }
+
+            fn wait(&mut self) -> std::io::Result<cmux_pty::ExitStatus> {
+                Ok(cmux_pty::ExitStatus::with_exit_code(0))
+            }
+
+            fn process_id(&self) -> Option<u32> {
+                Some(42)
+            }
+        }
+
+        #[test]
+        fn spawned_pty_child_disarm_prevents_late_kill() {
+            let kills = Arc::new(AtomicUsize::new(0));
+            let child = GuardTestChild { kills: Arc::clone(&kills) };
+            let mut guard = SpawnedPtyChild::new(Box::new(child), Some(123));
+            let _ = guard.wait_and_disarm();
+            assert_eq!(guard.process_groups, [None, None]);
+            drop(guard);
+            assert_eq!(kills.load(Ordering::Relaxed), 0);
+        }
+
+        #[test]
+        fn startup_child_cleanup_excludes_host_process_group() {
+            let host_group = unsafe { libc::getpgrp() };
+            let mut signaled = Vec::new();
+            signal_validated_process_groups(
+                [Some(host_group), Some(host_group + 1), Some(0), Some(-1)],
+                host_group,
+                libc::SIGKILL,
+                |group, signal| {
+                    signaled.push((group, signal));
+                    true
+                },
+            );
+            assert_eq!(signaled, vec![(host_group + 1, libc::SIGKILL)]);
+        }
+
+        #[test]
+        fn startup_child_cleanup_reports_group_signal_failure() {
+            let host_group = unsafe { libc::getpgrp() };
+            let all_succeeded = signal_validated_process_groups(
+                [Some(host_group + 1)],
+                host_group,
+                libc::SIGKILL,
+                |_group, _signal| false,
+            );
+            assert!(!all_succeeded);
         }
 
         fn exited_host_fixture_with_parser_at(
@@ -9079,13 +9274,48 @@ mod unix {
         #[test]
         fn late_snapshot_prefers_current_terminal_pwd_then_spawn_fallback() {
             let mut term = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
-            assert_eq!(snapshot_cwd(&term, Some("/spawn")), Some("/spawn".into()));
+            let owner_token =
+                CapabilityToken::from_bytes([7; crate::terminal_host::CAPABILITY_TOKEN_LEN]);
+            let marker = format!(
+                "{}{}:/spawn",
+                crate::platform::SNAPSHOT_SPAWN_CWD_PREFIX,
+                encode_hex(owner_token.as_bytes())
+            );
+            assert_eq!(
+                snapshot_cwd(&term, Some("/spawn"), &owner_token, PROTOCOL_VERSION),
+                Some(marker.clone())
+            );
 
             term.vt_write(b"\x1b]7;file:///live\x1b\\");
-            assert_eq!(snapshot_cwd(&term, Some("/spawn")), Some("file:///live".into()));
+            assert_eq!(
+                snapshot_cwd(&term, Some("/spawn"), &owner_token, PROTOCOL_VERSION),
+                Some(marker.clone())
+            );
 
             term.vt_write(b"\x1b]7;\x1b\\");
-            assert_eq!(snapshot_cwd(&term, Some("/spawn")), Some("/spawn".into()));
+            assert_eq!(
+                snapshot_cwd(&term, Some("/spawn"), &owner_token, PROTOCOL_VERSION),
+                Some(marker)
+            );
+            assert_eq!(
+                snapshot_cwd(&term, Some("file:///spawn"), &owner_token, PROTOCOL_VERSION),
+                None
+            );
+        }
+
+        #[test]
+        fn snapshot_cwd_uses_legacy_path_for_old_and_unknown_protocols() {
+            let term = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+            let owner_token =
+                CapabilityToken::from_bytes([7; crate::terminal_host::CAPABILITY_TOKEN_LEN]);
+            for protocol_version in [LEGACY_PROTOCOL_VERSION, PROTOCOL_VERSION + 1] {
+                let snapshot = snapshot_cwd(&term, Some("/spawn"), &owner_token, protocol_version);
+                assert_eq!(snapshot, Some("/spawn".into()));
+                assert_eq!(
+                    crate::platform::snapshot_cwd_to_local_path(snapshot.as_deref().unwrap(), None),
+                    Some(PathBuf::from("/spawn"))
+                );
+            }
         }
 
         #[test]
@@ -9160,7 +9390,7 @@ pub(crate) use unix::{
 
 #[cfg(not(unix))]
 pub fn terminal_host_root(state_root: &Path, session: &str) -> PathBuf {
-    state_root.join(format!("{session}.terminal-hosts"))
+    crate::platform::normalize_filesystem_path(state_root.join(format!("{session}.terminal-hosts")))
 }
 
 #[cfg(not(unix))]

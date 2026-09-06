@@ -101,6 +101,20 @@ final class PostHogAnalytics: @unchecked Sendable {
         }
     }
 
+    /// Capture one product event with the app version properties attached.
+    /// No-op when telemetry is disabled or the SDK never started. Used by the
+    /// Cloud VM request telemetry (`VMClientTelemetry`).
+    func capture(_ event: String, properties: [String: Any]) {
+        dispatchAsyncOnWorkQueue { [weak self] in
+            guard let self else { return }
+            self.startIfNeededOnWorkQueue()
+            guard self.didStart else { return }
+            var merged = properties
+            merged.merge(Self.versionProperties(infoDictionary: Bundle.main.infoDictionary ?? [:])) { current, _ in current }
+            self.capturePostHog(event, merged)
+        }
+    }
+
     func trackDailyActive(reason: String) {
         dispatchAsyncOnWorkQueue { [weak self] in
             self?.trackDailyActiveOnWorkQueue(reason: reason, flush: true)

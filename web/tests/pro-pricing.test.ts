@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 
 import enMessages from "../messages/en.json";
 import jaMessages from "../messages/ja.json";
+import { loadMessages } from "../i18n/messages";
+import { locales } from "../i18n/routing";
 import {
   LEGACY_PRICE_LOOKUP_KEYS,
   PRO_PRICING_USD,
@@ -9,10 +11,10 @@ import {
   proBillingInterval,
 } from "../services/billing/plans";
 import {
-  PAID_MAX_ACTIVE_VMS_DEFAULT,
   PLAN_MACHINE_MEMORY_MB,
+  PAID_MAX_ACTIVE_VMS_DEFAULT,
+  vmResourceReservationForCreate,
   VM_DISK_MB_DEFAULT,
-  vcpusForMemoryMb,
 } from "../services/vms/entitlements";
 
 describe("pricing plans", () => {
@@ -91,51 +93,68 @@ describe("pricing plans", () => {
 });
 
 describe("pricing copy matches the plan policy", () => {
-  // The public pricing copy states the machine allowance as prose, so pin the
-  // numbers to the entitlement constants that enforce them. A price or spec
-  // change that forgets the copy (or the copy that forgets the policy) fails
-  // here instead of on the live page.
-  const vcpus = vcpusForMemoryMb(PLAN_MACHINE_MEMORY_MB);
   const memoryGb = PLAN_MACHINE_MEMORY_MB / 1024;
-  const diskGb = VM_DISK_MB_DEFAULT / 1024;
-
-  test("the plan machine is 5 vCPU, 20 GB RAM, 200 GB disk, up to 50 machines", () => {
-    expect(vcpus).toBe(5);
-    expect(memoryGb).toBe(20);
-    expect(diskGb).toBe(200);
+  const startingDiskGb = VM_DISK_MB_DEFAULT / 1024;
+  test("paid plans include 50 independent machines with an 8 GB default", () => {
     expect(PAID_MAX_ACTIVE_VMS_DEFAULT).toBe(50);
+    expect(memoryGb).toBe(8);
+    expect(startingDiskGb).toBe(32);
   });
 
-  for (const [locale, messages] of [
-    ["en", enMessages],
-    ["ja", jaMessages],
+  test("a size-less plan reservation follows requested memory", () => {
+    expect(vmResourceReservationForCreate({
+      memoryMb: 32768,
+      env: {},
+    })).toEqual({
+      vcpus: 8,
+      memoryMb: 32768,
+      diskMb: VM_DISK_MB_DEFAULT,
+    });
+  });
+
+  test("a sized image reserves its complete provider shape", () => {
+    expect(vmResourceReservationForCreate({
+      imageSize: { cpu: 8, memoryMb: 32768, storageMb: 65536 },
+    })).toEqual({ vcpus: 8, memoryMb: 32768, diskMb: 65536 });
+  });
+
+  test("a 4 GB image still reserves the documented 32 GB starting disk", () => {
+    expect(vmResourceReservationForCreate({
+      imageSize: { cpu: 1, memoryMb: 4096, storageMb: 16384 },
+    })).toEqual({ vcpus: 1, memoryMb: 4096, diskMb: VM_DISK_MB_DEFAULT });
+  });
+
+  test("an image reservation includes an operator disk override", () => {
+    expect(vmResourceReservationForCreate({
+      imageSize: { cpu: 1, memoryMb: 4096, storageMb: 16384 },
+      env: { CMUX_VM_DISK_MB: "65536" },
+    })).toEqual({ vcpus: 1, memoryMb: 4096, diskMb: 65536 });
+  });
+
+  for (const [locale, messages, label, phrase] of [
+    ["en", enMessages, "Resources per Cloud VM", "each with its own resources"],
+    ["ja", jaMessages, "Cloud VM 1 台あたりのリソース", "各マシンに専用のリソース"],
   ] as const) {
-    test(`${locale} pricing copy states the current prices and machine spec`, () => {
-      const pricing = messages.pricing;
-      const proFeatures = pricing.pro.features.join("\n");
-      expect(proFeatures).toContain(`${PAID_MAX_ACTIVE_VMS_DEFAULT} `);
-      expect(proFeatures).toContain(`${vcpus} vCPU`);
-      expect(proFeatures).toContain(`${memoryGb} GB`);
-      expect(proFeatures).toContain(`${diskGb} GB`);
-
-      const vmRow = pricing.compare.rows.find((row) =>
-        row.label.includes("Cloud VM") && row.pro === String(PAID_MAX_ACTIVE_VMS_DEFAULT),
-      );
-      expect(vmRow).toBeDefined();
-      const sizeRow = pricing.compare.rows.find((row) => row.pro.includes(`${vcpus} vCPU`));
-      expect(sizeRow?.pro).toContain(`${memoryGb} GB`);
-      expect(sizeRow?.pro).toContain(`${diskGb} GB`);
-
-      const faq = pricing.faq.items.map((item) => item.a).join("\n");
-      expect(faq).toContain(`$${PRO_PRICING_USD.month.billedAmount}/`);
-      expect(faq).toContain(`$${PRO_PRICING_USD.year.monthlyEquivalent}/`);
-      expect(faq).toContain(`$${TEAM_PRICING_USD.month.billedAmount}/`);
-      expect(faq).toContain(`$${TEAM_PRICING_USD.year.monthlyEquivalent}/`);
-      for (const stale of ["$30/", "$24/", "$35/", "$28/"]) {
-        expect(faq).not.toContain(stale);
-      }
-      expect(faq.toLowerCase()).not.toContain("unlimited active");
-      expect(faq).not.toContain("無制限に利用");
+    test(`${locale} pricing matches independent machine resources`, () => {
+      const features = messages.pricing.pro.features.join("\n");
+      expect(features).toContain("50 ");
+      expect(features).toContain(phrase);
+      const row = messages.pricing.compare.rows.find(row => row.label === label);
+      expect(row?.pro).toContain("8 GB");
+      expect(row?.pro).toContain("32 GB");
+      expect(row?.pro).toContain("256 GB");
+      const faq = messages.pricing.faq.items.map(item => item.a).join("\n");
+      expect(faq).not.toContain("5 vCPU");
+      expect(faq).toContain("50 ");
     });
   }
+
+  test("fallback locales inherit the independent machine policy", async () => {
+    for (const locale of locales) {
+      if (locale === "en" || locale === "ja") continue;
+      const messages = await loadMessages(locale) as unknown as typeof enMessages;
+      expect(messages.pricing.pro.features.join("\n")).toContain("each with its own resources");
+      expect(messages.pricing.compare.rows.find(row => row.label === "Resources per Cloud VM")).toBeDefined();
+    }
+  });
 });

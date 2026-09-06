@@ -9,11 +9,16 @@ extension MobileShellComposite {
             || terminalFidelity == "render_grid"
         let supportsTerminalBytes = capabilities.contains("terminal.bytes.v1")
         let supportsVerifiedReplay = capabilities.contains("terminal.render_grid.verified_replay.v1")
-        if supportsVerifiedReplay, supportsRenderGrid {
-            return .renderGrid
-        }
+        // Verified render-grid replay is useful for snapshots and alternate
+        // TUI surfaces, but it must not displace the dedicated terminal lane
+        // for the primary surface. Render-grid applies can wait on a replay
+        // fence while a keyboard resize is in flight; raw terminal bytes do
+        // not have that dependency.
         if supportsRenderGrid, supportsTerminalBytes {
             return .hybrid
+        }
+        if supportsVerifiedReplay, supportsRenderGrid {
+            return .renderGrid
         }
         if supportsRenderGrid {
             return .renderGrid

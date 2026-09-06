@@ -2,6 +2,14 @@ import AppKit
 import CmuxBrowser
 import WebKit
 
+/// The bounded result of preparing one browser WebView for automation input.
+nonisolated enum BrowserAutomationDocumentReadinessResult: Sendable, Equatable {
+    case committed
+    case superseded
+    case cancelled
+    case timedOut
+}
+
 extension BrowserPanel {
     func setupSameDocumentNavigationMessageHandler(for webView: WKWebView) {
         let observedWebViewInstanceID = webViewInstanceID
@@ -155,6 +163,63 @@ extension BrowserPanel {
     ) async -> BrowserAutomationDocumentReadinessOutcome {
         guard ObjectIdentifier(webView) == expectedWebViewIdentifier else { return .superseded }
         return await automationDocumentReadiness.waitForCommit(instanceID: webViewInstanceID)
+    }
+
+    /// Ensures that the current WebView instance has a committed document without
+    /// blocking the socket worker or the main actor.
+    @MainActor
+    func ensureAutomationDocumentReady(
+        expectedWebViewIdentifier: ObjectIdentifier,
+        timeout: Duration = .seconds(3),
+        reason: String
+    ) async -> BrowserAutomationDocumentReadinessResult {
+        guard !Task.isCancelled else { return .cancelled }
+        guard ObjectIdentifier(webView) == expectedWebViewIdentifier,
+              let blankURL = URL(string: "about:blank") else {
+            return .superseded
+        }
+
+        if webView.url == nil,
+           !webView.isLoading,
+           webView.backForwardList.currentItem == nil {
+            // Discarded tabs preserve the user's page intent. Restore it before
+            // falling back to a real about:blank document for an empty new tab.
+            let restored = restoreDiscardedWebViewIfNeeded(reason: reason)
+            if !restored, let preserved = currentURL {
+                navigate(to: preserved)
+            } else if !restored || Self.isAboutBlankURL(currentURL) {
+                navigate(to: blankURL)
+            }
+        }
+
+        guard ObjectIdentifier(webView) == expectedWebViewIdentifier else {
+            return .superseded
+        }
+
+        return await withTaskGroup(of: BrowserAutomationDocumentReadinessResult.self) { group in
+            group.addTask { [weak self] in
+                guard let self else { return .cancelled }
+                switch await self.waitForAutomationDocumentCommit(
+                    expectedWebViewIdentifier: expectedWebViewIdentifier
+                ) {
+                case .committed: return .committed
+                case .superseded: return .superseded
+                case .cancelled: return .cancelled
+                }
+            }
+            group.addTask {
+                do {
+                    // This is the command's real readiness deadline, not a settle/poll delay.
+                    try await ContinuousClock().sleep(for: timeout)
+                    return .timedOut
+                } catch {
+                    return .cancelled
+                }
+            }
+            let result = await group.next() ?? .cancelled
+            group.cancelAll()
+            return result
+        }
     }
 
     func recoverIfAutomationUnresponsive(

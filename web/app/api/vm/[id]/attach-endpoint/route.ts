@@ -1,3 +1,4 @@
+import { preconnectFreestyle } from "../../../../../services/vms/drivers/freestyle";
 import {
   jsonResponse,
   resolveVmRouteAccountScope,
@@ -17,6 +18,8 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ): Promise<Response> {
+  // Warm the Freestyle connection while the caller is being verified.
+  preconnectFreestyle();
   return withAuthedVmApiRoute(
     request,
     "/api/vm/[id]/attach-endpoint",
@@ -41,10 +44,10 @@ export async function POST(
       const account = resolveVmRouteAccountScope(user, request);
       if (!account.ok) return account.response;
       setSpanAttributes(span, { "cmux.vm.id": id });
-      // Transport selection: "cmux-remote" is the cmux-tui remote daemon — the only
-      // transport cmux Cloud machines serve. Clients that do not ask keep the legacy
-      // WebSocket PTY/RPC endpoint on providers that still run cmuxd-remote; on a
-      // cmux-tui-only machine that request answers 409 vm_attach_transport_unsupported.
+      // Transport selection: "cmux-remote" is the cmux-tui remote daemon, the only
+      // transport current Cloud machines serve. Clients that do not ask may use a
+      // legacy WebSocket PTY/RPC endpoint only if a future provider advertises one;
+      // a cmux-tui-only machine answers 409 vm_attach_transport_unsupported.
       const transport = optionalString(body.transport);
       if (transport === "cmux-remote") {
         let deviceFingerprint: string | undefined;
@@ -62,6 +65,7 @@ export async function POST(
           const endpoint = await runVmWorkflow(openVmCmuxRemote({
             userId: user.id,
             billingTeamId: account.entitlements.billingTeamId,
+            maxActiveVms: account.entitlements.maxActiveVms,
             teamIds: user.teamIds,
             providerVmId: id,
             deviceFingerprint,
@@ -87,6 +91,7 @@ export async function POST(
         const endpoint = await runVmWorkflow(openAttachEndpoint({
           userId: user.id,
           billingTeamId: account.entitlements.billingTeamId,
+          maxActiveVms: account.entitlements.maxActiveVms,
           callerPlanId: account.entitlements.planId,
           teamIds: user.teamIds,
           providerVmId: id,

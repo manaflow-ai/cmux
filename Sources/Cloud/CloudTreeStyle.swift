@@ -84,13 +84,16 @@ struct CloudTreeStyle: Equatable, Identifiable, Sendable {
     var machineNameLineHeight: CGFloat { machineNameSize + 3.5 }
     var machineSubtitleLineHeight: CGFloat { detailSize + 3.5 }
 
-    func machineRowHeight(hasStats: Bool) -> CGFloat {
+    /// `hasUsage` adds the coderouter spend line under the stats in the
+    /// two-line layout; single-line rows carry it inline at a fixed height.
+    func machineRowHeight(hasStats: Bool, hasUsage: Bool = false) -> CGFloat {
         switch machineRowLayout {
         case .singleLine:
             return rowHeight + (machineBand ? 7 : 2)
         case .twoLine:
             let lines = machineNameLineHeight + CloudTreeRowGrid.machineLineSpacing + machineSubtitleLineHeight
                 + (hasStats && showsMachineStats ? CloudTreeRowGrid.machineLineSpacing + CloudTreeRowGrid.machineStatsLineHeight : 0)
+                + (hasUsage ? CloudTreeRowGrid.machineLineSpacing + CloudTreeRowGrid.machineStatsLineHeight : 0)
             return machineVerticalPadding * 2 + lines
         }
     }

@@ -180,6 +180,7 @@ pub(super) fn parse(args: &[String]) -> Result<CommandPlan, UsageError> {
 fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
     let action = match strs(words).as_slice() {
         ["status"] => super::lifecycle::ServerAction::Status,
+        ["stats"] => super::lifecycle::ServerAction::Stats,
         ["ensure"] => super::lifecycle::ServerAction::Ensure,
         ["stop"] => super::lifecycle::ServerAction::Stop { force: flags.boolean("force") },
         ["reload-config"] => super::lifecycle::ServerAction::ReloadConfig,
@@ -192,7 +193,10 @@ fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
             let messages = &crate::localization::catalog().local_server;
             return Err(UsageError::new(messages.unknown_server_action(
                 action,
-                super::suggestion(action, &["start", "ensure", "status", "stop", "reload-config"]),
+                super::suggestion(
+                    action,
+                    &["stats", "start", "ensure", "status", "stop", "reload-config"],
+                ),
             )));
         }
         _ => {
@@ -2734,7 +2738,7 @@ pub(super) fn run_session_reset_state(global: GlobalArgs, plan: SessionResetStat
     }
     let state_root =
         match plan.state.map(PathBuf::from).or_else(cmux_tui_core::platform::workspace_state_dir) {
-            Some(path) => path,
+            Some(path) => cmux_tui_core::platform::normalize_filesystem_path(path),
             None => {
                 return super::wire::print_local_error(
                     &json!({
@@ -2941,6 +2945,15 @@ mod tests {
         let tokens = tokenize(&strings(&["workspace", "create", "--name", "value"]))
             .expect("value flag must tokenize");
         assert_eq!(tokens.flags.values.get("name"), Some(&Some("value".to_string())));
+    }
+
+    #[test]
+    fn server_stats_typo_suggests_stats_action() {
+        let error = match parse(&strings(&["server", "stat"])) {
+            Err(error) => error,
+            Ok(_) => panic!("unknown server action must be rejected"),
+        };
+        assert!(error.0.contains("Did you mean `stats`?"), "{error}");
     }
 
     #[test]

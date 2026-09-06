@@ -213,10 +213,32 @@ struct SimulatorPanelThemeTests {
             RunLoop.main.run(until: Date().addingTimeInterval(0.01))
         }
         let bounds = view.bounds.integral
-        guard let bitmap = view.bitmapImageRepForCachingDisplay(in: bounds) else { return nil }
-        bitmap.size = bounds.size
-        view.cacheDisplay(in: bounds, to: bitmap)
-        return bitmap.colorAt(x: 2, y: 2)?.usingColorSpace(.sRGB)?.hexString()
+        // NSHostingView's cacheDisplay path can return the host window's
+        // material instead of the SwiftUI layer on macOS 26. Render the layer
+        // directly so this assertion observes the pane's actual background.
+        guard let layer = view.layer else { return nil }
+        let width = Int(bounds.width)
+        let height = Int(bounds.height)
+        guard width > 2, height > 2 else { return nil }
+        var bytes = [UInt8](repeating: 0, count: width * height * 4)
+        guard let context = CGContext(
+            data: &bytes,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: width * 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return nil }
+        context.translateBy(x: 0, y: CGFloat(height))
+        context.scaleBy(x: 1, y: -1)
+        layer.render(in: context)
+        let offset = (2 * width + 2) * 4
+        guard offset + 3 < bytes.count else { return nil }
+        return String(
+            format: "#%02X%02X%02X",
+            bytes[offset], bytes[offset + 1], bytes[offset + 2]
+        )
     }
 
 }

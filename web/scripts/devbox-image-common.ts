@@ -4,17 +4,22 @@
  * (verify-devbox-image.ts), and the promote step (promote-devbox-image.ts).
  *
  * The image source of truth is web/services/vms/images/devbox/: a plain
- * Dockerfile plus the files it COPYs. No daemon binary is baked: cmux-tui is
- * installed by the drivers at create time from the pinned files.cmux.com
- * manifest (web/services/vms/drivers/cmuxTuiDaemon.ts); the image only ships
- * the cmux-devbox-boot supervisor.
+ * Dockerfile plus the files it COPYs (the desktop layer under desktop/). The
+ * pins the Freestyle replay installs (agent versions, the cua driver, the
+ * desktop apt packages, the Ghostty .deb) are read from the Dockerfile's ARG
+ * and ENV lines here, never kept as a second copy. No daemon binary is baked
+ * into the container image: cmux-tui is installed by the drivers at create
+ * time from the pinned files.cmux.com manifest
+ * (web/services/vms/drivers/cmuxTuiDaemon.ts); the image only ships the
+ * cmux-devbox-boot supervisor.
  */
 import { execSync } from "node:child_process";
 import { createHash } from "node:crypto";
+import { Buffer } from "node:buffer";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { vmImageSizeRank, type VmImageSizeName } from "../services/vms/images/sizes";
+import { VM_IMAGE_SIZES, VM_IMAGE_SIZE_NAMES, vmImageSizeRank, type VmImageSizeName } from "../services/vms/images/sizes";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const webRoot = path.resolve(__dirname, "..");
@@ -30,20 +35,145 @@ export const DEVBOX_TEMPLATE_FILES = [
   "cmux-bashrc",
   "cmux-devbox-boot",
   "cmux-motd",
+  "cmux-terminfo.sh",
+  "cmux-terminfo.src",
   "seed-history",
 ] as const;
 
 /**
+ * Proves the guest resolves every TERM name cmux may export to the overlay,
+ * including indexed bright colors instead of SGR 90. The explicit path check
+ * ensures a stock entry or a user's home directory cannot shadow it.
+ */
+export const devboxTerminfoCheckCommand = [
+  "for t in xterm-ghostty ghostty xterm-256color; do",
+  '[ "$(tput -T$t colors)" = 256 ]',
+  "&& infocmp -x $t | grep -qw Tc && infocmp -x $t | grep -qw Su",
+  "&& infocmp -x $t | head -1 | grep -q /etc/terminfo/",
+  "&& [ \"$(tput -T$t setaf 8 | od -An -tx1 | tr -d ' \\n')\" = 1b5b33383b353b386d ]",
+  "&& [ \"$(tput -T$t setab 8 | od -An -tx1 | tr -d ' \\n')\" = 1b5b34383b353b386d ]",
+  "&& [ \"$(tput -T$t setaf 7 | od -An -tx1 | tr -d ' \\n')\" = 1b5b33376d ]",
+  "&& [ \"$(tput -T$t setaf 16 | od -An -tx1 | tr -d ' \\n')\" = 1b5b33383b353b31366d ]",
+  '|| { echo "terminfo check failed for $t"; exit 1; }; done && echo terminfo-ok',
+].join(" ");
+
+/** Compile the checked-in overlay before any per-TERM cache is seeded. */
+export const devboxTerminfoInstallCommand =
+  `test -s /etc/cmux/terminfo.src && tic -x -o /etc/terminfo /etc/cmux/terminfo.src && chmod -R a+rX /etc/terminfo && ${devboxTerminfoCheckCommand}`;
+
+/**
+ * Proves the baked daemon's direct-WebSocket path, not only its TCP listener.
+ * The client runs inside the guest, so this also works when the operator's
+ * Mac has no IPv6 route or VPC tunnel. It enrolls a temporary device,
+ * performs authenticated RPC, creates a PTY, takes a terminal snapshot,
+ * reconnects, and confirms that the marker survives. Cleanup revokes the
+ * temporary device and removes the workspace before a snapshot can capture
+ * test state.
+ */
+export function cmuxTuiWebsocketSmokeCommand(
+  session = "cloud",
+  binary = "/root/.cmux/bin/cmux-tui",
+): string {
+  const shell = `#!/usr/bin/env bash
+set -euo pipefail
+export HOME=/root
+BIN=${binary}
+SESSION=${session}
+ROOT=/tmp/cmux-tui-websocket-smoke
+ROUTE='ws://[::1]:1337/v1/link'
+MARKER="CMUX_WS_SMOKE_${session}_$$"
+CONNECT_PID=""
+INVITATION_ID=""
+DEVICE_FINGERPRINT=""
+WORKSPACE_ID=""
+PROCESS_ID=""
+rm -rf "$ROOT"
+mkdir -m 700 -p "$ROOT/state"
+rpc() {
+  "$BIN" remote rpc "$ROUTE" --state-dir "$ROOT/state" --lanes single --connect-timeout-seconds 45 --reconnect-attempts 1 --request "$1"
+}
+cleanup() {
+  if [ -n "$CONNECT_PID" ]; then
+    kill "$CONNECT_PID" 2>/dev/null || true
+    wait "$CONNECT_PID" 2>/dev/null || true
+  fi
+  if [ -n "$PROCESS_ID" ]; then
+    KILL_REQUEST="$(jq -nc --arg process "$PROCESS_ID" '{type:"signal-process",process:$process,signal:"kill"}')"
+    rpc "$KILL_REQUEST" >/dev/null 2>&1 || true
+  fi
+  if [ -n "$WORKSPACE_ID" ]; then
+    CLOSE_REQUEST="$(jq -nc --arg workspace "$WORKSPACE_ID" '{type:"close-workspace",workspace:$workspace}')"
+    rpc "$CLOSE_REQUEST" >/dev/null 2>&1 || true
+  fi
+  if [ -n "$DEVICE_FINGERPRINT" ]; then
+    "$BIN" remote enroll revoke "$DEVICE_FINGERPRINT" --session "$SESSION" --json >/dev/null 2>&1 || true
+  fi
+  if [ -n "$INVITATION_ID" ]; then
+    "$BIN" remote enroll deny "$INVITATION_ID" --session "$SESSION" --json >/dev/null 2>&1 || true
+  fi
+  rm -rf "$ROOT"
+}
+trap cleanup EXIT
+
+"$BIN" remote enroll create --session "$SESSION" --ttl 300 --advertise "$ROUTE" --json >"$ROOT/create.json"
+jq -r '.. | strings | select(startswith("cmux://enroll/"))' "$ROOT/create.json" | head -1 >"$ROOT/invitation"
+test -s "$ROOT/invitation"
+chmod 600 "$ROOT/invitation"
+("$BIN" remote connect --invite-file "$ROOT/invitation" --device-name "snapshot-websocket-smoke" --state-dir "$ROOT/state" --session "$SESSION" --headless --json --lanes single --connect-timeout-seconds 60 --reconnect-attempts 2 >"$ROOT/connect.out" 2>"$ROOT/connect.err") &
+CONNECT_PID=$!
+for attempt in $(seq 1 90); do
+  PENDING="$("$BIN" remote enroll pending --session "$SESSION" --json 2>/dev/null || true)"
+  INVITATION_ID="$(printf '%s' "$PENDING" | jq -r 'if type == "array" then (.[0].invitation_id // empty) else (.pending[0].invitation_id // .invitations[0].invitation_id // empty) end' 2>/dev/null || true)"
+  DEVICE_FINGERPRINT="$(printf '%s' "$PENDING" | jq -r 'if type == "array" then (.[0].device_fingerprint // empty) else (.pending[0].device_fingerprint // .invitations[0].device_fingerprint // empty) end' 2>/dev/null || true)"
+  if [ -n "$INVITATION_ID" ]; then break; fi
+  sleep 1
+done
+test -n "$INVITATION_ID"
+"$BIN" remote enroll approve "$INVITATION_ID" --session "$SESSION" --json >/dev/null
+sleep 2
+kill "$CONNECT_PID" 2>/dev/null || true
+wait "$CONNECT_PID" 2>/dev/null || true
+CONNECT_PID=""
+
+CAPABILITIES="$(rpc '{"type":"capabilities"}')"
+echo "$CAPABILITIES" | jq -e '.type == "capabilities"' >/dev/null
+WORKSPACE="$(rpc '{"type":"open-workspace","root":"/tmp"}')"
+WORKSPACE_ID="$(echo "$WORKSPACE" | jq -r '.id // .result.Ok.id')"
+test -n "$WORKSPACE_ID" && test "$WORKSPACE_ID" != "null"
+SPAWN_REQUEST="$(jq -nc --arg workspace "$WORKSPACE_ID" --arg marker "$MARKER" '{type:"spawn-process",workspace:$workspace,argv:["bash","-lc",("printf "+$marker+"; sleep 60")],cwd:null,env:{},io:{type:"pty",cols:120,rows:40,term:"xterm-256color",eof:"control-d"},lifetime:"detached"}')"
+SPAWN="$(rpc "$SPAWN_REQUEST")"
+PROCESS_ID="$(echo "$SPAWN" | jq -r '.process // .result.Ok.process')"
+test -n "$PROCESS_ID" && test "$PROCESS_ID" != "null"
+sleep 2
+SNAPSHOT_REQUEST="$(jq -nc --arg process "$PROCESS_ID" '{type:"snapshot-process-terminal",process:$process}')"
+FIRST="$(rpc "$SNAPSHOT_REQUEST")"
+echo "$FIRST" | jq -e --arg marker "$MARKER" 'tostring | contains($marker)' >/dev/null
+FIRST_SEQUENCE="$(echo "$FIRST" | jq -r '.snapshot.through_sequence // .result.Ok.snapshot.through_sequence')"
+test "$FIRST_SEQUENCE" -ge 1
+SECOND="$(rpc "$SNAPSHOT_REQUEST")"
+echo "$SECOND" | jq -e --arg marker "$MARKER" 'tostring | contains($marker)' >/dev/null
+SECOND_SEQUENCE="$(echo "$SECOND" | jq -r '.snapshot.through_sequence // .result.Ok.snapshot.through_sequence')"
+test "$SECOND_SEQUENCE" -ge "$FIRST_SEQUENCE"
+echo "websocket-smoke-ok marker=$MARKER through_sequence=$FIRST_SEQUENCE->$SECOND_SEQUENCE"
+`;
+  const encoded = Buffer.from(shell, "utf8").toString("base64");
+  return `printf %s ${encoded} | base64 -d >/tmp/cmux-tui-websocket-smoke.sh && chmod 700 /tmp/cmux-tui-websocket-smoke.sh && bash /tmp/cmux-tui-websocket-smoke.sh`;
+}
+
+/**
  * The desktop layer (ported from the retired Blaxel cmux-devbox image): an
- * openbox/TigerVNC desktop with a tint2 dock, Ghostty, Chrome, Thunar and
- * noVNC on 6901. Baked by build-devbox-freestyle.ts (a full VM with
- * systemd); the container providers stay shell-only.
+ * openbox/TigerVNC desktop with a tint2 dock, Ghostty, Chrome, Thunar, the
+ * accessibility bus for computer-use, and noVNC on 6901
+ * (web/services/vms/images/desktop.ts is the contract). The Dockerfile bakes
+ * it and starts it from cmux-devbox-boot; build-devbox-freestyle.ts installs
+ * the same files and runs it from the cmux-desktop systemd unit.
  */
 export const devboxDesktopDir = path.join(devboxDir, "desktop");
 export const DEVBOX_DESKTOP_FILES = [
   "WALLPAPER.md",
   "cmux-desktop-boot",
   "cmux-desktop.service",
+  "desktop-env.sh",
   "ghostty-cmux.desktop",
   "google-chrome-cmux.desktop",
   "start-vnc.sh",
@@ -52,9 +182,67 @@ export const DEVBOX_DESKTOP_FILES = [
   "wallpaper.jpg",
 ] as const;
 
-/** Ghostty ships no upstream .deb; this community build is pinned by release tag. */
-export const DEVBOX_GHOSTTY_DEB_URL =
-  "https://github.com/mkasberg/ghostty-ubuntu/releases/download/1.3.1-0-ppa2/ghostty_1.3.1-0.ppa2_amd64_24.04.deb";
+export type DevboxDesktopInstall = {
+  /** The checked-in file, relative to the devbox template dir. */
+  readonly source: `desktop/${string}`;
+  /** Where the image carries it. */
+  readonly target: string;
+  readonly mode: number;
+};
+
+/**
+ * Where every desktop file lands in the image. The one map the Dockerfile's
+ * COPY lines, the Freestyle bake's file writes, and the verifier's
+ * byte-identity checks are all pinned to (tests/vm-devbox-desktop.test.ts),
+ * so a path can only change in one place.
+ */
+export const DEVBOX_DESKTOP_INSTALLS: readonly DevboxDesktopInstall[] = [
+  { source: "desktop/google-chrome-cmux.desktop", target: "/etc/cmux/apps/google-chrome-cmux.desktop", mode: 0o644 },
+  { source: "desktop/thunar-cmux.desktop", target: "/etc/cmux/apps/thunar-cmux.desktop", mode: 0o644 },
+  { source: "desktop/ghostty-cmux.desktop", target: "/etc/cmux/apps/ghostty-cmux.desktop", mode: 0o644 },
+  { source: "desktop/tint2rc", target: "/etc/cmux/tint2rc", mode: 0o644 },
+  { source: "desktop/wallpaper.jpg", target: "/usr/share/backgrounds/cmux/wallpaper.jpg", mode: 0o644 },
+  { source: "desktop/start-vnc.sh", target: "/usr/local/bin/start-vnc.sh", mode: 0o755 },
+  { source: "desktop/cmux-desktop-boot", target: "/usr/local/bin/cmux-desktop-boot", mode: 0o755 },
+  { source: "desktop/cmux-desktop.service", target: "/etc/systemd/system/cmux-desktop.service", mode: 0o644 },
+  { source: "desktop/desktop-env.sh", target: "/etc/cmux/desktop-env.sh", mode: 0o644 },
+];
+
+/**
+ * The desktop apt packages, from the Dockerfile's
+ * `ARG CMUX_IMAGE_DESKTOP_PACKAGES="..."` (a quoted list; Docker joins its
+ * continuation lines). The Freestyle bake installs exactly this list.
+ */
+export function devboxDesktopPackages(dockerfile = readDevboxDockerfile()): string[] {
+  const joined = dockerfile.replace(/\\\n/g, " ");
+  const match = /^ARG CMUX_IMAGE_DESKTOP_PACKAGES="([^"]+)"/m.exec(joined);
+  if (!match) throw new Error("devbox Dockerfile is missing ARG CMUX_IMAGE_DESKTOP_PACKAGES");
+  const packages = match[1].split(/\s+/).filter(Boolean);
+  if (packages.length === 0) throw new Error("devbox Dockerfile's CMUX_IMAGE_DESKTOP_PACKAGES is empty");
+  return packages;
+}
+
+/**
+ * Ghostty ships no upstream .deb; the Dockerfile pins a community build for
+ * Ubuntu 24.04 by release tag (`ARG CMUX_IMAGE_GHOSTTY_DEB_URL=`), and the
+ * Freestyle bake installs that exact file.
+ */
+export function devboxGhosttyDebUrl(dockerfile = readDevboxDockerfile()): string {
+  const url = /^ARG CMUX_IMAGE_GHOSTTY_DEB_URL=(\S+)$/m.exec(dockerfile)?.[1];
+  if (!url) throw new Error("devbox Dockerfile is missing ARG CMUX_IMAGE_GHOSTTY_DEB_URL");
+  return url;
+}
+
+/**
+ * The SHA-256 of that .deb (`ARG CMUX_IMAGE_GHOSTTY_DEB_SHA256=`): both
+ * recipes verify the downloaded bytes against it before dpkg runs as root, so
+ * a moved or tampered release asset fails the bake instead of installing.
+ */
+export function devboxGhosttyDebSha256(dockerfile = readDevboxDockerfile()): string {
+  const sha = /^ARG CMUX_IMAGE_GHOSTTY_DEB_SHA256=([0-9a-f]{64})$/m.exec(dockerfile)?.[1];
+  if (!sha) throw new Error("devbox Dockerfile is missing a 64-hex ARG CMUX_IMAGE_GHOSTTY_DEB_SHA256");
+  return sha;
+}
 
 const AGENT_PIN_ARGS: readonly { arg: string; pkg: string; binary: string }[] = [
   { arg: "CMUX_IMAGE_CLAUDE_CODE_VERSION", pkg: "@anthropic-ai/claude-code", binary: "claude" },
@@ -380,6 +568,7 @@ export function promoteImageManifestEntry(
     options.sizes && options.sizes.length > 0
       ? [...options.sizes].sort((a, b) => vmImageSizeRank(a.size.name) - vmImageSizeRank(b.size.name))
       : [{ imageId: entry.imageId }];
+  const promotesLocalDevBase = kinds.includes("base") && variants.some((variant) => variant.size?.name === "sm");
   for (const kind of kinds) {
     for (const variant of variants) {
       const clash = manifest.images.find((candidate) =>
@@ -399,6 +588,7 @@ export function promoteImageManifestEntry(
   const demoted = manifest.images.map((candidate) => {
     if (candidate.provider !== entry.provider) return candidate;
     const next: DevboxManifestEntry = { ...candidate };
+    if (promotesLocalDevBase && next.provider === entry.provider && next.defaultForLocalDev) next.defaultForLocalDev = false;
     // A sized promotion demotes the provider's size-less defaults too: the
     // ladder replaces the single-shape image, not just one row of it.
     const sameSize = promotedSizes.has(sizeKey(next)) || (sizeKey(next) === "" && promotedSizes.size > 0);
@@ -417,6 +607,9 @@ export function promoteImageManifestEntry(
         kind,
         defaultForKind: true,
         ...(variant.size ? { size: variant.size } : {}),
+        ...(promotesLocalDevBase && kind === "base" && variant.size?.name === "sm"
+          ? { defaultForLocalDev: true }
+          : {}),
         ...(notes ? { notes } : {}),
       });
     }
@@ -472,6 +665,75 @@ export function imageManifestProblems(manifest: DevboxImageManifest): string[] {
   for (const [key, entries] of defaults) {
     if (entries.length > 1) {
       problems.push(`${key}: ${entries.length} entries flagged defaultForKind (${entries.map((e) => e.version).join(", ")})`);
+    }
+  }
+  return problems;
+}
+
+/**
+ * Checks the production Freestyle defaults as a complete machine-size
+ * ladder. Historical, size-less entries remain valid for rollback, but active
+ * defaults must cover every size with the exact shape that the resolver uses.
+ */
+export function devboxImageLadderProblems(
+  manifest: DevboxImageManifest,
+  provider: DevboxProvider = "freestyle",
+): string[] {
+  const problems: string[] = [];
+  for (const kind of ["base", "desktop"] as const) {
+    const defaults = manifest.images.filter(
+      (entry) => entry.provider === provider && (entry.kind ?? "base") === kind && entry.defaultForKind,
+    );
+    if (defaults.length === 0) {
+      problems.push(`${provider}/${kind}: no default image ladder`);
+      continue;
+    }
+    const byName = new Map<string, DevboxManifestEntry>();
+    for (const entry of defaults) {
+      const sizeName = entry.size?.name;
+      if (!sizeName) {
+        problems.push(`${entry.version}: ${provider}/${kind} default is size-less`);
+        continue;
+      }
+      if (byName.has(sizeName)) {
+        problems.push(`${provider}/${kind}/${sizeName}: duplicate default images`);
+        continue;
+      }
+      byName.set(sizeName, entry);
+      const expected = VM_IMAGE_SIZES.find((size) => size.name === sizeName);
+      if (!expected) continue;
+      if (
+        entry.size?.cpu !== expected.cpu ||
+        entry.size.memoryMb !== expected.memoryMb ||
+        entry.size.storageMb !== expected.storageMb
+      ) {
+        problems.push(
+          `${entry.version}: ${provider}/${kind}/${sizeName} shape is ` +
+            `${entry.size?.cpu} vCPU/${entry.size?.memoryMb} MiB/${entry.size?.storageMb} MiB; ` +
+            `expected ${expected.cpu} vCPU/${expected.memoryMb} MiB/${expected.storageMb} MiB`,
+        );
+      }
+    }
+    for (const name of VM_IMAGE_SIZE_NAMES) {
+      if (!byName.has(name)) problems.push(`${provider}/${kind}: missing default size ${name}`);
+    }
+    const ids = new Map<string, string>();
+    for (const [name, entry] of byName) {
+      const previous = ids.get(entry.imageId);
+      if (previous) {
+        problems.push(`${provider}/${kind}: image ${entry.imageId} is used for sizes ${previous} and ${name}`);
+      } else {
+        ids.set(entry.imageId, name);
+      }
+    }
+  }
+  const localDefaults = manifest.images.filter((entry) => entry.provider === provider && entry.defaultForLocalDev);
+  if (localDefaults.length !== 1) {
+    problems.push(`${provider}: expected exactly one defaultForLocalDev entry, found ${localDefaults.length}`);
+  } else {
+    const local = localDefaults[0];
+    if ((local.kind ?? "base") !== "base" || local.size?.name !== "sm" || !local.defaultForKind) {
+      problems.push(`${local.version}: defaultForLocalDev must be the base sm default`);
     }
   }
   return problems;

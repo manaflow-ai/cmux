@@ -78,6 +78,19 @@ def test_sdk_ci_tracks_tui_verification_and_packaging_workflows() -> None:
         assert required_paths <= set(paths)
 
 
+def test_spec_inventory_checks_are_not_duplicated_in_sdk_contract() -> None:
+    spec = workflow("cmux-tui-spec.yml")
+    sdk_contract = workflow_job(workflow("cmux-tui-sdks.yml"), "contract")
+
+    inventory_checks = (
+        "python3 cmux-tui/scripts/test_check_spec_inventory.py",
+        "python3 cmux-tui/scripts/check-spec-inventory.py",
+    )
+    for command in inventory_checks:
+        assert command in spec
+        assert command not in sdk_contract
+
+
 def test_macos_tui_tests_use_a_short_temp_root_for_unix_sockets() -> None:
     tui = workflow("cmux-tui.yml")
     test_job = workflow_job(tui, "test")
@@ -85,6 +98,63 @@ def test_macos_tui_tests_use_a_short_temp_root_for_unix_sockets() -> None:
     assert "name: Use short temporary directory for macOS socket tests" in test_job
     assert "if: runner.os == 'macOS'" in test_job
     assert 'echo "TMPDIR=/tmp" >> "$GITHUB_ENV"' in test_job
+
+
+def valgrind_build_step() -> str:
+    job = workflow_job(workflow("cmux-tui.yml"), "valgrind-leak-check-shard")
+    marker = "      - name: Build test binaries\n"
+    assert marker in job
+    return job.split(marker, 1)[1].split(
+        "      - name: Verify baseline terminal replay behavior", 1
+    )[0]
+
+
+def test_valgrind_build_selects_only_startup_cargo_targets() -> None:
+    build = valgrind_build_step()
+
+    assert re.findall(
+        r"(?m)^\s+-p ([A-Za-z0-9_-]+) --(bin|test) "
+        r"([A-Za-z0-9_-]+) \\\s*$",
+        build,
+    ) == [
+        ("cmux-tui", "bin", "cmux-tui"),
+        ("ghostty-vt", "test", "terminal"),
+    ]
+    assert re.search(
+        r"cargo test \\\s+-p cmux-tui --bin cmux-tui \\\s+"
+        r"-p ghostty-vt --test terminal \\\s+"
+        r"--locked --no-run --message-format=json",
+        build,
+    )
+    assert "cargo test --workspace" not in build
+    assert build.count("cargo test") == 1
+
+
+def test_valgrind_runner_keeps_binary_and_test_safety_guards() -> None:
+    job = workflow_job(workflow("cmux-tui.yml"), "valgrind-leak-check-shard")
+
+    assert "matrix.shard" not in job
+    assert "VALGRIND_SHARD: startup" in job
+    assert "name: Verify baseline terminal replay behavior" in job
+    baseline_step = job.split(
+        "      - name: Verify baseline terminal replay behavior", 1
+    )[1].split("      - name: Run test binaries under valgrind", 1)[0]
+    assert "if: matrix.shard == 'startup'" not in baseline_step
+    assert "pending_wrap_replay_preserves_cursor_with_origin_mode: test" in job
+    assert '"$bin" pending_wrap_replay_preserves_cursor_with_origin_mode \\\n' in job
+    assert job.count("pending_wrap_replay_preserves_cursor_with_origin_mode") == 4
+    assert 're.fullmatch(r"(?:cmux_tui|terminal)-[0-9a-f]+", name)' in job
+    assert 'if not seen:\n              raise SystemExit("cargo did not report any test binaries")' in job
+    assert 'if not selected:\n              raise SystemExit(f"Valgrind shard {shard} selected no test binaries")' in job
+    assert 'if [[ -z "$cmux_tui_bin" || -z "$terminal_bin" ]]; then' in job
+    assert 'require_exact_test()' in job
+    assert 'pending_wrap_replay_preserves_cursor_with_origin_mode' in job
+    for test_name in (
+        "config::tests::load_uses_file_ghostty_defaults_without_invoking_external_resolver",
+        "config::tests::ghostty_file_reader_enforces_byte_limit_during_read",
+        "config::tests::ghostty_config_helper_output_reader_enforces_byte_limit",
+    ):
+        assert test_name in job
 
 
 def test_sdk_registry_names_do_not_overlap_tui_cli_packages() -> None:
@@ -1389,6 +1459,61 @@ def test_stable_pypi_publish_is_not_triggered_directly_by_a_tag() -> None:
     assert "push:\n    tags:" not in text
 
 
+def test_tui_pypi_publishers_reconcile_every_wheel_after_upload() -> None:
+    cases = (
+        (
+            "tui-publish-pypi.yml",
+            "publish",
+            "Publish package distributions to PyPI",
+            "Verify every PyPI wheel after upload",
+            "${{ inputs.version }}",
+        ),
+        (
+            "cmux-tui-nightly.yml",
+            "publish-pypi",
+            "Publish nightly package distributions to PyPI",
+            "Verify every nightly PyPI wheel after upload",
+            "${{ needs.version.outputs.pypi_version }}",
+        ),
+    )
+
+    for name, job_name, publish_name, verify_name, version in cases:
+        document = yaml.load(workflow(name), Loader=yaml.BaseLoader)
+        assert isinstance(document, dict)
+        jobs = document.get("jobs")
+        assert isinstance(jobs, dict)
+        job = jobs.get(job_name)
+        assert isinstance(job, dict)
+        steps = job.get("steps")
+        assert isinstance(steps, list)
+        names = [step.get("name", "") for step in steps]
+        publish_index = names.index(publish_name)
+        verify_index = names.index(verify_name)
+        assert publish_index < verify_index
+        assert verify_index == len(steps) - 1
+
+        verify_step = steps[verify_index]
+        assert isinstance(verify_step, dict)
+        assert verify_step.get("env", {}).get("VERSION") == version
+        run = verify_step.get("run", "")
+        assert "bash cmux-tui/scripts/verify-pypi-tui-upload.sh dist \"$VERSION\"" in run
+        assert "secrets." not in run
+        assert "gh-action-pypi-publish" not in run
+        assert "twine " not in run
+
+
+def test_tui_pypi_reconciliation_behavior_test_is_in_tui_ci() -> None:
+    text = workflow("cmux-tui-sdks.yml")
+    triggers = workflow_triggers(text)
+    for event in ("push", "pull_request"):
+        event_config = triggers[event]
+        assert isinstance(event_config, dict)
+        paths = event_config["paths"]
+        assert isinstance(paths, list)
+        assert "tests/test_tui_pypi_postpublish_reconcile.sh" in paths
+    assert "run: bash tests/test_tui_pypi_postpublish_reconcile.sh" in text
+
+
 def test_npm_publishers_pin_the_oidc_capable_npm_version() -> None:
     for name in (
         "tui-publish-npm.yml",
@@ -1591,6 +1716,193 @@ def test_relay_attestations_survive_a_skipped_windows_build() -> None:
         section = text.split(job_anchor, 1)[1].split("runs-on:", 1)[0]
         assert "always() &&" in section
         assert "needs.package.result == 'success'" in section
+
+
+PACKAGE_BUILD_JOBS = (
+    "build",
+    "cloudflare-relay",
+    "build-windows",
+    "package",
+    "verify-linux-packages",
+    "attest-npm-packages",
+)
+
+
+def _package_workflow_document() -> dict[str, object]:
+    document = yaml.load(
+        workflow("cmux-tui-build-package.yml"),
+        Loader=yaml.BaseLoader,  # noqa: S506 - preserve raw workflow expressions
+    )
+    assert isinstance(document, dict)
+    return document
+
+
+def _checkout_target(
+    ref_input: str,
+    event_ref: str,
+    event_sha: str,
+) -> tuple[str, str]:
+    """Model actions/checkout's self-repository ref/commit resolution.
+
+    An empty `ref` input delegates to the event's ref and SHA. A non-empty
+    input is an explicit branch, tag, or SHA; SHA inputs are checked out by
+    commit, while symbolic refs remain symbolic.
+    """
+
+    if not ref_input:
+        return event_ref, event_sha
+    if re.fullmatch(r"[0-9a-fA-F]{40}|[0-9a-fA-F]{64}", ref_input):
+        return "", ref_input
+    return ref_input, ""
+
+
+def _attestation_checkout_allowed(
+    checkout_ref: str,
+    checked_out_sha: str,
+    caller_sha: str,
+) -> bool:
+    """Model the attestation job's fail-closed source guard."""
+
+    if checked_out_sha != caller_sha:
+        return False
+    return not checkout_ref or checkout_ref == caller_sha
+
+
+def test_package_jobs_use_one_optional_checkout_ref_input() -> None:
+    document = _package_workflow_document()
+    jobs = document["jobs"]
+    assert isinstance(jobs, dict)
+
+    for job_name in PACKAGE_BUILD_JOBS:
+        job = jobs[job_name]
+        assert isinstance(job, dict)
+        steps = job["steps"]
+        assert isinstance(steps, list)
+        checkouts = [
+            step
+            for step in steps
+            if isinstance(step, dict)
+            and "actions/checkout" in str(step.get("uses", ""))
+        ]
+        assert len(checkouts) == 1, job_name
+        checkout = checkouts[0]
+        assert checkout["name"] == "Checkout caller or requested ref"
+        with_config = checkout["with"]
+        assert isinstance(with_config, dict)
+        assert with_config["persist-credentials"] == "false"
+        assert with_config["ref"] == "${{ inputs.checkout_ref }}"
+
+
+def test_package_checkout_ref_preserves_workflow_call_pr_branch_tag_and_sha() -> None:
+    document = _package_workflow_document()
+    jobs = document["jobs"]
+    assert isinstance(jobs, dict)
+    build = jobs["build"]
+    assert isinstance(build, dict)
+    checkout = next(
+        step
+        for step in build["steps"]
+        if isinstance(step, dict)
+        and "actions/checkout" in str(step.get("uses", ""))
+    )
+    with_config = checkout["with"]
+    assert isinstance(with_config, dict)
+    expression = with_config["ref"]
+
+    # These values exercise the contexts that call this reusable workflow. The
+    # event ref and SHA are retained when the optional input is empty; explicit
+    # branch, tag, and SHA inputs pass through unchanged.
+    source_sha = "a" * 40
+    requested_sha = "b" * 40
+    scenarios = (
+        (
+            "workflow_call input",
+            "refs/tags/cmux-tui-v1.2.3",
+            "refs/heads/main",
+            source_sha,
+            ("refs/tags/cmux-tui-v1.2.3", ""),
+        ),
+        (
+            "PR",
+            "",
+            "refs/pull/42/merge",
+            source_sha,
+            ("refs/pull/42/merge", source_sha),
+        ),
+        (
+            "branch",
+            "",
+            "refs/heads/feature/build",
+            source_sha,
+            ("refs/heads/feature/build", source_sha),
+        ),
+        (
+            "tag",
+            "",
+            "refs/tags/cmux-tui-v1.2.3",
+            source_sha,
+            ("refs/tags/cmux-tui-v1.2.3", source_sha),
+        ),
+        (
+            "SHA",
+            requested_sha,
+            "refs/heads/main",
+            source_sha,
+            ("", requested_sha),
+        ),
+    )
+    assert expression == "${{ inputs.checkout_ref }}"
+    for name, ref_input, event_ref, event_sha, expected in scenarios:
+        assert _checkout_target(ref_input, event_ref, event_sha) == expected, name
+
+
+def test_package_attestation_stays_bound_to_caller_digest_and_ref() -> None:
+    attest = workflow_job(
+        workflow("cmux-tui-build-package.yml"),
+        "attest-npm-packages",
+    )
+    assert '--source-digest "$GITHUB_SHA"' in attest
+    assert '--source-ref "$GITHUB_REF"' in attest
+    assert (
+        '--signer-workflow "$GITHUB_REPOSITORY/.github/workflows/'
+        'cmux-tui-build-package.yml"'
+    ) in attest
+
+
+def test_package_attestation_rejects_divergent_checkout_ref() -> None:
+    workflow_text = workflow("cmux-tui-build-package.yml")
+    attest_job = workflow_job(workflow_text, "attest-npm-packages")
+    document = _package_workflow_document()
+    jobs = document["jobs"]
+    assert isinstance(jobs, dict)
+    attest_document = jobs["attest-npm-packages"]
+    assert isinstance(attest_document, dict)
+    steps = attest_document["steps"]
+    assert isinstance(steps, list)
+    guard = next(
+        step
+        for step in steps
+        if isinstance(step, dict)
+        and step.get("name") == "Verify attestation checkout matches caller"
+    )
+    guard_run = guard["run"]
+    assert isinstance(guard_run, str)
+    guard_env = guard["env"]
+    assert isinstance(guard_env, dict)
+    assert guard_env["CHECKOUT_REF"] == "${{ inputs.checkout_ref }}"
+    assert 'git rev-parse HEAD' in guard_run
+    assert '"$checked_out_sha" != "$GITHUB_SHA"' in guard_run
+    assert '"$CHECKOUT_REF" != "$GITHUB_SHA"' in guard_run
+    assert attest_job.index("Verify attestation checkout matches caller") < attest_job.index(
+        "Download npm package archive"
+    )
+
+    caller_sha = "a" * 40
+    other_sha = "b" * 40
+    assert _attestation_checkout_allowed("", caller_sha, caller_sha)
+    assert not _attestation_checkout_allowed("refs/tags/other", caller_sha, caller_sha)
+    assert not _attestation_checkout_allowed(other_sha, other_sha, caller_sha)
+    assert not _attestation_checkout_allowed("", other_sha, caller_sha)
 
 
 def test_npm_builder_accepts_relay_release_candidate_versions() -> None:

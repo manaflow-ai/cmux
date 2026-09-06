@@ -154,7 +154,10 @@ public struct BetaFeaturesSection: View {
                 ? String(localized: "settings.betaFeatures.cloudMachines.subtitleOn", defaultValue: "Shows Cloud in the right sidebar plus the Cloud Machines settings, palette commands, and new-workspace entries.")
                 : String(localized: "settings.betaFeatures.cloudMachines.subtitleOff", defaultValue: "Hides every Cloud Machines surface unless remote rollout enables it.")
         ) {
-            Toggle("", isOn: Binding(get: { cloudMachines.current }, set: { cloudMachines.set($0) }))
+            Toggle("", isOn: Binding(get: { cloudMachines.current }, set: {
+                cloudMachines.set($0)
+                NotificationCenter.default.post(name: Notification.Name("rightSidebarBetaFeatureDidChange"), object: nil)
+            }))
                 .labelsHidden()
                 .controlSize(.small)
                 .accessibilityIdentifier("SettingsBetaCloudMachinesToggle")

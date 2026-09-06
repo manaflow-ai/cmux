@@ -10,6 +10,11 @@ export LANG="${LANG:-C.UTF-8}"
 export USER="${USER:-$(id -un)}"
 export HOME="${HOME:-$(getent passwd "$(id -u)" | cut -d: -f6)}"
 
+# Keep a persistent HOME's terminfo from shadowing cmux's capabilities. Login
+# shells source the same file through /etc/profile.d; this covers non-login
+# interactive shells opened by the session daemon.
+[ -f /etc/profile.d/cmux-terminfo.sh ] && . /etc/profile.d/cmux-terminfo.sh
+
 # First interactive shell on a fresh HOME (the persistent volume shadows the
 # image's /root): seed history so ble.sh ghost text completes agent launches.
 if [ ! -f "$HOME/.bash_history" ] && [ -f /etc/cmux/seed-history ]; then

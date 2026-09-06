@@ -7,12 +7,14 @@
         "snapshot": "Cette Cloud VM ne prend pas en charge l’état enregistré de la VM.",
         "restore": "Ce type de Cloud VM ne prend pas en charge la restauration de l’état enregistré de la VM.",
         "fork": "Cette Cloud VM ne prend pas en charge la copie vers une nouvelle VM.",
+        "openPort": "Le fournisseur de cette Cloud VM ne peut pas exposer les ports de la machine sous forme d’URL de prévisualisation.",
         "default": "Cette Cloud VM ne prend pas en charge l’opération demandée."
       },
       "action": {
         "snapshot": "Ne réessayez pas. Le travail sur ce type de machine est conservé sur son volume personnel persistant.",
         "restore": "Ne réessayez pas. Le travail sur ce type de machine est conservé sur son volume personnel persistant.",
         "fork": "Ne réessayez pas. Créez une nouvelle VM avec `cmux vm new`.",
+        "openPort": "Ne réessayez pas. Accédez au service depuis la machine avec `cmux vm exec`, ou utilisez un type de machine capable d’ouvrir des ports.",
         "default": "Ne réessayez pas. Exécutez `cmux vm ls` ou contactez le support si cela vous semble incorrect."
       }
     },
@@ -59,6 +61,15 @@
     "genericTitle": "Connexion impossible",
     "genericBody": "Réessayez. Si le problème persiste, contactez l’assistance.",
     "backToSignIn": "Retour à la connexion"
+  },
+  "cloudPublicationAccess": {
+    "title": "Vous n’avez pas accès",
+    "signIn": "Se connecter à cmux",
+    "signedInAs": "Connecté en tant que {identity}",
+    "switchAccount": "Changer de compte",
+    "invalidTitle": "Ce lien d’accès n’est pas valide",
+    "invalidBody": "Retournez sur le site et réessayez.",
+    "footer": "L’accès est géré par cmux."
   },
   "common": {
     "downloadForMac": "Télécharger pour Mac",
@@ -261,7 +272,18 @@
       "metaTitle": "coderouter — cmux",
       "metaDescription": "Gérez les comptes d’IA partagés et acheminez les requêtes avec coderouter.",
       "title": "coderouter",
-      "description": "coderouter achemine les requêtes LLM entre les comptes fournisseurs avec basculement et planification selon l’utilisation."
+      "description": "coderouter achemine les requêtes LLM entre les comptes fournisseurs avec basculement et planification selon l’utilisation.",
+      "machines": {
+        "title": "Machines",
+        "description": "Utilisation de coderouter par machine pour {team} sur les {days} derniers jours.",
+        "machineColumn": "Machine",
+        "tokensColumn": "Jetons au total",
+        "apiEquivalentColumn": "Valeur équivalente API",
+        "unnamed": "Machine sans nom",
+        "empty": "Aucune machine n'a utilisé coderouter au cours des {days} derniers jours.",
+        "unavailable": "L'utilisation par machine est temporairement indisponible.",
+        "estimateNote": "La valeur équivalente API est une estimation basée sur les prix publics, pas une dépense réelle."
+      }
     },
     "accountMenu": {
       "label": "Menu du compte",
@@ -1161,6 +1183,14 @@
         "shortcuts": {
           "when": "Prédicats de contexte facultatifs par action (clauses `when` de style VS Code), indexés par identifiant d'action cmux. Chaque valeur est une expression booléenne sur des clés de contexte, combinée avec !, &&, || et des parenthèses. Clés booléennes : sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Les clés typées acceptent des comparaisons : la chaîne sidebarMode (files, find, sessions, feed ou dock) et les entiers paneCount et workspaceCount. Les opérateurs de comparaison sont ==, !=, =~ (expression régulière), <, <=, >, >= et `in [a, b]` ; une clé inconnue ou absente vaut false. Les littéraux booléens true et false sont également acceptés ; `key == false` équivaut à `!key`. Le raccourci de l'action ne se déclenche (et n'entre en conflit avec d'autres raccourcis) que lorsque la clause est vraie. Exemples : { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } sélectionne les espaces de travail avec Ctrl+1–9 partout sauf lorsque la barre latérale droite a le focus ; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } limite une liaison à la barre latérale Rechercher lorsque l'espace de travail comporte plusieurs panneaux.",
           "showModifierHoldHints": "Affiche les pastilles d’indication de raccourcis pendant que Cmd ou Control est maintenu enfoncé."
+        },
+        "fileEditor": {
+          "wordWrap": "Retourne les longues lignes au bord droit de l’éditeur au lieu de faire défiler horizontalement.",
+          "syntaxHighlighting": "Colore les tokens du code dans l’éditeur de fichiers intégré.",
+          "lineNumbers": "Affiche une gouttière de numéros de ligne dans l’éditeur de fichiers intégré.",
+          "indentGuides": "Trace des guides d’indentation verticaux dans l’éditeur de fichiers intégré.",
+          "currentLineHighlight": "Met en surbrillance la ligne du curseur lorsqu’aucune sélection n’est active.",
+          "tabWidth": "Largeur d’une tabulation, en colonnes, pour l’indentation et les guides d’indentation."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

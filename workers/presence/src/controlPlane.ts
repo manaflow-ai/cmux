@@ -984,6 +984,25 @@ export class ControlPlaneCore {
     attachment.wantPasses = payload.wantPasses;
     socket.setAttachment(attachment);
 
+    // One control socket owns an endpoint identity. App and notification
+    // extension lifecycles can race to reconnect with the same identity; let
+    // the new, already-authenticated hello win and close only the older
+    // handshaken socket. Without this ownership rule both sockets continue to
+    // receive directory revisions and each client can tear down the other's
+    // session while trying to recover.
+    for (const candidate of this.deps.sockets()) {
+      if (candidate === socket) continue;
+      const candidateAttachment = candidate.getAttachment();
+      if (!candidateAttachment?.helloed
+        || candidateAttachment.endpointId !== payload.endpointId) continue;
+      try {
+        candidate.close(1000, "superseded");
+      } catch {
+        // already closed
+      }
+      await this.deps.storage.delete(BEARER_PREFIX + candidateAttachment.sessionId);
+    }
+
     // Confirm-on-hello BEFORE reading the head revision: the overlay flip
     // (seeded -> active, plus version/track/capabilities) bumps the revision
     // and broadcasts to peers, and the snapshot this client is about to

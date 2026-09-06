@@ -15,6 +15,7 @@ import {
 import { forkVm, runVmWorkflow } from "../../../../../services/vms/workflows";
 import { VmTimingRecorder } from "../../../../../services/vms/timings";
 import { authProviderErrorResponse } from "../../../../../services/vms/authErrors";
+import { vmRequestLocale } from "../../../../../services/vms/vmErrorMessages";
 import {
   idempotencyKeyFromRequest,
   parseOptionalObjectBody,
@@ -94,10 +95,11 @@ export async function POST(
         });
       } catch (err) {
         if (isVmNotFoundError(err)) return notFoundVm(id);
-        const response = vmCreateLikeErrorResponse(err, {
+        const response = await vmCreateLikeErrorResponse(err, {
           operation: "fork",
           planId: entitlements.planId,
           retryAction: "Run `cmux vm ls`, then delete an active VM with `cmux vm rm <id>` before forking another.",
+          locale: vmRequestLocale(request),
         });
         if (response) return response;
         throw err;

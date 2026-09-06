@@ -7,12 +7,14 @@
         "snapshot": "Ta Cloud VM nie obsługuje zapisanego stanu VM.",
         "restore": "Ten typ Cloud VM nie obsługuje przywracania zapisanego stanu VM.",
         "fork": "Ta Cloud VM nie obsługuje kopiowania do nowej VM.",
+        "openPort": "Dostawca tej Cloud VM nie może udostępniać portów maszyny jako adresów URL podglądu.",
         "default": "Ta Cloud VM nie obsługuje żądanej operacji."
       },
       "action": {
         "snapshot": "Nie ponawiaj próby. Praca na tym typie maszyny jest zachowywana na trwałym woluminie domowym.",
         "restore": "Nie ponawiaj próby. Praca na tym typie maszyny jest zachowywana na trwałym woluminie domowym.",
         "fork": "Nie ponawiaj próby. Utwórz nową VM za pomocą `cmux vm new`.",
+        "openPort": "Nie ponawiaj próby. Uzyskaj dostęp do usługi z wnętrza maszyny za pomocą `cmux vm exec` lub użyj typu maszyny, który może otwierać porty.",
         "default": "Nie ponawiaj próby. Uruchom `cmux vm ls` lub skontaktuj się z pomocą, jeśli uważasz, że to błąd."
       }
     },
@@ -59,6 +61,15 @@
     "genericTitle": "Nie udało się zalogować",
     "genericBody": "Spróbuj ponownie. Jeśli problem będzie się powtarzał, skontaktuj się z pomocą.",
     "backToSignIn": "Wróć do logowania"
+  },
+  "cloudPublicationAccess": {
+    "title": "Nie masz dostępu",
+    "signIn": "Zaloguj się do cmux",
+    "signedInAs": "Zalogowano jako {identity}",
+    "switchAccount": "Zmień konto",
+    "invalidTitle": "Ten link dostępu jest nieprawidłowy",
+    "invalidBody": "Wróć do witryny i spróbuj ponownie.",
+    "footer": "Dostępem zarządza cmux."
   },
   "common": {
     "downloadForMac": "Pobierz na Mac",
@@ -261,7 +272,18 @@
       "metaTitle": "coderouter — cmux",
       "metaDescription": "Zarządzaj współdzielonymi kontami AI i kieruj żądania za pomocą coderouter.",
       "title": "coderouter",
-      "description": "coderouter kieruje żądania LLM między kontami dostawców z przełączaniem awaryjnym i planowaniem według użycia."
+      "description": "coderouter kieruje żądania LLM między kontami dostawców z przełączaniem awaryjnym i planowaniem według użycia.",
+      "machines": {
+        "title": "Maszyny",
+        "description": "Użycie coderouter na maszynę dla {team} w ciągu ostatnich {days} dni.",
+        "machineColumn": "Maszyna",
+        "tokensColumn": "Łącznie tokenów",
+        "apiEquivalentColumn": "Wartość równoważna API",
+        "unnamed": "Maszyna bez nazwy",
+        "empty": "Żadna maszyna nie korzystała z coderouter w ciągu ostatnich {days} dni.",
+        "unavailable": "Użycie na maszynę jest tymczasowo niedostępne.",
+        "estimateNote": "Wartość równoważna API to szacunek oparty na publicznych cenach katalogowych, a nie rzeczywisty koszt."
+      }
     },
     "accountMenu": {
       "label": "Menu konta",
@@ -1162,6 +1184,14 @@
         "shortcuts": {
           "when": "Opcjonalne predykaty kontekstu dla poszczególnych akcji (klauzule `when` w stylu VS Code), indeksowane według identyfikatora akcji cmux. Każda wartość jest wyrażeniem logicznym nad kluczami kontekstu, łączonym za pomocą !, &&, || oraz nawiasów. Klucze logiczne: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Klucze typowane obsługują porównania: łańcuch sidebarMode (files, find, sessions, feed lub dock) oraz liczby całkowite paneCount i workspaceCount. Operatory porównania to ==, !=, =~ (wyrażenie regularne), <, <=, >, >= oraz `in [a, b]`; nieznany lub nieobecny klucz jest traktowany jako false. Akceptowane są też literały logiczne true i false; `key == false` jest równoważne `!key`. Skrót akcji uruchamia się (i koliduje z innymi skrótami) tylko wtedy, gdy klauzula jest spełniona. Przykłady: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } wybiera obszary robocze za pomocą Ctrl+1–9 wszędzie poza sytuacją, gdy fokus ma prawy pasek boczny; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } ogranicza przypisanie do paska bocznego wyszukiwania, gdy obszar roboczy ma wiele paneli.",
           "showModifierHoldHints": "Pokazuj etykiety podpowiedzi skrótów podczas przytrzymywania Cmd lub Control."
+        },
+        "fileEditor": {
+          "wordWrap": "Zawija długie wiersze przy prawej krawędzi edytora zamiast przewijać poziomo.",
+          "syntaxHighlighting": "Koloruje tokeny kodu we wbudowanym edytorze plików.",
+          "lineNumbers": "Pokazuje rynienkę z numerami wierszy we wbudowanym edytorze plików.",
+          "indentGuides": "Rysuje pionowe prowadnice wcięć we wbudowanym edytorze plików.",
+          "currentLineHighlight": "Podświetla wiersz z karetką, gdy nic nie jest zaznaczone.",
+          "tabWidth": "Szerokość tabulatora w kolumnach dla wcięć i prowadnic wcięć."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

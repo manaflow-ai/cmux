@@ -4,7 +4,31 @@ public import CmuxIrohTransport
 import CmuxIrxTransport
 public import CmuxMobileRPC
 import CmuxMobileShellModel
+import CmuxMobileTransport
 public import Foundation
+
+/// A control lane is single-consumer per admitted session, while separate Mac
+/// sessions must remain independently claimable. The owner token lets a
+/// closing RPC client release only the claims it created.
+struct MobileIrxControlLaneClaims {
+    private var ownerBySession: [String: UUID] = [:]
+
+    mutating func claim(sessionID: String, ownerID: UUID) -> Bool {
+        if let existingOwner = ownerBySession[sessionID], existingOwner != ownerID {
+            return false
+        }
+        ownerBySession[sessionID] = ownerID
+        return true
+    }
+
+    mutating func release(ownerID: UUID) {
+        ownerBySession = ownerBySession.filter { $0.value != ownerID }
+    }
+
+    mutating func removeAll() {
+        ownerBySession.removeAll()
+    }
+}
 
 /// iOS composition root for the irx transport (the from-scratch iroh rebuild
 /// in `CmuxIrxTransport`). DEBUG-only, default-off: when `cmux.irx.enabled`
@@ -41,6 +65,8 @@ public actor MobileIrxRuntimeComposition {
         case notSignedIn
         case unsupportedRoute
         case peerNotDiscovered
+        case directDialUnavailable
+        case networkPathChanged
     }
 
     /// Dial-gate refusals from the device-list lease. Deliberately NOT
@@ -80,6 +106,15 @@ public actor MobileIrxRuntimeComposition {
     /// The app's signed Keychain access group; scopes the Release device-list
     /// and broker-cache Keychain items.
     private let keychainAccessGroup: String?
+    /// Shared with the legacy path provider so IRX can authorize and expire
+    /// authenticated Bonjour LAN profiles on the same network generations.
+    private let networkPathState: MobileIrohNetworkPathState
+    private let lanPeerDiscovery: CmxIrohLANPeerDiscovery
+    /// Device-local, account-scoped user overrides from the Private Addresses
+    /// editor. IRX reads the same persisted store as the retired runtime, so
+    /// switching transport implementations never loses the user's routes.
+    private let customPrivatePaths: CmxIrohCustomPrivatePathStore
+    private let reachability: (any ReachabilityProviding)?
 
     private weak var auth: AuthCoordinator?
     /// Identity donor (identity adoption): the legacy composition owns the
@@ -102,26 +137,70 @@ public actor MobileIrxRuntimeComposition {
     private var deviceListStore: IrxDeviceListStore?
     private var provisioningTask: Task<Void, Never>?
     private var provisionInFlight: Task<IrxBrokerService, any Error>?
+    /// Auth observation stays alive for the lifetime of the composition. A
+    /// successful first provision must not terminate it, otherwise an
+    /// implicit token clear or account switch leaves the endpoint running.
+    private var authObservationTask: Task<Void, Never>?
+    private var activeAccountID: String?
+    private var lifecycleEpoch: UInt64 = 0
     /// One reconnect owner per Mac endpoint (contract: the single dialer).
     private var enginesByPeer: [String: IrxPeerEngine] = [:]
     /// Route material per peer, refreshed on every transport request.
     private var routesByPeer: [String: (relayURL: String?, directAddresses: [String])] = [:]
-    /// The control lane is single-consumer: one claim per admitted session.
-    private var claimedControlSessions: Set<String> = []
+    /// The latest path intent for each peer. Direct is an exclusive,
+    /// fail-closed allowlist; automatic permits broker and LAN discovery.
+    private var dialIntentByPeer: [String: IrxDialIntent] = [:]
+    /// The intent used by the currently admitted session. A request that
+    /// changes intent explicitly replaces the session before reusing it.
+    private var activeDialIntentByPeer: [String: IrxDialIntent] = [:]
+    /// The LAN resolver authenticates an mDNS result against the device ID as
+    /// well as the endpoint key. Attach routes carry that intent separately
+    /// from the cryptographic peer identity.
+    private var expectedDeviceIDByPeer: [String: String] = [:]
+    /// The control lane is single-consumer: one live transport owner per
+    /// admitted session. A second RPC client must not force a QUIC replacement
+    /// just to obtain the same lane, because foreground recovery and secondary
+    /// aggregation can overlap briefly.
+    private var controlLaneClaims = MobileIrxControlLaneClaims()
     /// The events uni-lane accept is single-consumer per session too.
     private var claimedEventSessions: Set<String> = []
+    /// Change-only stream consumed by the MainActor settings adapter.
+    private var settingsContinuations: [UUID: AsyncStream<Void>.Continuation] = [:]
 
     @MainActor
     public init(
         apiBaseURL: String,
+        reachability: (any ReachabilityProviding)? = nil,
         infoDictionary: [String: Any]? = Bundle.main.infoDictionary,
         bundleIdentifier: String? = Bundle.main.bundleIdentifier,
         appNamespace injectedAppNamespace: MobileIOSAppNamespace? = nil,
         keychainAccessGroup: String? = nil,
         defaults: UserDefaults = .standard
     ) {
+        let networkPathState = MobileIrohNetworkPathState()
+        let lanPeerDiscovery = CmxIrohLANPeerDiscovery(
+            networkPath: { await networkPathState.snapshot() },
+            authorizeProfile: { profile, generation, interfaceIndex in
+                await networkPathState.authorizeLANProfile(
+                    profile,
+                    generation: generation,
+                    interfaceIndex: interfaceIndex
+                )
+            },
+            revokeProfile: { profile, generation in
+                await networkPathState.revokeLANProfile(
+                    profile,
+                    generation: generation
+                )
+            }
+        )
         self.keychainAccessGroup = keychainAccessGroup
-        _ = defaults
+        self.networkPathState = networkPathState
+        self.lanPeerDiscovery = lanPeerDiscovery
+        self.customPrivatePaths = CmxIrohCustomPrivatePathStore(
+            store: CmxIrohUserDefaultsInstallStateStore(defaults: defaults)
+        )
+        self.reachability = reachability
         let appNamespace = injectedAppNamespace
             ?? MobileIOSAppNamespace(bundleIdentifier: bundleIdentifier)
         clientNamespace = appNamespace?.bundleIdentifier ?? "legacy"
@@ -150,33 +229,29 @@ public actor MobileIrxRuntimeComposition {
         IrxStateLocation.removeLegacySharedDirectory(base: appSupport)
     }
 
-    /// irx mints its own durable device UUID (persisted beside the identity),
-    /// giving the irx binding its own broker slot: it can never reincarnate
-    /// the legacy runtime's binding out from under another build.
-    private func irxDeviceID() -> String {
-        let url = stateDirectory.appendingPathComponent("device-id")
-        if let existing = try? String(contentsOf: url, encoding: .utf8),
-            !existing.isEmpty
-        {
-            return existing.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-        let minted = UUID().uuidString.lowercased()
-        try? FileManager.default.createDirectory(
-            at: stateDirectory, withIntermediateDirectories: true)
-        try? minted.write(to: url, atomically: true, encoding: .utf8)
-        return minted
-    }
-
     // MARK: - Lifecycle
 
     public func configure(
         auth: AuthCoordinator,
         legacy: MobileIrohRuntimeComposition? = nil,
         controlPlaneBaseURL: URL? = nil
-    ) {
+    ) async {
         self.auth = auth
         legacyComposition = legacy
         self.controlPlaneBaseURL = controlPlaneBaseURL
+        lifecycleEpoch &+= 1
+        let configurationEpoch = lifecycleEpoch
+        if let reachability {
+            guard isLifecycleEpochCurrent(configurationEpoch),
+                  !Task.isCancelled else { return }
+            await networkPathState.start(
+                reachability: reachability,
+                onPathChange: { [weak self] in
+                    await self?.invalidateCachedDirectRoutesForNetworkChange()
+                    await self?.lanPeerDiscovery.pathDidChange()
+                }
+            )
+        }
         Self.journal.record(
             "client-runtime", "configured",
             [
@@ -186,58 +261,97 @@ public actor MobileIrxRuntimeComposition {
                 "broker": brokerBaseURL?.host() ?? "-",
             ]
         )
-        // Proactive provisioning so the user-visible connect is warm:
-        // identity, binding, discovery, relay credentials all resolve in the
-        // background at launch, never on the dial path.
-        //
-        // EVENT-DRIVEN on auth: setup never starts before sign-in is
-        // affirmatively complete. The identity stream's first element is the
-        // current state, so an already-signed-in launch provisions
-        // immediately, and a launch that races sign-in provisions the
-        // instant the session publishes instead of discovering it on a
-        // timer. Pre-auth attempts are not just wasted: a failed provision
-        // can burn broker registrations, and every registration write bumps
-        // the account route revision fleet-wide.
+        authObservationTask?.cancel()
         provisioningTask?.cancel()
-        provisioningTask = Task { [weak self] in
-            // Restored sessions first: bootstrap completion is the point
-            // where signed-in state is definitively known, and a session
-            // restored from the keychain may have published before this
-            // subscription existed. Checking directly here means a
-            // signed-in launch provisions immediately without depending on
-            // catching that publish.
+        provisioningTask = nil
+        // Proactive provisioning is event-driven on auth. The observation task
+        // never exits after a successful provision, so implicit sign-out and
+        // account switches receive the same teardown as explicit sign-out.
+        authObservationTask = Task { [weak self, weak auth] in
+            guard let auth else { return }
             await auth.awaitBootstrapped()
             guard !Task.isCancelled else { return }
             Self.journal.record("client-runtime", "auth-gate-bootstrapped")
-            if await self?.provisionSignedInWithRetry() == true { return }
-            // Fresh sign-ins and account transitions: provision the instant
-            // the session publishes. Still zero pre-auth attempts.
             for await identity in await auth.authenticatedSessionIdentities() {
                 guard !Task.isCancelled else { return }
-                Self.journal.record(
-                    "client-runtime", "auth-gate-identity",
-                    ["signed_in": String(identity != nil)]
-                )
-                guard identity != nil else { continue }
-                if await self?.provisionSignedInWithRetry() == true { return }
+                await self?.applyAuthIdentity(identity)
             }
+        }
+    }
+
+    private func applyAuthIdentity(
+        _ sessionIdentity: AuthenticatedSessionIdentity?
+    ) async {
+        guard let sessionIdentity else {
+            await handleSignOut()
+            return
+        }
+        guard activeAccountID != sessionIdentity.accountID || broker == nil else {
+            // A same-account refresh does not replace a healthy runtime. If a
+            // prior task was cancelled before publication, restart it.
+            if provisioningTask == nil {
+                startProvisioning(for: sessionIdentity)
+            }
+            return
+        }
+        if activeAccountID != nil || broker != nil {
+            await handleSignOut()
+        }
+        activeAccountID = sessionIdentity.accountID
+        startProvisioning(for: sessionIdentity)
+    }
+
+    private func isCurrent(_ epoch: UInt64) -> Bool {
+        epoch == lifecycleEpoch && activeAccountID != nil
+    }
+
+    private func isLifecycleEpochCurrent(_ epoch: UInt64) -> Bool {
+        epoch == lifecycleEpoch
+    }
+
+    private func requireCurrent(_ epoch: UInt64) throws {
+        guard isCurrent(epoch) else { throw CancellationError() }
+    }
+
+    private func requireLifecycle(_ epoch: UInt64) throws {
+        guard epoch == lifecycleEpoch else { throw CancellationError() }
+    }
+
+    private func startProvisioning(for sessionIdentity: AuthenticatedSessionIdentity) {
+        provisioningTask?.cancel()
+        let epoch = lifecycleEpoch
+        provisioningTask = Task { [weak self] in
+            guard let self else { return }
+            _ = await self.provisionSignedInWithRetry(
+                sessionIdentity: sessionIdentity,
+                epoch: epoch
+            )
         }
     }
 
     /// Provisions with capped backoff. Returns true on success; returns
     /// false immediately when not signed in (the caller's auth signal owns
     /// the next attempt, so no pre-auth retries ever run).
-    private func provisionSignedInWithRetry() async -> Bool {
+    private func provisionSignedInWithRetry(
+        sessionIdentity: AuthenticatedSessionIdentity,
+        epoch: UInt64
+    ) async -> Bool {
         guard let auth else { return false }
         Self.journal.record("client-runtime", "auth-gate-snapshot-check")
-        guard (try? await auth.authenticatedSessionSnapshot()) != nil else {
+        guard await auth.isAuthenticatedSessionIdentityCurrent(sessionIdentity) else {
             Self.journal.record("client-runtime", "auth-gate-not-signed-in")
             return false
         }
         Self.journal.record("client-runtime", "auth-gate-signed-in")
         var delay: Duration = .seconds(1)
         while !Task.isCancelled {
-            if await provisionIfPossible() { return true }
+            guard lifecycleEpoch == epoch,
+                  await auth.isAuthenticatedSessionIdentityCurrent(sessionIdentity)
+            else { return false }
+            if await provisionIfPossible(
+                sessionIdentity: sessionIdentity,
+                epoch: epoch
+            ) { return true }
             try? await Task.sleep(for: delay)
             delay = min(delay * 2, .seconds(30))
         }
@@ -250,6 +364,7 @@ public actor MobileIrxRuntimeComposition {
     public func didBecomeActive() async {
         await autopilot?.kick()
         await controlPlane?.kick()
+        await lanPeerDiscovery.permissionMayHaveChanged()
         for engine in enginesByPeer.values {
             await engine.foregroundKick()
         }
@@ -259,6 +374,7 @@ public actor MobileIrxRuntimeComposition {
 
     private func startControlPlane(identity: IrxIdentity) {
         guard controlPlane == nil, let controlPlaneBaseURL, let auth else { return }
+        let epoch = lifecycleEpoch
         let client = IrxControlPlaneClient(
             configuration: .init(
                 socketURL: controlPlaneBaseURL
@@ -288,19 +404,23 @@ public actor MobileIrxRuntimeComposition {
             },
             handlers: .init(
                 onRelayPasses: { [weak self] credentials in
-                    await self?.ingestPushedPasses(credentials) ?? false
+                    guard let self, await self.isCurrent(epoch) else { return false }
+                    return await self.ingestPushedPasses(credentials)
                 },
                 onHintUpdate: { [weak self] endpointIDHex, relayURL in
-                    await self?.ingestHintUpdate(
-                        endpointIDHex: endpointIDHex, relayURL: relayURL) ?? false
+                    guard let self, await self.isCurrent(epoch) else { return false }
+                    return await self.ingestHintUpdate(
+                        endpointIDHex: endpointIDHex, relayURL: relayURL)
                 },
                 onDirectory: { _ in true },
                 onSnapshotComplete: { _ in },
                 onDirectoryFact: { [weak self] fact in
-                    await self?.applyDeviceListFact(fact) ?? false
+                    guard let self, await self.isCurrent(epoch) else { return false }
+                    return await self.applyDeviceListFact(fact)
                 },
                 onFreshness: { [weak self] rev, issuedAt in
-                    await self?.applyDeviceListFreshness(rev: rev, issuedAt: issuedAt)
+                    guard let self, await self.isCurrent(epoch) else { return }
+                    await self.applyDeviceListFreshness(rev: rev, issuedAt: issuedAt)
                 }
             ),
             journal: Self.journal
@@ -383,6 +503,7 @@ public actor MobileIrxRuntimeComposition {
                 minimumSupportedMacVersion: snapshot.minimumSupportedMacVersion
             )
         }
+        publishSettingsUpdate()
     }
 
     /// UI/programmatic lookup: the peer's list-auth stance right now.
@@ -398,6 +519,52 @@ public actor MobileIrxRuntimeComposition {
     /// Sign-out: drop the lease everywhere (memory, durable store, UI), so
     /// the next account starts from its own directory.
     public func handleSignOut() async {
+        lifecycleEpoch &+= 1
+        await networkPathState.stop()
+        activeAccountID = nil
+        provisioningTask?.cancel()
+        provisioningTask = nil
+        provisionInFlight?.cancel()
+        provisionInFlight = nil
+
+        // Stop every live authority before erasing its persisted state. The
+        // broker and endpoint both carry endpoint identity in memory, while
+        // their epoch fences prevent late network completions from restoring
+        // a cache entry after this method returns.
+        let controlPlane = self.controlPlane
+        self.controlPlane = nil
+        await controlPlane?.stop()
+        let autopilot = self.autopilot
+        self.autopilot = nil
+        await autopilot?.stop()
+        let supervisor = self.endpointSupervisor
+        self.endpointSupervisor = nil
+        await supervisor?.deactivate()
+        let engines = Array(enginesByPeer.values)
+        enginesByPeer.removeAll()
+        for engine in engines {
+            await engine.stop(code: .userRequested)
+        }
+        await lanPeerDiscovery.stop()
+        // irx adopts the legacy identity repository, so the donor must run its
+        // sign-out preparation even when legacy transport is dormant. This is
+        // what removes the Ed25519 endpoint key and queues any binding revoke
+        // for an implicit token clear or account switch.
+        if let legacyComposition {
+            let preparation = await legacyComposition.beginSignOutPreparation()
+            _ = await preparation.value
+        }
+        let broker = self.broker
+        self.broker = nil
+        await broker?.deactivate()
+        identity = nil
+        routesByPeer.removeAll()
+        dialIntentByPeer.removeAll()
+        activeDialIntentByPeer.removeAll()
+        expectedDeviceIDByPeer.removeAll()
+        controlLaneClaims.removeAll()
+        claimedEventSessions.removeAll()
+
         deviceListBox.clear()
         if let deviceListStore {
             await deviceListStore.clear()
@@ -406,6 +573,7 @@ public actor MobileIrxRuntimeComposition {
         await MainActor.run {
             MobileMacListAuthState.shared.clear()
         }
+        publishSettingsUpdate()
         Self.journal.record("client-runtime", "device-list-signed-out")
     }
 
@@ -476,14 +644,20 @@ public actor MobileIrxRuntimeComposition {
         return true
     }
 
-    private func provisionIfPossible() async -> Bool {
+    private func provisionIfPossible(
+        sessionIdentity: AuthenticatedSessionIdentity,
+        epoch: UInt64
+    ) async -> Bool {
         guard let auth else { return false }
-        guard let session = try? await auth.authenticatedSessionSnapshot() else {
+        guard lifecycleEpoch == epoch,
+              await auth.isAuthenticatedSessionIdentityCurrent(sessionIdentity),
+              let session = try? await auth.authenticatedSessionSnapshot(),
+              session.accountID == sessionIdentity.accountID else {
             return false
         }
         _ = session
         do {
-            _ = try await provisionedBroker()
+            _ = try await provisionedBroker(epoch: epoch)
             Self.journal.record("client-runtime", "provisioned")
             return true
         } catch {
@@ -501,24 +675,33 @@ public actor MobileIrxRuntimeComposition {
     /// half-initialized broker behind: an unregistered client 403s every
     /// later call, which is exactly the poisoned state this single-flight
     /// all-or-nothing shape forbids.
-    private func provisionedBroker() async throws -> IrxBrokerService {
+    private func provisionedBroker(epoch: UInt64? = nil) async throws -> IrxBrokerService {
+        if let epoch {
+            try requireCurrent(epoch)
+        }
         if let broker { return broker }
         if let provisionInFlight {
             return try await provisionInFlight.value
         }
+        let operationEpoch = epoch ?? lifecycleEpoch
         let task = Task<IrxBrokerService, any Error> {
-            try await self.provisionOnce()
+            try await self.provisionOnce(epoch: operationEpoch)
         }
         provisionInFlight = task
         defer { provisionInFlight = nil }
         return try await task.value
     }
 
-    private func provisionOnce() async throws -> IrxBrokerService {
+    private func provisionOnce(epoch: UInt64) async throws -> IrxBrokerService {
+        try requireLifecycle(epoch)
         guard let auth, let brokerBaseURL else {
             throw CompositionError.notSignedIn
         }
         let session = try await auth.authenticatedSessionSnapshot()
+        try requireLifecycle(epoch)
+        guard activeAccountID == nil || activeAccountID == session.accountID else {
+            throw CancellationError()
+        }
         // IDENTITY ADOPTION: same identity/device/app-instance as the legacy
         // stack, so the binding refreshes in place and stored routes + pair
         // grants stay valid across the transport switch.
@@ -528,6 +711,7 @@ public actor MobileIrxRuntimeComposition {
         else {
             throw CompositionError.notSignedIn
         }
+        try requireLifecycle(epoch)
         let identity = IrxIdentity(
             privateKeyData: adopted.material.secretKey.bytes,
             deviceID: adopted.deviceID,
@@ -578,6 +762,7 @@ public actor MobileIrxRuntimeComposition {
         let cachedBinding = await broker.cachedBinding()
         let cachedTrust = await broker.cachedTrust()
         let cachedCredentials = await broker.cachedRelayCredentials()
+        try requireLifecycle(epoch)
         if cachedBinding == nil || cachedTrust == nil {
             // First run for this identity: the full serial path, correctness
             // over speed (registration must precede mint/discovery).
@@ -603,10 +788,17 @@ public actor MobileIrxRuntimeComposition {
             }
         }
         let credentials = try await pilot.usableCredentials()
+        try requireLifecycle(epoch)
         // Fire-and-forget relay-link warm-up: bind + come online now, in
         // parallel with whatever the UI is doing.
         Task { _ = try? await supervisor.readyEndpoint(credentials: credentials) }
         await pilot.start()
+        guard isCurrent(epoch) else {
+            await pilot.stop()
+            await supervisor.deactivate()
+            await broker.deactivate()
+            throw CancellationError()
+        }
         self.identity = identity
         self.broker = broker
         endpointSupervisor = supervisor
@@ -668,6 +860,156 @@ public actor MobileIrxRuntimeComposition {
         return try? await auth.authenticatedSessionSnapshot().accountID
     }
 
+    // MARK: - Private Addresses settings
+
+    /// Adds the active IRX device directory and device-local private-address
+    /// settings to the existing settings snapshot consumed by SwiftUI.
+    public func settingsSnapshot(
+        overlaying base: CmxIrohSettingsSnapshot
+    ) async -> CmxIrohSettingsSnapshot {
+        let privateSnapshot = if let activeAccountID {
+            await customPrivatePaths.availableSnapshot(accountID: activeAccountID)
+        } else {
+            CmxIrohCustomPrivatePathSnapshot.unavailable
+        }
+        var macsByID: [String: CmxIrohSettingsSnapshot.PrivateNetworkMac] = [:]
+        if let directory = deviceListBox.current {
+            for entry in directory.entries.values {
+                guard let deviceID = entry.deviceID else { continue }
+                let identity = CmxMacAppInstanceIdentity(
+                    macDeviceID: deviceID,
+                    instanceTag: entry.tag
+                )
+                let supportsPrivatePaths = entry.capabilities?.contains(
+                    "iroh.private_paths.v1"
+                ) == true
+                macsByID[identity.id] = .init(
+                    macDeviceID: identity.macDeviceID,
+                    instanceTag: identity.instanceTag,
+                    displayName: identity.macDeviceID,
+                    supportsPrivatePaths: supportsPrivatePaths
+                )
+            }
+        }
+        for configuration in privateSnapshot.configurations
+        where macsByID[configuration.id] == nil {
+            macsByID[configuration.id] = .init(
+                macDeviceID: configuration.macDeviceID,
+                instanceTag: configuration.instanceTag,
+                displayName: configuration.macDisplayName
+            )
+        }
+        return CmxIrohSettingsSnapshot(
+            runtimeStatus: base.runtimeStatus,
+            selectedTransportPath: base.selectedTransportPath,
+            preference: base.preference,
+            pathPreference: Self.forceRelayOnly ? .relayOnly : .automatic,
+            managedRelays: base.managedRelays,
+            customRelays: base.customRelays,
+            privateNetworkMacs: macsByID.values.sorted { $0.id < $1.id },
+            customPrivateNetworks: privateSnapshot.configurations.map {
+                .init(
+                    macDeviceID: $0.macDeviceID,
+                    instanceTag: $0.instanceTag,
+                    macDisplayName: $0.macDisplayName,
+                    addresses: $0.addresses.map(\.value),
+                    isEnabled: $0.isEnabled
+                )
+            },
+            policySource: base.policySource,
+            policySequence: base.policySequence,
+            policyExpiresAt: base.policyExpiresAt,
+            staleRelayIDs: base.staleRelayIDs,
+            failureDescription: base.failureDescription,
+            debugTransportVerificationMode: base.debugTransportVerificationMode
+        )
+    }
+
+    public func settingsUpdates() -> AsyncStream<Void> {
+        let id = UUID()
+        let (stream, continuation) = AsyncStream<Void>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        settingsContinuations[id] = continuation
+        continuation.onTermination = { @Sendable [weak self] _ in
+            Task { await self?.removeSettingsContinuation(id) }
+        }
+        return stream
+    }
+
+    public func refreshSettingsSnapshot() {
+        publishSettingsUpdate()
+    }
+
+    public func upsertCustomPrivatePath(
+        _ path: CmxIrohCustomPrivatePathDraft
+    ) async throws {
+        guard let activeAccountID else { throw CompositionError.notSignedIn }
+        _ = try await customPrivatePaths.upsert(path, accountID: activeAccountID)
+        await privatePathSettingsChanged(
+            macDeviceID: path.macDeviceID,
+            instanceTag: path.instanceTag
+        )
+    }
+
+    public func removeCustomPrivatePath(
+        macDeviceID: String,
+        instanceTag: String?
+    ) async throws {
+        guard let activeAccountID else { throw CompositionError.notSignedIn }
+        _ = try await customPrivatePaths.remove(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
+            accountID: activeAccountID
+        )
+        await privatePathSettingsChanged(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        )
+    }
+
+    private func privatePathSettingsChanged(
+        macDeviceID: String,
+        instanceTag: String?
+    ) async {
+        let requested = CmxMacAppInstanceIdentity(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        )
+        var peers: [String] = []
+        if let snapshot = deviceListBox.current {
+            for (peerHex, entry) in snapshot.entries {
+                guard let deviceID = entry.deviceID else { continue }
+                let candidate = CmxMacAppInstanceIdentity(
+                    macDeviceID: deviceID,
+                    instanceTag: entry.tag
+                )
+                if candidate.id == requested.id {
+                    peers.append(peerHex)
+                }
+            }
+        }
+        for peerHex in peers {
+            if let route = routesByPeer[peerHex] {
+                routesByPeer[peerHex] = (route.relayURL, [])
+            }
+            await enginesByPeer[peerHex]?.relayHintChanged(
+                trigger: "private-path-change"
+            )
+        }
+        publishSettingsUpdate()
+    }
+
+    private func removeSettingsContinuation(_ id: UUID) {
+        settingsContinuations.removeValue(forKey: id)
+    }
+
+    private func publishSettingsUpdate() {
+        for continuation in settingsContinuations.values {
+            continuation.yield()
+        }
+    }
+
     // MARK: - Dialing
 
     private func peerTarget(for request: CmxByteTransportRequest) throws -> String {
@@ -687,31 +1029,97 @@ public actor MobileIrxRuntimeComposition {
         // Attach tickets strip path hints, so a nil hint here is normal;
         // never clobber a relay already resolved from discovery with nil.
         let existing = routesByPeer[identity.endpointID]
+        if let expectedPeerDeviceID = request.expectedPeerDeviceID {
+            expectedDeviceIDByPeer[identity.endpointID] = expectedPeerDeviceID
+        }
         routesByPeer[identity.endpointID] = (
             relayURL ?? existing?.relayURL,
             directAddresses.isEmpty ? (existing?.directAddresses ?? []) : directAddresses
         )
+        dialIntentByPeer[identity.endpointID] = request.irohDirectOnlyDialCandidates.map {
+            .direct($0)
+        } ?? .automatic
         return identity.endpointID
+    }
+
+    private enum IrxDialIntent: Equatable, Sendable {
+        case automatic
+        case direct([CmxIrohDirectDialCandidate])
+    }
+
+    private static func directDialAddresses(
+        candidates: [CmxIrohDirectDialCandidate],
+        directPorts: CmxIrohDirectPorts?
+    ) -> [String] {
+        var seen = Set<String>()
+        return candidates.prefix(16).compactMap { candidate in
+            guard let address = try? CmxIrohCustomPrivateAddress(candidate.address) else {
+                return nil
+            }
+            let port = candidate.port ?? (
+                address.family == .ipv4 ? directPorts?.ipv4 : directPorts?.ipv6
+            )
+            guard let port, port != 0 else { return nil }
+            let value = address.socketAddress(port: port)
+            guard seen.insert(value).inserted else { return nil }
+            return value
+        }
+    }
+
+    private func ensureSession(
+        forPeer peerHex: String,
+        trigger: String
+    ) async throws -> IrxClientSession {
+        let engine = engine(forPeer: peerHex)
+        let desired = dialIntentByPeer[peerHex] ?? .automatic
+        let replaceForIntent = activeDialIntentByPeer[peerHex].map { $0 != desired } ?? false
+        return try await engine.ensureSession(
+            explicit: replaceForIntent,
+            trigger: trigger
+        )
     }
 
     /// The target's home relay from the account registry: the Mac registers
     /// the relay its endpoint actually homes on, and dialing any OTHER relay
     /// is a black hole (the relay only forwards to peers connected to it).
-    private func relayHintFromDiscovery(
+    private func refreshRouteFromDiscovery(
         peerHex: String,
         broker: IrxBrokerService
-    ) async -> String? {
-        guard let discovery = try? await broker.discover() else { return nil }
+    ) async -> (binding: CmxIrohBrokerBinding, discovery: CmxIrohDiscoveryResponse)? {
+        guard let discovery = try? await broker.discover(maximumAge: 30),
+              let binding = discovery.bindings.first(where: {
+                  $0.endpointID.endpointID == peerHex
+              }) else { return nil }
         let now = Date()
-        let hint = discovery.bindings
-            .first { $0.endpointID.endpointID == peerHex }?
-            .pathHints
-            .first { $0.kind == .relayURL && $0.isUsable(at: now) }?
-            .value
-        if let hint {
-            routesByPeer[peerHex] = (hint, routesByPeer[peerHex]?.directAddresses ?? [])
+        let relay = binding.pathHints.first {
+            $0.kind == .relayURL && $0.isUsable(at: now)
+        }?.value
+        let direct = binding.pathHints.filter {
+            $0.kind == .directAddress && $0.isUsable(at: now)
+        }.map(\.value)
+        routesByPeer[peerHex] = (
+            relay,
+            direct
+        )
+        return (binding, discovery)
+    }
+
+    /// A network generation change invalidates every cached direct coordinate.
+    /// The next automatic dial rebuilds public candidates from authenticated
+    /// broker discovery and LAN candidates from the new Bonjour generation.
+    /// Clearing the combined cache is deliberate: retaining a public hint is
+    /// safe but would make it possible for a stale private coordinate to be
+    /// retried when broker discovery is temporarily unavailable.
+    private func invalidateCachedDirectRoutesForNetworkChange() {
+        guard !routesByPeer.isEmpty else { return }
+        for peerHex in routesByPeer.keys {
+            guard let route = routesByPeer[peerHex] else { continue }
+            routesByPeer[peerHex] = (route.relayURL, [])
         }
-        return hint
+        Self.journal.record(
+            "client-runtime", "direct-routes-invalidated",
+            ["reason": "network-path-change"]
+        )
     }
 
     private func engine(forPeer peerHex: String) -> IrxPeerEngine {
@@ -765,19 +1173,115 @@ public actor MobileIrxRuntimeComposition {
         }
         try enforceDialGate(peerHex: peerHex)
         let credentials = try await autopilot.usableCredentials()
-        var relayURL = routesByPeer[peerHex]?.relayURL
-        if relayURL == nil {
-            relayURL = await relayHintFromDiscovery(peerHex: peerHex, broker: broker)
+        let dialIntent = dialIntentByPeer[peerHex] ?? .automatic
+        let dialNetworkGeneration = await networkPathState.snapshot().generation
+        var relayURL: String?
+        var directAddresses: [String] = []
+        let discoveredRoute: (binding: CmxIrohBrokerBinding, discovery: CmxIrohDiscoveryResponse)?
+        switch dialIntent {
+        case let .direct(candidates):
+            // Port-less Direct candidates may use only the broker's current
+            // per-family UDP port. This reads metadata, never a broker path,
+            // and still fails closed if no usable pinned address remains.
+            let needsPublishedPorts = candidates.contains { $0.port == nil }
+            let route = needsPublishedPorts
+                ? await refreshRouteFromDiscovery(peerHex: peerHex, broker: broker)
+                : nil
+            discoveredRoute = route
+            directAddresses = Self.directDialAddresses(
+                candidates: candidates,
+                directPorts: route?.binding.directPorts
+            )
+            guard !directAddresses.isEmpty else {
+                Self.journal.record(
+                    "client-dial", "direct-candidates-unusable",
+                    ["peer": String(peerHex.prefix(12)), "count": String(candidates.count)]
+                )
+                throw CompositionError.directDialUnavailable
+            }
+        case .automatic:
+            discoveredRoute = Self.forceRelayOnly
+                ? nil
+                : await refreshRouteFromDiscovery(peerHex: peerHex, broker: broker)
+            relayURL = routesByPeer[peerHex]?.relayURL
+            directAddresses = routesByPeer[peerHex]?.directAddresses ?? []
+        }
+        if !Self.forceRelayOnly,
+           case .automatic = dialIntent,
+           let discoveredRoute,
+           let expectedDeviceID = expectedDeviceIDByPeer[peerHex]
+        {
+            let authenticatedBindings = discoveredRoute.discovery.bindings.map {
+                CmxIrohBrokerBindingMetadata(binding: $0)
+            }
+            if case let .found(peers) = await lanPeerDiscovery.discover(
+                rendezvous: discoveredRoute.discovery.lanRendezvous,
+                authenticatedBindings: authenticatedBindings,
+                expectedMacDeviceID: expectedDeviceID,
+                expectedEndpointID: discoveredRoute.binding.endpointID
+            ) {
+                var direct = Array(directAddresses.prefix(16))
+                var seenDirect = Set(direct)
+                for peer in peers
+                    where peer.binding.endpointID == discoveredRoute.binding.endpointID
+                        && direct.count < 16
+                {
+                    for hint in peer.pathHints where direct.count < 16 {
+                        guard seenDirect.insert(hint.value).inserted else { continue }
+                        direct.append(hint.value)
+                    }
+                }
+                directAddresses = direct
+                routesByPeer[peerHex] = (relayURL, direct)
+                Self.journal.record(
+                    "client-dial", "lan-hints-adopted",
+                    [
+                        "peer": String(peerHex.prefix(12)),
+                        "count": String(direct.count),
+                    ]
+                )
+            }
+        }
+        if !Self.forceRelayOnly,
+           case .automatic = dialIntent,
+           let discoveredRoute,
+           let activeAccountID
+        {
+            let configured = await customPrivatePaths.enabledPaths(
+                forMacDeviceID: discoveredRoute.binding.deviceID,
+                instanceTag: discoveredRoute.binding.tag,
+                accountID: activeAccountID
+            )
+            let privateAddresses = CmxIrohCustomPrivatePathBootstrap.dialAddresses(
+                configured,
+                directPorts: discoveredRoute.binding.directPorts
+            )
+            if !privateAddresses.isEmpty {
+                var seenDirect = Set(directAddresses)
+                for address in privateAddresses where directAddresses.count < 16 {
+                    guard seenDirect.insert(address).inserted else { continue }
+                    directAddresses.append(address)
+                }
+                routesByPeer[peerHex] = (relayURL, directAddresses)
+                Self.journal.record(
+                    "client-dial", "private-hints-adopted",
+                    [
+                        "peer": String(peerHex.prefix(12)),
+                        "count": String(privateAddresses.count),
+                    ]
+                )
+            }
         }
         Self.journal.record(
             "client-dial", "target-resolved",
             [
                 "peer": String(peerHex.prefix(12)),
                 "relay": relayURL ?? "-",
-                "direct": String(routesByPeer[peerHex]?.directAddresses.count ?? 0),
+                "direct": String(directAddresses.count),
+                "intent": dialIntent == .automatic ? "automatic" : "direct",
             ]
         )
-        if relayURL == nil {
+        if case .automatic = dialIntent, relayURL == nil {
             // Stale/missing hint (e.g. the Mac's registered hint lapsed):
             // fall back to our own relay rather than refusing outright; the
             // fleet is small enough that co-homing is common, and a wrong
@@ -788,10 +1292,20 @@ public actor MobileIrxRuntimeComposition {
                 ["peer": String(peerHex.prefix(12)), "relay": relayURL ?? "-"]
             )
         }
+        if case .automatic = dialIntent,
+           await networkPathState.snapshot().generation != dialNetworkGeneration
+        {
+            Self.journal.record(
+                "client-dial", "network-path-changed-before-dial",
+                ["peer": String(peerHex.prefix(12))]
+            )
+            invalidateCachedDirectRoutesForNetworkChange()
+            throw CompositionError.networkPathChanged
+        }
         let address = try supervisor.dialAddress(
             peerEndpointIDHex: peerHex,
             relayURL: relayURL,
-            directAddresses: routesByPeer[peerHex]?.directAddresses ?? []
+            directAddresses: directAddresses
         )
         let connection = try await supervisor.dial(
             address: address, credentials: credentials)
@@ -806,9 +1320,10 @@ public actor MobileIrxRuntimeComposition {
         await connection.raiseRemoteStreamCredit(bi: 0, uni: 4)
         // Automatic path mode: authorize NAT traversal so iroh can upgrade
         // this session off the relay make-before-break (direct/LAN paths).
-        if !Self.forceRelayOnly {
+        if !Self.forceRelayOnly, case .automatic = dialIntent {
             await connection.authorizeDirectPaths()
         }
+        activeDialIntentByPeer[peerHex] = dialIntent
         return IrxClientSession(
             connection: connection,
             admit: admit,
@@ -823,8 +1338,7 @@ public actor MobileIrxRuntimeComposition {
         for request: CmxByteTransportRequest
     ) async throws -> CmxIndependentEventByteStream {
         let peerHex = try peerTarget(for: request)
-        let session = try await engine(forPeer: peerHex)
-            .ensureSession(trigger: "server-events")
+        let session = try await ensureSession(forPeer: peerHex, trigger: "server-events")
         guard !claimedEventSessions.contains(session.admit.session) else {
             throw CompositionError.unsupportedRoute
         }
@@ -864,8 +1378,7 @@ public actor MobileIrxRuntimeComposition {
         cursor: UInt64? = nil
     ) async throws -> MobileIrohTerminalLane {
         let peerHex = try peerTarget(for: request)
-        let session = try await engine(forPeer: peerHex)
-            .ensureSession(trigger: "terminal-lane")
+        let session = try await ensureSession(forPeer: peerHex, trigger: "terminal-lane")
         let lane = try await session.connection.openLane(
             IrxLaneDescriptor(
                 lane: .terminal,
@@ -889,8 +1402,7 @@ public actor MobileIrxRuntimeComposition {
         offset: UInt64
     ) async throws -> any MobileArtifactLaneConnection {
         let peerHex = try peerTarget(for: request)
-        let session = try await engine(forPeer: peerHex)
-            .ensureSession(trigger: "artifact-lane")
+        let session = try await ensureSession(forPeer: peerHex, trigger: "artifact-lane")
         let lane = try await session.connection.openLane(
             IrxLaneDescriptor(lane: .artifact, resource: resourceID, offset: offset)
         )
@@ -902,8 +1414,10 @@ public actor MobileIrxRuntimeComposition {
         panelID: UUID
     ) async throws -> MobileIrohSimulatorStreamLane {
         let peerHex = try peerTarget(for: request)
-        let session = try await engine(forPeer: peerHex)
-            .ensureSession(trigger: "simulator-stream-lane")
+        let session = try await ensureSession(
+            forPeer: peerHex,
+            trigger: "simulator-stream-lane"
+        )
         // Same legacy resource dialect the terminal lane uses; the Mac's
         // dialect server routes it to MobileHostIrohSimulatorStreamLaneHandler.
         let lane = try await session.connection.openLane(
@@ -920,34 +1434,54 @@ public actor MobileIrxRuntimeComposition {
     }
 
     /// The deferred transport the RPC layer connects through. Each RPC client
-    /// generation claims one admitted session's control lane; a replacement
-    /// client forces a fresh dial (superseding the old session Mac-side).
+    /// generation claims one admitted session's control lane and releases that
+    /// claim when the transport closes.
     public func transport(
         for request: CmxByteTransportRequest
     ) async throws -> any CmxByteTransport {
         let peerHex = try peerTarget(for: request)
-        return IrxControlByteTransport(closeCode: .explicitRedial) { [weak self] in
-            guard let self else {
-                throw CompositionError.notSignedIn
+        let ownerID = UUID()
+        return IrxControlByteTransport(
+            closeCode: .explicitRedial,
+            establish: { [weak self] in
+                guard let self else {
+                    throw CompositionError.notSignedIn
+                }
+                return try await self.claimControlLane(
+                    peerHex: peerHex,
+                    ownerID: ownerID
+                )
+            },
+            onClose: { [weak self] in
+                await self?.releaseControlLane(ownerID: ownerID)
             }
-            return try await self.claimControlLane(peerHex: peerHex)
-        }
+        )
     }
 
     private func claimControlLane(
-        peerHex: String
+        peerHex: String,
+        ownerID: UUID
     ) async throws -> (IrxConnection, IrxLaneStream) {
-        let engine = engine(forPeer: peerHex)
-        var session = try await engine.ensureSession(trigger: "control-transport")
-        if claimedControlSessions.contains(session.admit.session) {
-            // The live session's control lane already belongs to an earlier
-            // transport: this caller is a replacement client, so replace the
-            // session (one control owner per session, always).
-            session = try await engine.ensureSession(
-                explicit: true, trigger: "control-transport-replacement")
+        let session = try await ensureSession(forPeer: peerHex, trigger: "control-transport")
+        guard controlLaneClaims.claim(
+            sessionID: session.admit.session,
+            ownerID: ownerID
+        ) else {
+            // One admitted session exposes one control lane. Returning a
+            // transient closed error lets the caller's bounded retry policy
+            // wait for the current owner to drain, while preserving the
+            // healthy QUIC session for the current owner.
+            Self.journal.record(
+                "client-runtime", "control-lane-busy",
+                ["peer": peerHex.prefix(12).lowercased()]
+            )
+            throw IrxConnectionError.closed(nil)
         }
-        claimedControlSessions.insert(session.admit.session)
         return (session.connection, session.control)
+    }
+
+    private func releaseControlLane(ownerID: UUID) {
+        controlLaneClaims.release(ownerID: ownerID)
     }
 }
 

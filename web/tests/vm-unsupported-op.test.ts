@@ -10,7 +10,8 @@ import { locales } from "../i18n/routing";
 // A driver that cannot perform an operation raises VmOperationUnsupportedError.
 // Before this mapping it surfaced as 502 vm_cloud_service_unavailable
 // retryable:true, telling users to retry an operation the provider will never
-// perform. `fork` is the live case today: no driver implements it.
+// perform. `fork` is the live case today: no driver implements it; the port
+// capability uses the same contract for older deployments.
 describe("unsupported provider operations", () => {
   test("the structured driver error maps to an honest non-retryable 501", async () => {
     const response = await vmWorkflowErrorResponse(new VmProviderOperationError({
@@ -56,6 +57,26 @@ describe("unsupported provider operations", () => {
     expect(payload.message).toContain("restoring");
   });
 
+  test("unsupported openPort is a non-retryable 501 with port-specific guidance", async () => {
+    const response = await vmWorkflowErrorResponse(new VmProviderOperationError({
+      provider: "freestyle",
+      operation: "openPort",
+      cause: new VmOperationUnsupportedError({ provider: "freestyle", operation: "openPort" }),
+    }));
+    expect(response).not.toBeNull();
+    expect(response!.status).toBe(501);
+    expect(response!.headers.get("retry-after")).toBeNull();
+    const payload = await response!.json() as Record<string, unknown>;
+    expect(payload).toMatchObject({
+      error: "vm_operation_unsupported",
+      retryable: false,
+      details: { operation: "openPort", retryable: false },
+      ui: { retryable: false, severity: "error" },
+    });
+    expect(String(payload.message)).toContain("preview URLs");
+    expect(String(payload.action)).toContain("cmux vm exec");
+  });
+
   test("a provider message containing the capability phrase stays retryable", async () => {
     const response = await vmWorkflowErrorResponse(new VmProviderOperationError({
       provider: "freestyle",
@@ -76,6 +97,7 @@ describe("unsupported provider operations", () => {
       expect(capabilities.fork).toBe(typeof getProvider(provider).fork === "function");
       expect(capabilities.snapshot).toBe(true);
       expect(capabilities.restore).toBe(true);
+      expect(capabilities.ports).toBe(typeof getProvider(provider).openPort === "function");
     }
   });
 
@@ -142,15 +164,19 @@ describe("unsupported provider operations", () => {
       expect(Object.keys(unsupported?.message ?? {}).sort()).toEqual([
         "default",
         "fork",
+        "openPort",
         "restore",
         "snapshot",
       ]);
       expect(Object.keys(unsupported?.action ?? {}).sort()).toEqual([
         "default",
         "fork",
+        "openPort",
         "restore",
         "snapshot",
       ]);
+      expect(unsupported?.message?.openPort).toBeString();
+      expect(unsupported?.action?.openPort).toBeString();
     }
   });
 

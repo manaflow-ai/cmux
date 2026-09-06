@@ -2,6 +2,7 @@ name: CI
 
 on:
   # Keep the full suite available for explicit validation, while always
+  # Changes to CI guard scripts also retrigger the full workflow through this path.
   # running the lightweight GhosttyKit provenance check when its pointer,
   # checksum, or helper changes in a PR.
   pull_request:
@@ -11,6 +12,8 @@ on:
       - scripts/validate-xcframework-archive.py
       - scripts/ghosttykit-checksums.txt
       - tests/test_ci_ghosttykit_release_check.sh
+      - Resources/bin/cmux-hermes-agent-wrapper
+      - tests/test_hermes_wrapper_hooks.py
       - tests/test_ci_change_areas.py
       - .github/workflows/ci.yml
   workflow_dispatch:
@@ -293,8 +296,20 @@ jobs:
       - name: Validate universal nightly workflow
         run: bash ./tests/test_nightly_universal_build.sh
 
+      - name: Validate cmux-tui client commit resolution
+        run: ./tests/test_ci_resolve_cmux_tui_client_commit.sh
+
+      - name: Validate cmux-tui client installation
+        run: bash ./tests/test_install_cmux_tui_client.sh
+
       - name: Validate nightly notarization behavior
         run: ./tests/test_notarize_nightly_dmg.sh
+
+      - name: Validate Sparkle delta finalization
+        run: ./tests/test_finalize_sparkle_deltas.sh
+
+      - name: Validate previous nightly build fetch
+        run: ./tests/test_fetch_previous_nightly_dmgs.sh
 
       - name: Validate Computer Use helper notarization behavior
         run: ./tests/test_notarize_computer_use_helper.sh
@@ -1669,6 +1684,7 @@ jobs:
             CmuxRemoteWorkspace
             CmuxRemoteSession
             CmuxAgentChat
+            CmuxAgentSessionStore
             CmuxAuthRuntime
             CmuxBrowser
             CmuxIrohTransport
@@ -1686,6 +1702,8 @@ jobs:
             CmuxUpdater
             CMUXAgentLaunch
             CmuxAgentJournal
+            CmuxFilePreviewCore
+            CmuxSyntaxHighlighting
           )
           # SwiftPM emits an error-severity diagnostic while planning the
           # GhosttyKit binaryTarget (the xcframework's static archive is not
@@ -1707,7 +1725,10 @@ jobs:
             fi
             echo "::group::swift test $pkgdir"
             case "$pkg" in
-            CmuxAgentChat|CmuxAuthRuntime|CmuxIrohTransport)
+            # CmuxFoundation has several process-tree suites whose child
+            # fixtures share global process resources; run each suite in its
+            # own Swift Testing process just like the auth/transport suites.
+            CmuxAgentChat|CmuxAuthRuntime|CmuxFoundation|CmuxIrohTransport)
               ./scripts/ci/run-swift-testing-suites.sh "$pkgdir"
               ;;
             CmuxTerminal|CmuxTerminalCore)
@@ -2227,6 +2248,9 @@ jobs:
           set -euo pipefail
           ./scripts/select-ci-xcode.sh
 
+      - name: Validate app bundle thinning
+        run: ./tests/test_thin_app_bundle.sh
+
       - name: Compute Xcode compilation cache key
         id: compilation-cache-key
         run: |
@@ -2291,6 +2315,12 @@ jobs:
       - name: Sanitize Swift package cache
         run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .spm-cache
 
+      - name: Set up Go for the Cloud tunnel extension
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26.x'
+          cache: false
+
       - name: Build universal app (Release)
         run: |
           set -euo pipefail
@@ -2329,6 +2359,7 @@ jobs:
       - name: Install universal Ghostty CLI helper
         run: |
           set -euo pipefail
+          /bin/bash ./tests/test_install_cmux_tui_client.sh
           ./scripts/install-prebuilt-ghostty-cli-helper.sh \
             ghostty-cli-helper/ghostty \
             build-universal/Build/Products/Release/cmux.app

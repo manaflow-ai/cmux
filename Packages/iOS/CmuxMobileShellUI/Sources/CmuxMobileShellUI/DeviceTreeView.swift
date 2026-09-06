@@ -239,10 +239,13 @@ struct DeviceTreeView: View {
     }
 
     private func reload() async {
-        // Load the local paired Macs first so the list has a fallback source the
-        // instant it appears, then refresh from the registry.
-        await store.loadPairedMacs()
-        await store.loadRegistryDevices()
+        // These are independent account-scoped reads. Start them together so
+        // the slower registry request cannot delay the paired-Mac list, while
+        // each loader's generation gate keeps stale results from publishing.
+        async let pairedMacs: Void = store.loadPairedMacs()
+        async let registryDevices: Void = store.loadRegistryDevices()
+        await pairedMacs
+        await registryDevices
     }
 }
 #endif

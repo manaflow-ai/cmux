@@ -161,16 +161,14 @@ struct MacComputerRow: View {
         }
     }
 
-    /// Whether the account device list has a compatibility warning for this
-    /// Mac, either because it has not confirmed list-auth yet or because its
-    /// reported version is below the server's current minimum.
+    /// Whether the account device list has a known-version compatibility warning
+    /// for this Mac. A seeded/unverified row stays quiet until its first hello
+    /// records the build version in the durable overlay.
     private var showsListAuthWarning: Bool {
-        guard let entry = MobileMacListAuthState.shared.entry(deviceID: computer.deviceId)
-        else { return false }
-        return entry.status == "seeded" || entry.isOutdated
+        MobileMacListAuthState.shared.entry(deviceID: computer.deviceId)?.isOutdated == true
     }
 
-    /// Seeded rows carry a compact warning triangle beside the name; the
+    /// Outdated rows carry a compact warning triangle beside the name; the
     /// explanation lives in a popover so the row itself stays one avatar tall.
     /// Borderless keeps the tap target separate from the row's navigation.
     private var listAuthWarningButton: some View {
@@ -207,37 +205,26 @@ struct MacComputerRow: View {
     }
 
     private var listAuthWarningTitle: String {
-        if MobileMacListAuthState.shared.entry(deviceID: computer.deviceId)?.isOutdated == true {
-            return L10n.string(
-                "computers.version.outdated.title",
-                defaultValue: "Mac update required"
-            )
-        }
         return L10n.string(
-            "computers.listauth.unverified.title",
-            defaultValue: "Not verified on the new connection system yet"
+            "computers.version.outdated.title",
+            defaultValue: "Mac update required"
         )
     }
 
     private var listAuthWarningMessage: String {
         guard let entry = MobileMacListAuthState.shared.entry(deviceID: computer.deviceId),
               entry.isOutdated,
-              let installed = entry.appVersion,
               let required = entry.minimumSupportedVersion
         else {
-            return L10n.string(
-                "computers.listauth.unverified.detail",
-                defaultValue:
-                    "It may be running an older cmux version. Update the Mac, or if it's already updated, open cmux on it once to verify."
-            )
+            return ""
         }
+        let requirement = "cmux \(required) or later"
         return String(
             format: L10n.string(
-                "computers.version.outdated.detail",
-                defaultValue: "This Mac is running %@. Update it to %@ or later."
+                "mobile.macUpdate.requiredOnMacFormat",
+                defaultValue: "Requires %@ on your Mac."
             ),
-            installed,
-            required
+            requirement
         )
     }
 

@@ -5,10 +5,10 @@
 
 use cmux_tui_core::Rect;
 use ratatui::Frame;
-use ratatui::buffer::Buffer;
+use ratatui::buffer::{Buffer, CellWidth};
 use ratatui::layout::Position;
 use ratatui::style::{Modifier, Style};
-use unicode_width::UnicodeWidthStr;
+use unicode_segmentation::UnicodeSegmentation;
 
 use crate::app::{App, ContextMenu, MenuItem};
 use crate::localization::catalog;
@@ -339,26 +339,30 @@ fn wrapped_message_lines(message: &str, width: usize, limit: usize) -> Vec<Strin
     let mut lines = Vec::new();
     let mut remaining = sanitized.as_str();
     while !remaining.is_empty() && lines.len() < limit {
-        let mut end = remaining.len();
-        while end > 0 && remaining[..end].width() > width {
-            end = remaining[..end].char_indices().next_back().map_or(0, |(index, _)| index);
-        }
+        let end = grapheme_prefix_end(remaining, width);
         if end == 0 {
             break;
         }
         let split = if end < remaining.len() {
-            remaining[..end].rfind(char::is_whitespace).filter(|index| *index > 0).unwrap_or(end)
+            remaining[..end]
+                .grapheme_indices(true)
+                .rev()
+                .find(|(_, grapheme)| grapheme_is_whitespace(grapheme))
+                .map(|(index, _)| index)
+                .filter(|index| *index > 0)
+                .unwrap_or(end)
         } else {
             end
         };
-        lines.push(remaining[..split].trim().to_string());
-        remaining = remaining[split..].trim_start();
+        lines.push(trim_grapheme_whitespace(&remaining[..split]).to_string());
+        remaining = trim_grapheme_whitespace_start(&remaining[split..]);
     }
     if !remaining.is_empty()
         && let Some(last) = lines.last_mut()
     {
-        while format!("{last}…").width() > width && !last.is_empty() {
-            last.pop();
+        while usize::from(format!("{last}…").cell_width()) > width && !last.is_empty() {
+            let end = last.grapheme_indices(true).next_back().map_or(0, |(index, _)| index);
+            last.truncate(end);
         }
         last.push('…');
     }
@@ -424,7 +428,7 @@ pub fn draw_menu(app: &mut App, frame: &mut Frame) {
             let title_x = x + 2;
             let title_w = width.saturating_sub(4) as usize;
             let prefix = format!(" {} · ", search.label);
-            let prefix_w = prefix.width().min(title_w);
+            let prefix_w = usize::from(prefix.cell_width()).min(title_w);
             let search_style = base.add_modifier(Modifier::BOLD);
             buf.set_stringn(title_x, y, &prefix, title_w, search_style);
             let value_x = title_x + prefix_w as u16;
@@ -441,7 +445,7 @@ pub fn draw_menu(app: &mut App, frame: &mut Frame) {
             } else if value_w > 0 {
                 let (shown, _) = search.input.visible_text_and_cursor(value_w.saturating_sub(1));
                 buf.set_stringn(value_x, y, &shown, value_w, search_style);
-                let cursor_x = value_x + shown.width().min(value_w.saturating_sub(1)) as u16;
+                let cursor_x = value_x + shown.cell_width().min(value_w.saturating_sub(1) as u16);
                 buf.set_stringn(cursor_x, y, "▏", 1, search_style);
             }
         }
@@ -472,7 +476,7 @@ pub fn draw_menu(app: &mut App, frame: &mut Frame) {
                     set_cell(buf, inner_x + dx, row_y, " ", style);
                 }
                 let shortcut_width =
-                    item.shortcut().map(|shortcut| shortcut.width() as u16 + 2).unwrap_or(0);
+                    item.shortcut().map(|shortcut| shortcut.cell_width() + 2).unwrap_or(0);
                 let arrow_width = matches!(item, MenuItem::Submenu { .. }) as u16 * 2;
                 buf.set_stringn(
                     inner_x + pad + 1,
@@ -483,7 +487,7 @@ pub fn draw_menu(app: &mut App, frame: &mut Frame) {
                 );
                 if let Some(shortcut) = item.shortcut() {
                     let shortcut_width =
-                        (shortcut.width() as u16).min(row_content_w.saturating_sub(pad * 2));
+                        shortcut.cell_width().min(row_content_w.saturating_sub(pad * 2));
                     if shortcut_width > 0 {
                         let shortcut_x = x + level
                             .rect
@@ -533,11 +537,17 @@ pub fn draw_shortcut_help(app: &mut App, frame: &mut Frame) {
         .rows
         .iter()
         .map(|(action, shortcuts)| {
-            app.action_display_label(*action).width() + shortcuts.width() + 9
+            usize::from(app.action_display_label(*action).cell_width())
+                + usize::from(shortcuts.cell_width())
+                + 9
         })
         .max()
         .unwrap_or(44)
-        .max(catalog.shortcuts.title.width() + close_text.width() + 8);
+        .max(
+            usize::from(catalog.shortcuts.title.cell_width())
+                + usize::from(close_text.cell_width())
+                + 8,
+        );
     let width = (desired_width as u16).min(76).min(screen.width.saturating_sub(2)).max(24);
     let height = (total_rows as u16 + 4).min(screen.height.saturating_sub(2)).max(7);
     let x = (screen.width - width) / 2;
@@ -552,7 +562,7 @@ pub fn draw_shortcut_help(app: &mut App, frame: &mut Frame) {
     let Some(help) = app.shortcut_help.as_mut() else { return };
     help.rect = rect;
     help.visible_rows = visible_rows;
-    let close_width = close_text.width().min(width.saturating_sub(4) as usize) as u16;
+    let close_width = close_text.cell_width().min(width.saturating_sub(4));
     help.close_button = Rect {
         x: x + width.saturating_sub(close_width + 3),
         y: y + 1,
@@ -606,7 +616,7 @@ pub fn draw_shortcut_help(app: &mut App, frame: &mut Frame) {
         let row_y = y + 2 + line as u16;
         let label = app.action_display_label(*action);
         let shortcuts = format!(" {shortcuts} ");
-        let shortcut_width = (shortcuts.width() as u16).min(inner_width / 2);
+        let shortcut_width = shortcuts.cell_width().min(inner_width / 2);
         let shortcut_x = x + width.saturating_sub(shortcut_width + 2);
         let shortcut_x = if scrollbar_track.height > 0 {
             shortcut_x.min(scrollbar_track.x.saturating_sub(shortcut_width + 1))
@@ -696,14 +706,54 @@ fn draw_border(buf: &mut Buffer, rect: Rect, style: Style) {
 }
 
 fn label_width(label: &str) -> u16 {
-    label.chars().count() as u16
+    label.cell_width()
+}
+
+fn grapheme_prefix_end(input: &str, max_width: usize) -> usize {
+    let mut width: usize = 0;
+    let mut end = 0;
+    for (index, grapheme) in input.grapheme_indices(true) {
+        let grapheme_width = usize::from(grapheme.cell_width());
+        if width.saturating_add(grapheme_width) > max_width {
+            break;
+        }
+        width += grapheme_width;
+        end = index + grapheme.len();
+    }
+    end
+}
+
+fn grapheme_is_whitespace(grapheme: &str) -> bool {
+    grapheme.chars().next().is_some_and(char::is_whitespace)
+}
+
+fn trim_grapheme_whitespace_start(input: &str) -> &str {
+    let start = input
+        .grapheme_indices(true)
+        .find(|(_, grapheme)| !grapheme_is_whitespace(grapheme))
+        .map_or(input.len(), |(index, _)| index);
+    &input[start..]
+}
+
+fn trim_grapheme_whitespace_end(input: &str) -> &str {
+    let end = input
+        .grapheme_indices(true)
+        .rev()
+        .find(|(_, grapheme)| !grapheme_is_whitespace(grapheme))
+        .map_or(0, |(index, grapheme)| index + grapheme.len());
+    &input[..end]
+}
+
+fn trim_grapheme_whitespace(input: &str) -> &str {
+    trim_grapheme_whitespace_end(trim_grapheme_whitespace_start(input))
 }
 
 #[cfg(test)]
 mod tests {
     use cmux_tui_core::Rect;
+    use ratatui::buffer::CellWidth;
 
-    use super::toast_rect_for_label;
+    use super::{label_width, toast_rect_for_label, wrapped_message_lines};
     use crate::localization::catalog_for_locale;
 
     #[test]
@@ -716,7 +766,29 @@ mod tests {
     fn toast_occlusion_uses_the_rendered_character_clamp() {
         assert_eq!(
             toast_rect_for_label(Rect { x: 10, y: 2, width: 10, height: 5 }, " 界 "),
-            Some(Rect { x: 16, y: 5, width: 3, height: 1 })
+            Some(Rect { x: 15, y: 5, width: 4, height: 1 })
         );
+    }
+
+    #[test]
+    fn overlay_labels_and_wrapping_use_terminal_cell_width() {
+        assert_eq!(label_width(" 界 "), 4);
+        let lines = wrapped_message_lines("界界界", 4, 2);
+        assert_eq!(lines, vec!["界界", "界"]);
+        assert!(lines.iter().all(|line| line.cell_width() <= 4));
+    }
+
+    #[test]
+    #[allow(clippy::unicode_not_nfc)]
+    fn wrapping_trims_whitespace_graphemes_without_orphaning_marks() {
+        let lines = wrapped_message_lines("a \u{301}b", 2, 2);
+        assert_eq!(lines, vec!["a", "b"]);
+    }
+
+    #[test]
+    #[allow(clippy::unicode_not_nfc)]
+    fn wrapping_uses_terminal_cell_width_for_halfwidth_dakuten() {
+        let lines = wrapped_message_lines("界ﾞ界ﾞ", 5, 2);
+        assert_eq!(lines, vec!["界ﾞ", "界ﾞ"]);
     }
 }

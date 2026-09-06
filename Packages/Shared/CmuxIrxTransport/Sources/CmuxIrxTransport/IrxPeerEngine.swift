@@ -134,7 +134,7 @@ public actor IrxPeerEngine {
     /// This is the ONLY dial path; `explicit` overrides a parked denial and
     /// replaces any in-flight attempt.
     public func ensureSession(explicit: Bool = false, trigger: String) async throws -> IrxClientSession {
-        if let session, await !session.connection.isClosed, !explicit {
+        if let session, await !session.connection.isConnectionClosed(), !explicit {
             return session
         }
         if let parkedCode, !explicit {
@@ -200,9 +200,21 @@ public actor IrxPeerEngine {
         } catch let denial as IrxAdmissionDenied {
             guard dialGeneration == generation else { throw denial }
             dialTask = nil
-            parkedCode = denial.code.rawValue
             setState(.closed(code: denial.code.rawValue))
-            record("dial-denied", ["code": denial.code.rawValue])
+            if denial.code == .admissionTimeout {
+                // A missing admission response is a transient transport
+                // failure, not an authorization denial. Keep the owner alive
+                // through the normal bounded retry schedule.
+                lastDialError = denial
+                record("dial-failed", [
+                    "trigger": trigger,
+                    "error": String(describing: denial),
+                ])
+                scheduleRedial()
+            } else {
+                parkedCode = denial.code.rawValue
+                record("dial-denied", ["code": denial.code.rawValue])
+            }
             throw denial
         } catch {
             guard dialGeneration == generation else { throw error }
@@ -228,29 +240,36 @@ public actor IrxPeerEngine {
         Task { _ = try? await self.ensureSession(trigger: trigger) }
     }
 
-    /// Foreground resume: a session that has not proven liveness recently is
-    /// treated as a zombie (a suspension can kill the QUIC connection without
-    /// isClosed flipping) and replaced IMMEDIATELY — close + explicit redial —
-    /// instead of waiting out keepalive strike detection. Fresh sessions and
-    /// no-session states fall through to a normal warm-up.
+    /// Foreground resume: retain a session that recently proved liveness, but
+    /// replace a native zombie whose closed flag stayed false during
+    /// suspension. This avoids age-based churn while preserving recovery.
     public func foregroundKick(staleAfter: Duration = .seconds(15)) {
         Task {
-            if let session = await self.currentSessionForKick() {
-                // Liveness evidence is a recent pong OR a recent admission: a
-                // just-established session has no pong yet and must not be
-                // executed as a zombie while its first keepalive is in flight
-                // (that exact race produced the foreground redial storm).
-                let now = ContinuousClock.now
-                let pongAge = (await session.connection.lastPongAt).map { now - $0 }
-                let sessionAge = session.establishedAtMonotonic.duration(to: now)
-                let liveness = pongAge.map { min($0, sessionAge) } ?? sessionAge
-                if liveness > staleAfter {
-                    self.record("foreground-stale-redial", [:])
-                    _ = try? await self.ensureSession(explicit: true, trigger: "foreground-stale")
+            if let session = self.currentSessionForKick(),
+               await !session.connection.isConnectionClosed()
+            {
+                let recentlyAlive: Bool
+                if ContinuousClock.now - session.establishedAtMonotonic <= staleAfter {
+                    // A newly admitted session has not necessarily completed
+                    // its first keepalive round yet, but is still within the
+                    // bounded fresh-session grace period.
+                    recentlyAlive = true
+                } else {
+                    recentlyAlive = await session.connection.hasRecentKeepalive(
+                        within: staleAfter)
+                }
+                if recentlyAlive {
+                    self.record(
+                        "foreground-session-retained",
+                        [
+                            "session": session.admit.session,
+                            "stale_after": String(describing: staleAfter),
+                        ]
+                    )
                     return
                 }
             }
-            _ = try? await self.ensureSession(trigger: "foreground")
+            _ = try? await self.ensureSession(explicit: true, trigger: "foreground")
         }
     }
 
@@ -280,7 +299,7 @@ public actor IrxPeerEngine {
     }
 
     public func currentSession() async -> IrxClientSession? {
-        if let session, await !session.connection.isClosed {
+        if let session, await !session.connection.isConnectionClosed() {
             return session
         }
         return nil

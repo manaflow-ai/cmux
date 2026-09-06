@@ -15,7 +15,7 @@
  *   --bake-result <json>  adopt a bake script's --out file (its manifest entry
  *               and image id) instead of baking; still verified.
  *   --sizes     ladder sizes to derive from the verified bake (default
- *               sm,md,lg,xl,2xl; "none" records a single size-less entry):
+ *               sm,md,lg,lgx,xl,2xl; "none" records a single size-less entry):
  *               derive-devbox-sizes.ts boots the bake, resizes, snapshots and
  *               re-boots each one; the manifest gets one entry per kind and
  *               size, each the default for that kind+size. The bake must be
@@ -23,12 +23,17 @@
  *               freestyle/ubuntu-sm).
  *   --kinds     machine kinds the image serves; each gets a manifest entry
  *               flagged defaultForKind (default: desktop,base for a desktop
- *               bake, base for --no-desktop). A desktop image is a superset
- *               of a base one, so one snapshot can serve both.
+ *               bake, base for --no-desktop). Desktop and base defaults are
+ *               promoted separately; a base promotion must use --no-desktop.
  *   --pointer-slug  After promotion, move this account-local
  *               snapshot slug onto the new id (default cmux-devbox; "none"
  *               disables). A human/dashboard convenience: production boots
  *               from the immutable id in the manifest, never from the slug.
+ *               With sizes, it is the prefix the derived snapshots are
+ *               slugged under (`<prefix>-<size>`; md takes the bare prefix
+ *               unless the bake itself already holds that slug, then
+ *               `<prefix>-md`); "none" keeps the shared pointer untouched
+ *               and prefixes them with the bake's own slug instead.
  *   --skip-verify   record validationStatus "unknown" instead of verifying.
  *               The entry is appended but NOT flagged as any default.
  *   --dry-run   print the manifest diff without writing it.
@@ -88,6 +93,9 @@ const sizesArg = argValue("--sizes") ?? VM_IMAGE_SIZE_NAMES.join(",");
 const sizeNames = sizesArg === "none" ? [] : sizesArg.split(",").map((name) => name.trim()).filter(Boolean);
 for (const name of sizeNames) {
   if (!isVmImageSizeName(name)) throw new Error(`--sizes: unknown size ${name}; expected ${VM_IMAGE_SIZE_NAMES.join(", ")} or none`);
+}
+if (new Set(sizeNames).size !== sizeNames.length) {
+  throw new Error("--sizes: each machine size may appear only once");
 }
 const dryRun = hasFlag("--dry-run");
 const existingImage = argValue("--image");
@@ -174,10 +182,13 @@ if (skipVerify) {
 let sizes: Array<{ imageId: string; size: VmImageSize }> | undefined;
 if (!skipVerify && sizeNames.length > 0) {
   const sizesOut = path.join(workDir, "sizes.json");
+  // "none" means "leave the shared pointer slugs alone", never a literal
+  // prefix: a branch bake's sizes are slugged under its own slug.
+  const derivePrefix = pointerSlug === "none" ? (argValue("--slug") ?? slug) : pointerSlug;
   const deriveStatus = run("derive sizes", [
     "scripts/derive-devbox-sizes.ts",
     imageId,
-    argValue("--pointer-slug") ?? "cmux-devbox",
+    derivePrefix,
     "--sizes",
     sizeNames.join(","),
     "--out",

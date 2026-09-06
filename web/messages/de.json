@@ -7,12 +7,14 @@
         "snapshot": "Diese Cloud-VM unterstützt keinen gespeicherten VM-Zustand.",
         "restore": "Dieser Cloud-VM-Typ unterstützt das Wiederherstellen eines gespeicherten VM-Zustands nicht.",
         "fork": "Diese Cloud-VM unterstützt das Kopieren auf eine neue VM nicht.",
+        "openPort": "Der Anbieter dieser Cloud-VM kann die Maschinenports nicht als Vorschau-URLs bereitstellen.",
         "default": "Diese Cloud-VM unterstützt den angeforderten Vorgang nicht."
       },
       "action": {
         "snapshot": "Nicht erneut versuchen. Die Arbeit auf diesem Maschinentyp bleibt auf dem dauerhaften Home-Volume erhalten.",
         "restore": "Nicht erneut versuchen. Die Arbeit auf diesem Maschinentyp bleibt auf dem dauerhaften Home-Volume erhalten.",
         "fork": "Nicht erneut versuchen. Erstellen Sie mit `cmux vm new` eine neue VM.",
+        "openPort": "Nicht erneut versuchen. Greifen Sie innerhalb der Maschine mit `cmux vm exec` auf den Dienst zu oder verwenden Sie einen Maschinentyp, der Ports öffnen kann.",
         "default": "Nicht erneut versuchen. Führen Sie `cmux vm ls` aus oder wenden Sie sich an den Support, wenn dies nicht stimmt."
       }
     },
@@ -59,6 +61,15 @@
     "genericTitle": "Anmeldung konnte nicht abgeschlossen werden",
     "genericBody": "Bitte versuche es erneut. Wenn das Problem bestehen bleibt, wende dich an den Support.",
     "backToSignIn": "Zur Anmeldung"
+  },
+  "cloudPublicationAccess": {
+    "title": "Du hast keinen Zugriff",
+    "signIn": "Bei cmux anmelden",
+    "signedInAs": "Angemeldet als {identity}",
+    "switchAccount": "Konto wechseln",
+    "invalidTitle": "Dieser Zugriffslink ist ungültig",
+    "invalidBody": "Kehre zur Website zurück und versuche es erneut.",
+    "footer": "Der Zugriff wird von cmux verwaltet."
   },
   "common": {
     "downloadForMac": "Für Mac herunterladen",
@@ -261,7 +272,18 @@
       "metaTitle": "coderouter — cmux",
       "metaDescription": "Gemeinsam genutzte KI-Konten verwalten und Anfragen mit coderouter verteilen.",
       "title": "coderouter",
-      "description": "coderouter verteilt LLM-Anfragen mit Failover und nutzungsabhängiger Planung über Anbieter-Konten."
+      "description": "coderouter verteilt LLM-Anfragen mit Failover und nutzungsabhängiger Planung über Anbieter-Konten.",
+      "machines": {
+        "title": "Maschinen",
+        "description": "coderouter-Nutzung pro Maschine für {team} in den letzten {days} Tagen.",
+        "machineColumn": "Maschine",
+        "tokensColumn": "Token gesamt",
+        "apiEquivalentColumn": "API-Gegenwert",
+        "unnamed": "Unbenannte Maschine",
+        "empty": "In den letzten {days} Tagen hat keine Maschine coderouter genutzt.",
+        "unavailable": "Die Nutzung pro Maschine ist vorübergehend nicht verfügbar.",
+        "estimateNote": "Der API-Gegenwert ist eine Schätzung auf Basis öffentlicher Listenpreise, keine tatsächlichen Ausgaben."
+      }
     },
     "accountMenu": {
       "label": "Kontomenü",
@@ -1161,6 +1183,14 @@
         "shortcuts": {
           "when": "Optionale Kontextprädikate pro Aktion (VS-Code-artige `when`-Klauseln), nach cmux-Aktions-ID indiziert. Jeder Wert ist ein boolescher Ausdruck über Kontextschlüssel, kombiniert mit !, &&, || und Klammern. Boolesche Schlüssel: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Typisierte Schlüssel unterstützen Vergleiche: die Zeichenkette sidebarMode (files, find, sessions, feed oder dock) sowie die Ganzzahlen paneCount und workspaceCount. Vergleichsoperatoren sind ==, !=, =~ (regulärer Ausdruck), <, <=, >, >= und `in [a, b]`; ein unbekannter oder fehlender Schlüssel gilt als false. Die booleschen Literale true und false werden ebenfalls akzeptiert; `key == false` entspricht `!key`. Der Kurzbefehl der Aktion wird nur ausgelöst (und kollidiert nur mit anderen Kurzbefehlen), wenn die Klausel erfüllt ist. Beispiele: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } wählt Workspaces mit Ctrl+1–9 überall aus, außer wenn die rechte Seitenleiste fokussiert ist; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } beschränkt eine Belegung auf die Suchen-Seitenleiste, wenn der Workspace mehrere Panes hat.",
           "showModifierHoldHints": "Zeigt Kurzbefehl-Hinweis-Chips an, während Cmd oder Control gedrückt gehalten wird."
+        },
+        "fileEditor": {
+          "wordWrap": "Bricht lange Zeilen am rechten Rand des Editors um, statt horizontal zu scrollen.",
+          "syntaxHighlighting": "Färbt Quellcode-Token im integrierten Dateieditor ein.",
+          "lineNumbers": "Zeigt eine Zeilennummernleiste im integrierten Dateieditor.",
+          "indentGuides": "Zeichnet vertikale Einzugshilfslinien im integrierten Dateieditor.",
+          "currentLineHighlight": "Hebt die Zeile der Einfügemarke hervor, wenn nichts ausgewählt ist.",
+          "tabWidth": "Breite eines Tabstopps in Spalten für Einzüge und Einzugshilfslinien."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

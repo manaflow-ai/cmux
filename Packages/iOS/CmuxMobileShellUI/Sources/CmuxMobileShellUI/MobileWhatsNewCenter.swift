@@ -63,7 +63,7 @@ public final class MobileWhatsNewCenter {
             ?? "0"
         self.buildType = buildType
         self.defaults = defaults
-        self.loader = loader ?? Self.urlSessionLoader
+        self.loader = loader ?? mobileRemoteJSONLoader
         if let cached = defaults.data(forKey: environmentCacheKey),
            let list = try? JSONDecoder().decode(MobileWhatsNewRemoteList.self, from: cached) {
             remoteList = list
@@ -279,19 +279,5 @@ public final class MobileWhatsNewCenter {
         return url
     }
 
-    private static let urlSessionLoader: Loader = { url in
-        var request = URLRequest(
-            url: url,
-            cachePolicy: .reloadRevalidatingCacheData,
-            timeoutInterval: 10
-        )
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse,
-              (200...299).contains(http.statusCode) else {
-            throw URLError(.badServerResponse)
-        }
-        return data
-    }
 }
 #endif

@@ -7,12 +7,14 @@
         "snapshot": "Denne Cloud VM understøtter ikke gemt VM-tilstand.",
         "restore": "Denne Cloud VM-type understøtter ikke gendannelse af gemt VM-tilstand.",
         "fork": "Denne Cloud VM understøtter ikke kopiering til en ny VM.",
+        "openPort": "Denne Cloud VM's udbyder kan ikke eksponere maskinens porte som forhåndsvisnings-URL'er.",
         "default": "Denne Cloud VM understøtter ikke den ønskede handling."
       },
       "action": {
         "snapshot": "Prøv ikke igen. Arbejde på denne maskintype gemmes på dens vedvarende hjem-diskenhed.",
         "restore": "Prøv ikke igen. Arbejde på denne maskintype gemmes på dens vedvarende hjem-diskenhed.",
         "fork": "Prøv ikke igen. Opret en ny VM med `cmux vm new`.",
+        "openPort": "Prøv ikke igen. Få adgang til tjenesten fra maskinen med `cmux vm exec`, eller brug en maskintype, der kan åbne porte.",
         "default": "Prøv ikke igen. Kør `cmux vm ls`, eller kontakt support, hvis du mener, at dette er forkert."
       }
     },
@@ -59,6 +61,15 @@
     "genericTitle": "Login kunne ikke gennemføres",
     "genericBody": "Prøv igen. Kontakt support, hvis problemet fortsætter.",
     "backToSignIn": "Tilbage til login"
+  },
+  "cloudPublicationAccess": {
+    "title": "Du har ikke adgang",
+    "signIn": "Log ind på cmux",
+    "signedInAs": "Logget ind som {identity}",
+    "switchAccount": "Skift konto",
+    "invalidTitle": "Dette adgangslink er ugyldigt",
+    "invalidBody": "Gå tilbage til webstedet, og prøv igen.",
+    "footer": "Adgang administreres af cmux."
   },
   "common": {
     "downloadForMac": "Download til Mac",
@@ -261,7 +272,18 @@
       "metaTitle": "coderouter — cmux",
       "metaDescription": "Administrer delte AI-konti, og send anmodninger med coderouter.",
       "title": "coderouter",
-      "description": "coderouter sender LLM-anmodninger på tværs af udbyderkonti med failover og forbrugsbevidst planlægning."
+      "description": "coderouter sender LLM-anmodninger på tværs af udbyderkonti med failover og forbrugsbevidst planlægning.",
+      "machines": {
+        "title": "Maskiner",
+        "description": "coderouter-forbrug pr. maskine for {team} i de seneste {days} dage.",
+        "machineColumn": "Maskine",
+        "tokensColumn": "Tokens i alt",
+        "apiEquivalentColumn": "API-ækvivalent værdi",
+        "unnamed": "Unavngiven maskine",
+        "empty": "Ingen maskiner har brugt coderouter i de seneste {days} dage.",
+        "unavailable": "Forbrug pr. maskine er midlertidigt utilgængeligt.",
+        "estimateNote": "API-ækvivalent værdi er et estimat baseret på offentlige listepriser, ikke faktisk forbrug."
+      }
     },
     "accountMenu": {
       "label": "Kontomenu",
@@ -1161,6 +1183,14 @@
         "shortcuts": {
           "when": "Valgfri kontekstprædikater pr. handling (VS Code-lignende `when`-klausuler), nøgleindekseret efter cmux-handlings-id. Hver værdi er et boolesk udtryk over kontekstnøgler, kombineret med !, &&, || og parenteser. Boolske nøgler: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Typede nøgler understøtter sammenligninger: strengen sidebarMode (files, find, sessions, feed eller dock) og heltallene paneCount og workspaceCount. Sammenligningsoperatorerne er ==, !=, =~ (regulært udtryk), <, <=, >, >= og `in [a, b]`; en ukendt eller manglende nøgle læses som false. De boolske litteraler true og false accepteres også; `key == false` svarer til `!key`. Handlingens genvej udløses kun (og konflikter kun med andre genveje), når klausulen er sand. Eksempler: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } vælger workspaces med Ctrl+1–9 overalt undtagen når højre sidebjælke har fokus; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } begrænser en binding til Find-sidebjælken, når workspacet har flere paneler.",
           "showModifierHoldHints": "Vis genvejstipchips, mens Cmd eller Control holdes nede."
+        },
+        "fileEditor": {
+          "wordWrap": "Ombryd lange linjer ved editorens højre kant i stedet for vandret rulning.",
+          "syntaxHighlighting": "Farvelæg kildekodens tokens i den indbyggede fileditor.",
+          "lineNumbers": "Vis en linjenummerkolonne i den indbyggede fileditor.",
+          "indentGuides": "Tegn lodrette indrykningsguider i den indbyggede fileditor.",
+          "currentLineHighlight": "Fremhæv indsætningspunktets linje, når intet er markeret.",
+          "tabWidth": "Bredden på et tabulatorstop i kolonner til indrykning og indrykningsguider."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

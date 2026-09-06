@@ -7,12 +7,14 @@
         "snapshot": "Esta Cloud VM não é compatível com o estado salvo da VM.",
         "restore": "Este tipo de Cloud VM não é compatível com a restauração do estado salvo da VM.",
         "fork": "Esta Cloud VM não é compatível com a cópia para uma nova VM.",
+        "openPort": "O provedor desta Cloud VM não pode expor as portas da máquina como URLs de pré-visualização.",
         "default": "Esta Cloud VM não é compatível com a operação solicitada."
       },
       "action": {
         "snapshot": "Não tente novamente. O trabalho neste tipo de máquina é mantido no volume inicial persistente.",
         "restore": "Não tente novamente. O trabalho neste tipo de máquina é mantido no volume inicial persistente.",
         "fork": "Não tente novamente. Crie uma nova VM com `cmux vm new`.",
+        "openPort": "Não tente novamente. Acesse o serviço de dentro da máquina com `cmux vm exec` ou use um tipo de máquina que possa abrir portas.",
         "default": "Não tente novamente. Execute `cmux vm ls` ou entre em contato com o suporte se achar que isso está errado."
       }
     },
@@ -59,6 +61,15 @@
     "genericTitle": "Não foi possível concluir o login",
     "genericBody": "Tente novamente. Se o problema continuar, entre em contato com o suporte.",
     "backToSignIn": "Voltar para o login"
+  },
+  "cloudPublicationAccess": {
+    "title": "Você não tem acesso",
+    "signIn": "Entrar no cmux",
+    "signedInAs": "Conectado como {identity}",
+    "switchAccount": "Trocar de conta",
+    "invalidTitle": "Este link de acesso não é válido",
+    "invalidBody": "Volte ao site e tente novamente.",
+    "footer": "O acesso é gerenciado pelo cmux."
   },
   "common": {
     "downloadForMac": "Baixar para Mac",
@@ -261,7 +272,18 @@
       "metaTitle": "coderouter — cmux",
       "metaDescription": "Gerencie contas de IA compartilhadas e distribua solicitações com o coderouter.",
       "title": "coderouter",
-      "description": "O coderouter distribui solicitações LLM entre contas de provedores com failover e agendamento conforme o uso."
+      "description": "O coderouter distribui solicitações LLM entre contas de provedores com failover e agendamento conforme o uso.",
+      "machines": {
+        "title": "Máquinas",
+        "description": "Uso do coderouter por máquina para {team} nos últimos {days} dias.",
+        "machineColumn": "Máquina",
+        "tokensColumn": "Total de tokens",
+        "apiEquivalentColumn": "Valor equivalente em API",
+        "unnamed": "Máquina sem nome",
+        "empty": "Nenhuma máquina usou o coderouter nos últimos {days} dias.",
+        "unavailable": "O uso por máquina está temporariamente indisponível.",
+        "estimateNote": "O valor equivalente em API é uma estimativa com base em preços de lista públicos, não o gasto real."
+      }
     },
     "accountMenu": {
       "label": "Menu da conta",
@@ -1161,6 +1183,14 @@
         "shortcuts": {
           "when": "Predicados de contexto opcionais por ação (cláusulas `when` no estilo do VS Code), indexados pelo id da ação do cmux. Cada valor é uma expressão booleana sobre chaves de contexto, combinada com !, &&, || e parênteses. Chaves booleanas: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Chaves tipadas aceitam comparações: a string sidebarMode (files, find, sessions, feed ou dock) e os inteiros paneCount e workspaceCount. Os operadores de comparação são ==, !=, =~ (expressão regular), <, <=, >, >= e `in [a, b]`; uma chave desconhecida ou ausente é avaliada como false. Os literais booleanos true e false também são aceitos; `key == false` equivale a `!key`. O atalho da ação só dispara (e só conflita com outros atalhos) quando a cláusula é verdadeira. Exemplos: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } seleciona workspaces com Ctrl+1–9 em todos os lugares, exceto quando a barra lateral direita está em foco; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } restringe uma atribuição à barra lateral Localizar quando o workspace tem vários painéis.",
           "showModifierHoldHints": "Mostra chips de dica de atalhos enquanto Cmd ou Control estiver pressionado."
+        },
+        "fileEditor": {
+          "wordWrap": "Quebra linhas longas na borda direita do editor em vez de rolar horizontalmente.",
+          "syntaxHighlighting": "Colore os tokens do código no editor de arquivos integrado.",
+          "lineNumbers": "Mostra uma calha de números de linha no editor de arquivos integrado.",
+          "indentGuides": "Desenha guias verticais de recuo no editor de arquivos integrado.",
+          "currentLineHighlight": "Destaca a linha do cursor quando nada está selecionado.",
+          "tabWidth": "Largura de uma tabulação, em colunas, para recuo e guias de recuo."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

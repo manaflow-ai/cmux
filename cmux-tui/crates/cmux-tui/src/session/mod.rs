@@ -18,15 +18,15 @@ use std::sync::atomic::Ordering;
 use cmux_tui_core::resource::ResourceOperation;
 use cmux_tui_core::server::{
     CLIENT_FOCUS_CAPABILITY, CREATION_RECEIPTS_CAPABILITY, CREATION_SELECTOR_FALLBACKS_CAPABILITY,
-    FRONTEND_JOURNAL_CAPABILITY, LAYOUT_UNDO_CAPABILITY, MAX_CREATION_SELECTOR_FALLBACKS,
-    PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY, VIEWPORT_COLUMN_RESIZE_CAPABILITY,
-    VIEWPORT_SPLITS_CAPABILITY,
+    FRONTEND_JOURNAL_CAPABILITY, LAYOUT_UNDO_CAPABILITY, MACHINE_USAGE_CAPABILITY,
+    MAX_CREATION_SELECTOR_FALLBACKS, PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
+    VIEWPORT_COLUMN_RESIZE_CAPABILITY, VIEWPORT_SPLITS_CAPABILITY,
 };
 use cmux_tui_core::{
     BrowserFrameUpdate, BrowserStatus, ClearHistoryFailure, GuardedMouseEncode, LayoutRatioError,
-    LayoutUndoError, LayoutUndoResult, Mux, MuxEventReceiver, PaneId, PointerSemanticProbe,
-    PointerSnapshotProbe, ResourceSelectors, ScreenId, SidebarPluginStatus, SplitDir, SplitId,
-    Surface, SurfaceId, SurfaceKind, SurfaceRenderFrame, SurfaceResizeReporter,
+    LayoutUndoError, LayoutUndoResult, MachineUsage, Mux, MuxEventReceiver, PaneId,
+    PointerSemanticProbe, PointerSnapshotProbe, ResourceSelectors, ScreenId, SidebarPluginStatus,
+    SplitDir, SplitId, Surface, SurfaceId, SurfaceKind, SurfaceRenderFrame, SurfaceResizeReporter,
     TerminalPointerSnapshot, ViewportWidthError, WorkspaceId, WorkspaceMutation, ZoomMode,
 };
 use ghostty_vt::{
@@ -43,6 +43,27 @@ pub use tree::{TabNotificationView, TreeView, WorkspaceView};
 
 pub(crate) const CLEAR_HISTORY_UNSUPPORTED_ERROR: &str =
     "remote server does not support clear-history; restart the cmux-tui server";
+
+/// Decode the `usage` object shared by the `machine-usage` result and the
+/// `machine-usage-changed` event. Anything malformed reads as no readout.
+pub(crate) fn parse_machine_usage(value: &Value) -> Option<MachineUsage> {
+    let usage = value.get("usage")?;
+    if usage.is_null() {
+        return None;
+    }
+    let period_days = u32::try_from(usage.get("period_days")?.as_u64()?).ok()?;
+    let api_equivalent_usd = usage.get("api_equivalent_usd")?.as_f64()?;
+    if !api_equivalent_usd.is_finite() {
+        return None;
+    }
+    Some(MachineUsage {
+        vm_id: usage.get("vm_id")?.as_str()?.to_string(),
+        period_days,
+        total_tokens: usage.get("total_tokens")?.as_u64()?,
+        api_equivalent_usd,
+        as_of: usage.get("as_of").and_then(Value::as_str).map(str::to_string),
+    })
+}
 
 pub(crate) fn parse_identity_capabilities(value: &Value) -> Result<HashSet<String>, &'static str> {
     let Some(capabilities) = value.get("capabilities") else {
@@ -148,6 +169,13 @@ pub(crate) fn is_remote_transport_failure(error: &anyhow::Error) -> bool {
     error
         .downcast_ref::<remote::RemoteRequestError>()
         .is_some_and(remote::RemoteRequestError::is_transport_failure)
+}
+
+pub(crate) fn is_expected_remote_shutdown(error: &anyhow::Error) -> bool {
+    matches!(
+        error.downcast_ref::<remote::RemoteRequestError>(),
+        Some(remote::RemoteRequestError::DaemonShutdown)
+    )
 }
 
 pub(crate) fn is_remote_timeout(error: &anyhow::Error) -> bool {
@@ -359,10 +387,10 @@ fn bootstrap_mutation_id() -> anyhow::Result<String> {
 }
 
 fn initial_bootstrap(tree: &TreeView) -> InitialBootstrap {
-    if tree.workspaces.is_empty() {
+    if tree.workspaces().is_empty() {
         return InitialBootstrap::FirstWorkspace;
     }
-    if tree.workspaces.iter().all(|workspace| workspace.screens.is_empty()) {
+    if tree.workspaces().iter().all(|workspace| workspace.screens.is_empty()) {
         return InitialBootstrap::ShellInActiveWorkspace;
     }
     InitialBootstrap::LayoutIntact
@@ -546,6 +574,22 @@ impl Session {
         serde_json::from_value(value).map_err(Into::into)
     }
 
+    /// The session's machine-level model spend readout. `None` when the
+    /// server has no readout or predates the `machine-usage` command; the
+    /// readout is informational, so an old server is not an error.
+    pub fn machine_usage(&self) -> anyhow::Result<Option<MachineUsage>> {
+        match self {
+            Session::Local(mux) => Ok(mux.machine_usage()),
+            Session::Remote(remote) => {
+                if !remote.supports_capability(MACHINE_USAGE_CAPABILITY) {
+                    return Ok(None);
+                }
+                let value = remote.request(json!({"cmd": "machine-usage"}))?;
+                Ok(parse_machine_usage(&value))
+            }
+        }
+    }
+
     pub fn set_client_sizing(
         &self,
         surface: SurfaceId,
@@ -658,7 +702,7 @@ impl Session {
     pub fn daemon_shutdown_requested(&self) -> bool {
         match self {
             Session::Local(mux) => mux.daemon_shutdown_requested(),
-            Session::Remote(_) => false,
+            Session::Remote(remote) => remote.daemon_shutdown_requested(),
         }
     }
     pub fn invalidate_remote_tree(&self) {
@@ -700,6 +744,11 @@ impl Session {
     pub fn ensure_initial(&self, size: Option<(u16, u16)>) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
+                // Hold the per-mux bootstrap guard across the snapshot and
+                // mutation.  Without this, concurrent attaches can both
+                // observe a bare session and create duplicate workspaces or
+                // shells before either mutation becomes visible.
+                let _bootstrap = mux.lock_initial_bootstrap();
                 // One snapshot serves both the decision and the target
                 // selection; a second read could disagree with the first
                 // when another mux owner mutates the tree in between.
@@ -710,9 +759,9 @@ impl Session {
                     }
                     InitialBootstrap::ShellInActiveWorkspace => {
                         let workspace = tree
-                            .workspaces
+                            .workspaces()
                             .get(tree.active_workspace)
-                            .or_else(|| tree.workspaces.first())
+                            .or_else(|| tree.workspaces().first())
                             .expect("bare-session bootstrap requires at least one workspace")
                             .id;
                         mux.create_terminal_in_workspace(workspace, None, None, None, size)?;
@@ -727,7 +776,7 @@ impl Session {
                     InitialBootstrap::FirstWorkspace => {
                         remote.request(with_size(json!({"cmd": "new-workspace"}), size))?;
                         anyhow::ensure!(
-                            !remote.refresh_tree()?.workspaces.is_empty(),
+                            !remote.refresh_tree()?.workspaces().is_empty(),
                             "remote session did not expose the workspace it created"
                         );
                     }
@@ -793,7 +842,7 @@ impl Session {
                         let refreshed = remote.refresh_tree()?;
                         if let Some(create_result) = create_result {
                             let bootstrapped = refreshed
-                                .workspaces
+                                .workspaces()
                                 .iter()
                                 .any(|workspace| !workspace.screens.is_empty());
                             if !bootstrapped {
@@ -3078,5 +3127,42 @@ mod tests {
             assert_eq!(state.workspaces.len(), 1);
             assert_eq!(state.workspaces[0].name, "managed");
         });
+    }
+
+    #[test]
+    fn machine_usage_payload_decodes_and_degrades_to_none() {
+        use super::parse_machine_usage;
+        use serde_json::json;
+
+        let ready = json!({
+            "usage": {
+                "vm_id": "vm-1",
+                "period_days": 30,
+                "total_tokens": 17,
+                "api_equivalent_usd": 1.23,
+                "as_of": "2026-09-01T00:00:00Z"
+            }
+        });
+        let usage = parse_machine_usage(&ready).expect("ready usage decodes");
+        assert_eq!(usage.vm_id, "vm-1");
+        assert_eq!(usage.period_days, 30);
+        assert_eq!(usage.total_tokens, 17);
+        assert!((usage.api_equivalent_usd - 1.23).abs() < f64::EPSILON);
+        assert_eq!(usage.as_of.as_deref(), Some("2026-09-01T00:00:00Z"));
+
+        let without_stamp = json!({"usage": {
+            "vm_id": "vm-1", "period_days": 30, "total_tokens": 0, "api_equivalent_usd": 0.0, "as_of": null
+        }});
+        assert_eq!(parse_machine_usage(&without_stamp).map(|usage| usage.as_of), Some(None));
+
+        assert_eq!(parse_machine_usage(&json!({"usage": null})), None);
+        assert_eq!(parse_machine_usage(&json!({})), None);
+        assert_eq!(parse_machine_usage(&json!({"usage": {"vm_id": "vm-1"}})), None);
+        assert_eq!(
+            parse_machine_usage(&json!({"usage": {
+                "vm_id": "vm-1", "period_days": -1, "total_tokens": 0, "api_equivalent_usd": 0.0
+            }})),
+            None
+        );
     }
 }

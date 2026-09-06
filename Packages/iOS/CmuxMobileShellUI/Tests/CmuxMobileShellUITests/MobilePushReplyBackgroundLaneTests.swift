@@ -280,12 +280,37 @@ private func makeReplyLaneCoordinator(
     #expect(relay.requests.count == 1)
     #expect(relay.requests.first?.macDeviceId == "mac-1")
     #expect(relay.requests.first?.surfaceId == "surface-1")
+    #expect(relay.requests.first?.retargetsToLiveSurfaceOwner == true)
     #expect(relay.requests.first?.text == "looks good, merge it")
     #expect(relay.requests.first.map { !$0.replyId.isEmpty } == true)
     // Accepted: the reply is the server's now — assertion released, notice
     // cancelled, nothing left parked.
     #expect(runtime.endCount == 1)
     #expect(notifier.cancelCount == 1)
+}
+
+@MainActor
+@Test func confinedRelayPreservesSurfaceRetargetPolicy() async {
+    let runtime = ReplyRuntimeFake()
+    let notifier = ReplyNoticeFake()
+    let relay = ReplyRelayFake(outcomes: [true])
+    let coordinator = makeReplyLaneCoordinator(
+        runtime: runtime,
+        notifier: notifier,
+        nowBox: NowBox(),
+        relay: relay
+    )
+
+    await coordinator.handleReply(
+        text: "stay in this workspace",
+        workspaceId: "workspace-1",
+        surfaceId: "surface-1",
+        macDeviceId: "mac-1",
+        retargetsToLiveSurfaceOwner: false
+    )
+
+    #expect(relay.requests.count == 1)
+    #expect(relay.requests.first?.retargetsToLiveSurfaceOwner == false)
 }
 
 @MainActor

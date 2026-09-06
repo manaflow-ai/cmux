@@ -38,11 +38,13 @@ export type CredentialKeyService = {
   generateDataKey(input: {
     readonly keyId: string;
     readonly encryptionContext: Readonly<Record<string, string>>;
+    readonly signal?: AbortSignal;
   }): Promise<{ readonly plaintext: Uint8Array; readonly encrypted: Uint8Array }>;
   decryptDataKey(input: {
     readonly keyId: string;
     readonly encrypted: Uint8Array;
     readonly encryptionContext: Readonly<Record<string, string>>;
+    readonly signal?: AbortSignal;
   }): Promise<Uint8Array>;
 };
 
@@ -54,19 +56,81 @@ export async function encryptCredential(input: {
   readonly credential: CodeRouterCredential;
   readonly keyId?: string;
   readonly keys?: CredentialKeyService;
+  readonly signal?: AbortSignal;
 }): Promise<EncryptedCredential> {
   assertIdentity(input);
+  throwIfAborted(input.signal);
   if (input.credential.provider !== input.provider) {
     throw new Error("credential provider does not match its account");
   }
+  const envelope = await encryptSecretEnvelope({
+    aad: credentialAad(input),
+    encryptionContext: credentialEncryptionContext(input),
+    secret: input.credential,
+    keyId: input.keyId,
+    keys: input.keys,
+    signal: input.signal,
+  });
+  return {
+    accountId: input.accountId,
+    teamId: input.teamId,
+    provider: input.provider,
+    credentialRevision: input.credentialRevision,
+    ...envelope,
+  };
+}
+
+export async function decryptCredential(
+  encrypted: EncryptedCredential,
+  keys: CredentialKeyService = kmsKeyService(),
+  signal?: AbortSignal,
+): Promise<CodeRouterCredential> {
+  assertIdentity(encrypted);
+  throwIfAborted(signal);
+  const value = await decryptSecretEnvelope(encrypted, {
+    aad: credentialAad(encrypted),
+    encryptionContext: credentialEncryptionContext(encrypted),
+    keys,
+    signal,
+  });
+  const credential = parseCredential(value);
+  if (!credential || credential.provider !== encrypted.provider) {
+    throw new Error("decrypted coderouter credential is invalid");
+  }
+  return credential;
+}
+
+/**
+ * The KMS envelope columns shared by every coderouter secret table. The
+ * ciphertext is bound to its owner through AAD and the KMS encryption
+ * context, so a row copied to another team or purpose does not decrypt.
+ */
+export type SecretEnvelope = {
+  readonly algorithm: typeof ALGORITHM;
+  readonly ciphertext: string;
+  readonly nonce: string;
+  readonly authTag: string;
+  readonly encryptedDataKey: string;
+  readonly kmsKeyId: string;
+};
+
+export async function encryptSecretEnvelope(input: {
+  readonly aad: Buffer;
+  readonly encryptionContext: Readonly<Record<string, string>>;
+  readonly secret: unknown;
+  readonly keyId?: string;
+  readonly keys?: CredentialKeyService;
+  readonly signal?: AbortSignal;
+}): Promise<SecretEnvelope> {
+  throwIfAborted(input.signal);
   const keyId = input.keyId ?? requiredEnv("CODEROUTER_KMS_KEY_ID");
   const keys = input.keys ?? kmsKeyService();
-  const aad = credentialAad(input);
-  const context = credentialEncryptionContext(input);
   const generated = await keys.generateDataKey({
     keyId,
-    encryptionContext: context,
+    encryptionContext: input.encryptionContext,
+    signal: input.signal,
   });
+  throwIfAborted(input.signal);
   const plaintextKey = Buffer.from(generated.plaintext);
   if (plaintextKey.byteLength !== DATA_KEY_BYTES) {
     plaintextKey.fill(0);
@@ -74,19 +138,15 @@ export async function encryptCredential(input: {
   }
 
   const nonce = randomBytes(NONCE_BYTES);
-  const plaintext = Buffer.from(JSON.stringify(input.credential), "utf8");
+  const plaintext = Buffer.from(JSON.stringify(input.secret), "utf8");
   try {
     const cipher = createCipheriv(ALGORITHM, plaintextKey, nonce, {
       authTagLength: AUTH_TAG_BYTES,
     });
-    cipher.setAAD(aad);
+    cipher.setAAD(input.aad);
     const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()]);
     const authTag = cipher.getAuthTag();
     return {
-      accountId: input.accountId,
-      teamId: input.teamId,
-      provider: input.provider,
-      credentialRevision: input.credentialRevision,
       algorithm: ALGORITHM,
       ciphertext: ciphertext.toString("base64"),
       nonce: nonce.toString("base64"),
@@ -100,14 +160,20 @@ export async function encryptCredential(input: {
   }
 }
 
-export async function decryptCredential(
-  encrypted: EncryptedCredential,
-  keys: CredentialKeyService = kmsKeyService(),
-): Promise<CodeRouterCredential> {
-  assertIdentity(encrypted);
+/** Returns the parsed JSON secret. Callers validate its shape. */
+export async function decryptSecretEnvelope(
+  encrypted: SecretEnvelope,
+  input: {
+    readonly aad: Buffer;
+    readonly encryptionContext: Readonly<Record<string, string>>;
+    readonly keys?: CredentialKeyService;
+    readonly signal?: AbortSignal;
+  },
+): Promise<unknown> {
   if (encrypted.algorithm !== ALGORITHM) {
     throw new Error("unsupported coderouter credential encryption algorithm");
   }
+  const keys = input.keys ?? kmsKeyService();
   const nonce = strictBase64(encrypted.nonce, "nonce");
   const authTag = strictBase64(encrypted.authTag, "authentication tag");
   const ciphertext = strictBase64(encrypted.ciphertext, "ciphertext");
@@ -118,8 +184,10 @@ export async function decryptCredential(
   const plaintextKey = Buffer.from(await keys.decryptDataKey({
     keyId: encrypted.kmsKeyId,
     encrypted: wrappedKey,
-    encryptionContext: credentialEncryptionContext(encrypted),
+    encryptionContext: input.encryptionContext,
+    signal: input.signal,
   }));
+  throwIfAborted(input.signal);
   if (plaintextKey.byteLength !== DATA_KEY_BYTES) {
     plaintextKey.fill(0);
     throw new Error("KMS returned an invalid coderouter data key");
@@ -130,18 +198,13 @@ export async function decryptCredential(
     const decipher = createDecipheriv(ALGORITHM, plaintextKey, nonce, {
       authTagLength: AUTH_TAG_BYTES,
     });
-    decipher.setAAD(credentialAad(encrypted));
+    decipher.setAAD(input.aad);
     decipher.setAuthTag(authTag);
     plaintext = Buffer.concat([
       decipher.update(ciphertext),
       decipher.final(),
     ]);
-    const value: unknown = JSON.parse(plaintext.toString("utf8"));
-    const credential = parseCredential(value);
-    if (!credential || credential.provider !== encrypted.provider) {
-      throw new Error("decrypted coderouter credential is invalid");
-    }
-    return credential;
+    return JSON.parse(plaintext.toString("utf8")) as unknown;
   } catch (error) {
     if (error instanceof SyntaxError) {
       throw new Error("decrypted coderouter credential is invalid");
@@ -318,7 +381,7 @@ export function coalescingCredentialsProvider(
   };
 }
 
-function kmsKeyService(): CredentialKeyService {
+export function kmsKeyService(): CredentialKeyService {
   if (defaultKeyService) return defaultKeyService;
   const region = requiredEnv("AWS_REGION");
   const runningOnVercel = Boolean(process.env.VERCEL);
@@ -344,7 +407,7 @@ function kmsKeyService(): CredentialKeyService {
         KeyId: input.keyId,
         KeySpec: "AES_256",
         EncryptionContext: { ...input.encryptionContext },
-      }));
+      }), input.signal ? { abortSignal: input.signal } : undefined);
       if (!output.Plaintext || !output.CiphertextBlob) {
         throw new Error("KMS did not return a coderouter data key");
       }
@@ -358,7 +421,7 @@ function kmsKeyService(): CredentialKeyService {
         KeyId: input.keyId,
         CiphertextBlob: input.encrypted,
         EncryptionContext: { ...input.encryptionContext },
-      }));
+      }), input.signal ? { abortSignal: input.signal } : undefined);
       if (!output.Plaintext) {
         throw new Error("KMS did not decrypt the coderouter data key");
       }
@@ -372,4 +435,9 @@ function requiredEnv(key: string): string {
   const value = process.env[key]?.trim();
   if (!value) throw new Error(`${key} is required`);
   return value;
+}
+
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (!signal?.aborted) return;
+  throw signal.reason ?? new DOMException("The operation was aborted.", "AbortError");
 }

@@ -149,10 +149,11 @@ use cmux_tui_core::{DEFAULT_SCROLLBACK_LIMIT_BYTES, SurfaceOptions};
 
 const MAX_SCROLLBACK_LIMIT_BYTES: usize = 1_000_000_000;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use ratatui::buffer::CellWidth;
 use ratatui::style::Color;
 use serde::{Deserialize, Deserializer};
 use serde_json::{Value, json};
-use unicode_width::UnicodeWidthStr;
+use unicode_segmentation::UnicodeSegmentation;
 use wait_timeout::ChildExt;
 
 use crate::localization::catalog;
@@ -3166,7 +3167,7 @@ impl StatusBarOptions {
 /// The maximum number of configured segments per status bar side.
 pub const MAX_STATUS_SEGMENTS: usize = 8;
 
-/// The maximum length of one literal status segment, in characters.
+/// The maximum width of one literal status segment, in terminal cells.
 pub const MAX_STATUS_SEGMENT_TEXT: usize = 256;
 
 /// One status bar segment: literal text with `{variable}` interpolation, or
@@ -3204,7 +3205,22 @@ fn resolve_status_segments(raw: Vec<RawStatusSegment>, side: &str) -> Vec<Status
             }
             (Some(text), None) => {
                 // Bound per-draw expansion work on the render path.
-                StatusSegmentContent::Text(text.chars().take(MAX_STATUS_SEGMENT_TEXT).collect())
+                let mut bounded = String::new();
+                let mut width: usize = 0;
+                let mut scalar_count: usize = 0;
+                for grapheme in text.graphemes(true) {
+                    let grapheme_width = usize::from(grapheme.cell_width());
+                    let grapheme_scalars = grapheme.chars().count();
+                    if width.saturating_add(grapheme_width) > MAX_STATUS_SEGMENT_TEXT
+                        || scalar_count.saturating_add(grapheme_scalars) > MAX_STATUS_SEGMENT_TEXT
+                    {
+                        break;
+                    }
+                    bounded.push_str(grapheme);
+                    width += grapheme_width;
+                    scalar_count += grapheme_scalars;
+                }
+                StatusSegmentContent::Text(bounded)
             }
             (None, Some(run)) => {
                 if run.first().is_none_or(|program| program.is_empty()) {
@@ -3406,7 +3422,10 @@ pub fn load() -> Config {
     if let Some(glyph) = raw.sidebar.rail_glyph {
         if glyph.eq_ignore_ascii_case("none") {
             config.sidebar.rail_glyph = String::new();
-        } else if glyph.chars().count() == 1 && glyph.width() == 1 {
+        } else if glyph.chars().count() == 1
+            && glyph.chars().all(|character| !character.is_control())
+            && glyph.cell_width() == 1
+        {
             // The renderer reserves exactly one cell for the glyph.
             config.sidebar.rail_glyph = glyph;
         } else {
@@ -5868,6 +5887,7 @@ fn overlay_ghostty_defaults(defaults: &mut DefaultColors, overrides: DefaultColo
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ratatui::buffer::CellWidth;
     use std::cell::{Cell, RefCell};
 
     #[test]
@@ -9098,6 +9118,32 @@ mod tests {
     }
 
     #[test]
+    fn status_text_cap_uses_terminal_cells_without_splitting_graphemes() {
+        let text = format!("{}e\u{301}abc", "界".repeat(130));
+        let raw = vec![RawStatusSegment { text: Some(text), ..RawStatusSegment::default() }];
+        let resolved = resolve_status_segments(raw, "left");
+        let StatusSegmentContent::Text(text) = &resolved[0].content else {
+            panic!("literal status text did not resolve as text");
+        };
+        assert_eq!(usize::from(text.cell_width()), MAX_STATUS_SEGMENT_TEXT);
+        assert_eq!(text, &"界".repeat(MAX_STATUS_SEGMENT_TEXT / 2));
+    }
+
+    #[test]
+    #[allow(clippy::unicode_not_nfc)]
+    fn status_text_cap_uses_terminal_cells_for_halfwidth_dakuten() {
+        let raw = vec![RawStatusSegment {
+            text: Some("界ﾞ".repeat(100)),
+            ..RawStatusSegment::default()
+        }];
+        let resolved = resolve_status_segments(raw, "left");
+        let StatusSegmentContent::Text(text) = &resolved[0].content else {
+            panic!("literal status text did not resolve as text");
+        };
+        assert_eq!(text, &"界ﾞ".repeat(85));
+    }
+
+    #[test]
     fn chip_styles_and_separators_parse() {
         let raw: RawConfig = serde_json::from_value(json!({
             "tabs": {"style": "pill"},
@@ -9165,6 +9211,34 @@ mod tests {
         assert_eq!(raw.sidebar.row_gap, Some(0));
         assert_eq!(raw.sidebar.rail_glyph.as_deref(), Some("none"));
         assert_eq!(raw.sidebar.workspace_label.as_deref(), Some("{index} · {name}"));
+    }
+
+    #[test]
+    #[allow(clippy::unicode_not_nfc)]
+    fn rail_glyph_accepts_standalone_halfwidth_sound_marks() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let old_cmux_tui_config = std::env::var_os("CMUX_TUI_CONFIG");
+        let dir = TestDirectory::new("rail-glyph-halfwidth-sound-marks");
+        let path = dir.path.join("cmux-tui.json");
+        for glyph in ["\u{ff9e}", "\u{ff9f}"] {
+            std::fs::write(&path, format!(r#"{{"sidebar":{{"rail_glyph":"{glyph}"}}}}"#)).unwrap();
+            // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+            unsafe { std::env::set_var("CMUX_TUI_CONFIG", &path) };
+
+            let config = load();
+            restore_env_var("CMUX_TUI_CONFIG", old_cmux_tui_config.clone());
+
+            assert_eq!(config.sidebar.rail_glyph, glyph);
+        }
+
+        std::fs::write(&path, r#"{"sidebar":{"rail_glyph":"\n"}}"#).unwrap();
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("CMUX_TUI_CONFIG", &path) };
+
+        let config = load();
+        restore_env_var("CMUX_TUI_CONFIG", old_cmux_tui_config);
+
+        assert_eq!(config.sidebar.rail_glyph, Config::default().sidebar.rail_glyph);
     }
 
     #[test]

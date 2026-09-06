@@ -37,6 +37,37 @@ fn seed_workspace(registry: &mut WorkspaceRegistry, key: &str) {
         .unwrap();
 }
 
+#[cfg(windows)]
+#[test]
+fn registry_opens_and_persists_under_a_long_windows_state_root() {
+    use std::os::windows::ffi::OsStrExt;
+
+    let mut root = temp_root("windows-long-state-root");
+    while root.as_os_str().encode_wide().count() + 1 + 120 < 423 {
+        root.push("x".repeat(120));
+    }
+    let remaining = 423 - root.as_os_str().encode_wide().count() - 1;
+    assert!((1..=255).contains(&remaining));
+    root.push("x".repeat(remaining));
+    assert_eq!(root.as_os_str().encode_wide().count(), 423);
+
+    let fixture_root = platform::normalize_filesystem_path(root.clone());
+    fs::create_dir_all(&fixture_root).unwrap();
+    let machine_id = MachinePublicId::random().unwrap();
+    fs::write(fixture_root.join(MACHINE_ID_FILE), format!("{}\n", machine_id.as_str())).unwrap();
+    let pepper = ResourceEffectPepper::random().unwrap();
+    fs::write(fixture_root.join(RESOURCE_EFFECT_PEPPER_FILE), pepper.0.as_ref()).unwrap();
+
+    let mut registry = WorkspaceRegistry::open(&root, "long-state-path").unwrap();
+    seed_workspace(&mut registry, "persisted");
+    drop(registry);
+
+    let reopened = WorkspaceRegistry::open(&root, "long-state-path").unwrap();
+    assert_eq!(reopened.snapshot().unwrap().workspaces[0].key, "persisted");
+    drop(reopened);
+    fs::remove_dir_all(fixture_root).unwrap();
+}
+
 #[test]
 fn interrupted_staged_workspace_keeps_reserved_public_id_without_early_publication() {
     let root = temp_root("interrupted-workspace-public-id");
@@ -3478,9 +3509,29 @@ fn first_exit_metadata_wins_and_exited_ids_cannot_be_relaunched() {
         )
         .unwrap();
 
+    let mut malformed_exit = launching.clone();
+    malformed_exit.lifecycle = TerminalLifecycle::Exited;
+    malformed_exit.exit = Some(json!({"reason":"legacy-writer"}));
+    let error = registry
+        .commit_terminal(
+            &WorkspaceMutation::new("malformed-exit", "daemon").unwrap(),
+            &json!({"op":"terminal-exited","terminal_id":TERMINAL_ONE}),
+            None,
+            Some(1),
+            "terminal-exited",
+            &malformed_exit,
+            &json!({"terminal_id":TERMINAL_ONE}),
+        )
+        .unwrap_err();
+    assert!(error.to_string().contains("terminal exit receipt is invalid"));
+
     let mut first_exit = launching.clone();
     first_exit.lifecycle = TerminalLifecycle::Exited;
-    first_exit.exit = Some(json!({"reason":"first-observer","status":17}));
+    first_exit.exit = Some(json!({
+        "outcome":{"kind":"unknown","reason":"first-observer"},
+        "exited_at":"17",
+        "revision":"1",
+    }));
     let first = registry
         .commit_terminal(
             &WorkspaceMutation::new("exit-one", "daemon").unwrap(),
@@ -3495,7 +3546,11 @@ fn first_exit_metadata_wins_and_exited_ids_cannot_be_relaunched() {
     assert_eq!(first.revision, 2);
 
     let mut late_exit = first_exit.clone();
-    late_exit.exit = Some(json!({"reason":"late-observer","status":99}));
+    late_exit.exit = Some(json!({
+        "outcome":{"kind":"unknown","reason":"late-observer"},
+        "exited_at":"99",
+        "revision":"2",
+    }));
     let duplicate = registry
         .commit_terminal(
             &WorkspaceMutation::new("exit-two", "daemon").unwrap(),
@@ -3679,6 +3734,59 @@ fn registries_created_before_on_exit_gain_the_column_with_close_default() {
 }
 
 #[test]
+fn schema_14_legacy_terminal_exit_metadata_migrates_to_exact_receipt() {
+    let root = temp_root("legacy-terminal-exit-migration");
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        commit_terminal_topology(&mut registry, "legacy-terminal-exit");
+        let legacy_exit = json!({
+            "reason":"launch-failed",
+            "error":"terminal-host connection reset",
+        });
+        registry
+            .connection
+            .execute(
+                "UPDATE terminal_hosts
+                 SET lifecycle = 'exited', exit_json = ?1
+                 WHERE terminal_id = ?2",
+                params![canonical_json(&legacy_exit).unwrap(), TERMINAL_ONE],
+            )
+            .unwrap();
+        registry
+            .connection
+            .execute("UPDATE meta SET value = '14' WHERE key = 'schema_version'", [])
+            .unwrap();
+    }
+
+    let registry = WorkspaceRegistry::open(&root, "session").unwrap();
+    assert_eq!(
+        required_meta(&registry.connection, "schema_version").unwrap(),
+        SCHEMA_VERSION.to_string()
+    );
+    let terminal = registry.terminal_record(TERMINAL_ONE).unwrap().unwrap();
+    let exit = terminal.exit.unwrap();
+    assert_eq!(exit["outcome"]["kind"], "unknown");
+    assert_eq!(exit["outcome"]["reason"], "launch-failed: terminal-host connection reset");
+    assert!(exit["exited_at"].as_str().unwrap().parse::<u64>().is_ok());
+    assert_eq!(exit["revision"], registry.resource_revision().unwrap().to_string());
+    let stored: String = registry
+        .connection
+        .query_row(
+            "SELECT exit_json FROM terminal_hosts WHERE terminal_id = ?1",
+            [TERMINAL_ONE],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(serde_json::from_str::<Value>(&stored).unwrap(), exit);
+    drop(registry);
+
+    let reopened = WorkspaceRegistry::open(&root, "session").unwrap();
+    assert_eq!(reopened.terminal_record(TERMINAL_ONE).unwrap().unwrap().exit, Some(exit));
+    drop(reopened);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn batch_terminal_close_rolls_back_every_tab_on_mid_transaction_failure() {
     let mut registry = WorkspaceRegistry::in_memory("test").unwrap();
     seed_workspace(&mut registry, "one");
@@ -3735,6 +3843,61 @@ fn batch_terminal_close_rolls_back_every_tab_on_mid_transaction_failure() {
             TerminalLifecycle::Tombstoned
         );
     }
+}
+
+#[test]
+fn startup_repairs_legacy_terminal_close_dangling_resource_rows() {
+    let root = temp_root("terminal-close-dangling-resource");
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        commit_terminal_topology(&mut registry, "seed-terminal-close-dangling");
+        let mutation = WorkspaceMutation::new("legacy-host-only-close", "legacy-client").unwrap();
+        registry.close_terminal(&mutation, None, Some(0), TERMINAL_ONE, None).unwrap();
+        let topology = registry.resource_topology_snapshot().unwrap();
+        assert_eq!(topology.revision, 1);
+        let live_terminals: i64 = registry
+            .connection
+            .query_row(
+                "SELECT COUNT(*) FROM resource_terminals WHERE deleted_revision IS NULL",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(live_terminals, 1);
+    }
+
+    let reopened = WorkspaceRegistry::open(&root, "session").unwrap();
+    let topology = reopened.resource_topology_snapshot().unwrap();
+    assert_eq!(topology.revision, 2);
+    let events = reopened.resource_events_after(1).unwrap();
+    assert_eq!(events.batches.len(), 1);
+    assert_eq!(events.batches[0].revision, 2);
+    assert_eq!(events.batches[0].changes[0]["resource"], "terminal");
+    let live_terminals: i64 = reopened
+        .connection
+        .query_row(
+            "SELECT COUNT(*) FROM resource_terminals WHERE deleted_revision IS NULL",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(live_terminals, 0, "dangling terminal remained live: {topology:?}");
+    let public_id = terminal_resource(TERMINAL_ONE);
+    let (resource_deleted, identity_deleted): (Option<i64>, Option<i64>) = reopened
+        .connection
+        .query_row(
+            "SELECT rt.deleted_revision, ri.deleted_revision
+             FROM resource_terminals rt
+             JOIN resource_identities ri ON ri.public_id = rt.public_id
+             WHERE rt.public_id = ?1",
+            [public_id.as_str()],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert!(resource_deleted.is_some());
+    assert_eq!(identity_deleted, resource_deleted);
+    drop(reopened);
+    fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
@@ -4457,8 +4620,6 @@ fn current_schema_canonicalizes_equivalent_formatted_browser_view_predicate_once
             |row| row.get::<_, String>(0),
         )
         .unwrap();
-    let schema_version_before =
-        formatted.query_row("PRAGMA schema_version", [], |row| row.get::<_, i64>(0)).unwrap();
     drop(formatted);
 
     let reopened = WorkspaceRegistry::open(&root, "session").unwrap();
@@ -4471,16 +4632,20 @@ fn current_schema_canonicalizes_equivalent_formatted_browser_view_predicate_once
             |row| row.get::<_, String>(0),
         )
         .unwrap();
-    let schema_version_after_normalization = reopened
-        .connection
-        .query_row("PRAGMA schema_version", [], |row| row.get::<_, i64>(0))
-        .unwrap();
     assert_ne!(canonical_definition, definition_before);
     assert_eq!(
         canonical_definition.split_whitespace().collect::<Vec<_>>().join(" "),
         "CREATE UNIQUE INDEX live_resource_browser_view ON resource_tabs(content_id) WHERE content_kind = 'browser' AND deleted_revision IS NULL"
     );
-    assert!(schema_version_after_normalization > schema_version_before);
+    assert!(!resource_tabs_needs_multiview_normalization(&reopened.connection).unwrap());
+    reopened
+        .connection
+        .execute(
+            "CREATE INDEX browser_view_normalization_sentinel
+             ON resource_tabs(created_revision)",
+            [],
+        )
+        .unwrap();
     drop(reopened);
 
     let reopened_again = WorkspaceRegistry::open(&root, "session").unwrap();
@@ -4493,12 +4658,18 @@ fn current_schema_canonicalizes_equivalent_formatted_browser_view_predicate_once
             |row| row.get::<_, String>(0),
         )
         .unwrap();
-    let schema_version_after_second_open = reopened_again
+    let sentinel_count = reopened_again
         .connection
-        .query_row("PRAGMA schema_version", [], |row| row.get::<_, i64>(0))
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master
+             WHERE type = 'index' AND name = 'browser_view_normalization_sentinel'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
         .unwrap();
     assert_eq!(definition_after_second_open, canonical_definition);
-    assert_eq!(schema_version_after_second_open, schema_version_after_normalization);
+    assert_eq!(sentinel_count, 1, "resource_tabs was normalized more than once");
+    assert!(!resource_tabs_needs_multiview_normalization(&reopened_again.connection).unwrap());
     drop(reopened_again);
     fs::remove_dir_all(root).unwrap();
 }
@@ -4793,7 +4964,10 @@ fn schema_thirteen_wraps_legacy_resource_api_frontend_projections() {
     }
 
     let migrated = WorkspaceRegistry::open(&root, "session").unwrap();
-    assert_eq!(required_meta(&migrated.connection, "schema_version").unwrap(), "14");
+    assert_eq!(
+        required_meta(&migrated.connection, "schema_version").unwrap(),
+        SCHEMA_VERSION.to_string()
+    );
     let projections = migrated.public_projections().unwrap().frontend_projections;
     assert_eq!(projections.len(), 1);
     assert_eq!(projections[0].schema_version, 2);
@@ -5658,4 +5832,39 @@ fn schema_preflight_failures_defer_to_authoritative_open() {
     assert!(preflight_unsupported_schema(&database).is_none());
 
     fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(windows)]
+#[test]
+fn long_database_descendant_is_normalized_even_when_root_is_short() {
+    let root = PathBuf::from(format!(r"C:\{}", "r".repeat(230)));
+    let session_dir = root.join(session_storage_component("session"));
+    let normalized_session = crate::platform::normalize_filesystem_path(session_dir);
+    assert!(normalized_session.to_string_lossy().starts_with(r"\\?\C:\"));
+
+    let resetter_session = PersistentSessionStateResetter::new(root.clone()).session_dir("session");
+    assert!(resetter_session.to_string_lossy().starts_with(r"\\?\C:\"));
+    let terminal_hosts = crate::terminal_host_runtime::terminal_host_root(&root, "session");
+    assert!(terminal_hosts.to_string_lossy().starts_with(r"\\?\C:\"));
+
+    let database = root.join(session_storage_component("session")).join(WORKSPACE_REGISTRY_FILE);
+    let normalized = crate::platform::normalize_filesystem_path(database);
+    assert!(normalized.to_string_lossy().starts_with(r"\\?\C:\"));
+
+    let guard_dir = root.join(SESSION_GUARD_DIR);
+    let guard_lock = session_guard_lock_path(&guard_dir, "session");
+    let coordinator = session_guard_coordinator_path(&guard_dir);
+    let waiter_dir = session_guard_coordinator_waiter_dir(&coordinator);
+    for path in [
+        crate::platform::normalize_filesystem_path(guard_dir),
+        guard_lock,
+        coordinator,
+        waiter_dir,
+        crate::platform::normalize_filesystem_path(root.join(MACHINE_ID_LOCK_FILE)),
+        crate::platform::normalize_filesystem_path(root.join(MACHINE_ID_FILE)),
+        crate::platform::normalize_filesystem_path(root.join(RESOURCE_EFFECT_PEPPER_LOCK_FILE)),
+        crate::platform::normalize_filesystem_path(root.join(RESOURCE_EFFECT_PEPPER_FILE)),
+    ] {
+        assert!(path.to_string_lossy().starts_with(r"\\?\C:\"), "{}", path.display());
+    }
 }

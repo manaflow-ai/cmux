@@ -29,6 +29,9 @@ public actor CmxIrohClientSession {
     private var controlReceiveBuffer = Data()
     private var terminalCloseAttribution: CmxIrohConnectionCloseAttribution?
     private var closed = false
+    private var closureWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
+    private var cancelledClosureWaiters = Set<UUID>()
+    private var closureWatcher: Task<Void, Never>?
 
     /// Creates a disconnected session with an explicit two-phase dial plan.
     ///
@@ -206,6 +209,58 @@ public actor CmxIrohClientSession {
         terminalCloseAttribution = await connection.closeAttribution()
     }
 
+    /// Registers a cancellation-aware waiter for the complete admitted
+    /// connection, shared by all lanes on this session.
+    public func makeClosureObservationID() async -> UUID? {
+        guard let connection else { return nil }
+        let observationID = UUID()
+        if closureWatcher == nil {
+            closureWatcher = Task { [weak self] in
+                await connection.waitUntilClosed()
+                await self?.finishClosureWaiters()
+            }
+        }
+        return observationID
+    }
+
+    /// Waits for a registered complete-connection observation to fire.
+    public func waitForClosure(observationID: UUID) async {
+        if closed || cancelledClosureWaiters.remove(observationID) != nil {
+            return
+        }
+        await withCheckedContinuation { continuation in
+            if closed || cancelledClosureWaiters.remove(observationID) != nil {
+                continuation.resume()
+            } else {
+                closureWaiters[observationID] = continuation
+            }
+        }
+    }
+
+    /// Cancels one complete-connection observation without closing the
+    /// connection itself.
+    public func cancelClosureObservation(observationID: UUID) {
+        if let continuation = closureWaiters.removeValue(forKey: observationID) {
+            continuation.resume()
+        } else {
+            cancelledClosureWaiters.insert(observationID)
+        }
+    }
+
+    private func finishClosureWaiters() {
+        // Mark the terminal state before resuming waiters. A waiter can be
+        // registered after the underlying connection finished, and must see
+        // this state instead of being stranded behind an exited watcher.
+        closed = true
+        let waiters = closureWaiters
+        closureWaiters.removeAll(keepingCapacity: false)
+        cancelledClosureWaiters.removeAll(keepingCapacity: false)
+        for continuation in waiters.values {
+            continuation.resume()
+        }
+        closureWatcher = nil
+    }
+
     /// Returns the classified terminal cause for the admitted connection.
     func closeAttribution() async -> CmxIrohConnectionCloseAttribution {
         if let terminalCloseAttribution {
@@ -274,8 +329,10 @@ public actor CmxIrohClientSession {
 
     /// Closes the control stream and complete QUIC connection.
     public func close() async {
-        guard !closed else { return }
         closed = true
+        finishClosureWaiters()
+        closureWatcher?.cancel()
+        closureWatcher = nil
         connectionTask?.cancel()
         connectionTask = nil
         await serverEventReceiver?.close()

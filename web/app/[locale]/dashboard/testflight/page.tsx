@@ -1,17 +1,22 @@
+import { Suspense } from "react";
 import { getTranslations } from "next-intl/server";
 import { redirect } from "next/navigation";
 
-import { getStackServerApp, isStackConfigured } from "@/app/lib/stack";
-import { localizedVaultPath, vaultSignInHref } from "@/app/lib/vault-auth";
+import { requireDashboardUser } from "@/app/lib/dashboard-auth";
+import { isStackConfigured } from "@/app/lib/stack";
 import { Link } from "@/i18n/navigation";
 import { isAscConfigured } from "@/services/asc/client";
 import { testerGroupStatus } from "@/services/asc/testflight";
 import { isTestflightEligible } from "@/services/billing/pro";
 import { captureAscError } from "@/services/errors";
+import { TestflightPageHeader } from "../components/dashboard-page-headers";
 
-// Eligibility and App Store status are request-fresh values. Keep the current
-// tab visible while this page resolves instead of caching mutable user data.
-export const instant = false;
+// This route renders the session and page data as one unit. The dashboard nav
+// disables prefetch for this authorization-dependent page.
+export const instant = true;
+// Entitlement and enrollment are request-specific. A route-level guard also
+// covers links outside the dashboard shell.
+export const prefetch = "force-disabled";
 
 type SearchParams = {
   testflight?: string | string[];
@@ -23,59 +28,80 @@ type TestflightStatus = {
   unavailable?: boolean;
 };
 
-export default async function DashboardTestflightPage({
-  params,
-  searchParams,
-}: {
+type PageProps = {
   params: Promise<{ locale: string }>;
   searchParams?: Promise<SearchParams>;
-}) {
-  const { locale } = await params;
-  const query = await searchParams;
+};
 
+export default function DashboardTestflightPage(props: PageProps) {
   if (!isStackConfigured()) {
     redirect("/");
   }
-  const user = await getStackServerApp().getUser({ or: "return-null" });
-  if (!user || user.isAnonymous) {
-    redirect(vaultSignInHref(localizedVaultPath(locale, "/dashboard/testflight")));
-  }
 
-  const t = await getTranslations({ locale, namespace: "dashboard.testflight" });
+  return (
+    <Suspense fallback={null}>
+      <ResolvedDashboardTestflightContent {...props} />
+    </Suspense>
+  );
+}
+
+async function ResolvedDashboardTestflightContent({
+  params,
+  searchParams,
+}: PageProps) {
+  // Framework promises are not stable cache keys across prerender phases.
+  const [{ locale }, query] = await Promise.all([params, searchParams]);
+  const testflight = Array.isArray(query?.testflight)
+    ? query.testflight[0]
+    : query?.testflight;
+
+  return (
+    <DashboardTestflightContent locale={locale} testflight={testflight} />
+  );
+}
+
+export async function DashboardTestflightContent({
+  locale,
+  testflight,
+}: {
+  locale: string;
+  testflight?: string;
+}) {
+  // Resolve the session and entitlement for every request. The page is one
+  // render unit, so a prefetched response cannot outlive the authorization
+  // check or reveal an old enrollment state.
+  const user = await requireDashboardUser(locale, "/dashboard/testflight");
   const eligible = await isTestflightEligible(user);
   const email = normalizedEmail(user.primaryEmail);
+
+  const t = await getTranslations({ locale, namespace: "dashboard.testflight" });
   const status = eligible && email
     ? await loadTestflightStatus(email, user.id)
     : { enrolled: false };
-  const banner = testflightBanner(
-    Array.isArray(query?.testflight) ? query?.testflight[0] : query?.testflight,
-  );
+  const banner = testflightBanner(testflight);
 
   return (
     <div className="mx-auto w-full max-w-5xl px-3 py-4">
-      <div className="mb-4 border-b border-border pb-3">
-        <p className="text-xs font-medium text-muted">{t("eyebrow")}</p>
-        <h1 className="mt-1 text-sm font-medium">{t("title")}</h1>
-        <p className="mt-1 max-w-2xl text-muted">{t("description")}</p>
+      <TestflightPageHeader />
+      <div>
+        {banner ? (
+          <div className="mb-3 border border-border bg-background p-3 text-sm">
+            {t(`banners.${banner}`)}
+          </div>
+        ) : null}
+
+        {!eligible ? (
+          <NotEligible t={t} />
+        ) : !email ? (
+          <NeedsEmail t={t} />
+        ) : status.unavailable ? (
+          <Unavailable t={t} />
+        ) : status.enrolled ? (
+          <Enrolled t={t} email={email} state={status.state} />
+        ) : (
+          <Join t={t} email={email} />
+        )}
       </div>
-
-      {banner ? (
-        <div className="mb-3 border border-border bg-background p-3 text-sm">
-          {t(`banners.${banner}`)}
-        </div>
-      ) : null}
-
-      {!eligible ? (
-        <NotEligible t={t} />
-      ) : !email ? (
-        <NeedsEmail t={t} />
-      ) : status.unavailable ? (
-        <Unavailable t={t} />
-      ) : status.enrolled ? (
-        <Enrolled t={t} email={email} state={status.state} />
-      ) : (
-        <Join t={t} email={email} />
-      )}
     </div>
   );
 }

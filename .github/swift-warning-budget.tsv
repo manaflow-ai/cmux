@@ -4,6 +4,7 @@
 1	CLI/cmux.swift	literal value is already handled by previous pattern; consider removing it
 2	CLI/cmux.swift	variable 'groups' was never mutated; consider changing to 'let' constant
 1	Sources/App/TerminalDirectoryOpenSupport.swift	'fullPath(forApplication:)' was deprecated in macOS 11.0: Use -[NSWorkspace URLForApplicationWithBundleIdentifier:] instead.
+2	Sources/AppDelegate+PaneMemoryGuardrail.swift	trailing closure in this context is confusable with the body of the statement; pass as a parenthesized argument to silence this warning
 1	Sources/AppDelegate.swift	'accessibilityAttributeValue' was deprecated in macOS 10.10: Use the NSAccessibility protocol methods instead (see NSAccessibilityProtocols.h)
 5	Sources/AppDelegate.swift	'activateIgnoringOtherApps' was deprecated in macOS 14.0: ignoringOtherApps is deprecated in macOS 14 and will have no effect.
 1	Sources/AppDelegate.swift	add '@preconcurrency' to suppress 'Sendable'-related warnings from module 'Dispatch'
@@ -45,6 +46,12 @@
 1	Sources/AppDelegate.swift	value 'browserPanel' was defined but never used; consider replacing with boolean test
 2	Sources/AppDelegate.swift	value 'self' was defined but never used; consider replacing with boolean test
 1	Sources/Auth/AuthManager.swift	main actor-isolated static property 'logTimestampFormatter' can not be referenced from a nonisolated context
+1	Sources/Cloud/MachinesPanelView.swift	backward matching of the unlabeled trailing closure is deprecated; label the argument with 'onCompletion' to suppress this warning
+1	Sources/Cloud/MachinesPanelViewModel.swift	main actor-isolated static property 'finishedUserInfoKey' can not be referenced from a Sendable closure
+1	Sources/Cloud/MachinesPanelViewModel.swift	main actor-isolated static property 'shared' can not be referenced from a nonisolated context
+1	Sources/Cloud/NewMachineModel.swift	main actor-isolated static property 'memoryOptionsMb' can not be referenced from a nonisolated context
+1	Sources/Cloud/NewMachineSheetPresenter.swift	main actor-isolated static property 'shared' can not be referenced from a nonisolated context
+2	Sources/Cloud/VMClient.swift	'nonisolated' can not be applied to variable with non-'Sendable' type 'ISO8601DateFormatter'
 24	Sources/ContentView.swift	'onChange(of:perform:)' was deprecated in macOS 14.0: Use `onChange` with a two or zero parameter action closure instead.
 1	Sources/ContentView.swift	treating a forced downcast to 'CGColor' as optional will never produce 'nil'
 1	Sources/ContentView.swift	use of protocol 'Panel' as a type must be written 'any Panel'; this will be an error in a future Swift language mode
@@ -73,8 +80,13 @@
 2	Sources/SessionIndexStore.swift	main actor-isolated static property 'searchMaxFiles' cannot be accessed from outside of the actor
 1	Sources/SessionIndexStore.swift	main actor-isolated static property 'tailByteCap' cannot be accessed from outside of the actor
 1	Sources/SessionIndexStore.swift	reference to captured var 'self' in concurrently-executing code
+1	Sources/SessionIndexTableController.swift	call to main actor-isolated instance method 'reconcilePresentation(in:)' in a synchronous nonisolated context
+1	Sources/SessionIndexTableController.swift	main actor-isolated property 'isApplyingRows' can not be referenced from a Sendable closure
 2	Sources/SessionIndexView.swift	'onChange(of:perform:)' was deprecated in macOS 14.0: Use `onChange` with a two or zero parameter action closure instead.
 1	Sources/Settings/ConfigSettingsView.swift	'onChange(of:perform:)' was deprecated in macOS 14.0: Use `onChange` with a two or zero parameter action closure instead.
+1	Sources/Surfaces/CmuxTuiSnapshotParser.swift	default will never be executed
+1	Sources/Surfaces/CmuxTuiSnapshotParser.swift	expression shuffles the elements of this tuple; this behavior is deprecated
+1	Sources/Surfaces/SurfaceCatalogModel.swift	immutable value 'rowID' was never used; consider replacing with '_' or removing it
 17	Sources/TabManager.swift	result of call to 'closePanel(_:force:)' is unused
 1	Sources/TerminalController.swift	'CGWindowListCreateImage' was deprecated in macOS 14.0: Please use ScreenCaptureKit instead.
 2	Sources/TerminalController.swift	'activateIgnoringOtherApps' was deprecated in macOS 14.0: ignoringOtherApps is deprecated in macOS 14 and will have no effect.
@@ -110,3 +122,11 @@
 1	Sources/Workspace.swift	main actor-isolated instance method 'splitTabBar(_:shouldCloseTab:inPane:)' cannot be used to satisfy nonisolated requirement from protocol 'BonsplitDelegate'
 1	Sources/Workspace.swift	switch must be exhaustive
 22	Sources/cmuxApp.swift	'onChange(of:perform:)' was deprecated in macOS 14.0: Use `onChange` with a two or zero parameter action closure instead.
+2	Sources/AppDelegate+PaneMemoryGuardrail.swift	trailing closure in this context is confusable with the body of the statement; pass as a parenthesized argument to silence this warning
+1	Sources/Cloud/MachinesPanelView.swift	backward matching of the unlabeled trailing closure is deprecated; label the argument with 'onCompletion' to suppress this warning
+1	Sources/Cloud/MachinesPanelViewModel.swift	main actor-isolated static property 'finishedUserInfoKey' can not be referenced from a Sendable closure
+1	Sources/Cloud/MachinesPanelViewModel.swift	main actor-isolated static property 'shared' can not be referenced from a nonisolated context
+1	Sources/Cloud/NewMachineSheetPresenter.swift	main actor-isolated static property 'shared' can not be referenced from a nonisolated context
+2	Sources/Cloud/VMClient.swift	'nonisolated' can not be applied to variable with non-'Sendable' type 'ISO8601DateFormatter'
+1	Sources/SessionIndexTableController.swift	call to main actor-isolated instance method 'reconcilePresentation(in:)' in a synchronous nonisolated context
+1	Sources/SessionIndexTableController.swift	main actor-isolated property 'isApplyingRows' can not be referenced from a Sendable closure

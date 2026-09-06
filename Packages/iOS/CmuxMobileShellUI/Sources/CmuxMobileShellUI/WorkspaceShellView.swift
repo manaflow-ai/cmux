@@ -47,7 +47,13 @@ extension EnvironmentValues {
     }
 }
 
-private enum WorkspaceRootToolbarSizing {
+/// Geometry shared by every regular-width toolbar control. Keeping this in one
+/// contract prevents the system toolbar from giving the two-line picker a
+/// different glass height from the icon controls beside it.
+enum WorkspaceRootToolbarSizing {
+    static let controlHeight: CGFloat = 44
+    static let regularControlHorizontalPadding: CGFloat = 14
+    static let regularControlVerticalPadding: CGFloat = 5
     static let minimumPickerWidth: CGFloat = 98
     static let maximumPickerWidth: CGFloat = 124
     private static let nonPickerWidth: CGFloat = 277
@@ -58,6 +64,14 @@ private enum WorkspaceRootToolbarSizing {
             max(minimumPickerWidth, contentWidth - nonPickerWidth)
         )
     }
+
+    /// UIKit drops a `.principal` toolbar item wholesale when the leading
+    /// controls consume nearly all of a narrow iPad sidebar. Moving the
+    /// picker into the leading group keeps it present, where its label can
+    /// apply the requested ellipsis instead of disappearing as a whole.
+    static func usesLeadingPlacement(for contentWidth: CGFloat) -> Bool {
+        contentWidth > 0 && contentWidth < nonPickerWidth + minimumPickerWidth
+    }
 }
 
 /// The shared root toolbar used by both primary tabs. Keeping the leading
@@ -65,6 +79,9 @@ private enum WorkspaceRootToolbarSizing {
 /// feed from drifting away from the workspace-list toolbar contract.
 struct WorkspaceRootToolbarContent: ToolbarContent {
     @Environment(\.workspaceRootToolbarContentWidth) private var contentWidth
+#if os(iOS)
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+#endif
 
     let openSettings: () -> Void
     let openDevices: () -> Void
@@ -74,17 +91,34 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
     let select: (WorkspaceMacSelection) -> Void
     let machines: [WorkspaceFilterMachine]
     let showAddDevice: (() -> Void)?
+    var gateWarningDeviceIDs: Set<String> = []
     var statusLine: WorkspaceConnectionStatusLine?
+
+    private var titlePlacement: ToolbarItemPlacement {
+        if horizontalSizeClass == .regular,
+           WorkspaceRootToolbarSizing.usesLeadingPlacement(for: contentWidth) {
+            return .topBarLeading
+        }
+        return .principal
+    }
 
     var body: some ToolbarContent {
         ToolbarItem(id: "workspace-list-settings", placement: .topBarLeading) {
             Button(action: openSettings) {
                 MobileWorkspaceSettingsIcon()
             }
+            .frame(
+                minWidth: horizontalSizeClass == .regular
+                    ? WorkspaceRootToolbarSizing.controlHeight
+                    : nil,
+                minHeight: horizontalSizeClass == .regular
+                    ? WorkspaceRootToolbarSizing.controlHeight
+                    : nil
+            )
             .accessibilityLabel(L10n.string("mobile.workspaces.settings", defaultValue: "Settings"))
             .accessibilityIdentifier("MobileWorkspaceSettingsMenu")
         }
-        ToolbarItem(id: "workspace-list-title", placement: .principal) {
+        ToolbarItem(id: "workspace-list-title", placement: titlePlacement) {
             WorkspaceMacTitlePicker(
                 value: WorkspaceMacTitlePickerValue(
                     title: title,
@@ -93,6 +127,7 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
                     machines: machines,
                     canAddDevice: showAddDevice != nil,
                     labelWidth: WorkspaceRootToolbarSizing.pickerWidth(for: contentWidth),
+                    usesCompactLabelTreatment: horizontalSizeClass != .regular,
                     statusLine: statusLine
                 ),
                 actions: WorkspaceMacTitlePickerActions(
@@ -101,11 +136,27 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
                 )
             )
             .equatable()
+            .frame(
+                minHeight: horizontalSizeClass == .regular
+                    ? WorkspaceRootToolbarSizing.controlHeight
+                    : nil
+            )
         }
         ToolbarItem(id: "workspace-list-devices", placement: .topBarLeading) {
             Button(action: openDevices) {
-                Image(systemName: "desktopcomputer")
+                MobileDevicesToolbarLabel(
+                    gateWarningDeviceIDs: gateWarningDeviceIDs,
+                    computerDeviceIDs: Set(machines.map(\.macDeviceID).filter { !$0.isEmpty })
+                )
             }
+            .frame(
+                minWidth: horizontalSizeClass == .regular
+                    ? WorkspaceRootToolbarSizing.controlHeight
+                    : nil,
+                minHeight: horizontalSizeClass == .regular
+                    ? WorkspaceRootToolbarSizing.controlHeight
+                    : nil
+            )
             .accessibilityLabel(L10n.string("mobile.connections.title", defaultValue: "Computers"))
             .accessibilityIdentifier("MobileWorkspaceDevicesButton")
         }
@@ -120,6 +171,7 @@ private struct WorkspaceRootToolbarLiveContent: ToolbarContent {
     let pendingSelection: WorkspaceMacSelection?
     let select: (WorkspaceMacSelection) -> Void
     let showAddDevice: (() -> Void)?
+    var gateWarningDeviceIDs: Set<String> = []
 
     var body: some ToolbarContent {
         WorkspaceRootToolbarContent(
@@ -131,6 +183,7 @@ private struct WorkspaceRootToolbarLiveContent: ToolbarContent {
             select: select,
             machines: renderContext.machines,
             showAddDevice: showAddDevice,
+            gateWarningDeviceIDs: gateWarningDeviceIDs,
             statusLine: renderContext.statusLine
         )
     }
@@ -211,6 +264,12 @@ struct WorkspaceShellView: View {
     @State private var notificationFeedProjection = NotificationFeedProjection()
     @State private var hasPresentedSplitDetail = false
     @State private var splitColumnVisibility: NavigationSplitViewVisibility = .automatic
+    #if os(iOS)
+    /// Measured width of the split sidebar column. Feeds the root toolbar's
+    /// content-width environment so the computer picker budgets against the
+    /// sidebar it actually renders in, not the full screen.
+    @State private var splitSidebarWidth: CGFloat = 0
+    #endif
     @State private var macSelection: WorkspaceMacSelection = .all
     /// Legacy fallback while the toast presenter is disabled: the old
     /// dismissible bottom banner for workspace-action failures.
@@ -242,6 +301,13 @@ struct WorkspaceShellView: View {
         return store.workspaceListConnectionStatus
     }
 
+    private var workspaceListIsAuthoritative: Bool {
+        guard !isInitialConnectionLoading, !initialConnectionTimedOut else {
+            return false
+        }
+        return store.workspaceListIsAuthoritative
+    }
+
     private var canCreateWorkspaceOnForegroundConnection: Bool {
         store.connectionState == .connected
     }
@@ -260,57 +326,21 @@ struct WorkspaceShellView: View {
             workspaceSearchNavigationPath: workspaceSearchNavigationPath,
             notificationSearchNavigationPath: notificationSearchNavigationPath
         )
+        #if os(iOS)
         GeometryReader { geometry in
-            MobilePrimaryTabScaffold(
-                selection: $selectedPrimaryTab,
-                searchCoordinator: primarySearchCoordinator,
-                notificationUnreadCount: presentation.notificationUnreadCount,
-                taskComposerAction: usesCompactStack && !compactNavigationPath.isEmpty
-                    ? nil
-                    : taskComposerAction
-            ) {
-                workspaceTabContent(
-                    canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection
-                )
-            } notifications: {
-                NavigationStack(path: $notificationNavigationPath) {
-                    NotificationFeedStoreView(
-                        store: store,
-                        items: presentation.notificationFeedItems,
-                        status: presentation.notificationFeedStatus,
-                        projection: notificationFeedProjection,
-                        selectedMacDeviceIDs: presentation.selectedNotificationFeedMacDeviceIDs
+            Group {
+                if usesCompactStack {
+                    compactScaffold(presentation: presentation)
+                } else {
+                    // Regular-width (iPad): the NavigationSplitView is the one
+                    // navigation hierarchy. Wrapping it in the TabView renders
+                    // the iOS 26 floating tab strip on top of the split
+                    // columns' own toolbars; destinations move into the
+                    // sidebar's bottom bar instead.
+                    workspaceTabContent(
+                        presentation: presentation
                     )
-                        .toolbar {
-                            if notificationNavigationPath.isEmpty {
-                                rootToolbarContent
-                            }
-                        }
-                        .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
-                            workspaceDestination(
-                                for: workspaceID,
-                                createWorkspace: createWorkspaceInCompactStack,
-                                canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection
-                            )
-                            .toolbarVisibility(.hidden, for: .tabBar)
-                    }
                 }
-                .onAppear {
-                    notificationsStackIsOnScreen = true
-                    consumePendingPrimarySearchNavigation(for: .notifications)
-                }
-                .onDisappear {
-                    notificationsStackIsOnScreen = false
-                }
-                .onChange(of: pendingPrimarySearchNotificationNavigationID) { _, _ in
-                    consumePendingPrimarySearchNavigation(for: .notifications)
-                }
-            } workspaceSearch: {
-                workspaceSearchTabContent(
-                    canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection
-                )
-            } notificationSearch: {
-                notificationSearchTabContent(presentation: presentation)
             }
             .background {
                 NotificationFeedSearchProjectionSync(
@@ -318,7 +348,12 @@ struct WorkspaceShellView: View {
                     projection: notificationFeedProjection
                 )
             }
-            .environment(\.workspaceRootToolbarContentWidth, geometry.size.width)
+            .environment(
+                \.workspaceRootToolbarContentWidth,
+                !usesCompactStack && splitSidebarWidth > 0
+                    ? splitSidebarWidth
+                    : geometry.size.width
+            )
             .environment(\.workspaceRootToolbarRenderContext, toolbarRenderContext)
             .onChange(of: primarySearchCoordinator.isPresented) { _, isPresented in
                 store.recordAppEvent(
@@ -371,6 +406,7 @@ struct WorkspaceShellView: View {
                 notificationFeedProjection.update(items: items)
             }
         }
+        #endif
         #else
         workspaceTabContent(canCreateWorkspaceForSelection: canCreateWorkspaceForMacSelection)
         .onAppear {
@@ -379,11 +415,79 @@ struct WorkspaceShellView: View {
         #endif
     }
 
+    #if os(iOS)
+    /// The compact (iPhone-style) shell: the primary destinations live in the
+    /// system TabView with the transient search tab.
+    private func compactScaffold(presentation: WorkspaceShellRenderPresentation) -> some View {
+        MobilePrimaryTabScaffold(
+            selection: $selectedPrimaryTab,
+            searchCoordinator: primarySearchCoordinator,
+            notificationUnreadCount: presentation.notificationUnreadCount,
+            taskComposerAction: usesCompactStack && !compactNavigationPath.isEmpty
+                ? nil
+                : taskComposerAction
+        ) {
+            workspaceTabContent(
+                presentation: presentation
+            )
+        } notifications: {
+            NavigationStack(path: $notificationNavigationPath) {
+                NotificationFeedStoreView(
+                    store: store,
+                    items: presentation.notificationFeedItems,
+                    status: presentation.notificationFeedStatus,
+                    projection: notificationFeedProjection,
+                    selectedMacDeviceIDs: presentation.selectedNotificationFeedMacDeviceIDs
+                )
+                    .toolbar {
+                        if notificationNavigationPath.isEmpty {
+                            rootToolbarContent
+                        }
+                    }
+                    .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
+                        workspaceDestination(
+                            for: workspaceID,
+                            createWorkspace: createWorkspaceInCompactStack,
+                            canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection
+                        )
+                        .toolbarVisibility(.hidden, for: .tabBar)
+                }
+            }
+            .onAppear {
+                notificationsStackIsOnScreen = true
+                consumePendingPrimarySearchNavigation(for: .notifications)
+            }
+            .onDisappear {
+                notificationsStackIsOnScreen = false
+            }
+            .onChange(of: pendingPrimarySearchNotificationNavigationID) { _, _ in
+                consumePendingPrimarySearchNavigation(for: .notifications)
+            }
+        } workspaceSearch: {
+            workspaceSearchTabContent(
+                canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection
+            )
+        } notificationSearch: {
+            notificationSearchTabContent(presentation: presentation)
+        }
+    }
+    #endif
+
+    #if os(iOS)
+    private func workspaceTabContent(
+        presentation: WorkspaceShellRenderPresentation
+    ) -> some View {
+        workspaceActionToastOverlay {
+            layoutContent(presentation: presentation)
+        }
+    }
+    #else
     private func workspaceTabContent(canCreateWorkspaceForSelection: Bool) -> some View {
         workspaceActionToastOverlay {
             layoutContent(canCreateWorkspaceForSelection: canCreateWorkspaceForSelection)
         }
     }
+    #endif
 
     private func workspaceSearchTabContent(canCreateWorkspaceForSelection: Bool) -> some View {
         workspaceActionToastOverlay {
@@ -474,15 +578,34 @@ struct WorkspaceShellView: View {
         }
     }
 
-    private func layoutContent(canCreateWorkspaceForSelection: Bool) -> some View {
+    #if os(iOS)
+    private func layoutContent(presentation: WorkspaceShellRenderPresentation) -> some View {
         Group {
             if usesCompactStack {
-                stackLayout(canCreateWorkspaceForSelection: canCreateWorkspaceForSelection)
+                stackLayout(
+                    canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection
+                )
             } else {
-                splitLayout(canCreateWorkspaceForSelection: canCreateWorkspaceForSelection)
+                splitLayout(presentation: presentation)
             }
         }
         .onChange(of: usesCompactStack) { _, isCompact in
+            #if os(iOS)
+            if isCompact {
+                // The split sidebar's searchable field is gone; close the
+                // session by committing the draft so the compact list keeps
+                // the filter instead of stranding a presented search with no
+                // field.
+                if primarySearchCoordinator.isPresented {
+                    primarySearchCoordinator.deactivateCurrentSearch()
+                }
+            } else if selectedPrimaryTab == .search {
+                // The split sidebar has no search destination; selection
+                // returns to the active scope and the sidebar search field
+                // carries the session.
+                selectedPrimaryTab = primarySearchCoordinator.scope.primaryTab
+            }
+            #endif
             guard isCompact, hasPresentedSplitDetail, let selectedWorkspaceID = store.selectedWorkspaceID else {
                 return
             }
@@ -564,6 +687,12 @@ struct WorkspaceShellView: View {
         #endif
         .accessibilityIdentifier("MobileWorkspaceShell")
     }
+    #else
+    private func layoutContent(canCreateWorkspaceForSelection: Bool) -> some View {
+        splitLayout(canCreateWorkspaceForSelection: canCreateWorkspaceForSelection)
+            .accessibilityIdentifier("MobileWorkspaceShell")
+    }
+    #endif
 
     #if os(iOS)
     /// Bound on the whole pre-presentation preload (all pages load
@@ -702,7 +831,8 @@ struct WorkspaceShellView: View {
             compactNavigationPath = compactNavigationPolicy.pathForSelectionChange(
                 currentPath: compactNavigationPath,
                 selectedWorkspaceID: selectedWorkspaceID,
-                visibleWorkspaceIDs: Set(store.workspaces.map(\.id))
+                visibleWorkspaceIDs: Set(store.workspaces.map(\.id)),
+                listIsAuthoritative: workspaceListIsAuthoritative
             )
             autoOpenSelectedWorkspaceForSoakIfNeeded()
         }
@@ -720,7 +850,8 @@ struct WorkspaceShellView: View {
             compactNavigationPath = compactNavigationPolicy.pathForVisibleWorkspaceIDsChange(
                 currentPath: compactNavigationPath,
                 visibleWorkspaceIDs: Set(workspaceIDs),
-                selectedWorkspaceID: store.selectedWorkspaceID
+                selectedWorkspaceID: store.selectedWorkspaceID,
+                listIsAuthoritative: workspaceListIsAuthoritative
             )
             autoOpenSelectedWorkspaceForSoakIfNeeded()
         }
@@ -746,6 +877,41 @@ struct WorkspaceShellView: View {
         return openTaskComposer
     }
 
+    #if os(iOS)
+    private func splitLayout(presentation: WorkspaceShellRenderPresentation) -> some View {
+        NavigationSplitView(columnVisibility: $splitColumnVisibility) {
+            #if os(iOS)
+            splitSidebar(presentation: presentation)
+                .navigationSplitViewColumnWidth(min: 320, ideal: 380, max: 440)
+            #else
+            MobilePrimaryWorkspaceSearchHost(
+                searchCoordinator: primarySearchCoordinator,
+                taskComposerAction: taskComposerAction
+            ) { searchText in
+                workspaceList(
+                    navigationStyle: .sidebar,
+                    searchText: searchText,
+                    canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection
+                )
+            }
+            .navigationSplitViewColumnWidth(min: 320, ideal: 380, max: 440)
+            #endif
+        } detail: {
+            workspaceDestination(
+                for: store.selectedWorkspaceID,
+                createWorkspace: createWorkspaceIfConnected,
+                canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection,
+                safeAreaContext: splitColumnVisibility == .detailOnly ? .fullWidth : .splitSidebarVisible,
+                toggleSidebar: toggleSplitSidebar,
+                showsSidebarToggle: splitColumnVisibility == .detailOnly
+            )
+        }
+        .navigationSplitViewStyle(.balanced)
+        .onAppear {
+            hasPresentedSplitDetail = true
+        }
+    }
+    #else
     private func splitLayout(canCreateWorkspaceForSelection: Bool) -> some View {
         NavigationSplitView(columnVisibility: $splitColumnVisibility) {
             MobilePrimaryWorkspaceSearchHost(
@@ -758,26 +924,294 @@ struct WorkspaceShellView: View {
                     canCreateWorkspaceForSelection: canCreateWorkspaceForSelection
                 )
             }
-            .toolbar {
-                rootToolbarContent
-            }
             .navigationSplitViewColumnWidth(min: 320, ideal: 380, max: 440)
         } detail: {
             workspaceDestination(
                 for: store.selectedWorkspaceID,
                 createWorkspace: createWorkspaceIfConnected,
                 canCreateWorkspaceForSelection: canCreateWorkspaceForSelection,
-                safeAreaContext: splitColumnVisibility == .detailOnly ? .fullWidth : .splitSidebarVisible
+                safeAreaContext: splitColumnVisibility == .detailOnly ? .fullWidth : .splitSidebarVisible,
+                toggleSidebar: toggleSplitSidebar,
+                showsSidebarToggle: splitColumnVisibility == .detailOnly
             )
-            #if os(iOS)
-            .toolbarVisibility(splitColumnVisibility == .detailOnly ? .hidden : .visible, for: .tabBar)
-            #endif
         }
         .navigationSplitViewStyle(.balanced)
         .onAppear {
             hasPresentedSplitDetail = true
         }
     }
+    #endif
+
+    #if os(iOS)
+    /// The split (iPad) sidebar column: one destination surface switched by
+    /// the bottom-bar control, the shared root toolbar on top, and the native
+    /// search field scoped to the visible destination. There is no TabView in
+    /// this hierarchy, so no floating tab strip can overlap the column
+    /// toolbars.
+    private func splitSidebar(presentation: WorkspaceShellRenderPresentation) -> some View {
+        let selectedMacDeviceIDs = presentation.selectedNotificationFeedMacDeviceIDs
+        let notificationItems = presentation.notificationFeedItems
+        let unreadCount = presentation.notificationUnreadCount
+        return Group {
+            switch splitSidebarDestination {
+            case .notifications:
+                NotificationFeedStoreView(
+                    store: store,
+                    items: notificationItems,
+                    status: presentation.notificationFeedStatus,
+                    projection: notificationFeedProjection,
+                    selectedMacDeviceIDs: selectedMacDeviceIDs
+                )
+            case .workspaces, .search:
+                workspaceList(
+                    navigationStyle: .sidebar,
+                    searchText: primarySearchCoordinator.searchDestinationText(for: .workspaces),
+                    canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection,
+                    sidebarToggleAction: toggleSplitSidebar
+                )
+            }
+        }
+        .toolbar {
+            if splitSidebarDestination == .notifications {
+                ToolbarItem(placement: .topBarTrailing) {
+                    // Notifications has no WorkspaceListView toolbar, so the
+                    // sidebar owns its trailing control directly in this path.
+                    WorkspaceSidebarToggleButton(
+                        action: toggleSplitSidebar,
+                        usesSystemToolbarChrome: true
+                    )
+                }
+            }
+        }
+        .toolbar {
+            rootToolbarContent
+        }
+        .toolbar {
+            splitSidebarBottomBar(unreadCount: unreadCount)
+        }
+        // Keep NavigationSplitView's synthesized control out of the toolbar.
+        // The shared custom action is owned by this sidebar while open and by
+        // the detail bar after the sidebar is hidden.
+        .toolbar(removing: .sidebarToggle)
+        .searchable(
+            text: splitSearchText,
+            isPresented: splitSearchPresentation,
+            prompt: splitSearchPrompt
+        )
+        .searchScopes(splitSearchScope, activation: .onSearchPresentation) {
+            Text(L10n.string("mobile.tabs.workspaces", defaultValue: "Workspaces"))
+                .tag(MobilePrimarySearchScope.workspaces)
+            Text(L10n.string("mobile.tabs.notifications", defaultValue: "Notifications"))
+                .tag(MobilePrimarySearchScope.notifications)
+        }
+        .onSubmit(of: .search) {
+            _ = primarySearchCoordinator.commitSubmit()
+        }
+        // Keep the sidebar's navigation container opaque through the status
+        // bar. A plain view background only paints the list's content bounds,
+        // leaving the top safe area to the split view's default system color.
+        .containerBackground(Color(uiColor: .systemGroupedBackground), for: .navigation)
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.size.width
+        } action: { width in
+            splitSidebarWidth = width
+        }
+    }
+
+    /// The destination the split sidebar currently shows. While search is
+    /// presented the sidebar follows the search scope, so switching scope
+    /// chips swaps the result list in place instead of presenting whichever
+    /// destination was selected before the search began.
+    private var splitSidebarDestination: MobilePrimaryTab {
+        if primarySearchCoordinator.isPresented || selectedPrimaryTab == .search {
+            return primarySearchCoordinator.scope.primaryTab
+        }
+        return selectedPrimaryTab
+    }
+
+    @ToolbarContentBuilder
+    private func splitSidebarBottomBar(unreadCount: Int) -> some ToolbarContent {
+        ToolbarItem(placement: .bottomBar) {
+            // iOS 26 already wraps a bottom-bar item in its own glass capsule.
+            // A segmented Picker adds a second capsule inside it, producing
+            // the doubled control shown in the iPad sidebar. These plain
+            // buttons keep the toolbar's single surface and communicate the
+            // selection with hierarchy and tint instead of nested chrome.
+            WorkspaceSidebarDestinationControl(
+                selection: splitSidebarDestinationSelection,
+                workspacesTitle: L10n.string("mobile.tabs.workspaces", defaultValue: "Workspaces"),
+                notificationsTitle: notificationsSegmentTitle(unreadCount: unreadCount)
+            )
+        }
+        if #available(iOS 26.0, *) {
+            ToolbarSpacer(.flexible, placement: .bottomBar)
+        }
+        if let taskComposerAction {
+            ToolbarItem(placement: .bottomBar) {
+                Button(action: taskComposerAction) {
+                    Image(systemName: "square.and.pencil")
+                }
+                .accessibilityLabel(
+                    L10n.string("mobile.taskComposer.button.accessibilityLabel", defaultValue: "New Task")
+                )
+                .accessibilityHint(
+                    L10n.string("mobile.taskComposer.button.accessibilityHint", defaultValue: "Opens the task composer.")
+                )
+                .accessibilityIdentifier("MobileTaskComposerButton")
+            }
+        }
+    }
+
+    private struct WorkspaceSidebarDestinationControl: View {
+        let selection: Binding<MobilePrimaryTab>
+        let workspacesTitle: String
+        let notificationsTitle: String
+
+        var body: some View {
+            HStack(spacing: 0) {
+                destinationButton(
+                    .workspaces,
+                    title: workspacesTitle,
+                    accessibilityID: "MobileSplitSidebarWorkspaces"
+                )
+                destinationButton(
+                    .notifications,
+                    title: notificationsTitle,
+                    accessibilityID: "MobileSplitSidebarNotifications"
+                )
+            }
+            .frame(minHeight: 44)
+            .fixedSize(horizontal: true, vertical: false)
+            .accessibilityIdentifier("MobileSplitSidebarDestinationPicker")
+        }
+
+        private func destinationButton(
+            _ destination: MobilePrimaryTab,
+            title: String,
+            accessibilityID: String
+        ) -> some View {
+            let isSelected = selection.wrappedValue == destination
+            return Button {
+                selection.wrappedValue = destination
+            } label: {
+                Text(title)
+                    .font(.subheadline.weight(isSelected ? .semibold : .regular))
+                    .foregroundStyle(isSelected ? .primary : .secondary)
+                    .lineLimit(1)
+                    .allowsTightening(true)
+                    .minimumScaleFactor(0.82)
+                    .padding(.horizontal, 8)
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityAddTraits(isSelected ? .isSelected : [])
+            .accessibilityIdentifier(accessibilityID)
+        }
+    }
+
+    private func notificationsSegmentTitle(unreadCount: Int) -> String {
+        guard unreadCount > 0 else {
+            return L10n.string("mobile.tabs.notifications", defaultValue: "Notifications")
+        }
+        return String(
+            format: L10n.string(
+                "mobile.tabs.notifications.unreadCount",
+                defaultValue: "Notifications (%lld)"
+            ),
+            Int64(unreadCount)
+        )
+    }
+
+    private func toggleSplitSidebar() {
+        withAnimation {
+            splitColumnVisibility = splitColumnVisibility == .detailOnly ? .all : .detailOnly
+        }
+    }
+
+    private var splitSidebarDestinationSelection: Binding<MobilePrimaryTab> {
+        Binding(
+            get: { splitSidebarDestination },
+            set: { newValue in
+                if primarySearchCoordinator.isPresented, let scope = newValue.searchScope {
+                    // Switching destinations mid-search re-scopes the session
+                    // instead of abandoning it under the old scope.
+                    primarySearchCoordinator.beginSearch(for: scope)
+                }
+                selectedPrimaryTab = newValue
+            }
+        )
+    }
+
+    /// The scope the sidebar's one search field addresses: the presented
+    /// search's scope while active (they are equal by construction), else the
+    /// visible destination's. Keying the field off the coordinator's scope
+    /// alone leaked the previous scope's placeholder and committed text into
+    /// the other destination after a segment switch.
+    private var splitSearchFieldScope: MobilePrimarySearchScope {
+        splitSidebarDestination.searchScope ?? .workspaces
+    }
+
+    private var splitSearchText: Binding<String> {
+        let scope = splitSearchFieldScope
+        let activationGeneration = primarySearchCoordinator.activationGeneration
+        return Binding(
+            get: { primarySearchCoordinator.nativeSearchText(for: scope) },
+            set: { value in
+                primarySearchCoordinator.updateNativeSearchText(
+                    value,
+                    for: scope,
+                    activationGeneration: activationGeneration
+                )
+            }
+        )
+    }
+
+    private var splitSearchPresentation: Binding<Bool> {
+        Binding(
+            get: { primarySearchCoordinator.isPresented },
+            set: { presented in
+                if presented {
+                    primarySearchCoordinator.beginSearch(
+                        for: splitSidebarDestination.searchScope ?? .workspaces
+                    )
+                } else {
+                    primarySearchCoordinator.setPresentation(false)
+                }
+            }
+        )
+    }
+
+    private var splitSearchScope: Binding<MobilePrimarySearchScope> {
+        Binding(
+            get: { primarySearchCoordinator.scope },
+            set: { scope in
+                guard primarySearchCoordinator.scope != scope else { return }
+                primarySearchCoordinator.beginSearch(for: scope)
+                selectedPrimaryTab = scope.primaryTab
+            }
+        )
+    }
+
+    private var splitSearchPrompt: Text {
+        switch splitSearchFieldScope {
+        case .workspaces:
+            Text(
+                L10n.string(
+                    "mobile.workspaces.search.placeholder",
+                    defaultValue: "Search workspaces"
+                )
+            )
+        case .notifications:
+            Text(
+                L10n.string(
+                    "mobile.notificationFeed.search.placeholder",
+                    defaultValue: "Search notifications"
+                )
+            )
+        }
+    }
+    #endif
 
     private func workspaceList(
         navigationStyle: WorkspaceNavigationStyle,
@@ -787,7 +1221,8 @@ struct WorkspaceShellView: View {
         selectWorkspaceAction: ((MobileWorkspacePreview.ID) -> Void)? = nil,
         createWorkspaceAction: (() -> Void)? = nil,
         createWorkspaceInGroupAction: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil,
-        createWorkspaceGroupAction: (() -> Void)? = nil
+        createWorkspaceGroupAction: (() -> Void)? = nil,
+        sidebarToggleAction: (() -> Void)? = nil
     ) -> some View {
         let resolvedSelectWorkspace = selectWorkspaceAction ?? selectWorkspace
         let resolvedCreateWorkspace = createWorkspaceAction ?? (
@@ -820,6 +1255,7 @@ struct WorkspaceShellView: View {
             showsNavigationToolbar: showsNavigationToolbar
                 ?? (navigationStyle != .push || compactNavigationPath.isEmpty),
             usesExternalSharedToolbar: true,
+            sidebarToggleAction: sidebarToggleAction,
             wrapWorkspaceTitles: displaySettings.wrapWorkspaceTitles,
             previewLineLimit: displaySettings.workspacePreviewLineCount,
             unreadIndicatorLeftShift: displaySettings.unreadIndicatorLeftShift,
@@ -876,7 +1312,8 @@ struct WorkspaceShellView: View {
             openDevices: showComputers,
             pendingSelection: rootToolbarPendingSelection,
             select: handleRootToolbarSelection,
-            showAddDevice: showAddDevice
+            showAddDevice: showAddDevice,
+            gateWarningDeviceIDs: store.macVersionUpdateRequiredDeviceIDs
         )
     }
 
@@ -1042,6 +1479,10 @@ struct WorkspaceShellView: View {
         guard let request = store.deeplinkWorkspaceNavigationRequest else { return }
         guard let workspaceID = store.consumeDeeplinkWorkspaceNavigationRequest() else { return }
         #if os(iOS)
+        // Split navigation has no per-tab stacks: the store's selection
+        // change already presents the workspace in the detail column, so
+        // consuming only clears the request.
+        guard usesCompactStack else { return }
         if request.origin == .notificationFeed {
             switch primarySearchCoordinator.notificationFeedNavigationRoute(
                 selectedTab: selectedPrimaryTab
@@ -1114,7 +1555,12 @@ struct WorkspaceShellView: View {
 
     private func selectWorkspace(_ id: MobileWorkspacePreview.ID) {
         #if os(iOS)
-        if selectedPrimaryTab == .search || primarySearchCoordinator.isPresented {
+        // Compact only: the search UI is a transient tab, so the push must
+        // wait for the workspaces stack to return on screen. The split
+        // sidebar keeps its search session presented and simply shows the
+        // selection in the detail column, like Mail on iPad.
+        if usesCompactStack,
+           selectedPrimaryTab == .search || primarySearchCoordinator.isPresented {
             pendingPrimarySearchWorkspaceNavigationID = id
             transitionPrimaryTab(to: .workspaces)
             return
@@ -1304,7 +1750,9 @@ struct WorkspaceShellView: View {
         createWorkspace: @escaping () -> Void,
         canCreateWorkspaceForSelection: Bool,
         safeAreaContext: MobileTerminalSafeAreaContext = .fullWidth,
-        backButtonConfiguration: WorkspaceBackButtonConfiguration? = nil
+        backButtonConfiguration: WorkspaceBackButtonConfiguration? = nil,
+        toggleSidebar: (() -> Void)? = nil,
+        showsSidebarToggle: Bool = false
     ) -> some View {
         WorkspaceDetailContainer(
             store: store,
@@ -1317,7 +1765,9 @@ struct WorkspaceShellView: View {
             closeWorkspace: closeWorkspaceClosure,
             safeAreaContext: safeAreaContext,
             backButtonConfiguration: backButtonConfiguration,
-            signOut: signOut
+            signOut: signOut,
+            toggleSidebar: toggleSidebar,
+            showsSidebarToggle: showsSidebarToggle
         )
     }
 }

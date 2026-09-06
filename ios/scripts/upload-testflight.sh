@@ -88,6 +88,12 @@ verify_ipa_bundle_identity() {
     return 1
   fi
 
+  if ! "$REPO_ROOT/scripts/lib/verify-ios-release-origins.sh" --app "$app"; then
+    echo "error: exported IPA runtime origins are not production-only: $ipa" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+
   plist_bundle_id="$("$PLISTBUDDY" -c 'Print :CFBundleIdentifier' "$app/Info.plist" 2>/dev/null || true)"
   if [[ "$plist_bundle_id" != "$expected_bundle_id" ]]; then
     echo "error: signed IPA CFBundleIdentifier is '${plist_bundle_id:-<absent>}', expected '$expected_bundle_id': $ipa" >&2
@@ -611,6 +617,7 @@ esac
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IOS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+REPO_ROOT="$(cd "$IOS_DIR/.." && pwd)"
 WORKSPACE="$IOS_DIR/cmux.xcworkspace"
 SCHEME="cmux-ios"
 DEVELOPMENT_TEAM="${IOS_DEVELOPMENT_TEAM:-7WLXT3NR37}"
@@ -627,6 +634,18 @@ case "$LANE" in
     ;;
 esac
 require_marketing_version "$LANE" "$LANE_MARKETING_VERSION"
+
+# All distribution lanes are production-level artifacts, including the
+# INTERNAL TestFlight app. Keep the four runtime authorities together and pass
+# them explicitly to every archive invocation. This prevents a runner's
+# staging environment, a stale shell export, or a reused archive from silently
+# producing a production-auth app that talks to staging Iroh infrastructure.
+PRODUCTION_RUNTIME_BUILD_ARGS=(
+  CMUX_IOS_AUTH_ENV=production
+  CMUX_API_BASE_URL=https://cmux.com
+  CMUX_IROH_BROKER_BASE_URL=https://cmux.com
+  CMUX_PRESENCE_BASE_URL=https://presence.cmux.dev
+)
 
 # Notes audience is driven by the testing lane (External block for --external).
 NOTES_AUDIENCE="internal"
@@ -890,6 +909,7 @@ if [[ -z "$ARCHIVE_PATH" ]]; then
       CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
       CMUX_CRASH_REPORTING_ENABLED="$CRASH_REPORTING_ENABLED" \
       ${MARKETING_VERSION_ARGS[@]+"${MARKETING_VERSION_ARGS[@]}"} \
+      "${PRODUCTION_RUNTIME_BUILD_ARGS[@]}" \
       CODE_SIGN_STYLE=Automatic \
       CODE_SIGNING_ALLOWED=YES \
       CODE_SIGNING_REQUIRED=YES \
@@ -912,6 +932,7 @@ if [[ -z "$ARCHIVE_PATH" ]]; then
       CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
       CMUX_CRASH_REPORTING_ENABLED="$CRASH_REPORTING_ENABLED" \
       ${MARKETING_VERSION_ARGS[@]+"${MARKETING_VERSION_ARGS[@]}"} \
+      "${PRODUCTION_RUNTIME_BUILD_ARGS[@]}" \
       CODE_SIGNING_ALLOWED=NO \
       CODE_SIGNING_REQUIRED=NO \
       CODE_SIGN_IDENTITY="" \
@@ -930,6 +951,10 @@ if [[ -n "$ARCHIVE_BUNDLE_IDENTIFIER" && "$ARCHIVE_BUNDLE_IDENTIFIER" != "$PRODU
   exit 1
 fi
 ARCHIVE_APP="$(find "$ARCHIVE_PATH/Products/Applications" -maxdepth 1 -name '*.app' -type d 2>/dev/null | head -n 1 || true)"
+if [[ -z "$ARCHIVE_APP" || ! -d "$ARCHIVE_APP" ]]; then
+  echo "error: archive has no Products/Applications/*.app to verify runtime origins: $ARCHIVE_PATH" >&2
+  exit 1
+fi
 if [[ -n "$ARCHIVE_APP" && -d "$ARCHIVE_APP" ]]; then
   ARCHIVE_APP_BUNDLE_IDENTIFIER="$("$PLISTBUDDY" -c 'Print :CFBundleIdentifier' "$ARCHIVE_APP/Info.plist" 2>/dev/null || true)"
   if [[ -n "$ARCHIVE_APP_BUNDLE_IDENTIFIER" && "$ARCHIVE_APP_BUNDLE_IDENTIFIER" != "$PRODUCT_BUNDLE_IDENTIFIER" ]]; then
@@ -943,6 +968,11 @@ if [[ -n "$ARCHIVE_APP" && -d "$ARCHIVE_APP" ]]; then
       exit 1
     fi
   fi
+fi
+
+if ! "$REPO_ROOT/scripts/lib/verify-ios-release-origins.sh" --app "$ARCHIVE_APP"; then
+  echo "error: archive runtime origins are not production-only; refusing to export or upload" >&2
+  exit 1
 fi
 
 ARCHIVE_MARKETING_VERSION="$("$PLISTBUDDY" -c 'Print :ApplicationProperties:CFBundleShortVersionString' "$ARCHIVE_PATH/Info.plist" 2>/dev/null || true)"

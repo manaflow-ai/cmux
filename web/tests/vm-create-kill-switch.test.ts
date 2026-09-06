@@ -18,6 +18,12 @@ describe("VM create kill switch", () => {
     expect(vmCreateDisabledReason("freestyle", env)).toContain("freestyle");
   });
 
+  test("the private-network kill switch disables creation instead of selecting public ingress", () => {
+    expect(vmCreateDisabledReason("freestyle", { CMUX_VM_PRIVATE_NETWORK_ENABLED: "0" })).toBe(
+      "Cloud VM creation requires private networking",
+    );
+  });
+
   test("an unrelated env flag does not disable creation", () => {
     expect(vmCreateDisabledReason("freestyle", { CMUX_VM_SOME_OTHER_FLAG: "0" })).toBeNull();
   });

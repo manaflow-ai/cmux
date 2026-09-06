@@ -12,7 +12,7 @@ The split is deliberate:
   handwritten in each language.
 - Mechanical protocol-v12 models are generated deterministically and exposed
   only through `raw`.
-- A catalog descriptor in every package proves that all 124 transported
+- A catalog descriptor in every package proves that all 125 transported
   operations have the same class and wire name.
 - The six sidebar plugin operations are local CLI/filesystem APIs. Transported
   SDK roots expose sidebar views, not plugin resource handles.

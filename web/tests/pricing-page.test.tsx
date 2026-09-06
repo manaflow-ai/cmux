@@ -42,6 +42,17 @@ mock.module("next-intl/server", () => ({
   setRequestLocale: () => undefined,
 }));
 
+// PricingPage uses the locale-aware Link for the billing-recovery route. Keep
+// this server-render test independent of next-intl's client navigation
+// context, just like the other page tests that render locale-aware links.
+mock.module("../i18n/navigation", () => ({
+  Link: ({ href, children, ...props }: { href: string; children: React.ReactNode }) => (
+    <a href={href} {...props}>
+      {children}
+    </a>
+  ),
+}));
+
 mock.module("../app/[locale]/components/site-header", () => ({
   SiteHeader: () => <header />,
 }));
@@ -136,7 +147,7 @@ describe("localized pricing page", () => {
     }
   });
 
-  test("defaults public pricing to annual billing with compact paid-plan CTAs", async () => {
+  test("defaults public pricing to annual billing with full-size paid-plan CTAs", async () => {
     const element = await PricingPage({ params: Promise.resolve({ locale: "en" }) });
     const html = renderToStaticMarkup(element);
 
@@ -153,10 +164,10 @@ describe("localized pricing page", () => {
       "/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;interval=year",
     );
     expect(html).toMatch(
-      /href="\/api\/billing\/checkout\?plan=pro[^"]*interval=year"[^>]*class="[^"]*px-3 py-1\.5 text-xs[^"]*"[^>]*><span>Get Pro/,
+      /href="\/api\/billing\/checkout\?plan=pro[^"]*interval=year"[^>]*class="[^"]*min-h-12 px-5 py-3 text-\[15px\][^"]*"[^>]*><span>Get Pro/,
     );
     expect(html).toMatch(
-      /href="\/api\/billing\/checkout\?plan=team[^"]*interval=year"[^>]*class="[^"]*px-3 py-1\.5 text-xs[^"]*"[^>]*><span>Get Teams/,
+      /href="\/api\/billing\/checkout\?plan=team[^"]*interval=year"[^>]*class="[^"]*min-h-12 px-5 py-3 text-\[15px\][^"]*"[^>]*><span>Get Teams/,
     );
     expect(html).toContain('<p class="mt-5 text-sm font-medium">Includes:</p>');
     expect(html).not.toContain('style="min-height:4rem"');
@@ -241,7 +252,9 @@ describe("localized pricing page", () => {
 
     expect(html).toContain("$50");
     expect(html).toContain("$60");
-    expect(html).toContain("Up to 50 Cloud VMs, each with 5 vCPU, 20 GB RAM, and 200 GB disk");
+    expect(html).toContain(
+      "Up to 50 Cloud VMs, each with its own resources; default size 8 GB RAM and 32 GB disk, with 4 to 64 GB RAM available",
+    );
     expect(html).toContain("Unlimited workspaces");
     expect(html).not.toContain("Unlimited active Cloud VMs");
     expect(html).toContain(

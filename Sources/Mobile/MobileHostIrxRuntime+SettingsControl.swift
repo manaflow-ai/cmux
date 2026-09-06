@@ -247,8 +247,9 @@ extension MobileHostIrxRuntime {
         }
     }
 
-    /// Relay for now: direct paths are unwired in irx v1, so the only
-    /// attributable live path is the relay the endpoint homes on.
+    /// The control-plane status remains relay-attributed until Iroh reports a
+    /// selected direct path. Direct candidates are still advertised and
+    /// attempted by the transport in automatic mode.
     nonisolated static func settingsSelectedPath(
         phase: SettingsPhase,
         endpointOnline: Bool,

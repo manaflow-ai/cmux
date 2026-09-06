@@ -36,6 +36,7 @@ use crate::actions::{
     ActionContext, MAX_BLOCKING_FILE_ACTIONS, perform_action, process_env_snapshot, scrubbed_env,
 };
 use crate::config::{Config, save_config};
+use crate::display::terminal_text;
 use crate::error::RelayError;
 use crate::pairing::websocket_url;
 use crate::pty::FrameContext;
@@ -918,9 +919,12 @@ async fn relay_session(
                         } else {
                             local_trust.as_str().to_owned()
                         };
+                        let display_name = terminal_text(&display_name);
+                        let shown_trust = terminal_text(&shown_trust);
+                        let shown_scope = terminal_text(&hello.scope);
                         println!(
-                            "Connected as {display_name} (protocol v{}, trust {shown_trust}, scope {}).",
-                            hello.relay_protocol_version, hello.scope,
+                            "Connected as {display_name} (protocol v{}, trust {shown_trust}, scope {shown_scope}).",
+                            hello.relay_protocol_version,
                         );
                         if state.first_connect {
                             state.first_connect = false;
@@ -980,9 +984,10 @@ async fn relay_session(
                     }
                     ServerFrame::UpgradeRequired { min_version, message } => {
                         let advertised = advertised_protocol();
+                        let message = terminal_text(&message);
                         break Err(RelayError::fatal(format!(
                             "This cmux-relay speaks relay protocol v{advertised}, but the server \
-                             requires v{min_version} or newer.\n{message}\n\nUpgrade:\n  npx \
+                             requires v{min_version} or newer. Server message: {message}\n\nUpgrade:\n  npx \
                              cmux-relay@latest        # npx fetches the latest release each run\n  \
                              npm i -g cmux-relay@latest   # if you installed it globally"
                         )));
@@ -1045,6 +1050,7 @@ async fn relay_session(
                             home: runtime.home.clone(),
                             env: scrubbed_env(&runtime.base_env),
                             file_slots: Arc::clone(&runtime.file_action_slots),
+                            process_cancellation: connection_cancellation.clone(),
                             #[cfg(test)]
                             test_file_operation_barrier: None,
                         };
@@ -1095,15 +1101,19 @@ async fn relay_session(
                                 result = perform_action(&raw, &action) => result,
                             };
                             let ok = result.get("ok").and_then(Value::as_bool).unwrap_or(false);
+                            let shown_verb = terminal_text(&verb);
+                            let shown_actor = terminal_text(&actor);
                             if ok {
+                                let shown_action = terminal_text(&action_id);
                                 println!(
-                                    "Ran {verb} for {actor} (action {}).",
-                                    action_id.chars().take(8).collect::<String>()
+                                    "Ran {shown_verb} for {shown_actor} (action {}).",
+                                    shown_action.chars().take(8).collect::<String>()
                                 );
                             } else {
                                 let code =
                                     result.get("code").and_then(Value::as_str).unwrap_or("failed");
-                                println!("Refused {verb} ({code}) for {actor}.");
+                                let shown_code = terminal_text(code);
+                                println!("Refused {shown_verb} ({shown_code}) for {shown_actor}.");
                             }
                             let size = serde_json::to_string(&result)
                                 .map(|text| text.len() as u64)
@@ -1130,7 +1140,11 @@ async fn relay_session(
                             let session = raw.get("session").and_then(Value::as_str).unwrap_or("?");
                             let actor =
                                 raw.get("actorId").and_then(Value::as_str).unwrap_or("chatmux");
-                            println!("Terminal attach to session \"{session}\" for {actor}.");
+                            let shown_session = terminal_text(session);
+                            let shown_actor = terminal_text(actor);
+                            println!(
+                                "Terminal attach to session \"{shown_session}\" for {shown_actor}."
+                            );
                         }
                         #[cfg(unix)]
                         {
@@ -1227,8 +1241,11 @@ async fn relay_session(
                                  cmux-relay --pair"
                             )));
                         }
-                        let suffix = message.map(|text| format!(" — {text}")).unwrap_or_default();
-                        eprintln!("Server error: {code}{suffix}");
+                        let shown_code = terminal_text(&code);
+                        let suffix = message
+                            .map(|text| format!(" — {}", terminal_text(&text)))
+                            .unwrap_or_default();
+                        eprintln!("Server error: {shown_code}{suffix}");
                     }
                     ServerFrame::Unknown { frame_type } => {
                         if unknown_types.insert(frame_type.clone()) {
@@ -1238,8 +1255,9 @@ async fn relay_session(
                             {
                                 unknown_types.remove(&evicted);
                             }
+                            let shown_type = terminal_text(&frame_type);
                             eprintln!(
-                                "Ignoring unknown server frame type \"{frame_type}\" (a newer server?)."
+                                "Ignoring unknown server frame type \"{shown_type}\" (a newer server?)."
                             );
                         }
                     }

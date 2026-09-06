@@ -9,6 +9,7 @@ pub mod autostart;
 pub mod cli;
 pub mod config;
 pub mod control;
+mod display;
 pub mod enrollment;
 pub mod error;
 pub mod fingerprint;

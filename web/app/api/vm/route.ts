@@ -1,6 +1,7 @@
 // Authenticated REST facade over the VM control plane. Native clients use this surface so
 // provider credentials stay behind server-side ownership checks.
 
+import { preconnectFreestyle } from "../../../services/vms/drivers/freestyle";
 import {
   unauthorized,
   verifyRequest,
@@ -13,7 +14,7 @@ import {
   vmCapabilitiesFor,
 } from "../../../services/vms/drivers";
 import { assertVmCreateEnabled } from "../../../services/vms/config";
-import { mintVmModelPlaneEnvBestEffort } from "../../../services/coderouter/vmModelPlane";
+import { vmModelPlaneGatewayFor } from "../../../services/vms/modelPlaneGateway";
 import {
   isVmCreateDisabledError,
   isVmCreateFailedError,
@@ -53,9 +54,11 @@ import {
   withAuthedVmApiRoute,
   vmActiveLimitExceededResponse,
   resolveVmProvisioningAccountScope,
+  runAfterResponse,
 } from "../../../services/vms/routeHelpers";
 import { vmRequestLocale } from "../../../services/vms/vmErrorMessages";
 import { captureVmProvisionOutcome } from "../../../services/vms/observability";
+import { annotateVmRequestBilling } from "../../../services/vms/requestContext";
 import {
   createVm,
   listUserVms,
@@ -93,6 +96,7 @@ export async function GET(request: Request): Promise<Response> {
           });
           listEntitlements = entitlements;
           billingTeamId = entitlements.billingTeamId;
+          annotateVmRequestBilling(entitlements);
           setSpanAttributes(span, {
             "cmux.billing.team_id_set": !!billingTeamId,
             "cmux.billing.customer_type": entitlements.billingCustomerType,
@@ -116,6 +120,7 @@ export async function GET(request: Request): Promise<Response> {
       if (!listEntitlements) {
         try {
           listEntitlements = resolveVmEntitlements(user, process.env);
+          annotateVmRequestBilling(listEntitlements);
         } catch {
           listEntitlements = null;
         }
@@ -137,6 +142,9 @@ export async function GET(request: Request): Promise<Response> {
         capabilities: vmCapabilitiesFor(entry.provider),
         createdAt: entry.createdAt,
         displayName: entry.displayName,
+        // Generated three-word name; clients show it when no displayName is
+        // set. Null on rows created before names were assigned.
+        slug: entry.slug,
         // The machine's address on its owner's private network (reachable over
         // the WireGuard tunnel); null for machines created before private
         // networking. Clients surface it as "Copy IP Address".
@@ -159,6 +167,7 @@ export async function GET(request: Request): Promise<Response> {
               : earliest === null ? vm.freeAccessExpiresAt : Math.min(earliest, vm.freeAccessExpiresAt),
             null,
           ),
+          memoryOptionsMb: memoryOptionsMbForPlan(listEntitlements.planId, process.env),
           // Kinds a client may request (and the image each resolves to) for the
           // default provider, so a "new machine" dialog offers only kinds that work.
           imageKinds: listVmImageKinds(defaultProviderId(), process.env, {
@@ -172,6 +181,8 @@ export async function GET(request: Request): Promise<Response> {
 }
 
 export async function POST(request: Request): Promise<Response> {
+  // Warm the Freestyle connection while the caller is being verified.
+  preconnectFreestyle();
   return withAuthedVmApiRoute(
     request,
     "/api/vm",
@@ -182,6 +193,13 @@ export async function POST(request: Request): Promise<Response> {
       timing.record("auth", authDurationMs);
       setResponseFinalizer((response) => {
         timing.finish({ status: response.status });
+        // Per-stage timings travel with the response too, so a client or a
+        // smoke run sees where a create spent its time without Axiom.
+        try {
+          response.headers.set("Server-Timing", timing.serverTimingHeader());
+        } catch {
+          // Immutable headers on a passthrough Response: the span still has them.
+        }
         captureVmProvisionOutcome({ userId: initialUser.id, operation: "create", response, span });
       });
       let user: AuthedUser = initialUser;
@@ -334,28 +352,43 @@ export async function POST(request: Request): Promise<Response> {
         // right before paid limits apply. Best-effort — billing reads must
         // not block VM creation, so the whole reconcile races a hard
         // deadline and VM create proceeds with current metadata on timeout.
-        try {
-          if (isStackConfigured()) {
-            const changed = await withBillingReconcileDeadline(
-              measureVmAsync(timing, "billing_reconcile", async () => {
-                const serverUser = await getStackServerApp().getUser(user.id);
-                return serverUser ? reconcileProPlanMetadata(serverUser) : false;
-              })
-            );
-            if (changed) {
+        // The Stripe-to-Stack plan reconcile (a Stack read plus our subscription
+        // table) used to run before every create and cost 150 to 360 ms. It can
+        // only change this request's outcome when the cached plan would block
+        // it, so it runs inline on that path alone. Otherwise it runs after the
+        // response, so the next request still sees fresh metadata.
+        const reconcileProPlan = (recordTiming: boolean) =>
+          withBillingReconcileDeadline(
+            measureVmAsync(recordTiming ? timing : undefined, "billing_reconcile", async () => {
+              const serverUser = await getStackServerApp().getUser(user.id);
+              return serverUser ? reconcileProPlanMetadata(serverUser) : false;
+            }),
+          );
+        let account = await measureVmAsync(timing, "entitlements", () =>
+          resolveVmProvisioningAccountScope(user, request, { requestedBillingTeamId })
+        );
+        let reconcileMode: "off" | "deferred" | "inline" = isStackConfigured() ? "deferred" : "off";
+        if (!account.ok && reconcileMode === "deferred") {
+          reconcileMode = "inline";
+          try {
+            if (await reconcileProPlan(true)) {
               const reconciledUser = await measureVmAsync(timing, "auth", () =>
                 verifyRequest(request, { requestedTeamId: requestedBillingTeamId })
               );
               if (reconciledUser) user = reconciledUser;
+              account = await measureVmAsync(timing, "entitlements", () =>
+                resolveVmProvisioningAccountScope(user, request, { requestedBillingTeamId })
+              );
             }
+          } catch (err) {
+            console.error("[VM] Pro plan reconcile failed", err);
           }
-        } catch (err) {
-          console.error("[VM] Pro plan reconcile failed", err);
         }
-        const account = await measureVmAsync(timing, "entitlements", () =>
-          resolveVmProvisioningAccountScope(user, request, { requestedBillingTeamId })
-        );
+        setSpanAttributes(span, { "cmux.billing.reconcile_mode": reconcileMode });
         if (!account.ok) return account.response;
+        if (reconcileMode === "deferred") {
+          runAfterResponse(() => reconcileProPlan(false).then(() => undefined));
+        }
         const entitlements = account.entitlements;
         setSpanAttributes(span, {
           "cmux.billing.team_id_set": !!entitlements.billingTeamId,
@@ -369,8 +402,9 @@ export async function POST(request: Request): Promise<Response> {
         const memoryOptionsMb = memoryOptionsMbForPlan(entitlements.planId, process.env);
         const planMemoryMb = defaultMemoryMbForPlan(entitlements.planId, process.env);
         const requestedMemoryMb = candidate.memoryMb as number | undefined;
-        // Every plan sells exactly the plan machine, so a size the plan does
-        // not offer resolves to that machine instead of failing the create.
+        // The server owns the supported size ladder. A stale client request
+        // that is not on the ladder resolves to the plan default instead of
+        // failing the create. The repository enforces the machine-count allowance.
         // Clients ship their own size table and always trail the server: the
         // 2026-09-02 pricing change (#11610) left every installed nightly
         // sending its old 24 GB default and the server rejecting each create
@@ -436,20 +470,18 @@ export async function POST(request: Request): Promise<Response> {
           "cmux.vm.image_set": image.length > 0,
           "cmux.vm.image_version": imageSelection.imageVersion,
           "cmux.vm.image_manifest": !!imageSelection.manifestEntry,
+          "cmux.vm.image_size": imageSelection.size?.name ?? "size-less",
           "cmux.idempotency_key_set": !!idempotencyKey,
         });
 
-        // Wire the machine to coderouter: mint a per-machine route token and
-        // hand it over as create-time env (the baked image materializes agent
-        // configs from it). Best-effort: a coderouter outage or entitlement
-        // block ships an unwired machine, never a failed create.
-        const modelPlaneEnvs = await measureVmAsync(timing, "model_plane_env", () =>
-          mintVmModelPlaneEnvBestEffort({
-            teamId: entitlements.billingTeamId,
-            stackUserId: user.id,
-            requestUrl: request.url,
-          }));
-        setSpanAttributes(span, { "cmux.vm.model_plane_env": !!modelPlaneEnvs });
+        // Wire the machine to coderouter inside the workflow: the route token
+        // is bound to the VM row id, so provisioning runs after the row exists
+        // and before the provider call, and a failure fails the create.
+        const modelPlane = vmModelPlaneGatewayFor({
+          teamId: entitlements.billingTeamId,
+          stackUserId: user.id,
+        });
+        setSpanAttributes(span, { "cmux.vm.model_plane": !!modelPlane });
 
         let created;
         try {
@@ -466,7 +498,8 @@ export async function POST(request: Request): Promise<Response> {
             persistentHome: candidate.persistentHome === true,
             perMachineHome: candidate.perMachineHome === true,
             memoryMb,
-            envs: modelPlaneEnvs ?? undefined,
+            imageSize: imageSelection.size ?? undefined,
+            modelPlane,
             timing,
           }));
         } catch (err) {
@@ -527,6 +560,8 @@ export async function POST(request: Request): Promise<Response> {
           kind: imageSelection.kind,
           ...(imageSelection.size ? { size: imageSelection.size } : {}),
           createdAt: created.createdAt,
+          displayName: created.displayName,
+          slug: created.slug,
         });
       }
     },
@@ -538,6 +573,7 @@ export async function POST(request: Request): Promise<Response> {
 // the reconcile keeps running in the background (its result is logged, not
 // awaited) and VM create proceeds with the user's current plan metadata.
 const BILLING_RECONCILE_DEADLINE_MS = 5_000;
+
 
 export async function withBillingReconcileDeadline(
   reconcile: Promise<boolean>

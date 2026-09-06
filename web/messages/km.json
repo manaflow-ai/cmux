@@ -7,12 +7,14 @@
         "snapshot": "Cloud VM នេះមិនគាំទ្រស្ថានភាព VM ដែលបានរក្សាទុកទេ។",
         "restore": "ប្រភេទ Cloud VM នេះមិនគាំទ្រការស្ដារស្ថានភាព VM ដែលបានរក្សាទុកទេ។",
         "fork": "Cloud VM នេះមិនគាំទ្រការចម្លងទៅ VM ថ្មីទេ។",
+        "openPort": "អ្នកផ្តល់សេវារបស់ Cloud VM នេះមិនអាចបង្ហាញច្រករបស់ម៉ាស៊ីនជាអាសយដ្ឋាន URL មើលជាមុនបានទេ។",
         "default": "Cloud VM នេះមិនគាំទ្រប្រតិបត្តិការដែលបានស្នើទេ។"
       },
       "action": {
         "snapshot": "កុំ​ព្យាយាម​ម្តងទៀត។ ការងារលើប្រភេទម៉ាស៊ីននេះត្រូវបានរក្សាទុកក្នុង home volume អចិន្ត្រៃយ៍។",
         "restore": "កុំ​ព្យាយាម​ម្តងទៀត។ ការងារលើប្រភេទម៉ាស៊ីននេះត្រូវបានរក្សាទុកក្នុង home volume អចិន្ត្រៃយ៍។",
         "fork": "កុំ​ព្យាយាម​ម្តងទៀត។ បង្កើត VM ថ្មីដោយប្រើ `cmux vm new`។",
+        "openPort": "កុំ​ព្យាយាម​ម្តងទៀត។ ចូលប្រើសេវាពីក្នុងម៉ាស៊ីនដោយប្រើ `cmux vm exec` ឬប្រើប្រភេទម៉ាស៊ីនដែលអាចបើកច្រកបាន។",
         "default": "កុំ​ព្យាយាម​ម្តងទៀត។ ដំណើរការ `cmux vm ls` ឬទាក់ទងជំនួយ ប្រសិនបើអ្នកគិតថានេះជាកំហុស។"
       }
     },
@@ -59,6 +61,15 @@
     "genericTitle": "មិនអាចបញ្ចប់ការចូលបានទេ",
     "genericBody": "សូមព្យាយាមម្តងទៀត។ ប្រសិនបើបញ្ហានៅតែមាន សូមទាក់ទងជំនួយ។",
     "backToSignIn": "ត្រឡប់ទៅការចូល"
+  },
+  "cloudPublicationAccess": {
+    "title": "អ្នកមិនមានសិទ្ធិចូលប្រើទេ",
+    "signIn": "ចូលគណនី cmux",
+    "signedInAs": "បានចូលជា {identity}",
+    "switchAccount": "ប្ដូរគណនី",
+    "invalidTitle": "តំណចូលប្រើនេះមិនត្រឹមត្រូវទេ",
+    "invalidBody": "ត្រឡប់ទៅគេហទំព័រ ហើយព្យាយាមម្តងទៀត។",
+    "footer": "សិទ្ធិចូលប្រើត្រូវបានគ្រប់គ្រងដោយ cmux។"
   },
   "common": {
     "downloadForMac": "ទាញយកសម្រាប់ Mac",
@@ -261,7 +272,18 @@
       "metaTitle": "coderouter — cmux",
       "metaDescription": "គ្រប់គ្រងគណនី AI ដែលបានចែករំលែក និងបញ្ជូនសំណើដោយប្រើ coderouter។",
       "title": "coderouter",
-      "description": "coderouter បញ្ជូនសំណើ LLM ឆ្លងកាត់គណនីអ្នកផ្តល់សេវា ដោយមានការប្តូរពេលមានបញ្ហា និងកំណត់កាលវិភាគតាមការប្រើប្រាស់។"
+      "description": "coderouter បញ្ជូនសំណើ LLM ឆ្លងកាត់គណនីអ្នកផ្តល់សេវា ដោយមានការប្តូរពេលមានបញ្ហា និងកំណត់កាលវិភាគតាមការប្រើប្រាស់។",
+      "machines": {
+        "title": "ម៉ាស៊ីន",
+        "description": "ការប្រើប្រាស់ coderouter តាមម៉ាស៊ីនសម្រាប់ {team} ក្នុងរយៈពេល {days} ថ្ងៃចុងក្រោយ។",
+        "machineColumn": "ម៉ាស៊ីន",
+        "tokensColumn": "តូខិនសរុប",
+        "apiEquivalentColumn": "តម្លៃស្មើនឹង API",
+        "unnamed": "ម៉ាស៊ីនគ្មានឈ្មោះ",
+        "empty": "គ្មានម៉ាស៊ីនណាបានប្រើ coderouter ក្នុងរយៈពេល {days} ថ្ងៃចុងក្រោយទេ។",
+        "unavailable": "ការប្រើប្រាស់តាមម៉ាស៊ីនមិនអាចប្រើបានជាបណ្ដោះអាសន្ន។",
+        "estimateNote": "តម្លៃស្មើនឹង API គឺជាការប៉ាន់ស្មានតាមតម្លៃសាធារណៈ មិនមែនជាការចំណាយពិតប្រាកដទេ។"
+      }
     },
     "accountMenu": {
       "label": "ម៉ឺនុយគណនី",
@@ -1161,6 +1183,14 @@
         "shortcuts": {
           "when": "លក្ខខណ្ឌបរិបទជាជម្រើសសម្រាប់សកម្មភាពនីមួយៗ (ឃ្លា `when` រចនាប័ទ្ម VS Code) ដែលដាក់សន្ទស្សន៍តាមលេខសម្គាល់សកម្មភាព cmux។ តម្លៃនីមួយៗគឺជាកន្សោម boolean លើគន្លឹះបរិបទ ដែលផ្សំជាមួយ !, &&, || និងវង់ក្រចក។ គន្លឹះ boolean: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout។ គន្លឹះមានប្រភេទគាំទ្រការប្រៀបធៀប: ខ្សែអក្សរ sidebarMode (files, find, sessions, feed ឬ dock) និងចំនួនគត់ paneCount និង workspaceCount។ សញ្ញាប្រៀបធៀបគឺ ==, !=, =~ (regex), <, <=, >, >= និង `in [a, b]`; គន្លឹះមិនស្គាល់ ឬមិនមាននឹងត្រូវអានជា false។ អក្សរ boolean true និង false ក៏អាចប្រើបានដែរ; `key == false` ដូចគ្នានឹង `!key`។ ផ្លូវកាត់របស់សកម្មភាពនឹងដំណើរការ (និងទាស់ជាមួយផ្លូវកាត់ផ្សេងទៀត) តែពេលឃ្លានេះពិតប៉ុណ្ណោះ។ ឧទាហរណ៍: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } ជ្រើសរើស workspace ដោយ Ctrl+1–9 នៅគ្រប់ទីកន្លែង លើកលែងពេលរបារចំហៀងស្តាំមាន focus; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } កំណត់ការចងទៅរបារចំហៀង Find ពេល workspace មានផ្ទាំងច្រើន។",
           "showModifierHoldHints": "បង្ហាញបន្ទះណែនាំផ្លូវកាត់ ខណៈពេលចុច Cmd ឬ Control ជាប់។"
+        },
+        "fileEditor": {
+          "wordWrap": "បំបែកជួរវែងនៅគែមស្តាំរបស់កម្មវិធីកែសម្រួល ជំនួសការរមូរផ្ដេក។",
+          "syntaxHighlighting": "ដាក់ពណ៌ថូខិនកូដក្នុងកម្មវិធីកែឯកសារដែលភ្ជាប់មកជាមួយ។",
+          "lineNumbers": "បង្ហាញជួរលេខជួរក្នុងកម្មវិធីកែឯកសារដែលភ្ជាប់មកជាមួយ។",
+          "indentGuides": "គូរខ្សែណែនាំការចូលបន្ទាត់បញ្ឈរក្នុងកម្មវិធីកែឯកសារដែលភ្ជាប់មកជាមួយ។",
+          "currentLineHighlight": "បន្លិចជួរដែលមានសញ្ញាការពេលគ្មានការជ្រើស។",
+          "tabWidth": "ទទឹងចំណុចថេបជាចំនួនជួរ សម្រាប់ការចូលបន្ទាត់ និងខ្សែណែនាំការចូលបន្ទាត់។"
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

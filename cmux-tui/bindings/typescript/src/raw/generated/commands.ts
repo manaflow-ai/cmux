@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 65aa592727bc414fe3e66ac125c9b8541a1926bbe9eaa572acc66b4681bf6589. */
+/* cmux-tui mux protocol 12, IR 8ff10c20fef75f9aaa1498eaf5e1107f084bdcf3febdcf8806fb4e7fc1c90b86. */
 
 
 import type * as T from "./types.js";
@@ -402,6 +402,16 @@ export interface ListWorkspacesRequest extends CmuxRequestBase {
 }
 export type ListWorkspacesResult = T.Tree;
 
+/** Protocol v12; authority: control. */
+export interface MachineListeningTcpRequest extends CmuxRequestBase {
+  cmd: "machine-listening-tcp";
+}
+
+/** Protocol v12; authority: control. */
+export interface MachineUsageRequest extends CmuxRequestBase {
+  cmd: "machine-usage";
+}
+
 /** Protocol v9; authority: provider-authority. */
 export interface MarkWorkspacesProviderManagedRequest extends CmuxRequestBase {
   cmd: "mark-workspaces-provider-managed";
@@ -771,6 +781,11 @@ export interface SendKeyRequest extends CmuxRequestBase {
 }
 export type SendKeyResult = T.EmptyResult;
 
+/** Protocol v12; authority: local-admin. */
+export interface ServerStatsRequest extends CmuxRequestBase {
+  cmd: "server-stats";
+}
+
 /** Protocol v6; authority: frontend. */
 export interface SetCellPixelsRequest extends CmuxRequestBase {
   cmd: "set-cell-pixels";
@@ -977,6 +992,8 @@ export type CmuxRequest =
   | ListClientsRequest
   | ListTerminalsRequest
   | ListWorkspacesRequest
+  | MachineListeningTcpRequest
+  | MachineUsageRequest
   | MarkWorkspacesProviderManagedRequest
   | MintTerminalRendererRequest
   | MintTerminalRendererByTerminalRequest
@@ -1018,6 +1035,7 @@ export type CmuxRequest =
   | SelectWorkspaceRequest
   | SendRequest
   | SendKeyRequest
+  | ServerStatsRequest
   | SetCellPixelsRequest
   | SetClientInfoRequest
   | SetClientSizingRequest
@@ -1384,6 +1402,22 @@ export interface CmuxCommandDefinitionMap {
     capability: null;
     stream: null;
   };
+  "machine-listening-tcp": {
+    request: MachineListeningTcpRequest;
+    result: T.MachineListeningTcpResult;
+    authority: "control";
+    since: 12;
+    capability: "machine-listening-tcp-v1";
+    stream: null;
+  };
+  "machine-usage": {
+    request: MachineUsageRequest;
+    result: T.MachineUsageResult;
+    authority: "control";
+    since: 12;
+    capability: "machine-usage-v1";
+    stream: null;
+  };
   "mark-workspaces-provider-managed": {
     request: MarkWorkspacesProviderManagedRequest;
     result: MarkWorkspacesProviderManagedResult;
@@ -1710,6 +1744,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 6;
     capability: null;
+    stream: null;
+  };
+  "server-stats": {
+    request: ServerStatsRequest;
+    result: T.ServerStatsResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "server-stats-v1";
     stream: null;
   };
   "set-cell-pixels": {

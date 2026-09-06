@@ -1,9 +1,10 @@
 import { getTranslations } from "next-intl/server";
 import { redirect } from "next/navigation";
 import { Link } from "@/i18n/navigation";
-import { getStackServerApp, isStackConfigured } from "@/app/lib/stack";
+import { getRequestScopedStackUser, isStackConfigured } from "@/app/lib/stack";
 import { localizedVaultPath, vaultSignInHref } from "@/app/lib/vault-auth";
 import { isVaultEnabled } from "@/services/vault/config";
+import { withPrioritySpan } from "@/services/telemetry";
 
 
 export default async function DashboardIndexPage({
@@ -16,13 +17,24 @@ export default async function DashboardIndexPage({
   if (!isStackConfigured()) {
     redirect("/");
   }
-  const user = await getStackServerApp().getUser({ or: "return-null" });
+  const user = await withPrioritySpan(
+    "cmux-dashboard",
+    "cmux.dashboard.auth",
+    { "http.route": "/dashboard", "cmux.locale": locale },
+    () => getRequestScopedStackUser("dashboard"),
+  );
   if (!user) {
     redirect(vaultSignInHref(localizedVaultPath(locale, "/dashboard")));
   }
 
   const t = await getTranslations({ locale, namespace: "dashboard.home" });
   const products = [
+    {
+      href: "/dashboard/cloud",
+      name: t("cloudName"),
+      description: t("cloudDescription"),
+      link: t("cloudLink"),
+    },
     {
       href: "/dashboard/coderouter",
       name: t("coderouterName"),

@@ -1392,6 +1392,99 @@ import Testing
         ])
     }
 
+    @Test func testForkWaitsForControlSocketDuringAppStartup() throws {
+        let cliPath = try bundledCLIPath()
+        let checkpointID = UUID().uuidString.lowercased()
+        let workspaceID = UUID().uuidString
+        let surfaceID = UUID().uuidString
+        let currentWorkspaceResponse = try jsonResponse(result: [
+            "workspace_id": workspaceID,
+        ])
+        let identifyResponse = try jsonResponse(result: [
+            "caller": [
+                "workspace_id": workspaceID,
+                "surface_id": surfaceID,
+            ],
+            "focused": [:],
+        ])
+        let recordResponse = try jsonResponse(result: [
+            "restore_record": [
+                "mode": "resumeAgent",
+                "kind": "pi",
+                "checkpoint_id": checkpointID,
+                "source": "session-snapshot",
+                "working_directory": "/tmp",
+                "environment": [:],
+                "launch_command": [
+                    "arguments": ["/usr/bin/true"],
+                    "executable_path": "/usr/bin/true",
+                    "working_directory": "/tmp",
+                ],
+                "fork_arguments": ["/usr/bin/true", "--fork", checkpointID],
+                "fork_arguments_working_directory": "/tmp",
+            ],
+        ])
+        let fixtureDirectory = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent("cmux-fork-startup-\(UUID().uuidString.prefix(8))", isDirectory: true)
+        try FileManager.default.createDirectory(at: fixtureDirectory, withIntermediateDirectories: true)
+        let socketPath = fixtureDirectory.appendingPathComponent("cmux.sock", isDirectory: false).path
+        let debugLogPath = fixtureDirectory.appendingPathComponent("cli.log", isDirectory: false).path
+        var startupSocketFD = try bindUnavailableUnixSocket(at: socketPath)
+        var responder: UnixSocketResponder?
+        defer {
+            if startupSocketFD >= 0 {
+                close(startupSocketFD)
+            }
+            responder?.stop()
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: fixtureDirectory)
+        }
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_DEBUG_LOG"] = debugLogPath
+        environment["CMUX_SURFACE_ID"] = surfaceID
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["fork", "pi", checkpointID],
+            environment: environment,
+            timeout: 5,
+            afterLaunch: {
+                guard self.waitForFileContentsUsingKqueue(
+                    URL(fileURLWithPath: debugLogPath),
+                    containing: "socket.connect.wait.entered",
+                    timeout: 3
+                ) else {
+                    return
+                }
+                close(startupSocketFD)
+                startupSocketFD = -1
+                responder = try? UnixSocketResponder(
+                    path: socketPath,
+                    responses: [currentWorkspaceResponse, identifyResponse, recordResponse]
+                )
+            }
+        )
+
+        let requiredResponder = try #require(responder)
+        XCTAssertFalse(result.timedOut, result.diagnostics)
+        XCTAssertEqual(result.status, 0, result.diagnostics)
+        let methods = try requiredResponder.receivedRequests.map { request in
+            let data = try #require(request.data(using: .utf8))
+            let payload = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+            return try #require(payload["method"] as? String)
+        }
+        #expect(methods == [
+            "workspace.current",
+            "system.identify",
+            "surface.resume.get",
+        ])
+    }
+
     @Test func testRestoreWaitsForRelayDuringAppStartup() throws {
         let cliPath = try bundledCLIPath()
         let checkpointID = "pi-\(UUID().uuidString.lowercased())"
@@ -2258,6 +2351,7 @@ import Testing
             (["open"], "open requires at least one path or URL"),
             (["diff", "one.patch", "two.patch"], "diff accepts at most one patch file"),
             (["restore", "codex", UUID().uuidString.lowercased()], "restore: cmux is still opening."),
+            (["fork", "pi", UUID().uuidString.lowercased()], "fork: cmux is still opening."),
             (["restore-session", "--invalid"], "restore-session: unknown flag '--invalid'"),
             (["feedback", "--invalid"], "feedback: unknown flag '--invalid'"),
         ]

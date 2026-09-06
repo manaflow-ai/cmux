@@ -1,6 +1,20 @@
 {
   "billingRecovery": {
-    "message": "If we found an account, check your email for next steps"
+    "message": "If we found an account, check your email for next steps",
+    "metaTitle": "Connect Founder's Edition",
+    "metaDescription": "Use the email from your Founder's Edition purchase to create or recover your cmux account.",
+    "eyebrow": "Founder's Edition access",
+    "title": "Connect Founder's Edition",
+    "body": "Use the email from your Founder's Edition purchase. We will send a secure sign-in link that creates or recovers the cmux account for that purchase.",
+    "differentEmail": "Already have a cmux account with another email? Reply to your Founder's Edition welcome email. We will verify both addresses and move access safely.",
+    "formAriaLabel": "Connect Founder's Edition",
+    "emailLabel": "Purchase email",
+    "emailPlaceholder": "you@example.com",
+    "submit": "Send sign-in link",
+    "submitting": "Sending...",
+    "success": "If we found a purchase or account, check your email for next steps.",
+    "error": "We could not send the request. Try again later.",
+    "backToHome": "Back to cmux"
   },
   "vmDesktop": {
     "invalidTitle": "This desktop link isn't valid",
@@ -16,12 +30,14 @@
         "snapshot": "This Cloud VM does not support saved VM state.",
         "restore": "This Cloud VM kind does not support restoring saved VM state.",
         "fork": "This Cloud VM does not support copying to a new VM.",
+        "openPort": "This Cloud VM cannot expose machine ports as preview URLs.",
         "default": "This Cloud VM does not support the requested operation."
       },
       "action": {
         "snapshot": "Do not retry. Work on this machine kind is kept on its persistent home volume.",
         "restore": "Do not retry. Work on this machine kind is kept on its persistent home volume.",
         "fork": "Do not retry. Create a new VM with `cmux vm new`.",
+        "openPort": "Do not retry. Reach the service from inside the machine (`cmux vm exec`), or use a machine kind that can open ports.",
         "default": "Do not retry. Run `cmux vm ls` to see your machines, or contact support if you believe this is wrong."
       }
     },
@@ -122,6 +138,15 @@
     "genericBody": "Please try again. If the problem continues, contact support.",
     "backToSignIn": "Back to sign in"
   },
+  "cloudPublicationAccess": {
+    "title": "You don't have access",
+    "signIn": "Sign in to cmux",
+    "signedInAs": "Signed in as {identity}",
+    "switchAccount": "Switch account",
+    "invalidTitle": "This access link isn't valid",
+    "invalidBody": "Return to the site and try again.",
+    "footer": "Access is managed by cmux."
+  },
   "common": {
     "downloadForMac": "Download for Mac",
     "viewOnGitHub": "View on GitHub",
@@ -136,6 +161,8 @@
   "dashboard": {
     "nav": {
       "brand": "cmux",
+      "cloudGroup": "cloud",
+      "cloudDevices": "Mac access",
       "vaultGroup": "vault",
       "vaultOverview": "overview",
       "vaultSessions": "sessions",
@@ -152,6 +179,9 @@
     "home": {
       "title": "dashboard",
       "description": "choose a product dashboard.",
+      "cloudName": "Cloud Mac access",
+      "cloudDescription": "review and revoke the Macs that can reach your private Cloud VM network.",
+      "cloudLink": "manage Mac access",
       "vaultName": "vault",
       "vaultDescription": "browse synced agent sessions and manage cli access.",
       "vaultLink": "open vault",
@@ -162,11 +192,47 @@
       "iosAppDescription": "install the cmux iOS app via TestFlight (beta access).",
       "iosLink": "open iOS app"
     },
+    "cloud": {
+      "title": "Cloud Mac access",
+      "description": "These Macs have WireGuard access to your private Cloud VM network. iPhone and Iroh pairing records are separate.",
+      "empty": "No Mac has enrolled for Cloud VM access.",
+      "cmux": "cmux build",
+      "access": "network access",
+      "lastContact": "last control-plane contact",
+      "deviceId": "device ID",
+      "unknown": "unknown",
+      "none": "none",
+      "purpose": {
+        "terminal": "terminal",
+        "browser": "browser VPN"
+      },
+      "rename": "rename",
+      "revoke": "revoke",
+      "renameTitle": "Rename this Mac",
+      "nameLabel": "Name",
+      "cancel": "cancel",
+      "save": "save",
+      "renameError": "Could not rename this Mac.",
+      "revokeTitle": "Revoke {name}?",
+      "revokeBody": "This signs the Mac out and removes all of its Cloud VM network access.",
+      "revokeError": "Could not revoke this Mac."
+    },
     "coderouter": {
       "metaTitle": "coderouter — cmux",
       "metaDescription": "Manage shared AI accounts and route requests with coderouter.",
       "title": "coderouter",
-      "description": "coderouter routes llm requests across provider accounts with failover and usage-aware scheduling."
+      "description": "coderouter routes llm requests across provider accounts with failover and usage-aware scheduling.",
+      "machines": {
+        "title": "Machines",
+        "description": "Per-machine coderouter usage for {team} over the last {days} days.",
+        "machineColumn": "Machine",
+        "tokensColumn": "Total tokens",
+        "apiEquivalentColumn": "API-equivalent value",
+        "unnamed": "Unnamed machine",
+        "empty": "No machines have used coderouter in the last {days} days.",
+        "unavailable": "Machine usage is temporarily unavailable.",
+        "estimateNote": "API-equivalent value is an estimate using public list prices, not actual spend."
+      }
     },
     "accountMenu": {
       "label": "Account menu",
@@ -483,6 +549,50 @@
       "opencodeTool": "OpenCode",
       "opencodeCommand": "Copy opencode command",
       "copied": "Copied"
+    },
+    "claudeUpstream": {
+      "title": "Claude upstream accounts",
+      "description": "Claude Code inside this team's cmux Cloud VMs sends Anthropic Messages traffic through coderouter. Add any number of accounts: Anthropic API keys, Claude Code OAuth tokens, or Amazon Bedrock credentials. Each machine is pinned to one account so prompt caching keeps working; a rate limit or a rejected credential puts that account in cooldown and moves the machine to the next one.",
+      "emptyTitle": "No Claude upstream accounts",
+      "emptyBody": "Claude requests from this team's Cloud VMs fail until an account is added.",
+      "accountsLabel": "{count, plural, one {# account} other {# accounts}}",
+      "loadErrorTitle": "Claude upstream could not load",
+      "loadErrorBody": "The upstream settings could not be read. Try again shortly.",
+      "kindSelectorLabel": "Upstream kind",
+      "kindApiKey": "Anthropic API key",
+      "kindOauth": "Claude Code OAuth token",
+      "kindBedrock": "Amazon Bedrock",
+      "labelField": "Label",
+      "labelPlaceholder": "Optional, for example work",
+      "apiKeyField": "API key",
+      "oauthTokenField": "OAuth token",
+      "oauthHint": "Create a long-lived token on your own machine with",
+      "regionField": "AWS region",
+      "accessKeyIdField": "Access key ID",
+      "secretAccessKeyField": "Secret access key",
+      "sessionTokenField": "Session token",
+      "optionalPlaceholder": "Optional",
+      "saveAction": "Add account",
+      "savingAction": "Adding",
+      "saveSuccess": "Account added.",
+      "saveError": "Account could not be added.",
+      "validationError": "Check the credential format and try again.",
+      "teamAccessError": "You do not have access to this team.",
+      "removeAction": "Remove",
+      "removingAction": "Removing",
+      "removeError": "Account could not be removed.",
+      "removeConfirmTitle": "Remove this Claude upstream account?",
+      "removeConfirmBody": "Machines pinned to it move to the team's other accounts. If it is the last one, Claude requests from this team's Cloud VMs fail until a new account is added.",
+      "cancelAction": "Cancel",
+      "stateActive": "Active",
+      "stateDisabled": "Disabled",
+      "coolingDown": "Cooling down until {until}",
+      "lastFailure": "last failure {code}",
+      "lastUsed": "last used {at}",
+      "neverUsed": "never used",
+      "enableAction": "Enable",
+      "disableAction": "Disable",
+      "updateError": "Account could not be updated."
     }
   },
   "vault": {
@@ -686,6 +796,7 @@
     "metaDescriptionNoVault": "cmux is a free, open source macOS terminal for AI coding agents. Upgrade to Pro for isolated Cloud VMs. Enterprise adds SSO and self-hosting.",
     "metaDescriptionNoVaultShort": "cmux is a free, open source macOS terminal. Pro adds isolated Cloud VMs; Enterprise adds SSO and self-hosting.",
     "title": "Pricing",
+    "alreadyPaid": "Already paid? Connect Founder's Edition",
     "perMonth": "/mo",
     "perMonthBilledYearly": "/mo, billed yearly",
     "perUserMonth": "/user/mo",
@@ -719,7 +830,7 @@
       "featuresLead": "Everything in Free, plus:",
       "features": [
         "Cloud agents on Cloud VMs in isolated remote sandboxes",
-        "Up to 50 Cloud VMs, each with 5 vCPU, 20 GB RAM, and 200 GB disk",
+        "Up to 50 Cloud VMs, each with its own resources; default size 8 GB RAM and 32 GB disk, with 4 to 64 GB RAM available",
         "Unlimited workspaces",
         "The cmux iOS app and email support"
       ],
@@ -817,10 +928,10 @@
           "enterprise": "Custom"
         },
         {
-          "label": "Cloud VM size",
+          "label": "Resources per Cloud VM",
           "free": "false",
-          "pro": "5 vCPU, 20 GB RAM, 200 GB disk",
-          "team": "5 vCPU, 20 GB RAM, 200 GB disk",
+          "pro": "Default 8 GB RAM and 32 GB disk; 4 to 64 GB RAM, disk up to 256 GB",
+          "team": "Default 8 GB RAM and 32 GB disk; 4 to 64 GB RAM, disk up to 256 GB",
           "enterprise": "Custom"
         },
         {
@@ -899,7 +1010,7 @@
         },
         {
           "q": "What are Cloud VMs?",
-          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro and Team include up to 50 machines per user, each with 5 vCPU, 20 GB of RAM, and 200 GB of disk."
+          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro includes up to 50 machines. Team includes up to 50 Cloud VMs per user. Each machine has its own CPU, memory, and disk. The default size is 8 GB RAM and 32 GB disk; sizes from 4 to 64 GB RAM are available. Disks can grow up to 256 GB. There is no metering or overage billing."
         },
         {
           "q": "What is cmux Vault?",
@@ -912,7 +1023,7 @@
         },
         {
           "q": "How does billing work?",
-          "a": "Pro is $50/mo, or $40/mo when billed annually (a 20% savings). Team is $60/user/mo, or $48/user/mo when billed annually. Paid plans include up to 50 Cloud VMs per user, with no metering or overages. The terminal and local agents stay free."
+          "a": "Pro is $50/mo, or $40/mo when billed annually (a 20% savings). Team is $60/user/mo, or $48/user/mo when billed annually. Paid plans include up to 50 Cloud VMs per user. Each machine has its own CPU, memory, and disk, with no metering or overage billing. The terminal and local agents stay free."
         },
         {
           "q": "Can I self-host the cloud?",
@@ -999,9 +1110,9 @@
     "faqFeatureQ": "I have a feature request or found a bug",
     "faqFeatureA": "We want to hear it. Open an <issuesLink>issue</issuesLink> or <prLink>pull request</prLink> on GitHub, or <mailLink>email us</mailLink>.",
     "faqIosQ": "Is there an iOS app?",
-    "faqIosA": "Yes, in beta. Pair your iPhone with your Mac from the Mobile Connect window and attach to your terminals from your phone, with optional forwarding of terminal notifications. It ships on TestFlight as cmux BETA. Early access is included with <foundersLink>cmux Founders Edition</foundersLink>.",
+    "faqIosA": "Yes, in beta. Pair your iPhone with your Mac from the Mobile Connect window and attach to your terminals from your phone, with optional forwarding of terminal notifications. It ships on TestFlight as cmux BETA. Early access is included with <foundersLink>cmux Founder's Edition</foundersLink>.",
     "faqSupportQ": "How can I support cmux?",
-    "faqSupportA": "cmux is free and open source, and always will be. If you want to back development and get early access to what's next, including cmux AI, the iOS app, and Cloud VMs, check out <foundersLink>cmux Founders Edition</foundersLink>.",
+    "faqSupportA": "cmux is free and open source, and always will be. If you want to back development and get early access to what's next, including cmux AI, the iOS app, and Cloud VMs, check out <foundersLink>cmux Founder's Edition</foundersLink>.",
     "faqBrowserQ": "What can the built-in browser do?",
     "faqBrowserA": "cmux can split a real browser pane next to your terminal, and it is fully programmable: navigate, snapshot the DOM, click, type, evaluate JavaScript, and read console and network activity over the same socket API. Agents use it to verify their own web changes without leaving cmux. See <link>browser automation</link>."
   },
@@ -1991,7 +2102,7 @@
       "anchorNew": "A group's anchor is always a brand new workspace at creation time; grouping a selection or creating a group never promotes one of your existing workspaces into the anchor. (Closing an anchor later does promote the group's first remaining member, see below.) The anchor's working directory is inherited from the first selected workspace when grouping a selection, or from the active workspace when creating via the CLI without --cwd.",
       "anchorClose": "Closing the anchor workspace closes only that workspace and promotes the group's first remaining member (the earliest one still in the group's order) to be the new anchor, so the group and its other members stay intact (the promoted member then shows the group name as the header). When the anchor is the group's only workspace, the group is removed. To flatten a group into ungrouped workspaces use Ungroup; to close every workspace in a group use Delete Group.",
       "identityTitle": "Group identity",
-      "identityDesc": "A group has a name, an icon (an SF Symbol, default folder.fill), and an optional custom color. These are independent of the anchor workspace's own customizations. The anchor's color and icon are seeded from the group on creation, but they can diverge afterwards.",
+      "identityDesc": "A group has a name, an icon (an SF Symbol, default folder.fill), and an optional custom color. Automation can also provide an external_id (or idempotency_key) scoped to the window; repeated creates with that identity return the existing group instead of adding another anchor. Names are not identities, and the current anchor's explicit provenance gates safe cleanup.",
       "pinningTitle": "Pinning",
       "pinningDesc": "Groups can be pinned independently of individual workspace pins. Pinned top-level rows, whether individual workspaces or groups, stay above unpinned rows. Within each tier, groups and workspaces keep the order you drag them into.",
       "layoutIntro": "The sidebar lays out top-level rows top to bottom:",
@@ -2015,8 +2126,8 @@
       "cliTitle": "CLI",
       "cliDesc": "All group operations are scriptable with the cmux workspace-group subcommands. The hyphenated form ships first; once the broader cmux workspace command namespace lands, cmux workspace group becomes the canonical form, with the hyphenated form kept as an alias forever.",
       "cliSubcommandsTitle": "Subcommands",
-      "cliCreateNote": "create returns a group handle (workspace_group:N by default). Omitting --from creates an anchor-only group; existing workspaces are never inferred from selection or caller context. Pass --json for the full structured payload.",
-      "cliFlagsNote": "delete dissolves the group and keeps its workspaces by default. Pass --close-workspaces only to close every member workspace and terminate its processes. The response reports the operation and affected count. Pass set-color or set-icon an empty value to clear the group's color or icon.",
+      "cliCreateNote": "create returns a group handle (workspace_group:N by default). Omitting --from creates an anchor-only group; existing workspaces are never inferred from selection or caller context. Pass --idempotency-key (or --external-id) for atomic create-if-absent retries, and --json for the full structured payload.",
+      "cliFlagsNote": "delete dissolves the group and keeps its workspaces by default. Pass --close-workspaces only to close every member workspace and terminate its processes. For an anchor-only group whose anchor was created by cmux, --remove-generated-anchor removes that anchor during ungroup; user-selected or promoted anchors are rejected. The response reports the operation and affected count. Pass set-color or set-icon an empty value to clear the group's color or icon.",
       "cliExamplesTitle": "Examples",
       "cliExampleGroup": "Group two explicitly chosen workspaces under a name:",
       "cliExampleNew": "Spin up a new workspace inside an existing group, for example wired to a worktree script:",
@@ -2025,7 +2136,7 @@
       "configNote": "Per-group configuration lives under the workspaceGroups key in ~/.config/cmux/cmux.json, keyed by the anchor workspace's working directory. See the configuration reference for the supported keys, including the global new-workspace placement and per-directory color, icon, placement, and context-menu actions.",
       "configLinkText": "workspaceGroups configuration reference",
       "persistenceTitle": "Persistence",
-      "persistenceDesc": "Group name, anchor, pin state, collapse state, color, and icon are saved alongside your workspaces and restored across launches. Group membership is stored on each workspace."
+      "persistenceDesc": "Group name, anchor, pin state, collapse state, color, icon, external identity, and anchor provenance are saved alongside your workspaces and restored across launches. Group membership is stored on each workspace."
     },
     "configuration": {
       "title": "Configuration",
@@ -2152,7 +2263,12 @@
           "snappingEnabled": "Snap pane drags and resizes to neighbor edges and the pane gap. Hold Command to suspend snapping for one gesture."
         },
         "fileEditor": {
-          "wordWrap": "Wrap long lines at the editor's right edge instead of scrolling horizontally."
+          "wordWrap": "Wrap long lines at the editor's right edge instead of scrolling horizontally.",
+          "syntaxHighlighting": "Color source tokens in the built-in file editor.",
+          "lineNumbers": "Show a line-number gutter in the built-in file editor.",
+          "indentGuides": "Draw vertical indent guides in the built-in file editor.",
+          "currentLineHighlight": "Highlight the caret's line when the selection is empty.",
+          "tabWidth": "Width of a tab stop, in columns, for indentation and indent guides."
         },
         "sidebar": {
           "notificationMessageLineLimit": "Maximum lines shown for the latest notification below each workspace title.",
@@ -2191,7 +2307,7 @@
       "shortcutsWhenBooleanKeys": "boolean keys. An unknown or absent key reads as false; the literals true and false are also accepted.",
       "shortcutsWhenTypedKeys": "typed keys for comparisons: the right sidebar's active mode (a string) plus pane and workspace counts (integers).",
       "shortcutsWhenOperators": "boolean operators, typed comparisons, regex match, and list membership. Comparisons bind tighter than && and ||.",
-      "shortcutsWhenExample": "For example, this makes Ctrl+1–9 select workspaces everywhere except when the right sidebar is focused (leaving Ctrl+1–5 free for the sidebar's mode switcher), and scopes surface selection to the Find sidebar when the workspace has multiple panes:"
+      "shortcutsWhenExample": "For example, this makes Ctrl+1–9 select workspaces everywhere except when the right sidebar is focused (leaving the Ctrl+digit tab shortcuts free for the sidebar's mode switcher), and scopes surface selection to the Find sidebar when the workspace has multiple panes:"
     },
     "customCommands": {
       "title": "Custom Commands",
@@ -3030,7 +3146,7 @@
       "intro": "The cmux iOS app is a companion for your Mac. Pair your iPhone or iPad with a Mac running cmux and attach to your terminals from your phone, with optional forwarding of terminal notifications.",
       "betaNote": "The iOS app is in beta. It ships on TestFlight as cmux BETA.",
       "accessTitle": "Getting access",
-      "accessDesc": "The app is distributed through TestFlight. Early access is included with <foundersLink>cmux Founders Edition</foundersLink>, alongside other early features.",
+      "accessDesc": "The app is distributed through TestFlight. Early access is included with <foundersLink>cmux Founder's Edition</foundersLink>, alongside other early features.",
       "prereqTitle": "Prerequisites",
       "prereqIntro": "Before you start, you need:",
       "prereq1": "A Mac running cmux and signed in.",
@@ -3232,6 +3348,9 @@
     "metaTitle": "cmux Pro is active",
     "title": "cmux Pro is active",
     "body": "We created or upgraded your account with {email}. You can open cmux now or add more sign-in methods.",
+    "purchaseComplete": "You're all set",
+    "proLabel": "Pro plan",
+    "dashboardLink": "Go to dashboard",
     "emailLabel": "Purchase email",
     "whatUnlockedTitle": "What you unlocked",
     "openCmux": "Open cmux",
@@ -5361,6 +5480,28 @@
         "body": "See your plan, invoices, and cancellation.",
         "action": "Manage plan"
       }
+    }
+  },
+  "PublicationApi": {
+    "invalid_email": {
+      "message": "Enter a valid email address.",
+      "action": "The recipient must sign in with this verified email."
+    },
+    "invalid_expiry": {
+      "message": "The grant expiry must be a future date.",
+      "action": "Use an ISO 8601 date or omit expiresAt."
+    },
+    "public_confirmation_required": {
+      "message": "Public access requires confirmation.",
+      "action": "Review the hostname, VM, and port, then send confirmPublic: true."
+    },
+    "organization_slug": {
+      "message": "The organization slug is invalid or already reserved.",
+      "action": "Use 1 to 19 lowercase letters or digits, with single hyphens. An existing organization keeps its reserved slug."
+    },
+    "grant_body": {
+      "message": "Publication email grant",
+      "action": "Send email and optional expiresAt."
     }
   }
 }

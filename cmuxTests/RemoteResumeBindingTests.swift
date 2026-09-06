@@ -128,11 +128,74 @@ private enum RemoteResumeHookSocketServer {
     }
 }
 
+/// Holds an ephemeral loopback port open for the lifetime of one relay fixture.
+/// Keeping the descriptor alive makes the allocation collision-safe across test
+/// suites that may be running in parallel.
+private final class RemoteResumeRelayPortReservation {
+    let port: Int
+    private let fileDescriptor: Int32
+
+    init() throws {
+        let fileDescriptor = Darwin.socket(AF_INET, SOCK_STREAM, 0)
+        guard fileDescriptor >= 0 else {
+            throw POSIXError(.init(rawValue: errno) ?? .EIO)
+        }
+
+        var address = sockaddr_in()
+        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_port = in_port_t(0)
+        address.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
+        let bindResult = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketAddress in
+                Darwin.bind(
+                    fileDescriptor,
+                    socketAddress,
+                    socklen_t(MemoryLayout<sockaddr_in>.size)
+                )
+            }
+        }
+        guard bindResult == 0 else {
+            let error = POSIXError(.init(rawValue: errno) ?? .EIO)
+            Darwin.close(fileDescriptor)
+            throw error
+        }
+        guard Darwin.listen(fileDescriptor, 1) == 0 else {
+            let error = POSIXError(.init(rawValue: errno) ?? .EIO)
+            Darwin.close(fileDescriptor)
+            throw error
+        }
+
+        var boundAddress = sockaddr_in()
+        var boundAddressLength = socklen_t(MemoryLayout<sockaddr_in>.size)
+        let nameResult = withUnsafeMutablePointer(to: &boundAddress) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketAddress in
+                Darwin.getsockname(fileDescriptor, socketAddress, &boundAddressLength)
+            }
+        }
+        guard nameResult == 0 else {
+            let error = POSIXError(.init(rawValue: errno) ?? .EIO)
+            Darwin.close(fileDescriptor)
+            throw error
+        }
+
+        let port = Int(UInt16(bigEndian: boundAddress.sin_port))
+        guard (1...65_535).contains(port) else {
+            Darwin.close(fileDescriptor)
+            throw POSIXError(.EINVAL)
+        }
+        self.fileDescriptor = fileDescriptor
+        self.port = port
+    }
+
+    deinit {
+        Darwin.close(fileDescriptor)
+    }
+}
+
 @Suite(.serialized)
 @MainActor
 struct RemoteResumeBindingTests {
-    private let relayPort = 64_089
-
     private struct HookRunResult {
         let status: Int32
         let stderr: String
@@ -819,6 +882,7 @@ struct RemoteResumeBindingTests {
     @Test
     func relayedRegistrationUsesExplicitRemoteFlavorAfterAliasRewrite() throws {
         let fixture = try makeRelayedFixture()
+        defer { withExtendedLifetime(fixture.relayPortReservation) {} }
 
         #expect(fixture.localBinding["execution_location"] as? String == "local")
         #expect(fixture.localBinding["remote_workspace_id"] is NSNull)
@@ -838,6 +902,11 @@ struct RemoteResumeBindingTests {
     @Test
     func persistentRestoreRunsRemoteResumeOnlyWhenSessionMustBeCreated() throws {
         let fixture = try makeRelayedFixture()
+        defer { withExtendedLifetime(fixture.relayPortReservation) {} }
+        let persistedTerminal = try #require(
+            fixture.snapshot.panels.first { $0.id == fixture.surfaceID }?.terminal
+        )
+        #expect(persistedTerminal.wasAgentRunning == true)
         let suiteName = "cmux-remote-resume-binding-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
@@ -855,7 +924,10 @@ struct RemoteResumeBindingTests {
         #expect(liveFirstCommand.contains("ssh-pty-attach"), "\(liveFirstCommand)")
         #expect(liveFirstCommand.contains("--require-existing"), "\(liveFirstCommand)")
         let liveFirstRemoteCommand = try decodedRemoteCommand(from: liveFirstCommand)
-        try expectRemoteResumeBootstrap(liveFirstRemoteCommand)
+        try expectRemoteResumeBootstrap(
+            liveFirstRemoteCommand,
+            relayPort: fixture.relayPort
+        )
         #expect(restoredPanel.surface.debugInitialInputForTesting() == nil)
 
         let roundTrip = restoredWorkspace.sessionSnapshot(includeScrollback: false)
@@ -890,12 +962,16 @@ struct RemoteResumeBindingTests {
         )
         #expect(!gonePTYCommand.contains("--require-existing"), "\(gonePTYCommand)")
         let gonePTYRemoteCommand = try decodedRemoteCommand(from: gonePTYCommand)
-        try expectRemoteResumeBootstrap(gonePTYRemoteCommand)
+        try expectRemoteResumeBootstrap(
+            gonePTYRemoteCommand,
+            relayPort: fixture.relayPort
+        )
     }
 
     @Test
     func mismatchedRemoteBindingNeverFallsBackToLocalExecution() throws {
         let fixture = try makeRelayedFixture()
+        defer { withExtendedLifetime(fixture.relayPortReservation) {} }
         let mismatchedSnapshot = try snapshotByReplacingRemoteContext(
             fixture.snapshot,
             persistentPTYSessionID: "different-persistent-session"
@@ -925,6 +1001,7 @@ struct RemoteResumeBindingTests {
     @Test
     func legacyRemoteSnapshotWithoutWorkspaceIDMigratesBindingIntoPersistentSSHContext() throws {
         let fixture = try makeRelayedFixture()
+        defer { withExtendedLifetime(fixture.relayPortReservation) {} }
         let legacySnapshot = try snapshotWithoutLaunchFlavorOrWorkspaceID(fixture.snapshot)
         let suiteName = "cmux-legacy-remote-resume-binding-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
@@ -941,7 +1018,10 @@ struct RemoteResumeBindingTests {
             restoredWorkspace.terminalPanel(for: restoredSurfaceID)?.surface.debugInitialCommand()
         )
         let remoteCommand = try decodedRemoteCommand(from: startupCommand)
-        try expectRemoteResumeBootstrap(remoteCommand)
+        try expectRemoteResumeBootstrap(
+            remoteCommand,
+            relayPort: fixture.relayPort
+        )
 
         let roundTripBinding = try #require(
             restoredWorkspace.sessionSnapshot(includeScrollback: false)
@@ -1025,6 +1105,8 @@ struct RemoteResumeBindingTests {
         workspaceID: UUID,
         surfaceID: UUID,
         remotePTYSessionID: String,
+        relayPortReservation: RemoteResumeRelayPortReservation,
+        relayPort: Int,
         localBinding: [String: Any],
         spoofedRelayRegistrationRejected: Bool,
         remoteBinding: [String: Any]
@@ -1054,7 +1136,21 @@ struct RemoteResumeBindingTests {
 
         let workspace = try #require(manager.selectedWorkspace)
         let surfaceID = try #require(workspace.focusedPanelId)
-        workspace.configureRemoteConnection(remoteConfiguration(), autoConnect: false)
+        let fixtureIdentity = UUID()
+        let fixtureIdentitySlug = fixtureIdentity.uuidString.lowercased()
+        let fixtureIdentityHex = fixtureIdentitySlug.replacingOccurrences(of: "-", with: "")
+        let relayPortReservation = try RemoteResumeRelayPortReservation()
+        let fixtureRelayPort = relayPortReservation.port
+        workspace.configureRemoteConnection(
+            remoteConfiguration(
+                persistentDaemonSlot: "ssh-\(fixtureIdentitySlug)",
+                relayPort: fixtureRelayPort,
+                relayID: "relay-\(fixtureIdentitySlug)",
+                relayToken: fixtureIdentityHex + fixtureIdentityHex,
+                localSocketPath: "/tmp/cmux-remote-resume-\(fixtureIdentitySlug).sock"
+            ),
+            autoConnect: false
+        )
 
         let localResult = try v2Result(
             request: [
@@ -1124,17 +1220,19 @@ struct RemoteResumeBindingTests {
         // snapshot records `wasAgentRunning` from process liveness; setting it
         // explicitly keeps restore-policy coverage independent of whichever
         // agent processes happen to be present on the test host.
-        if let panelIndex = snapshot.panels.firstIndex(where: { $0.id == surfaceID }),
-           var terminal = snapshot.panels[panelIndex].terminal {
-            terminal.wasAgentRunning = true
-            snapshot.panels[panelIndex].terminal = terminal
-        }
+        let panelIndex = try #require(snapshot.panels.firstIndex(where: { $0.id == surfaceID }))
+        var terminal = try #require(snapshot.panels[panelIndex].terminal)
+        terminal.wasAgentRunning = true
+        snapshot.panels[panelIndex].terminal = terminal
+        #expect(terminal.wasAgentRunning == true)
 
         return (
             snapshot,
             workspace.id,
             surfaceID,
             remotePTYSessionID,
+            relayPortReservation,
+            fixtureRelayPort,
             localBinding,
             spoofedRelayRegistrationRejected,
             remoteBinding
@@ -1146,7 +1244,11 @@ struct RemoteResumeBindingTests {
         terminalTransport: WorkspaceRemoteTerminalTransport = .ssh,
         preserveAfterTerminalExit: Bool = true,
         persistentDaemonSlot: String? = "ssh-issue-7989",
-        skipDaemonBootstrap: Bool = false
+        skipDaemonBootstrap: Bool = false,
+        relayPort: Int = 64_089,
+        relayID: String = "relay-issue-7989",
+        relayToken: String = String(repeating: "a", count: 64),
+        localSocketPath: String = "/tmp/cmux-issue-7989.sock"
     ) -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
             transport: transport,
@@ -1157,9 +1259,9 @@ struct RemoteResumeBindingTests {
             sshOptions: ["StrictHostKeyChecking=accept-new"],
             localProxyPort: nil,
             relayPort: relayPort,
-            relayID: "relay-issue-7989",
-            relayToken: String(repeating: "a", count: 64),
-            localSocketPath: "/tmp/cmux-issue-7989.sock",
+            relayID: relayID,
+            relayToken: relayToken,
+            localSocketPath: localSocketPath,
             terminalStartupCommand: SSHPTYAttachStartupCommandBuilder.command(requireExisting: false),
             preserveAfterTerminalExit: preserveAfterTerminalExit,
             persistentDaemonSlot: persistentDaemonSlot,
@@ -1296,7 +1398,7 @@ struct RemoteResumeBindingTests {
         )
     }
 
-    private func expectRemoteResumeBootstrap(_ command: String) throws {
+    private func expectRemoteResumeBootstrap(_ command: String, relayPort: Int) throws {
         #expect(command.contains("export CMUX_SOCKET_PATH=127.0.0.1:\(relayPort)"), "\(command)")
         #expect(command.contains("__CMUX_WORKSPACE_ID__"), "\(command)")
         #expect(command.contains("__CMUX_SURFACE_ID__"), "\(command)")

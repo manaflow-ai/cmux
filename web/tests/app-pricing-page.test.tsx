@@ -101,6 +101,9 @@ describe("app pricing page", () => {
     expect(html).not.toContain("/mo.");
     expect(html).toContain("$50");
     expect(html).toContain("$60/user/mo");
+    expect(html).toContain(
+      "Up to 50 Cloud VMs, each with its own resources",
+    );
     expect(html).toContain('<p class="mt-5 text-sm font-medium">Includes:</p>');
     expect(html).not.toContain('style="min-height:4rem"');
     expect(html).toContain("text-3xl font-medium tabular-nums tracking-tight");

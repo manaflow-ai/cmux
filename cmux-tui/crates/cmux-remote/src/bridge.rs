@@ -30,8 +30,7 @@ impl ForwardConnections {
 
     async fn shutdown(&self) {
         let mut tasks = self.tasks.lock().await;
-        tasks.abort_all();
-        while tasks.join_next().await.is_some() {}
+        tasks.shutdown().await;
     }
 
     fn abort_all(&self) {
@@ -205,8 +204,7 @@ pub async fn serve_mux_bridge(
             }
         }
     }
-    connections.abort_all();
-    while connections.join_next().await.is_some() {}
+    connections.shutdown().await;
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]

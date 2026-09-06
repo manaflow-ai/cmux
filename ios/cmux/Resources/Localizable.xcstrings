@@ -14473,6 +14473,60 @@
         }
       }
     },
+    "mobile.notificationFeed.history.count": {
+      "comment": "VoiceOver value for a notification group's disclosure control. The number includes the latest notification.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld updates"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld件の更新"
+          }
+        }
+      }
+    },
+    "mobile.notificationFeed.history.hide": {
+      "comment": "Collapses the older notification rows beneath the latest notification.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide earlier notifications"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以前の通知を非表示"
+          }
+        }
+      }
+    },
+    "mobile.notificationFeed.history.show": {
+      "comment": "Expands the older notification rows beneath the latest notification.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show earlier notifications"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以前の通知を表示"
+          }
+        }
+      }
+    },
     "mobile.notificationFeed.filter": {
       "extractionState": "manual",
       "localizations": {
@@ -18373,13 +18427,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Requires cmux 0.64.20 or later on your Mac."
+            "value": "Same-account Macs connect automatically."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac版cmux 0.64.20以降が必要です。"
+            "value": "同じアカウントのMacに自動で接続します。"
           }
         },
         "de": {
@@ -18491,13 +18545,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Works with cmux 0.64.17 or later. Scan once to authorize the Mac."
+            "value": "Scan once to authorize the Mac."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac版cmux 0.64.17以降で動作します。一度スキャンしてMacを承認します。"
+            "value": "一度スキャンしてMacを承認します。"
           }
         },
         "de": {
@@ -18668,13 +18722,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Works with cmux 0.64.17 or later. Install Tailscale on both devices and join the same network. On 0.64.17, choose Connect iPhone/iPad and scan the Pair iPhone code once."
+            "value": "Install Tailscale on both devices and join the same network, then scan the pairing code once."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 0.64.17以降で動作します。両方のデバイスにTailscaleをインストールし、同じネットワークに参加してください。0.64.17では「Connect iPhone/iPad」を選び、「Pair iPhone」のコードを一度スキャンします。"
+            "value": "両方のデバイスにTailscaleをインストールして同じネットワークに参加し、ペアリングコードを一度スキャンしてください。"
           }
         },
         "de": {
@@ -19370,6 +19424,65 @@
         }
       }
     },
+    "mobile.sidebar.destination.picker": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Section"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セクション"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bereich"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Section"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قسم"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sección"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "區段"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "区段"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "섹션"
+          }
+        }
+      }
+    },
     "mobile.tabs.notifications": {
       "extractionState": "manual",
       "localizations": {
@@ -19425,6 +19538,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "알림"
+          }
+        }
+      }
+    },
+    "mobile.tabs.notifications.unreadCount": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifications (%lld)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知 (%lld)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Benachrichtigungen (%lld)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifications (%lld)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إشعارات (%lld)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notificaciones (%lld)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知 (%lld)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知 (%lld)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알림 (%lld)"
           }
         }
       }
@@ -27518,55 +27690,232 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The App Log records in-app activity; the Network Log records connection diagnostics. Terminal contents and credentials are never written."
+            "value": "Export includes app events and networking diagnostics. Terminal contents and credentials are never written."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "アプリログはアプリ内のアクティビティを記録し、ネットワークログは接続診断を記録します。ターミナルの内容や認証情報が書き込まれることはありません。"
+            "value": "エクスポートにはアプリイベントとネットワーク診断が含まれます。ターミナルの内容や認証情報が書き込まれることはありません。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Das App-Protokoll zeichnet In-App-Aktivitäten auf; Das Netzwerkprotokoll zeichnet Verbindungsdiagnosen auf. Terminalinhalte und Anmeldeinformationen werden niemals geschrieben."
+            "value": "Der Export enthält App-Ereignisse und Netzwerkdiagnosen. Terminalinhalte und Anmeldeinformationen werden niemals geschrieben."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le journal de l'application enregistre l'activité dans l'application ; le journal réseau enregistre les diagnostics de connexion. Le contenu du terminal et les informations d'identification ne sont jamais écrits."
+            "value": "L’exportation inclut les événements de l’app et les diagnostics réseau. Le contenu du terminal et les informations d’identification ne sont jamais écrits."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يسجل سجل التطبيق النشاط داخل التطبيق؛ يسجل سجل الشبكة تشخيصات الاتصال. لا تتم كتابة محتويات المحطة وبيانات الاعتماد أبدًا."
+            "value": "يتضمن التصدير أحداث التطبيق وتشخيصات الشبكة. لا تتم كتابة محتويات المحطة وبيانات الاعتماد أبدًا."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El registro de aplicaciones registra la actividad dentro de la aplicación; el Registro de red registra los diagnósticos de conexión. El contenido y las credenciales del terminal nunca se escriben."
+            "value": "La exportación incluye eventos de la aplicación y diagnósticos de red. El contenido y las credenciales del terminal nunca se escriben."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "應用程式日誌記錄應用程式內的活動；網路日誌記錄連線診斷。終端內容和憑證永遠不會被寫入。"
+            "value": "匯出內容包含應用程式事件和網路診斷。終端內容和憑證永遠不會被寫入。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "应用程序日志记录应用程序内的活动；网络日志记录连接诊断。终端内容和凭据永远不会被写入。"
+            "value": "导出内容包含应用程序事件和网络诊断。终端内容和凭据永远不会被写入。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "앱 로그는 인앱 활동을 기록합니다. 네트워크 로그는 연결 진단을 기록합니다. 터미널 내용과 자격 증명은 기록되지 않습니다."
+            "value": "내보내기에는 앱 이벤트와 네트워크 진단이 포함됩니다. 터미널 내용과 자격 증명은 기록되지 않습니다."
+          }
+        }
+      }
+    },
+    "mobile.settings.diagnostics.export": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Export Logs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ログを書き出す"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Protokolle exportieren"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exporter les journaux"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تصدير السجلات"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exportar registros"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匯出日誌"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导出日志"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그 내보내기"
+          }
+        }
+      }
+    },
+    "mobile.settings.diagnostics.export.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t export logs. Check available storage and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ログを書き出せませんでした。空き容量を確認して、もう一度お試しください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Protokolle konnten nicht exportiert werden. Prüfen Sie den verfügbaren Speicher und versuchen Sie es erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible d’exporter les journaux. Vérifiez l’espace disponible et réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر تصدير السجلات. تحقق من مساحة التخزين المتاحة وحاول مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudieron exportar los registros. Comprueba el almacenamiento disponible y vuelve a intentarlo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法匯出日誌。請檢查可用儲存空間並重試。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法导出日志。请检查可用存储空间并重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그를 내보낼 수 없습니다. 사용 가능한 저장 공간을 확인한 후 다시 시도하세요."
+          }
+        }
+      }
+    },
+    "mobile.settings.diagnostics.clear.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t clear the verbose connection logs. Check available storage and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "消去後に詳細ログを再開できませんでした。ログ記録をオフにしました。空き容量を確認して、もう一度お試しください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die ausführliche Protokollierung konnte nach dem Löschen nicht erneut geöffnet werden. Die Protokollierung wurde deaktiviert. Prüfe den verfügbaren Speicher und versuche es erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de rouvrir les journaux détaillés après l’effacement. Les journaux ont été désactivés ; vérifiez l’espace disponible et réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر إعادة فتح التسجيل التفصيلي بعد المسح. تم إيقاف التسجيل؛ تحقق من مساحة التخزين وحاول مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo volver a abrir el registro detallado después de borrar. Se desactivó el registro; comprueba el espacio disponible e inténtalo de nuevo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清除後無法重新開啟詳細記錄。記錄功能已關閉，請檢查可用儲存空間後再試一次。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清除后无法重新打开详细日志。日志记录已关闭，请检查可用存储空间后重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지운 후 상세 로그를 다시 열 수 없습니다. 로그 기록이 꺼졌습니다. 사용 가능한 저장 공간을 확인하고 다시 시도하세요."
           }
         }
       }
@@ -62086,6 +62435,108 @@
         }
       }
     },
+    "mobile.screenshot.notification.reply.action": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reply"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "返信"
+          }
+        }
+      }
+    },
+    "mobile.screenshot.notification.reply.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Implemented the fix and opened the PR. Ready for your review — reply to continue."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "修正を実装して PR を作成しました。レビューできます。返信して続行してください。"
+          }
+        }
+      }
+    },
+    "mobile.screenshot.notification.reply.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Message the agent…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントにメッセージ…"
+          }
+        }
+      }
+    },
+    "mobile.screenshot.notification.reply.send": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信"
+          }
+        }
+      }
+    },
+    "mobile.screenshot.notification.reply.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux agent"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux エージェント"
+          }
+        }
+      }
+    },
+    "mobile.screenshot.notification.reply.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude finished in workspace ~"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude がワークスペース ~ で完了しました"
+          }
+        }
+      }
+    },
     "mobile.screenshot.notification.title": {
       "extractionState": "manual",
       "localizations": {
@@ -63803,55 +64254,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Clear Report"
+            "value": "Clear Logs"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "レポートを消去"
+            "value": "ログを消去"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Klarer Bericht"
+            "value": "Protokolle löschen"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Effacer le rapport"
+            "value": "Effacer les journaux"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "مسح التقرير"
+            "value": "مسح السجلات"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Borrar informe"
+            "value": "Borrar registros"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "清晰的報告"
+            "value": "清除日誌"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "清晰的报告"
+            "value": "清除日志"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "보고서 지우기"
+            "value": "로그 지우기"
           }
         }
       }
@@ -83080,13 +83531,81 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This Mac is running %@. Update it to %@ or later."
+            "value": "This Mac is running cmux %@. Update cmux on this Mac to %@ or later."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この Mac は %@ を実行しています。%@ 以降にアップデートしてください。"
+            "value": "この Mac は cmux %@ を実行しています。この Mac の cmux を %@ 以降にアップデートしてください。"
+          }
+        }
+      }
+    },
+    "computers.listauth.unverified.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not verified on the new connection system yet"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しい接続システムでまだ確認されていません"
+          }
+        }
+      }
+    },
+    "computers.listauth.unverified.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "It may be running an older cmux version. Update the Mac, or if it's already updated, open cmux on it once to verify."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "古いバージョンの cmux が動作している可能性があります。Mac をアップデートするか、すでに最新の場合は、その Mac で cmux を一度開いて確認してください。"
+          }
+        }
+      }
+    },
+    "computers.version.outdated.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac update required"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac のアップデートが必要です"
+          }
+        }
+      }
+    },
+    "computers.version.outdated.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac is running cmux %@. Update cmux on this Mac to %@ or later."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac は cmux %@ を実行しています。この Mac の cmux を %@ 以降にアップデートしてください。"
           }
         }
       }
@@ -83339,7 +83858,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "「Macをスリープさせない」を操作するには、このMacに接続してください。"
+          "value": "「Macをスリープさせない」を操作するには、このMacに接続してください。"
           }
         },
         "de": {
@@ -83382,6 +83901,125 @@
           "stringUnit": {
             "state": "translated",
             "value": "Keep Mac Awake를 제어하려면 이 Mac에 연결하세요."
+          }
+        }
+      }
+    },
+    "mobile.onboarding.connect.bodyWithMinVersionFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use the same cmux account on both devices. Requires cmux %1$@ or newer on your Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "両方の端末で同じcmuxアカウントを使用してください。Mac版cmux %1$@以降が必要です。"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.connect.tailscaleBodyWithMinVersionFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Requires cmux %1$@ or newer on your Mac. Install Tailscale on both devices and join the same network, then scan the pairing code once."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac版cmux %1$@以降が必要です。両方のデバイスにTailscaleをインストールして同じネットワークに参加し、ペアリングコードを一度スキャンしてください。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.macVersionTooOld.format": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac is running cmux %1$@. Update cmux on this Mac to %2$@ or newer to connect."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacはcmux %1$@を実行しています。接続するには、このMacのcmuxを%2$@以降にアップデートしてください。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.macVersionTooOld.unknownFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac is running an older version of cmux. Update cmux on this Mac to %1$@ or newer to connect."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacは古いバージョンのcmuxを実行しています。接続するには、このMacのcmuxを%1$@以降にアップデートしてください。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.macVersionTooOld.nightlyFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac is running cmux %1$@. Update cmux on this Mac to Nightly %2$@ or later to connect."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacはcmux %1$@を実行しています。接続するには、このMacのcmux Nightlyを%2$@以降にアップデートしてください。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.guidance.macVersionTooOld": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On the Mac, update cmux (cmux menu > Check for Updates, or download the latest from cmux.com). This computer reconnects automatically after the update."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macでcmuxをアップデートしてください（cmuxメニュー > アップデートを確認、またはcmux.comから最新版をダウンロード）。アップデート後、このコンピュータには自動的に再接続します。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.macVersionTooOld.nightlyUnknownFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac needs a newer cmux Nightly. Update cmux on this Mac to %1$@ or later to connect."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacのcmux Nightlyを%1$@以降にアップデートして接続してください。"
           }
         }
       }

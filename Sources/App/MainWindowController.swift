@@ -3,7 +3,7 @@ import CmuxWindowing
 
 @MainActor
 final class MainWindowController: ReleasingWindowController {
-    var onClose: (() -> Void)?
+    var onClose: ((NSWindow) -> Void)?
     var shouldClose: ((NSWindow) -> Bool)?
     var onFrameRestorationCheckpoint: ((NSWindow) -> Void)?
 
@@ -18,7 +18,7 @@ final class MainWindowController: ReleasingWindowController {
 #endif
 
     override func managedWindowWillClose(_ window: NSWindow) {
-        onClose?()
+        onClose?(window)
     }
 
     func windowDidExitFullScreen(_ notification: Notification) {

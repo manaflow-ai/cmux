@@ -263,14 +263,20 @@ extension CmuxTuiSurfaceProvider {
     func reprojectManualMirror(
         resource: SurfaceResource,
         projection: SurfaceProjection,
-        paneID: String
+        paneID: String,
+        generation: UInt64
     ) async {
+        guard isCurrentLifecycleGeneration(generation), isRegisteredInCatalog() else { return }
         do {
             let materialized = try await materializeManualMirrorTerminal(
                 resource,
                 at: .tab(workspaceID: projection.workspaceID, paneID: paneID, index: nil),
                 focus: false
             )
+            guard isCurrentLifecycleGeneration(generation), isRegisteredInCatalog() else {
+                SurfacePaneFactory.close(panelID: materialized.panelID, in: materialized.workspaceID)
+                return
+            }
             materializedPanels.insert(materialized.panelID)
             catalog.endProjections(panelID: projection.panelID)
             catalog.record(SurfaceProjection(

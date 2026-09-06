@@ -2,10 +2,10 @@
 
 import { Dialog } from "@base-ui-components/react/dialog";
 import { useFormatter, useTranslations } from "next-intl";
-import { useId, useRef, useState, type ReactNode } from "react";
+import { useCallback, useId, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { Modal } from "../../components/modal";
-import { AdminProList, type ProListSnapshotProps } from "./admin-pro-list";
+import { AdminSearchContext } from "./admin-search-context";
 
 type GrantRecord = {
   readonly plan: string | null;
@@ -88,7 +88,7 @@ const primaryButtonClass =
 const dangerButtonClass =
   "border border-border bg-background px-2.5 py-1 text-xs font-medium text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground hover:border-foreground disabled:cursor-not-allowed disabled:opacity-50";
 
-export function AdminProPanel({ initialSnapshot }: { initialSnapshot: ProListSnapshotProps | null }) {
+export function AdminProPanel({ roster }: { roster: ReactNode }) {
   const t = useTranslations("dashboard.admin");
   const inputId = useId();
   const [query, setQuery] = useState("");
@@ -98,7 +98,7 @@ export function AdminProPanel({ initialSnapshot }: { initialSnapshot: ProListSna
   const [notice, setNotice] = useState<string | null>(null);
   const requestSeq = useRef(0);
 
-  async function runSearch(value: string) {
+  const runSearch = useCallback(async (value: string) => {
     const trimmed = value.trim();
     // Every submit claims a new sequence number, including a too-short query,
     // so an older in-flight search cannot land on top of the reset state.
@@ -140,7 +140,17 @@ export function AdminProPanel({ initialSnapshot }: { initialSnapshot: ProListSna
         pendingGrants: body.pendingGrants ?? [],
       },
     });
-  }
+  }, [t]);
+
+  // Stable context value: the roster below re-renders only when this
+  // callback changes, not on every keystroke or notice in the panel.
+  const pickQuery = useCallback((value: string) => {
+    setQuery(value);
+    setNotice(null);
+    void runSearch(value);
+    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [runSearch]);
+  const searchContextValue = useMemo(() => ({ pickQuery }), [pickQuery]);
 
   async function confirmPending() {
     if (!pending) return;
@@ -383,15 +393,9 @@ export function AdminProPanel({ initialSnapshot }: { initialSnapshot: ProListSna
         </ResultSection>
       ) : null}
 
-      <AdminProList
-        initialSnapshot={initialSnapshot}
-        onPickQuery={(value) => {
-          setQuery(value);
-          setNotice(null);
-          void runSearch(value);
-          if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
-        }}
-      />
+      <AdminSearchContext.Provider value={searchContextValue}>
+        {roster}
+      </AdminSearchContext.Provider>
 
       <ConfirmDialog
         t={t}

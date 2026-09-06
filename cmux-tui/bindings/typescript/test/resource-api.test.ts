@@ -247,6 +247,95 @@ async function waitForOperation(
   }
 }
 
+test("response envelopes reject malformed protocol, type, id, ok, result, and error fields", async () => {
+  const cases = [
+    {
+      name: "protocol",
+      envelope: (request: Envelope) => ({
+        protocol: "cmux.protocol/1",
+        type: "response",
+        id: request.id,
+        ok: true,
+        result: { alive: true, cursor: null },
+      }),
+      message: /invalid resource envelope/,
+    },
+    {
+      name: "type",
+      envelope: (request: Envelope) => ({
+        protocol: "cmux.protocol/2",
+        type: 2,
+        id: request.id,
+        ok: true,
+        result: { alive: true, cursor: null },
+      }),
+      message: /invalid resource envelope/,
+    },
+    {
+      name: "id",
+      envelope: (_request: Envelope) => ({
+        protocol: "cmux.protocol/2",
+        type: "response",
+        id: 2,
+        ok: true,
+        result: { alive: true, cursor: null },
+      }),
+      message: /response id must be a string/,
+    },
+    {
+      name: "ok",
+      envelope: (request: Envelope) => ({
+        protocol: "cmux.protocol/2",
+        type: "response",
+        id: request.id,
+        ok: "yes",
+        result: { alive: true, cursor: null },
+      }),
+      message: /invalid response envelope/,
+    },
+    {
+      name: "result",
+      envelope: (request: Envelope) => ({
+        protocol: "cmux.protocol/2",
+        type: "response",
+        id: request.id,
+        ok: true,
+      }),
+      message: /successful response is missing field "result"/,
+    },
+    {
+      name: "error",
+      envelope: (request: Envelope) => ({
+        protocol: "cmux.protocol/2",
+        type: "response",
+        id: request.id,
+        ok: false,
+      }),
+      message: /failed response is missing field "error"/,
+    },
+  ] as const;
+
+  for (const fixture of cases) {
+    const transport = new FakeTransport((request, current) => {
+      current.emit(fixture.envelope(request));
+    });
+    const protocol = new ResourceProtocol({
+      transport,
+      randomHex128: () => HEX_A,
+    });
+    await assert.rejects(
+      () => protocol.request(operations.sessionPing, {
+        machine: "current",
+        session: SESSION,
+      }),
+      fixture.message,
+      fixture.name,
+    );
+    assert.deepEqual(transport.closeRequestCounts, [1], fixture.name);
+    protocol.close();
+  }
+});
+
 test("journal options reject invalid combinations before transport", () => {
   const transport = new FakeTransport(() => {
     assert.fail("invalid journal options reached the transport");

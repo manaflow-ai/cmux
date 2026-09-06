@@ -402,6 +402,20 @@ describe("hello fact streaming", () => {
     expect(socket.frames.length).toBe(framesAfterFirst);
     expect(harness.discoveryCalls()).toHaveLength(1);
   });
+
+  it("supersedes an older control socket for the same endpoint", async () => {
+    const harness = new Harness();
+    harness.serveDiscovery(() => discoveryResponse(42));
+
+    const first = await harness.connect("s1");
+    await harness.hello(first, { endpointId: ENDPOINT_A, haveRev: null, wantPasses: false });
+
+    const replacement = await harness.connect("s2");
+    await harness.hello(replacement, { endpointId: ENDPOINT_A, haveRev: null, wantPasses: false });
+
+    expect(first.closes).toEqual([{ code: 1000, reason: "superseded" }]);
+    expect(replacement.closes).toEqual([]);
+  });
 });
 
 describe("mint_request proxying", () => {

@@ -9,11 +9,11 @@ import { approveVmCmuxRemoteEnrollment, runVmWorkflow } from "../../../../../../
 import { parseLenientObjectBody } from "../../../../../../services/vms/routeInput";
 
 /**
- * Approves the cmux-tui device enrollment that a prior `attach-endpoint`
- * (`transport: "cmux-remote"`) invited. The control plane is the daemon owner: it
- * minted the invitation for this authenticated user, so approving the pending claim
- * is the honest encoding of "the web tier already authenticated this device". Returns
- * `state: "pending"` until the client has connected with the invitation; callers poll.
+ * Compatibility endpoint. Cloud machines serve a trusted-carrier listener
+ * (reachable only inside the owner's private network), so there is no device
+ * enrollment to approve: the provider answers `approved` without touching the
+ * machine. Older Mac builds call this once after their first connect; the
+ * route stays until every published build has stopped calling it.
  */
 export async function POST(
   request: Request,

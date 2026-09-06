@@ -1,11 +1,11 @@
+import { authorizeCronRequest } from "../../../../services/cronAuth";
 import { reconcileStripeSubscriptions } from "../../../../services/billing/reconcile";
 import { captureCoderouterError } from "../../../../services/errors";
 
 export const maxDuration = 60;
 
 export async function GET(request: Request): Promise<Response> {
-  const secret = process.env.CRON_SECRET?.trim();
-  if (!secret || request.headers.get("authorization") !== `Bearer ${secret}`) {
+  if (!authorizeCronRequest(request).ok) {
     return Response.json({ error: "unauthorized" }, { status: 401 });
   }
 

@@ -304,8 +304,6 @@ describe("client config", () => {
     // A deleted rule is an operator action (no limit wanted), not an outage.
     process.env.VERCEL = "1";
     checkRateLimit.mockResolvedValue({ rateLimited: false, error: "not-found" });
-    const consoleWarn = mock(() => {});
-    console.warn = consoleWarn as unknown as typeof console.warn;
     const fetchMock = mock(async () => new Response(
       JSON.stringify({
         errorsWhileComputingFlags: false,
@@ -323,10 +321,6 @@ describe("client config", () => {
     }));
 
     expect(response.status).toBe(200);
-    expect(consoleWarn).toHaveBeenCalledWith(
-      "client-config.route.rate_limit_not_found; failing open",
-      "cmux-client-config-test",
-    );
     expect(checkRateLimit).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });

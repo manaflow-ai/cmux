@@ -99,7 +99,7 @@
 	<dict>
 		<!-- HIG "Launching": match the first screen (plain systemBackground
 		     surfaces) and keep it static — a solid adaptive background with the
-		     small cmux mark from the sign-in header, no text. -->
+		     exact cmux.com app mark used in the App Store banner, no text. -->
 		<key>UIColorName</key>
 		<string>LaunchBackground</string>
 		<key>UIImageName</key>

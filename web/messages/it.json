@@ -7,12 +7,14 @@
         "snapshot": "Questa Cloud VM non supporta lo stato VM salvato.",
         "restore": "Questo tipo di Cloud VM non supporta il ripristino dello stato VM salvato.",
         "fork": "Questa Cloud VM non supporta la copia in una nuova VM.",
+        "openPort": "Il provider di questa Cloud VM non può esporre le porte della macchina come URL di anteprima.",
         "default": "Questa Cloud VM non supporta l’operazione richiesta."
       },
       "action": {
         "snapshot": "Non riprovare. Il lavoro su questo tipo di macchina viene conservato nel volume home persistente.",
         "restore": "Non riprovare. Il lavoro su questo tipo di macchina viene conservato nel volume home persistente.",
         "fork": "Non riprovare. Crea una nuova VM con `cmux vm new`.",
+        "openPort": "Non riprovare. Accedi al servizio dall’interno della macchina con `cmux vm exec` oppure usa un tipo di macchina che può aprire le porte.",
         "default": "Non riprovare. Esegui `cmux vm ls` o contatta l’assistenza se ritieni che sia un errore."
       }
     },
@@ -59,6 +61,15 @@
     "genericTitle": "Accesso non completato",
     "genericBody": "Riprova. Se il problema persiste, contatta l'assistenza.",
     "backToSignIn": "Torna all'accesso"
+  },
+  "cloudPublicationAccess": {
+    "title": "Non hai accesso",
+    "signIn": "Accedi a cmux",
+    "signedInAs": "Accesso effettuato come {identity}",
+    "switchAccount": "Cambia account",
+    "invalidTitle": "Questo link di accesso non è valido",
+    "invalidBody": "Torna al sito e riprova.",
+    "footer": "L’accesso è gestito da cmux."
   },
   "common": {
     "downloadForMac": "Scarica per Mac",
@@ -261,7 +272,18 @@
       "metaTitle": "coderouter — cmux",
       "metaDescription": "Gestisci gli account IA condivisi e instrada le richieste con coderouter.",
       "title": "coderouter",
-      "description": "coderouter instrada le richieste LLM tra gli account dei provider con failover e pianificazione basata sull’utilizzo."
+      "description": "coderouter instrada le richieste LLM tra gli account dei provider con failover e pianificazione basata sull’utilizzo.",
+      "machines": {
+        "title": "Macchine",
+        "description": "Utilizzo di coderouter per macchina per {team} negli ultimi {days} giorni.",
+        "machineColumn": "Macchina",
+        "tokensColumn": "Token totali",
+        "apiEquivalentColumn": "Valore equivalente API",
+        "unnamed": "Macchina senza nome",
+        "empty": "Nessuna macchina ha usato coderouter negli ultimi {days} giorni.",
+        "unavailable": "L'utilizzo per macchina non è al momento disponibile.",
+        "estimateNote": "Il valore equivalente API è una stima basata sui prezzi di listino pubblici, non la spesa effettiva."
+      }
     },
     "accountMenu": {
       "label": "Menu account",
@@ -1161,6 +1183,14 @@
         "shortcuts": {
           "when": "Predicati di contesto opzionali per azione (clausole `when` in stile VS Code), indicizzati per id azione cmux. Ogni valore è un'espressione booleana sulle chiavi di contesto, combinata con !, &&, || e parentesi. Chiavi booleane: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Le chiavi tipizzate supportano i confronti: la stringa sidebarMode (files, find, sessions, feed o dock) e gli interi paneCount e workspaceCount. Gli operatori di confronto sono ==, !=, =~ (espressione regolare), <, <=, >, >= e `in [a, b]`; una chiave sconosciuta o assente vale false. Sono accettati anche i letterali booleani true e false; `key == false` equivale a `!key`. La scorciatoia dell'azione si attiva (ed entra in conflitto con altre scorciatoie) solo quando la clausola è vera. Esempi: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } seleziona gli spazi di lavoro con Ctrl+1–9 ovunque tranne quando la barra laterale destra ha il focus; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } limita un'associazione alla barra laterale Trova quando lo spazio di lavoro ha più riquadri.",
           "showModifierHoldHints": "Mostra i chip dei suggerimenti delle scorciatoie mentre tieni premuto Cmd o Control."
+        },
+        "fileEditor": {
+          "wordWrap": "Manda a capo le righe lunghe sul bordo destro dell’editor invece di scorrere orizzontalmente.",
+          "syntaxHighlighting": "Colora i token del codice nell’editor di file integrato.",
+          "lineNumbers": "Mostra una colonna con i numeri di riga nell’editor di file integrato.",
+          "indentGuides": "Disegna guide verticali di indentazione nell’editor di file integrato.",
+          "currentLineHighlight": "Evidenzia la riga del cursore quando non c’è una selezione.",
+          "tabWidth": "Larghezza di una tabulazione, in colonne, per l'indentazione e le guide di indentazione."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

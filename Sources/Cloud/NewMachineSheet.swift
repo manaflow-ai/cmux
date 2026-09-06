@@ -1,7 +1,7 @@
 import CmuxFoundation
 import SwiftUI
 
-/// The New Machine sheet: name, kind, size, and what the plan allows.
+/// The New Machine sheet: one base-image size and what the plan allows.
 /// Presented by ``NewMachineSheetPresenter`` as a window sheet on the main
 /// window. Create closes it at once; the machine coming up is shown by the
 /// Machines panel, not here, so the sheet never holds the window.
@@ -11,24 +11,26 @@ struct NewMachineSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             header
-            fields
+            if model.supportsSize {
+                sizeSection
+            }
             planSection
             if let errorText = model.errorText {
                 errorBox(errorText)
             }
             buttons
         }
-        .padding(20)
-        .frame(width: 460)
+        .padding(24)
+        .frame(width: 500)
         .accessibilityIdentifier("NewMachineSheet")
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 5) {
             Text(model.isBaseSetup
                 ? String(localized: "machines.new.title.base", defaultValue: "Set Up Base")
                 : String(localized: "machines.new.title", defaultValue: "New Machine"))
-                .cmuxFont(size: 15, weight: .semibold)
+                .cmuxFont(size: 19, weight: .semibold)
             Text(model.isBaseSetup
                 ? String(
                     localized: "machines.new.subtitle.base",
@@ -44,47 +46,37 @@ struct NewMachineSheet: View {
         }
     }
 
-    private var fields: some View {
-        Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 12, verticalSpacing: 10) {
-            if model.supportsName {
-                GridRow {
-                    label(String(localized: "machines.new.name.label", defaultValue: "Name"))
-                    TextField(
-                        String(localized: "machines.new.name.placeholder", defaultValue: "Optional label"),
-                        text: $model.name
-                    )
-                    .textFieldStyle(.roundedBorder)
-                    .accessibilityIdentifier("NewMachineSheet.name")
-                }
+    private var sizeSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(String(localized: "machines.new.size.label", defaultValue: "Machine size"))
+                    .cmuxFont(size: 13, weight: .semibold)
+                Text(String(
+                    localized: "machines.new.size.help",
+                    defaultValue: "Choose the memory and disk profile for this machine."
+                ))
+                .cmuxFont(size: 11)
+                .foregroundStyle(.secondary)
             }
-            GridRow {
-                label(String(localized: "machines.new.kind.label", defaultValue: "Kind"))
-                VStack(alignment: .leading, spacing: 4) {
-                    Picker("", selection: $model.kind) {
-                        ForEach(model.selectableKinds, id: \.self) { kind in
-                            Text(kind.displayName).tag(kind)
+
+            if let selectedSize = model.selectedSize {
+                Picker(selection: $model.memoryMb) {
+                    ForEach(model.memoryOptions, id: \.self) { memoryMb in
+                        if let size = MachineSizeOption(memoryMb: memoryMb) {
+                            Text(size.menuTitle).tag(memoryMb)
                         }
                     }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                    .accessibilityIdentifier("NewMachineSheet.kind")
-                    Text(model.kind.summary)
-                        .cmuxFont(size: 11)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                } label: {
+                    Text(selectedSize.menuTitle)
                 }
-            }
-            if let image = model.selectedImage {
-                GridRow {
-                    label(String(localized: "machines.new.image.label", defaultValue: "Image"))
-                    Text(image)
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                        .accessibilityIdentifier("NewMachineSheet.image")
-                }
+                .pickerStyle(.menu)
+                .labelsHidden()
+                .accessibilityIdentifier("NewMachineSheet.size")
+                .accessibilityLabel(String(localized: "machines.new.size.accessibilityLabel", defaultValue: "RAM size"))
+                .accessibilityValue(selectedSize.menuTitle)
             }
         }
+        .accessibilityIdentifier("NewMachineSheet.sizeSection")
     }
 
     @ViewBuilder
@@ -103,6 +95,7 @@ struct NewMachineSheet: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityIdentifier("NewMachineSheet.plan")
         }
     }
@@ -128,26 +121,33 @@ struct NewMachineSheet: View {
     }
 
     private var buttons: some View {
-        HStack(spacing: 8) {
-            Text(model.isBaseSetup
-                ? String(localized: "machines.new.background.note.base", defaultValue: "Setup continues in the Machines panel.")
-                : String(localized: "machines.new.background.note", defaultValue: "Creation continues in the Machines panel."))
-                .cmuxFont(size: 11)
-                .foregroundStyle(.tertiary)
-                .lineLimit(1)
-                .accessibilityIdentifier("NewMachineSheet.backgroundNote")
-            Spacer()
-            Button(String(localized: "machines.new.cancel", defaultValue: "Cancel")) {
-                model.cancel()
+        VStack(spacing: 10) {
+            Divider()
+            HStack(alignment: .center, spacing: 8) {
+                Text(model.isBaseSetup
+                    ? String(localized: "machines.new.background.note.base", defaultValue: "Setup continues in the Machines panel.")
+                    : String(localized: "machines.new.background.note", defaultValue: "Creation continues in the Machines panel."))
+                    .cmuxFont(size: 11)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("NewMachineSheet.backgroundNote")
+                Spacer()
+                Button(String(localized: "machines.new.cancel", defaultValue: "Cancel")) {
+                    model.cancel()
+                }
+                .keyboardShortcut(.cancelAction)
+                .buttonStyle(.bordered)
+                .accessibilityIdentifier("NewMachineSheet.cancel")
+                Button(createTitle) {
+                    model.create()
+                }
+                .keyboardShortcut(.defaultAction)
+                .buttonStyle(.borderedProminent)
+                .accessibilityIdentifier("NewMachineSheet.create")
             }
-            .keyboardShortcut(.cancelAction)
-            .accessibilityIdentifier("NewMachineSheet.cancel")
-            Button(createTitle) {
-                model.create()
-            }
-            .keyboardShortcut(.defaultAction)
-            .accessibilityIdentifier("NewMachineSheet.create")
         }
+        .padding(.top, 2)
     }
 
     private var createTitle: String {
@@ -159,9 +159,201 @@ struct NewMachineSheet: View {
             : String(localized: "machines.new.create", defaultValue: "Create")
     }
 
-    private func label(_ text: String) -> some View {
-        Text(text)
-            .cmuxFont(size: 12)
-            .gridColumnAlignment(.trailing)
+}
+
+#if DEBUG
+/// Plain SwiftUI alternatives for reviewing the size control without a web mockup.
+/// These views are preview-only. The sheet uses the first variation: the native menu.
+private struct NewMachinePickerVariationsPreview: View {
+    @State private var selectedMemoryMb = 8192
+    var viewportHeight: CGFloat = 820
+
+    private static let sizes = NewMachineModel.memoryOptionsMb
+        .compactMap { MachineSizeOption(memoryMb: $0) }
+
+    private var selectedSize: MachineSizeOption {
+        MachineSizeOption(memoryMb: selectedMemoryMb) ?? Self.sizes[1]
+    }
+
+    private var selectedIndex: Int {
+        Self.sizes.firstIndex(where: { $0.memoryMb == selectedMemoryMb }) ?? 0
+    }
+
+    private var selectedIndexBinding: Binding<Int> {
+        Binding(
+            get: { selectedIndex },
+            set: { selectedMemoryMb = Self.sizes[$0].memoryMb }
+        )
+    }
+
+    private var selectedIndexDoubleBinding: Binding<Double> {
+        Binding(
+            get: { Double(selectedIndex) },
+            set: {
+                let index = min(max(Int($0.rounded()), 0), Self.sizes.count - 1)
+                selectedMemoryMb = Self.sizes[index].memoryMb
+            }
+        )
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Text(String(localized: "machines.new.size.label", defaultValue: "Machine size"))
+                    .font(.headline)
+                Text(String(
+                    localized: "machines.new.size.help",
+                    defaultValue: "Choose the memory and disk profile for this machine."
+                ))
+                .foregroundStyle(.secondary)
+
+                variation(1) {
+                    Picker(selection: $selectedMemoryMb) {
+                        sizeOptions
+                    } label: {
+                        Text(selectedSize.menuTitle)
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                }
+
+                variation(2) {
+                    Picker(selection: $selectedMemoryMb) {
+                        ForEach(Self.sizes, id: \.memoryMb) { size in
+                            Text(size.title).tag(size.memoryMb)
+                        }
+                    } label: {
+                        Text(selectedSize.menuTitle)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                }
+
+                variation(3) {
+                    Picker(selection: $selectedMemoryMb) {
+                        sizeOptions
+                    } label: {
+                        Text(selectedSize.menuTitle)
+                    }
+                    .pickerStyle(.radioGroup)
+                    .labelsHidden()
+                }
+
+                variation(4) {
+                    Stepper(value: selectedIndexBinding, in: 0...(Self.sizes.count - 1)) {
+                        Text(selectedSize.menuTitle)
+                    }
+                }
+
+                variation(5) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(selectedSize.menuTitle)
+                        Slider(value: selectedIndexDoubleBinding, in: 0...Double(Self.sizes.count - 1), step: 1)
+                    }
+                }
+
+                variation(6) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(Self.sizes, id: \.memoryMb) { size in
+                            Button {
+                                selectedMemoryMb = size.memoryMb
+                            } label: {
+                                HStack {
+                                    Text(size.menuTitle)
+                                    Spacer()
+                                    if size.memoryMb == selectedMemoryMb {
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+
+                variation(7) {
+                    DisclosureGroup(selectedSize.menuTitle) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            ForEach(Self.sizes, id: \.memoryMb) { size in
+                                Button(size.menuTitle) {
+                                    selectedMemoryMb = size.memoryMb
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.top, 4)
+                    }
+                }
+
+                variation(8) {
+                    Menu {
+                        ForEach(Self.sizes, id: \.memoryMb) { size in
+                            Button(size.menuTitle) {
+                                selectedMemoryMb = size.memoryMb
+                            }
+                        }
+                    } label: {
+                        Text(selectedSize.menuTitle)
+                    }
+                }
+
+                variation(9) {
+                    Picker(selection: $selectedMemoryMb) {
+                        sizeOptions
+                    } label: {
+                        Text(String(localized: "machines.new.size.label", defaultValue: "Machine size"))
+                    }
+                }
+
+                variation(10) {
+                    HStack(spacing: 8) {
+                        Button {
+                            selectedMemoryMb = Self.sizes[max(selectedIndex - 1, 0)].memoryMb
+                        } label: {
+                            Image(systemName: "minus")
+                        }
+                        .buttonStyle(.bordered)
+                        Text(selectedSize.menuTitle)
+                        Button {
+                            selectedMemoryMb = Self.sizes[min(selectedIndex + 1, Self.sizes.count - 1)].memoryMb
+                        } label: {
+                            Image(systemName: "plus")
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                }
+            }
+            .frame(width: 588, alignment: .leading)
+            .padding()
+        }
+        .frame(width: 620, height: viewportHeight)
+    }
+
+    @ViewBuilder
+    private var sizeOptions: some View {
+        ForEach(Self.sizes, id: \.memoryMb) { size in
+            Text(size.menuTitle).tag(size.memoryMb)
+        }
+    }
+
+    @ViewBuilder
+    private func variation<Content: View>(
+        _ number: Int,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(String(format: "%02d", number))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            content()
+            Divider()
+        }
     }
 }
+
+private struct NewMachinePickerVariationsPreview_Previews: PreviewProvider {
+    static var previews: some View {
+        NewMachinePickerVariationsPreview()
+    }
+}
+#endif

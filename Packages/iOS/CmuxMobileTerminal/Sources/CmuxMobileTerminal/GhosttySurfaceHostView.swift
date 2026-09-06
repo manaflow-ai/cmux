@@ -54,6 +54,10 @@ import UIKit
 public final class GhosttySurfaceHostView: UIView {
     public let surfaceView: GhosttySurfaceView
     private let keyboardFrameTracker: MobileKeyboardFrameTracker
+    /// Safe-area value captured outside the SwiftUI terminal subtree. The
+    /// surface can be intentionally underlapped, so its UIKit leaf may report
+    /// zero even when the screen still has a home-indicator inset.
+    private var capturedBottomSafeAreaInset: CGFloat
     private let terminalClipView = UIView()
     private let terminalPresentationView = UIView()
     /// dock.bottom == host.bottom + c; the seat authority on iOS 27 and while
@@ -151,10 +155,12 @@ public final class GhosttySurfaceHostView: UIView {
         surfaceView: GhosttySurfaceView,
         keyboardFrameTracker: MobileKeyboardFrameTracker,
         keyboardDockRebuildRevertEnabled: Bool = false,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = .standard,
+        capturedBottomSafeAreaInset: CGFloat = 0
     ) {
         self.surfaceView = surfaceView
         self.keyboardFrameTracker = keyboardFrameTracker
+        self.capturedBottomSafeAreaInset = max(0, capturedBottomSafeAreaInset)
         var debugForceLegacy = false
         var debugForceRebuild = false
         var debugForceIOS27Seat = false
@@ -617,8 +623,35 @@ public final class GhosttySurfaceHostView: UIView {
     private var resolvedBottomSafeAreaInset: CGFloat {
         TerminalLetterboxGeometry.resolvedBottomSafeAreaInset(
             viewInset: safeAreaInsets.bottom,
-            windowInset: window?.safeAreaInsets.bottom ?? 0
+            windowInset: window?.safeAreaInsets.bottom ?? 0,
+            capturedInset: capturedBottomSafeAreaInset,
+            ancestorInsets: safeAreaAncestorBottomInsets
         )
+    }
+
+    /// Keeps the host's plain dock seat and the surface's grid reservation on
+    /// the same outer safe-area fallback as SwiftUI discovers it.
+    public func setCapturedBottomSafeAreaInset(_ inset: CGFloat) {
+        let next = max(0, inset)
+        guard abs(next - capturedBottomSafeAreaInset) > 0.25 else { return }
+        capturedBottomSafeAreaInset = next
+        surfaceView.setCapturedBottomSafeAreaInset(next)
+        seatDockWithoutAnimation()
+        surfaceView.hostRequestsGeometrySync()
+    }
+
+    /// A SwiftUI terminal leaf can intentionally ignore the container safe
+    /// area, which makes this host's own inset zero. Walk the UIKit chain so a
+    /// window or outer hosting container can still provide the physical home
+    /// indicator inset to the plain dock seat.
+    private var safeAreaAncestorBottomInsets: [CGFloat] {
+        var insets: [CGFloat] = []
+        var ancestor = superview
+        while let view = ancestor {
+            insets.append(view.safeAreaInsets.bottom)
+            ancestor = view.superview
+        }
+        return insets
     }
 
     func updateTerminalBackground(_ color: UIColor) {

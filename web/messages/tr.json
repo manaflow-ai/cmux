@@ -7,12 +7,14 @@
         "snapshot": "Bu Cloud VM, kaydedilmiş VM durumunu desteklemiyor.",
         "restore": "Bu Cloud VM türü, kaydedilmiş VM durumunu geri yüklemeyi desteklemiyor.",
         "fork": "Bu Cloud VM, yeni bir VM'ye kopyalamayı desteklemiyor.",
+        "openPort": "Bu Cloud VM'nin sağlayıcısı makine bağlantı noktalarını önizleme URL'leri olarak sunamıyor.",
         "default": "Bu Cloud VM, istenen işlemi desteklemiyor."
       },
       "action": {
         "snapshot": "Tekrar denemeyin. Bu makine türündeki çalışmalar kalıcı ana dizin biriminde tutulur.",
         "restore": "Tekrar denemeyin. Bu makine türündeki çalışmalar kalıcı ana dizin biriminde tutulur.",
         "fork": "Tekrar denemeyin. `cmux vm new` ile yeni bir VM oluşturun.",
+        "openPort": "Tekrar denemeyin. Hizmete makinenin içinden `cmux vm exec` ile erişin veya bağlantı noktalarını açabilen bir makine türü kullanın.",
         "default": "Tekrar denemeyin. `cmux vm ls` komutunu çalıştırın veya bunun yanlış olduğunu düşünüyorsanız destek ekibine başvurun."
       }
     },
@@ -59,6 +61,15 @@
     "genericTitle": "Giriş tamamlanamadı",
     "genericBody": "Lütfen tekrar deneyin. Sorun devam ederse destek ekibiyle iletişime geçin.",
     "backToSignIn": "Girişe dön"
+  },
+  "cloudPublicationAccess": {
+    "title": "Erişim izniniz yok",
+    "signIn": "cmux'ta oturum aç",
+    "signedInAs": "{identity} olarak oturum açıldı",
+    "switchAccount": "Hesap değiştir",
+    "invalidTitle": "Bu erişim bağlantısı geçerli değil",
+    "invalidBody": "Siteye dönüp tekrar deneyin.",
+    "footer": "Erişim cmux tarafından yönetilir."
   },
   "common": {
     "downloadForMac": "Mac için İndir",
@@ -261,7 +272,18 @@
       "metaTitle": "coderouter — cmux",
       "metaDescription": "Paylaşılan AI hesaplarını yönetin ve istekleri coderouter ile yönlendirin.",
       "title": "coderouter",
-      "description": "coderouter, LLM isteklerini yük devretme ve kullanıma duyarlı zamanlamayla sağlayıcı hesapları arasında yönlendirir."
+      "description": "coderouter, LLM isteklerini yük devretme ve kullanıma duyarlı zamanlamayla sağlayıcı hesapları arasında yönlendirir.",
+      "machines": {
+        "title": "Makineler",
+        "description": "Son {days} günde {team} için makine başına coderouter kullanımı.",
+        "machineColumn": "Makine",
+        "tokensColumn": "Toplam token",
+        "apiEquivalentColumn": "API eşdeğer değeri",
+        "unnamed": "Adsız makine",
+        "empty": "Son {days} günde hiçbir makine coderouter kullanmadı.",
+        "unavailable": "Makine başına kullanım geçici olarak kullanılamıyor.",
+        "estimateNote": "API eşdeğer değeri, herkese açık liste fiyatlarına dayalı bir tahmindir, gerçek harcama değildir."
+      }
     },
     "accountMenu": {
       "label": "Hesap menüsü",
@@ -1161,6 +1183,14 @@
         "shortcuts": {
           "when": "Her eylem için isteğe bağlı bağlam koşulları (VS Code tarzı `when` koşulları), cmux eylem id'sine göre anahtarlanır. Her değer, bağlam anahtarları üzerinde !, &&, || ve parantezlerle birleştirilen bir boolean ifadesidir. Boolean anahtarlar: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Türlü anahtarlar karşılaştırmaları destekler: sidebarMode dizesi (files, find, sessions, feed veya dock) ile paneCount ve workspaceCount tamsayıları. Karşılaştırma işleçleri ==, !=, =~ (düzenli ifade), <, <=, >, >= ve `in [a, b]` şeklindedir; bilinmeyen veya bulunmayan bir anahtar false kabul edilir. true ve false boolean sabitleri de kabul edilir; `key == false`, `!key` ile aynıdır. Eylemin kısayolu yalnızca koşul doğru olduğunda çalışır (ve diğer kısayollarla yalnızca o durumda çakışır). Örnekler: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } sağ kenar çubuğu odaktayken hariç her yerde Ctrl+1–9 ile çalışma alanlarını seçer; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } çalışma alanında birden çok bölme varken bir atamayı Bul kenar çubuğuyla sınırlar.",
           "showModifierHoldHints": "Cmd veya Control basılı tutulurken kısayol ipucu rozetlerini göster."
+        },
+        "fileEditor": {
+          "wordWrap": "Uzun satırları yatay kaydırmak yerine düzenleyicinin sağ kenarında kaydırır.",
+          "syntaxHighlighting": "Yerleşik dosya düzenleyicide kaynak kodu jetonlarını renklendirir.",
+          "lineNumbers": "Yerleşik dosya düzenleyicide satır numarası oluğunu gösterir.",
+          "indentGuides": "Yerleşik dosya düzenleyicide dikey girinti kılavuzları çizer.",
+          "currentLineHighlight": "Seçim yokken imlecin bulunduğu satırı vurgular.",
+          "tabWidth": "Girinti ve girinti kılavuzları için sekme durağının sütun cinsinden genişliği."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

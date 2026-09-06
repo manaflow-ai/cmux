@@ -73,8 +73,8 @@ use crate::workspace_registry::TerminalLifecycle;
 use crate::{
     AgentRecord, AgentSource, AgentState, AttachFrame, BrowserAttachState, BrowserFrameStream,
     DefaultColors, Direction, GraphicsStatus, JournalClass, JournalSensitivity, JournalSubject,
-    LayoutLeafSpec, LayoutRatioError, LayoutSpec, LayoutUndoResult, Mux, MuxEvent, Node,
-    NotificationLevel, PairingDecision, PaneId, RenderAttachFrame, RenderAttachStream, Rgb,
+    LayoutLeafSpec, LayoutRatioError, LayoutSpec, LayoutUndoResult, MachineUsage, Mux, MuxEvent,
+    Node, NotificationLevel, PairingDecision, PaneId, RenderAttachFrame, RenderAttachStream, Rgb,
     ScreenId, SidebarPluginStatus, SplitDir, SplitId, SurfaceId, SurfaceKind, SurfaceNotification,
     SurfaceRenderFrame, TerminalColors, TreeDelta, TreeDeltaKind, ViewportWidthError, WorkspaceId,
     WorkspaceMutation, ZoomMode, assign_short_ids,
@@ -107,7 +107,16 @@ pub const MAX_CREATION_SELECTOR_FALLBACKS: usize = 7;
 pub const PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY: &str =
     "provider-managed-workspace-authority-v2";
 pub const BROWSER_PROVIDER_CAPABILITY: &str = "browser-provider-v1";
+/// Advertises the `server-stats` command.
+pub const SERVER_STATS_CAPABILITY: &str = "server-stats-v1";
 pub const CLIENT_FOCUS_CAPABILITY: &str = "client-focus-v1";
+pub const DAEMON_SHUTDOWN_EVENT: &str = "daemon-shutdown";
+/// The daemon answers `machine-usage` and emits `machine-usage-changed`.
+pub const MACHINE_USAGE_CAPABILITY: &str = "machine-usage-v1";
+/// The daemon reads the host's listening TCP sockets for an authenticated
+/// client. Cloud clients use this over the private cmux-tui link, so routine
+/// port inventory never needs a provider or web control-plane call.
+pub const MACHINE_LISTENING_TCP_CAPABILITY: &str = "machine-listening-tcp-v1";
 const INITIAL_BROWSER_RESIZE_TIMEOUT: Duration = Duration::from_secs(10);
 pub const STABLE_SPLIT_IDS_PROTOCOL_VERSION: u32 = 8;
 pub const STACK_LAYOUT_PROTOCOL_VERSION: u32 = 9;
@@ -127,6 +136,59 @@ fn validate_client_focus_id(client_id: &str) -> anyhow::Result<()> {
         anyhow::bail!("bad request: invalid client_id");
     }
     Ok(())
+}
+
+/// `machine-usage` result and `machine-usage-changed` payload body: `usage`
+/// is the readout object or null when the daemon has none.
+fn machine_usage_json(usage: Option<&MachineUsage>) -> Value {
+    json!({
+        "usage": usage.map(|usage| json!({
+            "vm_id": usage.vm_id,
+            "period_days": usage.period_days,
+            "total_tokens": usage.total_tokens,
+            "api_equivalent_usd": usage.api_equivalent_usd,
+            "as_of": usage.as_of,
+        })),
+    })
+}
+
+fn machine_listening_tcp_json() -> anyhow::Result<Value> {
+    #[cfg(not(unix))]
+    {
+        anyhow::bail!("machine listening TCP inventory is not supported on this platform");
+    }
+    #[cfg(unix)]
+    {
+        const MAX_LISTING_BYTES: usize = 512 * 1024;
+        let candidates: [(&str, &[&str]); 2] = [("ss", &["-H", "-ltn"]), ("netstat", &["-ltn"])];
+        let mut failures = Vec::new();
+        for (program, arguments) in candidates {
+            let output = match std::process::Command::new(program).args(arguments).output() {
+                Ok(output) => output,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(error) => {
+                    failures.push(format!("{program}: {error}"));
+                    continue;
+                }
+            };
+            if !output.status.success() {
+                failures.push(format!("{program}: exited with {}", output.status));
+                continue;
+            }
+            if output.stdout.len() > MAX_LISTING_BYTES {
+                anyhow::bail!("machine listening TCP inventory exceeded {MAX_LISTING_BYTES} bytes");
+            }
+            let stdout = String::from_utf8(output.stdout)
+                .context("machine listening TCP inventory was not UTF-8")?;
+            return Ok(json!({ "stdout": stdout }));
+        }
+        let detail = if failures.is_empty() {
+            "neither ss nor netstat is installed".to_string()
+        } else {
+            failures.join("; ")
+        };
+        anyhow::bail!("machine listening TCP inventory failed: {detail}");
+    }
 }
 
 fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&'static str> {
@@ -150,6 +212,9 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
         BROWSER_PROVIDER_CAPABILITY,
         CLIENT_FOCUS_CAPABILITY,
+        MACHINE_USAGE_CAPABILITY,
+        MACHINE_LISTENING_TCP_CAPABILITY,
+        SERVER_STATS_CAPABILITY,
     ];
     if bounded_clear_history_fallback_writes {
         capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);
@@ -611,6 +676,10 @@ struct BrowserProviderTargetRequest {
 #[serde(tag = "cmd", rename_all = "kebab-case")]
 enum Command {
     Identify,
+    /// Report where this daemon spends its time: registry lock contention
+    /// with holder sites, journal writer batch metrics, and connection
+    /// admission. Owner-only diagnostics, never journaled.
+    ServerStats,
     /// Gracefully hand this daemon's durable session to a replacement.
     /// The caller must fence the request with values from this daemon's
     /// `identify` response.
@@ -630,6 +699,11 @@ enum Command {
         capabilities: Option<Vec<String>>,
     },
     ListClients,
+    /// Read the machine-level model spend readout hosted by this daemon.
+    MachineUsage,
+    /// Read listening TCP sockets on this host. The fixed command has no
+    /// caller-controlled arguments and returns only the socket listing.
+    MachineListeningTcp,
     /// Publish the native browser process's live CDP targets. This is an
     /// owner-only, connection-scoped lease and never enters the journal.
     RegisterBrowserProvider {
@@ -2842,21 +2916,30 @@ struct ConnectionPermit {
     _lease: Arc<ConnectionPermitLease>,
 }
 
-struct ConnectionPermitLease(Arc<AtomicU64>);
+struct ConnectionPermitLease(Arc<crate::diagnostics::ConnectionStats>);
 
 impl Drop for ConnectionPermitLease {
     fn drop(&mut self) {
-        self.0.fetch_sub(1, Ordering::AcqRel);
+        self.0.release();
     }
 }
 
-fn claim_connection(active: &Arc<AtomicU64>) -> Option<ConnectionPermit> {
-    active
-        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
-            (count < MAX_SERVER_CONNECTIONS as u64).then_some(count + 1)
-        })
-        .ok()
-        .map(|_| ConnectionPermit { _lease: Arc::new(ConnectionPermitLease(active.clone())) })
+fn claim_connection(
+    connections: &Arc<crate::diagnostics::ConnectionStats>,
+) -> Option<ConnectionPermit> {
+    connections
+        .try_claim(MAX_SERVER_CONNECTIONS as u64)
+        .then(|| ConnectionPermit { _lease: Arc::new(ConnectionPermitLease(connections.clone())) })
+}
+
+fn server_stats(mux: &Mux) -> crate::diagnostics::ServerStatsSnapshot {
+    crate::diagnostics::ServerStatsSnapshot {
+        schema: crate::diagnostics::SERVER_STATS_SCHEMA,
+        uptime_ms: u64::try_from(mux.uptime().as_millis()).unwrap_or(u64::MAX),
+        registry_lock: mux.registry_lock_stats(),
+        journal_writer: mux.journal_writer_stats(),
+        connections: mux.connection_stats().snapshot(MAX_SERVER_CONNECTIONS as u64),
+    }
 }
 
 impl BoundedOutbound {
@@ -3789,6 +3872,10 @@ impl ClientRegistry {
 
     #[cfg(test)]
     fn daemon_handoff_pending(&self) -> bool {
+        self.state.lock().unwrap().daemon_handoff.is_some()
+    }
+
+    pub(crate) fn daemon_handoff_in_progress(&self) -> bool {
         self.state.lock().unwrap().daemon_handoff.is_some()
     }
 
@@ -4861,13 +4948,41 @@ pub struct SocketStartLock {
     _file: std::fs::File,
 }
 
+const SOCKET_START_LOCK_RETRY_INTERVAL: Duration = Duration::from_millis(25);
+
+/// Return the next retry wait without extending the caller's deadline.
+/// `try_lock` remains non-blocking; only this retry delay is bounded.
+fn socket_start_lock_retry_delay(now: Instant, deadline: Instant) -> Option<Duration> {
+    let remaining = deadline.checked_duration_since(now)?;
+    (!remaining.is_zero()).then_some(SOCKET_START_LOCK_RETRY_INTERVAL.min(remaining))
+}
+
+fn socket_start_lock_timeout() -> std::io::Error {
+    std::io::Error::new(
+        std::io::ErrorKind::TimedOut,
+        "timed out waiting for a concurrent session-server start",
+    )
+}
+
 impl SocketStartLock {
     pub fn acquire(socket: &Path, deadline: Instant) -> std::io::Result<Self> {
         let mut name = socket.file_name().unwrap_or_default().to_os_string();
         name.push(".spawn-lock");
         let path = socket.with_file_name(name);
         let mut options = std::fs::OpenOptions::new();
-        options.create(true).append(true);
+        options.create(true);
+        #[cfg(windows)]
+        {
+            // fs4 uses LockFileEx, which rejects Rust's append-only handle
+            // because it has neither GENERIC_READ nor GENERIC_WRITE.
+            options.truncate(false).read(true).write(true);
+        }
+        #[cfg(not(windows))]
+        {
+            // O_NONBLOCK plus write-only access rejects a FIFO before the
+            // metadata check without waiting for another process to open it.
+            options.append(true);
+        }
         #[cfg(unix)]
         {
             use std::os::unix::fs::OpenOptionsExt as _;
@@ -4913,13 +5028,13 @@ impl SocketStartLock {
                 Err(fs4::TryLockError::WouldBlock) => {}
                 Err(fs4::TryLockError::Error(error)) => return Err(error),
             }
+            let Some(retry_delay) = socket_start_lock_retry_delay(Instant::now(), deadline) else {
+                return Err(socket_start_lock_timeout());
+            };
+            std::thread::sleep(retry_delay);
             if Instant::now() >= deadline {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::TimedOut,
-                    "timed out waiting for a concurrent session-server start",
-                ));
+                return Err(socket_start_lock_timeout());
             }
-            std::thread::sleep(Duration::from_millis(25));
         }
     }
 }
@@ -4957,7 +5072,7 @@ pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<Pend
         cleanup(&path);
         return Err(error.into());
     }
-    let active_connections = Arc::new(AtomicU64::new(0));
+    let active_connections = mux.connection_stats().clone();
     let render_service = Arc::new(RenderService::new());
     let shutdown = Arc::new(AtomicBool::new(false));
     let server_shutdown = shutdown.clone();
@@ -5045,7 +5160,7 @@ pub fn serve_websocket(
     let shutdown = Arc::new(AtomicBool::new(false));
     let connections = Arc::new(Mutex::new(HashMap::new()));
     let next_connection = Arc::new(AtomicU64::new(1));
-    let active_connections = Arc::new(AtomicU64::new(0));
+    let active_connections = mux.connection_stats().clone();
     let thread_shutdown = shutdown.clone();
     let thread_connections = connections.clone();
     let render_service = Arc::new(RenderService::new());
@@ -5384,6 +5499,15 @@ fn authenticate_websocket(
 }
 
 fn disconnect_client(mux: &Arc<Mux>, client: u64, send_detached: bool) -> bool {
+    disconnect_client_with_notice(mux, client, send_detached, None)
+}
+
+fn disconnect_client_with_notice(
+    mux: &Arc<Mux>,
+    client: u64,
+    send_detached: bool,
+    notice: Option<&str>,
+) -> bool {
     let record = {
         let _lifecycle = mux.lock_client_sizing_lifecycle();
         let Some(record) = mux.control_clients.remove(client) else { return false };
@@ -5414,6 +5538,10 @@ fn disconnect_client(mux: &Arc<Mux>, client: u64, send_detached: bool) -> bool {
     }
     if send_detached {
         let _ = record.writer.set_write_timeout(Some(CLIENT_DETACH_WRITE_TIMEOUT));
+        if let Some(event) = notice {
+            let _ = record.writer.send_control(&json!({"event": event}));
+            let _ = record.writer.flush_control(CLIENT_DETACH_WRITE_TIMEOUT);
+        }
         for (surface, attached) in &record.attached {
             for stream in attached.streams.values() {
                 let _ = record
@@ -5443,13 +5571,20 @@ fn complete_daemon_shutdown_after_ack(
         mux.cancel_daemon_handoff(requesting_client);
         return false;
     }
-    mux.request_daemon_shutdown();
+    let requester_notice_sent = writer
+        .send_control(&json!({"event": DAEMON_SHUTDOWN_EVENT}))
+        .and_then(|()| writer.flush_control(SHUTDOWN_ACK_FLUSH_TIMEOUT))
+        .is_ok();
     for peer in mux.control_clients.client_ids() {
         if peer != requesting_client {
-            disconnect_client(mux, peer, true);
+            disconnect_client_with_notice(mux, peer, true, Some(DAEMON_SHUTDOWN_EVENT));
         }
     }
-    true
+    // Keep the owner alive until every detached client has received the
+    // shutdown notice. The committed handoff reservation fences new work
+    // while these notices are being flushed.
+    mux.request_daemon_shutdown();
+    requester_notice_sent
 }
 
 pub fn detach_control_client(mux: &Arc<Mux>, client: u64) -> bool {
@@ -8964,7 +9099,7 @@ fn handle_connection_message(
     // the transport, so lifecycle clients receive authoritative completion.
     // A pipelined message after the acknowledgement must not reach parsing or
     // dispatch; returning false makes the connection loop close that client.
-    if mux.daemon_shutdown_requested() {
+    if mux.daemon_shutdown_requested() || mux.daemon_handoff_in_progress() {
         return false;
     }
     if crate::resource_router::is_resource_protocol_message(message) {
@@ -11081,6 +11216,12 @@ fn handle_command_with_cancellation(
     cancellation: Option<&AtomicBool>,
 ) -> anyhow::Result<Value> {
     match cmd {
+        Command::ServerStats => {
+            if !mux.control_clients.is_unix(client) {
+                anyhow::bail!("server stats requires a trusted local connection");
+            }
+            Ok(serde_json::to_value(server_stats(mux))?)
+        }
         Command::Identify => {
             let (registry_id, generation) = mux.registry_identity();
             Ok(json!({
@@ -11124,6 +11265,8 @@ fn handle_command_with_cancellation(
             Ok(json!({}))
         }
         Command::ListClients => Ok(mux.control_clients_json(client)),
+        Command::MachineUsage => Ok(machine_usage_json(mux.machine_usage().as_ref())),
+        Command::MachineListeningTcp => machine_listening_tcp_json(),
         Command::RegisterBrowserProvider {
             provider_id,
             endpoint,
@@ -13091,6 +13234,11 @@ fn subscribed_event_json(event: &MuxEvent) -> Value {
             }),
         },
         MuxEvent::Status(message) => json!({"event": "status", "message": message}),
+        MuxEvent::MachineUsageChanged(usage) => {
+            let mut payload = machine_usage_json(usage.as_ref());
+            payload["event"] = json!("machine-usage-changed");
+            payload
+        }
         MuxEvent::ConfigReloadRequested => json!({"event": "config-reload-requested"}),
         MuxEvent::WindowTitleRequested(title) => {
             json!({"event": "window-title-requested", "title": title})
@@ -13260,6 +13408,41 @@ mod tests {
             Err(error) => error,
         };
         assert_eq!(error.raw_os_error(), Some(libc::ELOOP));
+    }
+
+    #[test]
+    fn socket_start_lock_retry_delay_never_exceeds_remaining_deadline() {
+        let now = Instant::now();
+        let short_deadline = now + Duration::from_millis(10);
+        let delay = socket_start_lock_retry_delay(now, short_deadline)
+            .expect("a future deadline should permit a retry");
+        assert_eq!(delay, Duration::from_millis(10));
+        assert!(delay <= short_deadline.duration_since(now));
+
+        let long_deadline = now + Duration::from_secs(1);
+        assert_eq!(
+            socket_start_lock_retry_delay(now, long_deadline),
+            Some(Duration::from_millis(25))
+        );
+        assert_eq!(socket_start_lock_retry_delay(short_deadline, short_deadline), None);
+        assert_eq!(
+            socket_start_lock_retry_delay(
+                short_deadline + Duration::from_millis(1),
+                short_deadline
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn socket_start_lock_acquires_a_new_lock_file() {
+        let dir = TestSocketDir::create("start-lock-new-file");
+        let socket = dir.path().join("mux.sock");
+        let lock = dir.path().join("mux.sock.spawn-lock");
+
+        let _guard = SocketStartLock::acquire(&socket, Instant::now()).unwrap();
+
+        assert!(lock.is_file());
     }
 
     #[cfg(unix)]
@@ -17983,13 +18166,50 @@ mod tests {
 
     #[test]
     fn server_connection_permits_enforce_and_release_the_cap() {
-        let active = Arc::new(AtomicU64::new(MAX_SERVER_CONNECTIONS as u64));
-        assert!(claim_connection(&active).is_none());
-        active.store(MAX_SERVER_CONNECTIONS as u64 - 1, Ordering::Release);
-        let permit = claim_connection(&active).expect("last connection slot");
-        assert_eq!(active.load(Ordering::Acquire), MAX_SERVER_CONNECTIONS as u64);
-        drop(permit);
-        assert_eq!(active.load(Ordering::Acquire), MAX_SERVER_CONNECTIONS as u64 - 1);
+        let connections = Arc::new(crate::diagnostics::ConnectionStats::default());
+        let permits: Vec<ConnectionPermit> = (0..MAX_SERVER_CONNECTIONS)
+            .map(|_| claim_connection(&connections).expect("slot below the cap"))
+            .collect();
+        assert!(claim_connection(&connections).is_none());
+        assert_eq!(connections.active(), MAX_SERVER_CONNECTIONS as u64);
+        drop(permits);
+        assert_eq!(connections.active(), 0);
+        let snapshot = connections.snapshot(MAX_SERVER_CONNECTIONS as u64);
+        assert_eq!(snapshot.refused, 1);
+        assert_eq!(snapshot.peak, MAX_SERVER_CONNECTIONS as u64);
+    }
+
+    #[test]
+    fn server_stats_report_lock_writer_and_connection_metrics() {
+        let mux = test_mux();
+        let unix_client = mux.control_clients.register(ClientTransport::Unix, test_writer());
+        let websocket_client =
+            mux.control_clients.register(ClientTransport::WebSocket, test_writer());
+        let identity = handle_command(&mux, 0, Command::Identify, &test_writer()).unwrap();
+        assert!(
+            identity["capabilities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|c| c == SERVER_STATS_CAPABILITY)
+        );
+        // Any registry use records a hold at its call site.
+        let _ = mux.registry_identity();
+        let stats =
+            handle_command(&mux, unix_client, Command::ServerStats, &test_writer()).unwrap();
+        assert_eq!(stats["schema"].as_u64(), Some(crate::diagnostics::SERVER_STATS_SCHEMA as u64));
+        assert!(stats["uptime_ms"].is_u64());
+        let lock = &stats["registry_lock"];
+        assert!(lock["hold_us"]["count"].as_u64().unwrap() >= 1, "{lock}");
+        assert!(lock["holder"].is_null(), "{lock}");
+        let site = lock["top_sites"][0]["site"].as_str().unwrap();
+        assert!(site.contains("mux.rs:"), "{site}");
+        assert_eq!(stats["connections"]["limit"].as_u64(), Some(MAX_SERVER_CONNECTIONS as u64));
+        assert!(stats["journal_writer"].is_object() || stats["journal_writer"].is_null());
+
+        let error = handle_command(&mux, websocket_client, Command::ServerStats, &test_writer())
+            .expect_err("remote clients must not receive internal server stats");
+        assert!(error.to_string().contains("trusted local connection"));
     }
 
     #[test]
@@ -18476,7 +18696,7 @@ mod tests {
 
     #[test]
     fn scheduler_retains_connection_permit_until_dispatcher_exit() {
-        let active = Arc::new(AtomicU64::new(0));
+        let active = Arc::new(crate::diagnostics::ConnectionStats::default());
         let permit = claim_connection(&active).unwrap();
         let scheduler = Arc::new(ConnectionSurfaceScheduler::new_with_connection_permit(
             Arc::new(ServerSurfaceOperationAdmission::default()),
@@ -18493,14 +18713,14 @@ mod tests {
 
         assert!(!scheduler.close_and_wait(Duration::from_millis(25)));
         assert_eq!(
-            active.load(Ordering::Acquire),
+            active.active(),
             1,
             "timed-out shutdown released admission while its dispatcher was live"
         );
 
         release_tx.send(()).unwrap();
         assert!(scheduler.close_and_wait(Duration::from_secs(1)));
-        assert_eq!(active.load(Ordering::Acquire), 0);
+        assert_eq!(active.active(), 0);
     }
 
     #[test]
@@ -19948,7 +20168,9 @@ mod tests {
             MessageWriter::new(QueuedSink { outbound: accepted_outbound.clone(), control: None });
         let local =
             accepted.control_clients.register(ClientTransport::Unix, accepted_writer.clone());
-        let interactive = accepted.control_clients.register(ClientTransport::Unix, test_writer());
+        let (interactive_writer, interactive_outbound) = captured_writer();
+        let interactive =
+            accepted.control_clients.register(ClientTransport::Unix, interactive_writer);
         let (_, generation) = accepted.registry_identity();
         assert!(handle_message(
             &accepted,
@@ -19974,6 +20196,10 @@ mod tests {
         assert_eq!(response["data"]["generation"], generation);
         assert!(accepted.control_clients.contains(local));
         assert!(!accepted.control_clients.contains(interactive));
+        let requester_shutdown = pop_json(&accepted_outbound);
+        assert_eq!(requester_shutdown["event"], DAEMON_SHUTDOWN_EVENT);
+        let shutdown = pop_json(&interactive_outbound);
+        assert_eq!(shutdown["event"], DAEMON_SHUTDOWN_EVENT);
     }
 
     #[test]
@@ -20005,12 +20231,20 @@ mod tests {
         ));
 
         release_flush.send(()).unwrap();
+        flush_entered
+            .recv_timeout(Duration::from_secs(2))
+            .expect("shutdown did not flush the requester shutdown notice");
+        assert!(!mux.daemon_shutdown_requested());
+        assert!(mux.control_clients.daemon_handoff_pending());
+        release_flush.send(()).unwrap();
         assert!(worker.join().unwrap());
         assert!(mux.daemon_shutdown_requested());
         assert!(mux.control_clients.contains(requester));
         assert!(!mux.control_clients.contains(interactive));
         let response = pop_json(&outbound);
         assert_eq!(response["ok"], true);
+        let shutdown = pop_json(&outbound);
+        assert_eq!(shutdown["event"], DAEMON_SHUTDOWN_EVENT);
         assert_eq!(response["data"]["accepted"], true);
     }
 
@@ -20041,6 +20275,8 @@ mod tests {
         assert!(writer.is_open());
         let response = pop_json(&outbound);
         assert_eq!(response["ok"], true);
+        let shutdown = pop_json(&outbound);
+        assert_eq!(shutdown["event"], DAEMON_SHUTDOWN_EVENT);
 
         let workspace_count = mux.with_state(|state| state.workspaces.len());
         let pipelined = json!({
@@ -20050,6 +20286,31 @@ mod tests {
         })
         .to_string();
         assert!(!handle_connection_message(&mux, requester, &pipelined, &writer, &scheduler,));
+        assert_eq!(mux.with_state(|state| state.workspaces.len()), workspace_count);
+        assert!(outbound.try_pop().is_none());
+    }
+
+    #[test]
+    fn daemon_handoff_fences_pipelined_messages_before_shutdown_flag() {
+        let mux = test_mux();
+        mux.mark_server_lifecycle_ready();
+        let (writer, outbound) = captured_writer();
+        let requester = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        mux.begin_daemon_handoff(requester, DaemonHandoffRequest::unfenced(false)).unwrap();
+        mux.commit_daemon_handoff_after_ack(requester, || Ok(())).unwrap();
+        assert!(mux.control_clients.daemon_handoff_pending());
+        assert!(!mux.daemon_shutdown_requested());
+
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let workspace_count = mux.with_state(|state| state.workspaces.len());
+        let pipelined = json!({
+            "id": 99,
+            "cmd": "new-workspace",
+            "name": "must-not-exist",
+        })
+        .to_string();
+        assert!(!handle_connection_message(&mux, requester, &pipelined, &writer, &scheduler));
         assert_eq!(mux.with_state(|state| state.workspaces.len()), workspace_count);
         assert!(outbound.try_pop().is_none());
     }
@@ -22394,6 +22655,16 @@ mod tests {
         let supported = advertised_capabilities(true);
         assert!(supported.contains(&CLEAR_HISTORY_CAPABILITY));
         assert!(supported.contains(&CLEAR_HISTORY_KEY_CAPABILITY));
+    }
+
+    #[test]
+    fn identify_advertises_private_link_port_discovery() {
+        assert!(advertised_capabilities(true).contains(&MACHINE_LISTENING_TCP_CAPABILITY));
+        let command: Command = serde_json::from_value(json!({
+            "cmd": "machine-listening-tcp",
+        }))
+        .unwrap();
+        assert!(matches!(command, Command::MachineListeningTcp));
     }
 
     #[test]

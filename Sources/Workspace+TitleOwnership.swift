@@ -7,13 +7,32 @@ import Foundation
 extension Workspace {
     // MARK: - Title Management
 
-    /// Who set a custom title. Auto-naming (AI-generated titles) must never
-    /// overwrite a user-set title; this enum carries that distinction for
-    /// workspace and panel custom titles, and round-trips through session
-    /// persistence.
+    /// Who set a custom title. Auto-naming must not overwrite a user or remote
+    /// title. A remote daemon observation is authoritative for a cloud-bound
+    /// projection and may replace a local title after another client changes the
+    /// daemon name. The separate source lets reconciliation avoid a write loop.
     enum CustomTitleSource: String, Codable, Sendable {
         case user
         case auto
+        case remote
+
+        /// Session manifests are also read by older cmux builds. Those builds
+        /// know `user` and `auto`, but not `remote`. Decode unknown values as
+        /// user-owned so a newer source can never make an older title unsafe
+        /// to overwrite. New session snapshots carry a separate compatibility
+        /// marker when the source is remote and encode this field as `user`.
+        init(from decoder: any Decoder) throws {
+            let value = try decoder.singleValueContainer().decode(String.self)
+            self = Self(rawValue: value) ?? .user
+        }
+
+        func encode(to encoder: any Encoder) throws {
+            var container = encoder.singleValueContainer()
+            // `remote` is represented by the optional snapshot marker. Keeping
+            // this enum value in the old vocabulary makes downgrade restores
+            // safe instead of making the whole manifest unreadable.
+            try container.encode(self == .remote ? Self.user.rawValue : rawValue)
+        }
     }
 
     var hasCustomTitle: Bool {
@@ -64,7 +83,7 @@ extension Workspace {
            let restoredPanelId = restoredPanelIds[persistedPanelId] {
             applyFocusedPanelTitle(panelId: restoredPanelId, requiresFocus: false)
         }
-        setCustomTitle(snapshot.customTitle, source: snapshot.customTitleSource ?? .user)
+        setCustomTitle(snapshot.customTitle, source: snapshot.effectiveCustomTitleSource ?? .user)
     }
 
     /// Reconciles a local workspace's automatic title with the resolved title
@@ -161,14 +180,15 @@ extension Workspace {
 
     /// Sets, replaces, or clears (empty/nil `title`) the workspace custom title.
     ///
-    /// `.auto` writes are rejected when a user-set title exists, and `.auto`
-    /// never clears. Returns whether the write landed.
+    /// `.auto` writes are rejected when a user or remote title exists, and
+    /// `.auto` never clears. `.remote` is the cloud daemon's canonical value and
+    /// may replace a local title. Returns whether the write landed.
     @discardableResult
     func setCustomTitle(_ title: String?, source: CustomTitleSource = .user) -> Bool {
         let trimmed = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if source == .auto {
             guard !trimmed.isEmpty else { return false }
-            if hasCustomTitle, (customTitleSource ?? .user) == .user { return false }
+            if hasCustomTitle, (customTitleSource ?? .user) != .auto { return false }
         }
         if trimmed.isEmpty {
             if customTitle != nil {

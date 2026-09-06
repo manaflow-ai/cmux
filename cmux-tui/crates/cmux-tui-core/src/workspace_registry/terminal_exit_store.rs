@@ -1,5 +1,6 @@
 use anyhow::Context;
-use rusqlite::{OptionalExtension, params};
+use rusqlite::{OptionalExtension, Transaction, params};
+use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::resource_store::validate_resource_patch;
@@ -9,7 +10,85 @@ use super::{
     session_journal::append_resource_journal_record, transaction_resource_revision,
     transaction_terminal_revision, validate_terminal_transition,
 };
-use crate::terminal_host_protocol::TerminalExit;
+use crate::resource::WireDecimal;
+use crate::terminal_host_protocol::{TerminalExit, TerminalExitOutcome};
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DurableTerminalExitReceipt {
+    outcome: TerminalExitOutcome,
+    exited_at: WireDecimal,
+    revision: WireDecimal,
+}
+
+pub(super) fn validate_terminal_exit_receipt(value: &Value) -> anyhow::Result<()> {
+    let DurableTerminalExitReceipt { outcome, exited_at, revision } =
+        serde_json::from_value(value.clone()).context("terminal exit receipt is invalid")?;
+    let _validated_revision = revision.get();
+    anyhow::ensure!(
+        TerminalExit { outcome, exited_at_ms: exited_at.get() }.is_valid(),
+        "terminal exit receipt outcome is invalid"
+    );
+    Ok(())
+}
+
+fn legacy_terminal_exit_reason(value: &Value) -> anyhow::Result<String> {
+    let present =
+        |key: &str| value.get(key).and_then(Value::as_str).filter(|value| !value.trim().is_empty());
+    Ok(match (present("reason"), present("error")) {
+        (Some(reason), Some(error)) if reason != error => format!("{reason}: {error}"),
+        (Some(reason), _) => reason.to_string(),
+        (None, Some(error)) => error.to_string(),
+        (None, None) => format!("legacy-terminal-exit: {}", canonical_json(value)?),
+    })
+}
+
+pub(super) fn migrate_legacy_terminal_exit_receipts(
+    transaction: &Transaction<'_>,
+) -> anyhow::Result<()> {
+    // Legacy rows recorded neither an exit timestamp nor a resource revision.
+    // Anchor the converted receipt to the upgrade observation and current head.
+    let resource_revision = super::meta_value(transaction, "resource_revision")?
+        .map(|value| value.parse::<u64>().context("resource revision is invalid"))
+        .transpose()?
+        .unwrap_or(0);
+    let terminals = {
+        let mut statement = transaction.prepare(
+            "SELECT terminal_id, exit_json
+             FROM terminal_hosts
+             WHERE lifecycle = 'exited'
+                OR (lifecycle = 'tombstoned' AND exit_json IS NOT NULL)
+             ORDER BY terminal_id",
+        )?;
+        let rows = statement.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
+        })?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()?
+    };
+    for (terminal_id, stored) in terminals {
+        let legacy = stored
+            .as_deref()
+            .map(serde_json::from_str::<Value>)
+            .transpose()
+            .with_context(|| format!("terminal {terminal_id} exit metadata is invalid JSON"))?
+            .unwrap_or(Value::Null);
+        if validate_terminal_exit_receipt(&legacy).is_ok() {
+            continue;
+        }
+        let observed = TerminalExit::unknown(legacy_terminal_exit_reason(&legacy)?);
+        let receipt = json!({
+            "outcome": observed.outcome,
+            "exited_at": observed.exited_at_ms.to_string(),
+            "revision": resource_revision.to_string(),
+        });
+        validate_terminal_exit_receipt(&receipt)?;
+        transaction.execute(
+            "UPDATE terminal_hosts SET exit_json = ?1 WHERE terminal_id = ?2",
+            params![canonical_json(&receipt)?, terminal_id],
+        )?;
+    }
+    Ok(())
+}
 
 impl WorkspaceRegistry {
     /// Latch one authoritative process exit into both registry timelines.
@@ -148,10 +227,6 @@ impl WorkspaceRegistry {
             apply_resource_patch(&tx, patch, sqlite_resource_revision)?;
         }
 
-        if let Some((patch, _)) = topology {
-            apply_resource_patch(&tx, patch, sqlite_resource_revision)?;
-        }
-
         tx.execute(
             "UPDATE terminal_hosts
              SET incarnation = ?1, lifecycle = 'exited', exit_json = ?2,
@@ -233,5 +308,19 @@ impl WorkspaceRegistry {
         super::resource_store::prune_resource_mutations(&tx)?;
         tx.commit()?;
         Ok((terminal, next_terminal_revision, next_resource_revision, false))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_terminal_exit_failure(&self, enabled: bool) -> anyhow::Result<()> {
+        if enabled {
+            self.connection.execute_batch(
+                "CREATE TEMP TRIGGER cmux_test_fail_terminal_exit
+                 BEFORE INSERT ON terminal_mutations
+                 BEGIN SELECT RAISE(ABORT, 'forced terminal exit failure'); END;",
+            )?;
+        } else {
+            self.connection.execute_batch("DROP TRIGGER IF EXISTS cmux_test_fail_terminal_exit")?;
+        }
+        Ok(())
     }
 }

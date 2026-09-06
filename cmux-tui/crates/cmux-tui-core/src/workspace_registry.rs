@@ -76,9 +76,10 @@ pub use resource_store::{
     ResourceWorkspaceLedger,
 };
 use resource_store::{
-    apply_resource_patch, create_resource_schema, initialize_resource_mutation_retention,
-    migrate_resource_agent_projections, migrate_resource_browser_metadata,
-    migrate_resource_mutations_to_session_scope, migrate_resource_tabs_to_multiview,
+    apply_resource_patch, complete_terminal_close_patch, create_resource_schema,
+    initialize_resource_mutation_retention, migrate_resource_agent_projections,
+    migrate_resource_browser_metadata, migrate_resource_mutations_to_session_scope,
+    migrate_resource_tabs_to_multiview, repair_dangling_terminal_resources,
     resource_tabs_needs_multiview_normalization, validate_resource_invariants,
 };
 pub use session_journal::{
@@ -99,7 +100,8 @@ pub(crate) use session_journal::{SessionJournalReader, unix_epoch_ms};
 // one branch. Version 12 scopes receipts by origin. Version 13 adds immutable
 // binary content to journal rows. Version 14 gives resource API frontend
 // projections one owned envelope instead of storing anonymous projection JSON.
-const SCHEMA_VERSION: i64 = 14;
+// Version 15 normalizes legacy terminal exits to the exact public receipt shape.
+const SCHEMA_VERSION: i64 = 15;
 pub(crate) const RESOURCE_API_FRONTEND_PROJECTION_SCHEMA_VERSION: u32 = 2;
 const RESOURCE_EFFECT_PEPPER_SCHEMA_VERSION: i64 = 7;
 const MAX_ID_LEN: usize = 128;
@@ -445,7 +447,7 @@ pub struct PersistentSessionStateResetter {
 impl PersistentSessionStateResetter {
     /// Creates a reset owner for one durable workspace state root.
     pub fn new(state_root: impl Into<PathBuf>) -> Self {
-        Self { state_root: state_root.into() }
+        Self { state_root: platform::normalize_filesystem_path(state_root.into()) }
     }
 
     /// Returns the workspace state root this reset owner can mutate.
@@ -535,7 +537,9 @@ impl PersistentSessionStateResetter {
             return Ok(reset);
         }
         let lease = if lock_session_dir_exists {
-            Some(SessionLease::acquire(&session_dir.join(SESSION_WRITER_LOCK_FILE))?)
+            let lock_path =
+                platform::normalize_filesystem_path(session_dir.join(SESSION_WRITER_LOCK_FILE));
+            Some(SessionLease::acquire(&lock_path)?)
         } else {
             None
         };
@@ -691,7 +695,7 @@ pub struct WorkspaceRegistry {
 }
 
 fn persistent_session_state_dir(root: &Path, session_name: &str) -> PathBuf {
-    root.join(session_storage_component(session_name))
+    platform::normalize_filesystem_path(root.join(session_storage_component(session_name)))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -772,7 +776,7 @@ fn pending_session_reset_dirs(
         let Some(kind) = pending_session_reset_kind(rest) else {
             continue;
         };
-        let path = entry.path();
+        let path = platform::normalize_filesystem_path(entry.path());
         let metadata = fs::symlink_metadata(&path)
             .with_context(|| format!("inspect private reset path {}", path.display()))?;
         if !metadata.file_type().is_dir() {
@@ -867,8 +871,9 @@ fn rename_reset_dir_for_deletion(
 ) -> anyhow::Result<PathBuf> {
     let storage_component = session_storage_component(session_name);
     for _ in 0..16 {
-        let candidate =
-            root.join(format!(".reset-{storage_component}-{kind}-{}.deleting", try_new_uuid_v4()?));
+        let candidate = platform::normalize_filesystem_path(
+            root.join(format!(".reset-{storage_component}-{kind}-{}.deleting", try_new_uuid_v4()?)),
+        );
         ensure_reset_dir_fingerprint(source, kind, expected_fingerprint)?;
         match fs::rename(source, &candidate) {
             Ok(()) => {
@@ -2303,16 +2308,24 @@ impl WorkspaceRegistry {
     }
 
     pub fn open(root: &Path, session_name: &str) -> anyhow::Result<Self> {
-        let session_dir = root.join(session_storage_component(session_name));
-        let db_path = session_dir.join(WORKSPACE_REGISTRY_FILE);
+        let root = platform::normalize_filesystem_path(root.to_path_buf());
+        // Keep short roots in their existing spelling while giving all
+        // root-level files the same long-path handling as their descendants.
+        let session_dir =
+            platform::normalize_filesystem_path(root.join(session_storage_component(session_name)));
+        // Normalize the complete database path. The state root can be below
+        // the legacy MAX_PATH threshold while its session and database
+        // descendants exceed it.
+        let db_path =
+            platform::normalize_filesystem_path(session_dir.join(WORKSPACE_REGISTRY_FILE));
         if db_path.is_file()
             && let Some(error) = preflight_unsupported_schema(&db_path)
         {
             return Err(error.into());
         }
-        let session_guard = acquire_session_guard(root, session_name)?;
-        let machine_id = load_or_create_machine_id(root)?;
-        let resource_effect_pepper = load_or_create_resource_effect_pepper(root)?;
+        let session_guard = acquire_session_guard(&root, session_name)?;
+        let machine_id = load_or_create_machine_id(&root)?;
+        let resource_effect_pepper = load_or_create_resource_effect_pepper(&root)?;
         fs::create_dir_all(&session_dir).with_context(|| {
             format!("create workspace state directory {}", session_dir.display())
         })?;
@@ -2322,7 +2335,9 @@ impl WorkspaceRegistry {
         {
             return Err(error.into());
         }
-        let lease = SessionLease::acquire(&session_dir.join(SESSION_WRITER_LOCK_FILE))?;
+        let session_lock =
+            platform::normalize_filesystem_path(session_dir.join(SESSION_WRITER_LOCK_FILE));
+        let lease = SessionLease::acquire(&session_lock)?;
         let connection = open_registry_database(&db_path)
             .with_context(|| format!("open workspace registry {}", db_path.display()))?;
         platform::restrict_file(&db_path)?;
@@ -2414,13 +2429,14 @@ impl WorkspaceRegistry {
                 require_resource_effect_pepper_id(&tx, &resource_effect_pepper_id)?;
                 tx.commit()?;
             }
-            Some(9..=13) => {
+            Some(9..=14) => {
                 let tx = connection.unchecked_transaction()?;
                 create_workspace_schema(&tx)?;
                 create_terminal_schema(&tx)?;
                 create_resource_schema(&tx)?;
                 create_resource_effect_schema(&tx)?;
                 normalize_journal_multiview_schema(&tx)?;
+                terminal_exit_store::migrate_legacy_terminal_exit_receipts(&tx)?;
                 tx.execute(
                     "UPDATE meta SET value = ?1 WHERE key = 'schema_version'",
                     [SCHEMA_VERSION.to_string()],
@@ -2445,6 +2461,7 @@ impl WorkspaceRegistry {
                 backfill_workspace_public_ids(&tx)?;
                 migrate_resource_agent_projections(&tx)?;
                 normalize_journal_multiview_schema(&tx)?;
+                terminal_exit_store::migrate_legacy_terminal_exit_receipts(&tx)?;
                 require_resource_effect_pepper_id(&tx, &resource_effect_pepper_id)?;
                 tx.execute(
                     "UPDATE meta SET value = ?1 WHERE key = 'schema_version'",
@@ -2470,6 +2487,7 @@ impl WorkspaceRegistry {
                 backfill_workspace_public_ids(&tx)?;
                 migrate_resource_agent_projections(&tx)?;
                 normalize_journal_multiview_schema(&tx)?;
+                terminal_exit_store::migrate_legacy_terminal_exit_receipts(&tx)?;
                 migrate_resource_effect_pepper(&tx, &resource_effect_pepper_id)?;
                 tx.commit()?;
             }
@@ -2491,6 +2509,7 @@ impl WorkspaceRegistry {
                 backfill_workspace_public_ids(&tx)?;
                 migrate_resource_agent_projections(&tx)?;
                 normalize_journal_multiview_schema(&tx)?;
+                terminal_exit_store::migrate_legacy_terminal_exit_receipts(&tx)?;
                 require_resource_effect_pepper_id(&tx, &resource_effect_pepper_id)?;
                 tx.execute(
                     "UPDATE meta SET value = ?1 WHERE key = 'schema_version'",
@@ -2507,6 +2526,7 @@ impl WorkspaceRegistry {
                 ensure_session_public_id(&tx)?;
                 migrate_resource_agent_projections(&tx)?;
                 normalize_journal_multiview_schema(&tx)?;
+                terminal_exit_store::migrate_legacy_terminal_exit_receipts(&tx)?;
                 migrate_resource_effect_pepper(&tx, &resource_effect_pepper_id)?;
                 tx.commit()?;
             }
@@ -2520,6 +2540,7 @@ impl WorkspaceRegistry {
                 ensure_session_public_id(&tx)?;
                 migrate_resource_agent_projections(&tx)?;
                 normalize_journal_multiview_schema(&tx)?;
+                terminal_exit_store::migrate_legacy_terminal_exit_receipts(&tx)?;
                 migrate_resource_effect_pepper(&tx, &resource_effect_pepper_id)?;
                 tx.commit()?;
             }
@@ -2534,6 +2555,7 @@ impl WorkspaceRegistry {
                 ensure_session_public_id(&tx)?;
                 migrate_resource_agent_projections(&tx)?;
                 normalize_journal_multiview_schema(&tx)?;
+                terminal_exit_store::migrate_legacy_terminal_exit_receipts(&tx)?;
                 migrate_resource_effect_pepper(&tx, &resource_effect_pepper_id)?;
                 tx.commit()?;
             }
@@ -2556,6 +2578,7 @@ impl WorkspaceRegistry {
                 backfill_workspace_public_ids(&tx)?;
                 migrate_resource_agent_projections(&tx)?;
                 normalize_journal_multiview_schema(&tx)?;
+                terminal_exit_store::migrate_legacy_terminal_exit_receipts(&tx)?;
                 migrate_resource_effect_pepper(&tx, &resource_effect_pepper_id)?;
                 tx.commit()?;
             }
@@ -2649,11 +2672,13 @@ impl WorkspaceRegistry {
         }
         {
             let tx = connection.unchecked_transaction()?;
+            create_session_journal_schema(&tx)?;
             create_resource_effect_schema(&tx)?;
             create_journal_extensions_schema(&tx)?;
             recover_resource_effects(&tx)?;
             initialize_resource_input_receipt_retention(&tx)?;
             initialize_resource_mutation_retention(&tx)?;
+            repair_dangling_terminal_resources(&tx)?;
             tx.commit()?;
         }
         let stored_name = required_meta(&connection, "session_name")?;
@@ -3077,6 +3102,9 @@ impl WorkspaceRegistry {
         let fingerprint = terminal_close_fingerprint(mutation, terminal_id, expected_incarnation)?;
         let resource_result_json = canonical_json(resource_result)?;
         let tx = self.connection.transaction()?;
+        let terminal_batch = [(terminal_id.to_string(), expected_incarnation.map(str::to_string))];
+        let (patch, resource_deltas) =
+            complete_terminal_close_patch(&tx, &terminal_batch, patch, resource_deltas)?;
         if let Some(terminal) = terminal_replay(&tx, mutation, &fingerprint)? {
             tx.commit()?;
             return Ok(TerminalResourceCloseCommit::TerminalReplay(terminal));
@@ -3124,7 +3152,7 @@ impl WorkspaceRegistry {
             .ok_or_else(|| anyhow::anyhow!("resource revision exhausted"))?;
         let sqlite_revision =
             i64::try_from(revision).context("resource revision exceeds SQLite range")?;
-        apply_resource_patch(&tx, patch, sqlite_revision)?;
+        apply_resource_patch(&tx, &patch, sqlite_revision)?;
         tx.execute(
             "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
             [revision.to_string()],
@@ -3150,9 +3178,9 @@ impl WorkspaceRegistry {
             &mutation.origin,
             &mutation.id,
             OPERATION,
-            Some(patch),
+            Some(&patch),
             resource_result,
-            resource_deltas,
+            &resource_deltas,
         )?;
         resource_store::prune_resource_mutations(&tx)?;
         let resource =
@@ -4698,7 +4726,10 @@ fn validate_terminal(terminal: &RegistryTerminal) -> anyhow::Result<()> {
         }
         _ => {}
     }
-    if terminal.lifecycle != TerminalLifecycle::Exited && terminal.exit.is_some() {
+    if terminal.lifecycle == TerminalLifecycle::Exited {
+        let exit = terminal.exit.as_ref().context("exited terminal requires exit metadata")?;
+        terminal_exit_store::validate_terminal_exit_receipt(exit)?;
+    } else if terminal.exit.is_some() {
         anyhow::bail!("only an exited terminal can carry exit metadata");
     }
     Ok(())
@@ -5071,7 +5102,7 @@ fn acquire_session_guard_from_private_dir(
 }
 
 fn prepare_session_guard_dir(root: &Path) -> anyhow::Result<PathBuf> {
-    let lock_dir = root.join(SESSION_GUARD_DIR);
+    let lock_dir = platform::normalize_filesystem_path(root.join(SESSION_GUARD_DIR));
     match fs::symlink_metadata(&lock_dir) {
         Ok(metadata) if metadata.file_type().is_dir() => {}
         Ok(_) => anyhow::bail!("session lock directory is not a directory: {}", lock_dir.display()),
@@ -5097,11 +5128,13 @@ fn prepare_session_guard_dir(root: &Path) -> anyhow::Result<PathBuf> {
 }
 
 fn session_guard_lock_path(lock_dir: &Path, session_name: &str) -> PathBuf {
-    lock_dir.join(format!("{}.lock", session_storage_component(session_name)))
+    platform::normalize_filesystem_path(
+        lock_dir.join(format!("{}.lock", session_storage_component(session_name))),
+    )
 }
 
 fn session_guard_coordinator_path(lock_dir: &Path) -> PathBuf {
-    lock_dir.join(SESSION_GUARD_COORDINATOR_FILE)
+    platform::normalize_filesystem_path(lock_dir.join(SESSION_GUARD_COORDINATOR_FILE))
 }
 
 #[cfg(unix)]
@@ -5259,9 +5292,11 @@ fn prepare_terminal_host_root_for_reset(
 }
 
 fn load_or_create_resource_effect_pepper(root: &Path) -> anyhow::Result<ResourceEffectPepper> {
-    fs::create_dir_all(root).with_context(|| format!("create state root {}", root.display()))?;
-    platform::restrict_directory(root)?;
-    let lock_path = root.join(RESOURCE_EFFECT_PEPPER_LOCK_FILE);
+    let root = platform::normalize_filesystem_path(root.to_path_buf());
+    fs::create_dir_all(&root).with_context(|| format!("create state root {}", root.display()))?;
+    platform::restrict_directory(&root)?;
+    let lock_path =
+        platform::normalize_filesystem_path(root.join(RESOURCE_EFFECT_PEPPER_LOCK_FILE));
     let lock = OpenOptions::new()
         .create(true)
         .truncate(false)
@@ -5273,7 +5308,7 @@ fn load_or_create_resource_effect_pepper(root: &Path) -> anyhow::Result<Resource
     FileExt::lock(&lock)
         .with_context(|| format!("lock resource receipt pepper {}", lock_path.display()))?;
 
-    let path = root.join(RESOURCE_EFFECT_PEPPER_FILE);
+    let path = platform::normalize_filesystem_path(root.join(RESOURCE_EFFECT_PEPPER_FILE));
     let result = match fs::symlink_metadata(&path) {
         Ok(metadata) => {
             anyhow::ensure!(
@@ -5287,7 +5322,7 @@ fn load_or_create_resource_effect_pepper(root: &Path) -> anyhow::Result<Resource
             ResourceEffectPepper::from_bytes(bytes, &path)
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            ensure_missing_pepper_can_migrate(root, &path)?;
+            ensure_missing_pepper_can_migrate(&root, &path)?;
             let pepper = ResourceEffectPepper::random()?;
             let mut options = OpenOptions::new();
             options.create_new(true).write(true);
@@ -5304,7 +5339,7 @@ fn load_or_create_resource_effect_pepper(root: &Path) -> anyhow::Result<Resource
                 .with_context(|| format!("write resource receipt pepper {}", path.display()))?;
             file.sync_all()
                 .with_context(|| format!("sync resource receipt pepper {}", path.display()))?;
-            platform::sync_directory(root)
+            platform::sync_directory(&root)
                 .with_context(|| format!("sync state root {}", root.display()))?;
             Ok(pepper)
         }
@@ -5324,7 +5359,8 @@ fn ensure_missing_pepper_can_migrate(root: &Path, pepper_path: &Path) -> anyhow:
         if !entry.file_type()?.is_dir() {
             continue;
         }
-        let database = entry.path().join(WORKSPACE_REGISTRY_FILE);
+        let database =
+            platform::normalize_filesystem_path(entry.path().join(WORKSPACE_REGISTRY_FILE));
         if !database.try_exists()? {
             continue;
         }
@@ -5346,9 +5382,10 @@ fn ensure_missing_pepper_can_migrate(root: &Path, pepper_path: &Path) -> anyhow:
 }
 
 fn load_or_create_machine_id(root: &Path) -> anyhow::Result<MachinePublicId> {
-    fs::create_dir_all(root).with_context(|| format!("create state root {}", root.display()))?;
-    platform::restrict_directory(root)?;
-    let lock_path = root.join(MACHINE_ID_LOCK_FILE);
+    let root = platform::normalize_filesystem_path(root.to_path_buf());
+    fs::create_dir_all(&root).with_context(|| format!("create state root {}", root.display()))?;
+    platform::restrict_directory(&root)?;
+    let lock_path = platform::normalize_filesystem_path(root.join(MACHINE_ID_LOCK_FILE));
     let lock = OpenOptions::new()
         .create(true)
         .truncate(false)
@@ -5360,7 +5397,7 @@ fn load_or_create_machine_id(root: &Path) -> anyhow::Result<MachinePublicId> {
     FileExt::lock(&lock)
         .with_context(|| format!("lock machine identity {}", lock_path.display()))?;
 
-    let path = root.join(MACHINE_ID_FILE);
+    let path = platform::normalize_filesystem_path(root.join(MACHINE_ID_FILE));
     let result = match fs::read(&path) {
         Ok(bytes) => {
             platform::restrict_file(&path)?;
@@ -5383,7 +5420,7 @@ fn load_or_create_machine_id(root: &Path) -> anyhow::Result<MachinePublicId> {
                 .and_then(|()| file.write_all(b"\n"))
                 .with_context(|| format!("write machine identity {}", path.display()))?;
             file.sync_all().with_context(|| format!("sync machine identity {}", path.display()))?;
-            platform::sync_directory(root)
+            platform::sync_directory(&root)
                 .with_context(|| format!("sync state root {}", root.display()))?;
             Ok(id)
         }
@@ -5606,8 +5643,10 @@ impl SessionCoordinatorWaiter {
                 let sequence =
                     SESSION_GUARD_COORDINATOR_WAITER_SEQUENCE.fetch_add(1, Ordering::Relaxed);
                 let token = format!("{:x}-{sequence:x}", std::process::id());
-                let registration_path = waiter_dir.join(format!("{token}.waiter"));
-                let temporary_path = waiter_dir.join(format!(".{token}.tmp"));
+                let registration_path =
+                    platform::normalize_filesystem_path(waiter_dir.join(format!("{token}.waiter")));
+                let temporary_path =
+                    platform::normalize_filesystem_path(waiter_dir.join(format!(".{token}.tmp")));
                 let fifo_path = std::ffi::CString::new(temporary_path.as_os_str().as_bytes())?;
                 // SAFETY: fifo_path is a valid NUL-terminated path and mode
                 // only grants access to the current user.
@@ -5666,8 +5705,10 @@ impl SessionCoordinatorWaiter {
                 let sequence =
                     SESSION_GUARD_COORDINATOR_WAITER_SEQUENCE.fetch_add(1, Ordering::Relaxed);
                 let token = format!("{:x}-{:x}-{:x}", std::process::id(), address.port(), sequence);
-                let registration_path = waiter_dir.join(format!("{token}.waiter"));
-                let temporary_path = waiter_dir.join(format!(".{token}.tmp"));
+                let registration_path =
+                    platform::normalize_filesystem_path(waiter_dir.join(format!("{token}.waiter")));
+                let temporary_path =
+                    platform::normalize_filesystem_path(waiter_dir.join(format!(".{token}.tmp")));
                 let mut options = OpenOptions::new();
                 options.create_new(true).write(true);
                 #[cfg(unix)]
@@ -5786,7 +5827,9 @@ impl Drop for SessionCoordinatorWaiter {
 }
 
 fn session_guard_coordinator_waiter_dir(coordinator_path: &Path) -> PathBuf {
-    coordinator_path.with_file_name(SESSION_GUARD_COORDINATOR_WAITER_DIR)
+    platform::normalize_filesystem_path(
+        coordinator_path.with_file_name(SESSION_GUARD_COORDINATOR_WAITER_DIR),
+    )
 }
 
 fn prepare_session_coordinator_waiter_dir(waiter_dir: &Path) -> anyhow::Result<()> {

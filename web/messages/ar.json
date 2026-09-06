@@ -7,12 +7,14 @@
         "snapshot": "لا يدعم Cloud VM هذا حالة VM المحفوظة.",
         "restore": "لا يدعم هذا النوع من Cloud VM استعادة حالة VM المحفوظة.",
         "fork": "لا يدعم Cloud VM هذا النسخ إلى VM جديد.",
+        "openPort": "لا يستطيع موفّر Cloud VM هذا إتاحة منافذ الجهاز كعناوين URL للمعاينة.",
         "default": "لا يدعم Cloud VM هذا العملية المطلوبة."
       },
       "action": {
         "snapshot": "لا تعاود المحاولة. يُحفظ العمل على هذا النوع من الأجهزة في وحدة التخزين المنزلية الدائمة.",
         "restore": "لا تعاود المحاولة. يُحفظ العمل على هذا النوع من الأجهزة في وحدة التخزين المنزلية الدائمة.",
         "fork": "لا تعاود المحاولة. أنشئ VM جديدًا باستخدام `cmux vm new`.",
+        "openPort": "لا تعاود المحاولة. صِل إلى الخدمة من داخل الجهاز باستخدام `cmux vm exec`، أو استخدم نوع جهاز يدعم فتح المنافذ.",
         "default": "لا تعاود المحاولة. شغّل `cmux vm ls` أو تواصل مع الدعم إذا اعتقدت أن هذا خطأ."
       }
     },
@@ -59,6 +61,15 @@
     "genericTitle": "تعذّر إكمال تسجيل الدخول",
     "genericBody": "يرجى المحاولة مرة أخرى. إذا استمرت المشكلة، فتواصل مع الدعم.",
     "backToSignIn": "العودة إلى تسجيل الدخول"
+  },
+  "cloudPublicationAccess": {
+    "title": "ليس لديك حق الوصول",
+    "signIn": "تسجيل الدخول إلى cmux",
+    "signedInAs": "تم تسجيل الدخول باسم {identity}",
+    "switchAccount": "تبديل الحساب",
+    "invalidTitle": "رابط الوصول هذا غير صالح",
+    "invalidBody": "ارجع إلى الموقع وحاول مرة أخرى.",
+    "footer": "تتم إدارة الوصول بواسطة cmux."
   },
   "common": {
     "downloadForMac": "تحميل لنظام Mac",
@@ -261,7 +272,18 @@
       "metaTitle": "coderouter — cmux",
       "metaDescription": "إدارة حسابات الذكاء الاصطناعي المشتركة وتوجيه الطلبات باستخدام coderouter.",
       "title": "coderouter",
-      "description": "يوجّه coderouter طلبات نماذج اللغة عبر حسابات المزوّدين مع تجاوز الأعطال وجدولة تراعي الاستخدام."
+      "description": "يوجّه coderouter طلبات نماذج اللغة عبر حسابات المزوّدين مع تجاوز الأعطال وجدولة تراعي الاستخدام.",
+      "machines": {
+        "title": "الأجهزة",
+        "description": "استخدام coderouter لكل جهاز لفريق {team} خلال آخر {days} يومًا.",
+        "machineColumn": "الجهاز",
+        "tokensColumn": "إجمالي الرموز",
+        "apiEquivalentColumn": "القيمة المكافئة لواجهة API",
+        "unnamed": "جهاز بدون اسم",
+        "empty": "لم يستخدم أي جهاز coderouter خلال آخر {days} يومًا.",
+        "unavailable": "استخدام الأجهزة غير متاح مؤقتًا.",
+        "estimateNote": "القيمة المكافئة لواجهة API تقدير يستند إلى الأسعار المعلنة وليس الإنفاق الفعلي."
+      }
     },
     "accountMenu": {
       "label": "قائمة الحساب",
@@ -1161,6 +1183,14 @@
         "shortcuts": {
           "when": "مسندات سياق اختيارية لكل إجراء (عبارات `when` على نمط VS Code)، مفهرسة بمعرّف إجراء cmux. كل قيمة هي تعبير منطقي فوق مفاتيح السياق، مدمجة باستخدام ! و && و || والأقواس. المفاتيح المنطقية: sidebarFocus و browserFocus و markdownFocus و filePreviewTextEditorFocus و simulatorFocus و terminalFocus و commandPaletteVisible و terminalFindVisible و workspaceCanvasLayout. تدعم المفاتيح المصنّفة المقارنات: السلسلة النصية sidebarMode (files أو find أو sessions أو feed أو dock) والعددان الصحيحان paneCount و workspaceCount. عوامل المقارنة هي == و != و =~ (تعبير نمطي) و < و <= و > و >= و `in [a, b]`؛ المفتاح غير المعروف أو الغائب يُقرأ على أنه false. تُقبل أيضًا القيمتان المنطقيتان الحرفيتان true و false؛ و`key == false` تكافئ `!key`. لا يعمل اختصار الإجراء (ولا يتعارض مع اختصارات أخرى) إلا عندما تكون العبارة صحيحة. أمثلة: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } يحدد مساحات العمل بواسطة Ctrl+1–9 في كل مكان ما عدا عندما يكون الشريط الجانبي الأيمن مركزًا؛ { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } يقصر الارتباط على الشريط الجانبي للبحث عندما تحتوي مساحة العمل على عدة ألواح.",
           "showModifierHoldHints": "إظهار شرائح تلميحات الاختصارات أثناء الضغط باستمرار على Cmd أو Control."
+        },
+        "fileEditor": {
+          "wordWrap": "لف الأسطر الطويلة عند الحافة اليمنى للمحرر بدلًا من التمرير أفقيًا.",
+          "syntaxHighlighting": "لوّن الرموز البرمجية في محرر الملفات المدمج.",
+          "lineNumbers": "اعرض هامش أرقام الأسطر في محرر الملفات المدمج.",
+          "indentGuides": "ارسم أدلة مسافة بادئة عمودية في محرر الملفات المدمج.",
+          "currentLineHighlight": "ميّز سطر المؤشر عندما لا يوجد تحديد.",
+          "tabWidth": "عرض علامة التبويب بالأعمدة المستخدمة للمسافة البادئة وأدلة المسافة البادئة."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

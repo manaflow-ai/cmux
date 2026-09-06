@@ -44,8 +44,7 @@ import {
 } from "../../../../services/iroh/routeHandler";
 import {
   unauthorized,
-  verifyRequest,
-  type AuthedUser,
+  verifyRequestIdentity,
 } from "../../../../services/vms/auth";
 
 
@@ -53,7 +52,12 @@ const MAX_BODY_BYTES = 4 * 1_024;
 const RELAY_TOKEN_RATE_LIMIT_BUCKET_SECONDS = 60;
 
 export interface RelayTokenDeps {
-  readonly verifyRequest: (request: Request) => Promise<AuthedUser | null>;
+  /**
+   * Identity only: minting a relay credential needs the account id and nothing
+   * else, so this resolves the caller's Stack access token locally instead of
+   * spending a `users/me` call on every endpoint refresh.
+   */
+  readonly verifyRequest: (request: Request) => Promise<{ readonly id: string } | null>;
   readonly signingKey: () => KeyObject | null;
   readonly nowSeconds: () => number;
   readonly signedPolicy: (
@@ -81,7 +85,7 @@ export interface RelayTokenDeps {
 }
 
 const productionDeps: RelayTokenDeps = {
-  verifyRequest: (request) => verifyRequest(request, { allowCookie: false }),
+  verifyRequest: (request) => verifyRequestIdentity(request, { allowCookie: false }),
   signingKey: relaySigningKey,
   nowSeconds: () => Math.floor(Date.now() / 1_000),
   signedPolicy: async (accountId, nowSeconds) => {
@@ -159,7 +163,7 @@ export async function handleRelayTokenRequest(
     }
   }
 
-  let user: AuthedUser | null;
+  let user: { readonly id: string } | null;
   try {
     user = await deps.verifyRequest(request);
   } catch (error) {

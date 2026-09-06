@@ -1,6 +1,20 @@
 {
   "billingRecovery": {
-    "message": "アカウントが見つかった場合は、メールで次の手順をご確認ください"
+    "message": "アカウントが見つかった場合は、メールで次の手順をご確認ください",
+    "metaTitle": "Founder's Edition を接続",
+    "metaDescription": "Founder's Edition 購入時のメールアドレスを使って cmux アカウントを作成または復元します。",
+    "eyebrow": "Founder's Edition アクセス",
+    "title": "Founder's Edition を接続",
+    "body": "Founder's Edition 購入時に使ったメールアドレスを入力してください。その購入に紐づく cmux アカウントを作成または復元するための安全なサインインリンクを送信します。",
+    "differentEmail": "別のメールアドレスで cmux アカウントをすでにお持ちですか？Founder's Edition のウェルカムメールに返信してください。両方のアドレスを確認して、安全にアクセスを移行します。",
+    "formAriaLabel": "Founder's Edition を接続",
+    "emailLabel": "購入時のメールアドレス",
+    "emailPlaceholder": "you@example.com",
+    "submit": "サインインリンクを送信",
+    "submitting": "送信中…",
+    "success": "購入またはアカウントが見つかった場合は、メールで次の手順をお知らせします。",
+    "error": "リクエストを送信できませんでした。しばらくしてから再試行してください。",
+    "backToHome": "cmux に戻る"
   },
   "vmDesktop": {
     "invalidTitle": "このデスクトップリンクは無効です",
@@ -16,12 +30,14 @@
         "snapshot": "この Cloud VM は保存済み状態に対応していません。",
         "restore": "この Cloud VM 種別では保存済み状態の復元に対応していません。",
         "fork": "この Cloud VM は新しい VM へのコピーに対応していません。",
+        "openPort": "この Cloud VM ではマシンのポートをプレビュー URL として公開できません。",
         "default": "この Cloud VM は要求された操作に対応していません。"
       },
       "action": {
         "snapshot": "再試行しても解決しません。このマシン種別では作業が永続ホームボリュームに保存されます。",
         "restore": "再試行しても解決しません。このマシン種別では作業が永続ホームボリュームに保存されます。",
         "fork": "再試行しても解決しません。`cmux vm new` で新しい VM を作成してください。",
+        "openPort": "再試行しても解決しません。マシン内から（`cmux vm exec`）アクセスするか、ポートを公開できるマシン種別を使ってください。",
         "default": "再試行しても解決しません。`cmux vm ls` でマシンを確認するか、問題が続く場合はサポートに連絡してください。"
       }
     },
@@ -122,6 +138,15 @@
     "genericBody": "もう一度お試しください。問題が解決しない場合は、サポートにお問い合わせください。",
     "backToSignIn": "サインインに戻る"
   },
+  "cloudPublicationAccess": {
+    "title": "アクセス権がありません",
+    "signIn": "cmux にサインイン",
+    "signedInAs": "{identity} としてサインイン中",
+    "switchAccount": "アカウントを切り替える",
+    "invalidTitle": "このアクセスリンクは無効です",
+    "invalidBody": "サイトに戻って、もう一度お試しください。",
+    "footer": "アクセスは cmux によって管理されています。"
+  },
   "common": {
     "downloadForMac": "Mac版をダウンロード",
     "viewOnGitHub": "GitHubで見る",
@@ -136,6 +161,8 @@
   "dashboard": {
     "nav": {
       "brand": "cmux",
+      "cloudGroup": "クラウド",
+      "cloudDevices": "Macアクセス",
       "vaultGroup": "vault",
       "vaultOverview": "概要",
       "vaultSessions": "セッション",
@@ -152,6 +179,9 @@
     "home": {
       "title": "ダッシュボード",
       "description": "プロダクトのダッシュボードを選択します。",
+      "cloudName": "Cloud Macアクセス",
+      "cloudDescription": "プライベートCloud VMネットワークに接続できるMacを確認し、アクセスを取り消します。",
+      "cloudLink": "Macアクセスを管理",
       "vaultName": "vault",
       "vaultDescription": "同期済みエージェントセッションの閲覧とCLIアクセスの管理を行います。",
       "vaultLink": "vaultを開く",
@@ -162,11 +192,47 @@
       "iosAppDescription": "TestFlight（ベータ版）で cmux iOS アプリをインストール。",
       "iosLink": "iOSアプリを開く"
     },
+    "cloud": {
+      "title": "Cloud Macアクセス",
+      "description": "これらのMacはプライベートCloud VMネットワークへのWireGuardアクセスを持っています。iPhoneとIrohのペアリング記録は別に管理されます。",
+      "empty": "Cloud VMアクセスが登録されたMacはありません。",
+      "cmux": "cmuxビルド",
+      "access": "ネットワークアクセス",
+      "lastContact": "最後のコントロールプレーン接続",
+      "deviceId": "デバイスID",
+      "unknown": "不明",
+      "none": "なし",
+      "purpose": {
+        "terminal": "ターミナル",
+        "browser": "ブラウザVPN"
+      },
+      "rename": "名前を変更",
+      "revoke": "アクセスを取り消す",
+      "renameTitle": "このMacの名前を変更",
+      "nameLabel": "名前",
+      "cancel": "キャンセル",
+      "save": "保存",
+      "renameError": "このMacの名前を変更できませんでした。",
+      "revokeTitle": "{name}のアクセスを取り消しますか？",
+      "revokeBody": "このMacをサインアウトし、すべてのCloud VMネットワークアクセスを削除します。",
+      "revokeError": "このMacのアクセスを取り消せませんでした。"
+    },
     "coderouter": {
       "metaTitle": "coderouter — cmux",
       "metaDescription": "共有AIアカウントを管理し、coderouterでリクエストをルーティングします。",
       "title": "coderouter",
-      "description": "coderouterはプロバイダーアカウント間でLLMリクエストをルーティングし、フェイルオーバーと使用量を考慮したスケジューリングを行います。"
+      "description": "coderouterはプロバイダーアカウント間でLLMリクエストをルーティングし、フェイルオーバーと使用量を考慮したスケジューリングを行います。",
+      "machines": {
+        "title": "マシン",
+        "description": "{team} のマシン別 coderouter 使用状況（過去{days}日間）。",
+        "machineColumn": "マシン",
+        "tokensColumn": "合計トークン",
+        "apiEquivalentColumn": "API換算額",
+        "unnamed": "名前のないマシン",
+        "empty": "過去{days}日間に coderouter を使用したマシンはありません。",
+        "unavailable": "マシン別の使用状況は現在利用できません。",
+        "estimateNote": "API換算額は公開定価による推定で、実際の請求額ではありません。"
+      }
     },
     "accountMenu": {
       "label": "アカウントメニュー",
@@ -483,6 +549,50 @@
       "opencodeTool": "OpenCode",
       "opencodeCommand": "Copy opencode command",
       "copied": "Copied"
+    },
+    "claudeUpstream": {
+      "title": "Claude アップストリームアカウント",
+      "description": "このチームの cmux Cloud VM 内の Claude Code は、Anthropic Messages のトラフィックを coderouter 経由で送信します。Anthropic API キー、Claude Code OAuth トークン、Amazon Bedrock 認証情報を必要なだけ追加できます。各マシンは 1 つのアカウントに固定されるためプロンプトキャッシュが機能し続け、レート制限や認証情報の拒否が起きるとそのアカウントはクールダウンに入り、マシンは次のアカウントに移ります。",
+      "emptyTitle": "Claude アップストリームアカウントがありません",
+      "emptyBody": "アカウントを追加するまで、このチームの Cloud VM からの Claude リクエストは失敗します。",
+      "accountsLabel": "{count} 件のアカウント",
+      "loadErrorTitle": "Claudeアップストリームを読み込めませんでした",
+      "loadErrorBody": "アップストリーム設定を読み取れませんでした。しばらくしてから再試行してください。",
+      "kindSelectorLabel": "アップストリームの種類",
+      "kindApiKey": "Anthropic APIキー",
+      "kindOauth": "Claude Code OAuthトークン",
+      "kindBedrock": "Amazon Bedrock",
+      "labelField": "ラベル",
+      "labelPlaceholder": "任意。例: work",
+      "apiKeyField": "APIキー",
+      "oauthTokenField": "OAuthトークン",
+      "oauthHint": "自分のマシンで次のコマンドを実行して長期トークンを作成します:",
+      "regionField": "AWSリージョン",
+      "accessKeyIdField": "アクセスキーID",
+      "secretAccessKeyField": "シークレットアクセスキー",
+      "sessionTokenField": "セッショントークン",
+      "optionalPlaceholder": "任意",
+      "saveAction": "アカウントを追加",
+      "savingAction": "追加中",
+      "saveSuccess": "アカウントを追加しました。",
+      "saveError": "アカウントを追加できませんでした。",
+      "validationError": "認証情報の形式を確認して再試行してください。",
+      "teamAccessError": "このチームへのアクセス権がありません。",
+      "removeAction": "削除",
+      "removingAction": "削除中",
+      "removeError": "アカウントを削除できませんでした。",
+      "removeConfirmTitle": "この Claude アップストリームアカウントを削除しますか?",
+      "removeConfirmBody": "このアカウントに固定されたマシンはチームの他のアカウントに移ります。最後のアカウントの場合、新しいアカウントを追加するまでこのチームの Cloud VM からの Claude リクエストは失敗します。",
+      "cancelAction": "キャンセル",
+      "stateActive": "有効",
+      "stateDisabled": "無効",
+      "coolingDown": "{until} までクールダウン中",
+      "lastFailure": "最後の失敗 {code}",
+      "lastUsed": "最終使用 {at}",
+      "neverUsed": "未使用",
+      "enableAction": "有効にする",
+      "disableAction": "無効にする",
+      "updateError": "アカウントを更新できませんでした。"
     }
   },
   "vault": {
@@ -686,6 +796,7 @@
     "metaDescriptionNoVault": "cmux はAIコーディングエージェント向けの無料・オープンソースの macOS ターミナルです。Pro では分離された Cloud VM が使えます。Enterprise は SSO とセルフホストに対応します。",
     "metaDescriptionNoVaultShort": "cmux は無料・オープンソースの macOS ターミナルです。Pro では Cloud VM を利用でき、Enterprise では SSO とセルフホストに対応します。",
     "title": "料金",
+    "alreadyPaid": "購入済みですか？Founder's Edition を接続する",
     "perMonth": "/月",
     "perMonthBilledYearly": "/月（年払い）",
     "perUserMonth": "/ユーザー/月",
@@ -719,7 +830,7 @@
       "featuresLead": "Free のすべてに加えて:",
       "features": [
         "分離されたリモートサンドボックスの Cloud VM 上で動くクラウドエージェント",
-        "最大 50 台の Cloud VM、各 5 vCPU / 20 GB RAM / 200 GB ディスク",
+        "最大 50 台の Cloud VM。各マシンに専用のリソースがあり、標準サイズは 8 GB RAM / 32 GB ディスク。RAM 4～64 GB のサイズを選べます",
         "ワークスペースは無制限",
         "cmux iOS アプリとメールサポート"
       ],
@@ -817,10 +928,10 @@
           "enterprise": "カスタム"
         },
         {
-          "label": "Cloud VM のサイズ",
+          "label": "Cloud VM 1 台あたりのリソース",
           "free": "false",
-          "pro": "5 vCPU / 20 GB RAM / 200 GB ディスク",
-          "team": "5 vCPU / 20 GB RAM / 200 GB ディスク",
+          "pro": "標準 8 GB RAM / 32 GB ディスク。RAM 4～64 GB、ディスクは最大 256 GB",
+          "team": "標準 8 GB RAM / 32 GB ディスク。RAM 4～64 GB、ディスクは最大 256 GB",
           "enterprise": "カスタム"
         },
         {
@@ -899,7 +1010,7 @@
         },
         {
           "q": "Cloud VM とは何ですか?",
-          "a": "クラウド上の永続的な Linux マシンで、使い捨て（cattle）ではなくペットです。Zen of cmux のとおり、マシンはソリューションではなくプリミティブです。ファイル、インストールしたツール、状態はそのまま保持され、その上に構築したものはあなたのものです。エージェントはそこでリポジトリをクローンし、コマンドを実行し、プルリクエストを開くため、お使いの Mac には触れません。Pro と Team ではユーザーごとに最大 50 台のマシン（各 5 vCPU / 20 GB RAM / 200 GB ディスク）を利用できます。"
+          "a": "クラウド上の永続的な Linux マシンで、使い捨て（cattle）ではなくペットです。Zen of cmux のとおり、マシンはソリューションではなくプリミティブです。ファイル、インストールしたツール、状態はそのまま保持され、その上に構築したものはあなたのものです。エージェントはそこでリポジトリをクローンし、コマンドを実行し、プルリクエストを開くため、お使いの Mac には触れません。Pro では最大 50 台、Team ではユーザーごとに最大 50 台の Cloud VM を利用できます。各マシンには独立した CPU、メモリ、ディスクがあります。標準サイズは 8 GB RAM / 32 GB ディスクで、RAM 4～64 GB のサイズを選べます。ディスクは最大 256 GB まで拡張できます。従量課金や超過料金はありません。"
         },
         {
           "q": "cmux Vault とは何ですか?",
@@ -912,7 +1023,7 @@
         },
         {
           "q": "課金はどのように行われますか?",
-          "a": "Pro は月払いで $50/月、年払いでは $40/月（20%割引）です。Team は月払いで $60/ユーザー/月、年払いでは $48/ユーザー/月です。有料プランではユーザーごとに最大 50 台の Cloud VM を利用でき、従量課金や超過料金はありません。ターミナルとローカルエージェントは無料のままです。"
+          "a": "Pro は月払いで $50/月、年払いでは $40/月（20%割引）です。Team は月払いで $60/ユーザー/月、年払いでは $48/ユーザー/月です。有料プランではユーザーごとに最大 50 台の Cloud VM を利用できます。各マシンには独立した CPU、メモリ、ディスクがあり、従量課金や超過料金はありません。ターミナルとローカルエージェントは無料のままです。"
         },
         {
           "q": "クラウドをセルフホストできますか?",
@@ -999,9 +1110,9 @@
     "faqFeatureQ": "機能リクエストやバグ報告があります",
     "faqFeatureA": "ぜひ聞かせてください。GitHubで<issuesLink>イシュー</issuesLink>や<prLink>プルリクエスト</prLink>を開くか、<mailLink>メールでご連絡</mailLink>ください。",
     "faqIosQ": "iOSアプリはありますか？",
-    "faqIosA": "はい、ベータ版があります。Mobile ConnectウィンドウからiPhoneをMacとペアリングし、スマートフォンからターミナルにアタッチできます。ターミナル通知の転送もオプションで利用できます。TestFlightで「cmux BETA」として提供されています。早期アクセスは<foundersLink>cmux Founders Edition</foundersLink>に含まれます。",
+    "faqIosA": "はい、ベータ版があります。Mobile ConnectウィンドウからiPhoneをMacとペアリングし、スマートフォンからターミナルにアタッチできます。ターミナル通知の転送もオプションで利用できます。TestFlightで「cmux BETA」として提供されています。早期アクセスは<foundersLink>cmux Founder's Edition</foundersLink>に含まれます。",
     "faqSupportQ": "cmuxを支援するには？",
-    "faqSupportA": "cmuxは無料・オープンソースであり、これからもずっとそうです。開発を支援し、cmux AI、iOSアプリ、Cloud VMなど今後の機能に早期アクセスしたい方は、<foundersLink>cmux Founders Edition</foundersLink>をご覧ください。",
+    "faqSupportA": "cmuxは無料・オープンソースであり、これからもずっとそうです。開発を支援し、cmux AI、iOSアプリ、Cloud VMなど今後の機能に早期アクセスしたい方は、<foundersLink>cmux Founder's Edition</foundersLink>をご覧ください。",
     "faqBrowserQ": "組み込みブラウザでは何ができますか？",
     "faqBrowserA": "cmuxはターミナルの隣に本物のブラウザペインを分割表示でき、完全にプログラム可能です。同じsocket APIから、ナビゲート、DOMのスナップショット、クリック、入力、JavaScriptの評価、コンソールやネットワークの読み取りができます。エージェントはこれを使って、cmuxを離れずに自分のWeb変更を検証します。<link>ブラウザ自動化</link>をご覧ください。"
   },
@@ -1913,7 +2024,7 @@
       "anchorNew": "グループのアンカーは、作成時には常に新規のワークスペースです。選択範囲のグループ化やグループの作成で、既存のワークスペースがアンカーに昇格することはありません。（アンカーを後から閉じた場合は、グループに残った最初のメンバーが昇格します。下記参照。）アンカーの作業ディレクトリは、選択範囲をグループ化する場合は最初に選択したワークスペースから、--cwd なしで CLI から作成する場合はアクティブなワークスペースから引き継がれます。",
       "anchorClose": "アンカーワークスペースを閉じても、閉じられるのはそのワークスペースだけです。グループに残った最初のメンバー（グループの並び順で最も先頭にあるもの）が新しいアンカーに昇格し、グループと他のメンバーはそのまま維持されます（昇格したメンバーはヘッダーにグループ名を表示します）。アンカーがグループ唯一のワークスペースだった場合は、グループが削除されます。グループをグループ化されていないワークスペースに戻すには「グループ解除」を、グループ内のすべてのワークスペースを閉じるには「グループを削除」を使用します。",
       "identityTitle": "グループの識別情報",
-      "identityDesc": "グループには名前、アイコン（SF Symbol、デフォルトは folder.fill）、および任意のカスタムカラーがあります。これらはアンカーワークスペース自身のカスタマイズとは独立しています。アンカーの色とアイコンは作成時にグループから初期設定されますが、その後は別々に変更できます。",
+      "identityDesc": "グループには名前、アイコン（SF Symbol、デフォルトは folder.fill）、および任意のカスタムカラーがあります。自動化ではウィンドウ単位の external_id（または idempotency_key）も指定できます。同じ識別子で作成を繰り返すと、別のアンカーを追加せず既存のグループを返します。名前は識別子ではなく、現在のアンカーの明示的な来歴が安全なクリーンアップを制御します。",
       "pinningTitle": "ピン留め",
       "pinningDesc": "グループは個々のワークスペースのピン留めとは独立してピン留めできます。ピン留めされたトップレベルの行は、個々のワークスペースであれグループであれ、ピン留めされていない行より上に表示されます。各層の中では、グループとワークスペースはドラッグした順序を保ちます。",
       "layoutIntro": "サイドバーはトップレベルの行を上から下に次のように配置します。",
@@ -1937,8 +2048,8 @@
       "cliTitle": "CLI",
       "cliDesc": "すべてのグループ操作は cmux workspace-group サブコマンドでスクリプト化できます。ハイフン形式が先に提供されます。より広い cmux workspace コマンド名前空間が登場すると、cmux workspace group が正式な形式となり、ハイフン形式は今後ずっとエイリアスとして残ります。",
       "cliSubcommandsTitle": "サブコマンド",
-      "cliCreateNote": "create はグループハンドル（デフォルトでは workspace_group:N）を返します。--from を省略するとアンカーのみのグループを作成し、選択状態や呼び出し元のコンテキストから既存のワークスペースを推測しません。完全な構造化ペイロードを得るには --json を渡してください。",
-      "cliFlagsNote": "delete はデフォルトでグループを解除し、ワークスペースを保持します。すべてのメンバーワークスペースを閉じてプロセスを終了する場合にのみ --close-workspaces を渡してください。レスポンスには操作内容と対象数が含まれます。set-color または set-icon に空の値を渡すと、グループの色やアイコンをクリアします。",
+      "cliCreateNote": "create はグループハンドル（デフォルトでは workspace_group:N）を返します。--from を省略するとアンカーのみのグループを作成し、選択状態や呼び出し元のコンテキストから既存のワークスペースを推測しません。再試行でアトミックな作成または既存取得を行うには --idempotency-key（または --external-id）を渡し、完全な構造化ペイロードには --json を渡してください。",
+      "cliFlagsNote": "delete はデフォルトでグループを解除し、ワークスペースを保持します。すべてのメンバーワークスペースを閉じてプロセスを終了する場合にのみ --close-workspaces を渡してください。cmux が作成したアンカーのみのグループでは、ungroup に --remove-generated-anchor を指定するとアンカーも削除できます。ユーザーが選択または昇格したアンカーは拒否されます。レスポンスには操作内容と対象数が含まれます。set-color または set-icon に空の値を渡すと、グループの色やアイコンをクリアします。",
       "cliExamplesTitle": "例",
       "cliExampleGroup": "明示的に選んだ 2 つのワークスペースを名前を付けてグループ化します。",
       "cliExampleNew": "既存のグループ内に新しいワークスペースを作成します（例: worktree スクリプトと連携）。",
@@ -1947,7 +2058,7 @@
       "configNote": "グループごとの設定は、~/.config/cmux/cmux.json 内の workspaceGroups キーに置かれ、アンカーワークスペースの作業ディレクトリをキーとして照合されます。対応しているキー（グローバルな新規ワークスペースの配置や、ディレクトリごとの色・アイコン・配置・コンテキストメニューのアクションなど）については、設定リファレンスを参照してください。",
       "configLinkText": "workspaceGroups 設定リファレンス",
       "persistenceTitle": "永続化",
-      "persistenceDesc": "グループの名前、アンカー、ピン留め状態、折りたたみ状態、色、アイコンはワークスペースとともに保存され、起動をまたいで復元されます。グループのメンバーシップは各ワークスペースに保存されます。"
+      "persistenceDesc": "グループの名前、アンカー、ピン留め状態、折りたたみ状態、色、アイコン、外部識別子、アンカーの来歴はワークスペースとともに保存され、起動をまたいで復元されます。グループのメンバーシップは各ワークスペースに保存されます。"
     },
     "configuration": {
       "title": "設定",
@@ -2075,7 +2186,12 @@
           "snappingEnabled": "ペインのドラッグやリサイズを隣のペインの端や間隔にスナップします。Commandキーを押している間はスナップを一時停止します。"
         },
         "fileEditor": {
-          "wordWrap": "横スクロールする代わりに、エディタの右端で長い行を折り返します。"
+          "wordWrap": "長い行を横スクロールせずにエディタの右端で折り返します。",
+          "syntaxHighlighting": "組み込みファイルエディタでソースのトークンに色を付けます。",
+          "lineNumbers": "組み込みファイルエディタに行番号ガターを表示します。",
+          "indentGuides": "組み込みファイルエディタに縦のインデントガイドを描画します。",
+          "currentLineHighlight": "選択範囲が空のとき、キャレットのある行をハイライトします。",
+          "tabWidth": "インデントとインデントガイドに使用するタブストップの幅（桁数）。"
         },
         "sidebar": {
           "notificationMessageLineLimit": "各ワークスペースタイトルの下に表示する最新通知の最大行数です。",
@@ -2114,7 +2230,7 @@
       "shortcutsWhenBooleanKeys": "boolean キー。未知または存在しないキーは false として扱われ、リテラル true / false も使えます。",
       "shortcutsWhenTypedKeys": "比較用の型付きキー。右サイドバーのアクティブモード（文字列）と、ペイン数・ワークスペース数（整数）です。",
       "shortcutsWhenOperators": "boolean 演算子、型付き比較、正規表現マッチ、リスト所属。比較は && や || より強く結合します。",
-      "shortcutsWhenExample": "例えば次の設定では、右サイドバーにフォーカスがある場合を除いて Ctrl+1–9 でワークスペースを選択し（Ctrl+1–5 はサイドバーのモード切り替えに残します）、ワークスペースに複数のペインがあるときはサーフェス選択を Find サイドバーに限定します。"
+      "shortcutsWhenExample": "例えば次の設定では、右サイドバーにフォーカスがある場合を除いて Ctrl+1–9 でワークスペースを選択し（Ctrl+数字 はサイドバーのモード切り替えに残します）、ワークスペースに複数のペインがあるときはサーフェス選択を Find サイドバーに限定します。"
     },
     "customCommands": {
       "title": "カスタムコマンド",
@@ -2942,7 +3058,7 @@
       "intro": "cmux iOSアプリはMacのコンパニオンです。cmuxを実行しているMacとiPhoneまたはiPadをペアリングし、スマートフォンからターミナルにアタッチできます。ターミナル通知の転送もオプションで利用できます。",
       "betaNote": "iOSアプリはベータ版です。TestFlightで「cmux BETA」として提供されています。",
       "accessTitle": "入手方法",
-      "accessDesc": "アプリはTestFlightで配布されています。早期アクセスは<foundersLink>cmux Founders Edition</foundersLink>に含まれ、他の早期機能も利用できます。",
+      "accessDesc": "アプリはTestFlightで配布されています。早期アクセスは<foundersLink>cmux Founder's Edition</foundersLink>に含まれ、他の早期機能も利用できます。",
       "prereqTitle": "前提条件",
       "prereqIntro": "始める前に、次のものが必要です：",
       "prereq1": "cmuxを実行し、サインイン済みのMac。",
@@ -3142,6 +3258,9 @@
     "metaTitle": "cmux Pro が有効になりました",
     "title": "cmux Pro が有効になりました",
     "body": "{email} のアカウントを作成またはアップグレードしました。cmux を開くか、サインイン方法を追加できます。",
+    "purchaseComplete": "準備ができました",
+    "proLabel": "Pro プラン",
+    "dashboardLink": "ダッシュボードへ",
     "emailLabel": "購入メールアドレス",
     "whatUnlockedTitle": "利用できるようになった機能",
     "openCmux": "cmux を開く",
@@ -5271,6 +5390,28 @@
         "body": "プラン、請求書、解約を確認できます。",
         "action": "プランを管理"
       }
+    }
+  },
+  "PublicationApi": {
+    "invalid_email": {
+      "message": "有効なメールアドレスを入力してください。",
+      "action": "受信者は、この確認済みメールアドレスでサインインする必要があります。"
+    },
+    "invalid_expiry": {
+      "message": "アクセス許可の有効期限には将来の日時を指定してください。",
+      "action": "ISO 8601形式の日時を使うか、expiresAtを省略してください。"
+    },
+    "public_confirmation_required": {
+      "message": "公開アクセスには確認が必要です。",
+      "action": "ホスト名、VM、ポートを確認してから、confirmPublic: trueを送信してください。"
+    },
+    "organization_slug": {
+      "message": "組織のスラッグが無効か、すでに予約されています。",
+      "action": "小文字の英数字と単一のハイフンを使い、1〜19文字にしてください。既存の組織は予約済みのスラッグを使用します。"
+    },
+    "grant_body": {
+      "message": "公開ポートのメールアクセス許可",
+      "action": "emailと、必要に応じてexpiresAtを送信してください。"
     }
   }
 }

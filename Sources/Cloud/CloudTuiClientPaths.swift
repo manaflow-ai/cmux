@@ -13,6 +13,13 @@ struct CloudTuiClientPaths: Sendable {
         let updatedAtUnix: Int
     }
 
+    /// Stored in place of a device fingerprint for a machine this Mac reaches over
+    /// the trusted-carrier listener: there is no enrolled device, and the next link
+    /// dials `--carrier` again with no control-plane call. A real fingerprint means
+    /// the Mac enrolled before the machine's daemon served the trusted listener and
+    /// keeps presenting its stored key. Mirrored by the CLI's own store.
+    static let carrierDeviceMarker = "carrier"
+
     let home: URL
 
     init(home: URL = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)) {

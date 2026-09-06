@@ -59,6 +59,7 @@ export async function POST(
         const endpoint = await runVmWorkflow(openVmPort({
           userId: user.id,
           billingTeamId: account.entitlements.billingTeamId,
+          maxActiveVms: account.entitlements.maxActiveVms,
           callerPlanId: account.entitlements.planId,
           teamIds: user.teamIds,
           providerVmId: id,

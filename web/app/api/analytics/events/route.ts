@@ -14,6 +14,7 @@ import { checkRateLimit as checkVercelRateLimit } from "@vercel/firewall";
 import { createHash } from "node:crypto";
 import { verifyRequest } from "../../../../services/vms/auth";
 import { readBoundedJsonObject } from "../../../../services/apns/routePolicy";
+import { reportMissingRateLimitRule } from "../../../../services/rateLimitObservability";
 import { cloudDb } from "../../../../db/client";
 import {
   hasBlockingAccountDeletionIdentity,
@@ -62,6 +63,9 @@ export function makeAnalyticsEventsHandler(dependencies: AnalyticsEventsDependen
     // An unset rule id means no rate limiting; a deleted rule (not-found)
     // fails open. Only genuine check failures reject the event.
     const rateLimitId = process.env.CMUX_ANALYTICS_RATE_LIMIT_ID?.trim();
+    if (process.env.VERCEL === "1" && !rateLimitId) {
+      void reportMissingRateLimitRule({ route: "/api/analytics/events", reason: "unset" });
+    }
     if (process.env.VERCEL === "1" && rateLimitId) {
       try {
         const { error, rateLimited } = await dependencies.checkRateLimit(rateLimitId, { request });
@@ -69,7 +73,7 @@ export function makeAnalyticsEventsHandler(dependencies: AnalyticsEventsDependen
           return jsonResponse({ error: "rate_limited" }, 429);
         }
         if (error === "not-found") {
-          console.warn("analytics.events.rate_limit_not_found; failing open", rateLimitId);
+          void reportMissingRateLimitRule({ route: "/api/analytics/events", reason: "not-found" });
         } else if (error) {
           console.error("analytics.events.rate_limit_error", { failure: "check_error" });
           return jsonResponse({ error: "analytics_unavailable" }, 503);

@@ -9,7 +9,7 @@ private let phoneReplySweepLog = Logger(subsystem: "dev.cmux", category: "phone-
 /// locked iPhone cannot be trusted to hold a live transport session); this
 /// coordinator sweeps the inbox and types each reply through the SAME
 /// resolution and injection path the phone's direct RPC send uses
-/// (`terminal.input`), so claims, moved surfaces, and dead processes are
+/// (`terminal.paste`), so claims, moved surfaces, and dead processes are
 /// handled identically on both lanes.
 ///
 /// Sweeps are triggered by the account connectivity WebSocket (the worker
@@ -20,7 +20,7 @@ private let phoneReplySweepLog = Logger(subsystem: "dev.cmux", category: "phone-
 final class PhoneReplyInboxCoordinator {
     static let shared = PhoneReplyInboxCoordinator()
 
-    /// Injection outcome, mapped from the shared terminal.input result codes.
+    /// Injection outcome, mapped from the shared terminal.paste result codes.
     enum InjectionOutcome {
         /// Typed into the terminal (or queued on its input queue).
         case delivered
@@ -32,9 +32,11 @@ final class PhoneReplyInboxCoordinator {
         case retryable
     }
 
-    /// Seam to the shared terminal.input entrypoint; wired to
-    /// ``TerminalController/v2MobileTerminalInput(params:)`` at composition.
-    var injectTerminalInput: (@MainActor ([String: Any]) -> InjectionOutcome)?
+    /// Seam to the shared terminal.paste entrypoint; wired to
+    /// ``TerminalController/v2MobileTerminalPaste(params:)`` at composition.
+    /// The retarget policy is carried separately so a confined notification
+    /// can never be mistaken for a retargetable one after it is parked.
+    var injectTerminalInput: (@MainActor ([String: Any], Bool) -> InjectionOutcome)?
 
     private var client: PhoneReplyInboxClient?
     private var sweepTask: Task<Void, Never>?
@@ -122,14 +124,18 @@ final class PhoneReplyInboxCoordinator {
             }
             var params: [String: Any] = [
                 "surface_id": reply.surfaceId,
-                // The phone's direct lane submits with a trailing return; the
-                // relay lane stores the user's raw text and parity happens here.
-                "text": reply.text + "\r",
+                // Keep the reply text separate from its submit key. Appending a
+                // carriage return to terminal.input is a raw byte write and
+                // inserts a newline in full-screen agent editors instead of
+                // submitting the prompt. The Mac applies the retarget policy
+                // from the parked record before invoking terminal.paste.
+                "text": reply.text,
+                "submit_key": "return",
             ]
             if !reply.workspaceId.isEmpty {
                 params["workspace_id"] = reply.workspaceId
             }
-            let outcome = inject(params)
+            let outcome = inject(params, reply.retargetsToLiveSurfaceOwner)
             #if DEBUG
             cmuxDebugLog("phoneReply.inject outcome=\(outcome) surface=\(reply.surfaceId.prefix(8))")
             #endif

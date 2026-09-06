@@ -123,6 +123,33 @@ describe("coderouter credential refresh coordination", () => {
     await expect(refresh(input())).rejects.toThrow("database unavailable");
     expect(failedLease).toBe(true);
   });
+
+  test("propagates cancellation to the refresh lease claim", async () => {
+    let claimSignal: AbortSignal | undefined;
+    let claimStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      claimStarted = resolve;
+    });
+    const refresh = createCredentialRefresher(fakeDependencies({
+      claim: async (...args) => {
+        claimSignal = (args as readonly unknown[])[2] as AbortSignal | undefined;
+        claimStarted();
+        return await new Promise<never>((_resolve, reject) => {
+          const signal = claimSignal;
+          const abort = () => reject(signal?.reason ?? new DOMException("aborted", "AbortError"));
+          if (signal?.aborted) abort();
+          else signal?.addEventListener("abort", abort, { once: true });
+        });
+      },
+    }));
+    const controller = new AbortController();
+    const pending = refresh({ ...input(), signal: controller.signal });
+    await started;
+    controller.abort(new DOMException("client disconnected", "AbortError"));
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    expect(claimSignal).toBeDefined();
+    expect(claimSignal?.aborted).toBe(true);
+  });
 });
 
 describe("coderouter provider refresh responses", () => {

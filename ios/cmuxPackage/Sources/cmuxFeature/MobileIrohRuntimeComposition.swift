@@ -262,6 +262,11 @@ public final class MobileIrohRuntimeComposition:
     private var selectedPathObservationTask: Task<Void, Never>?
     private var irohSettingsContinuations: [UUID: AsyncStream<CmxIrohSettingsSnapshot>.Continuation] = [:]
     private var observedAuthState: MobileIrohAuthState?
+    /// `nil` is a valid auth state, so ``observedAuthState`` alone cannot
+    /// distinguish a cold launch that has not been reconciled from a launch
+    /// that has already observed signed-out auth. Keep that distinction so a
+    /// stale endpoint identity is wiped before the first signed-in session.
+    private var hasObservedAuthState = false
     private var observedAccountID: String? { observedAuthState?.accountID }
     private var activeAccountID: String?
     private let diagnosticArchive = DiagnosticReportArchive.defaultArchive()
@@ -587,6 +592,7 @@ public final class MobileIrohRuntimeComposition:
             connectivityInvalidationSubscriber = nil
         }
         authObservationTask?.cancel()
+        hasObservedAuthState = false
         authObservationTask = Task { @MainActor [weak self, weak auth] in
             guard let auth else { return }
             await self?.startNetworkPathObservation({ [weak self] in
@@ -1096,7 +1102,7 @@ public final class MobileIrohRuntimeComposition:
         let fallbackAccountID = activeAccountID
             ?? observedAccountID
             ?? lastKnownBindingAccountID
-        observedAuthState = MobileIrohAuthState(accountID: nil)
+        recordObservedAuthState(MobileIrohAuthState(accountID: nil))
         lifecycleRevision &+= 1
         let revision = lifecycleRevision
         let previous = transitionTask
@@ -1236,7 +1242,7 @@ public final class MobileIrohRuntimeComposition:
         }
         guard authStateRequiresReconcile(state) else { return }
         let previousObservedAccountID = observedAccountID
-        observedAuthState = state
+        recordObservedAuthState(state)
         let transition = scheduleReconcile(
             targetAccountID: state.accountID,
             eraseAccountState: state.accountID == nil
@@ -1256,7 +1262,7 @@ public final class MobileIrohRuntimeComposition:
         guard authStateRequiresReconcile(state) else { return }
         let accountID = state.accountID
         let previousObservedAccountID = observedAccountID
-        observedAuthState = state
+        recordObservedAuthState(state)
         _ = scheduleReconcile(
             targetAccountID: accountID,
             eraseAccountState: accountID == nil
@@ -1278,7 +1284,7 @@ public final class MobileIrohRuntimeComposition:
         }
         guard authStateRequiresReconcile(state) else { return }
         let previousObservedAccountID = observedAccountID
-        observedAuthState = state
+        recordObservedAuthState(state)
         _ = scheduleReconcile(
             targetAccountID: accountID,
             eraseAccountState: accountID == nil
@@ -1289,6 +1295,11 @@ public final class MobileIrohRuntimeComposition:
     }
 
     private func authStateRequiresReconcile(_ state: MobileIrohAuthState) -> Bool {
+        // The first observation must always reconcile, including a signed-out
+        // `nil` state. Without this guard, a cold launch starts with both
+        // values nil and skips `wipeLocalState()`, retaining a stale endpoint
+        // identity until a later account transition.
+        guard hasObservedAuthState else { return true }
         guard observedAuthState == state else { return true }
         guard let accountID = state.accountID else { return false }
         guard runtime == nil, transitionTask == nil else { return false }
@@ -1761,6 +1772,30 @@ public final class MobileIrohRuntimeComposition:
             throw CmxIrohClientRuntimeError.inactive
         }
         let deviceID = cmxCanonicalDeviceID(durableDeviceID)
+        // The cached relay catalog is independent of the account-scoped
+        // identity and binding reads below. Start it immediately so a cold
+        // activation overlaps secure-storage work instead of adding another
+        // serial keychain read before the runtime can start.
+        // Keep this independent read unstructured so a fallible identity or
+        // binding lookup below can return immediately after cancelling it.
+        // Structured `async let` would implicitly await the cache read while
+        // unwinding an activation failure, turning an unrelated slow secure
+        // store into a failure-path stall.
+        let cachedManagedRelayURLsTask = Task { [
+            relayPolicyCache,
+            relayPolicyTrustRoot,
+            now
+        ] in
+            guard let relayPolicyTrustRoot,
+                  let cachedPolicy = try? await relayPolicyCache.load(
+                      trustRoot: relayPolicyTrustRoot,
+                      now: now()
+                  ) else {
+                return Set<String>()
+            }
+            return Set(cachedPolicy.relays.map(\.url))
+        }
+        defer { cachedManagedRelayURLsTask.cancel() }
         let appInstanceID = try await appInstances.appInstanceID(
             accountID: accountID,
             tag: tag
@@ -1783,16 +1818,7 @@ public final class MobileIrohRuntimeComposition:
                 && $0.endpointID == endpointID
                 && $0.identityGeneration == identity.generation
         } ?? false
-        let cachedManagedRelayURLs: Set<String>
-        if let relayPolicyTrustRoot,
-           let cachedPolicy = try? await relayPolicyCache.load(
-               trustRoot: relayPolicyTrustRoot,
-               now: now()
-           ) {
-            cachedManagedRelayURLs = Set(cachedPolicy.relays.map(\.url))
-        } else {
-            cachedManagedRelayURLs = []
-        }
+        let cachedManagedRelayURLs = await cachedManagedRelayURLsTask.value
         let cachedRelay: CmxIrohRelayTokenResponse?
         if let cachedBinding, bindingMatches {
             lastKnownBindingID = cachedBinding.bindingID
@@ -2166,6 +2192,11 @@ public final class MobileIrohRuntimeComposition:
         clearRelayPolicyRuntimeState()
     }
 
+    private func recordObservedAuthState(_ state: MobileIrohAuthState) {
+        observedAuthState = state
+        hasObservedAuthState = true
+    }
+
     private func enqueueFallbackRevocation(
         accountID: String?,
         bindingID: String?
@@ -2407,17 +2438,25 @@ public final class MobileIrohRuntimeComposition:
         bundleIdentifier: String? = nil,
         allowsLoopback: Bool = true
     ) -> URL? {
+        // Official/TestFlight bundles are always production artifacts. Their
+        // Info.plist must not be able to route Iroh to staging, even when a
+        // stale CMUXIrohBrokerBaseURL or CMUXDevTag was accidentally carried
+        // into the archive. Keep this defense in the runtime as well as the
+        // release-build gate, because an already-installed artifact cannot be
+        // repaired by changing the launch environment.
+        let authEnvironment = (infoDictionary?["CMUXAuthEnvironment"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        if authEnvironment == "production"
+            || isOfficialReleaseBundle(bundleIdentifier) {
+            return URL(string: "https://cmux.com")
+        }
+
         if let baked = infoDictionary?["CMUXIrohBrokerBaseURL"] as? String {
             let trimmed = baked.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty {
                 return validatedBrokerBaseURL(trimmed, allowsLoopback: allowsLoopback)
             }
-        }
-        let authEnvironment = (infoDictionary?["CMUXAuthEnvironment"] as? String)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        if authEnvironment == "production" {
-            return URL(string: "https://cmux.com")
         }
         if MobileIOSBuildScope.current(
             infoDictionary: infoDictionary,
@@ -2426,6 +2465,13 @@ public final class MobileIrohRuntimeComposition:
             return URL(string: "https://cmux-staging.vercel.app")
         }
         return validatedBrokerBaseURL(apiBaseURL, allowsLoopback: allowsLoopback)
+    }
+
+    private static func isOfficialReleaseBundle(_ bundleIdentifier: String?) -> Bool {
+        guard let bundleIdentifier else { return false }
+        return bundleIdentifier == "com.cmux.app"
+            || bundleIdentifier == "com.cmuxterm.app.nightly"
+            || bundleIdentifier.hasPrefix("dev.cmux.app.")
     }
 
     private static func validatedBrokerBaseURL(

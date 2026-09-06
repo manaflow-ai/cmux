@@ -21,7 +21,15 @@ export function shellQuote(value: string): string {
 export const CMUX_TUI_PORT = 1337;
 export const CMUX_TUI_SESSION = "cloud";
 export const CMUX_TUI_BINARY_PATH = "/root/.cmux/bin/cmux-tui";
-export const CMUX_TUI_INVITATION_TTL_SECONDS = 5 * 60;
+/**
+ * The daemon's cloud listener is reachable only inside the owner's private
+ * network (every member is the owner's Mac or another of the owner's machines),
+ * so it grants carrier authentication to every link: no device enrollment, no
+ * invitation, no approval. The env form is what a systemd drop-in sets on a
+ * machine whose baked launch line predates the flag; the daemon reads either.
+ */
+export const CMUX_TUI_TRUSTED_CARRIER_ENV = "CMUX_TUI_REMOTE_WS_TRUSTED_CARRIER";
+export const CMUX_TUI_TRUSTED_CARRIER_FLAG = "--remote-ws-trusted-carrier";
 export const CMUX_TUI_INSTALL_TIMEOUT_MS = 5 * 60 * 1000;
 // A provider can attach the volume after the process starts, but a permanently
 // missing volume must fail through the provider's restart/reconciliation path.
@@ -461,7 +469,7 @@ function cmuxTuiBackingDaemonInvocation(
  * The daemon command every provider's supervisor runs. Launch cwd = the persistent
  * home so new terminals open there. `remoteWsBind` defaults to the IPv4 wildcard
  * the container providers' proxies dial; Freestyle machines are reached at
- * their public IPv6 and pass a dual-stack `[::]` bind instead (a container with
+ * their private VPC address and pass a dual-stack `[::]` bind instead (a container with
  * IPv6 disabled cannot bind `[::]` at all, so dual-stack is per-provider, not the
  * default).
  *
@@ -488,7 +496,7 @@ export function cmuxTuiDaemonCommand(
   layout?: CmuxTuiHomeLayout,
   options?: CmuxTuiDaemonOptions,
 ): string {
-  const args = `server start --session ${CMUX_TUI_SESSION} --remote-ws ${remoteWsBind} --remote-ws-insecure-bind`;
+  const args = `server start --session ${CMUX_TUI_SESSION} --remote-ws ${remoteWsBind} --remote-ws-insecure-bind ${CMUX_TUI_TRUSTED_CARRIER_FLAG}`;
   if (!layout) {
     return `cd /root && env HOME=/root TERM=xterm-256color ${CMUX_TUI_BINARY_PATH} ${args}`;
   }
@@ -560,36 +568,6 @@ export function cmuxTuiDaemonCommand(
   );
 }
 
-/** Enrollment invitations are `cmux://enroll/<base64url JSON>`; the id and expiry inside are what the approve flow needs. */
-export function parseEnrollmentInvitationUri(
-  uri: string,
-  provider: ProviderId = "freestyle",
-): { id: string; expiresAtUnix: number; daemonFingerprint: string | null } {
-  const prefix = "cmux://enroll/";
-  if (!uri.startsWith(prefix)) {
-    throw new ProviderError(provider, "cmux-tui returned an invitation with an unexpected scheme");
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(Buffer.from(uri.slice(prefix.length), "base64url").toString("utf8"));
-  } catch (err) {
-    throw new ProviderError(provider, "cmux-tui returned an undecodable invitation", err);
-  }
-  const record = parsed && typeof parsed === "object" ? parsed as Record<string, unknown> : {};
-  const id = typeof record.id === "string" ? record.id : "";
-  const expiresAtUnix = typeof record.expires_at_unix === "number" ? record.expires_at_unix : 0;
-  if (!id || !expiresAtUnix) {
-    throw new ProviderError(provider, "cmux-tui returned an invitation without an id or expiry");
-  }
-  return {
-    id,
-    expiresAtUnix,
-    daemonFingerprint: typeof record.daemon_fingerprint === "string" ? record.daemon_fingerprint : null,
-  };
-}
-
-export const ENROLLMENT_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/;
-
 export function parseJsonObject(text: string): Record<string, unknown> {
   try {
     const value = JSON.parse(text.trim());
@@ -646,64 +624,108 @@ export async function cmuxTuiDaemonBuild(
   return { commit, remoteProtocol, version };
 }
 
-export async function mintCmuxTuiInvitation(
-  invoke: CmuxTuiInvoke,
-  provider: ProviderId,
-  vmId: string,
-): Promise<NonNullable<CmuxRemoteEndpoint["invitation"]>> {
-  const created = await invoke(
-    `remote enroll create --session ${CMUX_TUI_SESSION} --ttl ${CMUX_TUI_INVITATION_TTL_SECONDS} --json`,
+/**
+ * Everything attach needs from the daemon in ONE guest exec: an optional
+ * readiness gate (exit 3 when it fails, so the caller can run the heal), the
+ * daemon build (`remote-probe`), the enrolled devices (so a machine where the
+ * caller is already enrolled is never restarted under it), and whether the
+ * running daemon serves the trusted-carrier listener. Each section is fenced
+ * by a marker line so the outputs parse independently.
+ */
+export const CMUX_TUI_ATTACH_BUNDLE_NOT_READY_EXIT = 3;
+const BUNDLE_MARKERS = { probe: "__CMUX_PROBE__", devices: "__CMUX_DEVICES__", trusted: "__CMUX_TRUSTED__", end: "__CMUX_END__" } as const;
+
+/**
+ * Prints `1` when the daemon process that owns the cloud session serves the
+ * trusted-carrier listener: it was started with the flag or the env, AND the
+ * binary it runs parses the flag (`--remote-ws-trusted-carrier --version`
+ * exits 0; an older binary rejects the unknown argument with exit 2 before
+ * it reaches `--version`). An older binary ignores the env, so the env alone
+ * proves nothing; asking the running binary itself also keeps the answer
+ * honest while the pinned manifest and the machine's install disagree.
+ * Anything else prints `0`.
+ */
+export function cmuxTuiTrustedListenerProbe(): string {
+  return (
+    "p=$(pgrep -f 'cmux-tui server [s]tart' | head -n1); " +
+    `if [ -n "$p" ] && { tr '\\0' '\\n' < "/proc/$p/environ" 2>/dev/null | grep -qx ${shellQuote(`${CMUX_TUI_TRUSTED_CARRIER_ENV}=1`)} || tr '\\0' '\\n' < "/proc/$p/cmdline" 2>/dev/null | grep -qx -- ${shellQuote(CMUX_TUI_TRUSTED_CARRIER_FLAG)}; }` +
+    ` && "/proc/$p/exe" ${CMUX_TUI_TRUSTED_CARRIER_FLAG} --version >/dev/null 2>&1; then echo 1; else echo 0; fi`
   );
-  if (created.exitCode !== 0) {
-    throw new ProviderError(provider, `cmux-tui enrollment invitation in ${vmId} failed: ${created.stderr || created.stdout}`);
-  }
-  const uri = parseJsonObject(created.stdout).uri;
-  if (typeof uri !== "string" || !uri) {
-    throw new ProviderError(provider, `cmux-tui enrollment invitation in ${vmId} returned no uri`);
-  }
-  const parsed = parseEnrollmentInvitationUri(uri, provider);
-  return { uri, invitationId: parsed.id, expiresAtUnix: parsed.expiresAtUnix };
 }
 
-export async function isCmuxTuiDeviceEnrolled(
-  invoke: CmuxTuiInvoke,
-  fingerprint: string,
-): Promise<boolean> {
-  const devices = await invoke(`remote enroll devices --session ${CMUX_TUI_SESSION} --json`).catch(() => null);
-  if (!devices || devices.exitCode !== 0) return false;
-  return parseJsonArray(devices.stdout).some((device) =>
-    device.fingerprint === fingerprint && (device.revoked_at_unix === null || device.revoked_at_unix === undefined)
-  );
+export function cmuxTuiAttachBundleCommand(options: {
+  readonly readyGate?: string;
+  readonly deviceFingerprint?: string;
+  readonly binary?: string;
+}): string {
+  const bin = options.binary ?? CMUX_TUI_BINARY_PATH;
+  const run = `env HOME=/root ${bin}`;
+  const fingerprint = options.deviceFingerprint?.trim();
+  if (fingerprint !== undefined && fingerprint !== "" && !/^[A-Za-z0-9._:=+/-]+$/.test(fingerprint)) {
+    throw new Error("device fingerprint has an unexpected shape");
+  }
+  return [
+    // Run the readiness probe in a subshell. The Freestyle gate uses `exit` for
+    // its success and failure branches; without a subshell those exits terminate
+    // the entire attach bundle before the probe, device, and invitation sections.
+    ...(options.readyGate ? [`( ${options.readyGate}; ) || exit ${CMUX_TUI_ATTACH_BUNDLE_NOT_READY_EXIT}`] : []),
+    `echo ${BUNDLE_MARKERS.probe}`,
+    `${run} remote-probe --json; echo`,
+    `echo ${BUNDLE_MARKERS.devices}`,
+    `${run} remote enroll devices --session ${CMUX_TUI_SESSION} --json; echo`,
+    `echo ${BUNDLE_MARKERS.trusted}`,
+    cmuxTuiTrustedListenerProbe(),
+    `echo ${BUNDLE_MARKERS.end}`,
+  ].join("; ");
 }
 
-export async function approveCmuxTuiEnrollment(
-  invoke: CmuxTuiInvoke,
+export type CmuxTuiAttachBundle = {
+  readonly daemonBuild: CmuxRemoteEndpoint["daemonBuild"] | null;
+  /** The caller's device is on the daemon's enrolled list (only known when a fingerprint was given). */
+  readonly enrolled: boolean;
+  /** The running daemon grants carrier authentication on its cloud listener. */
+  readonly trustedCarrier: boolean;
+};
+
+/** Parses the fenced stdout of {@link cmuxTuiAttachBundleCommand}. */
+export function parseCmuxTuiAttachBundle(
+  stdout: string,
   provider: ProviderId,
   vmId: string,
-  invitationId: string,
-): Promise<{ approved: boolean; state: "approved" | "pending"; deviceFingerprint?: string }> {
-  if (!ENROLLMENT_ID_PATTERN.test(invitationId)) {
-    throw new ProviderError(provider, "invitation id has an unexpected shape");
+  deviceFingerprint?: string,
+): CmuxTuiAttachBundle {
+  const section = (from: string, to: string): string => {
+    const start = stdout.indexOf(from);
+    const end = stdout.indexOf(to);
+    if (start === -1 || end === -1 || end < start) return "";
+    return stdout.slice(start + from.length, end).trim();
+  };
+  const probeText = section(BUNDLE_MARKERS.probe, BUNDLE_MARKERS.devices);
+  const devicesText = section(BUNDLE_MARKERS.devices, BUNDLE_MARKERS.trusted);
+  const trustedText = section(BUNDLE_MARKERS.trusted, BUNDLE_MARKERS.end);
+  let daemonBuild: CmuxTuiAttachBundle["daemonBuild"] = null;
+  try {
+    const record = parseJsonObject(probeText);
+    const commit = typeof record.build_identity === "string" ? record.build_identity : null;
+    const remoteProtocol = typeof record.remote_protocol === "number" ? record.remote_protocol : null;
+    const version = typeof record.version === "string" ? record.version : null;
+    if (commit || remoteProtocol !== null) daemonBuild = { commit, remoteProtocol, version };
+  } catch {
+    daemonBuild = null;
   }
-  const pending = await invoke(`remote enroll pending --session ${CMUX_TUI_SESSION} --json`);
-  if (pending.exitCode !== 0) {
-    throw new ProviderError(provider, `cmux-tui pending enrollments in ${vmId} failed: ${pending.stderr || pending.stdout}`);
+  let enrolled = false;
+  if (deviceFingerprint) {
+    try {
+      enrolled = parseJsonArray(devicesText).some((device) =>
+        device.fingerprint === deviceFingerprint && (device.revoked_at_unix === null || device.revoked_at_unix === undefined)
+      );
+    } catch {
+      enrolled = false;
+    }
   }
-  const entries = parseJsonArray(pending.stdout);
-  const match = entries.find((entry) => entry.invitation_id === invitationId);
-  if (!match) {
-    // The client has not claimed the invitation yet (or it expired); the caller polls.
-    return { approved: false, state: "pending" };
-  }
-  const approved = await invoke(
-    `remote enroll approve ${shellQuote(invitationId)} --session ${CMUX_TUI_SESSION} --json`,
-  );
-  if (approved.exitCode !== 0) {
-    throw new ProviderError(provider, `cmux-tui enrollment approval in ${vmId} failed: ${approved.stderr || approved.stdout}`);
-  }
-  const device = parseJsonObject(approved.stdout);
-  const fingerprint = typeof device.fingerprint === "string"
-    ? device.fingerprint
-    : typeof match.device_fingerprint === "string" ? match.device_fingerprint : undefined;
-  return { approved: true, state: "approved", ...(fingerprint ? { deviceFingerprint: fingerprint } : {}) };
+  // Fail closed: a missing or malformed section means the caller must heal.
+  const trustedCarrier = trustedText.split("\n").pop()?.trim() === "1";
+  void provider;
+  void vmId;
+  return { daemonBuild, enrolled, trustedCarrier };
 }

@@ -9,6 +9,16 @@ export type ModelUsage = {
 const MAX_TAIL_CHARS = 256 * 1024;
 
 /**
+ * A response body exists for ordinary JSON responses too. Use the protocol's
+ * media type to identify a stream, so usage and route telemetry do not mark
+ * every non-empty response as streamed.
+ */
+export function isStreamingResponse(response: Response): boolean {
+  const mediaType = response.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
+  return mediaType === "text/event-stream" || mediaType === "application/x-ndjson";
+}
+
+/**
  * Passes upstream bytes through immediately while retaining only a bounded
  * rolling tail and a model identifier. No prompt or model output is logged,
  * persisted, or sent to analytics.
