@@ -1,4 +1,3 @@
-public import CmuxFoundation
 import Foundation
 
 /// One searchable palette entry: a payload plus precomputed normalized

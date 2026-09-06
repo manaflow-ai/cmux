@@ -3245,8 +3245,6 @@
 		9212A0069212A0069212A006 /* SidebarEmptyAreaWindowDragTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9212B0069212B0069212B006 /* SidebarEmptyAreaWindowDragTests.swift */; };
 		9212A0059212A0059212A005 /* SidebarEmptyAreaWindowDragTrackingEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9212B0059212B0059212B005 /* SidebarEmptyAreaWindowDragTrackingEvent.swift */; };
 		A7FD1002 /* SidebarFileDropFindRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7FD1001 /* SidebarFileDropFindRoutingTests.swift */; };
-		3D6E1C0362B56791490C8135 /* SidebarFilterController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62AA6EC5A67508F26074B60B /* SidebarFilterController.swift */; };
-		4BB8A42E2371AC7FB155ADF5 /* SidebarFilterCorpusKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FA48771BCBE1F596B455835 /* SidebarFilterCorpusKey.swift */; };
 		B8624C060000000000000006 /* SidebarFocusBoundaryLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8624D060000000000000006 /* SidebarFocusBoundaryLifecycleTests.swift */; };
 		A8624F0C0000000000000001 /* SidebarFocusBoundaryReference.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8624F0C0000000000000002 /* SidebarFocusBoundaryReference.swift */; };
 		8175A0010000000000000001 /* SidebarGitProcessCompositionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8175A0010000000000000002 /* SidebarGitProcessCompositionTests.swift */; };
@@ -7662,8 +7660,6 @@
 		9212B0069212B0069212B006 /* SidebarEmptyAreaWindowDragTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarEmptyAreaWindowDragTests.swift; sourceTree = "<group>"; };
 		9212B0059212B0059212B005 /* SidebarEmptyAreaWindowDragTrackingEvent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarEmptyAreaWindowDragTrackingEvent.swift; sourceTree = "<group>"; };
 		A7FD1001 /* SidebarFileDropFindRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarFileDropFindRoutingTests.swift; sourceTree = "<group>"; };
-		62AA6EC5A67508F26074B60B /* SidebarFilterController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/Filter/SidebarFilterController.swift; sourceTree = "<group>"; };
-		0FA48771BCBE1F596B455835 /* SidebarFilterCorpusKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/Filter/SidebarFilterCorpusKey.swift; sourceTree = "<group>"; };
 		B8624D060000000000000006 /* SidebarFocusBoundaryLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarFocusBoundaryLifecycleTests.swift; sourceTree = "<group>"; };
 		A8624F0C0000000000000002 /* SidebarFocusBoundaryReference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarFocusBoundaryReference.swift; sourceTree = "<group>"; };
 		8175A0010000000000000002 /* SidebarGitProcessCompositionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarGitProcessCompositionTests.swift; sourceTree = "<group>"; };
@@ -10155,8 +10151,6 @@
 				599E6D613B9CD389A75BCU01 /* SidebarCustomizationSettings.swift */,
 				1102C452474E10C5962941D3 /* SidebarPeekPanelHost.swift */,
 				A46624E7B573873D41B28E5C /* VerticalTabsSidebar+PresentationToggle.swift */,
-				62AA6EC5A67508F26074B60B /* SidebarFilterController.swift */,
-				0FA48771BCBE1F596B455835 /* SidebarFilterCorpusKey.swift */,
 				B954AEE8BD37A8D69AA13832 /* SidebarPeekController.swift */,
 				2C733A9B22B4426FB8C1CD4F /* SidebarPeekEdgeTrackingView.swift */,
 				327A9185ED75125180313AF0 /* SidebarPeekPresentation.swift */,
@@ -16029,8 +16023,6 @@
 				9212A0019212A0019212A001 /* SidebarEmptyAreaWindowDragController.swift in Sources */,
 				9212A0049212A0049212A004 /* SidebarEmptyAreaWindowDragOutcome.swift in Sources */,
 				9212A0059212A0059212A005 /* SidebarEmptyAreaWindowDragTrackingEvent.swift in Sources */,
-				3D6E1C0362B56791490C8135 /* SidebarFilterController.swift in Sources */,
-				4BB8A42E2371AC7FB155ADF5 /* SidebarFilterCorpusKey.swift in Sources */,
 				A8624F0C0000000000000001 /* SidebarFocusBoundaryReference.swift in Sources */,
 				F10753000000000000000001 /* SidebarGroupHeaderRowActions+NotificationState.swift in Sources */,
 				B804A0200000000000000020 /* SidebarGroupHeaderRowModel.swift in Sources */,

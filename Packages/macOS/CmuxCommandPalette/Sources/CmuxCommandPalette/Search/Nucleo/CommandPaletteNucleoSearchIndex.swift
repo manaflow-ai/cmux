@@ -1,4 +1,3 @@
-public import CmuxFoundation
 import Foundation
 
 // Sendable is safe here because the Swift payload entries are immutable, the

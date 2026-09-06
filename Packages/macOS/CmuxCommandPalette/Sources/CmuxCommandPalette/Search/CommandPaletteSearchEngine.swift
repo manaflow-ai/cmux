@@ -1,4 +1,3 @@
-public import CmuxFoundation
 import Foundation
 
 /// Pure Swift ranking engine over a prepared corpus: scores entries with

@@ -1,4 +1,3 @@
-public import CmuxFoundation
 public import Foundation
 
 /// Orchestrates one palette search across both engines: prefers the nucleo

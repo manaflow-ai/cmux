@@ -78,6 +78,3 @@ tmux-*.log
 # Remote-only Blacksmith cmux-tui benchmark output
 /testbox-benchmark/
 /.cmux-scratch/
-
-# CmuxSidebarGallery render output (dev-only, see Packages/macOS/CmuxSidebarGallery)
-.gallery/
