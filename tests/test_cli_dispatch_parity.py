@@ -6,6 +6,10 @@ the same help output as its target.
 This is the safety net for the family-by-family declaration tasks: it is easy
 to migrate a command name but silently drop one of its aliases, or declare an
 alias that points at the wrong target. Both are caught here.
+
+Passthrough aliases (`cr`) are gated separately: they share their target's
+routing but deliberately not its help, so they are checked for alias
+declaration and for never serving the target's cmux-owned help.
 """
 from __future__ import annotations
 
@@ -20,7 +24,6 @@ ALIASES = {
     "remote": "remotes",
     "login": "auth login",
     "logout": "auth logout",
-    "cr": "coderouter",
     "open-browser": "browser open",
     "navigate": "browser navigate",
     "browser-back": "browser back",
@@ -29,6 +32,28 @@ ALIASES = {
     "get-url": "browser get-url",
     "focus-webview": "browser focus-webview",
     "is-webview-focused": "browser is-webview-focused",
+}
+
+# Aliases that route and complete as their target but deliberately do NOT share
+# its help, because the alias passes the invocation through to an external CLI.
+# `cmux cr ...` is always the installed CodeRouter CLI, while `cmux coderouter`
+# keeps the verbs cmux owns (`status`, `machines`, `claude`, help). See the
+# passthrough branch in CLI/cmux.swift.
+#
+# Checking these for help equality would be wrong, but dropping them would stop
+# gating the half of the contract that does hold: the alias must still be
+# declared on the target in the facade tree, and it must never serve the
+# target's cmux-owned help. Both are asserted below, and neither depends on the
+# external CLI being installed.
+PASSTHROUGH_ALIASES = {"cr": "coderouter"}
+
+# Body text unique to the cmux-owned `coderouter` help. This must be a line
+# from the help *body*, not the banner or the "Usage:" line: a genuine alias
+# echoes the invoked name on those two lines (`cmux cloud` prints
+# "Usage: cmux cloud ...") but repeats the body verbatim, so only a body marker
+# actually detects an alias wrongly serving its target's help.
+PASSTHROUGH_TARGET_HELP_MARKERS = {
+    "coderouter": "Team settings for the cmux coderouter model plane",
 }
 
 
@@ -97,6 +122,31 @@ def extract_declared_names(cli: str) -> set[str]:
     return names
 
 
+def extract_declared_aliases(cli: str) -> dict[str, set[str]]:
+    """Maps each top-level command to the aliases declared on it in the facade tree."""
+    proc = subprocess.run(
+        [cli, "__dump-command-tree"],
+        text=True, capture_output=True, check=False, timeout=30.0,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(f"__dump-command-tree exited {proc.returncode}\n{proc.stderr}")
+
+    declared: dict[str, set[str]] = {}
+    for line in proc.stdout.splitlines():
+        if not line.startswith("command  "):
+            continue
+        rest = line[len("command  "):]
+        path, _, tail = rest.partition("  aliases=")
+        if " " in path:
+            continue  # nested subcommand path, not a top-level dispatch name
+        aliases = tail.strip()
+        declared[path] = (
+            set() if not aliases or aliases == "-"
+            else {alias.strip() for alias in aliases.split(",")}
+        )
+    return declared
+
+
 def help_text(cli: str, command: str) -> str:
     proc = subprocess.run(
         [cli, *command.split(" "), "--help"],
@@ -158,9 +208,35 @@ def main() -> int:
             print(f"  {alias} -> {target}")
         return 1
 
+    declared_aliases = extract_declared_aliases(cli)
+    passthrough_failures = []
+    for alias, target in PASSTHROUGH_ALIASES.items():
+        if alias not in declared_aliases.get(target, set()):
+            passthrough_failures.append(
+                f"{alias} is not declared as an alias of {target} in the facade tree"
+            )
+        marker = PASSTHROUGH_TARGET_HELP_MARKERS[target]
+        if marker in help_text(cli, alias):
+            passthrough_failures.append(
+                f"`cmux {alias} --help` served {target}'s cmux-owned help "
+                f"(found {marker!r}); it must pass through to the external CLI"
+            )
+        if marker not in help_text(cli, target):
+            passthrough_failures.append(
+                f"`cmux {target} --help` no longer contains {marker!r}; "
+                "update PASSTHROUGH_TARGET_HELP_MARKERS"
+            )
+
+    if passthrough_failures:
+        print("FAIL: passthrough alias contract violated:")
+        for failure in passthrough_failures:
+            print(f"  {failure}")
+        return 1
+
     print(
         f"PASS: {len(legacy_names)} legacy dispatch names covered, "
-        f"{len(ALIASES)} aliases resolve to their target"
+        f"{len(ALIASES)} aliases resolve to their target, "
+        f"{len(PASSTHROUGH_ALIASES)} passthrough aliases keep their contract"
     )
     return 0
 
