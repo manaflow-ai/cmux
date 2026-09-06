@@ -2123,12 +2123,67 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     /// layer transforms over an unchanged table.
     private struct ReorderLiftSession {
         let workspaceId: UUID
-        let sourceIndex: Int
-        let rowHeight: CGFloat
+        /// Rows travelling with the pointer: one row, or a group header plus
+        /// its visible members. A group's header mints its anchor's id (see
+        /// `pasteboardWriterForRow`), so an anchor drag is a whole-group move
+        /// and the block is what the hand is holding.
+        let sourceRange: Range<Int>
+        /// Every other row, grouped into the units that shift as one. A row
+        /// drag parts single rows (a row can slot inside a group); a group
+        /// drag parts whole groups (a group only reorders among top-level
+        /// units), so a header never separates from its members mid-drag.
+        let otherUnits: [Range<Int>]
         let frames: [CGRect]
+        /// Vertical gap between adjacent rows, so re-laid units keep it.
+        let rowSpacing: CGFloat
         /// The applied translation target per row index, so a row only
         /// animates when its target actually flips.
         var appliedTargets: [CGFloat]
+
+        func height(of unit: Range<Int>) -> CGFloat {
+            frames[unit].reduce(0) { $0 + $1.height } + rowSpacing * CGFloat(max(0, unit.count - 1))
+        }
+    }
+
+    /// The row range a drag of `workspaceId` carries: a group header plus
+    /// its visible members when the id is a group anchor, else the one row.
+    private func reorderSourceRange(for workspaceId: UUID) -> Range<Int>? {
+        guard let first = rows.firstIndex(where: { $0.workspaceId == workspaceId }) else { return nil }
+        guard rows[first].isGroupHeader, let groupId = rows[first].groupId else {
+            return first..<(first + 1)
+        }
+        return groupBlockRange(headerIndex: first, groupId: groupId)
+    }
+
+    /// Header row plus the contiguous member rows below it. A collapsed
+    /// group shows no members, so its block is the header alone.
+    private func groupBlockRange(headerIndex: Int, groupId: UUID) -> Range<Int> {
+        var end = headerIndex + 1
+        while end < rows.count, !rows[end].isGroupHeader, rows[end].groupId == groupId {
+            end += 1
+        }
+        return headerIndex..<end
+    }
+
+    /// The units that part around a dragged block, in row order.
+    private func reorderUnits(excluding source: Range<Int>, wholeGroups: Bool) -> [Range<Int>] {
+        var units: [Range<Int>] = []
+        var index = 0
+        while index < rows.count {
+            if source.contains(index) {
+                index = source.upperBound
+                continue
+            }
+            if wholeGroups, rows[index].isGroupHeader, let groupId = rows[index].groupId {
+                let block = groupBlockRange(headerIndex: index, groupId: groupId)
+                units.append(block)
+                index = block.upperBound
+            } else {
+                units.append(index..<(index + 1))
+                index += 1
+            }
+        }
+        return units
     }
 
     private var reorderLiftSession: ReorderLiftSession?
@@ -2170,58 +2225,71 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 
         if reorderLiftSession?.workspaceId != workspaceId {
             endReorderLift(animated: false)
-            guard let sourceIndex = rows.firstIndex(where: { $0.workspaceId == workspaceId }) else { return }
+            guard let sourceRange = reorderSourceRange(for: workspaceId) else { return }
             let frames = (0..<rows.count).map { table.rect(ofRow: $0) }
-            guard frames.indices.contains(sourceIndex), frames[sourceIndex].height > 0 else { return }
+            guard frames.indices.contains(sourceRange.lowerBound),
+                  frames[sourceRange.lowerBound].height > 0 else { return }
+            let isGroupDrag = rows[sourceRange.lowerBound].isGroupHeader
             reorderLiftSession = ReorderLiftSession(
                 workspaceId: workspaceId,
-                sourceIndex: sourceIndex,
-                rowHeight: frames[sourceIndex].height,
+                sourceRange: sourceRange,
+                otherUnits: reorderUnits(excluding: sourceRange, wholeGroups: isGroupDrag),
                 frames: frames,
+                rowSpacing: frames.count > 1 ? max(0, frames[1].minY - frames[0].maxY) : 0,
                 appliedTargets: Array(repeating: 0, count: rows.count)
             )
         }
         guard var session = reorderLiftSession else { return }
 
-        // The dragged row's visual centre: the pointer, clamped so the row
-        // cannot leave the list. The top clamp is the first row's slot (a
-        // tab cannot go above the new-workspace row); the bottom is the
-        // full extent of the list area, so a tab can be carried all the way
+        // The dragged block's visual centre: the pointer, clamped so the
+        // block cannot leave the list. The top clamp is the first slot (a
+        // tab cannot go above the new-workspace row); the bottom is the full
+        // extent of the list area, so a block can be carried all the way
         // down past the last row.
-        let minCenter = session.frames[0].midY
-        let maxCenter = max(minCenter, table.bounds.maxY - session.rowHeight / 2)
+        let blockHeight = session.height(of: session.sourceRange)
+        let blockTop = session.frames[session.sourceRange.lowerBound].minY
+        let minCenter = session.frames[0].minY + blockHeight / 2
+        let maxCenter = max(minCenter, table.bounds.maxY - blockHeight / 2)
         let draggedCenter = min(max(point.y, minCenter), maxCenter)
+        let blockShift = draggedCenter - (blockTop + blockHeight / 2)
 
-        // Insertion slot from frozen midpoints: how many other rows sit
-        // above the dragged row's centre.
-        var insertion = 0
-        for index in session.frames.indices where index != session.sourceIndex {
-            if session.frames[index].midY < draggedCenter { insertion += 1 }
+        // Insertion slot from frozen midpoints: how many other units sit
+        // above the dragged block's centre.
+        let insertion = session.otherUnits.filter { unit in
+            let top = session.frames[unit.lowerBound].minY
+            return top + session.height(of: unit) / 2 < draggedCenter
+        }.count
+
+        // Re-lay every unit in drop order and read each row's offset from
+        // where it would land. Exact for mixed heights (a header is not a
+        // row) and for blocks, where a plain one-row-height shift is wrong.
+        var order = session.otherUnits
+        order.insert(session.sourceRange, at: insertion)
+        var targets = Array(repeating: CGFloat(0), count: session.frames.count)
+        var nextTop = session.frames[0].minY
+        for unit in order {
+            if unit != session.sourceRange {
+                let delta = nextTop - session.frames[unit.lowerBound].minY
+                for row in unit { targets[row] = delta }
+            }
+            nextTop += session.height(of: unit) + session.rowSpacing
         }
 
         table.enumerateAvailableRowViews { rowView, row in
             guard session.frames.indices.contains(row) else { return }
             rowView.wantsLayer = true
             guard let layer = rowView.layer else { return }
-            if row == session.sourceIndex {
+            if session.sourceRange.contains(row) {
                 // Pointer-driven, never animated: any smoothing here reads
-                // as the row lagging the hand.
+                // as the block lagging the hand.
                 CATransaction.begin()
                 CATransaction.setDisableActions(true)
                 layer.zPosition = 100
-                layer.transform = CATransform3DMakeTranslation(
-                    0, draggedCenter - session.frames[row].midY, 0
-                )
+                layer.transform = CATransform3DMakeTranslation(0, blockShift, 0)
                 CATransaction.commit()
                 return
             }
-            // Final position of this row if dropped now: removing the
-            // dragged row shifts later rows up one; inserting at the slot
-            // pushes rows at or past it down one. The offset is always
-            // exactly one dragged-row height or zero.
-            var finalPosition = row - (row > session.sourceIndex ? 1 : 0)
-            if finalPosition >= insertion { finalPosition += 1 }
-            let target = CGFloat(finalPosition - row) * session.rowHeight
+            let target = targets[row]
             if session.appliedTargets[row] != target {
                 session.appliedTargets[row] = target
                 layer.zPosition = 0
