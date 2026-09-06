@@ -89,6 +89,22 @@ struct RestoreCommand: SharedLegacyFacadeCommand {
     )
 }
 
+/// Shares `restore`'s legacy dispatch arm and selector shape; the verb picks
+/// between resuming the saved session and forking it.
+struct ForkCommand: SharedLegacyFacadeCommand {
+    @Option(name: .customLong("surface"), completion: surfaceCompletion) var surfaceID: String?
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+
+    static let configuration = CommandConfiguration(
+        commandName: "fork",
+        abstract: String(
+            localized: "cli.help.fork",
+            defaultValue: "fork [--surface <id|ref>] <kind> <checkpoint-id> | fork --surface [id|ref]"
+        ),
+        helpNames: []
+    )
+}
+
 struct RestoreSessionCommand: SharedLegacyFacadeCommand {
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "restore-session", helpNames: [])
@@ -340,4 +356,149 @@ struct LayoutCommand: SharedLegacyFacadeCommand {
     @Option(name: .customLong("workspace"), completion: workspaceCompletion) var workspaceID: String?
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "layout", helpNames: [])
+}
+
+struct AutomationCommand: SharedLegacyFacadeCommand {
+    // See AuthCommand's comment: no catch-all argument alongside `subcommands`.
+    static let configuration = CommandConfiguration(
+        commandName: "automation",
+        subcommands: [
+            AutomationListCommand.self,
+            AutomationShowCommand.self,
+            AutomationTestCommand.self,
+            AutomationEnableCommand.self,
+            AutomationDisableCommand.self,
+            AutomationLogsCommand.self,
+            AutomationReloadCommand.self,
+        ],
+        defaultSubcommand: AutomationListCommand.self,
+        helpNames: []
+    )
+}
+
+struct AutomationListCommand: SharedLegacyFacadeCommand {
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "list", helpNames: [])
+}
+
+struct AutomationShowCommand: SharedLegacyFacadeCommand {
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "show", helpNames: [])
+}
+
+struct AutomationTestCommand: SharedLegacyFacadeCommand {
+    @Option(name: .customLong("event")) var event: String?
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "test", helpNames: [])
+}
+
+struct AutomationEnableCommand: SharedLegacyFacadeCommand {
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "enable", helpNames: [])
+}
+
+struct AutomationDisableCommand: SharedLegacyFacadeCommand {
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "disable", helpNames: [])
+}
+
+struct AutomationLogsCommand: SharedLegacyFacadeCommand {
+    @Option(name: .customLong("limit")) var limit: String?
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "logs", helpNames: [])
+}
+
+struct AutomationReloadCommand: SharedLegacyFacadeCommand {
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "reload", helpNames: [])
+}
+
+struct VPNCommand: SharedLegacyFacadeCommand {
+    // See AuthCommand's comment: no catch-all argument alongside `subcommands`.
+    static let configuration = CommandConfiguration(
+        commandName: "vpn",
+        subcommands: [
+            VPNUpCommand.self,
+            VPNDownCommand.self,
+            VPNStatusCommand.self,
+            VPNRevokeCommand.self,
+        ],
+        defaultSubcommand: VPNStatusCommand.self,
+        helpNames: []
+    )
+}
+
+struct VPNUpCommand: SharedLegacyFacadeCommand {
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "up", helpNames: [], aliases: ["on"])
+}
+
+struct VPNDownCommand: SharedLegacyFacadeCommand {
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "down", helpNames: [], aliases: ["off"])
+}
+
+struct VPNStatusCommand: SharedLegacyFacadeCommand {
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "status", helpNames: [])
+}
+
+struct VPNRevokeCommand: SharedLegacyFacadeCommand {
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "revoke", helpNames: [])
+}
+
+struct VaultCommand: SharedLegacyFacadeCommand {
+    // See AuthCommand's comment: no catch-all argument alongside `subcommands`.
+    static let configuration = CommandConfiguration(
+        commandName: "vault",
+        subcommands: [
+            VaultSessionsCommand.self,
+            VaultSearchCommand.self,
+            VaultCheckpointsCommand.self,
+            VaultCheckpointCommand.self,
+            VaultForkCommand.self,
+        ],
+        defaultSubcommand: VaultSessionsCommand.self,
+        helpNames: []
+    )
+}
+
+struct VaultSessionsCommand: SharedLegacyFacadeCommand {
+    @Option(name: .customLong("agent")) var agent: String?
+    @Option(name: .customLong("folder"), completion: .directory) var folder: String?
+    @Option(name: .customLong("limit")) var limit: String?
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "sessions", helpNames: [], aliases: ["ls"])
+}
+
+struct VaultSearchCommand: SharedLegacyFacadeCommand {
+    @Option(name: .customLong("limit")) var limit: String?
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "search", helpNames: [])
+}
+
+struct VaultCheckpointsCommand: SharedLegacyFacadeCommand {
+    @Option(name: .customLong("agent")) var agent: String?
+    @Option(name: .customLong("session")) var session: String?
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "checkpoints", helpNames: [])
+}
+
+struct VaultCheckpointCommand: SharedLegacyFacadeCommand {
+    @Option(name: .customLong("agent")) var agent: String?
+    @Option(name: .customLong("session")) var session: String?
+    @Option(name: .customLong("name")) var name: String?
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "checkpoint", helpNames: [])
+}
+
+struct VaultForkCommand: SharedLegacyFacadeCommand {
+    @Option(name: .customLong("agent")) var agent: String?
+    @Option(name: .customLong("session")) var session: String?
+    @Option(name: .customLong("checkpoint")) var checkpoint: String?
+    @Option(name: .customLong("turn")) var turn: String?
+    @Flag(name: .customLong("open")) var open = false
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "fork", helpNames: [])
 }

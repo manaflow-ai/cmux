@@ -27,6 +27,23 @@ command  auth logout  aliases=-
   arg  arguments  kind=argument  completion=-
 command  auth status  aliases=-
   arg  arguments  kind=argument  completion=-
+command  automation  aliases=-
+command  automation disable  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  automation enable  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  automation list  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  automation logs  aliases=-
+  arg  --limit  kind=option  completion=-
+  arg  arguments  kind=argument  completion=-
+command  automation reload  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  automation show  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  automation test  aliases=-
+  arg  --event  kind=option  completion=-
+  arg  arguments  kind=argument  completion=-
 command  bind-key  aliases=-
   arg  arguments  kind=argument  completion=-
 command  break-pane  aliases=-
@@ -455,6 +472,9 @@ command  focus-webview  aliases=-
 command  focus-window  aliases=-
   arg  --window  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
+command  fork  aliases=-
+  arg  --surface  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
 command  get-url  aliases=-
   arg  arguments  kind=argument  completion=-
 command  help  aliases=-
@@ -706,6 +726,11 @@ command  project  aliases=-
 command  read-screen  aliases=-
   arg  --lines  kind=option  completion=-
   arg  --scrollback  kind=flag  completion=-
+  arg  --surface  kind=option  completion=custom-deprecated
+  arg  --window  kind=option  completion=custom-deprecated
+  arg  --workspace  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
+command  read-selection  aliases=-
   arg  --surface  kind=option  completion=custom-deprecated
   arg  --window  kind=option  completion=custom-deprecated
   arg  --workspace  kind=option  completion=custom-deprecated
@@ -995,6 +1020,31 @@ command  unbind-key  aliases=-
   arg  arguments  kind=argument  completion=-
 command  uninstall-hooks  aliases=-
   arg  arguments  kind=argument  completion=-
+command  vault  aliases=-
+command  vault checkpoint  aliases=-
+  arg  --agent  kind=option  completion=-
+  arg  --name  kind=option  completion=-
+  arg  --session  kind=option  completion=-
+  arg  arguments  kind=argument  completion=-
+command  vault checkpoints  aliases=-
+  arg  --agent  kind=option  completion=-
+  arg  --session  kind=option  completion=-
+  arg  arguments  kind=argument  completion=-
+command  vault fork  aliases=-
+  arg  --agent  kind=option  completion=-
+  arg  --checkpoint  kind=option  completion=-
+  arg  --open  kind=flag  completion=-
+  arg  --session  kind=option  completion=-
+  arg  --turn  kind=option  completion=-
+  arg  arguments  kind=argument  completion=-
+command  vault search  aliases=-
+  arg  --limit  kind=option  completion=-
+  arg  arguments  kind=argument  completion=-
+command  vault sessions  aliases=ls
+  arg  --agent  kind=option  completion=-
+  arg  --folder  kind=option  completion=directory
+  arg  --limit  kind=option  completion=-
+  arg  arguments  kind=argument  completion=-
 command  version  aliases=-
   arg  arguments  kind=argument  completion=-
 command  vm  aliases=cloud
@@ -1087,6 +1137,15 @@ command  vm-tui-approve  aliases=-
   arg  arguments  kind=argument  completion=-
 command  vm-tui-connect  aliases=-
   arg  --config  kind=option  completion=file()
+  arg  arguments  kind=argument  completion=-
+command  vpn  aliases=-
+command  vpn down  aliases=off
+  arg  arguments  kind=argument  completion=-
+command  vpn revoke  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  vpn status  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  vpn up  aliases=on
   arg  arguments  kind=argument  completion=-
 command  wait-for  aliases=-
   arg  --signal  kind=flag  completion=-
