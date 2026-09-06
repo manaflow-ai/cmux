@@ -10,11 +10,13 @@ import Foundation
 /// types before `run()` delegates, so a numeric declaration would reject values
 /// the legacy parser accepts (and would skip its fallbacks, such as defaulting an
 /// unparsable `resize-pane --amount` to 1). Parsing stays with the legacy parser.
-protocol SharedLegacyFacadeCommand: ParsableCommand {}
+/// `AsyncParsableCommand`, not `ParsableCommand`: `CMUXCLI.run()` is `async`, and
+/// ArgumentParser skips an `async run()` declared on a plain `ParsableCommand`.
+protocol SharedLegacyFacadeCommand: AsyncParsableCommand {}
 
 extension SharedLegacyFacadeCommand {
-    func run() throws {
-        try GlobalOptions().makeCLI().run()
+    func run() async throws {
+        try await GlobalOptions().makeCLI().run()
     }
 
     static var workspaceCompletion: CompletionKind { .custom(CompletionCandidates.workspaces) }

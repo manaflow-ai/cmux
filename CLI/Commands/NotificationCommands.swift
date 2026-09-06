@@ -25,7 +25,7 @@ struct DismissNotificationCommand: SharedLegacyFacadeCommand {
 
     static let configuration = CommandConfiguration(commandName: "dismiss-notification", helpNames: [])
 
-    func run() throws {
+    func run() async throws {
         guard (id != nil) != allRead else {
             throw FacadeValidationError(
                 message: String(
@@ -35,7 +35,7 @@ struct DismissNotificationCommand: SharedLegacyFacadeCommand {
                 command: Self.self
             )
         }
-        try GlobalOptions().makeCLI().run()
+        try await GlobalOptions().makeCLI().run()
     }
 }
 
@@ -49,7 +49,7 @@ struct MarkNotificationReadCommand: SharedLegacyFacadeCommand {
 
     static let configuration = CommandConfiguration(commandName: "mark-notification-read", helpNames: [])
 
-    func run() throws {
+    func run() async throws {
         let selectorCount = (id == nil ? 0 : 1) + (workspace == nil ? 0 : 1) + (all ? 1 : 0)
         guard selectorCount == 1 else {
             throw FacadeValidationError(
@@ -69,7 +69,7 @@ struct MarkNotificationReadCommand: SharedLegacyFacadeCommand {
                 command: Self.self
             )
         }
-        try GlobalOptions().makeCLI().run()
+        try await GlobalOptions().makeCLI().run()
     }
 }
 
