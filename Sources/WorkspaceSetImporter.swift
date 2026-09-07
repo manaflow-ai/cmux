@@ -762,17 +762,33 @@ enum WorkspaceSetImporter {
 
     /// For an existing workspace, add any template panels whose titles are
     /// missing. Existing panels are left alone to avoid disrupting running work.
+    /// Every panel's effective title, lowercased, mirroring how `Workspace`
+    /// resolves a panel title elsewhere: the custom title if one is set, then
+    /// the process-derived title. Panels with neither are omitted.
+    private static func effectivePanelTitles(in workspace: Workspace) -> [UUID: String] {
+        var titles: [UUID: String] = [:]
+        for panelId in workspace.panels.keys {
+            let resolved = workspace.panelCustomTitles[panelId] ?? workspace.panelTitles[panelId]
+            let t = (resolved ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if !t.isEmpty { titles[panelId] = t }
+        }
+        return titles
+    }
+
     private static func fillMissingPanels(
         in workspace: Workspace,
         templates: [WorkspaceSetPanelTemplate]
     ) -> Int {
         guard !templates.isEmpty else { return 0 }
 
-        var existingTitles = Set<String>()
-        for (_, custom) in workspace.panelCustomTitles {
-            let t = custom.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            if !t.isEmpty { existingTitles.insert(t) }
-        }
+        // Match against every panel's EFFECTIVE title, the same way the rest of
+        // Workspace resolves one (custom title, else the process-derived title).
+        // Matching on `panelCustomTitles` alone made any panel whose custom title
+        // was never set — or was pruned by `pruneSurfaceMetadata` when its surface
+        // id changed across a restore — read as absent, so every Reload Workspace
+        // Set split a fresh "Terminal" into a workspace that already had one.
+        let titlesByPanelId = effectivePanelTitles(in: workspace)
+        let existingTitles = Set(titlesByPanelId.values)
 
         var missing: [WorkspaceSetPanelTemplate] = []
         for tpl in templates where !existingTitles.contains(tpl.title.lowercased()) {
@@ -787,8 +803,8 @@ enum WorkspaceSetImporter {
         var targetPaneId: PaneID?
 
         let nonFirstTitles = Set(templates.dropFirst().map { $0.title.lowercased() })
-        for (panelId, custom) in workspace.panelCustomTitles {
-            if nonFirstTitles.contains(custom.lowercased()),
+        for (panelId, title) in titlesByPanelId {
+            if nonFirstTitles.contains(title),
                let pane = workspace.paneId(forPanelId: panelId) {
                 targetPaneId = pane
                 break

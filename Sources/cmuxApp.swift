@@ -366,12 +366,19 @@ struct cmuxApp: App {
                 splitCommandButton(title: String(localized: "menu.app.reloadConfiguration", defaultValue: "Reload Configuration"), shortcut: menuShortcut(for: .reloadConfiguration)) {
                     GhosttyApp.shared.reloadConfiguration(source: "menu.reload_configuration")
                 }
+                // Picking an agent re-points every agent pane the import touches, so
+                // the submenu is not a no-op — but a structure-only reload wants
+                // `agent: nil`, which leaves each workspace's existing preference
+                // alone. `primaryAction` is that plain reload; the submenu keeps the
+                // deliberate per-agent pick.
                 Menu(String(localized: "menu.app.reloadWorkspaceSet", defaultValue: "Reload Workspace Set")) {
                     ForEach(WorkspaceAgent.allCases, id: \.self) { agent in
                         Button(agent.panelTitle) {
                             AppDelegate.shared?.reloadWorkspaceSet(agent: agent)
                         }
                     }
+                } primaryAction: {
+                    AppDelegate.shared?.reloadWorkspaceSet()
                 }
                 Button(String(localized: "menu.app.reloadWindowSet", defaultValue: "Reload Window Set")) {
                     AppDelegate.shared?.reloadWindowSet()
