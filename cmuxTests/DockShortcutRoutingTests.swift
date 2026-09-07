@@ -1516,6 +1516,69 @@ struct DockShortcutRoutingTests {
         }
     }
 
+    @Test("Outer-pane shortcut mutates the main workspace through the shared route")
+    @MainActor
+    func outerPaneShortcutTargetsMainWorkspace() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try await Self.withHarness { harness in
+                let movedPanelId = try #require(harness.mainWorkspace.focusedPanelId)
+                let movedPaneId = try #require(
+                    harness.mainWorkspace.paneId(forPanelId: movedPanelId)
+                )
+                let otherPanel = try #require(
+                    harness.mainWorkspace.newTerminalSplit(
+                        from: movedPanelId,
+                        orientation: .horizontal,
+                        focus: false
+                    )
+                )
+                let otherPaneId = try #require(
+                    harness.mainWorkspace.paneId(forPanelId: otherPanel.id)
+                )
+                harness.mainWorkspace.focusPanel(movedPanelId)
+                harness.appDelegate.noteMainPanelKeyboardFocusIntent(
+                    workspaceId: harness.mainWorkspace.id,
+                    panelId: movedPanelId,
+                    in: harness.window
+                )
+                let shortcut = Self.customShortcut(key: "o")
+                KeyboardShortcutSettings.setShortcut(
+                    shortcut,
+                    for: .movePaneToOuterRight
+                )
+
+                #expect(Self.dispatch(shortcut, in: harness))
+
+                let root = try #require(
+                    harness.mainWorkspace.bonsplitController.treeSnapshot().splitNode
+                )
+                #expect(root.first.paneNode?.id == otherPaneId.description)
+                #expect(root.second.paneNode?.id == movedPaneId.description)
+                #expect(harness.mainWorkspace.focusedPanelId == movedPanelId)
+            }
+        }
+    }
+
+    @Test("Outer-pane shortcut rejects focused Dock without mutating either tree")
+    @MainActor
+    func outerPaneShortcutRejectsFocusedDock() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try await Self.withHarness { harness in
+                let mainTreeBefore = harness.mainWorkspace.bonsplitController.treeSnapshot()
+                let dockTreeBefore = harness.dock.bonsplitController.treeSnapshot()
+                let shortcut = Self.customShortcut(key: "o")
+                KeyboardShortcutSettings.setShortcut(
+                    shortcut,
+                    for: .movePaneToOuterRight
+                )
+
+                #expect(Self.dispatch(shortcut, in: harness))
+                #expect(harness.mainWorkspace.bonsplitController.treeSnapshot() == mainTreeBefore)
+                #expect(harness.dock.bonsplitController.treeSnapshot() == dockTreeBefore)
+            }
+        }
+    }
+
     @Test("Repeated move-to-pane shortcut does not create a missing pane")
     @MainActor
     func repeatedMoveToPaneDoesNotCreateMissingPane() async throws {
@@ -2183,6 +2246,18 @@ private extension DockShortcutRoutingTests {
             [split] + splitNodes(in: split.first) +
                 splitNodes(in: split.second)
         }
+    }
+}
+
+private extension ExternalTreeNode {
+    var splitNode: ExternalSplitNode? {
+        guard case .split(let split) = self else { return nil }
+        return split
+    }
+
+    var paneNode: ExternalPaneNode? {
+        guard case .pane(let pane) = self else { return nil }
+        return pane
     }
 }
 
