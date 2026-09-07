@@ -1275,10 +1275,10 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
                 : (transfer?.customTitleSource ?? .user)
         let customTitleSource = panelCustomTitleSourcesByPanelId[panelId]
             ?? transferredCustomTitleSource
-        let hasAutoTitle = existing.hasCustomTitle
-            && customTitleSource == .auto
+        let hasUserOwnedTitle = existing.hasCustomTitle
+            && (customTitleSource ?? .user) == .user
 
-        if existing.hasCustomTitle, !hasAutoTitle {
+        if hasUserOwnedTitle {
             return (existing.title, true)
         }
 
@@ -1286,8 +1286,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             return (fallback, false)
         }
 
-        if transfer?.isRemoteTerminal != true,
-           let lifecycle = dockCodexTabLifecycle(panelId: panelId) {
+        if let lifecycle = dockCodexTabLifecycle(panelId: panelId) {
             let marker = composer.presentation(
                 baseTitle: "",
                 lifecycle: lifecycle,
@@ -1329,19 +1328,11 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
               ) else {
             return false
         }
-        let presentation: CodexTabTitlePresentation
-        if detachedSurfaceTransfersByPanelId[panelId]?.isRemoteTerminal == true {
-            presentation = CodexTabTitlePresentation(
-                title: stable.title,
-                isAnimating: false
-            )
-        } else {
-            presentation = CodexTabTitleComposer().presentation(
-                baseTitle: stable.title,
-                lifecycle: dockCodexTabLifecycle(panelId: panelId),
-                hasUserOwnedTitle: stable.hasUserOwnedTitle
-            )
-        }
+        let presentation = CodexTabTitleComposer().presentation(
+            baseTitle: stable.title,
+            lifecycle: dockCodexTabLifecycle(panelId: panelId),
+            hasUserOwnedTitle: stable.hasUserOwnedTitle
+        )
         let titleUpdate = existing.title == presentation.title
             ? nil
             : presentation.title
@@ -1375,6 +1366,16 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     /// same main-actor turn.
     func applyResolvedTerminalTitle(_ title: String, to terminal: TerminalPanel) {
         terminal.updateTitle(title)
+        let hasCustomTitle = surfaceId(forPanelId: terminal.id)
+            .flatMap { bonsplitController.tab($0) }?
+            .hasCustomTitle == true
+        if var transfer = detachedSurfaceTransfersByPanelId[terminal.id] {
+            transfer.cachedTitle = terminal.displayTitle
+            if !hasCustomTitle {
+                transfer.title = terminal.displayTitle
+            }
+            setDetachedSurfaceTransfer(transfer, forPanelID: terminal.id)
+        }
         synchronizeTerminalTabTitle(terminal)
     }
 

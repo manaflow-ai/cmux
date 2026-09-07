@@ -694,7 +694,7 @@ extension DockSplitStore {
         panels[panel.id] = panel
         if snapshot.customTitle != nil {
             panelCustomTitleSourcesByPanelId[panel.id] =
-                snapshot.customTitleSource ?? .user
+                snapshot.effectiveCustomTitleSource ?? .user
         } else {
             panelCustomTitleSourcesByPanelId.removeValue(forKey: panel.id)
         }
