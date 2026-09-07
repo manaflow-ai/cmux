@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import CmuxWorkspaces
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -575,5 +576,157 @@ struct CodexTabTitlePresentationTests {
         )
         #expect(persisted.customTitle == "Generated lane")
         #expect(persisted.customTitleSource == .auto)
+    }
+
+    @Test("an admitted Dock title survives detach while its restore boundary remains active")
+    func admittedDockTitleSurvivesActiveRestoreBoundary() throws {
+        let source = Workspace()
+        let dock = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        defer {
+            dock.closeAllPanels()
+            source.teardownAllPanels()
+        }
+        let panelId = try #require(source.focusedPanelId)
+        let terminal = try #require(source.panels[panelId] as? TerminalPanel)
+        terminal.updateTitle("Persisted lane")
+        #expect(
+            source.updatePanelTitle(
+                panelId: panelId,
+                title: "Persisted lane"
+            )
+        )
+
+        var transfer = try #require(source.detachSurface(panelId: panelId))
+        transfer.restoredPanelTitleBoundary = RestoredPanelTitleBoundary(
+            internallySeededInput: "resume-session\n",
+            shellState: .commandRunning
+        )
+        let dockPane = try #require(dock.bonsplitController.allPaneIds.first)
+        #expect(
+            dock.attachDetachedSurface(
+                transfer,
+                inPane: dockPane,
+                focus: false
+            ) == panelId
+        )
+        #expect(
+            dock.shouldApplyRestoredPanelTitle(
+                panelId: panelId,
+                rawTitle: "Live Codex lane"
+            )
+        )
+        dock.applyResolvedTerminalTitle("Live Codex lane", to: terminal)
+
+        let roundTripped = try #require(
+            dock.detachSurface(panelId: panelId)
+        )
+        #expect(roundTripped.title == "Live Codex lane")
+        #expect(roundTripped.cachedTitle == "Live Codex lane")
+        roundTripped.panel.close()
+    }
+
+    @Test("remote Dock terminals retain Codex lifecycle presentation")
+    func remoteDockTerminalShowsLifecycle() throws {
+        let source = Workspace()
+        let dock = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        defer {
+            dock.closeAllPanels()
+            source.teardownAllPanels()
+        }
+        let panelId = try #require(source.focusedPanelId)
+        let terminal = try #require(source.panels[panelId] as? TerminalPanel)
+        terminal.updateTitle("Remote Codex")
+        #expect(
+            source.updatePanelTitle(
+                panelId: panelId,
+                title: "Remote Codex"
+            )
+        )
+        source.activeRemoteTerminalSurfaceIds.insert(panelId)
+        source.setAgentLifecycle(
+            key: "codex",
+            panelId: panelId,
+            lifecycle: .running
+        )
+
+        let transfer = try #require(source.detachSurface(panelId: panelId))
+        #expect(transfer.isRemoteTerminal)
+        let dockPane = try #require(dock.bonsplitController.allPaneIds.first)
+        #expect(
+            dock.attachDetachedSurface(
+                transfer,
+                inPane: dockPane,
+                focus: false
+            ) == panelId
+        )
+        let tabId = try #require(dock.surfaceId(forPanelId: panelId))
+        #expect(dock.bonsplitController.tab(tabId)?.title == "◐ Remote Codex")
+        #expect(dock.bonsplitController.tab(tabId)?.isLoading == true)
+    }
+
+    @Test("restored remote-titled Dock tabs retain lifecycle presentation")
+    func restoredDockRemoteTitleKeepsProvenance() throws {
+        let dock = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        defer { dock.closeAllPanels() }
+        let snapshotPanelId = UUID()
+        let panelSnapshot = SessionPanelSnapshot(
+            id: snapshotPanelId,
+            type: .terminal,
+            title: "Remote lane",
+            customTitle: "Remote lane",
+            customTitleSource: .user,
+            customTitleWasRemote: true,
+            directory: "/tmp",
+            isPinned: false,
+            isManuallyUnread: false,
+            listeningPorts: [],
+            ttyName: nil,
+            terminal: SessionTerminalPanelSnapshot(
+                workingDirectory: "/tmp"
+            ),
+            browser: nil,
+            markdown: nil,
+            filePreview: nil,
+            rightSidebarTool: nil
+        )
+        let restoredPanelIds = dock.restoreSessionSnapshot(
+            SessionSplitContainerSnapshot(
+                focusedPanelId: snapshotPanelId,
+                layout: .pane(
+                    SessionPaneLayoutSnapshot(
+                        panelIds: [snapshotPanelId],
+                        selectedPanelId: snapshotPanelId
+                    )
+                ),
+                panels: [panelSnapshot]
+            )
+        )
+        let panelId = try #require(restoredPanelIds[snapshotPanelId])
+        let tabId = try #require(dock.surfaceId(forPanelId: panelId))
+
+        dock.setAgentLifecycle(
+            key: "codex",
+            panelId: panelId,
+            lifecycle: .running
+        )
+        #expect(dock.bonsplitController.tab(tabId)?.title == "◐ Remote lane")
+        #expect(dock.bonsplitController.tab(tabId)?.isLoading == true)
+
+        let persisted = try #require(
+            dock.sessionSnapshot(includeScrollback: false)
+                .panels.first { $0.id == panelId }
+        )
+        #expect(persisted.customTitle == "Remote lane")
+        #expect(persisted.customTitleSource == .user)
+        #expect(persisted.customTitleWasRemote == true)
     }
 }
