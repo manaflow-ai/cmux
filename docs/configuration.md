@@ -169,6 +169,12 @@ The spinner is compositor-driven (a Core Animation transform run by the render s
 
 Cmd+Ctrl+= and Cmd+Ctrl+- increase or decrease every terminal in the selected workspace by one point. Cmd+Ctrl+0 resets them to the current Ghostty font size. Hidden, hibernated, and Dock terminals change with visible terminals, and newly created terminals inherit the workspace size. Rebind them with `shortcuts.bindings.increaseWorkspaceTerminalFontSize`, `shortcuts.bindings.decreaseWorkspaceTerminalFontSize`, and `shortcuts.bindings.resetWorkspaceTerminalFontSize`.
 
+## Move a pane to a workspace edge
+
+The **Move Pane to New Outer Split** commands promote the focused pane—together with all of its surfaces—to the left, right, top, or bottom edge of the workspace. The moved pane and the remaining layout each receive half of the root split; divider positions inside the remaining layout stay intact. These commands are available from the View menu and Command Palette and are unbound by default. Assign keys with `shortcuts.bindings.movePaneToOuterLeft`, `movePaneToOuterRight`, `movePaneToOuterTop`, and `movePaneToOuterBottom`.
+
+The commands apply only to ordinary split workspaces. They do not modify Canvas layouts, remote tmux mirrors, or Dock layouts. Moving a pane that already occupies the requested root edge is a no-op.
+
 ## `terminal.textBoxSubmitActions`
 
 Controls what the TextBox submit button does for new terminal sessions. Active agent sessions such as Claude, Codex, OpenCode, and Pi always use plain Text Entry so prompts go into the running agent instead of launching another command.

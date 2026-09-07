@@ -162,6 +162,8 @@ enum KeyboardShortcutSettings {
         case focusNextPane
         case splitRight
         case splitDown, toggleSplitZoom
+        case movePaneToOuterLeft, movePaneToOuterRight
+        case movePaneToOuterTop, movePaneToOuterBottom
         case increaseWorkspaceTerminalFontSize
         case decreaseWorkspaceTerminalFontSize
         case resetWorkspaceTerminalFontSize
@@ -318,6 +320,10 @@ enum KeyboardShortcutSettings {
             case .splitRight: return String(localized: "shortcut.splitRight.label", defaultValue: "Split Right")
             case .splitDown: return String(localized: "shortcut.splitDown.label", defaultValue: "Split Down")
             case .toggleSplitZoom: return String(localized: "shortcut.togglePaneZoom.label", defaultValue: "Toggle Pane Zoom")
+            case .movePaneToOuterLeft: return PaneOuterMovement.left.title
+            case .movePaneToOuterRight: return PaneOuterMovement.right.title
+            case .movePaneToOuterTop: return PaneOuterMovement.above.title
+            case .movePaneToOuterBottom: return PaneOuterMovement.below.title
             case .increaseWorkspaceTerminalFontSize:
                 return String(
                     localized: "shortcut.increaseWorkspaceTerminalFontSize.label",
@@ -539,6 +545,9 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "d", command: true, shift: false, option: false, control: false)
             case .splitDown: return StoredShortcut(key: "d", command: true, shift: true, option: false, control: false)
             case .toggleSplitZoom: return StoredShortcut(key: "\r", command: true, shift: true, option: false, control: false)
+            case .movePaneToOuterLeft, .movePaneToOuterRight,
+                 .movePaneToOuterTop, .movePaneToOuterBottom:
+                return .unbound
             case .increaseWorkspaceTerminalFontSize:
                 return StoredShortcut(key: "=", command: true, shift: false, option: false, control: true)
             case .decreaseWorkspaceTerminalFontSize:

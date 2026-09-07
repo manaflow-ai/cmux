@@ -120,6 +120,10 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case splitRight
     case splitDown
     case toggleSplitZoom
+    case movePaneToOuterLeft
+    case movePaneToOuterRight
+    case movePaneToOuterTop
+    case movePaneToOuterBottom
     /// Increases every terminal font size in the selected workspace.
     case increaseWorkspaceTerminalFontSize
     /// Decreases every terminal font size in the selected workspace.

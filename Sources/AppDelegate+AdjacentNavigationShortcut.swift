@@ -63,6 +63,20 @@ extension AppDelegate {
             }
             return true
         }
+        for movement in PaneOuterMovement.allCases
+        where matchConfiguredShortcut(
+            event: event,
+            action: movement.shortcutAction
+        ) {
+            if !performPaneOuterMovement(
+                movement,
+                tabManager: routedTabs,
+                preferredWindow: event.window
+            ) {
+                NSSound.beep()
+            }
+            return true
+        }
         if matchConfiguredShortcut(event: event, action: .moveWorkspaceUp) {
             routedTabs?.moveSelectedWorkspace(by: -1)
             return true
@@ -99,6 +113,24 @@ extension AppDelegate {
             to: movement,
             allowMissingDestinationSplit: allowMissingDestinationSplit
         ) == true
+    }
+
+    /// Applies the same workspace-only policy for keyboard, palette, and menu
+    /// entrypoints. Dock, Canvas, remote-tmux mirror, and no-op layouts reject
+    /// the operation without mutating a different split tree.
+    @discardableResult
+    func performPaneOuterMovement(
+        _ movement: PaneOuterMovement,
+        tabManager: TabManager?,
+        preferredWindow: NSWindow?
+    ) -> Bool {
+        guard focusedDockStoreForShortcut(
+            action: movement.shortcutAction,
+            preferredWindow: preferredWindow
+        ) == nil else {
+            return false
+        }
+        return tabManager?.selectedWorkspace?.moveFocusedPane(to: movement) == true
     }
 
     private func matchesSurfacePaneMovementShortcut(

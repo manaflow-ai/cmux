@@ -75,6 +75,10 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.splitRight`
 - `shortcuts.bindings.splitDown`
 - `shortcuts.bindings.toggleSplitZoom`
+- `shortcuts.bindings.movePaneToOuterLeft`
+- `shortcuts.bindings.movePaneToOuterRight`
+- `shortcuts.bindings.movePaneToOuterTop`
+- `shortcuts.bindings.movePaneToOuterBottom`
 - `shortcuts.bindings.increaseWorkspaceTerminalFontSize`
 - `shortcuts.bindings.decreaseWorkspaceTerminalFontSize`
 - `shortcuts.bindings.resetWorkspaceTerminalFontSize`
