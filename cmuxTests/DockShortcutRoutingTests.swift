@@ -1564,6 +1564,42 @@ struct DockShortcutRoutingTests {
     func outerPaneShortcutRejectsFocusedDock() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             try await Self.withHarness { harness in
+                let mainPanelToMove = try #require(
+                    harness.mainWorkspace.focusedPanelId
+                )
+                _ = try #require(
+                    harness.mainWorkspace.newTerminalSplit(
+                        from: mainPanelToMove,
+                        orientation: .horizontal,
+                        focus: false
+                    )
+                )
+                harness.mainWorkspace.focusPanel(mainPanelToMove)
+
+                let dockPanelToMove = try #require(
+                    harness.dock.newSurface(
+                        kind: .terminal,
+                        inPane: harness.rootPane,
+                        focus: true
+                    )
+                )
+                _ = try #require(
+                    harness.dock.newSplit(
+                        kind: .terminal,
+                        orientation: .horizontal,
+                        insertFirst: false,
+                        sourcePanelId: dockPanelToMove,
+                        focus: false
+                    )
+                )
+                harness.dock.focusPanel(dockPanelToMove)
+                #expect(
+                    harness.appDelegate.focusedDockStoreForShortcut(
+                        action: .movePaneToOuterRight,
+                        preferredWindow: harness.window
+                    ) === harness.dock
+                )
+
                 let mainTreeBefore = harness.mainWorkspace.bonsplitController.treeSnapshot()
                 let dockTreeBefore = harness.dock.bonsplitController.treeSnapshot()
                 let shortcut = Self.customShortcut(key: "o")
