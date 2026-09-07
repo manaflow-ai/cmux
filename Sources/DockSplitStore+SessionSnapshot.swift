@@ -571,7 +571,7 @@ extension DockSplitStore {
         if restoredAgentLifecycle.hasQueuedRestoreIntent(
             panelId: terminal.id,
             matching: restorableAgent
-        ) {
+        ) || managedBinding?.recordsRunningPersistentSSHAgent(in: persistentSSHResumeContext(panelId: terminal.id)) == true {
             return true
         }
         let expectedKind = managedBinding != nil
@@ -585,11 +585,6 @@ extension DockSplitStore {
         let expectedSessionId = managedBinding != nil
             ? managedBinding?.checkpointId
             : restorableAgent?.sessionId
-        if managedBinding?.recordsRunningPersistentSSHAgent(
-            in: persistentSSHResumeContext(panelId: terminal.id)
-        ) == true {
-            return true
-        }
         let relevantObservation: RestorableAgentSessionIndex.Entry?
         if let expectedKind, let expectedSessionId {
             relevantObservation = observation?.matchingAgentSession(
