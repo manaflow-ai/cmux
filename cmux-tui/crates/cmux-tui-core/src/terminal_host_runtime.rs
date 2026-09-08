@@ -1187,6 +1187,12 @@ mod unix {
                     "terminal host cannot acknowledge receipted input",
                 )));
             }
+            if payload.len() > MAX_PENDING_INPUT_ACK_BYTES {
+                return Err(ConfirmedInputFailure::Known(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "terminal input is too large to confirm in one write",
+                )));
+            }
             if !self.control_responses.try_reserve_input_ack(payload.len()) {
                 return Err(ConfirmedInputFailure::Known(std::io::Error::new(
                     std::io::ErrorKind::WouldBlock,
