@@ -7397,6 +7397,32 @@ mod unix {
         }
 
         #[test]
+        fn receipted_input_distinguishes_oversize_from_full_window() {
+            let (attachment, mut host) = input_ack_surface_fixture();
+            host.set_nonblocking(true).unwrap();
+            let oversized = vec![0; MAX_PENDING_INPUT_ACK_BYTES + 1];
+            let Err(ConfirmedInputFailure::Known(error)) =
+                attachment.begin_input_confirmed(&oversized)
+            else {
+                panic!("oversized input must fail before delivery");
+            };
+            assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
+            assert_eq!(attachment.control_responses.pending_input_acks_for_test(), (0, 0));
+            assert!(
+                attachment.control_responses.try_reserve_input_ack(MAX_PENDING_INPUT_ACK_BYTES)
+            );
+            let result = attachment.begin_input_confirmed(b"x");
+            attachment.control_responses.release_input_ack(MAX_PENDING_INPUT_ACK_BYTES);
+            let Err(ConfirmedInputFailure::Known(error)) = result else {
+                panic!("full receipt window must reject admission");
+            };
+            assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock);
+            assert_eq!(attachment.control_responses.pending_input_acks_for_test(), (0, 0));
+            let mut byte = [0];
+            assert_eq!(host.read(&mut byte).unwrap_err().kind(), std::io::ErrorKind::WouldBlock);
+        }
+
+        #[test]
         fn receipted_input_timeout_can_abort_while_writer_mutex_is_held() {
             let (attachment, mut host) = input_ack_surface_fixture();
             host.set_read_timeout(Some(Duration::from_millis(250))).unwrap();
