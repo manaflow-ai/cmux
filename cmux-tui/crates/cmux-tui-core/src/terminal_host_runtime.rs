@@ -6507,6 +6507,9 @@ mod unix {
     }
 
     #[cfg(test)]
+    pub(crate) use tests::input_ack_surface_fixture;
+
+    #[cfg(test)]
     mod tests {
         use super::*;
         use cmux_pty::Child;
@@ -7502,10 +7505,8 @@ mod unix {
             let (target_socket, _target_peer) = UnixStream::pair().unwrap();
             let (target_tx, target_rx) = mpsc_channel();
             let target = HostTap::new(target_tx, Arc::new(target_socket), usize::MAX);
-            let worker_host = host.clone();
-            let worker_target = target.clone();
             let worker = thread::spawn(move || {
-                assert!(worker_host.write_input(b"x", 42, &worker_target));
+                assert!(host.write_input(b"x", 42, &target));
             });
 
             write_started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
@@ -7539,9 +7540,7 @@ mod unix {
             let (target_socket, _target_peer) = UnixStream::pair().unwrap();
             let (target_tx, target_rx) = mpsc_channel();
             let target = HostTap::new(target_tx, Arc::new(target_socket), usize::MAX);
-            let worker_host = host.clone();
-            let worker_target = target.clone();
-            let worker = thread::spawn(move || worker_host.write_input(b"x", 42, &worker_target));
+            let worker = thread::spawn(move || host.write_input(b"x", 42, &target));
 
             write_started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
             assert!(target_rx.recv_timeout(Duration::from_millis(20)).is_err());
@@ -9867,9 +9866,6 @@ mod unix {
             assert_eq!(frames[output + 2].sequence, frames[output].sequence + 2);
         }
     }
-
-    #[cfg(test)]
-    pub(crate) use tests::input_ack_surface_fixture;
 }
 
 #[cfg(unix)]
