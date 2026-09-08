@@ -869,6 +869,15 @@ struct cmuxApp: App {
                     }
                 }
 
+                if CloudMachinesFeature.isEnabled {
+                    splitCommandButton(title: String(localized: "menu.file.newCloudWorkspace", defaultValue: "New Cloud Workspace"), shortcut: menuShortcut(for: .newCloudWorkspace)) {
+                        _ = AppDelegate.shared?.performNewCloudWorkspaceAction(
+                            tabManager: activeTabManager,
+                            debugSource: "menu.newCloudWorkspace"
+                        )
+                    }
+                }
+
                 if CmuxFeatureFlags.shared.isSimulatorEnabled {
                     Button(String(localized: "menu.file.newSimulatorPane", defaultValue: "New Simulator Pane")) {
                         performNewSimulatorPaneFromMenu()

@@ -91,6 +91,15 @@ export const shortcutCategories: ShortcutCategory[] = [
           ja: "新規ワークスペースと同様ですが、最初のサーフェスがブラウザペインになり、アドレスバーにフォーカスします",
         },
       },
+      {
+        id: "newCloudWorkspace",
+        combos: [["⌘", "Y"]],
+        description: { en: "New cloud workspace", ja: "新規クラウドワークスペース" },
+        note: {
+          en: "opens the New Machine sheet; Create provisions a cmux Cloud machine and attaches it as a new workspace",
+          ja: "新規マシンシートを開きます。作成すると cmux Cloud マシンをプロビジョニングし、新しいワークスペースとして接続します",
+        },
+      },
       { id: "saveLayoutTemplate", combos: [["⌃", "⌘", "S"]], description: { en: "Save current workspace layout as a template", ja: "現在のワークスペースレイアウトをテンプレートとして保存" } },
       { id: "openFolder", combos: [["⌘", "O"]], description: { en: "Open folder", ja: "フォルダを開く" } },
       {

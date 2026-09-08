@@ -140,7 +140,10 @@ extension ContentView {
 
     func registerCloudCommandHandlers(_ registry: inout CommandPaletteHandlerRegistry) {
         registry.register(commandId: Self.commandPaletteCloudNewMachineCommandId) {
-            NewMachineSheetPresenter.shared.presentNewMachineFetchingPlan(preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow)
+            _ = AppDelegate.shared?.performNewCloudWorkspaceAction(
+                preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow,
+                debugSource: "palette.cloud.newMachine"
+            )
         }
         registry.register(commandId: Self.commandPaletteCloudForkCommandId) {
             _ = AppDelegate.shared?.performCurrentCloudVMCommand(.fork, debugSource: "palette.cloud.fork")

@@ -169,6 +169,12 @@ The spinner is compositor-driven (a Core Animation transform run by the render s
 
 Cmd+Ctrl+= and Cmd+Ctrl+- increase or decrease every terminal in the selected workspace by one point. Cmd+Ctrl+0 resets them to the current Ghostty font size. Hidden, hibernated, and Dock terminals change with visible terminals, and newly created terminals inherit the workspace size. Rebind them with `shortcuts.bindings.increaseWorkspaceTerminalFontSize`, `shortcuts.bindings.decreaseWorkspaceTerminalFontSize`, and `shortcuts.bindings.resetWorkspaceTerminalFontSize`.
 
+## New Cloud Workspace shortcut and the plus-button menu
+
+Cmd+Y opens the New Machine sheet; Create provisions a cmux Cloud machine and attaches it as a new workspace. The same action backs File > New Cloud Workspace, the command palette's "New Cloud Machine…", the `cmux.newCloudWorkspace` action ID in `cmux.json`, and the plus-button menu row. Rebind or unbind it from Settings > Keyboard Shortcuts or with `shortcuts.bindings.newCloudWorkspace`. The row and the shortcut are available only when Cloud Machines is enabled (Settings > Beta Features or the remote rollout) and hidden otherwise.
+
+When `ui.newWorkspace.contextMenu` is not set, the plus-button menu lists `cmux.newWorkspace` (Cmd+N), `cmux.newCloudWorkspace` (Cmd+Y), `cmux.newTerminal` (Cmd+T), and `cmux.newBrowser` (Cmd+Shift+L). Each row shows its current shortcut, so a rebind in Settings or `cmux.json` appears the next time the menu opens; unbound and chord shortcuts show no hint. A configured menu keeps your order and still shows hints for built-in rows and for actions with a `shortcut`.
+
 ## `terminal.textBoxSubmitActions`
 
 Controls what the TextBox submit button does for new terminal sessions. Active agent sessions such as Claude, Codex, OpenCode, and Pi always use plain Text Entry so prompts go into the running agent instead of launching another command.

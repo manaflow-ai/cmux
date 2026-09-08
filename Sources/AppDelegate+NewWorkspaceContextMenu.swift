@@ -76,7 +76,11 @@ extension AppDelegate {
         cmuxConfigStore: CmuxConfigStore
     ) -> NSMenu? {
         let model = NewWorkspaceMenuModel.build(
-            newWorkspaceContextMenuItems: cmuxConfigStore.newWorkspaceContextMenuItems,
+            newWorkspaceContextMenuItems: cmuxConfigStore.newWorkspaceContextMenuItems.filter { item in
+                guard case .action(let menuAction) = item,
+                      case .builtIn(let builtIn) = menuAction.action.action else { return true }
+                return Self.isBuiltInActionAvailableInNewWorkspaceMenu(builtIn)
+            },
             agentChatAction: resolvedBuiltInNewAgentChatAction(cmuxConfigStore: cmuxConfigStore),
             templateNames: savedLayoutNames(),
             loadedActions: cmuxConfigStore.loadedActions,
@@ -91,6 +95,24 @@ extension AppDelegate {
             context: context,
             cmuxConfigStore: cmuxConfigStore
         )
+    }
+
+    /// Feature gates for built-in plus-menu rows, evaluated when the menu
+    /// opens (not at config load) so flag and setting flips apply at once.
+    /// Mirrors the command palette's gates for the same actions.
+    static func isBuiltInActionAvailableInNewWorkspaceMenu(_ action: CmuxSurfaceTabBarBuiltInAction) -> Bool {
+        switch action {
+        case .newCloudWorkspace, .cloudVM:
+            return CloudMachinesFeature.isEnabled
+        case .newBrowser, .newAgentChat:
+            return BrowserAvailabilitySettings.isEnabled()
+        case .newSimulator:
+            return CmuxFeatureFlags.shared.isSimulatorEnabled
+        case .mobileConnect:
+            return !MobileRemoteControlPolicy.isDisabled
+        case .newWorkspace, .newTerminal, .splitRight, .splitDown:
+            return true
+        }
     }
 
     private func savedLayoutNames() -> [String] {

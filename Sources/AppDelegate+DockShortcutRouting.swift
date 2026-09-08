@@ -71,7 +71,7 @@ extension KeyboardShortcutSettings.Action {
         case .openSettings, .reloadConfiguration,
              .showHideAllWindows, .globalSearch,
              .newWindow, .closeWindow, .toggleFullScreen, .quit,
-             .toggleSidebar, .newTab, .newBrowserWorkspace,
+             .toggleSidebar, .newTab, .newBrowserWorkspace, .newCloudWorkspace,
              .saveLayoutTemplate, .openFolder,
              .reopenPreviousSession, .goToWorkspace,
              .commandPalette, .sendFeedback,

@@ -1712,6 +1712,7 @@
               "toggleSidebar",
               "newTab",
               "newBrowserWorkspace",
+              "newCloudWorkspace",
               "openFolder",
               "reopenPreviousSession",
               "goToWorkspace",
