@@ -102,6 +102,7 @@ struct TerminalWrapWidthRegressionTests {
         try withHostedTerminal { hostedView, scrollView in
             scrollView.scrollerStyle = .legacy
             NotificationCenter.default.post(name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
+            hostedView.reconcileGeometryNow()
             try expectViewportSizing(hostedView, scrollView)
             for width in [CGFloat(177), 423, 238, 360] {
                 hostedView.setFrameSize(NSSize(width: width, height: 240))
@@ -138,6 +139,7 @@ struct TerminalWrapWidthRegressionTests {
             for style in [NSScroller.Style.legacy, .overlay, .legacy, .overlay] {
                 scrollView.scrollerStyle = style
                 NotificationCenter.default.post(name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
+                hostedView.reconcileGeometryNow()
                 try expectViewportSizing(hostedView, scrollView)
                 hostedView.reconcileGeometryNow()
                 hostedView.surfaceView.layout()
