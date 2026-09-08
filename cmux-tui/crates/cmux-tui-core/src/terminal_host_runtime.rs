@@ -7945,6 +7945,10 @@ mod unix {
             );
             assert!(!remove_stale_terminal_host_record(&legacy_path, &legacy).unwrap());
 
+            let mut invalid = legacy.clone();
+            invalid.supports_input_ack = true;
+            assert!(validate_terminal_host_record(&legacy_path, &invalid).is_err());
+
             fs::remove_file(&legacy_path).unwrap();
             drop(lease);
             assert!(remove_stale_terminal_host_record(&v2_path, &v2).unwrap());
