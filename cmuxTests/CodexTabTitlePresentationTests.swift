@@ -59,6 +59,39 @@ struct CodexTabTitlePresentationTests {
         #expect(tab.isLoading)
     }
 
+    @Test(
+        "a remote title acknowledgment preserves custom-title protection",
+        arguments: [Workspace.CustomTitleSource.user, .auto]
+    )
+    func remoteTitleAcknowledgmentPreservesOwnership(initialSource: Workspace.CustomTitleSource) throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let tabId = try #require(workspace.surfaceIdFromPanelId(panelId))
+
+        #expect(workspace.updatePanelTitle(panelId: panelId, title: "some-name"))
+        #expect(workspace.setPanelCustomTitle(panelId: panelId, title: "Cloud lane", source: initialSource))
+        workspace.setAgentLifecycle(key: "codex", panelId: panelId, lifecycle: .running)
+
+        #expect(workspace.setPanelCustomTitle(panelId: panelId, title: "Cloud lane", source: .remote))
+        #expect(workspace.panelCustomTitleSources[panelId] == .remote)
+        #expect(workspace.bonsplitController.tab(tabId)?.title == "Cloud lane")
+        #expect(workspace.bonsplitController.tab(tabId)?.isLoading == true)
+
+        workspace.setAgentLifecycle(key: "codex", panelId: panelId, lifecycle: .running)
+        #expect(workspace.bonsplitController.tab(tabId)?.title == "Cloud lane")
+        #expect(workspace.bonsplitController.tab(tabId)?.isLoading == true)
+
+        workspace.setAgentLifecycle(key: "codex", panelId: panelId, lifecycle: .idle)
+        #expect(workspace.bonsplitController.tab(tabId)?.title == "Cloud lane")
+        #expect(workspace.bonsplitController.tab(tabId)?.isLoading == false)
+        #expect(workspace.panelTitles[panelId] == "some-name")
+
+        #expect(workspace.updatePanelTitle(panelId: panelId, title: "renamed-thread"))
+        #expect(workspace.bonsplitController.tab(tabId)?.title == "Cloud lane")
+        #expect(workspace.setPanelCustomTitle(panelId: panelId, title: nil, source: .remote))
+        #expect(workspace.bonsplitController.tab(tabId)?.title == "✳ renamed-thread")
+    }
+
     @Test("an auto-generated title still receives Codex lifecycle markers")
     func autoTitleIsNotTreatedAsUserOwned() throws {
         let workspace = Workspace()
@@ -77,6 +110,10 @@ struct CodexTabTitlePresentationTests {
         let tab = try #require(workspace.bonsplitController.tab(tabId))
         #expect(tab.title == "◐ Generated lane")
         #expect(tab.isLoading)
+
+        workspace.setAgentLifecycle(key: "codex", panelId: panelId, lifecycle: .idle)
+        #expect(workspace.bonsplitController.tab(tabId)?.title == "✳ Generated lane")
+        #expect(workspace.bonsplitController.tab(tabId)?.isLoading == false)
     }
 
     @Test("same-text auto-to-user ownership removes the marker but keeps activity")
