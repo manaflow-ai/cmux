@@ -4138,7 +4138,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 allowTextBoxFocusDefault: allowTextBoxFocusDefault
             )
             panels[terminalPanel.id] = terminalPanel
-            panelTitles[terminalPanel.id] = terminalPanel.displayTitle
+            panelTitles[terminalPanel.id] = title
 
             // Create initial tab in bonsplit and store the mapping
             if let tabId = bonsplitController.createTab(
