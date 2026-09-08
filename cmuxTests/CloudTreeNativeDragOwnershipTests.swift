@@ -11,6 +11,36 @@ import Testing
 @MainActor
 @Suite("Cloud tree native drag ownership", .serialized)
 struct CloudTreeNativeDragOwnershipTests {
+    @Test("Cloud rows retain equal outer margins on first layout and resize")
+    func treeRetainsOuterMargins() throws {
+        let coordinator = CloudTreeOutlineView.Coordinator(
+            machineActions: Self.machineActions,
+            nodeActions: Self.nodeActions,
+            expansionStore: CloudTreeExpansionStore(
+                defaults: UserDefaults(suiteName: "cloud-tree-padding-\(UUID().uuidString)")!
+            ),
+            tabDragTransferRegistry: { nil }
+        )
+        let container = CloudTreeContainerView(coordinator: coordinator)
+        let outline = try #require(coordinator.outlineView)
+        coordinator.apply(nodes: [Self.terminalNode()])
+        let scroll = try #require(outline.enclosingScrollView)
+
+        for width: CGFloat in [345, 240, 500] {
+            container.frame = NSRect(x: 0, y: 0, width: width, height: 160)
+            container.layoutSubtreeIfNeeded()
+            let margins = [
+                scroll.frame.minX,
+                container.bounds.maxX - scroll.frame.maxX,
+                scroll.frame.minY,
+                container.bounds.maxY - scroll.frame.maxY
+            ]
+            // A one-point row separator is not sufficient outer padding.
+            #expect(margins.allSatisfy { $0 >= 4 })
+            #expect(margins.allSatisfy { abs($0 - margins[0]) < 0.5 })
+        }
+    }
+
     private final class HoverWindow: NSWindow {
         var simulatedKeyWindow = false
         var pointerOnScreen = NSPoint.zero
