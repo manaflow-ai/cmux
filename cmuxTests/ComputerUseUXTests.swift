@@ -1187,6 +1187,50 @@ struct ComputerUseUXTests {
         #expect(companionPanel?.hidesOnDeactivate == false)
     }
 
+    /// Regression: Command-Tab must remove the floating permission companion
+    /// when System Settings is no longer the active application.
+    @Test @MainActor func permissionCompanionHidesWhenAnotherApplicationActivates() async throws {
+        let controller = ComputerUseOnboardingWindowController(
+            runtimeService: ComputerUseRuntimeService()
+        )
+        controller.present()
+        defer { controller.dismiss() }
+
+        let mainWindow = try #require(NSApp.windows.first {
+            $0.identifier?.rawValue == "cmux.computerUse.onboarding"
+        } as? ComputerUseOnboardingWindow)
+        controller.configureForPermissionCompanion(
+            mainWindow,
+            frame: NSRect(
+                origin: mainWindow.frame.origin,
+                size: ComputerUsePermissionCompanionLayout.size
+            )
+        )
+        let companionWindow = try #require(NSApp.windows.first {
+            $0.identifier?.rawValue
+                == "cmux.computerUse.onboarding.permissionCompanion"
+        })
+        #expect(companionWindow.isVisible)
+
+        let otherApplication = try #require(
+            NSRunningApplication(processIdentifier: ProcessInfo.processInfo.processIdentifier)
+        )
+        #expect(otherApplication.bundleIdentifier != "com.apple.systempreferences")
+        for _ in 0..<3 {
+            await Task.yield()
+        }
+        NSWorkspace.shared.notificationCenter.post(
+            name: NSWorkspace.didActivateApplicationNotification,
+            object: NSWorkspace.shared,
+            userInfo: [NSWorkspace.applicationUserInfoKey: otherApplication]
+        )
+        for _ in 0..<20 where companionWindow.isVisible {
+            await Task.yield()
+        }
+
+        #expect(!companionWindow.isVisible)
+    }
+
     /// The helper drag tile itself must also suppress activation: the press
     /// that starts a Finder-compatible drag is not a request to front cmux.
     @Test @MainActor func helperAppDragSourceDelaysWindowOrdering() throws {
