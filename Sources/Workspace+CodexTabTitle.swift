@@ -23,7 +23,7 @@ extension Workspace {
 
     private func panelTitleIsUserOwned(_ panelId: UUID) -> Bool {
         guard panelCustomTitles[panelId] != nil else { return false }
-        return (panelCustomTitleSources[panelId] ?? .user) == .user
+        return (panelCustomTitleSources[panelId] ?? .user) != .auto
     }
 
     /// Reconciles one Bonsplit tab's title and loading presentation.

@@ -5493,14 +5493,15 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
         applyFocusedPanelTitle(panelId: panelId)
 
+        guard let panel = panels[panelId], surfaceIdFromPanelId(panelId) != nil else { return true }
+        let baseTitle = panelTitles[panelId] ?? panel.displayTitle
+        _ = reconcileTabTitlePresentation(panelId: panelId, fallback: baseTitle)
+
         // A repeated remote or automatic observation only changes provenance.
         // A repeated USER edit remains an idempotent intent and must still reach
         // the daemon, because the earlier request may have failed or been lost.
         if sameText, source != .user { return true }
 
-        guard let panel = panels[panelId] else { return true }
-        let baseTitle = panelTitles[panelId] ?? panel.displayTitle
-        _ = reconcileTabTitlePresentation(panelId: panelId, fallback: baseTitle)
         // A remote tmux mirror tab rename propagates to `rename-window`.
         if propagateToRemoteTmux, isRemoteTmuxMirror {
             AppDelegate.shared?.remoteTmuxController.handleMirrorWindowRenamed(
