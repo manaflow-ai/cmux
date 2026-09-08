@@ -1181,7 +1181,8 @@ mod unix {
             &self,
             payload: &[u8],
         ) -> Result<InputAckReceipt, ConfirmedInputFailure> {
-            if !self.record.supports_input_ack {
+            // InputAck responses require protocol v4 even when the record advertises support.
+            if !self.record.supports_input_ack || self.protocol_version < 4 {
                 return Err(ConfirmedInputFailure::Known(std::io::Error::new(
                     std::io::ErrorKind::Unsupported,
                     "terminal host cannot acknowledge receipted input",
