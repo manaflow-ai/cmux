@@ -1276,7 +1276,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         let customTitleSource = panelCustomTitleSourcesByPanelId[panelId]
             ?? transferredCustomTitleSource
         let hasUserOwnedTitle = existing.hasCustomTitle
-            && (customTitleSource ?? .user) == .user
+            && (customTitleSource ?? .user) != .auto
 
         if hasUserOwnedTitle {
             return (existing.title, true)
@@ -1303,6 +1303,10 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             if hasProjectedMarker {
                 return (String(existing.title.dropFirst(marker.count)), false)
             }
+        }
+
+        if existing.hasCustomTitle {
+            return (transfer?.customTitle ?? existing.title, false)
         }
 
         if restoredPanelTitleBoundariesByPanelId[panelId] != nil {

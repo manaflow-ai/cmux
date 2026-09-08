@@ -289,7 +289,8 @@ struct CodexTabTitlePresentationTests {
             let dockPane = try #require(dock.bonsplitController.allPaneIds.first)
             #expect(dock.attachDetachedSurface(detached, inPane: dockPane, focus: false) == panelId)
             let dockTabId = try #require(dock.surfaceId(forPanelId: panelId))
-            #expect(dock.bonsplitController.tab(dockTabId)?.title == stableTitle)
+            #expect(dock.bonsplitController.tab(dockTabId)?.title == decoratedTitle)
+            #expect(dock.bonsplitController.tab(dockTabId)?.isLoading == isRunning)
 
             let returned = try #require(dock.detachSurface(panelId: panelId))
             #expect(returned.title == stableTitle)
