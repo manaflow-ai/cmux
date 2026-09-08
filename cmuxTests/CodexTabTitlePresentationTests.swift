@@ -234,4 +234,76 @@ struct CodexTabTitlePresentationTests {
         #expect(tab.title == "some-name")
         #expect(!tab.isLoading)
     }
+
+    @Test(
+        "remote tmux window renames clear inherited Codex loading even when the title matches",
+        arguments: ["renamed-thread", "◐ some-name"]
+    )
+    func remoteMirrorWindowRenameReconcilesPresentation(remoteTitle: String) throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let tabId = try #require(workspace.surfaceIdFromPanelId(panelId))
+
+        #expect(workspace.updatePanelTitle(panelId: panelId, title: "some-name"))
+        workspace.setAgentLifecycle(key: "codex", panelId: panelId, lifecycle: .running)
+        #expect(workspace.bonsplitController.tab(tabId)?.isLoading == true)
+
+        workspace.isRemoteTmuxMirror = true
+        workspace.updateRemoteTmuxTabTitle(panelId: panelId, title: remoteTitle)
+
+        let tab = try #require(workspace.bonsplitController.tab(tabId))
+        #expect(tab.title == remoteTitle)
+        #expect(!tab.isLoading)
+        #expect(workspace.panelTitles[panelId] == remoteTitle)
+    }
+
+    @Test(
+        "workspace and Dock round trips preserve stable Codex title metadata",
+        arguments: [true, false]
+    )
+    func dockRoundTripDoesNotPersistCodexMarkers(isRunning: Bool) throws {
+        for usesAutomaticCustomTitle in [false, true] {
+            let source = Workspace()
+            let panelId = try #require(source.focusedPanelId)
+            let panel = try #require(source.panels[panelId] as? TerminalPanel)
+            let sourceTabId = try #require(source.surfaceIdFromPanelId(panelId))
+            panel.updateTitle("some-name")
+            _ = source.updatePanelTitle(panelId: panelId, title: "some-name")
+            if usesAutomaticCustomTitle {
+                #expect(source.setPanelCustomTitle(panelId: panelId, title: "Generated lane", source: .auto))
+            }
+            let stableTitle = usesAutomaticCustomTitle ? "Generated lane" : "some-name"
+            let decoratedTitle = (isRunning ? "◐ " : "✳ ") + stableTitle
+            source.setAgentLifecycle(key: "codex", panelId: panelId, lifecycle: isRunning ? .running : .idle)
+            #expect(source.bonsplitController.tab(sourceTabId)?.title == decoratedTitle)
+
+            let detached = try #require(source.detachSurface(panelId: panelId))
+            #expect(detached.title == stableTitle)
+            #expect(detached.cachedTitle == "some-name")
+            #expect(detached.customTitle == (usesAutomaticCustomTitle ? stableTitle : nil))
+            #expect(!detached.isLoading)
+
+            let dock = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
+            defer { dock.closeAllPanels() }
+            let dockPane = try #require(dock.bonsplitController.allPaneIds.first)
+            #expect(dock.attachDetachedSurface(detached, inPane: dockPane, focus: false) == panelId)
+            let dockTabId = try #require(dock.surfaceId(forPanelId: panelId))
+            #expect(dock.bonsplitController.tab(dockTabId)?.title == stableTitle)
+
+            let returned = try #require(dock.detachSurface(panelId: panelId))
+            #expect(returned.title == stableTitle)
+            #expect(returned.cachedTitle == "some-name")
+            #expect(returned.customTitle == (usesAutomaticCustomTitle ? stableTitle : nil))
+
+            let target = Workspace()
+            let targetPane = try #require(target.bonsplitController.allPaneIds.first)
+            #expect(target.attachDetachedSurface(returned, inPane: targetPane, focus: false) == panelId)
+            let targetTabId = try #require(target.surfaceIdFromPanelId(panelId))
+            target.setAgentLifecycle(key: "codex", panelId: panelId, lifecycle: isRunning ? .running : .idle)
+            #expect(target.bonsplitController.tab(targetTabId)?.title == decoratedTitle)
+            #expect(target.panelTitles[panelId] == "some-name")
+            target.clearAgentLifecycle(key: "codex", panelId: panelId)
+            #expect(target.bonsplitController.tab(targetTabId)?.title == stableTitle)
+        }
+    }
 }
