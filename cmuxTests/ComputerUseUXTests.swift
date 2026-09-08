@@ -1,6 +1,7 @@
 import AppKit
 import CMUXAgentLaunch
 import CmuxFoundation
+import CmuxCommandPalette
 import CmuxSettings
 import CmuxTerminal
 import CryptoKit
@@ -22,6 +23,53 @@ struct ComputerUseUXTests {
         repeating: 0x5a,
         count: 32
     )
+
+    private final class WindowSnapshotBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var snapshot: ExternalApplicationWindowTracker.Snapshot
+
+        init(_ snapshot: ExternalApplicationWindowTracker.Snapshot) {
+            self.snapshot = snapshot
+        }
+
+        func load() -> ExternalApplicationWindowTracker.Snapshot {
+            lock.lock()
+            defer { lock.unlock() }
+            return snapshot
+        }
+
+        func store(_ snapshot: ExternalApplicationWindowTracker.Snapshot) {
+            lock.lock()
+            self.snapshot = snapshot
+            lock.unlock()
+        }
+    }
+
+    @Test func computerUseCommandPaletteActionsHideWhenFeatureIsDisabled() {
+        var context = CommandPaletteContextSnapshot()
+        context.setBool(CommandPaletteContextKeys.computerUseUXEnabled, false)
+
+        let contributions = ContentView.commandPaletteComputerUseContributions()
+        #expect(!contributions.isEmpty)
+        #expect(contributions.allSatisfy { !$0.when(context) })
+    }
+
+    @Test func computerUseCommandPaletteActionsExposeAllOnboardingEntryPoints() {
+        var context = CommandPaletteContextSnapshot()
+        context.setBool(CommandPaletteContextKeys.computerUseUXEnabled, true)
+
+        let contributions = ContentView.commandPaletteComputerUseContributions()
+        #expect(contributions.map(\.commandId) == [
+            ContentView.commandPaletteComputerUseOpenSetupCommandId,
+            ContentView.commandPaletteComputerUseAccessibilityCommandId,
+            ContentView.commandPaletteComputerUseScreenRecordingCommandId,
+        ])
+        #expect(contributions.allSatisfy { $0.when(context) && $0.enablement(context) })
+        #expect(contributions.allSatisfy { !$0.keywords.isEmpty && !$0.subtitle(context).isEmpty })
+        #expect(contributions.allSatisfy {
+            ContentView.commandPaletteShouldDismissBeforeRun(forCommandId: $0.commandId)
+        })
+    }
 
     @Test func missingStateDirectoryProducesEmptyScan() {
         let missingDirectory = FileManager.default.temporaryDirectory
@@ -1158,6 +1206,126 @@ struct ComputerUseUXTests {
         #expect(companionPanel?.styleMask.contains(.nonactivatingPanel) == true)
         #expect(companionPanel?.becomesKeyOnlyIfNeeded == true)
         #expect(companionPanel?.hidesOnDeactivate == false)
+    }
+
+    /// Regression: Command-Tab must remove the floating permission companion
+    /// when System Settings is no longer the active application.
+    @Test @MainActor func permissionCompanionHidesWhenAnotherApplicationActivates() async throws {
+        let controller = ComputerUseOnboardingWindowController(
+            runtimeService: ComputerUseRuntimeService()
+        )
+        controller.present()
+        defer { controller.dismiss() }
+        for _ in 0..<3 {
+            await Task.yield()
+        }
+
+        let mainWindow = try #require(NSApp.windows.first {
+            $0.identifier?.rawValue == "cmux.computerUse.onboarding"
+        } as? ComputerUseOnboardingWindow)
+        controller.configureForPermissionCompanion(
+            mainWindow,
+            frame: NSRect(
+                origin: mainWindow.frame.origin,
+                size: ComputerUsePermissionCompanionLayout.size
+            )
+        )
+        let companionWindow = try #require(NSApp.windows.first {
+            $0.identifier?.rawValue
+                == "cmux.computerUse.onboarding.permissionCompanion"
+        })
+        #expect(companionWindow.isVisible)
+
+        let otherApplication = try #require(
+            NSRunningApplication(processIdentifier: ProcessInfo.processInfo.processIdentifier)
+        )
+        #expect(otherApplication.bundleIdentifier != "com.apple.systempreferences")
+        NSWorkspace.shared.notificationCenter.post(
+            name: NSWorkspace.didActivateApplicationNotification,
+            object: NSWorkspace.shared,
+            userInfo: [NSWorkspace.applicationUserInfoKey: otherApplication]
+        )
+        for _ in 0..<20 where companionWindow.isVisible {
+            await Task.yield()
+        }
+
+        #expect(!companionWindow.isVisible)
+    }
+
+    @Test @MainActor func externalApplicationWindowTrackerPublishesOnlyForItsActiveTarget() async {
+        let expectedSnapshot = ExternalApplicationWindowTracker.Snapshot(
+            windowID: 17,
+            ownerProcessIdentifier: 42,
+            frame: NSRect(x: 80, y: 120, width: 900, height: 700)
+        )
+        let movedSnapshot = ExternalApplicationWindowTracker.Snapshot(
+            windowID: 17,
+            ownerProcessIdentifier: 42,
+            frame: NSRect(x: 121, y: 168, width: 900, height: 700)
+        )
+        let snapshotBox = WindowSnapshotBox(expectedSnapshot)
+        let dependencies = ExternalApplicationWindowTracker.Dependencies(
+            frontWindow: { processIdentifier, _ in
+                processIdentifier == 42 ? expectedSnapshot : nil
+            },
+            window: { _, processIdentifier, _ in
+                processIdentifier == 42 ? snapshotBox.load() : nil
+            },
+            sleep: { duration in
+                try await ContinuousClock().sleep(for: duration)
+            }
+        )
+        let tracker = ExternalApplicationWindowTracker(
+            bundleIdentifier: "com.example.Target",
+            primaryScreenMaxY: 1_200,
+            dependencies: dependencies,
+            automaticUpdatesEnabled: false
+        )
+        var events: [ExternalApplicationWindowTracker.Event] = []
+        var refreshCallIsActive = false
+        var movedEventWasSynchronous = false
+        tracker.start { event in
+            events.append(event)
+            if event == .visible(movedSnapshot) {
+                movedEventWasSynchronous = refreshCallIsActive
+            }
+        }
+        defer { tracker.stop() }
+
+        tracker.handleApplicationActivation(
+            bundleIdentifier: "com.example.Target",
+            processIdentifier: 42
+        )
+        var receivedSnapshot: ExternalApplicationWindowTracker.Snapshot?
+        let acquisitionDeadline = ContinuousClock.now.advanced(by: .seconds(1))
+        while ContinuousClock.now < acquisitionDeadline {
+            if let event = events.last(where: {
+                if case .visible = $0 { return true }
+                return false
+            }), case .visible(let snapshot) = event {
+                receivedSnapshot = snapshot
+                break
+            }
+            await Task.yield()
+        }
+        #expect(receivedSnapshot == expectedSnapshot)
+
+        snapshotBox.store(movedSnapshot)
+        refreshCallIsActive = true
+        tracker.refreshTrackedWindow()
+        refreshCallIsActive = false
+        #expect(events.last == .visible(movedSnapshot))
+        #expect(movedEventWasSynchronous)
+
+        let eventCountBeforeUnchangedRefresh = events.count
+        tracker.refreshTrackedWindow()
+        #expect(events.count == eventCountBeforeUnchangedRefresh)
+
+        tracker.handleApplicationActivation(
+            bundleIdentifier: "com.example.Other",
+            processIdentifier: 91
+        )
+        #expect(events.last == .hidden)
     }
 
     /// The helper drag tile itself must also suppress activation: the press
