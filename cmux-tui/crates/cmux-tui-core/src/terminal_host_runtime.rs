@@ -7403,6 +7403,26 @@ mod unix {
         }
 
         #[test]
+        fn receipted_input_rejects_lower_negotiated_protocols_before_sending() {
+            for version in 1..4 {
+                let (mut attachment, mut host) = input_ack_surface_fixture();
+                attachment.protocol_version = version;
+                host.set_nonblocking(true).unwrap();
+                let result = attachment.begin_input_confirmed(b"must-not-send");
+                let Err(ConfirmedInputFailure::Known(error)) = result else {
+                    panic!("protocol {version} must reject confirmed input before delivery");
+                };
+                assert_eq!(error.kind(), std::io::ErrorKind::Unsupported);
+                assert_eq!(attachment.control_responses.pending_input_acks_for_test(), (0, 0));
+                let mut byte = [0];
+                assert_eq!(
+                    host.read(&mut byte).unwrap_err().kind(),
+                    std::io::ErrorKind::WouldBlock
+                );
+            }
+        }
+
+        #[test]
         fn receipted_input_distinguishes_oversize_from_full_window() {
             let (attachment, mut host) = input_ack_surface_fixture();
             host.set_nonblocking(true).unwrap();
