@@ -764,14 +764,56 @@ fn confirmed_terminal_write(
     bytes: &[u8],
     operation: &str,
 ) -> Result<(), ActionFailure> {
-    match surface.write_bytes_confirmed(bytes) {
-        Ok(()) => Ok(()),
-        Err(crate::surface::ConfirmedInputFailure::Known(error)) => Err(ActionFailure::Known(
+    surface.write_bytes_confirmed(bytes).map_err(|error| confirmed_input_error(operation, error))
+}
+
+fn confirmed_input_error(
+    operation: &str,
+    error: crate::surface::ConfirmedInputFailure,
+) -> ActionFailure {
+    match error {
+        crate::surface::ConfirmedInputFailure::Known(error) => ActionFailure::Known(
             ResourceError::operation_failed(operation, error.to_string(), json!({})),
-        )),
-        Err(crate::surface::ConfirmedInputFailure::Indeterminate(error)) => {
-            Err(ActionFailure::Indeterminate(error.to_string()))
+        ),
+        crate::surface::ConfirmedInputFailure::Indeterminate(error) => {
+            ActionFailure::Indeterminate(error.to_string())
         }
+    }
+}
+
+#[cfg(test)]
+mod confirmed_input_error_tests {
+    use super::*;
+
+    #[test]
+    fn confirmed_input_errors_do_not_expose_internal_details() {
+        let private = "internal socket /private/terminal.sock token=secret-test-value";
+        for kind in [
+            std::io::ErrorKind::InvalidInput,
+            std::io::ErrorKind::WouldBlock,
+            std::io::ErrorKind::Unsupported,
+            std::io::ErrorKind::BrokenPipe,
+        ] {
+            let failure =
+                crate::surface::ConfirmedInputFailure::Known(std::io::Error::new(kind, private));
+            let ActionFailure::Known(error) =
+                confirmed_input_error("terminal.input.write", failure)
+            else {
+                panic!("known failure changed delivery classification");
+            };
+            assert_eq!(error.code, "operation.failed");
+            assert!(!error.message.contains(private));
+            assert!(!error.details.to_string().contains(private));
+            assert_eq!(error.details["operation"], "terminal.input.write");
+        }
+        let failure =
+            crate::surface::ConfirmedInputFailure::Indeterminate(std::io::Error::other(private));
+        let ActionFailure::Indeterminate(reason) =
+            confirmed_input_error("terminal.input.write", failure)
+        else {
+            panic!("uncertain delivery changed classification");
+        };
+        assert!(!reason.contains(private));
     }
 }
 
