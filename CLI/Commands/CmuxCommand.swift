@@ -172,6 +172,7 @@ struct CmuxCommand: AsyncParsableCommand {
             MoshCommand.self,
             MoshTmuxCommand.self,
             SSHTmuxCommand.self,
+            LocalTmuxCommand.self,
             SSHSessionListCommand.self,
             SSHSessionAttachCommand.self,
             SSHSessionCleanupCommand.self,
