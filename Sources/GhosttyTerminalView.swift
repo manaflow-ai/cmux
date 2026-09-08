@@ -10640,17 +10640,13 @@ final class GhosttySurfaceScrollView: NSView {
         _ = setFrameIfNeeded(backgroundView, to: bounds)
         let contentFrame = sessionContentFrame
         _ = setFrameIfNeeded(scrollView, to: contentFrame)
-        let targetSize = scrollView.bounds.size
+        if didScrollbarAppearanceChange {
+            scrollView.tile()
+        }
+        let targetSize = synchronizeTerminalContentFrames()
 #if DEBUG
         logLayoutDuringActiveDrag(targetSize: targetSize)
 #endif
-        let targetSurfaceFrame = CGRect(origin: surfaceView.frame.origin, size: targetSize)
-        _ = setFrameIfNeeded(surfaceView, to: targetSurfaceFrame)
-        let targetDocumentFrame = CGRect(
-            origin: documentView.frame.origin,
-            size: CGSize(width: scrollView.bounds.width, height: documentView.frame.height)
-        )
-        _ = setFrameIfNeeded(documentView, to: targetDocumentFrame)
         _ = setFrameIfNeeded(mobileViewportBorderOverlayView, to: contentFrame)
         _ = setFrameIfNeeded(inactiveOverlayView, to: bounds)
         _ = setFrameIfNeeded(paneDropTargetView, to: bounds)
@@ -10684,12 +10680,6 @@ final class GhosttySurfaceScrollView: NSView {
             _ = setFrameIfNeeded(overlay, to: contentFrame)
         }
         bringPaneDropTargetToFrontIfNeeded()
-        // NSScrollView can defer clip-view/content-size updates until its own layout pass,
-        // which makes interactive width changes arrive a queue turn late on Sequoia.
-        if didScrollbarAppearanceChange {
-            scrollView.tile()
-        }
-        scrollView.layoutSubtreeIfNeeded()
         updateNotificationRingPath()
         updateFlashPath(style: lastFlashStyle)
         updateFlashAppearance(style: lastFlashStyle)
@@ -13434,17 +13424,22 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private func synchronizeTerminalGeometryAfterScrollerStyleChange() {
+        _ = synchronizeTerminalContentFrames()
+        synchronizeSurfaceView()
+        _ = synchronizeCoreSurface()
+    }
+
+    private func synchronizeTerminalContentFrames() -> CGSize {
         scrollView.layoutSubtreeIfNeeded()
         let targetSize = scrollView.contentView.bounds.size
         let targetSurfaceFrame = CGRect(origin: surfaceView.frame.origin, size: targetSize)
         _ = setFrameIfNeeded(surfaceView, to: targetSurfaceFrame)
         let targetDocumentFrame = CGRect(
             origin: documentView.frame.origin,
-            size: CGSize(width: scrollView.contentView.bounds.width, height: documentView.frame.height)
+            size: CGSize(width: targetSize.width, height: documentView.frame.height)
         )
         _ = setFrameIfNeeded(documentView, to: targetDocumentFrame)
-        synchronizeSurfaceView()
-        _ = synchronizeCoreSurface()
+        return targetSize
     }
 
     private func handleTerminalScrollBarPreferenceChange() {
