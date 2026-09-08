@@ -155,7 +155,7 @@ final class CloudTreeLayoutPreviewWindowController: ReleasingWindowController {
             CloudTreeNode(id: "preview-pending", kind: .pendingMachine(pending)),
             CloudTreeNode(id: "preview-failed", kind: .pendingMachine(failed)),
             CloudTreeNode(id: "preview-ready", kind: .machine(machine, nil), children: [
-                CloudTreeNode(id: "preview-workspaces", kind: .workspacesGroup(.cloud(machine.id)))
+                CloudTreeNode(id: "preview-workspaces", kind: .workspacesGroup(machine: .cloud(machine.id)))
             ])
         ])
         coordinator.outlineView?.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
