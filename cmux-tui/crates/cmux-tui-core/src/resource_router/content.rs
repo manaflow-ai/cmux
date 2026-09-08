@@ -772,11 +772,27 @@ fn confirmed_input_error(
     error: crate::surface::ConfirmedInputFailure,
 ) -> ActionFailure {
     match error {
-        crate::surface::ConfirmedInputFailure::Known(error) => ActionFailure::Known(
-            ResourceError::operation_failed(operation, error.to_string(), json!({})),
-        ),
+        crate::surface::ConfirmedInputFailure::Known(error) => {
+            let message = match error.kind() {
+                std::io::ErrorKind::InvalidInput => {
+                    "Terminal input is too large. Send less input at once."
+                }
+                std::io::ErrorKind::WouldBlock => {
+                    "Terminal input is temporarily unavailable. Try again shortly."
+                }
+                std::io::ErrorKind::Unsupported => {
+                    "Input delivery confirmation is unavailable for this terminal."
+                }
+                _ => "Terminal input could not be delivered. Check that the terminal is available.",
+            };
+            ActionFailure::Known(ResourceError::operation_failed(operation, message, json!({})))
+        }
         crate::surface::ConfirmedInputFailure::Indeterminate(error) => {
-            ActionFailure::Indeterminate(error.to_string())
+            // Raw transport diagnostics must not enter the durable API response.
+            drop(error);
+            ActionFailure::Indeterminate(
+                "Terminal input delivery could not be confirmed. Check the terminal before retrying.".into(),
+            )
         }
     }
 }
