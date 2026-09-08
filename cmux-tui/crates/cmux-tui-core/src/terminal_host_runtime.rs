@@ -7915,6 +7915,27 @@ mod unix {
         }
 
         #[test]
+        fn input_ack_capability_requires_version_4_record() {
+            let (record_path, record, lease) = record_fixture("input-ack-version");
+            validate_terminal_host_record(&record_path, &record).unwrap();
+            for version in [2, 3] {
+                let mut legacy = record.clone();
+                legacy.record_version = version;
+                legacy.supports_terminate_ack = version >= 3;
+                legacy.supports_input_ack = false;
+                validate_terminal_host_record(&record_path, &legacy).unwrap();
+                legacy.supports_input_ack = true;
+                assert!(
+                    validate_terminal_host_record(&record_path, &legacy).is_err(),
+                    "version {version} must reject input acknowledgements"
+                );
+            }
+            drop(lease);
+            assert!(remove_stale_terminal_host_record(&record_path, &record).unwrap());
+            fs::remove_dir_all(record_path.parent().unwrap()).unwrap();
+        }
+
+        #[test]
         fn legacy_record_is_adoptable_shape_but_never_unsafely_reaped() {
             let (v2_path, v2, lease) = record_fixture("legacy");
             let root = v2_path.parent().unwrap();
