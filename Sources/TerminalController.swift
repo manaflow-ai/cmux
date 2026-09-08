@@ -1812,12 +1812,17 @@ class TerminalController {
                 )
             }
             let show = Self.surfaceBool(request.params["show"]) ?? true
+            let preview = Self.surfaceBool(request.params["preview"]) ?? false
             let selected: String = v2MainSync {
                 if let requestedStyle, let style = CloudTreeStyle.preset(id: requestedStyle) {
                     CloudTreeStyleStore.current = style
                 }
                 if show {
-                    CloudTreeStyleGalleryWindowController.shared.show()
+                    if preview {
+                        CloudTreeLayoutPreviewWindowController.shared.show()
+                    } else {
+                        CloudTreeStyleGalleryWindowController.shared.show()
+                    }
                 }
                 return CloudTreeStyleStore.current.id
             }

@@ -344,6 +344,15 @@ final class CloudTreeNSOutlineView: NSOutlineView {
 
     override func frameOfCell(atColumn column: Int, row: Int) -> NSRect {
         var frame = super.frameOfCell(atColumn: column, row: row)
+        if let node = item(atRow: row) as? CloudTreeNode,
+           case .pendingMachine = node.kind {
+            // Pending rows have no children, so their indicator starts at the
+            // outline's leading margin instead of an empty disclosure slot.
+            let trailing = frame.maxX
+            frame.origin.x = Self.leadingMargin
+            frame.size.width = max(0, trailing - frame.minX)
+            return frame
+        }
         let trailing = frame.maxX
         frame.origin.x = disclosureLeading(atRow: row) + GlobalFontMagnification.scaledSize(
             CloudTreeRowGrid.disclosureSlot + CloudTreeRowGrid.disclosureGap

@@ -1010,7 +1010,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
 
 /// Scroll view + outline host for the Cloud tree.
 final class CloudTreeContainerView: NSView {
-    // The row adds a 1pt selection inset, making the visible outer margin 3pt.
+    // The row adds a 1pt selection inset, making the side/bottom margin 3pt.
     // Keep this outside the scroll view so document layout cannot consume it.
     private static let outerPadding: CGFloat = 2
     private let scrollView = NSScrollView()
@@ -1080,7 +1080,7 @@ final class CloudTreeContainerView: NSView {
         NSLayoutConstraint.activate([
             scrollView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Self.outerPadding),
             scrollView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Self.outerPadding),
-            scrollView.topAnchor.constraint(equalTo: topAnchor, constant: Self.outerPadding),
+            scrollView.topAnchor.constraint(equalTo: topAnchor),
             scrollView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -Self.outerPadding),
         ])
     }

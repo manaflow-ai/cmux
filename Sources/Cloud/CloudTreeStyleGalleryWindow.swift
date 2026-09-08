@@ -122,4 +122,87 @@ private struct CloudTreeStyleGalleryColumn: View {
         }
     }
 }
+
+/// Deterministic production-row preview for spacing and pending-state checks.
+/// Actions are inert: opening this window never provisions or deletes a machine.
+final class CloudTreeLayoutPreviewWindowController: ReleasingWindowController {
+    static let shared = CloudTreeLayoutPreviewWindowController()
+
+    override func makeWindow() -> NSWindow {
+        let coordinator = CloudTreeOutlineView.Coordinator(
+            machineActions: Self.machineActions,
+            nodeActions: Self.nodeActions,
+            expansionStore: CloudTreeExpansionStore(
+                defaults: UserDefaults(suiteName: "cloud-row-layout-preview")!
+            ),
+            tabDragTransferRegistry: { nil }
+        )
+        let container = CloudTreeContainerView(coordinator: coordinator)
+        let request = MachineCreateRequest(mode: .newMachine, kind: .desktop, name: nil, arguments: [])
+        let pending = MachineCreateOperation(id: UUID(), request: request, startedAt: Date())
+        var failed = MachineCreateOperation(id: UUID(), request: request, startedAt: Date())
+        failed.phase = .failed(output: "Preview failure")
+        let machine = MachineSnapshot(
+            id: "preview-machine",
+            provider: "",
+            image: "",
+            isDesktop: false,
+            activity: .ready,
+            createdAt: nil,
+            label: "wise-ruby-crane"
+        )
+        coordinator.apply(nodes: [
+            CloudTreeNode(id: "preview-pending", kind: .pendingMachine(pending)),
+            CloudTreeNode(id: "preview-failed", kind: .pendingMachine(failed)),
+            CloudTreeNode(id: "preview-ready", kind: .machine(machine, nil), children: [
+                CloudTreeNode(id: "preview-workspaces", kind: .workspacesGroup(.cloud(machine.id)))
+            ])
+        ])
+        coordinator.outlineView?.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 345, height: 160),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Cloud Row Layout Preview"
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.cloudRowLayoutPreview")
+        window.minSize = NSSize(width: 240, height: 140)
+        window.contentView = container
+        return window
+    }
+
+    func show() {
+        showManagedWindow()
+    }
+
+    private static let machineActions = MachineRowActions(
+        openShell: { _ in },
+        openDesktop: { _ in },
+        runCommand: { _, _ in },
+        confirmDelete: { _ in },
+        promptRename: { _, _ in },
+        resizeDisk: { _, _ in },
+        promptUpgrade: {}
+    )
+
+    private static let nodeActions = CloudTreeNodeActions(
+        project: { _, _, _ in },
+        projectRemoteView: { _, _, _, _ in },
+        projectInLocalWorkspace: { _, _ in },
+        projectRemoteViewInLocalWorkspace: { _, _, _ in },
+        newTerminal: { _, _ in },
+        openGroup: { _, _, _, _ in },
+        openGroupAsWorkspace: { _, _, _ in },
+        newWorkspace: { _ in },
+        closeTerminal: { _ in },
+        closeWorkspace: { _, _ in },
+        renameWorkspace: { _, _ in },
+        renameTerminal: { _, _ in },
+        selectLocalWorkspace: { _ in },
+        copyToPasteboard: { _ in },
+        refresh: {}
+    )
+
+}
 #endif

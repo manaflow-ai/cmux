@@ -12,6 +12,7 @@ final class CloudTreeCellView: NSTableCellView {
     private let displayHost = CloudTreePassthroughHostingView(rootView: AnyView(EmptyView()))
     private var buttonsHost: NSHostingView<AnyView>?
     private var displayTrailingConstraint: NSLayoutConstraint?
+    private var displayLeadingConstraint: NSLayoutConstraint?
     private var buttonsLeadingConstraint: NSLayoutConstraint?
     private var buttonsTopConstraint: NSLayoutConstraint?
     private var buttonsCenterConstraint: NSLayoutConstraint?
@@ -27,8 +28,10 @@ final class CloudTreeCellView: NSTableCellView {
         // The outline owns the complete disclosure slot and gap. The hosted
         // content starts at the cell edge, with no second horizontal offset.
         // Content pads its own trailing edge (`CloudTreeRowGrid.trailingPadding`).
+        let leading = displayHost.leadingAnchor.constraint(equalTo: leadingAnchor)
+        displayLeadingConstraint = leading
         NSLayoutConstraint.activate([
-            displayHost.leadingAnchor.constraint(equalTo: leadingAnchor),
+            leading,
             displayHost.topAnchor.constraint(equalTo: topAnchor),
             displayHost.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
@@ -64,6 +67,9 @@ final class CloudTreeCellView: NSTableCellView {
             cmuxDebugLog("cloudTree.cell.configure unread terminal=\(row.resource.id.key.suffix(4)) node=\(node.id.suffix(12))")
         }
         #endif
+        // Pending rows have no disclosure control. Keep the leading constraint
+        // explicit so reused cells cannot retain a previous row's offset.
+        displayLeadingConstraint?.constant = 0
         displayHost.isHidden = false
         displayHost.rootView = AnyView(
             CloudTreeRowContentView(kind: node.kind, style: style)
