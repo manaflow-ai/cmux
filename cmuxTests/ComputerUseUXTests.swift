@@ -1157,8 +1157,8 @@ struct ComputerUseUXTests {
     }
 
     /// Regression: interacting with the companion beside System Settings
-    /// (dragging the helper tile, pressing Back) must never activate cmux —
-    /// activation raised the main terminal window over the permission pane the
+    /// (dragging the helper tile, pressing Back) must never activate cmux.
+    /// Activation raised the main terminal window over the permission pane the
     /// user was dragging into.
     @Test @MainActor func permissionCompanionNeverActivatesTheApp() {
         let controller = ComputerUseOnboardingWindowController(
@@ -1186,13 +1186,13 @@ struct ComputerUseUXTests {
         #expect(companionPanel?.styleMask.contains(.nonactivatingPanel) == true)
         #expect(companionPanel?.becomesKeyOnlyIfNeeded == true)
         #expect(companionPanel?.hidesOnDeactivate == false)
-        #expect(companionPanel?.level == .normal)
+        #expect(companionPanel?.level == .floating)
         #expect(companionPanel?.collectionBehavior.contains(.moveToActiveSpace) == true)
         #expect(companionPanel?.collectionBehavior.contains(.canJoinAllSpaces) == false)
     }
 
-    /// Regression: Command-Tab must not remove the companion. Its relative
-    /// WindowServer order keeps it with System Settings behind the active app.
+    /// Regression: Command-Tab must not remove the companion. Its floating
+    /// level keeps it available while another application is active.
     @Test @MainActor func permissionCompanionRemainsWhenAnotherApplicationActivates() async throws {
         let controller = ComputerUseOnboardingWindowController(
             runtimeService: ComputerUseRuntimeService()
@@ -1235,6 +1235,59 @@ struct ComputerUseUXTests {
         }
 
         #expect(companionWindow.isVisible)
+        #expect(mainWindow.isVisible)
+    }
+
+    @Test @MainActor func externalWindowCompanionUsesFloatingNonactivatingPresentation() {
+        var orderedWindow: NSWindow?
+        let presenter = ExternalWindowCompanionPresenter { window in
+            orderedWindow = window
+        }
+        let companionWindow = NSPanel(
+            contentRect: .zero,
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        defer { companionWindow.close() }
+        companionWindow.level = .normal
+        companionWindow.collectionBehavior = [.canJoinAllSpaces]
+        companionWindow.hidesOnDeactivate = true
+
+        presenter.present(companionWindow)
+
+        #expect(orderedWindow === companionWindow)
+        #expect(companionWindow.level == .floating)
+        #expect(companionWindow.hidesOnDeactivate == false)
+        #expect(companionWindow.collectionBehavior.contains(.moveToActiveSpace))
+        #expect(!companionWindow.collectionBehavior.contains(.canJoinAllSpaces))
+    }
+
+    @Test @MainActor func permissionCompanionUsesReusablePresenter() {
+        var presentedWindow: NSWindow?
+        let presenter = ExternalWindowCompanionPresenter { window in
+            presentedWindow = window
+        }
+        let controller = ComputerUseOnboardingWindowController(
+            runtimeService: ComputerUseRuntimeService(),
+            externalWindowCompanionPresenter: presenter
+        )
+        let mainWindow = controller.makeWindow()
+        defer {
+            controller.dismiss()
+            mainWindow.close()
+        }
+
+        controller.configureForPermissionCompanion(
+            mainWindow,
+            frame: NSRect(
+                origin: mainWindow.frame.origin,
+                size: ComputerUsePermissionCompanionLayout.size
+            )
+        )
+
+        #expect(presentedWindow?.identifier?.rawValue
+            == "cmux.computerUse.onboarding.permissionCompanion")
     }
 
     @Test @MainActor func externalApplicationWindowTrackerPublishesOnlyForItsActiveTarget() async {

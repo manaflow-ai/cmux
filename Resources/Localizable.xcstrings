@@ -614,13 +614,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Computer Use — Running in Background"
+            "value": "cmux Computer Use: Running in Background"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Computer Use — バックグラウンドで実行中"
+            "value": "cmux Computer Use: バックグラウンドで実行中"
           }
         }
       }
@@ -733,13 +733,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ — %2$@"
+            "value": "%1$@: %2$@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ — %2$@"
+            "value": "%1$@: %2$@"
           }
         }
       }
@@ -1243,13 +1243,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Permissions go to the separate cmux Computer Use helper — the cmux terminal itself never receives them."
+            "value": "Permissions belong to a separate Computer Use helper. You can quit or reopen it without closing cmux or your terminal sessions."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "権限は独立したcmux Computer Useヘルパーに付与され、cmuxターミナル本体には付与されません。"
+            "value": "権限は独立したComputer Useヘルパーに付与されます。ヘルパーを終了して再度開いても、cmuxやターミナルセッションは終了しません。"
           }
         }
       }
@@ -1668,7 +1668,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS asks to confirm — allow screen capture"
+            "value": "macOS asks for confirmation. Allow screen capture."
           }
         },
         "ja": {

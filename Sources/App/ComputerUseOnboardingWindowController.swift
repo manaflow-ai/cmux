@@ -123,6 +123,7 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
     private let runtimeService: ComputerUseRuntimeService
     private let userDefaults: UserDefaults
     private let permissionWindowPlacement = ComputerUseOnboardingWindowPlacement()
+    private let externalWindowCompanionPresenter: ExternalWindowCompanionPresenter
     private var systemSettingsWindowTracker: ExternalApplicationWindowTracker?
     private var permissionCompanionRequested = false
     private var pendingPermissionStep: ComputerUseOnboardingStep?
@@ -131,10 +132,13 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
 
     init(
         runtimeService: ComputerUseRuntimeService,
-        userDefaults: UserDefaults = .standard
+        userDefaults: UserDefaults = .standard,
+        externalWindowCompanionPresenter: ExternalWindowCompanionPresenter? = nil
     ) {
         self.runtimeService = runtimeService
         self.userDefaults = userDefaults
+        self.externalWindowCompanionPresenter = externalWindowCompanionPresenter
+            ?? ExternalWindowCompanionPresenter()
         super.init()
     }
 
@@ -172,8 +176,8 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         self.window = window
         window.delegate = self
         observeSystemSettingsWindow()
-        window.level = .floating
-        window.collectionBehavior = [.canJoinAllSpaces]
+        window.level = .normal
+        window.collectionBehavior = [.managed]
         window.hidesOnDeactivate = false
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
@@ -279,7 +283,9 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
     ) {
         switch event {
         case .hidden:
-            permissionCompanionWindow?.orderOut(nil)
+            // Keep both onboarding windows visible when another app activates.
+            // The companion keeps its floating level until this flow ends.
+            break
         case .unavailable:
             guard permissionCompanionRequested
                     || permissionCompanionWindow != nil
@@ -288,15 +294,17 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
             }
             showExpandedOnboarding()
         case .visible(let snapshot):
-            showPermissionCompanion(beside: snapshot.frame)
+            showPermissionCompanion(for: snapshot)
         }
     }
 
-    private func showPermissionCompanion(beside systemSettingsFrame: NSRect) {
+    private func showPermissionCompanion(
+        for systemSettingsWindow: ExternalApplicationWindowTracker.Snapshot
+    ) {
         guard permissionCompanionRequested
                 || permissionCompanionWindow != nil,
               let destinationFrame = permissionCompanionFrame(
-                beside: systemSettingsFrame
+                beside: systemSettingsWindow.frame
               )
         else {
             return
@@ -308,9 +316,7 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
                 at: destinationFrame,
                 animate: false
             )
-            if !companionWindow.isVisible {
-                companionWindow.orderFrontRegardless()
-            }
+            externalWindowCompanionPresenter.present(companionWindow)
             return
         }
 
@@ -387,8 +393,8 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         completion?()
     }
 
-    /// Replaces the compact companion with the centered main onboarding window.
-    /// The companion closes immediately; there is deliberately no return glide.
+    /// Closes the compact companion and brings the retained main onboarding
+    /// window forward. There is deliberately no return glide.
     func revealExpandedOnboarding(
         _ window: ComputerUseOnboardingWindow,
         resetStep: Bool,
@@ -448,8 +454,8 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         }
     }
 
-    /// Orders out the expanded onboarding window and presents an independent,
-    /// borderless permission companion at its fixed compact frame.
+    /// Keeps the expanded onboarding window in place and presents an
+    /// independent borderless permission companion at its fixed compact frame.
     func configureForPermissionCompanion(
         _ mainWindow: ComputerUseOnboardingWindow,
         permissionStep: ComputerUseOnboardingStep = .accessibility,
@@ -457,7 +463,6 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         animate: Bool = false,
         completion: (() -> Void)? = nil
     ) {
-        prepareForPermissionCompanion(mainWindow)
         if presentationState?.permissionCompanionVisible != true {
             presentationState?.showPermissionCompanion()
         }
@@ -468,7 +473,7 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
             mainWindow: mainWindow
         )
         permissionCompanionWindow = companionWindow
-        companionWindow.orderFrontRegardless()
+        externalWindowCompanionPresenter.present(companionWindow)
         if animate && shouldAnimate(companionWindow) {
             companionWindow.setAppKitOwnedFrame(
                 frame,
@@ -481,14 +486,6 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
             companionWindow.displayIfNeeded()
             completion?()
         }
-    }
-
-    /// Hides the main window before the companion appears. Its frame and chrome
-    /// remain untouched so revealing it later cannot expose a ghost titlebar.
-    func prepareForPermissionCompanion(
-        _ window: ComputerUseOnboardingWindow
-    ) {
-        window.orderOut(nil)
     }
 
     private func makePermissionCompanionWindow(
@@ -542,9 +539,6 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         )
         companionWindow.isReleasedWhenClosed = false
         companionWindow.becomesKeyOnlyIfNeeded = true
-        companionWindow.level = .floating
-        companionWindow.collectionBehavior = [.canJoinAllSpaces]
-        companionWindow.hidesOnDeactivate = false
         companionWindow.hasShadow = false
         companionWindow.isOpaque = false
         companionWindow.backgroundColor = .clear

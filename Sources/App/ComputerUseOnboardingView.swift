@@ -171,7 +171,7 @@ struct ComputerUseOnboardingView: View {
 
                 Text(String(
                     localized: "computerUse.onboarding.hero.helperNote",
-                    defaultValue: "Permissions go to the separate cmux Computer Use helper — the cmux terminal itself never receives them."
+                    defaultValue: "Permissions belong to a separate Computer Use helper. You can quit or reopen it without closing cmux or your terminal sessions."
                 ))
                 .font(.system(size: 11))
                 .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
@@ -284,13 +284,13 @@ struct ComputerUseOnboardingView: View {
     }
 
     /// Once ordinary Screen Recording is on, the remaining blocker is Tahoe's
-    /// direct-capture consent alert — say so instead of re-explaining
+    /// direct-capture consent alert. Say so instead of re-explaining
     /// screenshots while a scary system dialog is (or is about to be) up.
     private var screenshotsCardDetail: String {
         if permissionStatusIsKnown, screenRecordingGranted, !directCaptureReady {
             return String(
                 localized: "computerUse.onboarding.screenshots.confirmDetail",
-                defaultValue: "macOS asks to confirm — allow screen capture"
+                defaultValue: "macOS asks for confirmation. Allow screen capture."
             )
         }
         return String(
