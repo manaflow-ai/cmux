@@ -208,6 +208,89 @@ struct SSHTmuxCommand: SharedLegacyFacadeCommand {
     static let configuration = CommandConfiguration(commandName: "ssh-tmux", helpNames: [])
 }
 
+struct LocalTmuxCommand: SharedLegacyFacadeCommand {
+    // See AuthCommand's comment: no catch-all argument alongside `subcommands`.
+    // `tmux` is a full alias of `local-tmux` in the legacy dispatch switch, not a
+    // separate command; declaring it here keeps both spellings in the derived
+    // `topLevelCommandNames`.
+    static let configuration = CommandConfiguration(
+        commandName: "local-tmux",
+        subcommands: [
+            LocalTmuxStartCommand.self,
+            LocalTmuxAttachCommand.self,
+            LocalTmuxListCommand.self,
+            LocalTmuxStatusCommand.self,
+            LocalTmuxDetachCommand.self,
+            LocalTmuxCloseCommand.self,
+            LocalTmuxCleanupCommand.self,
+        ],
+        helpNames: [],
+        aliases: ["tmux"]
+    )
+}
+
+struct LocalTmuxStartCommand: SharedLegacyFacadeCommand {
+    @Option(name: [.customLong("name"), .customLong("session")]) var name: String?
+    @Option(name: .customLong("cwd"), completion: .directory) var cwd: String?
+    @Option(name: .customLong("command")) var command: String?
+    @Flag(name: [.customLong("detached"), .customLong("no-attach")]) var detached = false
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "start", helpNames: [], aliases: ["create"])
+}
+
+struct LocalTmuxAttachCommand: SharedLegacyFacadeCommand {
+    @Option(name: [.customLong("name"), .customLong("session")]) var name: String?
+    @Option(name: .customLong("id")) var id: String?
+    @Option(name: .customLong("workspace"), completion: workspaceCompletion) var workspaceID: String?
+    @Option(name: .customLong("surface"), completion: surfaceCompletion) var surfaceID: String?
+    @Option(name: .customLong("pane"), completion: paneCompletion) var paneID: String?
+    @Option(name: .customLong("window"), completion: windowCompletion) var windowID: String?
+    @Option(name: .customLong("focus")) var focus: String?
+    @Flag(name: .customLong("no-focus")) var noFocus = false
+    @Flag(name: .customLong("headless")) var headless = false
+    @Flag(name: .customLong("new-client")) var newClient = false
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "attach", helpNames: [], aliases: ["open"])
+}
+
+struct LocalTmuxListCommand: SharedLegacyFacadeCommand {
+    @Flag(name: .customLong("json")) var json = false
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "list", helpNames: [], aliases: ["ls"])
+}
+
+struct LocalTmuxStatusCommand: SharedLegacyFacadeCommand {
+    @Option(name: [.customLong("name"), .customLong("session")]) var name: String?
+    @Option(name: .customLong("id")) var id: String?
+    @Flag(name: .customLong("json")) var json = false
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "status", helpNames: [], aliases: ["info"])
+}
+
+struct LocalTmuxDetachCommand: SharedLegacyFacadeCommand {
+    @Option(name: [.customLong("name"), .customLong("session")]) var name: String?
+    @Option(name: .customLong("id")) var id: String?
+    @Option(name: .customLong("client")) var client: String?
+    @Flag(name: .customLong("all")) var all = false
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "detach", helpNames: [])
+}
+
+struct LocalTmuxCloseCommand: SharedLegacyFacadeCommand {
+    @Option(name: [.customLong("name"), .customLong("session")]) var name: String?
+    @Option(name: .customLong("id")) var id: String?
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "close", helpNames: [], aliases: ["kill", "delete"])
+}
+
+struct LocalTmuxCleanupCommand: SharedLegacyFacadeCommand {
+    // `prune` is the mutating spelling of `cleanup`, which otherwise dry-runs
+    // unless `--prune` is passed. Same routing, so it is declared as an alias.
+    @Flag(name: .customLong("prune")) var prune = false
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "cleanup", helpNames: [], aliases: ["prune"])
+}
+
 struct SSHSessionListCommand: SharedLegacyFacadeCommand {
     @Option(name: .customLong("workspace"), completion: workspaceCompletion) var workspaceID: String?
     @Flag(name: .customLong("all-workspaces")) var allWorkspaces = false
