@@ -19,11 +19,28 @@ struct TerminalWrapWidthRegressionTests {
             tabId: UUID(),
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: nil,
-            workingDirectory: nil
+            workingDirectory: nil,
+            dependencies: GhosttyApp.terminalSurfaceRuntimeDependencies
         )
-        defer { surface.releaseSurfaceForTesting() }
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            window.orderOut(nil)
+            surface.releaseSurfaceForTesting()
+        }
         let hostedView = surface.hostedView
-        hostedView.frame = NSRect(x: 0, y: 0, width: 360, height: 240)
+        let contentView = try #require(window.contentView)
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
         let scrollView = try #require(hostedView.subviews.compactMap { $0 as? NSScrollView }.first)
         hostedView.surfaceView.cellSize = CGSize(width: 8, height: 16)
         setScrollback(100, in: hostedView)
@@ -32,14 +49,19 @@ struct TerminalWrapWidthRegressionTests {
     }
 
     private func setScrollback(_ total: UInt64, in hostedView: GhosttySurfaceScrollView) {
+        let length = min(10, total)
         NotificationCenter.default.post(
             name: .ghosttyDidUpdateScrollbar,
             object: hostedView.surfaceView,
-            userInfo: [GhosttyNotificationKey.scrollbar: GhosttyScrollbar(total: total, offset: total - 10, len: 10)]
+            userInfo: [GhosttyNotificationKey.scrollbar: GhosttyScrollbar(
+                total: total,
+                offset: total > length ? total - length : 0,
+                len: length
+            )]
         )
         let deadline = Date().addingTimeInterval(1)
         while hostedView.surfaceView.scrollbar?.total != total, Date() < deadline {
-            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+            _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
         }
         #expect(hostedView.surfaceView.scrollbar?.total == total)
     }
