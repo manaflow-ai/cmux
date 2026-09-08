@@ -8387,6 +8387,30 @@ impl Mux {
     }
 
     #[cfg(all(test, unix))]
+    pub(crate) fn seed_launching_terminal_for_test(
+        &self,
+        terminal_id: &str,
+        workspace_key: &str,
+    ) -> anyhow::Result<()> {
+        let mut registry = self.workspace_registry.lock().unwrap();
+        commit_terminal_transition(
+            &mut registry,
+            "terminal-reserved",
+            "seed-launching-terminal",
+            &RegistryTerminal {
+                terminal_id: terminal_id.to_string(),
+                workspace_key: workspace_key.to_string(),
+                incarnation: None,
+                lifecycle: TerminalLifecycle::Launching,
+                launch_spec: serde_json::json!({}),
+                exit: None,
+                on_exit: TerminalOnExit::Close,
+            },
+        )?;
+        Ok(())
+    }
+
+    #[cfg(all(test, unix))]
     pub(crate) fn seed_running_terminal_for_test(
         self: &Arc<Self>,
         terminal_id: &str,

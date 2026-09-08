@@ -963,14 +963,6 @@ mod unix {
             (pending.writes, pending.bytes)
         }
 
-        #[cfg(test)]
-        fn input_ack_shutdown_is_cached_for_test(&self, writer: &Mutex<UnixStream>) {
-            let first = self.input_ack_shutdown_handle(writer).unwrap();
-            let _writer_guard = writer.lock().unwrap();
-            let second = self.input_ack_shutdown_handle(writer).unwrap();
-            assert!(Arc::ptr_eq(&first, &second));
-        }
-
         fn defer_cell_pixel(&self, request_id: u64, expected: (u16, u16)) -> bool {
             let mut waiters = self.waiters.lock().unwrap();
             let Some(waiter) = waiters.get_mut(&request_id) else { return false };
@@ -1028,7 +1020,11 @@ mod unix {
         }
 
         pub(crate) fn wait(self) -> std::io::Result<()> {
-            match self.receiver.recv_timeout(CONTROL_RESPONSE_TIMEOUT) {
+            self.wait_for(CONTROL_RESPONSE_TIMEOUT)
+        }
+
+        fn wait_for(self, timeout: Duration) -> std::io::Result<()> {
+            match self.receiver.recv_timeout(timeout) {
                 Ok(frame) => {
                     if !frame.payload.is_empty() {
                         self.abort_connection();
@@ -1198,13 +1194,12 @@ mod unix {
                 )));
             }
 
-            let shutdown = self
-                .control_responses
-                .input_ack_shutdown_handle(&self.writer)
-                .map_err(|error| {
+            let shutdown = self.control_responses.input_ack_shutdown_handle(&self.writer).map_err(
+                |error| {
                     self.control_responses.release_input_ack(payload.len());
                     ConfirmedInputFailure::Known(error)
-                })?;
+                },
+            )?;
 
             let request_id = self.next_request.fetch_add(1, Ordering::Relaxed);
             if request_id == 0 {
@@ -3977,6 +3972,7 @@ mod unix {
             }
             let mut response = Frame::new(MessageKind::InputAck, Vec::new());
             response.request_id = request_id;
+            let _broadcast = self.broadcast_lock.lock().unwrap();
             target.try_send(response)
         }
 
@@ -6836,6 +6832,61 @@ mod unix {
             (record_path, record, lease)
         }
 
+        pub(crate) fn input_ack_surface_fixture() -> (HostAttachment, UnixStream) {
+            let terminal_id = TerminalId::random().unwrap();
+            let incarnation = HostIncarnation::random().unwrap();
+            let owner = CapabilityToken::random().unwrap();
+            let nonce = CapabilityToken::random().unwrap();
+            let record = TerminalHostRecord {
+                record_version: HOST_RECORD_VERSION,
+                terminal_id: terminal_id.to_hex(),
+                incarnation: incarnation.to_hex(),
+                endpoint: "/tmp/cmux-input-ack-surface-test.sock".into(),
+                owner_token: encode_hex(owner.as_bytes()),
+                host_pid: std::process::id(),
+                host_start_nonce: encode_hex(nonce.as_bytes()),
+                workspace_key: String::new(),
+                supports_set_defaults: false,
+                supports_clear_history: false,
+                supports_terminate_ack: false,
+                supports_input_ack: true,
+            };
+            let record_path = std::env::temp_dir().join(format!(
+                "cmux-input-ack-surface-{}-{}.json",
+                std::process::id(),
+                RECORD_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+            ));
+            let (client, host) = UnixStream::pair().unwrap();
+            let reader = client.try_clone().unwrap();
+            let attachment = HostAttachment {
+                record,
+                record_path,
+                snapshot: HostSnapshot {
+                    cols: 80,
+                    rows: 24,
+                    cell_pixels: DEFAULT_CELL_PIXELS,
+                    replay: Vec::new(),
+                    kitty_image_aliases: Vec::new(),
+                    kitty_state: test_kitty_state(),
+                    sequence_boundary: 0,
+                    colors: TerminalColorOverrides::default(),
+                    pid: None,
+                    command: Vec::new(),
+                    cwd: None,
+                },
+                protocol_version: PROTOCOL_VERSION,
+                smart_renderer: false,
+                reader: Some(reader),
+                writer: Arc::new(Mutex::new(client)),
+                control_responses: Arc::new(ControlResponses::new()),
+                next_request: AtomicU64::new(2),
+                viewer_size: Mutex::new(None),
+                launch_process: None,
+                launch_activation_pending: false,
+            };
+            (attachment, host)
+        }
+
         #[test]
         fn default_host_cell_metrics_initialize_both_terminal_backends() {
             let size = pty_size(80, 24, DEFAULT_CELL_PIXELS).unwrap();
@@ -7285,56 +7336,6 @@ mod unix {
         }
 
         #[test]
-        fn receipted_input_waits_for_the_authoritative_pty_receipt() {
-            let (record_path, record, lease) = record_fixture("input-ack");
-            let root = record_path.parent().unwrap().to_path_buf();
-            let (client, mut host) = UnixStream::pair().unwrap();
-            let control_responses = Arc::new(ControlResponses::new());
-            let attachment = HostAttachment {
-                record,
-                record_path,
-                snapshot: HostSnapshot {
-                    cols: 80,
-                    rows: 24,
-                    cell_pixels: DEFAULT_CELL_PIXELS,
-                    replay: Vec::new(),
-                    kitty_image_aliases: Vec::new(),
-                    kitty_state: test_kitty_state(),
-                    sequence_boundary: 0,
-                    colors: TerminalColorOverrides::default(),
-                    pid: None,
-                    command: Vec::new(),
-                    cwd: None,
-                },
-                protocol_version: PROTOCOL_VERSION,
-                smart_renderer: true,
-                reader: None,
-                writer: Arc::new(Mutex::new(client)),
-                control_responses: control_responses.clone(),
-                next_request: AtomicU64::new(2),
-                viewer_size: Mutex::new(None),
-                launch_process: None,
-                launch_activation_pending: false,
-            };
-            let responder = thread::spawn(move || {
-                let request = read_frame(&mut host, MAX_FRAME_PAYLOAD).unwrap().unwrap();
-                assert_eq!(request.kind, MessageKind::Input);
-                assert_eq!(request.payload, b"owner-ack");
-                assert_ne!(request.request_id, 0);
-                let mut response = Frame::new(MessageKind::InputAck, Vec::new());
-                response.request_id = request.request_id;
-                assert!(control_responses.resolve(&response));
-            });
-
-            attachment.begin_input_confirmed(b"owner-ack").unwrap().wait().unwrap();
-            responder.join().unwrap();
-
-            drop(attachment);
-            drop(lease);
-            let _ = fs::remove_dir_all(root);
-        }
-
-        #[test]
         fn receipted_input_never_reaches_a_legacy_host_without_ack_support() {
             let (record_path, mut record, lease) = record_fixture("input-ack-legacy");
             let root = record_path.parent().unwrap().to_path_buf();
@@ -7389,74 +7390,30 @@ mod unix {
         }
 
         #[test]
-        fn receipted_input_requests_can_pipeline_before_the_first_ack() {
-            let (record_path, record, lease) = record_fixture("input-ack-pipeline");
-            let root = record_path.parent().unwrap().to_path_buf();
-            let (client, mut host) = UnixStream::pair().unwrap();
-            let control_responses = Arc::new(ControlResponses::new());
-            let attachment = HostAttachment {
-                record,
-                record_path,
-                snapshot: HostSnapshot {
-                    cols: 80,
-                    rows: 24,
-                    cell_pixels: DEFAULT_CELL_PIXELS,
-                    replay: Vec::new(),
-                    kitty_image_aliases: Vec::new(),
-                    kitty_state: test_kitty_state(),
-                    sequence_boundary: 0,
-                    colors: TerminalColorOverrides::default(),
-                    pid: None,
-                    command: Vec::new(),
-                    cwd: None,
-                },
-                protocol_version: PROTOCOL_VERSION,
-                smart_renderer: true,
-                reader: None,
-                writer: Arc::new(Mutex::new(client)),
-                control_responses: control_responses.clone(),
-                next_request: AtomicU64::new(2),
-                viewer_size: Mutex::new(None),
-                launch_process: None,
-                launch_activation_pending: false,
-            };
+        fn receipted_input_timeout_can_abort_while_writer_mutex_is_held() {
+            let (attachment, mut host) = input_ack_surface_fixture();
+            host.set_read_timeout(Some(Duration::from_millis(250))).unwrap();
+            let receipt = attachment.begin_input_confirmed(b"timeout").unwrap();
+            let request = read_frame(&mut host, MAX_FRAME_PAYLOAD).unwrap().unwrap();
+            assert_eq!(request.kind, MessageKind::Input);
+            assert_ne!(request.request_id, 0);
 
-            let first = attachment.begin_input_confirmed(b"a").unwrap();
-            let first_request = read_frame(&mut host, MAX_FRAME_PAYLOAD).unwrap().unwrap();
-            assert_eq!(first_request.kind, MessageKind::Input);
-            assert_eq!(first_request.payload, b"a");
-
-            // The second request must enter the host channel before the first
-            // receipt is acknowledged. A stop-and-wait implementation cannot
-            // reach this point without resolving first_request.
-            let second = attachment.begin_input_confirmed(b"b").unwrap();
-            let second_request = read_frame(&mut host, MAX_FRAME_PAYLOAD).unwrap().unwrap();
-            assert_eq!(second_request.kind, MessageKind::Input);
-            assert_eq!(second_request.payload, b"b");
-            assert_ne!(first_request.request_id, second_request.request_id);
-
-            let mut second_ack = Frame::new(MessageKind::InputAck, Vec::new());
-            second_ack.request_id = second_request.request_id;
-            assert!(control_responses.resolve(&second_ack));
-            let mut first_ack = Frame::new(MessageKind::InputAck, Vec::new());
-            first_ack.request_id = first_request.request_id;
-            assert!(control_responses.resolve(&first_ack));
-
-            second.wait().unwrap();
-            first.wait().unwrap();
-            assert_eq!(control_responses.pending_input_acks_for_test(), (0, 0));
-
-            drop(attachment);
-            drop(lease);
-            let _ = fs::remove_dir_all(root);
-        }
-
-        #[test]
-        fn receipted_input_shutdown_handle_is_connection_scoped() {
-            let responses = ControlResponses::new();
-            let (writer, _peer) = UnixStream::pair().unwrap();
-            let writer = Mutex::new(writer);
-            responses.input_ack_shutdown_is_cached_for_test(&writer);
+            let writer_guard = attachment.writer.lock().unwrap();
+            let (result_tx, result_rx) = sync_channel(1);
+            let waiter = thread::spawn(move || {
+                result_tx.send(receipt.wait_for(Duration::from_millis(20))).unwrap();
+            });
+            let error = result_rx
+                .recv_timeout(Duration::from_millis(250))
+                .expect("input ACK timeout blocked behind the socket writer mutex")
+                .unwrap_err();
+            assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
+            assert!(
+                read_frame(&mut host, MAX_FRAME_PAYLOAD).unwrap().is_none(),
+                "timeout shutdown did not reach the peer while the socket writer mutex was held"
+            );
+            drop(writer_guard);
+            waiter.join().unwrap();
         }
 
         #[test]
@@ -7500,23 +7457,101 @@ mod unix {
             assert!(target_rx.recv_timeout(Duration::from_millis(20)).is_err());
         }
 
+        struct GatedInputWriter {
+            write_started: SyncSender<()>,
+            write_release: Receiver<()>,
+            flush_started: SyncSender<()>,
+            flush_release: Receiver<()>,
+            fail_flush: bool,
+        }
+
+        impl Write for GatedInputWriter {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                self.write_started.send(()).unwrap();
+                self.write_release.recv().unwrap();
+                Ok(bytes.len())
+            }
+
+            fn flush(&mut self) -> std::io::Result<()> {
+                self.flush_started.send(()).unwrap();
+                self.flush_release.recv().unwrap();
+                if self.fail_flush {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::BrokenPipe,
+                        "synthetic flush failure",
+                    ));
+                }
+                Ok(())
+            }
+        }
+
         #[test]
-        fn host_input_receipt_follows_the_pty_write() {
+        fn host_input_receipt_follows_pty_write_and_flush() {
             let host = test_host_shared();
-            let (pty_writer, mut pty_reader) = UnixStream::pair().unwrap();
-            *host.writer.lock().unwrap() = Box::new(pty_writer);
+            let (write_started_tx, write_started_rx) = sync_channel(0);
+            let (write_release_tx, write_release_rx) = sync_channel(0);
+            let (flush_started_tx, flush_started_rx) = sync_channel(0);
+            let (flush_release_tx, flush_release_rx) = sync_channel(0);
+            *host.writer.lock().unwrap() = Box::new(GatedInputWriter {
+                write_started: write_started_tx,
+                write_release: write_release_rx,
+                flush_started: flush_started_tx,
+                flush_release: flush_release_rx,
+                fail_flush: false,
+            });
             let (target_socket, _target_peer) = UnixStream::pair().unwrap();
             let (target_tx, target_rx) = mpsc_channel();
             let target = HostTap::new(target_tx, Arc::new(target_socket), usize::MAX);
+            let worker_host = host.clone();
+            let worker_target = target.clone();
+            let worker = thread::spawn(move || {
+                assert!(worker_host.write_input(b"x", 42, &worker_target));
+            });
 
-            assert!(host.write_input(b"x", 42, &target));
-            let mut byte = [0u8; 1];
-            pty_reader.read_exact(&mut byte).unwrap();
-            assert_eq!(&byte, b"x");
+            write_started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            assert!(target_rx.recv_timeout(Duration::from_millis(20)).is_err());
+            write_release_tx.send(()).unwrap();
+            flush_started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            assert!(target_rx.recv_timeout(Duration::from_millis(20)).is_err());
+            flush_release_tx.send(()).unwrap();
+
             let ack = target_rx.recv_timeout(Duration::from_secs(1)).unwrap();
             assert_eq!(ack.kind, MessageKind::InputAck);
             assert_eq!(ack.request_id, 42);
             assert!(ack.payload.is_empty());
+            worker.join().unwrap();
+        }
+
+        #[test]
+        fn host_input_receipt_requires_successful_flush() {
+            let host = test_host_shared();
+            let (write_started_tx, write_started_rx) = sync_channel(0);
+            let (write_release_tx, write_release_rx) = sync_channel(0);
+            let (flush_started_tx, flush_started_rx) = sync_channel(0);
+            let (flush_release_tx, flush_release_rx) = sync_channel(0);
+            *host.writer.lock().unwrap() = Box::new(GatedInputWriter {
+                write_started: write_started_tx,
+                write_release: write_release_rx,
+                flush_started: flush_started_tx,
+                flush_release: flush_release_rx,
+                fail_flush: true,
+            });
+            let (target_socket, _target_peer) = UnixStream::pair().unwrap();
+            let (target_tx, target_rx) = mpsc_channel();
+            let target = HostTap::new(target_tx, Arc::new(target_socket), usize::MAX);
+            let worker_host = host.clone();
+            let worker_target = target.clone();
+            let worker = thread::spawn(move || worker_host.write_input(b"x", 42, &worker_target));
+
+            write_started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            assert!(target_rx.recv_timeout(Duration::from_millis(20)).is_err());
+            write_release_tx.send(()).unwrap();
+            flush_started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            assert!(target_rx.recv_timeout(Duration::from_millis(20)).is_err());
+            flush_release_tx.send(()).unwrap();
+
+            assert!(!worker.join().unwrap());
+            assert!(target_rx.recv_timeout(Duration::from_millis(20)).is_err());
         }
 
         #[test]
@@ -9832,6 +9867,9 @@ mod unix {
             assert_eq!(frames[output + 2].sequence, frames[output].sequence + 2);
         }
     }
+
+    #[cfg(test)]
+    pub(crate) use tests::input_ack_surface_fixture;
 }
 
 #[cfg(unix)]
@@ -9851,7 +9889,8 @@ pub use unix::{
 };
 #[cfg(all(unix, test))]
 pub(crate) use unix::{
-    acquire_terminal_host_publication_lock, prepare_terminal_host_publication_lock,
+    acquire_terminal_host_publication_lock, input_ack_surface_fixture,
+    prepare_terminal_host_publication_lock,
 };
 
 #[cfg(not(unix))]

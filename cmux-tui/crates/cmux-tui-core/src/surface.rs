@@ -8278,25 +8278,74 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn input_ack_wire_frame_is_classified_before_live_staging() {
-        let (mut sender, mut receiver) = std::os::unix::net::UnixStream::pair().unwrap();
-        let mut ack = Frame::new(MessageKind::InputAck, Vec::new());
-        ack.request_id = 42;
-        crate::terminal_host_protocol::write_frame(&mut sender, &ack).unwrap();
+    fn hosted_receipted_input_requests_pipeline_through_surface_reader() {
+        let mux = Mux::new_for_test("hosted-input-ack-pipeline", SurfaceOptions::default());
+        let workspace = mux.create_empty_workspace(None, None, None).unwrap();
+        let (mut attachment, mut host) = crate::terminal_host_runtime::input_ack_surface_fixture();
+        let terminal_id = attachment.record.terminal_id.clone();
+        attachment.record.workspace_key = workspace.key.clone();
+        mux.seed_launching_terminal_for_test(&terminal_id, &workspace.key).unwrap();
 
-        let decoded = crate::terminal_host_protocol::read_frame(
-            &mut receiver,
-            crate::terminal_host_protocol::MAX_FRAME_PAYLOAD,
+        let surface = Surface::spawn_hosted(
+            1,
+            SurfaceOptions::default(),
+            Arc::downgrade(&mux),
+            HostedSurfaceLaunch {
+                attachment,
+                kitty_reservation: None,
+                terminate_on_error: false,
+                defer_launch_activation: false,
+                lifetime: PtyLifetime::SessionOwned,
+                terminal_public_id: None,
+                resource_identity: None,
+            },
         )
-        .unwrap()
         .unwrap();
-        assert_eq!(decoded.kind, MessageKind::InputAck);
-        assert_eq!(decoded.request_id, 42);
-        assert!(is_targeted_host_response(decoded.kind));
-        assert!(
-            HostedFrameStager::new(0, true).push(decoded).is_err(),
-            "a targeted InputAck would corrupt the live stream if dispatch missed it"
-        );
+
+        host.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+        host.set_write_timeout(Some(Duration::from_secs(1))).unwrap();
+        let read_input = |host: &mut std::os::unix::net::UnixStream| {
+            let frame = crate::terminal_host_protocol::read_frame(
+                host,
+                crate::terminal_host_protocol::MAX_FRAME_PAYLOAD,
+            )
+            .expect("observe submitted input while the earlier ACK is withheld")
+            .expect("hosted connection remains open while awaiting input ACKs");
+            assert_eq!(frame.kind, MessageKind::Input);
+            frame
+        };
+
+        std::thread::scope(|scope| {
+            let first = scope.spawn(|| surface.write_bytes_confirmed(b"pipeline-a"));
+            let first_request = read_input(&mut host);
+            assert_eq!(first_request.payload, b"pipeline-a");
+            assert_ne!(first_request.request_id, 0);
+
+            let second = scope.spawn(|| surface.write_bytes_confirmed(b"pipeline-b"));
+            let second_request = read_input(&mut host);
+            assert_eq!(second_request.payload, b"pipeline-b");
+            assert_ne!(second_request.request_id, 0);
+            assert_ne!(first_request.request_id, second_request.request_id);
+
+            let interactive = scope.spawn(|| surface.write_bytes(b"pipeline-interactive"));
+            let interactive_request = read_input(&mut host);
+            assert_eq!(interactive_request.payload, b"pipeline-interactive");
+            assert_eq!(interactive_request.request_id, 0);
+            interactive.join().unwrap().unwrap();
+            assert!(!first.is_finished());
+            assert!(!second.is_finished());
+
+            let mut second_ack = Frame::new(MessageKind::InputAck, Vec::new());
+            second_ack.request_id = second_request.request_id;
+            crate::terminal_host_protocol::write_frame(&mut host, &second_ack).unwrap();
+            second.join().unwrap().unwrap();
+            assert!(!first.is_finished(), "B's ACK must leave A pending");
+
+            let mut first_ack = Frame::new(MessageKind::InputAck, Vec::new());
+            first_ack.request_id = first_request.request_id;
+            crate::terminal_host_protocol::write_frame(&mut host, &first_ack).unwrap();
+            first.join().unwrap().unwrap();
+        });
     }
 
     #[cfg(unix)]
