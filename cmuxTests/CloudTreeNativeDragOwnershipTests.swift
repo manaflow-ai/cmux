@@ -41,6 +41,38 @@ struct CloudTreeNativeDragOwnershipTests {
         }
     }
 
+    @Test("Pending indicators use the first column instead of an empty disclosure slot")
+    func pendingIndicatorStartsAtLeadingMargin() throws {
+        let coordinator = CloudTreeOutlineView.Coordinator(
+            machineActions: Self.machineActions,
+            nodeActions: Self.nodeActions,
+            expansionStore: CloudTreeExpansionStore(
+                defaults: UserDefaults(suiteName: "cloud-tree-pending-\(UUID().uuidString)")!
+            ),
+            tabDragTransferRegistry: { nil }
+        )
+        let container = CloudTreeContainerView(coordinator: coordinator)
+        container.frame = NSRect(x: 0, y: 0, width: 345, height: 160)
+        let outline = try #require(coordinator.outlineView)
+        let operation = MachineCreateOperation(
+            id: UUID(),
+            request: MachineCreateRequest(mode: .newMachine, kind: .desktop, name: nil, arguments: []),
+            startedAt: Date()
+        )
+        let node = CloudTreeNode(id: "pending-layout", kind: .pendingMachine(operation))
+        coordinator.apply(nodes: [node])
+        container.layoutSubtreeIfNeeded()
+        let cell = try #require(coordinator.outlineView(outline, viewFor: outline.outlineTableColumn, item: node) as? CloudTreeCellView)
+        cell.frame = outline.frameOfCell(atColumn: 0, row: 0)
+        cell.layoutSubtreeIfNeeded()
+        let host = try #require(cell.subviews.first { $0 is CloudTreePassthroughHostingView })
+        #expect(abs(cell.frame.minX + host.frame.minX - CloudTreeNSOutlineView.leadingMargin) < 0.5)
+
+        cell.configure(node: Self.terminalNode(), machineActions: Self.machineActions, nodeActions: Self.nodeActions)
+        cell.layoutSubtreeIfNeeded()
+        #expect(host.frame.minX > 0)
+    }
+
     private final class HoverWindow: NSWindow {
         var simulatedKeyWindow = false
         var pointerOnScreen = NSPoint.zero
