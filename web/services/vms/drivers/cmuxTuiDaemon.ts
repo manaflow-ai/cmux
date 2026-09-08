@@ -75,9 +75,9 @@ export function cmuxTuiLayoutSelector(): string {
   const user = CMUX_CLOUD_USER;
   const home = CMUX_CLOUD_HOME;
   return (
-    `if id -u ${user} >/dev/null 2>&1 && command -v runuser >/dev/null 2>&1 && ` +
-    `runuser -u ${user} -- test -w ${home} 2>/dev/null && ` +
-    `runuser -u ${user} -- sudo -n true >/dev/null 2>&1; then ` +
+    `if id -u ${user} >/dev/null 2>&1 && command -v setpriv >/dev/null 2>&1 && ` +
+    `setpriv --reuid=${user} --regid=${user} --init-groups test -w ${home} 2>/dev/null && ` +
+    `setpriv --reuid=${user} --regid=${user} --init-groups sudo -n true >/dev/null 2>&1; then ` +
     `CMUX_TUI_USER=${user}; CMUX_TUI_HOME=${home}; CMUX_TUI_LAYOUT=user; ` +
     `else CMUX_TUI_USER=root; CMUX_TUI_HOME=${CMUX_TUI_LEGACY_HOME}; CMUX_TUI_LAYOUT=root; fi; ` +
     `CMUX_TUI_BIN="$CMUX_TUI_HOME/.cmux/bin/cmux-tui"`
@@ -91,9 +91,26 @@ export function cmuxTuiLayoutSelector(): string {
  * an empty state dir and report a healthy machine as broken.
  */
 export function cmuxTuiRunCommand(args: string): string {
+  return `${cmuxTuiLayoutSelector()} && ${cmuxTuiAsDaemonUser(`"$CMUX_TUI_BIN" ${args}`)}`;
+}
+
+/**
+ * Runs `command` as the daemon's user, via setpriv rather than runuser or su.
+ * setpriv EXECs in place, so the daemon is the direct child of its supervisor:
+ * signals reach it (runuser does not forward SIGTERM, so stopping the unit
+ * SIGKILLed the daemon and left a shutdown record its next start rejected with
+ * "shutdown outcome belongs to a different daemon lifecycle"), `pgrep -f`
+ * matches one process instead of a wrapper with a lower pid, and no PAM
+ * session is opened and closed for every probe.
+ */
+export function cmuxTuiAsDaemonUser(command: string, options?: { readonly exec?: boolean }): string {
+  // `exec` has to prefix the whole chain, not sit inside it: as an argument to
+  // env it would name a program called "exec".
+  const run = options?.exec === true ? "exec " : "";
   return (
-    `${cmuxTuiLayoutSelector()} && ` +
-    `runuser -u "$CMUX_TUI_USER" -- env HOME="$CMUX_TUI_HOME" TERM=xterm-256color "$CMUX_TUI_BIN" ${args}`
+    `if [ "$CMUX_TUI_USER" = root ]; then ${run}env HOME="$CMUX_TUI_HOME" TERM=xterm-256color ${command}; ` +
+    `else ${run}setpriv --reuid="$CMUX_TUI_USER" --regid="$CMUX_TUI_USER" --init-groups ` +
+    `env HOME="$CMUX_TUI_HOME" USER="$CMUX_TUI_USER" LOGNAME="$CMUX_TUI_USER" SHELL=/bin/bash TERM=xterm-256color ${command}; fi`
   );
 }
 
@@ -240,8 +257,7 @@ export function cmuxTuiDaemonCommand(
     `${cmuxTuiLayoutSelector()}; ` +
     `{ mkdir -p /etc/cmux 2>/dev/null; printf '%s\\n' "$CMUX_TUI_LAYOUT" > ${CMUX_TUI_LAYOUT_MARKER_PATH}; } 2>/dev/null; ` +
     `cd "$CMUX_TUI_HOME" && ` +
-    `exec runuser -u "$CMUX_TUI_USER" -- env HOME="$CMUX_TUI_HOME" USER="$CMUX_TUI_USER" LOGNAME="$CMUX_TUI_USER" ` +
-    `SHELL=/bin/bash TERM=xterm-256color "$CMUX_TUI_BIN" ${args}`
+    cmuxTuiAsDaemonUser(`"$CMUX_TUI_BIN" ${args}`, { exec: true })
   );
 }
 
@@ -322,9 +338,22 @@ const BUNDLE_MARKERS = { probe: "__CMUX_PROBE__", devices: "__CMUX_DEVICES__", t
  * honest while the pinned manifest and the machine's install disagree.
  * Anything else prints `0`.
  */
+export function cmuxTuiDaemonPidSelector(): string {
+  // NOT `pgrep ... | head -n1`: when the daemon runs as the work user its
+  // launcher is `runuser -u cmux -- … cmux-tui server start …`, whose cmdline
+  // matches the same pattern and whose pid is LOWER. Picking that wrapper made
+  // the trusted-listener probe exec `runuser --remote-ws-trusted-carrier
+  // --version`, which fails, so attach refused a perfectly healthy machine.
+  // Select the process that IS the binary; comm is `cmux-tui` on both layouts.
+  return (
+    "p=''; for cmux_tui_pid in $(pgrep -f 'cmux-tui server [s]tart' 2>/dev/null); do " +
+    `if [ "$(cat /proc/$cmux_tui_pid/comm 2>/dev/null)" = cmux-tui ]; then p=$cmux_tui_pid; break; fi; done`
+  );
+}
+
 export function cmuxTuiTrustedListenerProbe(): string {
   return (
-    "p=$(pgrep -f 'cmux-tui server [s]tart' | head -n1); " +
+    `${cmuxTuiDaemonPidSelector()}; ` +
     `if [ -n "$p" ] && { tr '\\0' '\\n' < "/proc/$p/environ" 2>/dev/null | grep -qx ${shellQuote(`${CMUX_TUI_TRUSTED_CARRIER_ENV}=1`)} || tr '\\0' '\\n' < "/proc/$p/cmdline" 2>/dev/null | grep -qx -- ${shellQuote(CMUX_TUI_TRUSTED_CARRIER_FLAG)}; }` +
     ` && "/proc/$p/exe" ${CMUX_TUI_TRUSTED_CARRIER_FLAG} --version >/dev/null 2>&1; then echo 1; else echo 0; fi`
   );
@@ -340,7 +369,9 @@ export function cmuxTuiAttachBundleCommand(options: {
   // work-user machine would find an empty state dir and report a healthy
   // machine as un-enrolled.
   const bin = options.binary ? shellQuote(options.binary) : '"$CMUX_TUI_BIN"';
-  const run = `runuser -u "$CMUX_TUI_USER" -- env HOME="$CMUX_TUI_HOME" ${bin}`;
+  // The arguments go INSIDE the drop-to-user block: it is an `if … fi`
+  // compound statement, so anything appended after it is a separate command.
+  const run = (args: string) => cmuxTuiAsDaemonUser(`${bin} ${args}`);
   const fingerprint = options.deviceFingerprint?.trim();
   if (fingerprint !== undefined && fingerprint !== "" && !/^[A-Za-z0-9._:=+/-]+$/.test(fingerprint)) {
     throw new Error("device fingerprint has an unexpected shape");
@@ -352,9 +383,9 @@ export function cmuxTuiAttachBundleCommand(options: {
     ...(options.readyGate ? [`( ${options.readyGate}; ) || exit ${CMUX_TUI_ATTACH_BUNDLE_NOT_READY_EXIT}`] : []),
     cmuxTuiLayoutSelector(),
     `echo ${BUNDLE_MARKERS.probe}`,
-    `${run} remote-probe --json; echo`,
+    `${run("remote-probe --json")}; echo`,
     `echo ${BUNDLE_MARKERS.devices}`,
-    `${run} remote enroll devices --session ${CMUX_TUI_SESSION} --json; echo`,
+    `${run(`remote enroll devices --session ${CMUX_TUI_SESSION} --json`)}; echo`,
     `echo ${BUNDLE_MARKERS.trusted}`,
     cmuxTuiTrustedListenerProbe(),
     `echo ${BUNDLE_MARKERS.end}`,

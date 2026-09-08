@@ -105,9 +105,14 @@ describe("cmux-tui install and daemon commands", () => {
     // Terminals must be non-root shells: agents refuse root
     // (`claude --dangerously-skip-permissions`), sudo is the escalation path.
     expect(command).toContain(cmuxTuiLayoutSelector());
+    // setpriv, not runuser or su: it EXECs in place, so the daemon is the
+    // direct child of its supervisor. With a wrapper in between, SIGTERM never
+    // reached the daemon (it was SIGKILLed, and its next start rejected the
+    // half-written shutdown record), and `pgrep -f` matched the wrapper first.
     expect(command).toContain(
-      'exec runuser -u "$CMUX_TUI_USER" -- env HOME="$CMUX_TUI_HOME" USER="$CMUX_TUI_USER" LOGNAME="$CMUX_TUI_USER" SHELL=/bin/bash TERM=xterm-256color "$CMUX_TUI_BIN"',
+      'exec setpriv --reuid="$CMUX_TUI_USER" --regid="$CMUX_TUI_USER" --init-groups env HOME="$CMUX_TUI_HOME" USER="$CMUX_TUI_USER" LOGNAME="$CMUX_TUI_USER" SHELL=/bin/bash TERM=xterm-256color "$CMUX_TUI_BIN"',
     );
+    expect(command).not.toContain("runuser");
     expect(command).toContain('cd "$CMUX_TUI_HOME"');
     expect(command).toContain(`printf '%s\\n' "$CMUX_TUI_LAYOUT" > ${CMUX_TUI_LAYOUT_MARKER_PATH}`);
     expect(command).toContain("server start --session cloud --remote-ws 0.0.0.0:1337 --remote-ws-insecure-bind --remote-ws-trusted-carrier");
@@ -116,17 +121,20 @@ describe("cmux-tui install and daemon commands", () => {
   test("driver-side cmux-tui calls read the daemon's own state, not root's", () => {
     const command = cmuxTuiRunCommand("server status --session cloud");
     expect(command).toContain(cmuxTuiLayoutSelector());
-    expect(command).toContain('runuser -u "$CMUX_TUI_USER" -- env HOME="$CMUX_TUI_HOME" TERM=xterm-256color "$CMUX_TUI_BIN" server status --session cloud');
+    expect(command).toContain('setpriv --reuid="$CMUX_TUI_USER" --regid="$CMUX_TUI_USER" --init-groups env HOME="$CMUX_TUI_HOME"');
+    expect(command).toContain('"$CMUX_TUI_BIN" server status --session cloud');
   });
 
   test("the work user is used only when it can do the job it promises", () => {
     const selector = cmuxTuiLayoutSelector();
     expect(selector).toContain("id -u cmux");
-    expect(selector).toContain("command -v runuser");
-    expect(selector).toContain("runuser -u cmux -- test -w /home/cmux");
+    expect(selector).toContain("command -v setpriv");
+    expect(selector).toContain("setpriv --reuid=cmux --regid=cmux --init-groups test -w /home/cmux");
     // Passwordless sudo is part of the promise: a session that cannot escalate
     // is worse than a root session, so a broken sudoers picks the root layout.
-    expect(selector).toContain("runuser -u cmux -- sudo -n true");
+    expect(selector).toContain("setpriv --reuid=cmux --regid=cmux --init-groups sudo -n true");
+    // No PAM session per probe: the supervisor evaluates this on every restart.
+    expect(selector).not.toContain("runuser");
     expect(selector).toContain("CMUX_TUI_USER=root; CMUX_TUI_HOME=/root; CMUX_TUI_LAYOUT=root");
   });
 
@@ -157,7 +165,7 @@ describe("cmux-tui install and daemon commands", () => {
   test("a machine with a usable work user runs its sessions as that user", () => {
     const out = runWithStubs(`${cmuxTuiLayoutSelector()}${report}`, {
       id: "#!/bin/sh\nexit 0\n",
-      runuser: "#!/bin/sh\nexit 0\n",
+      setpriv: "#!/bin/sh\nexit 0\n",
       sudo: "#!/bin/sh\nexit 0\n",
     });
     expect(out).toBe("cmux:/home/cmux:/home/cmux/.cmux/bin/cmux-tui");
@@ -167,7 +175,7 @@ describe("cmux-tui install and daemon commands", () => {
     const out = runWithStubs(`${cmuxTuiLayoutSelector()}${report}`, {
       // No such user: an image baked before the work user existed.
       id: "#!/bin/sh\nexit 1\n",
-      runuser: "#!/bin/sh\nexit 0\n",
+      setpriv: "#!/bin/sh\nexit 0\n",
     });
     expect(out).toBe("root:/root:/root/.cmux/bin/cmux-tui");
   });
@@ -175,8 +183,8 @@ describe("cmux-tui install and daemon commands", () => {
   test("a work user without passwordless sudo falls back to root rather than trapping the session", () => {
     const out = runWithStubs(`${cmuxTuiLayoutSelector()}${report}`, {
       id: "#!/bin/sh\nexit 0\n",
-      // `runuser -u cmux -- test -w /home/cmux` passes, `... -- sudo -n true` does not.
-      runuser: '#!/bin/sh\ncase "$*" in *sudo*) exit 1;; esac\nexit 0\n',
+      // the writability probe passes, the `sudo -n true` probe does not.
+      setpriv: '#!/bin/sh\ncase "$*" in *sudo*) exit 1;; esac\nexit 0\n',
       sudo: "#!/bin/sh\nexit 0\n",
     });
     expect(out).toBe("root:/root:/root/.cmux/bin/cmux-tui");
@@ -192,14 +200,14 @@ describe("cmux-tui attach bundle", () => {
     const binary = join(root, "cmux-tui");
     const callsPath = join(root, "calls");
     // The bundle reads the daemon's state, so it runs every call as the
-    // daemon's user. This host has no runuser (and no such user); the stub
+    // daemon's user. This host has no setpriv (and no such user); the stub
     // makes the drop-to-user a pass-through so the rest of the bundle is
     // exercised as written.
     const fakeBin = join(root, "bin");
     mkdirSync(fakeBin, { recursive: true });
-    const runuser = join(fakeBin, "runuser");
-    writeFileSync(runuser, ["#!/bin/sh", "shift 2", '[ "$1" = "--" ] && shift', 'exec "$@"', ""].join("\n"));
-    chmodSync(runuser, 0o755);
+    const setpriv = join(fakeBin, "setpriv");
+    writeFileSync(setpriv, ["#!/bin/sh", "while [ $# -gt 0 ]; do case \"$1\" in --*) shift;; *) break;; esac; done", 'exec "$@"', ""].join("\n"));
+    chmodSync(setpriv, 0o755);
     writeFileSync(binary, [
       "#!/bin/sh",
       "printf '%s\\n' \"$*\" >> \"$CMUX_TEST_CALLS\"",
