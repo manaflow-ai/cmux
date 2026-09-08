@@ -77,9 +77,6 @@ extension RemoteResumeBindingTests {
         defer { restoredWorkspace.teardownAllPanels() }
         let restoredIDs = restoredWorkspace.restoreSessionSnapshot(bindingOnlySnapshot)
         let restoredSurfaceID = try #require(restoredIDs[fixture.surfaceID])
-        #expect(restoredWorkspace.restoredAgentResumeStatesByPanelId[restoredSurfaceID] == .awaitingAutoResumeCommand)
-
-        restoredWorkspace.updatePanelShellActivityState(panelId: restoredSurfaceID, state: .commandRunning)
         #expect(restoredWorkspace.restoredAgentResumeStatesByPanelId[restoredSurfaceID] == .autoResumeCommandRunning)
         let runningBinding = try #require(restoredWorkspace.sessionSnapshot(includeScrollback: false)
             .panels.first { $0.id == restoredSurfaceID }?.terminal?.resumeBinding)
