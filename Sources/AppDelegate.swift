@@ -6234,8 +6234,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
               computerUseRuntimeService != nil else {
             return false
         }
-        computerUseUXCoordinator.presentOnboarding(startingAt: startingPoint)
-        return true
+        return computerUseUXCoordinator.presentOnboardingFromSettings(
+            startingAt: startingPoint
+        )
     }
 
     private func clearCommandPalettePendingOpen(for window: NSWindow?) {
