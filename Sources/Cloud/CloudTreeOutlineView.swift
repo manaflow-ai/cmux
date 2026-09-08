@@ -1010,9 +1010,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
 
 /// Scroll view + outline host for the Cloud tree.
 final class CloudTreeContainerView: NSView {
-    // The row adds a 1pt selection inset, making the visible outer margin 6pt.
+    // The row adds a 1pt selection inset, making the visible outer margin 3pt.
     // Keep this outside the scroll view so document layout cannot consume it.
-    private static let outerPadding: CGFloat = 5
+    private static let outerPadding: CGFloat = 2
     private let scrollView = NSScrollView()
     private let outlineView = CloudTreeNSOutlineView()
     private let coordinator: CloudTreeOutlineView.Coordinator
