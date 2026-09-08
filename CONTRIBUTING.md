@@ -5,9 +5,19 @@
 - macOS 14+
 - Xcode 26 (the pinned toolchain); Xcode 16.2 on Intel Macs running macOS 14 also builds the macOS app (best effort)
 - [Zig](https://ziglang.org/) (install via `brew install zig`)
-- [Rust](https://rustup.rs) (install via `brew install rustup && rustup-init`) — `scripts/setup.sh`
-  requires `rustup`, and the app build compiles the bundled `cmux-cua` engine with `cargo`
-- On Xcode 26, the Metal toolchain is a separate download and the build fails without it:
+- [Rust](https://rustup.rs) — `scripts/setup.sh` requires `rustup`, and every app build compiles
+  the bundled `cmux-cua` engine with `cargo`. The official installer puts both in `~/.cargo/bin`,
+  which is where `setup.sh` looks:
+
+  ```bash
+  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+  ```
+
+  Homebrew's `rustup` formula works too, but it is keg-only and no longer ships `rustup-init`, so
+  add `$(brew --prefix rustup)/bin` to `PATH` and run `rustup default stable` yourself.
+- On Xcode 26 the Metal compiler is a separately downloaded component, and the build fails
+  without it:
+
   ```bash
   xcodebuild -downloadComponent MetalToolchain
   ```

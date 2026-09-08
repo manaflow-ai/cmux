@@ -47,7 +47,9 @@ rustup run "$DIFF_RUST_TOOLCHAIN" rustc --version
 echo "==> Checking for cargo (bundled cmux-cua)..."
 if ! command -v cargo &> /dev/null || ! cargo --version &> /dev/null; then
     echo "Error: a working Rust toolchain (cargo) is required to build the bundled cmux-cua."
-    echo "Install via rustup: https://rustup.rs (or \`brew install rustup && rustup-init\`)"
+    echo "Install via rustup: https://rustup.rs"
+    echo "(Homebrew's rustup is keg-only and ships no rustup-init: add"
+    echo " \"\$(brew --prefix rustup)/bin\" to PATH, then run \`rustup default stable\`.)"
     exit 1
 fi
 
@@ -56,10 +58,16 @@ fi
 # build ("cannot execute tool 'metal' due to missing Metal Toolchain"), after
 # the Swift modules have already compiled. Fail here instead, where the fix is
 # one command. Older Xcode bundles metal, so this check simply passes there.
+# The Command Line Tools do not ship metal at all, so the message names both
+# causes rather than assuming the component is merely missing.
 echo "==> Checking for the Metal toolchain..."
 if ! xcrun metal --version &> /dev/null; then
-    echo "Error: the Metal toolchain is not installed."
-    echo "Install via: xcodebuild -downloadComponent MetalToolchain"
+    echo "Error: the Metal compiler is not available."
+    echo "Active developer directory: $(xcode-select -p 2>/dev/null || echo 'unset')"
+    echo "If that is a full Xcode, install the toolchain component:"
+    echo "    xcodebuild -downloadComponent MetalToolchain"
+    echo "If it is the Command Line Tools, select Xcode first:"
+    echo "    sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer"
     exit 1
 fi
 
