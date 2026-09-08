@@ -1832,7 +1832,7 @@ class TerminalController {
             ])
         case "debug.window.screenshot":
             let label = (request.params["label"] as? String) ?? ""
-            let response = captureScreenshot(label)
+            let response = captureScreenshot(label, windowIdentifier: request.params["window_identifier"] as? String)
             guard response.hasPrefix("OK ") else {
                 return v2Error(
                     id: request.id,
