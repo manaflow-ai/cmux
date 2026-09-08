@@ -5,6 +5,12 @@
 - macOS 14+
 - Xcode 26 (the pinned toolchain); Xcode 16.2 on Intel Macs running macOS 14 also builds the macOS app (best effort)
 - [Zig](https://ziglang.org/) (install via `brew install zig`)
+- [Rust](https://rustup.rs) (install via `brew install rustup && rustup-init`) — `scripts/setup.sh`
+  requires `rustup`, and the app build compiles the bundled `cmux-cua` engine with `cargo`
+- On Xcode 26, the Metal toolchain is a separate download and the build fails without it:
+  ```bash
+  xcodebuild -downloadComponent MetalToolchain
+  ```
 
 ## Getting Started
 
@@ -21,7 +27,9 @@
 
    This will:
    - Initialize git submodules (ghostty, homebrew-cmux)
-   - Build the GhosttyKit.xcframework from source
+   - Install the pinned Rust toolchain
+   - Fetch a checksum-pinned prebuilt GhosttyKit.xcframework, falling back to building it
+     from source with Zig (force the source build with `CMUX_GHOSTTYKIT_NO_PREBUILT=1`)
    - Create the necessary symlinks
 
 3. Build the debug app:

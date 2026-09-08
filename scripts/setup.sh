@@ -51,6 +51,18 @@ if ! command -v cargo &> /dev/null || ! cargo --version &> /dev/null; then
     exit 1
 fi
 
+# Xcode 26 ships the Metal compiler as a separately downloaded component rather
+# than inside Xcode.app. Without it the app target fails partway through the
+# build ("cannot execute tool 'metal' due to missing Metal Toolchain"), after
+# the Swift modules have already compiled. Fail here instead, where the fix is
+# one command. Older Xcode bundles metal, so this check simply passes there.
+echo "==> Checking for the Metal toolchain..."
+if ! xcrun metal --version &> /dev/null; then
+    echo "Error: the Metal toolchain is not installed."
+    echo "Install via: xcodebuild -downloadComponent MetalToolchain"
+    exit 1
+fi
+
 # The Cloud tunnel system extension embeds wireguard-go, built by
 # scripts/build-wireguard-go.sh. Release builds require Go; a Debug build
 # without it gets a stub engine (the extension cannot load in a Debug build
