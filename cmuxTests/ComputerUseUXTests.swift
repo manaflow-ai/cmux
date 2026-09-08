@@ -1039,50 +1039,30 @@ struct ComputerUseUXTests {
         #expect(companionWindow?.contentLayoutRect.size == companionSize)
     }
 
-    @Test @MainActor func permissionCompanionLeavesMainWindowChromeUntouched() {
+    @Test @MainActor func permissionCompanionKeepsMainWindowVisibleAndUntouched() {
         let controller = ComputerUseOnboardingWindowController(
             runtimeService: ComputerUseRuntimeService()
         )
         let window = controller.makeWindow()
         defer { window.close() }
+        window.orderBack(nil)
         let expandedStyle = window.styleMask
         let expandedFrame = window.frame
 
-        controller.prepareForPermissionCompanion(window)
+        controller.configureForPermissionCompanion(
+            window,
+            frame: NSRect(
+                origin: window.frame.origin,
+                size: ComputerUsePermissionCompanionLayout.size
+            )
+        )
 
+        #expect(window.isVisible)
         #expect(window.styleMask == expandedStyle)
         #expect(window.frame == expandedFrame)
         for buttonType in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
             #expect(window.standardWindowButton(buttonType)?.isHidden == false)
         }
-    }
-
-    @Test @MainActor func preparingPermissionCompanionHidesMainWindowWithoutMutatingItsChrome() {
-        let controller = ComputerUseOnboardingWindowController(
-            runtimeService: ComputerUseRuntimeService()
-        )
-        let window = controller.makeWindow()
-        defer { window.close() }
-        window.center()
-        window.orderBack(nil)
-        let expandedFrame = window.frame
-        let expandedStyle = window.styleMask
-        let standardButtonVisibility = [
-            NSWindow.ButtonType.closeButton,
-            .miniaturizeButton,
-            .zoomButton,
-        ].map { window.standardWindowButton($0)?.isHidden }
-
-        controller.prepareForPermissionCompanion(window)
-
-        #expect(!window.isVisible)
-        #expect(window.frame == expandedFrame)
-        #expect(window.styleMask == expandedStyle)
-        #expect([
-            NSWindow.ButtonType.closeButton,
-            .miniaturizeButton,
-            .zoomButton,
-        ].map { window.standardWindowButton($0)?.isHidden } == standardButtonVisibility)
     }
 
     @Test @MainActor func permissionCompanionUsesASeparateBorderlessWindow() {
@@ -1113,7 +1093,7 @@ struct ComputerUseUXTests {
         let companionWindow = NSApp.windows.first {
             $0.identifier?.rawValue == "cmux.computerUse.onboarding.permissionCompanion"
         }
-        #expect(!mainWindow.isVisible)
+        #expect(mainWindow.isVisible)
         #expect(mainWindow.frame == mainFrame)
         #expect(companionWindow !== mainWindow)
         #expect(companionWindow?.styleMask == [.borderless, .nonactivatingPanel])
@@ -1206,11 +1186,14 @@ struct ComputerUseUXTests {
         #expect(companionPanel?.styleMask.contains(.nonactivatingPanel) == true)
         #expect(companionPanel?.becomesKeyOnlyIfNeeded == true)
         #expect(companionPanel?.hidesOnDeactivate == false)
+        #expect(companionPanel?.level == .normal)
+        #expect(companionPanel?.collectionBehavior.contains(.moveToActiveSpace) == true)
+        #expect(companionPanel?.collectionBehavior.contains(.canJoinAllSpaces) == false)
     }
 
-    /// Regression: Command-Tab must remove the floating permission companion
-    /// when System Settings is no longer the active application.
-    @Test @MainActor func permissionCompanionHidesWhenAnotherApplicationActivates() async throws {
+    /// Regression: Command-Tab must not remove the companion. Its relative
+    /// WindowServer order keeps it with System Settings behind the active app.
+    @Test @MainActor func permissionCompanionRemainsWhenAnotherApplicationActivates() async throws {
         let controller = ComputerUseOnboardingWindowController(
             runtimeService: ComputerUseRuntimeService()
         )
@@ -1223,6 +1206,8 @@ struct ComputerUseUXTests {
         let mainWindow = try #require(NSApp.windows.first {
             $0.identifier?.rawValue == "cmux.computerUse.onboarding"
         } as? ComputerUseOnboardingWindow)
+        #expect(mainWindow.level == .normal)
+        #expect(mainWindow.collectionBehavior.contains(.managed))
         controller.configureForPermissionCompanion(
             mainWindow,
             frame: NSRect(
@@ -1245,11 +1230,11 @@ struct ComputerUseUXTests {
             object: NSWorkspace.shared,
             userInfo: [NSWorkspace.applicationUserInfoKey: otherApplication]
         )
-        for _ in 0..<20 where companionWindow.isVisible {
+        for _ in 0..<20 {
             await Task.yield()
         }
 
-        #expect(!companionWindow.isVisible)
+        #expect(companionWindow.isVisible)
     }
 
     @Test @MainActor func externalApplicationWindowTrackerPublishesOnlyForItsActiveTarget() async {
