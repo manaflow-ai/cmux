@@ -2285,6 +2285,9 @@ mod unix {
             if record.record_version == 2 && record.supports_terminate_ack {
                 anyhow::bail!("version 2 terminal-host record advertises terminate receipts");
             }
+            if record.record_version < 4 && record.supports_input_ack {
+                anyhow::bail!("pre-v4 terminal-host record advertises input receipts");
+            }
             let nonce = decode_lower_hex_array::<HOST_START_NONCE_LEN>(
                 &record.host_start_nonce,
                 "process-start nonce",
