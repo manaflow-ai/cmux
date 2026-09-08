@@ -209,10 +209,15 @@ struct SSHTmuxCommand: SharedLegacyFacadeCommand {
 }
 
 struct LocalTmuxCommand: SharedLegacyFacadeCommand {
-    // See AuthCommand's comment: no catch-all argument alongside `subcommands`.
-    // `tmux` is a full alias of `local-tmux` in the legacy dispatch switch, not a
-    // separate command; declaring it here keeps both spellings in the derived
-    // `topLevelCommandNames`.
+    // See VMCommand's comment: no catch-all argument alongside `subcommands`, and
+    // `defaultSubcommand` absorbs anything that doesn't name a declared one. The
+    // legacy parser has no default action -- bare `cmux local-tmux` throws its
+    // usage -- but the facade only decides what ArgumentParser *accepts*: `run()`
+    // delegates to `CMUXCLI.run()`, which re-parses argv and produces the legacy
+    // result either way. Without a default, ArgumentParser rejects an unknown verb
+    // with "Unexpected argument" before the legacy parser can report its own
+    // "Unknown local-tmux subcommand" error. `list` matches the read-only default
+    // that `vm`, `auth`, and `remotes` already use.
     static let configuration = CommandConfiguration(
         commandName: "local-tmux",
         subcommands: [
@@ -224,8 +229,23 @@ struct LocalTmuxCommand: SharedLegacyFacadeCommand {
             LocalTmuxCloseCommand.self,
             LocalTmuxCleanupCommand.self,
         ],
-        helpNames: [],
-        aliases: ["tmux"]
+        defaultSubcommand: LocalTmuxListCommand.self,
+        helpNames: []
+    )
+}
+
+/// `tmux` is NOT an alias of `local-tmux`: the legacy dispatch accepts it only for
+/// the `attach` action and throws `cli.localTmux.error.tmuxAliasAttachOnly` for
+/// every other verb (see CLI/cmux.swift). Declaring it as a `local-tmux` alias
+/// would offer completions for `tmux start`, `tmux list`, and the rest, all of
+/// which the legacy parser rejects. A separate command declaring only `attach`
+/// keeps completion honest and still puts `tmux` in the derived command names.
+struct TmuxAliasCommand: SharedLegacyFacadeCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "tmux",
+        subcommands: [LocalTmuxAttachCommand.self],
+        defaultSubcommand: LocalTmuxAttachCommand.self,
+        helpNames: []
     )
 }
 
