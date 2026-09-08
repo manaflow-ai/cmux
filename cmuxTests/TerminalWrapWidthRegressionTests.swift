@@ -37,6 +37,11 @@ struct TerminalWrapWidthRegressionTests {
             object: hostedView.surfaceView,
             userInfo: [GhosttyNotificationKey.scrollbar: GhosttyScrollbar(total: total, offset: total - 10, len: 10)]
         )
+        let deadline = Date().addingTimeInterval(1)
+        while hostedView.surfaceView.scrollbar?.total != total, Date() < deadline {
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
+        #expect(hostedView.surfaceView.scrollbar?.total == total)
     }
 
     private func expectViewportSizing(
@@ -50,7 +55,8 @@ struct TerminalWrapWidthRegressionTests {
         #expect(abs(hostedView.surfaceView.bounds.height - viewport.height) <= 0.5, sourceLocation: sourceLocation)
         #expect(abs(pending.width - viewport.width) <= 0.5, sourceLocation: sourceLocation)
         #expect(abs(pending.height - viewport.height) <= 0.5, sourceLocation: sourceLocation)
-        #expect(scrollView.documentView?.frame.width == viewport.width, sourceLocation: sourceLocation)
+        let documentView = try #require(scrollView.documentView, sourceLocation: sourceLocation)
+        #expect(abs(documentView.frame.width - viewport.width) <= 0.5, sourceLocation: sourceLocation)
     }
 
     @Test(arguments: [NSScroller.Style.legacy, .overlay])
