@@ -546,6 +546,46 @@ command  list-windows  aliases=-
 command  list-workspaces  aliases=-
   arg  --window  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
+command  local-tmux  aliases=-
+command  local-tmux attach  aliases=open
+  arg  --focus  kind=option  completion=-
+  arg  --headless  kind=flag  completion=-
+  arg  --id  kind=option  completion=-
+  arg  --name  kind=option  completion=-
+  arg  --new-client  kind=flag  completion=-
+  arg  --no-focus  kind=flag  completion=-
+  arg  --pane  kind=option  completion=custom-deprecated
+  arg  --surface  kind=option  completion=custom-deprecated
+  arg  --window  kind=option  completion=custom-deprecated
+  arg  --workspace  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
+command  local-tmux cleanup  aliases=prune
+  arg  --prune  kind=flag  completion=-
+  arg  arguments  kind=argument  completion=-
+command  local-tmux close  aliases=delete,kill
+  arg  --id  kind=option  completion=-
+  arg  --name  kind=option  completion=-
+  arg  arguments  kind=argument  completion=-
+command  local-tmux detach  aliases=-
+  arg  --all  kind=flag  completion=-
+  arg  --client  kind=option  completion=-
+  arg  --id  kind=option  completion=-
+  arg  --name  kind=option  completion=-
+  arg  arguments  kind=argument  completion=-
+command  local-tmux list  aliases=ls
+  arg  --json  kind=flag  completion=-
+  arg  arguments  kind=argument  completion=-
+command  local-tmux start  aliases=create
+  arg  --command  kind=option  completion=-
+  arg  --cwd  kind=option  completion=directory
+  arg  --detached  kind=flag  completion=-
+  arg  --name  kind=option  completion=-
+  arg  arguments  kind=argument  completion=-
+command  local-tmux status  aliases=info
+  arg  --id  kind=option  completion=-
+  arg  --json  kind=flag  completion=-
+  arg  --name  kind=option  completion=-
+  arg  arguments  kind=argument  completion=-
 command  log  aliases=-
   arg  --level  kind=option  completion=list(error,info,progress,success,warning)
   arg  --source  kind=option  completion=-
@@ -993,6 +1033,19 @@ command  themes set  aliases=-
   arg  --dark  kind=option  completion=custom-deprecated
   arg  --light  kind=option  completion=custom-deprecated
   arg  themes  kind=argument  completion=custom-deprecated
+command  tmux  aliases=-
+command  tmux attach  aliases=open
+  arg  --focus  kind=option  completion=-
+  arg  --headless  kind=flag  completion=-
+  arg  --id  kind=option  completion=-
+  arg  --name  kind=option  completion=-
+  arg  --new-client  kind=flag  completion=-
+  arg  --no-focus  kind=flag  completion=-
+  arg  --pane  kind=option  completion=custom-deprecated
+  arg  --surface  kind=option  completion=custom-deprecated
+  arg  --window  kind=option  completion=custom-deprecated
+  arg  --workspace  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
 command  todo  aliases=-
   arg  --window  kind=option  completion=custom-deprecated
   arg  --workspace  kind=option  completion=custom-deprecated
