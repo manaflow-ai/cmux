@@ -2277,6 +2277,7 @@ mod unix {
                 || record.supports_set_defaults
                 || record.supports_clear_history
                 || record.supports_terminate_ack
+                || record.supports_input_ack
             {
                 anyhow::bail!("legacy terminal-host record has unexpected liveness fields");
             }
