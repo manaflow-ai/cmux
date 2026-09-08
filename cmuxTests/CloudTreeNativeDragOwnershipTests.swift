@@ -35,8 +35,8 @@ struct CloudTreeNativeDragOwnershipTests {
                 scroll.frame.minY,
                 container.bounds.maxY - scroll.frame.maxY
             ]
-            // A one-point row separator is not sufficient outer padding.
-            #expect(margins.allSatisfy { $0 >= 4 })
+            // Keep a compact outer gutter in addition to the row selection inset.
+            #expect(margins.allSatisfy { $0 > 0 && $0 <= 3 })
             #expect(margins.allSatisfy { abs($0 - margins[0]) < 0.5 })
         }
     }
