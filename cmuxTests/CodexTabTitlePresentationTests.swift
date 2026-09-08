@@ -11,6 +11,37 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct CodexTabTitlePresentationTests {
+    @Test(
+        "binding the initial terminal preserves the workspace title before OSC output",
+        arguments: ["Terminal 2", "project-name", "host.example"]
+    )
+    func initialTabPreservesWorkspaceTitle(initialTitle: String) throws {
+        let workspace = Workspace(title: initialTitle)
+        let panelId = try #require(workspace.focusedPanelId)
+        let tabId = try #require(workspace.surfaceIdFromPanelId(panelId))
+
+        let initialTab = try #require(workspace.bonsplitController.tab(tabId))
+        #expect(initialTab.title == initialTitle)
+        #expect(!initialTab.hasCustomTitle)
+        #expect(!initialTab.isLoading)
+        #expect(workspace.panelTitles[panelId] == initialTitle)
+        #expect(workspace.panelCustomTitles[panelId] == nil)
+
+        workspace.setAgentLifecycle(key: "codex", panelId: panelId, lifecycle: .running)
+        workspace.bindSurface(tabId, toPanelId: panelId)
+        #expect(workspace.bonsplitController.tab(tabId)?.title == "◐ \(initialTitle)")
+        #expect(workspace.bonsplitController.tab(tabId)?.isLoading == true)
+        #expect(workspace.panelTitles[panelId] == initialTitle)
+
+        #expect(workspace.updatePanelTitle(panelId: panelId, title: "thread-name"))
+        #expect(workspace.bonsplitController.tab(tabId)?.title == "◐ thread-name")
+        #expect(workspace.panelTitles[panelId] == "thread-name")
+
+        workspace.clearAgentLifecycle(key: "codex", panelId: panelId)
+        #expect(workspace.bonsplitController.tab(tabId)?.title == "thread-name")
+        #expect(workspace.bonsplitController.tab(tabId)?.isLoading == false)
+    }
+
     @Test("a running Codex turn decorates the tab without changing its stable title")
     func runningTurnShowsAnimatedMarker() throws {
         let workspace = Workspace()
