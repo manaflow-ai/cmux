@@ -774,25 +774,17 @@ fn confirmed_input_error(
     match error {
         crate::surface::ConfirmedInputFailure::Known(error) => {
             let message = match error.kind() {
-                std::io::ErrorKind::InvalidInput => {
-                    "Terminal input is too large. Send less input at once."
-                }
-                std::io::ErrorKind::WouldBlock => {
-                    "Terminal input is temporarily unavailable. Try again shortly."
-                }
-                std::io::ErrorKind::Unsupported => {
-                    "Input delivery confirmation is unavailable for this terminal."
-                }
-                _ => "Terminal input could not be delivered. Check that the terminal is available.",
+                std::io::ErrorKind::InvalidInput => "terminal_input_too_large",
+                std::io::ErrorKind::WouldBlock => "terminal_input_unavailable",
+                std::io::ErrorKind::Unsupported => "terminal_input_confirmation_unsupported",
+                _ => "terminal_input_delivery_failed",
             };
             ActionFailure::Known(ResourceError::operation_failed(operation, message, json!({})))
         }
         crate::surface::ConfirmedInputFailure::Indeterminate(error) => {
             // Raw transport diagnostics must not enter the durable API response.
             drop(error);
-            ActionFailure::Indeterminate(
-                "Terminal input delivery could not be confirmed. Check the terminal before retrying.".into(),
-            )
+            ActionFailure::Indeterminate("terminal_input_delivery_indeterminate".into())
         }
     }
 }
@@ -818,6 +810,8 @@ mod confirmed_input_error_tests {
                 panic!("known failure changed delivery classification");
             };
             assert_eq!(error.code, "operation.failed");
+            assert!(error.message.starts_with("terminal_input_"));
+            assert_eq!(error.details["reason"], error.message);
             assert!(!error.message.contains(private));
             assert!(!error.details.to_string().contains(private));
             assert_eq!(error.details["operation"], "terminal.input.write");
