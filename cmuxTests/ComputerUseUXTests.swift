@@ -24,6 +24,27 @@ struct ComputerUseUXTests {
         count: 32
     )
 
+    private final class WindowSnapshotBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var snapshot: ExternalApplicationWindowTracker.Snapshot
+
+        init(_ snapshot: ExternalApplicationWindowTracker.Snapshot) {
+            self.snapshot = snapshot
+        }
+
+        func load() -> ExternalApplicationWindowTracker.Snapshot {
+            lock.lock()
+            defer { lock.unlock() }
+            return snapshot
+        }
+
+        func store(_ snapshot: ExternalApplicationWindowTracker.Snapshot) {
+            lock.lock()
+            self.snapshot = snapshot
+            lock.unlock()
+        }
+    }
+
     @Test func computerUseCommandPaletteActionsHideWhenFeatureIsDisabled() {
         var context = CommandPaletteContextSnapshot()
         context.setBool(CommandPaletteContextKeys.computerUseUXEnabled, false)
@@ -1237,12 +1258,18 @@ struct ComputerUseUXTests {
             ownerProcessIdentifier: 42,
             frame: NSRect(x: 80, y: 120, width: 900, height: 700)
         )
+        let movedSnapshot = ExternalApplicationWindowTracker.Snapshot(
+            windowID: 17,
+            ownerProcessIdentifier: 42,
+            frame: NSRect(x: 121, y: 168, width: 900, height: 700)
+        )
+        let snapshotBox = WindowSnapshotBox(expectedSnapshot)
         let dependencies = ExternalApplicationWindowTracker.Dependencies(
             frontWindow: { processIdentifier, _ in
                 processIdentifier == 42 ? expectedSnapshot : nil
             },
             window: { _, processIdentifier, _ in
-                processIdentifier == 42 ? expectedSnapshot : nil
+                processIdentifier == 42 ? snapshotBox.load() : nil
             },
             sleep: { duration in
                 try await ContinuousClock().sleep(for: duration)
@@ -1252,9 +1279,17 @@ struct ComputerUseUXTests {
             bundleIdentifier: "com.example.Target",
             primaryScreenMaxY: 1_200,
             dependencies: dependencies,
-            samplingInterval: .seconds(60)
+            automaticUpdatesEnabled: false
         )
-        var iterator = tracker.start().makeAsyncIterator()
+        var events: [ExternalApplicationWindowTracker.Event] = []
+        var refreshCallIsActive = false
+        var movedEventWasSynchronous = false
+        tracker.start { event in
+            events.append(event)
+            if event == .visible(movedSnapshot) {
+                movedEventWasSynchronous = refreshCallIsActive
+            }
+        }
         defer { tracker.stop() }
 
         tracker.handleApplicationActivation(
@@ -1262,21 +1297,35 @@ struct ComputerUseUXTests {
             processIdentifier: 42
         )
         var receivedSnapshot: ExternalApplicationWindowTracker.Snapshot?
-        for _ in 0..<2 {
-            guard let event = await iterator.next() else { break }
-            if case .visible(let snapshot) = event {
+        let acquisitionDeadline = ContinuousClock.now.advanced(by: .seconds(1))
+        while ContinuousClock.now < acquisitionDeadline {
+            if let event = events.last(where: {
+                if case .visible = $0 { return true }
+                return false
+            }), case .visible(let snapshot) = event {
                 receivedSnapshot = snapshot
                 break
             }
+            await Task.yield()
         }
         #expect(receivedSnapshot == expectedSnapshot)
+
+        snapshotBox.store(movedSnapshot)
+        refreshCallIsActive = true
+        tracker.refreshTrackedWindow()
+        refreshCallIsActive = false
+        #expect(events.last == .visible(movedSnapshot))
+        #expect(movedEventWasSynchronous)
+
+        let eventCountBeforeUnchangedRefresh = events.count
+        tracker.refreshTrackedWindow()
+        #expect(events.count == eventCountBeforeUnchangedRefresh)
 
         tracker.handleApplicationActivation(
             bundleIdentifier: "com.example.Other",
             processIdentifier: 91
         )
-        let hiddenEvent = await iterator.next()
-        #expect(hiddenEvent == .hidden)
+        #expect(events.last == .hidden)
     }
 
     /// The helper drag tile itself must also suppress activation: the press
