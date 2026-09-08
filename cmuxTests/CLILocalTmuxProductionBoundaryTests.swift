@@ -117,7 +117,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(result.status, 0, result.stderr)
         let invocation = try String(contentsOf: outputURL, encoding: .utf8)
         XCTAssertTrue(invocation.hasPrefix("|1|-S|"), invocation)
-        XCTAssertTrue(invocation.contains("attach-session -t $7"), invocation)
+        XCTAssertTrue(invocation.contains("'attach-session' '-t' '$7'"), invocation)
     }
 
     func testLocalTmuxClientListingUsesPopulatedTTYTarget() throws {
