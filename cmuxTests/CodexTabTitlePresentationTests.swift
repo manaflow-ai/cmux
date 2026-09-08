@@ -578,6 +578,82 @@ struct CodexTabTitlePresentationTests {
         #expect(persisted.customTitleSource == .auto)
     }
 
+    @Test("transferred auto titles survive an active restore boundary")
+    func transferredDockAutoTitleSurvivesActiveRestoreBoundary() throws {
+        let source = Workspace()
+        let dock = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        defer {
+            dock.closeAllPanels()
+            source.teardownAllPanels()
+        }
+        let panelId = try #require(source.focusedPanelId)
+        let terminal = try #require(source.panels[panelId] as? TerminalPanel)
+        terminal.updateTitle("Shell title")
+        #expect(
+            source.updatePanelTitle(
+                panelId: panelId,
+                title: "Shell title"
+            )
+        )
+        #expect(
+            source.setPanelCustomTitle(
+                panelId: panelId,
+                title: "Generated lane",
+                source: .auto
+            )
+        )
+
+        var transfer = try #require(source.detachSurface(panelId: panelId))
+        transfer.restoredPanelTitleBoundary = RestoredPanelTitleBoundary(
+            internallySeededInput: "resume-session\n",
+            shellState: .commandRunning
+        )
+        let dockPane = try #require(dock.bonsplitController.allPaneIds.first)
+        #expect(
+            dock.attachDetachedSurface(
+                transfer,
+                inPane: dockPane,
+                focus: false
+            ) == panelId
+        )
+        let tabId = try #require(dock.surfaceId(forPanelId: panelId))
+
+        dock.setAgentLifecycle(
+            key: "codex",
+            panelId: panelId,
+            lifecycle: .running
+        )
+        #expect(dock.bonsplitController.tab(tabId)?.title == "◐ Generated lane")
+        #expect(dock.bonsplitController.tab(tabId)?.isLoading == true)
+        #expect(dock.clearAgentLifecycle(key: "codex", panelId: panelId))
+        #expect(dock.bonsplitController.tab(tabId)?.title == "Generated lane")
+        #expect(dock.bonsplitController.tab(tabId)?.isLoading == false)
+
+        #expect(
+            dock.stableDockTerminalTabTitle(panelId: panelId)?.title
+                == "Generated lane"
+        )
+
+        let persisted = try #require(
+            dock.sessionSnapshot(includeScrollback: false)
+                .panels.first { $0.id == panelId }
+        )
+        #expect(persisted.customTitle == "Generated lane")
+        #expect(persisted.customTitleSource == .auto)
+
+        let roundTripped = try #require(
+            dock.detachSurface(panelId: panelId)
+        )
+        #expect(roundTripped.title == "Generated lane")
+        #expect(roundTripped.cachedTitle == "Shell title")
+        #expect(roundTripped.customTitle == "Generated lane")
+        #expect(roundTripped.customTitleSource == .auto)
+        roundTripped.panel.close()
+    }
+
     @Test("an admitted Dock title survives detach while its restore boundary remains active")
     func admittedDockTitleSurvivesActiveRestoreBoundary() throws {
         let source = Workspace()
@@ -670,8 +746,8 @@ struct CodexTabTitlePresentationTests {
         #expect(dock.bonsplitController.tab(tabId)?.isLoading == true)
     }
 
-    @Test("restored remote-titled Dock tabs retain lifecycle presentation")
-    func restoredDockRemoteTitleKeepsProvenance() throws {
+    @Test("restored remote-titled Dock tabs retain title protection")
+    func restoredDockRemoteTitleKeepsProtection() throws {
         let dock = DockSplitStore(
             workspaceId: UUID(),
             baseDirectoryProvider: { nil }
@@ -718,8 +794,16 @@ struct CodexTabTitlePresentationTests {
             panelId: panelId,
             lifecycle: .running
         )
-        #expect(dock.bonsplitController.tab(tabId)?.title == "◐ Remote lane")
+        #expect(dock.bonsplitController.tab(tabId)?.title == "Remote lane")
         #expect(dock.bonsplitController.tab(tabId)?.isLoading == true)
+
+        dock.setAgentLifecycle(
+            key: "codex",
+            panelId: panelId,
+            lifecycle: .idle
+        )
+        #expect(dock.bonsplitController.tab(tabId)?.title == "Remote lane")
+        #expect(dock.bonsplitController.tab(tabId)?.isLoading == false)
 
         let persisted = try #require(
             dock.sessionSnapshot(includeScrollback: false)
