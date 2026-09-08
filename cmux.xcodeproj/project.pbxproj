@@ -1290,6 +1290,7 @@
 		E4C001000000000000000001 /* ExtensionSidebarWorkspaceRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4C001000000000000000002 /* ExtensionSidebarWorkspaceRowView.swift */; };
 		E4C001000000000000000003 /* ExtensionWorktreePrototype.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4C001000000000000000004 /* ExtensionWorktreePrototype.swift */; };
 		E50320010000000000000001 /* ExtensionWorktreeSpawnArgsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E50320010000000000000002 /* ExtensionWorktreeSpawnArgsTests.swift */; };
+		C0A712500000000000000002 /* ExternalApplicationWindowTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A712500000000000000001 /* ExternalApplicationWindowTracker.swift */; };
 		C0DEA7710000000000000007 /* FeatureFlags.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEA7710000000000000008 /* FeatureFlags.swift */; };
 		FEED0A00000000000000F007 /* feed-tui in Resources */ = {isa = PBXBuildFile; fileRef = FEED0A00000000000000F006 /* feed-tui */; };
 		9466A07A0000000000000001 /* FeedAttentionTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9466A07A0000000000000002 /* FeedAttentionTarget.swift */; };
@@ -4563,6 +4564,7 @@
 		E4C001000000000000000002 /* ExtensionSidebarWorkspaceRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionSidebarWorkspaceRowView.swift; sourceTree = "<group>"; };
 		E4C001000000000000000004 /* ExtensionWorktreePrototype.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionWorktreePrototype.swift; sourceTree = "<group>"; };
 		E50320010000000000000002 /* ExtensionWorktreeSpawnArgsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionWorktreeSpawnArgsTests.swift; sourceTree = "<group>"; };
+		C0A712500000000000000001 /* ExternalApplicationWindowTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ExternalApplicationWindowTracker.swift; sourceTree = "<group>"; };
 		C0DEA7710000000000000008 /* FeatureFlags.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureFlags.swift; sourceTree = "<group>"; };
 		FEED0A00000000000000F006 /* feed-tui */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder; path = "feed-tui"; sourceTree = "<group>"; };
 		9466A07A0000000000000002 /* FeedAttentionTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedAttentionTarget.swift; sourceTree = "<group>"; };
@@ -7441,6 +7443,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 					C0A710100000000000000001 /* ComputerUseOnboardingView.swift */,
 					C0A710110000000000000001 /* ComputerUseOnboardingWindowController.swift */,
 					C0A711210000000000000001 /* ComputerUseOnboardingWindowPlacement.swift */,
+					C0A712500000000000000001 /* ExternalApplicationWindowTracker.swift */,
 					C0A710190000000000000001 /* ComputerUseWindowDragRegion.swift */,
 					C0A710C20000000000000001 /* ComputerUseHelperLaunchConfiguration.swift */,
 					C0A713020000000000000001 /* ComputerUseLiveDriverSession.swift */,
@@ -11248,6 +11251,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 					5732A0135732A0135732A013 /* EnvironmentValues+SidebarLazyContractProbe.swift in Sources */,
 				E4C001000000000000000001 /* ExtensionSidebarWorkspaceRowView.swift in Sources */,
 				E4C001000000000000000003 /* ExtensionWorktreePrototype.swift in Sources */,
+					C0A712500000000000000002 /* ExternalApplicationWindowTracker.swift in Sources */,
 				C0DEA7710000000000000007 /* FeatureFlags.swift in Sources */,
 				9466A07A0000000000000001 /* FeedAttentionTarget.swift in Sources */,
 				FEED0000000000000000F00D /* FeedButtonStyleDebugWindowController.swift in Sources */,

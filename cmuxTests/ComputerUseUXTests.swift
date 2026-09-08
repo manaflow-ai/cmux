@@ -1195,6 +1195,9 @@ struct ComputerUseUXTests {
         )
         controller.present()
         defer { controller.dismiss() }
+        for _ in 0..<3 {
+            await Task.yield()
+        }
 
         let mainWindow = try #require(NSApp.windows.first {
             $0.identifier?.rawValue == "cmux.computerUse.onboarding"
@@ -1216,9 +1219,6 @@ struct ComputerUseUXTests {
             NSRunningApplication(processIdentifier: ProcessInfo.processInfo.processIdentifier)
         )
         #expect(otherApplication.bundleIdentifier != "com.apple.systempreferences")
-        for _ in 0..<3 {
-            await Task.yield()
-        }
         NSWorkspace.shared.notificationCenter.post(
             name: NSWorkspace.didActivateApplicationNotification,
             object: NSWorkspace.shared,
@@ -1229,6 +1229,54 @@ struct ComputerUseUXTests {
         }
 
         #expect(!companionWindow.isVisible)
+    }
+
+    @Test @MainActor func externalApplicationWindowTrackerPublishesOnlyForItsActiveTarget() async {
+        let expectedSnapshot = ExternalApplicationWindowTracker.Snapshot(
+            windowID: 17,
+            ownerProcessIdentifier: 42,
+            frame: NSRect(x: 80, y: 120, width: 900, height: 700)
+        )
+        let dependencies = ExternalApplicationWindowTracker.Dependencies(
+            frontWindow: { processIdentifier, _ in
+                processIdentifier == 42 ? expectedSnapshot : nil
+            },
+            window: { _, processIdentifier, _ in
+                processIdentifier == 42 ? expectedSnapshot : nil
+            },
+            sleep: { duration in
+                try await ContinuousClock().sleep(for: duration)
+            }
+        )
+        let tracker = ExternalApplicationWindowTracker(
+            bundleIdentifier: "com.example.Target",
+            primaryScreenMaxY: 1_200,
+            dependencies: dependencies,
+            samplingInterval: .seconds(60)
+        )
+        var iterator = tracker.start().makeAsyncIterator()
+        defer { tracker.stop() }
+
+        tracker.handleApplicationActivation(
+            bundleIdentifier: "com.example.Target",
+            processIdentifier: 42
+        )
+        var receivedSnapshot: ExternalApplicationWindowTracker.Snapshot?
+        for _ in 0..<2 {
+            guard let event = await iterator.next() else { break }
+            if case .visible(let snapshot) = event {
+                receivedSnapshot = snapshot
+                break
+            }
+        }
+        #expect(receivedSnapshot == expectedSnapshot)
+
+        tracker.handleApplicationActivation(
+            bundleIdentifier: "com.example.Other",
+            processIdentifier: 91
+        )
+        let hiddenEvent = await iterator.next()
+        #expect(hiddenEvent == .hidden)
     }
 
     /// The helper drag tile itself must also suppress activation: the press
