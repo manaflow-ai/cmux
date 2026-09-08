@@ -5,7 +5,6 @@
 # scoped, reviewed inline suppression when the complexity is intentional.
 app/[locale]/(landing)/deeplink/[kind]/page.tsx	52dddf9c0a0cd196602762e0c7196d4cc8eaf44af5a42220ae22a25039b3d0ed	function `invalidParams` has a complexity of 32. Maximum allowed is 20.
 app/[locale]/(landing)/docs/changelog/changelog-release.tsx	d48c9fbf906e5ed90c3faba92c6f1a4fe3a3bbcea9eff1a0b619c73f2aef2d6b	function `ChangelogRelease` has a complexity of 22. Maximum allowed is 20.
-app/[locale]/dashboard/admin/admin-pro-panel.tsx	03b339ad7e3e7afe48d16b496aeb96950d2e93ba30a7988a5814d8bc9298360b	function `AdminProPanel` has a complexity of 21. Maximum allowed is 20.
 app/[locale]/dashboard/billing/page.tsx	e7421ff4cd988618bb7617d3e3268b49c2a0ae7cded779f5fd7b68e22e1f3eec	async function `DashboardBillingPage` has a complexity of 26. Maximum allowed is 20.
 app/[locale]/posthog.tsx	7e411b50b4624dbfe72b7b61bce7a9a0c01b6b0220d099f07d3bcc2e227d519a	async function has a complexity of 21. Maximum allowed is 20.
 app/api/account/route.ts	4b02cd775bfe2ad3da800c31ef33573dc7007eeeb3e02e5a0196ab228b2d2f2e	async function `deleteVaultRowsAndObjectsForAccountLocked` has a complexity of 21. Maximum allowed is 20.

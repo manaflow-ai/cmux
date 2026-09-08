@@ -119,6 +119,8 @@ describe("coderouter accounts section", () => {
       "Anthropic API key",
       "Claude Code OAuth",
       "Amazon Bedrock",
+      "OpenAI API key",
+      "OpenRouter API key",
       "Codex",
       "OpenCode",
     ]);

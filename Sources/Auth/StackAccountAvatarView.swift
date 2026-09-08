@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAppKitSupportUI
 import SwiftUI
 
 /// Displays the Stack profile image with an initial-based fallback.
@@ -9,22 +10,38 @@ struct StackAccountAvatarView: View {
     let size: CGFloat
     var loadingSystemName: String? = nil
 
+    @State private var loadedAvatar: LoadedAvatar?
+
+    /// The last completed load, keyed by URL so a changed URL shows the
+    /// loading state again instead of a stale picture.
+    private struct LoadedAvatar {
+        let url: URL
+        let image: NSImage?
+    }
+
     var body: some View {
         Group {
             if let avatarURL {
-                AsyncImage(url: avatarURL) { phase in
-                    if let image = phase.image {
-                        image.resizable().scaledToFill()
-                    } else if phase.error == nil, let loadingSystemName {
-                        CmuxSystemSymbolImage(
-                            systemName: loadingSystemName,
-                            pointSize: size,
-                            weight: .regular
-                        )
-                        .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+                if let loadedAvatar, loadedAvatar.url == avatarURL {
+                    if let image = loadedAvatar.image {
+                        // The hosted AppKit renderer draws the picture; SwiftUI
+                        // raster images are blank on Intel Macs running macOS 15.
+                        CmuxResolvedIconImage(request: CmuxResolvedIconRequest(
+                            source: .image(image),
+                            size: NSSize(width: size, height: size)
+                        ))
                     } else {
                         fallback
                     }
+                } else if let loadingSystemName {
+                    CmuxSystemSymbolImage(
+                        systemName: loadingSystemName,
+                        pointSize: size,
+                        weight: .regular
+                    )
+                    .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+                } else {
+                    fallback
                 }
             } else {
                 fallback
@@ -34,6 +51,12 @@ struct StackAccountAvatarView: View {
         .clipShape(Circle())
         .overlay(Circle().stroke(Color.primary.opacity(0.12), lineWidth: 0.5))
         .accessibilityHidden(true)
+        .task(id: avatarURL) {
+            guard let avatarURL else { return }
+            let image = await StackAccountAvatarImageLoader.load(from: avatarURL, pointSize: size)
+            guard !Task.isCancelled else { return }
+            loadedAvatar = LoadedAvatar(url: avatarURL, image: image)
+        }
     }
 
     private var fallback: some View {

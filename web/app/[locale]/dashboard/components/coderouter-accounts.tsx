@@ -44,11 +44,14 @@ type FormStatus = {
 const idleStatus: FormStatus = { state: "idle" };
 
 /** Everything the add panel offers, in display order. */
-type AddKind = ClaudeUpstreamKind | "codex" | "opencode";
+type ApiKeyAddKind = "openai-apikey" | "openrouter-apikey";
+type AddKind = ClaudeUpstreamKind | ApiKeyAddKind | "codex" | "opencode";
 const ADD_KINDS: readonly AddKind[] = [
   "anthropic_api_key",
   "anthropic_oauth",
   "bedrock",
+  "openai-apikey",
+  "openrouter-apikey",
   "codex",
   "opencode",
 ];
@@ -82,6 +85,8 @@ export function CoderouterAccountsSection({
   const nativeAccounts = native.kind === "ok" ? native.accounts : [];
   const sharedAccounts = shared.kind === "ok" ? shared.accounts : [];
   const total = claudeAccounts.length + nativeAccounts.length + sharedAccounts.length;
+  // Field ids are per form, so switching the add tab never leaves two inputs
+  // with one id.
   const partialFailure = claude.kind === "error" || native.kind === "error" || shared.kind === "error";
 
   return (
@@ -569,6 +574,8 @@ function AddAccountPanel({ teamId }: { readonly teamId: string }) {
               command="npx coderouter@latest add opencode"
               t={t}
             />
+          ) : kind === "openai-apikey" || kind === "openrouter-apikey" ? (
+            <ApiKeyForm key={kind} teamId={teamId} kind={kind} />
           ) : (
             <ClaudeUpstreamForm key={kind} teamId={teamId} kind={kind} />
           )}
@@ -595,6 +602,86 @@ function CliInstructions({
         <CopyButton value={command} label={t("copyCommand")} copiedLabel={t("copied")} />
       </div>
     </div>
+  );
+}
+
+/**
+ * Stores an OpenAI or OpenRouter key as a coderouter account. Codex on this
+ * team's machines then routes Responses calls through it, next to any Codex
+ * sign-ins, and moves off it on a rate limit or a rejected key.
+ */
+function ApiKeyForm({
+  teamId,
+  kind,
+}: {
+  readonly teamId: string;
+  readonly kind: ApiKeyAddKind;
+}) {
+  const t = useTranslations("dashboard.coderouterAccounts");
+  const router = useRouter();
+  const [status, setStatus] = useState<FormStatus>(idleStatus);
+
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (status.state === "submitting") return;
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const label = String(data.get("label") ?? "").trim();
+    setStatus({ state: "submitting" });
+    try {
+      const response = await fetch("/api/coderouter/accounts", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-cmux-team-id": teamId },
+        body: JSON.stringify({
+          provider: kind,
+          apiKey: String(data.get("apiKey") ?? "").trim(),
+          ...(label ? { label } : {}),
+        }),
+      });
+      if (!response.ok) {
+        setStatus({
+          state: "error",
+          message: errorMessageForStatus(response.status, t, t("saveError")),
+        });
+        return;
+      }
+      form.reset();
+      setStatus({ state: "success", message: t("saveSuccess") });
+      router.refresh();
+    } catch {
+      setStatus({ state: "error", message: t("saveError") });
+    }
+  };
+
+  return (
+    <form onSubmit={submit} className="space-y-3">
+      <p className="text-xs text-muted">
+        {kind === "openai-apikey" ? t("openAiKeyHint") : t("openRouterKeyHint")}
+      </p>
+      <Field
+        label={t("apiKeyField")}
+        name="apiKey"
+        placeholder={kind === "openai-apikey" ? "sk-proj-..." : "sk-or-v1-..."}
+      />
+      <Field
+        label={t("labelField")}
+        name="label"
+        placeholder={t("labelPlaceholder")}
+        required={false}
+        secret={false}
+        mono={false}
+      />
+      <div className="flex flex-wrap items-center gap-3">
+        <button type="submit" disabled={status.state === "submitting"} className={primaryButtonClass}>
+          {status.state === "submitting" ? t("savingAction") : t("saveAction")}
+        </button>
+        {status.message ? (
+          <span className={`text-xs ${status.state === "error" ? "text-foreground" : "text-muted"}`}>
+            {status.message}
+          </span>
+        ) : null}
+      </div>
+    </form>
   );
 }
 
@@ -759,6 +846,10 @@ function addKindLabel(kind: AddKind, t: Translator): string {
       return t("kindCodex");
     case "opencode":
       return t("kindOpencode");
+    case "openai-apikey":
+      return t("kindOpenAiApiKey");
+    case "openrouter-apikey":
+      return t("kindOpenRouterApiKey");
     default:
       return claudeKindLabel(kind, t);
   }
@@ -771,6 +862,10 @@ function nativeKindLabel(kind: CodeRouterAccountSummary["provider"], t: Translat
       return t("kindCodex");
     case "opencode-go":
       return t("kindOpencodeGo");
+    case "openai-apikey":
+      return t("kindOpenAiApiKey");
+    case "openrouter-apikey":
+      return t("kindOpenRouterApiKey");
   }
 }
 

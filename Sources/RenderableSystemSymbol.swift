@@ -456,34 +456,33 @@ struct CmuxSystemSymbolImage: View {
             globalFontPercent: globalFontPercent,
             appliesGlobalFontMagnification: appliesGlobalFontMagnification
         )
+        // SwiftUI raster images draw blank on Intel Macs running macOS 15, so
+        // the AppKit-hosted renderer owns every symbol draw. The materialized
+        // image only supplies the configured symbol's natural layout size.
         if let image = RenderableSystemSymbol.configuredAppKitImage(
             systemName: systemName,
             pointSize: rasterSize,
             weight: weight
         ) {
-            Image(nsImage: image)
-                .renderingMode(.template)
-                .frame(width: rasterSize, height: rasterSize, alignment: alignment)
+            CmuxHostedSystemSymbolImage(
+                systemName: systemName,
+                pointSize: rasterSize,
+                imageSize: image.size,
+                weight: RenderableSystemSymbol.nsFontWeight(for: weight),
+                slotSize: rasterSize,
+                alignment: alignment
+            )
         } else if RenderableSystemSymbol.isRenderable(systemName) {
             // A transient blank materialization gets the same AppKit lifecycle
-            // owner and forced-appearance retry instead of a lazy SwiftUI provider.
-            // The mask keeps the caller's foreground color/style semantics while
-            // the AppKit view remains the only symbol lifecycle owner.
-            Rectangle()
-                .fill(.foreground)
-                .frame(width: rasterSize, height: rasterSize)
-                .mask(
-                    CmuxResolvedIconImage(request: CmuxResolvedIconRequest(
-                        source: .systemSymbol(
-                            name: systemName,
-                            accessibilityDescription: nil
-                        ),
-                        size: NSSize(width: rasterSize, height: rasterSize),
-                        symbolWeight: RenderableSystemSymbol.nsFontWeight(for: weight)
-                    ))
-                    .frame(width: rasterSize, height: rasterSize)
-                )
-                .frame(width: rasterSize, height: rasterSize, alignment: alignment)
+            // owner and forced-appearance retry through the hosted renderer.
+            CmuxHostedSystemSymbolImage(
+                systemName: systemName,
+                pointSize: rasterSize,
+                imageSize: NSSize(width: rasterSize, height: rasterSize),
+                weight: RenderableSystemSymbol.nsFontWeight(for: weight),
+                slotSize: rasterSize,
+                alignment: alignment
+            )
         } else {
             Color.clear
                 .frame(width: rasterSize, height: rasterSize, alignment: alignment)

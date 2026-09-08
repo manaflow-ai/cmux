@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { GUEST_CMUX_SELF_SHIM_PATH, guestSelfCliInstallCommand } from "../services/vms/guestSelfCli";
 import path from "node:path";
 import { describe, expect, setSystemTime, test } from "bun:test";
 import type { Freestyle } from "freestyle";
@@ -429,6 +430,19 @@ describe("Freestyle platform contract", () => {
     expect(freestyleEdgeRules([])).toBeUndefined();
     expect(() => freestyleEdgeRules([{ ...EDGE_RULE, domain: "coderouter.dev:8443" }])).toThrow(ProviderError);
     expect(() => freestyleEdgeRules([{ ...EDGE_RULE, domain: "x; rm -rf /" }])).toThrow(ProviderError);
+  });
+
+
+  test("exec installs the guest cmux shim in the same round trip when it is missing", async () => {
+    const fake = fakeFreestyle({ probeExit: 0 });
+    const result = await providerWith(fake).exec(VM_ID, "echo hi", { timeoutMs: 5_000 });
+    expect(result.exitCode).toBe(0);
+    expect(fake.execs).toHaveLength(1);
+    const command = fake.execs[0] ?? "";
+    expect(command.startsWith(`{ [ -x ${GUEST_CMUX_SELF_SHIM_PATH} ] || { `)).toBe(true);
+    expect(command).toContain(guestSelfCliInstallCommand());
+    expect(command.endsWith("; echo hi")).toBe(true);
+    expect(command).not.toContain("crt_");
   });
 
   test("exec timeouts clamp to the per-exec cap; killed execs read as 124", () => {
