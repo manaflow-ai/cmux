@@ -19,7 +19,11 @@ extension RemoteResumeBindingTests {
         let configuration = remoteConfiguration()
         workspace.configureRemoteConnection(configuration, autoConnect: false)
         workspace.trackRemoteTerminalSurface(panelID)
-        let authority = try #require(WorkspaceRemoteTerminalAuthority(configuration: configuration))
+        let authority = try #require(
+            workspace.remoteConfiguration.flatMap {
+                WorkspaceRemoteTerminalAuthority(configuration: $0)
+            }
+        )
         #expect(workspace.markRemoteTerminalSessionConnected(surfaceId: panelID, authority: authority))
 
         let sessionID = Workspace.defaultSSHPTYSessionID(workspaceId: workspace.id, panelId: panelID)
@@ -59,9 +63,19 @@ extension RemoteResumeBindingTests {
         let socketPath = reserveRemoteRestoreSocket()
         defer { cleanupRemoteRestoreSocket(socketPath) }
 
+        var bindingOnlySnapshot = fixture.snapshot
+        let panelIndex = try #require(
+            bindingOnlySnapshot.panels.firstIndex { $0.id == fixture.surfaceID }
+        )
+        var terminal = try #require(bindingOnlySnapshot.panels[panelIndex].terminal)
+        terminal.agent = nil
+        terminal.hibernation = nil
+        terminal.managedAgentResumeBinding = nil
+        bindingOnlySnapshot.panels[panelIndex].terminal = terminal
+
         let restoredWorkspace = Workspace(agentSessionAutoResumeDefaults: defaults)
         defer { restoredWorkspace.teardownAllPanels() }
-        let restoredIDs = restoredWorkspace.restoreSessionSnapshot(fixture.snapshot)
+        let restoredIDs = restoredWorkspace.restoreSessionSnapshot(bindingOnlySnapshot)
         let restoredSurfaceID = try #require(restoredIDs[fixture.surfaceID])
         #expect(restoredWorkspace.restoredAgentResumeStatesByPanelId[restoredSurfaceID] == .awaitingAutoResumeCommand)
 
