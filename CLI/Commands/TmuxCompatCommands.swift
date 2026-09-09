@@ -35,6 +35,8 @@ struct PipePaneCommand: SharedLegacyFacadeCommand {
 
 struct WaitForCommand: SharedLegacyFacadeCommand {
     @Flag(name: [.customShort("S"), .customLong("signal")]) var signal = false
+    @Flag(name: .customShort("L")) var lock = false
+    @Flag(name: .customShort("U")) var unlock = false
     @Argument var name: String?
     @Option(name: .customLong("timeout")) var timeout: String?
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []

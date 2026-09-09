@@ -97,7 +97,7 @@ struct FeedCommand: SharedLegacyFacadeCommand {
 }
 
 struct EventsCommand: SharedLegacyFacadeCommand {
-    @Option(name: .customLong("after")) var after: String?
+    @Option(name: [.customLong("after"), .customLong("after-seq")]) var after: String?
     @Option(name: .customLong("cursor-file"), completion: .file()) var cursorFile: String?
     @Option(name: .customLong("name")) var names: [String] = []
     @Option(name: .customLong("category")) var categories: [String] = []
@@ -106,7 +106,7 @@ struct EventsCommand: SharedLegacyFacadeCommand {
     @Option(name: .customLong("timeout")) var timeout: String?
     @Flag(name: .customLong("snapshot")) var snapshot = false
     @Flag(name: .customLong("no-ack")) var noAck = false
-    @Flag(name: .customLong("no-heartbeat")) var noHeartbeat = false
+    @Flag(name: [.customLong("no-heartbeat"), .customLong("no-heartbeats")]) var noHeartbeat = false
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "events", helpNames: [])
 }

@@ -14,9 +14,9 @@ command  __tmux-compat  aliases=-
 command  agent-hibernation  aliases=-
   arg  arguments  kind=argument  completion=-
 command  ai-accounts  aliases=-
-command  ai-accounts list  aliases=-
+command  ai-accounts list  aliases=ls
   arg  arguments  kind=argument  completion=-
-command  ai-accounts remove  aliases=-
+command  ai-accounts remove  aliases=delete,rm
   arg  arguments  kind=argument  completion=-
 command  ai-accounts upload  aliases=-
   arg  arguments  kind=argument  completion=-
@@ -89,10 +89,13 @@ command  browser cookies  aliases=-
   arg  --all  kind=flag  completion=-
   arg  --domain  kind=option  completion=-
   arg  --expires  kind=option  completion=-
+  arg  --http-only  kind=flag  completion=-
+  arg  --name  kind=option  completion=-
   arg  --path  kind=option  completion=file()
   arg  --secure  kind=flag  completion=-
   arg  --surface  kind=option  completion=custom-deprecated
   arg  --url  kind=option  completion=-
+  arg  --value  kind=option  completion=-
   arg  action  kind=argument  completion=list(clear,get,set)
   arg  arguments  kind=argument  completion=-
   arg  name  kind=argument  completion=-
@@ -383,7 +386,8 @@ command  comments  aliases=-
 command  completion  aliases=-
   arg  shell  kind=argument  completion=list(bash,fish,zsh)
 command  config  aliases=-
-  arg  arguments  kind=argument  completion=-
+  arg  --path  kind=option  completion=file()
+  arg  arguments  kind=argument  completion=list(docs,doctor,get,help,path,reload,set,sidebar-font-size,surface-tab-bar-font-size)
 command  copy-mode  aliases=-
   arg  arguments  kind=argument  completion=-
 command  current-window  aliases=-
@@ -403,12 +407,19 @@ command  detach-tab  aliases=-
   arg  arguments  kind=argument  completion=-
 command  diff  aliases=-
   arg  --base  kind=option  completion=-
+  arg  --branch  kind=flag  completion=-
   arg  --cwd  kind=option  completion=directory
+  arg  --focus  kind=option  completion=-
   arg  --font-size  kind=option  completion=-
+  arg  --last-turn  kind=flag  completion=-
   arg  --layout  kind=option  completion=list(split,unified)
+  arg  --no-focus  kind=flag  completion=-
+  arg  --session  kind=option  completion=-
   arg  --source  kind=option  completion=list(branch,last-turn,staged,unstaged)
+  arg  --staged  kind=flag  completion=-
   arg  --surface  kind=option  completion=custom-deprecated
   arg  --title  kind=option  completion=-
+  arg  --unstaged  kind=flag  completion=-
   arg  --window  kind=option  completion=custom-deprecated
   arg  --workspace  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
@@ -422,7 +433,7 @@ command  display-message  aliases=-
   arg  --print  kind=flag  completion=-
   arg  text  kind=argument  completion=-
 command  docs  aliases=-
-  arg  arguments  kind=argument  completion=-
+  arg  arguments  kind=argument  completion=list(agents,all,api,browser,completion,dock,list,managed-policies,settings,shortcuts,sidebars)
 command  drag-surface-to-split  aliases=-
   arg  --focus  kind=option  completion=-
   arg  --panel  kind=option  completion=custom-deprecated
@@ -450,6 +461,9 @@ command  feed  aliases=-
 command  feed-hook  aliases=-
   arg  arguments  kind=argument  completion=-
 command  feedback  aliases=-
+  arg  --body  kind=option  completion=-
+  arg  --email  kind=option  completion=-
+  arg  --image  kind=option  completion=file()
   arg  arguments  kind=argument  completion=-
 command  find-window  aliases=-
   arg  --content  kind=flag  completion=-
@@ -480,7 +494,10 @@ command  get-url  aliases=-
 command  help  aliases=-
   arg  arguments  kind=argument  completion=-
 command  hooks  aliases=-
-  arg  arguments  kind=argument  completion=-
+  arg  --agent  kind=option  completion=list(amp,antigravity,campfire,codebuddy,codex,copilot,cursor,factory,gemini,grok,hermes-agent,kimi,kiro,omp,opencode,pi,qoder,rovodev)
+  arg  --project  kind=flag  completion=-
+  arg  --yes  kind=flag  completion=-
+  arg  arguments  kind=argument  completion=list(amp,antigravity,campfire,codebuddy,codex,copilot,cursor,factory,gemini,grok,hermes-agent,kimi,kiro,omp,opencode,pi,qoder,rovodev,setup,uninstall)
 command  identify  aliases=-
   arg  --no-caller  kind=flag  completion=-
   arg  --surface  kind=option  completion=custom-deprecated
@@ -910,7 +927,7 @@ command  set-status  aliases=-
   arg  key  kind=argument  completion=-
   arg  value  kind=argument  completion=-
 command  settings  aliases=-
-  arg  arguments  kind=argument  completion=-
+  arg  arguments  kind=argument  completion=list(account,app,automation,browser,browser-import,cmux-json,custom-sidebars,docs,global-hotkey,keyboard-shortcuts,networking,open,path,reset,sidebar-appearance,terminal,workspace-colors)
 command  setup-hooks  aliases=-
   arg  arguments  kind=argument  completion=-
 command  shortcuts  aliases=-
@@ -957,9 +974,11 @@ command  ssh  aliases=-
 command  ssh-pty-attach  aliases=-
   arg  arguments  kind=argument  completion=-
 command  ssh-session-attach  aliases=-
+  arg  --focus  kind=option  completion=-
   arg  --pane  kind=option  completion=custom-deprecated
   arg  --session-id  kind=option  completion=-
   arg  --split  kind=option  completion=list(down,left,right,up)
+  arg  --surface  kind=option  completion=custom-deprecated
   arg  --workspace  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
 command  ssh-session-cleanup  aliases=-
@@ -982,6 +1001,39 @@ command  ssh-tmux  aliases=-
   arg  arguments  kind=argument  completion=-
   arg  destination  kind=argument  completion=-
 command  surface  aliases=-
+command  surface ls  aliases=catalog,list,tree
+  arg  --refresh  kind=flag  completion=-
+  arg  arguments  kind=argument  completion=-
+  arg  machine  kind=argument  completion=custom-deprecated
+command  surface new-terminal  aliases=new
+  arg  --cwd  kind=option  completion=directory
+  arg  --machine  kind=option  completion=custom-deprecated
+  arg  --name  kind=option  completion=-
+  arg  --no-open  kind=flag  completion=-
+  arg  --remote-workspace  kind=option  completion=-
+  arg  --workspace  kind=option  completion=custom-deprecated
+  arg  command  kind=argument  completion=-
+command  surface open  aliases=project
+  arg  --down  kind=flag  completion=-
+  arg  --focus  kind=option  completion=-
+  arg  --left  kind=flag  completion=-
+  arg  --new  kind=flag  completion=-
+  arg  --pane  kind=option  completion=custom-deprecated
+  arg  --right  kind=flag  completion=-
+  arg  --tab  kind=flag  completion=-
+  arg  --up  kind=flag  completion=-
+  arg  --workspace  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
+  arg  resource  kind=argument  completion=-
+command  surface resume  aliases=-
+command  surface resume clear  aliases=-
+  arg  --checkpoint  kind=option  completion=-
+  arg  --source  kind=option  completion=-
+  arg  --surface  kind=option  completion=custom-deprecated
+  arg  --window  kind=option  completion=custom-deprecated
+  arg  --workspace  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
+command  surface resume set  aliases=-
   arg  --checkpoint  kind=option  completion=-
   arg  --cwd  kind=option  completion=directory
   arg  --kind  kind=option  completion=-
@@ -991,18 +1043,36 @@ command  surface  aliases=-
   arg  --surface  kind=option  completion=custom-deprecated
   arg  --window  kind=option  completion=custom-deprecated
   arg  --workspace  kind=option  completion=custom-deprecated
+  arg  command  kind=argument  completion=-
+command  surface resume show  aliases=get
+  arg  --surface  kind=option  completion=custom-deprecated
+  arg  --window  kind=option  completion=custom-deprecated
+  arg  --workspace  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
 command  surface-health  aliases=-
   arg  --window  kind=option  completion=custom-deprecated
   arg  --workspace  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
 command  surface-resume  aliases=-
+command  surface-resume clear  aliases=-
+  arg  --checkpoint  kind=option  completion=-
+  arg  --source  kind=option  completion=-
+  arg  --surface  kind=option  completion=custom-deprecated
+  arg  --window  kind=option  completion=custom-deprecated
+  arg  --workspace  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
+command  surface-resume set  aliases=-
   arg  --checkpoint  kind=option  completion=-
   arg  --cwd  kind=option  completion=directory
   arg  --kind  kind=option  completion=-
   arg  --name  kind=option  completion=-
   arg  --shell  kind=option  completion=-
   arg  --source  kind=option  completion=-
+  arg  --surface  kind=option  completion=custom-deprecated
+  arg  --window  kind=option  completion=custom-deprecated
+  arg  --workspace  kind=option  completion=custom-deprecated
+  arg  command  kind=argument  completion=-
+command  surface-resume show  aliases=get
   arg  --surface  kind=option  completion=custom-deprecated
   arg  --window  kind=option  completion=custom-deprecated
   arg  --workspace  kind=option  completion=custom-deprecated
@@ -1103,12 +1173,19 @@ command  version  aliases=-
 command  vm  aliases=cloud
 command  vm base  aliases=-
 command  vm base open  aliases=-
+  arg  --base  kind=flag  completion=-
+  arg  --desktop  kind=flag  completion=-
   arg  --detach  kind=flag  completion=-
+  arg  --focus  kind=option  completion=-
+  arg  --no-desktop  kind=flag  completion=-
   arg  --window  kind=option  completion=custom-deprecated
   arg  --workspace  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
 command  vm base reset  aliases=-
+  arg  --base  kind=flag  completion=-
+  arg  --desktop  kind=flag  completion=-
   arg  --detach  kind=flag  completion=-
+  arg  --no-desktop  kind=flag  completion=-
   arg  --reason  kind=option  completion=-
   arg  --window  kind=option  completion=custom-deprecated
   arg  --workspace  kind=option  completion=custom-deprecated
@@ -1128,9 +1205,15 @@ command  vm handoff  aliases=-
 command  vm ls  aliases=list
   arg  arguments  kind=argument  completion=-
 command  vm new  aliases=create
+  arg  --base  kind=flag  completion=-
+  arg  --desktop  kind=flag  completion=-
   arg  --detach  kind=flag  completion=-
+  arg  --focus  kind=option  completion=-
   arg  --image  kind=option  completion=-
+  arg  --name  kind=option  completion=-
+  arg  --no-desktop  kind=flag  completion=-
   arg  --provider  kind=option  completion=-
+  arg  --size  kind=option  completion=list(16g,24g,32g,4g,64g,8g)
   arg  --window  kind=option  completion=custom-deprecated
   arg  --workspace  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
@@ -1162,8 +1245,9 @@ command  vm ssh  aliases=-
   arg  arguments  kind=argument  completion=-
   arg  id  kind=argument  completion=custom-deprecated
 command  vm ssh-attach  aliases=-
+  arg  --default-freestyle-sshd  kind=flag  completion=-
+  arg  --id  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
-  arg  id  kind=argument  completion=custom-deprecated
 command  vm ssh-info  aliases=-
   arg  arguments  kind=argument  completion=-
   arg  id  kind=argument  completion=custom-deprecated
@@ -1203,6 +1287,8 @@ command  vpn up  aliases=on
 command  wait-for  aliases=-
   arg  --signal  kind=flag  completion=-
   arg  --timeout  kind=option  completion=-
+  arg  -L  kind=flag  completion=-
+  arg  -U  kind=flag  completion=-
   arg  arguments  kind=argument  completion=-
   arg  name  kind=argument  completion=-
 command  welcome  aliases=-
