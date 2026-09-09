@@ -10,6 +10,9 @@ public struct CmxIrohHostRuntimeConfiguration: Equatable, Sendable {
     /// Exact Mac build namespace sent to every broker request.
     public let clientNamespace: String
     public let tag: String
+    /// `<CFBundleShortVersionString>+<CFBundleVersion>` reported by this Mac.
+    /// Nil is retained for pre-rollout clients that cannot provide it.
+    public let appVersion: String?
     public let displayName: String?
     public let identity: CmxIrohIdentityMaterial
     public let pairingEnabled: Bool
@@ -48,6 +51,7 @@ public struct CmxIrohHostRuntimeConfiguration: Equatable, Sendable {
         appInstanceID: String,
         clientNamespace: CmxIrohMacBundleNamespace,
         tag: String,
+        appVersion: String? = nil,
         displayName: String?,
         identity: CmxIrohIdentityMaterial,
         pairingEnabled: Bool,
@@ -63,6 +67,7 @@ public struct CmxIrohHostRuntimeConfiguration: Equatable, Sendable {
         self.appInstanceID = appInstanceID.lowercased()
         self.clientNamespace = clientNamespace.rawValue
         self.tag = tag
+        self.appVersion = appVersion
         self.displayName = displayName
         self.identity = identity
         self.pairingEnabled = pairingEnabled

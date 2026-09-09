@@ -1,10 +1,75 @@
 import Foundation
+import CMUXMobileCore
 import Testing
 import CmuxMobilePairedMac
 @testable import CmuxMobileShell
 
 @Suite(.serialized)
 struct PairedMacBackupMigrationTests {
+    @Test func appStoreRestoreMigratesOnlyTailscaleFromBothBackupCollections() async throws {
+        let tailscale = try CmxAttachRoute(
+            id: "tailscale", kind: .tailscale,
+            endpoint: .hostPort(host: "100.64.0.20", port: 8443)
+        )
+        let iroh = try CmxAttachRoute(
+            id: "iroh", kind: .iroh,
+            endpoint: .peer(
+                identity: CmxIrohPeerIdentity(endpointID: String(repeating: "a", count: 64)),
+                pathHints: []
+            )
+        )
+        func record(_ id: String, routes: [CmxAttachRoute]) -> PairedMacBackupRecord {
+            PairedMacBackupRecord(
+                macDeviceID: id, displayName: id, routes: routes,
+                createdAt: 1_000, lastSeenAt: 2_000, isActive: false,
+                customName: "Saved \(id)"
+            )
+        }
+        let current = record("current-mixed", routes: [tailscale, iroh])
+        let mixed = record("legacy-mixed", routes: [tailscale, iroh])
+        let irohOnly = record("legacy-iroh-only", routes: [iroh])
+        let currentScope = "ios:v3:Y29tLmNtdXguYXBw"
+        PairedMacBackupMigrationURLProtocol.reset(
+            primaryScope: currentScope,
+            primaryResponse: try JSONEncoder().encode(TestBackupList(
+                records: [current], deletedMacDeviceIDs: [], revision: 0, teamId: "team-1"
+            )),
+            legacyScope: nil,
+            legacyResponse: try JSONEncoder().encode(TestBackupList(
+                records: [mixed, irohOnly], deletedMacDeviceIDs: [], teamId: "team-1"
+            )),
+            primaryResponseAfterUpload: try JSONEncoder().encode(TestBackupList(
+                records: [current, mixed], deletedMacDeviceIDs: [], revision: 1, teamId: "team-1"
+            ))
+        )
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [PairedMacBackupMigrationURLProtocol.self]
+        let client = PairedMacBackupClient(
+            serviceBaseURL: "https://presence.example",
+            tokenSource: PresenceTokenSource(accessToken: { "token" }, currentUserID: { "user-1" }),
+            clientScopeProvider: { currentScope }, legacyClientScopeProvider: { nil },
+            restoreRouteFilter: { $0.kind == .tailscale },
+            session: URLSession(configuration: configuration)
+        )
+        let snapshot = try #require(await client.fetchSnapshot(teamID: "team-1", expectedUserID: "user-1"))
+        #expect(snapshot.records.map(\.macDeviceID) == ["current-mixed", "legacy-mixed"])
+        #expect(snapshot.records.allSatisfy { $0.routes == [tailscale] })
+        #expect(snapshot.records.last?.customName == "Saved legacy-mixed")
+        #expect(!snapshot.requiresMigrationRetry)
+
+        let body = try #require(PairedMacBackupMigrationURLProtocol.capturedRequestBodies().compactMap { $0 }.first)
+        let json = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        let ops = try #require(json["ops"] as? [[String: Any]])
+        #expect(ops.count == 1)
+        let migratedRecord = try #require(ops.first?["record"] as? [String: Any])
+        let routes = try #require(migratedRecord["routes"] as? [[String: Any]])
+        #expect(routes.compactMap { $0["kind"] as? String } == ["tailscale"])
+        let requests = PairedMacBackupMigrationURLProtocol.capturedRequests()
+        #expect(requests.filter { $0.httpMethod == "POST" }.allSatisfy {
+            $0.value(forHTTPHeaderField: "X-Cmux-Client-Scope") == currentScope
+        })
+    }
+
     @Test func migrationPinsServerVerifiedTeamAfterDefaultTeamRead() async throws {
         let defaultsSuite = "paired-mac-migration-\(UUID().uuidString)"
         let migrationDefaults = try #require(

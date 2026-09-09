@@ -775,6 +775,7 @@ function publicBinding(
     client_namespace: binding.clientNamespace,
     tag: binding.tag,
     platform: binding.platform,
+    ...(binding.appVersion !== null ? { app_version: binding.appVersion } : {}),
     display_name: binding.displayName,
     endpoint_id: binding.endpointId,
     identity_generation: binding.identityGeneration,

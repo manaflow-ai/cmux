@@ -1,3 +1,4 @@
+internal import CMUXMobileCore
 public import CmuxMobilePairedMac
 public import Foundation
 
@@ -20,10 +21,16 @@ public import Foundation
 public struct PairedMacMigration: Sendable {
     private let pairedStore: any MobilePairedMacStoring
     private let syncStore: any CmuxSyncStoring
+    private let tailscaleOnly: Bool
 
-    public init(pairedStore: any MobilePairedMacStoring, syncStore: any CmuxSyncStoring) {
+    public init(
+        pairedStore: any MobilePairedMacStoring,
+        syncStore: any CmuxSyncStoring,
+        bundleIdentifier: String? = Bundle.main.bundleIdentifier
+    ) {
         self.pairedStore = pairedStore
         self.syncStore = syncStore
+        self.tailscaleOnly = bundleIdentifier == "com.cmux.app"
     }
 
     /// Seed provisional device records for an account's paired Macs, once.
@@ -41,7 +48,11 @@ public struct PairedMacMigration: Sendable {
         let macs = try await pairedStore.loadAll(stackUserID: accountID)
         var seeded = 0
         let encoder = JSONEncoder()
-        for mac in macs {
+        for var mac in macs {
+            if tailscaleOnly {
+                mac.routes = mac.routes.filter { $0.kind == .tailscale }
+                guard !mac.routes.isEmpty else { continue }
+            }
             let record = Self.provisionalRecord(from: mac)
             let payload = try encoder.encode(record)
             try await syncStore.seedProvisional(

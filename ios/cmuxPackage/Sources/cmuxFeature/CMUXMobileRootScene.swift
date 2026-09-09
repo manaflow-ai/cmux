@@ -239,7 +239,9 @@ public struct CMUXMobileRootScene: View {
                 return store
             }
             #endif
-            let store = try MobilePairedMacStore()
+            let store = try MobilePairedMacStore(
+                migrateAppStoreRoutes: Bundle.main.bundleIdentifier == "com.cmux.app"
+            )
             diagnosticLog?.recordAppEvent(.pairedMacStoreOpened)
             return store
         } catch {
@@ -376,7 +378,10 @@ public struct CMUXMobileRootScene: View {
             ),
             teamIDProvider: { await coordinator.resolvedTeamID },
             clientScopeProvider: { appNamespace.serverScope },
-            legacyClientScopeProvider: legacyClientScopeProvider
+            legacyClientScopeProvider: legacyClientScopeProvider,
+            restoreRouteFilter: appNamespace.bundleIdentifier == "com.cmux.app"
+                ? { $0.kind == .tailscale }
+                : nil
         )
         return BackingUpPairedMacStore(
             inner: scopedStore,
@@ -556,7 +561,7 @@ public struct CMUXMobileRootScene: View {
         // never race the root view's async policy push and admit a Mac under
         // a stale floor. The root view still refreshes from the network and
         // pushes updates.
-        store.applyMacCompatibilityPolicy(macCompatCenter.policy)
+        store.macCompatPolicy = macCompatCenter.policy
         #endif
         return store
     }

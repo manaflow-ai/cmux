@@ -9,10 +9,9 @@
  * cover gets NO Mac version limit rather than an accidental block-everything).
  * The initial tier starts at 1.0.0 so it covers every current lane — the
  * App Store app ships as 1.0.0 and the beta lane as 1.0.4 — and constrains
- * them to the next stable release (0.64.23; current stable is 0.64.22) and
- * the next nightly (the newest published nightly build at authoring time is
- * 3345650013201, so minBuild 3345650013202 means "any nightly published
- * after this was written"). Binaries built before the gate shipped ignore
+ * them to the first compatible stable release (currently none) and the
+ * compatible nightly floor (0.64.22-nightly.3359013153901). Binaries built
+ * before the gate shipped ignore
  * this list entirely, so covering their versions is harmless.
  *
  * Nightly builds are versioned `<base>-nightly.<run id><attempt>` by
@@ -46,8 +45,13 @@ export interface MobileMacCompatEntry {
    * (fail-open), same as an app below every tier.
    */
   maxIOSVersion?: string;
-  /** Inclusive minimum stable-channel Mac marketing version, dotted numeric. */
-  stableMinVersion: string;
+  /**
+   * Inclusive minimum stable-channel Mac marketing version, dotted numeric.
+   * Omitted (or null) until a compatible stable Mac release exists. Either
+   * representation means stable Macs are blocked for this tier, not
+   * unconstrained.
+   */
+  stableMinVersion?: string | null;
   /** Minimum nightly-channel Mac build. Omitted = nightly channel unconstrained for this tier. */
   nightly?: MobileMacCompatNightlyRequirement;
 }
@@ -73,8 +77,8 @@ export const mobileMacCompatList: MobileMacCompatList = {
   entries: [
     {
       minIOSVersion: "1.0.0",
-      stableMinVersion: "0.64.23",
-      nightly: { minBaseVersion: "0.64.22", minBuild: "3345650013202" },
+      // No stable Mac release contains the App Store protocol yet.
+      nightly: { minBaseVersion: "0.64.22", minBuild: "3359013153901" },
     },
   ],
 };

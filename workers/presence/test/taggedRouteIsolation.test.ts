@@ -5,6 +5,7 @@ import {
   type PairedMacBackupRecord,
 } from "../src/syncPairedMacs";
 import type { SyncStorage } from "../src/syncStorage";
+import { controlPlaneScope } from "../src/controlPlane";
 
 const T0 = 1_750_000_000_000;
 const MAC_ID = "shared-physical-mac";
@@ -60,6 +61,14 @@ function endpoint(snapshot: Awaited<ReturnType<typeof listBackupSnapshot>>): unk
 }
 
 describe("tagged paired-Mac route isolation", () => {
+  it("keeps the App Store control budget separate from every Mac lane", () => {
+    expect(controlPlaneScope("com.cmux.app")).toBe("app-store-ios");
+    expect(controlPlaneScope("mac:com.cmuxterm.app")).toBe("official-stable-mac");
+    expect(controlPlaneScope("mac:com.cmuxterm.app.nightly")).toBe("official-nightly-mac");
+    expect(controlPlaneScope("mac:com.cmuxterm.app.nightly.old")).toBe("official-nightly-mac");
+    expect(controlPlaneScope("legacy")).not.toBe("app-store-ios");
+  });
+
   it("does not expose a legacy seeded scope through the versioned scope", async () => {
     const storage = new FakeStorage();
 

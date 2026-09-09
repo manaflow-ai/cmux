@@ -8,12 +8,29 @@ const OFFICIAL_IOS_NAMESPACES = new Set([
 const DEVELOPMENT_IOS_NAMESPACE_PREFIX = "dev.cmux.ios.";
 const DEVELOPMENT_MAC_NAMESPACE_PREFIX = "mac:com.cmuxterm.app.debug";
 const NON_DEVELOPMENT_MAC_TAGS = new Set(["default", "nightly", "rc", "staging"]);
+const APP_STORE_IOS_NAMESPACE = "com.cmux.app";
+const OFFICIAL_STABLE_MAC_NAMESPACE = "mac:com.cmuxterm.app";
+const OFFICIAL_NIGHTLY_MAC_NAMESPACE = "mac:com.cmuxterm.app.nightly";
+const APP_STORE_MIN_NIGHTLY_BASE = [0, 64, 22] as const;
+const APP_STORE_MIN_NIGHTLY_BUILD = BigInt("3359013153901");
+
+/** Explicit opt-in DEV lane for exercising the retirement gate end to end.
+ * Normal DEV tags are unchanged; only internal is constrained. Keep this
+ * section mirrored in the presence worker's control-plane filter. */
+export const DEVELOPMENT_BUILD_CONSTRAINTS = {
+  internal: {
+    requireReportedVersion: true,
+    stableMinVersion: null,
+    nightly: { minBaseVersion: [0, 64, 22] as const, minBuild: BigInt("3359013153901") },
+  },
+} as const;
 
 type BuildBinding = {
   readonly platform: string;
   readonly deviceUuid: string;
   readonly tag: string;
   readonly clientNamespace: string;
+  readonly appVersion?: string | null;
 };
 
 export function canIOSBindingUseMac(
@@ -40,6 +57,9 @@ function iosBindingMacLaneCompatible(
   legacyDefaultFallback: boolean,
 ): boolean {
   if (caller.platform !== "ios" || target.platform !== "mac") return false;
+  if (caller.clientNamespace === APP_STORE_IOS_NAMESPACE) {
+    return canAppStoreIOSUseMac(target);
+  }
   const targetHasCompatibleNamespace = target.clientNamespace === "legacy"
     || target.clientNamespace.startsWith("mac:");
   if (!targetHasCompatibleNamespace) return false;
@@ -56,6 +76,7 @@ function iosBindingMacLaneCompatible(
     if (!targetIsDevelopmentMac || NON_DEVELOPMENT_MAC_TAGS.has(targetTag)) {
       return false;
     }
+    if (!canDevelopmentIOSUseMac(caller, target)) return false;
     return legacyDefaultFallback || caller.tag === target.tag;
   }
 
@@ -73,6 +94,94 @@ function iosBindingMacLaneCompatible(
     return target.tag === "default" || target.tag === "nightly";
   }
   return caller.tag === target.tag;
+}
+
+/** DEV-only server admission for the compat-test tag. This deliberately has
+ * no effect on ordinary tagged builds, while exercising the same old/missing/
+ * stable/nightly cases as the App Store lane. */
+export function canDevelopmentIOSUseMac(
+  caller: BuildBinding,
+  target: BuildBinding,
+): boolean {
+  const constraint = DEVELOPMENT_BUILD_CONSTRAINTS[caller.tag as keyof typeof DEVELOPMENT_BUILD_CONSTRAINTS];
+  if (constraint === undefined) return true;
+  if (target.tag !== caller.tag) return false;
+  return developmentVersionMeetsConstraint(
+    target.appVersion,
+    constraint.requireReportedVersion,
+    constraint.stableMinVersion !== null,
+    constraint.nightly.minBaseVersion,
+    constraint.nightly.minBuild,
+  );
+}
+
+/** App Store iOS has a clean compatibility lane. A Mac must identify itself
+ * with an official namespace and report the full marketing/nightly stamp; a
+ * missing stamp is an old client and is intentionally invisible. */
+export function canAppStoreIOSUseMac(target: BuildBinding): boolean {
+  if (target.platform !== "mac") return false;
+  const namespace = target.clientNamespace;
+  const isNightly = namespace === OFFICIAL_NIGHTLY_MAC_NAMESPACE
+    || namespace.startsWith(`${OFFICIAL_NIGHTLY_MAC_NAMESPACE}.`);
+  if (namespace === OFFICIAL_STABLE_MAC_NAMESPACE || !isNightly) return false;
+  return nightlyVersionMeetsMinimum(
+    target.appVersion,
+    APP_STORE_MIN_NIGHTLY_BASE,
+    APP_STORE_MIN_NIGHTLY_BUILD,
+  );
+}
+
+function developmentVersionMeetsConstraint(
+  raw: string | null | undefined,
+  requireReportedVersion: boolean,
+  stableAllowed: boolean,
+  minBaseVersion: readonly number[],
+  minBuild: bigint,
+): boolean {
+  const value = raw?.trim() ?? "";
+  if (value.length === 0) return !requireReportedVersion;
+  const match = parseNightlyVersion(value);
+  if (match === null) return false;
+  if (match.build === null) return stableAllowed;
+  return compareVersionBase(match.base, minBaseVersion) >= 0
+    && (compareVersionBase(match.base, minBaseVersion) > 0 || match.build >= minBuild);
+}
+
+function nightlyVersionMeetsMinimum(
+  raw: string | null | undefined,
+  minBaseVersion: readonly number[],
+  minBuild: bigint,
+): boolean {
+  const match = parseNightlyVersion(raw ?? "");
+  return match?.build !== null
+    && match !== null
+    && compareVersionBase(match.base, minBaseVersion) >= 0
+    && (compareVersionBase(match.base, minBaseVersion) > 0 || match.build >= minBuild);
+}
+
+function parseNightlyVersion(value: string): {
+  base: number[];
+  build: bigint | null;
+} | null {
+  const marketing = value.trim().split("+", 1)[0]?.trim() ?? "";
+  const match = /^(\d+)\.(\d+)\.(\d+)(?:-nightly\.(\d+))?$/.exec(marketing);
+  if (match === null) return null;
+  const base = [Number(match[1]), Number(match[2]), Number(match[3])];
+  if (base.some((part) => !Number.isSafeInteger(part) || part < 0)) return null;
+  if (match[4] === undefined) return { base, build: null };
+  try {
+    return { base, build: BigInt(match[4]) };
+  } catch {
+    return null;
+  }
+}
+
+function compareVersionBase(left: readonly number[], right: readonly number[]): number {
+  for (let index = 0; index < 3; index += 1) {
+    const difference = (left[index] ?? 0) - (right[index] ?? 0);
+    if (difference !== 0) return difference;
+  }
+  return 0;
 }
 
 function isDevelopmentMacNamespace(clientNamespace: string): boolean {

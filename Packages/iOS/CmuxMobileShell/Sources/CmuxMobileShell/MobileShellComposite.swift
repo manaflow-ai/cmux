@@ -11648,7 +11648,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public func applyMacCompatibilityPolicy(_ policy: MobileMacCompatPolicy) {
         macCompatPolicy = policy
         let tier = policy.tier(forIOSVersion: versionGateIOSAppVersion)
-        let requiredStableMacVersion = tier?.stableMinVersion.description
+        let requiredStableMacVersion = tier?.stableMinVersion?.description
         let requiredNightlyMacVersion = tier?.nightly.map {
             "\($0.minBaseVersion)-nightly.\($0.minBuild)"
         }

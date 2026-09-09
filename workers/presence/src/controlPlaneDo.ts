@@ -1,5 +1,6 @@
 // AccountControlPlane Durable Object — one instance per verified Stack user
-// (the worker derives the id from the VERIFIED user id, never client input).
+// and product audience partition (the worker derives both from verified
+// identity/header state, never client input).
 //
 // Thin adapter: all protocol logic lives in controlPlane.ts (bun-testable);
 // this file binds it to workerd — WebSocket hibernation, DO storage, the DO

@@ -36,7 +36,12 @@ import {
 } from "./auth";
 import { MAX_SUBSCRIBE_AGE_MS, TeamPresence } from "./do";
 import { AccountControlPlane, type ControlPlaneEnv } from "./controlPlaneDo";
-import { parseRevocationRequest } from "./controlPlane";
+import {
+  canonicalControlPlaneNamespace,
+  CONTROL_PLANE_SCOPES,
+  controlPlaneScope,
+  parseRevocationRequest,
+} from "./controlPlane";
 import {
   isConnectivityPublisherAuthorized,
   parseConnectivityInvalidation,
@@ -77,6 +82,17 @@ function unauthorized(): Response {
  * the sockets it targets can never disagree about which object owns them. */
 function connectivityStub(env: Env, userId: string): DurableObjectStub<TeamPresence> {
   return env.TEAM_PRESENCE.get(env.TEAM_PRESENCE.idFromName(`connectivity:user:${userId}`));
+}
+
+function controlPlaneStub(
+  env: Env,
+  userId: string,
+  namespace?: string,
+): DurableObjectStub<AccountControlPlane> {
+  const scope = controlPlaneScope(namespace);
+  return env.ACCOUNT_CONTROL_PLANE.get(
+    env.ACCOUNT_CONTROL_PLANE.idFromName(`control:user:${userId}:${scope}`),
+  );
 }
 
 async function resolveTeamOr403(
@@ -131,17 +147,15 @@ const worker = {
       if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
         return json({ error: "websocket_required" }, 400);
       }
-      const namespace = request.headers.get("x-cmux-app-namespace")?.trim();
-      if (namespace && !/^[A-Za-z0-9._:-]{1,255}$/.test(namespace)) {
-        return json({ error: "invalid_client_namespace" }, 400);
-      }
+      const namespace = canonicalControlPlaneNamespace(
+        request.headers.get("x-cmux-app-namespace") ?? undefined,
+      );
+      if (!namespace) return json({ error: "invalid_client_namespace" }, 400);
       const user = await verifyRequest(request, env);
       if (!user) return unauthorized();
       const headers = new Headers(request.headers);
       headers.set("x-control-account-id", user.id);
-      const stub = env.ACCOUNT_CONTROL_PLANE.get(
-        env.ACCOUNT_CONTROL_PLANE.idFromName(`control:user:${user.id}`),
-      );
+      const stub = controlPlaneStub(env, user.id, namespace);
       return stub.fetch(new Request(request.url, { method: "GET", headers }));
     }
 
@@ -161,14 +175,24 @@ const worker = {
       const headers = new Headers();
       headers.set("x-control-account-id", user.id);
       headers.set("content-type", "application/json");
-      const stub = env.ACCOUNT_CONTROL_PLANE.get(
-        env.ACCOUNT_CONTROL_PLANE.idFromName(`control:user:${user.id}`),
+      const namespace = canonicalControlPlaneNamespace(
+        request.headers.get("x-cmux-app-namespace") ?? undefined,
       );
-      return stub.fetch(new Request(request.url, {
+      if (!namespace) return json({ error: "invalid_client_namespace" }, 400);
+      headers.set("x-cmux-app-namespace", namespace);
+      const init = {
         method: "POST",
         headers,
         body: JSON.stringify(parsed),
-      }));
+      } as const;
+      const responses = await Promise.all(CONTROL_PLANE_SCOPES.map((scope) =>
+        env.ACCOUNT_CONTROL_PLANE.get(
+          env.ACCOUNT_CONTROL_PLANE.idFromName(`control:user:${user.id}:${scope}`),
+        ).fetch(new Request(request.url, init))
+      ));
+      const failed = responses.find((response) => !response.ok);
+      if (failed) return failed;
+      return json({ ok: true });
     }
 
     if (url.pathname === "/v1/connectivity/invalidate") {

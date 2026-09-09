@@ -296,6 +296,7 @@ extension CmxIrohClientRuntime {
             clientNamespace: configuration.clientNamespace,
             tag: configuration.tag,
             platform: .ios,
+            appVersion: configuration.appVersion,
             displayName: configuration.displayName,
             endpointID: expectedEndpointID.endpointID,
             identityGeneration: configuration.identity.generation,

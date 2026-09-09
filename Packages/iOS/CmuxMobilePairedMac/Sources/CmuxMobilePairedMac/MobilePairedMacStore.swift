@@ -22,6 +22,7 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
     static let routeRemovalWildcardEndpoint = "*"
 
     private let dbPath: String
+    private let migrateAppStoreRoutes: Bool
     // `nonisolated(unsafe)` only so the (Swift 6 nonisolated) `deinit` can close
     // the handle. Every other access goes through actor-isolated methods, and
     // the connection itself is opened `SQLITE_OPEN_FULLMUTEX`, so this is safe.
@@ -46,17 +47,25 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
     }
 
     /// Open (creating if needed) the store at the given database URL.
-    /// - Parameter databaseURL: On-disk SQLite file location.
+    /// - Parameters:
+    ///   - databaseURL: On-disk SQLite file location.
+    ///   - migrateAppStoreRoutes: Retire imported non-Tailscale routes once,
+    ///     before this App Store install discovers its own Iroh endpoints.
     /// - Throws: ``MobilePairedMacStoreError`` if the connection cannot be opened.
-    public init(databaseURL: URL) throws {
+    public init(databaseURL: URL, migrateAppStoreRoutes: Bool = false) throws {
         self.dbPath = databaseURL.path
+        self.migrateAppStoreRoutes = migrateAppStoreRoutes
         self.db = try Self.openConnection(path: databaseURL.path)
     }
 
     /// Open the store at ``defaultDatabaseURL(fileManager:)``.
+    /// - Parameter migrateAppStoreRoutes: Enable the App Store route migration.
     /// - Throws: ``MobilePairedMacStoreError`` if the connection cannot be opened.
-    public init() throws {
-        try self.init(databaseURL: Self.defaultDatabaseURL())
+    public init(migrateAppStoreRoutes: Bool = false) throws {
+        try self.init(
+            databaseURL: Self.defaultDatabaseURL(),
+            migrateAppStoreRoutes: migrateAppStoreRoutes
+        )
     }
 
     deinit {
@@ -96,7 +105,55 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
     private func ensureReady() throws {
         guard !didMigrate else { return }
         try runMigrations()
+        if migrateAppStoreRoutes {
+            try migrateAppStoreRoutesIfNeeded()
+        }
         didMigrate = true
+    }
+
+    /// Retire pre-App-Store reconnect routes once, before the first read or
+    /// write. The marker shares the transaction with the cleanup, so a crash
+    /// cannot mark an incomplete migration done or erase newly discovered
+    /// Iroh routes on a later launch. Existing Tailscale trust is not widened.
+    private func migrateAppStoreRoutesIfNeeded() throws {
+        try transaction {
+            try exec("""
+                CREATE TABLE IF NOT EXISTS paired_mac_route_migrations (
+                    name TEXT PRIMARY KEY NOT NULL
+                );
+            """)
+            try exec("""
+                DELETE FROM mac_routes
+                WHERE kind <> 'tailscale'
+                  AND NOT EXISTS (
+                    SELECT 1 FROM paired_mac_route_migrations
+                    WHERE name = 'app-store-tailscale-v1'
+                  );
+            """)
+            try exec("""
+                DELETE FROM paired_macs
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM paired_mac_route_migrations
+                    WHERE name = 'app-store-tailscale-v1'
+                ) AND NOT EXISTS (
+                    SELECT 1 FROM mac_routes
+                    WHERE mac_routes.mac_device_id = paired_macs.mac_device_id
+                      AND mac_routes.owner_key = paired_macs.owner_key
+                );
+            """)
+            try exec("""
+                UPDATE paired_macs
+                SET connection_method = 'tailscale', direct_addresses = NULL
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM paired_mac_route_migrations
+                    WHERE name = 'app-store-tailscale-v1'
+                );
+            """)
+            try exec("""
+                INSERT OR IGNORE INTO paired_mac_route_migrations(name)
+                VALUES ('app-store-tailscale-v1');
+            """)
+        }
     }
 
     private func runMigrations() throws {

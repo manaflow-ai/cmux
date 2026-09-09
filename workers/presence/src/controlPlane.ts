@@ -40,9 +40,61 @@ import { DEFAULT_RETRY_AFTER_SECONDS } from "./retryAfterResponse";
 
 export const CONTROL_PROTOCOL_VERSION = 1;
 
+/**
+ * Return only namespaces issued by a cmux application lane. The control
+ * socket is partitioned before its first protocol frame, so accepting an
+ * arbitrary header value would let a caller allocate an unbounded set of
+ * Durable Objects. Missing and pre-namespace clients share one bounded legacy
+ * compatibility partition.
+ */
+export function canonicalControlPlaneNamespace(value: string | undefined): string | null {
+  const namespace = value?.trim();
+  if (!namespace || namespace === "legacy") return "legacy";
+  if (namespace.length > 255) return null;
+  if (namespace === "com.cmux.app"
+    || /^com\.cmux\.app\.[a-z0-9-]{1,32}$/.test(namespace)) {
+    return namespace;
+  }
+  if (namespace === "mac:com.cmuxterm.app"
+    || namespace === "mac:com.cmuxterm.app.nightly"
+    || namespace === "mac:com.cmuxterm.app.debug"
+    || /^mac:com\.cmuxterm\.app\.nightly\.[a-z0-9-]{1,32}$/.test(namespace)
+    || /^mac:com\.cmuxterm\.app\.debug\.[A-Za-z0-9._-]{1,64}$/.test(namespace)) {
+    return namespace;
+  }
+  if (/^dev\.cmux\.ios\.[A-Za-z0-9._-]{1,64}$/.test(namespace)) return namespace;
+  return null;
+}
+
 /** Mirrors MAX_CONNECTIVITY_SUBSCRIBERS_PER_ACCOUNT: one account's devices are
  * few; a runaway client must not pin unbounded sockets on the account DO. */
 export const MAX_CONTROL_SUBSCRIBERS_PER_ACCOUNT = 32;
+
+export const CONTROL_PLANE_SCOPES = [
+  "app-store-ios",
+  "official-stable-mac",
+  "official-nightly-mac",
+  "development",
+  "legacy",
+] as const;
+
+/** Stable Durable Object partition for a control-plane audience. Product
+ * lanes deliberately receive different objects so retired clients cannot
+ * consume the App Store lane's subscriber or upstream budgets. */
+export function controlPlaneScope(namespace: string | undefined): string {
+  const normalized = namespace?.trim() || "legacy";
+  if (normalized === "com.cmux.app") return "app-store-ios";
+  if (normalized === "mac:com.cmuxterm.app") return "official-stable-mac";
+  if (
+    normalized === "mac:com.cmuxterm.app.nightly"
+    || normalized.startsWith("mac:com.cmuxterm.app.nightly.")
+  ) return "official-nightly-mac";
+  if (/^dev\.cmux\.ios\.[A-Za-z0-9._-]+$/.test(normalized)
+    || /^mac:com\.cmuxterm\.app\.debug(?:\.[A-Za-z0-9._-]+)?$/.test(normalized)) {
+    return "development";
+  }
+  return "legacy";
+}
 
 /** Max bytes of an inbound WS message the DO will parse. Client-controlled
  * input on a live DO, so bounded before JSON.parse (same rationale as the
@@ -99,6 +151,23 @@ const MAX_APP_VERSION_CHARS = 64;
 const MAX_CLIENT_CAPABILITIES = 32;
 const MAX_CLIENT_CAPABILITY_CHARS = 64;
 
+/** The new App Store control-plane partition only exposes public Mac builds
+ * that have confirmed their version. Keep this floor in lockstep with the
+ * client policy in `web/data/mobile-mac-compat.ts`; the DO copy is needed so
+ * the Iroh list itself never hands an App Store client an old endpoint. */
+const APP_STORE_IOS_NAMESPACE = "com.cmux.app";
+const OFFICIAL_STABLE_MAC_NAMESPACE = "mac:com.cmuxterm.app";
+const OFFICIAL_NIGHTLY_MAC_NAMESPACE = "mac:com.cmuxterm.app.nightly";
+const OFFICIAL_NIGHTLY_MAC_NAMESPACE_PREFIX = `${OFFICIAL_NIGHTLY_MAC_NAMESPACE}.`;
+const APP_STORE_MIN_NIGHTLY_BASE = [0, 64, 22] as const;
+const APP_STORE_MIN_NIGHTLY_BUILD = 3_359_013_153_901n;
+/** Mirrors DEVELOPMENT_BUILD_CONSTRAINTS in web/services/iroh/buildCompatibility.ts.
+ * Only the explicitly named DEV tag is constrained; ordinary DEV tags retain
+ * their existing behavior. */
+const DEVELOPMENT_COMPATIBILITY_TEST_TAG = "internal";
+const DEVELOPMENT_MIN_NIGHTLY_BASE = [0, 64, 22] as const;
+const DEVELOPMENT_MIN_NIGHTLY_BUILD = 3_359_013_153_901n;
+
 // ---- Storage keys (all under the account DO's own storage) ----
 
 /** Last account route revision this DO observed (upstream `revision`, or the
@@ -139,6 +208,7 @@ export interface DeviceOverlay {
   appVersion?: string;
   releaseTrack?: ReleaseTrack;
   capabilities?: string[];
+  platform?: "mac" | "ios";
   lastConfirmedAt?: string;
   lastAckedRev?: number;
   deviceId?: string;
@@ -444,7 +514,7 @@ export function decodeControlFrame(value: unknown): DecodedControlFrame | null {
 export type BrokerBinding = Omit<
   Binding,
   "status" | "revoked" | "appVersion" | "releaseTrack" | "capabilities" | "lastConfirmedAt"
->;
+> & { appVersion?: string | null; platform?: "mac" | "ios" };
 
 /** What DIR_KEY stores: broker truth only — no overlay join and no freshness
  * stamps (issuedAt/ttlSeconds are stamped per outbound frame, so a re-stamp
@@ -459,6 +529,125 @@ export interface BrokerDirectoryPayload {
 
 /** The wire directory body minus the per-send freshness stamps. */
 export type WireDirectoryBody = Omit<CTLDirectoryPayload, "issuedAt" | "ttlSeconds">;
+
+type ParsedMacVersion = {
+  base: readonly [number, number, number];
+  nightlyBuild: bigint | null;
+};
+
+/** Parse the Mac hello stamp (`<marketing>[+<bundle build>]`). The marketing
+ * portion is the compatibility contract; the bundle build suffix is retained
+ * by clients for diagnostics but is not used for the nightly floor. */
+function parseMacVersion(value: string | undefined): ParsedMacVersion | null {
+  if (value === undefined) return null;
+  const marketing = value.trim().split("+", 1)[0]?.trim() ?? "";
+  const match = /^(\d+)\.(\d+)\.(\d+)(?:-nightly\.(\d+))?$/.exec(marketing);
+  if (!match) return null;
+  const parts = [match[1], match[2], match[3]].map((part) => Number(part));
+  if (parts.some((part) => !Number.isSafeInteger(part) || part < 0)) return null;
+  let nightlyBuild: bigint | null = null;
+  if (match[4] !== undefined) {
+    try {
+      nightlyBuild = BigInt(match[4]);
+    } catch {
+      return null;
+    }
+  }
+  return {
+    base: [parts[0] ?? 0, parts[1] ?? 0, parts[2] ?? 0],
+    nightlyBuild,
+  };
+}
+
+function compareMacBase(
+  left: readonly [number, number, number],
+  right: readonly [number, number, number],
+): number {
+  for (let index = 0; index < left.length; index += 1) {
+    const difference = (left[index] ?? 0) - (right[index] ?? 0);
+    if (difference !== 0) return difference;
+  }
+  return 0;
+}
+
+/** Whether a binding is safe to expose to the App Store iOS audience. The
+ * audience has a separate DO partition, but this check is still required for
+ * old seeded rows and for broker updates arriving after a socket is open. */
+function appStoreMacVisible(
+  clientNamespace: string,
+  platform: "mac" | "ios" | undefined,
+  overlay: DeviceOverlay | undefined,
+  brokerAppVersion?: string | null,
+): boolean {
+  if (platform !== "mac") return false;
+  if (overlay === undefined) return false;
+  // A broker registration is endpoint-authenticated and carries the same
+  // version stamp as the control hello. It may be visible before the socket
+  // hello materializes the active overlay; legacy registrations have no stamp
+  // and remain hidden.
+  if (overlay.status !== "active" && brokerAppVersion == null) return false;
+  const parsed = parseMacVersion(brokerAppVersion ?? overlay.appVersion);
+  if (parsed === null) return false;
+
+  if (clientNamespace === OFFICIAL_STABLE_MAC_NAMESPACE) {
+    // There is deliberately no stable minimum yet. Until the first stable
+    // release contains the App Store protocol, every stable Mac is hidden.
+    return false;
+  }
+  const isNightly = clientNamespace === OFFICIAL_NIGHTLY_MAC_NAMESPACE
+    || clientNamespace.startsWith(OFFICIAL_NIGHTLY_MAC_NAMESPACE_PREFIX);
+  if (!isNightly || parsed.nightlyBuild === null) return false;
+  const baseComparison = compareMacBase(parsed.base, APP_STORE_MIN_NIGHTLY_BASE);
+  if (baseComparison > 0) return true;
+  if (baseComparison < 0) return false;
+  return parsed.nightlyBuild >= APP_STORE_MIN_NIGHTLY_BUILD;
+}
+
+function developmentMacVisible(
+  recipientNamespace: string,
+  clientNamespace: string,
+  platform: "mac" | "ios" | undefined,
+  overlay: DeviceOverlay | undefined,
+  brokerAppVersion?: string | null,
+): boolean {
+  const tag = /^dev\.cmux\.ios\.([A-Za-z0-9._-]+)$/.exec(recipientNamespace)?.[1];
+  if (tag !== DEVELOPMENT_COMPATIBILITY_TEST_TAG) return true;
+  if (clientNamespace !== `mac:com.cmuxterm.app.debug.${tag}`) return false;
+  if (platform !== "mac") return false;
+  if (overlay === undefined) return false;
+  if (overlay.status !== "active" && brokerAppVersion == null) return false;
+  const parsed = parseMacVersion(brokerAppVersion ?? overlay.appVersion);
+  if (parsed === null || parsed.nightlyBuild === null) return false;
+  const baseComparison = compareMacBase(parsed.base, DEVELOPMENT_MIN_NIGHTLY_BASE);
+  if (baseComparison > 0) return true;
+  if (baseComparison < 0) return false;
+  return parsed.nightlyBuild >= DEVELOPMENT_MIN_NIGHTLY_BUILD;
+}
+
+function recipientMaySeeMac(
+  recipientNamespace: string | undefined,
+  clientNamespace: string,
+  platform: "mac" | "ios" | undefined,
+  overlay: DeviceOverlay | undefined,
+  brokerAppVersion?: string | null,
+): boolean {
+  if (recipientNamespace === APP_STORE_IOS_NAMESPACE) {
+    return appStoreMacVisible(clientNamespace, platform, overlay, brokerAppVersion);
+  }
+  if (recipientNamespace === undefined) return true;
+  return developmentMacVisible(
+    recipientNamespace,
+    clientNamespace,
+    platform,
+    overlay,
+    brokerAppVersion,
+  );
+}
+
+function recipientNeedsFilteredDirectory(namespace: string | undefined): boolean {
+  return namespace === APP_STORE_IOS_NAMESPACE
+    || namespace === `dev.cmux.ios.${DEVELOPMENT_COMPATIBILITY_TEST_TAG}`;
+}
 
 // ---- Server frame builders ----
 
@@ -558,6 +747,7 @@ export function directoryPayloadFromDiscovery(
     const clientNamespace = raw.client_namespace;
     if (typeof bindingId !== "string" || typeof endpointId !== "string"
       || typeof clientNamespace !== "string") continue;
+    const platform = raw.platform === "mac" || raw.platform === "ios" ? raw.platform : undefined;
     let homeRelayUrl: string | null = null;
     if (Array.isArray(raw.path_hints)) {
       for (const hint of raw.path_hints) {
@@ -571,6 +761,8 @@ export function directoryPayloadFromDiscovery(
       bindingId,
       endpointId,
       clientNamespace,
+      ...(platform !== undefined ? { platform } : {}),
+      ...(typeof raw.app_version === "string" ? { appVersion: raw.app_version } : {}),
       deviceId: typeof raw.device_id === "string" ? raw.device_id : null,
       instanceTag: typeof raw.tag === "string" ? raw.tag : null,
       homeRelayUrl,
@@ -1107,6 +1299,7 @@ export class ControlPlaneCore {
       ...(payload.appVersion != null ? { appVersion: payload.appVersion } : {}),
       ...(payload.releaseTrack != null ? { releaseTrack: payload.releaseTrack } : {}),
       ...(payload.capabilities != null ? { capabilities: [...payload.capabilities] } : {}),
+      ...(payload.platform != null ? { platform: payload.platform } : {}),
       ...(payload.deviceId != null ? { deviceId: payload.deviceId } : {}),
       ...(attachment.namespace !== undefined ? { clientNamespace: attachment.namespace } : {}),
     };
@@ -1140,7 +1333,7 @@ export class ControlPlaneCore {
     rev: number,
     broker: BrokerDirectoryPayload,
   ): Promise<void> {
-    const merged = await this.mergedDirectory(broker);
+    const merged = await this.mergedDirectory(broker, attachment.namespace);
     this.sendFrame(socket, attachment, directoryFrame(rev, merged, rfc3339FromMs(this.deps.now())));
     await this.markAckPending(socket, attachment, rev);
   }
@@ -1322,6 +1515,12 @@ export class ControlPlaneCore {
     const frameJson = JSON.stringify(
       hintUpdateFrame(rev, endpointId, homeRelayUrl, rfc3339FromMs(now)),
     );
+    const broker = await this.deps.storage.get<BrokerDirectoryPayload>(DIR_KEY);
+    const hintedBinding = broker?.bindings.find((binding) => binding.endpointId === endpointId);
+    const hintedOverlay = await this.deps.storage.get<DeviceOverlay>(DEV_PREFIX + endpointId);
+    const hintedMacMayBeSeen = hintedBinding?.platform === "mac"
+      && hintedBinding.clientNamespace.startsWith("mac:")
+      && hintedOverlay !== undefined;
     // The announcement is NOT revision-bearing (rev did not move), so it never
     // arms the peers' ack retry ladders; the confirm re-fetch does when the
     // broker revision actually advances.
@@ -1330,6 +1529,13 @@ export class ControlPlaneCore {
       if (!peerAttachment) continue;
       if (peerAttachment.sessionId === attachment.sessionId) continue; // announcer knows its own hint
       if (!this.deliverable(peerAttachment, now)) continue;
+      if (hintedMacMayBeSeen && !recipientMaySeeMac(
+        peerAttachment.namespace,
+        hintedBinding.clientNamespace,
+        hintedBinding.platform,
+        hintedOverlay,
+        hintedBinding.appVersion,
+      )) continue;
       try {
         peer.send(frameJson);
       } catch {
@@ -1360,17 +1566,35 @@ export class ControlPlaneCore {
    * before get a seeded overlay row created; overlay rows whose binding
    * disappeared upstream are kept in storage but not emitted. lastAckedRev is
    * bookkeeping and never emitted. */
-  private async mergedDirectory(broker: BrokerDirectoryPayload): Promise<WireDirectoryBody> {
+  private async mergedDirectory(
+    broker: BrokerDirectoryPayload,
+    recipientNamespace?: string,
+  ): Promise<WireDirectoryBody> {
     const bindings: Binding[] = [];
     const emitted = new Set<string>();
     for (const binding of broker.bindings) {
       const overlay = await this.ensureOverlay(binding.endpointId);
+      if (!recipientMaySeeMac(
+        recipientNamespace,
+        binding.clientNamespace,
+        binding.platform,
+        overlay,
+        binding.appVersion,
+      )) {
+        continue;
+      }
       emitted.add(binding.endpointId);
+      const appVersion = binding.appVersion ?? overlay.appVersion;
+      const {
+        appVersion: _brokerAppVersion,
+        platform: _brokerPlatform,
+        ...bindingWithoutBrokerMetadata
+      } = binding;
       bindings.push({
-        ...binding,
+        ...bindingWithoutBrokerMetadata,
         status: overlay.status,
         revoked: overlay.revoked,
-        ...(overlay.appVersion !== undefined ? { appVersion: overlay.appVersion } : {}),
+        ...(appVersion !== undefined && appVersion !== null ? { appVersion } : {}),
         ...(overlay.releaseTrack !== undefined ? { releaseTrack: overlay.releaseTrack } : {}),
         ...(overlay.capabilities !== undefined ? { capabilities: overlay.capabilities } : {}),
         ...(overlay.lastConfirmedAt !== undefined
@@ -1396,6 +1620,14 @@ export class ControlPlaneCore {
         ? Number.NaN
         : Date.parse(overlay.lastConfirmedAt);
       if (!(confirmedAtMs > cutoffMs)) continue;
+      if (!recipientMaySeeMac(
+        recipientNamespace,
+        overlay.clientNamespace ?? "legacy",
+        overlay.platform,
+        overlay,
+      )) {
+        continue;
+      }
       bindings.push({
         bindingId: `ctl-hello:${endpointId}`,
         clientNamespace: overlay.clientNamespace ?? "legacy",
@@ -1424,16 +1656,22 @@ export class ControlPlaneCore {
     await this.deps.storage.put(REV_KEY, rev);
     const broker = await this.deps.storage.get<BrokerDirectoryPayload>(DIR_KEY);
     if (broker === undefined) return rev; // no directory yet; nothing to broadcast
-    const merged = await this.mergedDirectory(broker);
-    const frameJson = JSON.stringify(directoryFrame(rev, merged, rfc3339FromMs(this.deps.now())));
     const now = this.deps.now();
+    const mergedByNamespace = new Map<string, Promise<WireDirectoryBody>>();
     for (const socket of this.deps.sockets()) {
       const peer = socket.getAttachment();
       if (!peer) continue;
       if (excludeSessionId !== null && peer.sessionId === excludeSessionId) continue;
       if (!this.deliverable(peer, now)) continue;
       try {
-        socket.send(frameJson);
+        const key = peer.namespace ?? "__unscoped__";
+        let mergedPromise = mergedByNamespace.get(key);
+        if (mergedPromise === undefined) {
+          mergedPromise = this.mergedDirectory(broker, peer.namespace);
+          mergedByNamespace.set(key, mergedPromise);
+        }
+        const merged = await mergedPromise;
+        socket.send(JSON.stringify(directoryFrame(rev, merged, rfc3339FromMs(now))));
       } catch {
         continue; // Socket already gone; hibernation cleans it up.
       }
@@ -1550,7 +1788,6 @@ export class ControlPlaneCore {
     const now = this.deps.now();
     const rev = (await this.deps.storage.get<number>(REV_KEY)) ?? 0;
     const broker = await this.deps.storage.get<BrokerDirectoryPayload>(DIR_KEY);
-    let frameJson: string | null = null;
     for (const socket of live) {
       const attachment = socket.getAttachment();
       if (!attachment || attachment.ackRetry === undefined) continue;
@@ -1563,13 +1800,9 @@ export class ControlPlaneCore {
       }
       if (broker !== undefined
         && (attachment.expiresAt === undefined || attachment.expiresAt > now)) {
-        if (frameJson === null) {
-          frameJson = JSON.stringify(
-            directoryFrame(rev, await this.mergedDirectory(broker), rfc3339FromMs(now)),
-          );
-        }
         try {
-          socket.send(frameJson);
+          const merged = await this.mergedDirectory(broker, attachment.namespace);
+          socket.send(JSON.stringify(directoryFrame(rev, merged, rfc3339FromMs(now))));
         } catch {
           // Socket already gone; hibernation cleans it up.
         }
@@ -1706,16 +1939,29 @@ export class ControlPlaneCore {
     const delta = directoryDelta(previous, next);
     if (delta.kind === "none") return;
     const now = this.deps.now();
-    const frames = delta.kind === "full"
-      ? [JSON.stringify(directoryFrame(rev, await this.mergedDirectory(next), rfc3339FromMs(now)))]
-      : delta.updates.map((update) => JSON.stringify(
-        hintUpdateFrame(rev, update.endpointId, update.homeRelayUrl, update.updatedAt),
-      ));
+    const mergedByNamespace = new Map<string, Promise<WireDirectoryBody>>();
     for (const socket of this.deps.sockets()) {
       const attachment = socket.getAttachment();
       if (!attachment) continue;
       if (excludeSessionId !== null && attachment.sessionId === excludeSessionId) continue;
       if (!this.deliverable(attachment, now)) continue;
+      // A filtered App Store directory cannot safely consume a raw hint delta:
+      // the hinted endpoint may be hidden, newly eligible, or newly ineligible.
+      // Send a complete scoped snapshot for that audience instead.
+      let frames: string[];
+      if (recipientNeedsFilteredDirectory(attachment.namespace) || delta.kind === "full") {
+        const key = attachment.namespace ?? "__unscoped__";
+        let mergedPromise = mergedByNamespace.get(key);
+        if (mergedPromise === undefined) {
+          mergedPromise = this.mergedDirectory(next, attachment.namespace);
+          mergedByNamespace.set(key, mergedPromise);
+        }
+        frames = [JSON.stringify(directoryFrame(rev, await mergedPromise, rfc3339FromMs(now)))];
+      } else {
+        frames = delta.updates.map((update) => JSON.stringify(
+          hintUpdateFrame(rev, update.endpointId, update.homeRelayUrl, update.updatedAt),
+        ));
+      }
       let delivered = false;
       for (const json of frames) {
         try {

@@ -43,6 +43,7 @@ actor LivenessHostRouter {
         continuation: CheckedContinuation<Void, Never>
     )] = []
     private var hostStatusRequestCount = 0
+    private var macAppVersion: String?
     private var heldHostStatusRequestNumbers: Set<Int> = []
     private var delayedHostStatusRequestNumbers: Set<Int> = []
     private var omittedHostIdentityResponsesRemaining = 0
@@ -306,12 +307,14 @@ actor LivenessHostRouter {
         deviceID: String?,
         instanceTag: String?,
         displayName: String? = nil,
-        clientNamespace: String? = "mac:com.cmuxterm.app.debug"
+        clientNamespace: String? = "mac:com.cmuxterm.app.debug",
+        appVersion: String? = nil
     ) {
         macDeviceID = deviceID
         macInstanceTag = instanceTag
         macClientNamespace = clientNamespace
         macDisplayName = displayName
+        macAppVersion = appVersion
     }
 
     func omitNextHostStatusIdentities(count: Int = 1) {
@@ -596,6 +599,7 @@ actor LivenessHostRouter {
                     result["mac_client_namespace"] = macClientNamespace
                 }
                 if let macDisplayName { result["mac_display_name"] = macDisplayName }
+                if let macAppVersion { result["mac_app_version"] = macAppVersion }
             }
             return try? Self.resultFrame(id: id, result: result)
         case "mobile.events.subscribe":

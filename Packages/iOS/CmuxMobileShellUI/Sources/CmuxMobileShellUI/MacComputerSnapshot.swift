@@ -25,6 +25,9 @@ struct MacComputerSnapshot: Equatable, Identifiable {
     let presence: DeviceTreePresence?
     /// The host's build channel label from its heartbeat.
     var buildLabel: String?
+    /// The host's reported version stamp, shown on DEV rows so compatibility
+    /// dogfood can verify exactly which Mac build produced a row.
+    var reportedVersion: String? = nil
     /// The reachable route the phone would dial. Rows inside a route-kind
     /// section override this with that kind's own endpoint.
     var routeDescription: String?

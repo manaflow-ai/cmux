@@ -389,6 +389,38 @@ let sortKey: @Sendable (SyncWireRecord) -> Double = { DeviceSyncFacade.sortKey(f
 }
 
 @Suite struct PairedMacMigrationTests {
+    @Test func appStoreProvisionalMigrationDoesNotSeedIrohRoutes() async throws {
+        let (store, directory) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let tailscale = try CmxAttachRoute(
+            id: "tailscale", kind: .tailscale,
+            endpoint: .hostPort(host: "100.64.0.20", port: 8443)
+        )
+        let iroh = try CmxAttachRoute(
+            id: "iroh", kind: .iroh,
+            endpoint: .peer(
+                identity: CmxIrohPeerIdentity(endpointID: String(repeating: "a", count: 64)),
+                pathHints: []
+            )
+        )
+        let macs = [("mixed", [tailscale, iroh]), ("iroh-only", [iroh])].map { id, routes in
+            MobilePairedMac(
+                macDeviceID: id, displayName: id, routes: routes,
+                createdAt: Date(), lastSeenAt: Date(), isActive: false, stackUserID: "acct-1"
+            )
+        }
+        let migration = PairedMacMigration(
+            pairedStore: FakePairedStore(macs: macs), syncStore: store,
+            bundleIdentifier: "com.cmux.app"
+        )
+        #expect(try await migration.runIfNeeded(accountID: "acct-1", teamID: TEAM) == 1)
+        let rows = try await store.liveRecords(teamID: TEAM, collection: COLL)
+        #expect(rows.count == 1)
+        let device = try JSONDecoder().decode(SyncedDeviceRecord.self, from: #require(rows.first).payloadJSON)
+        #expect(device.instances.flatMap(\.routes) == [tailscale])
+        #expect(try await migration.runIfNeeded(accountID: "acct-1", teamID: TEAM) == 0)
+    }
+
     /// A minimal in-memory MobilePairedMacStoring double for the migration test.
     actor FakePairedStore: MobilePairedMacStoring {
     func authorizeUserTailscaleRoutes(

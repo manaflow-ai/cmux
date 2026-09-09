@@ -309,6 +309,7 @@ function makeLiveRepository(): IrohRepositoryShape {
 
     consumeChallengeAndRegister: (input) => repositoryEffect("register_binding", async () => {
       const db = cloudDb();
+      // oxlint-disable-next-line complexity -- Registration keeps challenge validation, slot locking, and binding lifecycle atomic.
       return await db.transaction(async (tx) => {
         const accountPrivatePathHints = [...input.payload.pathHints];
         await assertIrohUserMutationAllowed(tx, input.userId);
@@ -459,6 +460,7 @@ function makeLiveRepository(): IrohRepositoryShape {
               displayName: input.payload.displayName ?? null,
               pairingEnabled: input.payload.pairingEnabled,
               capabilities: [...input.payload.capabilities],
+              appVersion: input.payload.appVersion ?? null,
               directPortV4: input.payload.directPorts?.ipv4 ?? null,
               directPortV6: input.payload.directPorts?.ipv6 ?? null,
               pathHints: accountPrivatePathHints,
@@ -521,6 +523,7 @@ function makeLiveRepository(): IrohRepositoryShape {
             identityGeneration: input.payload.identityGeneration,
             pairingEnabled: input.payload.pairingEnabled,
             capabilities: [...input.payload.capabilities],
+            appVersion: input.payload.appVersion ?? null,
             directPortV4: input.payload.directPorts?.ipv4 ?? null,
             directPortV6: input.payload.directPorts?.ipv6 ?? null,
             pathHints: accountPrivatePathHints,

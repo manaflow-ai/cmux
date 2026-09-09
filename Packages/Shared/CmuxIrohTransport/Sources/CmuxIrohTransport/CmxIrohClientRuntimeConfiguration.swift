@@ -17,6 +17,10 @@ public struct CmxIrohClientRuntimeConfiguration: Equatable, Sendable {
     /// The release channel or tagged-build scope registered with the broker.
     public let tag: String
 
+    /// `<CFBundleShortVersionString>+<CFBundleVersion>` reported by this iOS
+    /// client. Nil is retained for pre-rollout clients.
+    public let appVersion: String?
+
     /// The optional user-visible device name.
     public let displayName: String?
 
@@ -66,6 +70,7 @@ public struct CmxIrohClientRuntimeConfiguration: Equatable, Sendable {
         appInstanceID: String,
         clientNamespace: String,
         tag: String,
+        appVersion: String? = nil,
         displayName: String?,
         identity: CmxIrohIdentityMaterial,
         capabilities: [String],
@@ -79,6 +84,7 @@ public struct CmxIrohClientRuntimeConfiguration: Equatable, Sendable {
         self.appInstanceID = appInstanceID.lowercased()
         self.clientNamespace = clientNamespace
         self.tag = tag
+        self.appVersion = appVersion
         self.displayName = displayName
         self.identity = identity
         self.capabilities = capabilities

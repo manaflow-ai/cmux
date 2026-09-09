@@ -2,6 +2,7 @@
 struct MobileMacCompatRemoteEntry: Decodable {
     let minIOSVersion: String
     let maxIOSVersion: String?
-    let stableMinVersion: String
+    /// Nil means no compatible stable Mac release exists for this tier yet.
+    let stableMinVersion: String?
     let nightly: MobileMacCompatRemoteNightly?
 }

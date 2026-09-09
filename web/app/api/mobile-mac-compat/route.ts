@@ -77,7 +77,9 @@ function validateEntry(entry: MobileMacCompatEntry, path: string): void {
       );
     }
   }
-  version(entry.stableMinVersion, `${path}.stableMinVersion`);
+  if (entry.stableMinVersion !== undefined && entry.stableMinVersion !== null) {
+    version(entry.stableMinVersion, `${path}.stableMinVersion`);
+  }
   if (entry.nightly !== undefined) {
     version(entry.nightly.minBaseVersion, `${path}.nightly.minBaseVersion`);
     build(entry.nightly.minBuild, `${path}.nightly.minBuild`);

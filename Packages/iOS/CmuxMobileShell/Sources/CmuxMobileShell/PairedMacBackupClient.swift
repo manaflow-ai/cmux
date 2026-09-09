@@ -1,5 +1,6 @@
 import CMUXMobileCore
 public import Foundation
+public import CMUXMobileCore
 internal import CmuxMobilePairedMac
 import os
 
@@ -15,6 +16,7 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
     private let teamIDProvider: @Sendable () async -> String?
     private let clientScopeProvider: @Sendable () async -> String?
     private let legacyClientScopeProvider: (@Sendable () async -> String?)?
+    private let restoreRouteFilter: (@Sendable (CmxAttachRoute) -> Bool)?
     private let session: URLSession
     private let requestTimeout: TimeInterval
     private let migrationDefaults: UserDefaults
@@ -22,12 +24,15 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
     private let retryAfterGate = CmxRetryAfterGate()
 
     /// Create a backup client for one presence service base URL and token source.
+    /// `restoreRouteFilter` limits routes imported from both current and legacy
+    /// backups. App Store uses Tailscale only; Iroh comes from live discovery.
     public init(
         serviceBaseURL: String,
         tokenSource: PresenceTokenSource,
         teamIDProvider: @escaping @Sendable () async -> String? = { nil },
         clientScopeProvider: @escaping @Sendable () async -> String? = { nil },
         legacyClientScopeProvider: (@Sendable () async -> String?)? = nil,
+        restoreRouteFilter: (@Sendable (CmxAttachRoute) -> Bool)? = nil,
         session: sending URLSession = .shared,
         requestTimeout: TimeInterval = 5,
         migrationDefaults: UserDefaults = .standard,
@@ -38,6 +43,7 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
         self.teamIDProvider = teamIDProvider
         self.clientScopeProvider = clientScopeProvider
         self.legacyClientScopeProvider = legacyClientScopeProvider
+        self.restoreRouteFilter = restoreRouteFilter
         self.session = session
         self.requestTimeout = requestTimeout
         self.migrationDefaults = migrationDefaults
@@ -347,8 +353,19 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
             ) else {
                 return nil
             }
+            var snapshot = response.snapshot
+            if let restoreRouteFilter {
+                // Filter both collections before reconciliation or restore.
+                // The current collection may itself contain an earlier import
+                // of legacy Iroh routes; it is not live backend authorization.
+                snapshot.records = snapshot.records.compactMap { record in
+                    var filtered = record
+                    filtered.routes = record.routes.filter(restoreRouteFilter)
+                    return filtered.routes.isEmpty ? nil : filtered
+                }
+            }
             return PairedMacFetchedSnapshot(
-                snapshot: response.snapshot,
+                snapshot: snapshot,
                 revision: response.revision
             )
         } catch {

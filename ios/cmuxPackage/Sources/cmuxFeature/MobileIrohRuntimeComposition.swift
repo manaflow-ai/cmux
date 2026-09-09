@@ -211,6 +211,7 @@ public final class MobileIrohRuntimeComposition:
     private let deviceID: @Sendable () async -> String?
     private let clientNamespace: String
     private let tag: String
+    private let appVersion: String?
     private let discoveryCompatibilityPolicy: MobileMacBuildCompatibilityPolicy?
     private let now: @Sendable () -> Date
     private let startNetworkPathObservation: @Sendable (
@@ -445,6 +446,7 @@ public final class MobileIrohRuntimeComposition:
                 infoDictionary: infoDictionary,
                 bundleIdentifier: bundleIdentifier
             ),
+            appVersion: Self.appVersionStamp(infoDictionary: infoDictionary),
             discoveryCompatibilityPolicy: discoveryCompatibilityPolicy,
             now: { Date() },
             lanPeerDiscovery: lanPeerDiscovery,
@@ -490,6 +492,7 @@ public final class MobileIrohRuntimeComposition:
         deviceID: @escaping @Sendable () async -> String?,
         clientNamespace: String = "legacy",
         tag: String,
+        appVersion: String? = nil,
         discoveryCompatibilityPolicy: MobileMacBuildCompatibilityPolicy? = nil,
         now: @escaping @Sendable () -> Date,
         connectionReadiness: MobileIrohConnectionReadinessOwner =
@@ -530,6 +533,7 @@ public final class MobileIrohRuntimeComposition:
         self.deviceID = deviceID
         self.clientNamespace = clientNamespace
         self.tag = tag
+        self.appVersion = appVersion
         self.discoveryCompatibilityPolicy = discoveryCompatibilityPolicy
         self.now = now
         self.connectionReadiness = connectionReadiness
@@ -1978,6 +1982,7 @@ public final class MobileIrohRuntimeComposition:
             appInstanceID: appInstanceID,
             clientNamespace: clientNamespace,
             tag: tag,
+            appVersion: appVersion,
             displayName: nil,
             identity: identity,
             capabilities: Self.capabilities,
@@ -2447,6 +2452,16 @@ public final class MobileIrohRuntimeComposition:
         }
         let value = String(normalized)
         return value.isEmpty ? "default" : value
+    }
+
+    private static func appVersionStamp(infoDictionary: [String: Any]?) -> String? {
+        let short = (infoDictionary?["CFBundleShortVersionString"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let short, !short.isEmpty else { return nil }
+        let build = (infoDictionary?["CFBundleVersion"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let build, !build.isEmpty else { return short }
+        return "\(short)+\(build)"
     }
 
     static func resolvedBrokerBaseURL(

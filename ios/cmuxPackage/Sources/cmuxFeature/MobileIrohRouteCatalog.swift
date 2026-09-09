@@ -172,6 +172,7 @@ public actor MobileIrohRouteCatalog {
                 deviceID: identity.macDeviceID,
                 displayName: binding.displayName,
                 instanceTag: identity.instanceTag ?? "",
+                appVersion: binding.appVersion,
                 routes: [route],
                 lastSeenAt: timestampParser.parse(binding.lastSeenAt),
                 capabilities: binding.capabilities,

@@ -5,6 +5,54 @@ import Testing
 @testable import CmuxMobilePairedMac
 
 @Suite struct MobilePairedMacStoreTests {
+    @Test func appStoreMigrationKeepsOnlyTailscaleAndRunsOnce() async throws {
+        let (legacy, directory) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let tailscale = try tailscaleRoute(host: "100.64.0.20")
+        let iroh = try irohRoute()
+        for (id, routes) in [("mixed", [tailscale, iroh]), ("iroh-only", [iroh])] {
+            try await legacy.upsert(
+                macDeviceID: id, displayName: id, routes: routes,
+                markActive: id == "mixed", stackUserID: "user-1", now: Date()
+            )
+        }
+        try await legacy.setCustomization(
+            macDeviceID: "mixed", customName: "Work Mac", customColor: "palette:2",
+            customIcon: "desktopcomputer", stackUserID: "user-1", now: Date()
+        )
+        let url = directory.appendingPathComponent("paired-macs.sqlite3")
+        let appStore = try MobilePairedMacStore(databaseURL: url, migrateAppStoreRoutes: true)
+        let migrated = try await appStore.loadAll(stackUserID: "user-1")
+        #expect(migrated.count == 1)
+        #expect(migrated.first?.routes == [tailscale])
+        #expect(migrated.first?.customName == "Work Mac")
+        #expect(migrated.first?.isActive == true)
+        #expect(migrated.first?.connectionMethodRawValue == "tailscale")
+        #expect(migrated.first?.legacyTailscaleRoutes == nil)
+
+        // A new backend-authorized route must survive subsequent launches.
+        try await appStore.upsert(
+            macDeviceID: "mixed", displayName: "Work Mac", routes: [tailscale, iroh],
+            markActive: true, stackUserID: "user-1", now: Date()
+        )
+        let reopened = try MobilePairedMacStore(databaseURL: url, migrateAppStoreRoutes: true)
+        #expect(try await reopened.activeMac(stackUserID: "user-1")?.routes.contains(iroh) == true)
+    }
+
+    @Test func ordinaryBuildDoesNotRetireSavedIrohRoutes() async throws {
+        let (store, directory) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let iroh = try irohRoute()
+        try await store.upsert(
+            macDeviceID: "mac", displayName: "Mac", routes: [iroh],
+            markActive: true, stackUserID: "user-1", now: Date()
+        )
+        let reopened = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
+        )
+        #expect(try await reopened.activeMac(stackUserID: "user-1")?.routes == [iroh])
+    }
+
     private func makeStore() throws -> (MobilePairedMacStore, URL) {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
