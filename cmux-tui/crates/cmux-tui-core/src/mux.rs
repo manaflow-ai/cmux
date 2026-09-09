@@ -2393,7 +2393,9 @@ impl Mux {
         let next = state
             .workspaces
             .iter()
-            .filter_map(|workspace| workspace.name.strip_prefix("workspace-")?.parse::<usize>().ok())
+            .filter_map(|workspace| {
+                workspace.name.strip_prefix("workspace-")?.parse::<usize>().ok()
+            })
             .max()
             .unwrap_or(0)
             .saturating_add(1);

@@ -1,16 +1,13 @@
 import CmuxFoundation
 import Foundation
-
 /// One cloud machine's resources: its cmux-tui terminals (over the headless link), its
 /// noVNC screen, and its forwarded ports. Terminals live in the machine's cmux-tui
 /// session, so a local pane closing never touches them (only local browser preparation is cancelled).
 @MainActor
 final class CmuxTuiSurfaceProvider: SurfaceProvider {
-
     let machineID: String
     var machine: SurfaceMachineID { .cloud(machineID) }
     private(set) var info: SurfaceMachineInfo
-
     private var summary: VMSummary
     /// This machine's notification sync: VM rows in, local notifications and
     /// `notification.ack` round trips out. Fed after every accepted state.
@@ -96,14 +93,11 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         case workspace(String)
         case tab(String)
     }
-
     private struct PendingRemoteRename {
         var name: String
         var receipt: CloudVMCursor
     }
-
     private var pendingRemoteRenames: [PendingRemoteRenameKey: PendingRemoteRename] = [:]
-
     init(
         summary: VMSummary,
         links: CloudMachineLinkManager,
@@ -118,16 +112,13 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         info = Self.info(from: summary, linkState: summary.status == "running" ? .connecting : .asleep, linkError: nil, stats: nil)
         installNotificationSync()
     }
-
     var isAwake: Bool { summary.status == "running" }
-
     /// Port rows are openable only when the machine advertises a preview
     /// capability or has the private route used by Freestyle.
     var capabilities: VMCapabilities { summary.capabilities }
     var supportsPortPreviews: Bool {
         capabilities.ports || summary.preferredPrivateAddress != nil
     }
-
     func update(summary: VMSummary) {
         guard isRegisteredInCatalog() else { return }
         refreshGeneration &+= 1
@@ -151,7 +142,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             catalog.updateMachine(info, from: self)
         }
     }
-
     func stop() {
         lifecycleGeneration &+= 1
         for task in browserPaneTasks.values { task.cancel() }
@@ -184,33 +174,26 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         pendingRemoteRenames.removeAll()
         acceptedCloudGenerations.removeAll()
     }
-
     /// Whether this provider is still registered for its machine. Suspended
     /// network work must not write through a replacement provider.
     func isRegisteredInCatalog() -> Bool {
         guard let current = catalog.provider(for: machine) else { return false }
         return ObjectIdentifier(current) == ObjectIdentifier(self)
     }
-
     func isCurrentLifecycleGeneration(_ generation: UInt64) -> Bool {
         lifecycleGeneration == generation
     }
-
     /// The generation to capture before detached work that touches panes.
     var currentLifecycleGeneration: UInt64 { lifecycleGeneration }
-
     private func isCurrentRefresh(lifecycle: UInt64, refresh: UInt64) -> Bool {
         lifecycleGeneration == lifecycle
             && refreshGeneration == refresh
             && isRegisteredInCatalog()
     }
-
     // MARK: - SurfaceProvider
-
     func refresh() async {
         await refresh(force: false)
     }
-
     /// Re-syncs from the machine. A sleeping machine is never woken to be listed: it keeps
     /// its screen (opening it wakes the machine) and nothing else.
     @discardableResult

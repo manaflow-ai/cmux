@@ -41,7 +41,6 @@ struct CloudTreeOneMachineManyWorkspacesTests {
             label: "Big Machine"
         )
     }
-
     private func info(
         workspaces: [SurfaceRemoteWorkspace],
         hasDesktop: Bool = false,
