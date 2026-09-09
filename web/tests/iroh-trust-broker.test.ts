@@ -529,7 +529,9 @@ describe("Iroh trust broker registration", () => {
     const replay = makeFixture();
     const request = await replay.signedRegistration();
     await Effect.runPromise(replay.broker.register(USER_A, request, NOW));
-    await expectEffectFailure(replay.broker.register(USER_A, request, NOW), "IrohConflictError");
+    // A consumed challenge is deleted with its registration, so a replay of
+    // the same signed request reads as an unknown challenge.
+    await expectEffectFailure(replay.broker.register(USER_A, request, NOW), "IrohNotFoundError");
   });
 
   test("re-keys the slot onto a fresh binding id when the endpoint rotates", async () => {
@@ -2004,7 +2006,7 @@ class MemoryRepository implements IrohRepositoryShape {
       existing.platform === input.payload.platform &&
       existing.identityGeneration === input.payload.identityGeneration
     ) {
-      challenge.consumedAt = input.now;
+      this.challenges.splice(this.challenges.indexOf(challenge), 1);
       existing.appInstanceId = input.payload.appInstanceId;
       existing.platform = input.payload.platform;
       existing.identityGeneration = input.payload.identityGeneration;
@@ -2060,7 +2062,7 @@ class MemoryRepository implements IrohRepositoryShape {
       updatedAt: input.now,
       lastSeenAt: input.now,
     });
-    challenge.consumedAt = input.now;
+    this.challenges.splice(this.challenges.indexOf(challenge), 1);
     this.bindings.push(inserted);
     if (!existing) {
       this.lanGenerations.set(
