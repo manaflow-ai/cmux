@@ -438,8 +438,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
     }
 
     func testCoderouterUnknownVerbStillPassesThroughToTheInstalledCLI() throws {
-        // With an empty PATH the passthrough cannot find `coderouter`/`cr`; the
-        // point is that the socket is never consulted for a non-cmux verb.
+        // With an empty PATH and an empty HOME (the passthrough also looks in
+        // the installer's ~/.coderouter/bin) there is no `coderouter`/`cr` to
+        // run; the point is that the socket is never consulted for a non-cmux
+        // verb.
         let emptyPath = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-empty-path-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: emptyPath, withIntermediateDirectories: true)
@@ -448,7 +450,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let (result, state) = try runCoderouterCLI(
             ["coderouter", "accounts"],
             socketName: "coderouter-passthrough",
-            extraEnvironment: ["PATH": emptyPath.path],
+            extraEnvironment: [
+                "PATH": emptyPath.path,
+                "HOME": emptyPath.path,
+                "CFFIXED_USER_HOME": emptyPath.path,
+            ],
             waitForSocket: false
         ) { _, _ in nil }
 

@@ -21,6 +21,34 @@ struct CodexAppServerSessionTests {
         }
     }
 
+    /// Lets a just-created `Task` reach its first suspension point on the main
+    /// actor before the test continues. `submit` runs on the main actor, so a
+    /// test that calls it right after spawning another submit would otherwise
+    /// run first and steal the single queue slot, then wait forever for a thread
+    /// the test only starts later.
+    private func settleSpawnedTasks() async {
+        for _ in 0..<4 {
+            await Task.yield()
+        }
+    }
+
+    /// After the initialize response the session sends `initialized` and then
+    /// `thread/start` from a spawned main-actor task. A test that feeds the
+    /// thread/start response before that request exists has its response dropped
+    /// as unknown, after which every submit waits for a thread forever. Wait for
+    /// the request (or an already-started thread) before continuing.
+    private func waitForThreadStartRequest(_ session: CodexAppServerSession) async {
+        var spins = 0
+        while !session.isAwaitingThreadStart, !session.hasThread, spins < 10_000 {
+            spins += 1
+            await Task.yield()
+        }
+        #expect(
+            session.isAwaitingThreadStart || session.hasThread,
+            "Codex session never requested a thread after the initialize response"
+        )
+    }
+
     @Test
     func testOpenCodeAuthHeaderMatchesServerEnvironment() {
         expectNil(OpenCodeServerAuth(environment: [:]))
@@ -735,7 +763,7 @@ struct CodexAppServerSessionTests {
         session.consumeStdout(
             #"{"id":1,"result":{"userAgent":"codex","codexHome":"/tmp","platformFamily":"unix","platformOs":"macos"}}"#
                 + "\n")
-        await Task.yield()
+        await waitForThreadStartRequest(session)
         expectEqual(jsonLine(sentLines[1])["method"] as? String, "initialized")
 
         let threadStart = jsonLine(sentLines[2])
@@ -778,6 +806,7 @@ struct CodexAppServerSessionTests {
 
         try await session.start()
         let submitTask = Task { try await session.submit("first prompt") }
+        await settleSpawnedTasks()
         await expectThrowsErrorAsync {
             try await session.submit("second prompt")
         }
@@ -785,7 +814,7 @@ struct CodexAppServerSessionTests {
         session.consumeStdout(
             #"{"id":1,"result":{"userAgent":"codex","codexHome":"/tmp","platformFamily":"unix","platformOs":"macos"}}"#
                 + "\n")
-        await Task.yield()
+        await waitForThreadStartRequest(session)
         session.consumeStdout(#"{"id":2,"result":{"thread":{"id":"thread-1"}}}"# + "\n")
         try await submitTask.value
 
@@ -826,7 +855,7 @@ struct CodexAppServerSessionTests {
         session.consumeStdout(
             #"{"id":1,"result":{"userAgent":"codex","codexHome":"/tmp","platformFamily":"unix","platformOs":"macos"}}"#
                 + "\n")
-        await Task.yield()
+        await waitForThreadStartRequest(session)
         session.consumeStdout(#"{"id":2,"result":{"thread":{"id":"thread-1"}}}"# + "\n")
         try await session.submit("please review", permissionMode: .autoReview)
 
@@ -854,7 +883,7 @@ struct CodexAppServerSessionTests {
         session.consumeStdout(
             #"{"id":1,"result":{"userAgent":"codex","codexHome":"/tmp","platformFamily":"unix","platformOs":"macos"}}"#
                 + "\n")
-        await Task.yield()
+        await waitForThreadStartRequest(session)
         session.consumeStdout(#"{"id":2,"result":{"thread":{"id":"thread-1"}}}"# + "\n")
         try await session.submit("use config", permissionMode: .custom)
 
@@ -882,7 +911,7 @@ struct CodexAppServerSessionTests {
         session.consumeStdout(
             #"{"id":1,"result":{"userAgent":"codex","codexHome":"/tmp","platformFamily":"unix","platformOs":"macos"}}"#
                 + "\n")
-        await Task.yield()
+        await waitForThreadStartRequest(session)
         session.consumeStdout(#"{"id":2,"result":{"thread":{"id":"thread-1"}}}"# + "\n")
         try await session.submit("use full access", permissionMode: .fullAccess)
         session.consumeStdout(#"{"method":"turn/completed","params":{"threadId":"thread-1"}}"# + "\n")
@@ -921,13 +950,16 @@ struct CodexAppServerSessionTests {
         session.consumeStdout(
             #"{"id":1,"result":{"userAgent":"codex","codexHome":"/tmp","platformFamily":"unix","platformOs":"macos"}}"#
                 + "\n")
-        await Task.yield()
+        await waitForThreadStartRequest(session)
         session.consumeStdout(#"{"id":2,"result":{"thread":{"id":"thread-1"}}}"# + "\n")
 
         let firstSubmit = Task { try await session.submit("first prompt") }
-        while pendingTurnWrite == nil {
+        var spins = 0
+        while pendingTurnWrite == nil, spins < 100_000 {
+            spins += 1
             await Task.yield()
         }
+        #expect(pendingTurnWrite != nil, "turn/start write never became pending")
 
         await expectThrowsErrorAsync {
             try await session.submit("second prompt")
@@ -956,7 +988,7 @@ struct CodexAppServerSessionTests {
         session.consumeStdout(
             #"{"id":1,"result":{"userAgent":"codex","codexHome":"/tmp","platformFamily":"unix","platformOs":"macos"}}"#
                 + "\n")
-        await Task.yield()
+        await waitForThreadStartRequest(session)
         session.consumeStdout(#"{"id":2,"result":{"thread":{"id":"thread-1"}}}"# + "\n")
         try await session.submit("default prompt", permissionMode: .standard)
         session.consumeStdout(
@@ -1167,7 +1199,7 @@ struct CodexAppServerSessionTests {
 
         try await session.start()
         session.consumeStdout(#"{"id":1,"result":{}}"# + "\n")
-        await Task.yield()
+        await waitForThreadStartRequest(session)
         expectEqual(jsonLine(sentLines[2])["method"] as? String, "thread/start")
 
         let submitTask = Task { try await session.submit("queued prompt") }

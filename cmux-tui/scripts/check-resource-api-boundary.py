@@ -3301,6 +3301,12 @@ def _scan_region(
     for match in IDENTIFIER_RE.finditer(region):
         parts = _identifier_parts(match.group(0))
         if "surface" in parts or "surfaces" in parts:
+            # `cmux notify --surface` keeps the macOS CLI's flag name so a
+            # script written for a local terminal runs unchanged inside a
+            # machine. The public resource vocabulary is still terminal and
+            # browser; only the dash-prefixed compatibility flag is exempt.
+            if match.group(0) == "surface" and region[max(0, match.start() - 2):match.start()] == "--":
+                continue
             offset = start + match.start()
             diagnostics.append(
                 _diagnostic_at(

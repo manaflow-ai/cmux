@@ -129,6 +129,20 @@ struct CloudTuiCommandLine: Sendable {
         return arguments
     }
 
+    /// `notification ack --client <id> <notification-id>…` (spec `notification.ack`):
+    /// records this Mac's reads on the machine. The idempotency key is minted once
+    /// per batch by the sync and reused on every retry, so a retried ack replays the
+    /// committed result instead of a second revision.
+    static func notificationAckArguments(
+        socketPath: String,
+        clientID: String,
+        notificationIDs: [String],
+        idempotencyKey: String
+    ) -> [String] {
+        ["--socket", socketPath, "--json", "--idempotency-key", idempotencyKey,
+         "notification", "ack", "--client", clientID] + notificationIDs
+    }
+
     /// `terminal <term_id> write --text <text>` (spec `terminal.input.write`): the bytes
     /// land on the PTY as typed; no newline is added, send `keys enter` for that.
     static func writeArguments(socketPath: String, terminalID: String, text: String) -> [String] {

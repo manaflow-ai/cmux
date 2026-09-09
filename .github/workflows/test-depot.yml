@@ -1,6 +1,26 @@
 name: Run tests on Depot
 
 on:
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        default: ""
+      skip_unit_tests:
+        type: boolean
+        default: false
+      skip_ui_tests:
+        type: boolean
+        default: true
+      unit_test_suites:
+        type: string
+        default: ""
+      test_filter:
+        type: string
+        default: ""
+      test_timeout:
+        type: string
+        default: "120"
   workflow_dispatch:
     inputs:
       ref:
@@ -17,6 +37,10 @@ on:
         required: false
         default: false
         type: boolean
+      unit_test_suites:
+        description: "Comma-separated unit suites; empty runs the full unit target"
+        required: false
+        default: ""
       test_filter:
         description: "Run specific UI test class (e.g. UpdatePillUITests) or empty for all"
         required: false
@@ -29,7 +53,7 @@ on:
 jobs:
   tests:
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
-    timeout-minutes: 20
+    timeout-minutes: ${{ inputs.unit_test_suites != '' && 35 || 20 }}
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
@@ -46,7 +70,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ github.event.inputs.ref || github.ref }}
+          ref: ${{ inputs.ref || github.ref }}
           submodules: recursive
 
       - name: Select Xcode
@@ -114,15 +138,42 @@ jobs:
 
       - name: Run unit tests
         if: ${{ !inputs.skip_unit_tests }}
+        env:
+          UNIT_TEST_SUITES: ${{ inputs.unit_test_suites }}
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          run_unit_tests() {
+          run_unit_suite() {
             scripts/ci/xcodebuild_noninteractive.py \
               xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -disableAutomaticPackageResolution \
-              -destination "platform=macOS" test 2>&1
+              -destination "platform=macOS" "$@" test 2>&1
+          }
+          run_unit_tests() {
+            if [ -z "$UNIT_TEST_SUITES" ]; then
+              run_unit_suite
+              return $?
+            fi
+            IFS=',' read -r -a suites <<< "$UNIT_TEST_SUITES"
+            for suite in "${suites[@]}"; do
+              if [[ ! "$suite" =~ ^[A-Za-z0-9_]+$ ]]; then
+                echo "Invalid unit suite identifier" >&2
+                return 1
+              fi
+              local suite_output suite_status=0
+              suite_output=$(run_unit_suite "-only-testing:cmuxTests/$suite") || suite_status=$?
+              printf '%s\n' "$suite_output"
+              if [ "$suite_status" -ne 0 ]; then return "$suite_status"; fi
+              # A pipeline here makes `set -o pipefail` treat grep's normal
+              # early exit as a printf SIGPIPE when the xcodebuild log is
+              # large. Feed grep with a here-string so a passing suite cannot
+              # be reported as empty because of that logging artifact.
+              if ! grep -Eq 'Test run with [1-9][0-9]* tests|Executed [1-9][0-9]* tests' <<<"$suite_output"; then
+                echo "No tests executed for $suite" >&2
+                return 1
+              fi
+            done
           }
 
           set +e
@@ -144,6 +195,9 @@ jobs:
           fi
 
           echo "$OUTPUT"
+          if [ -n "$UNIT_TEST_SUITES" ] && [ "$EXIT_CODE" -ne 0 ]; then
+            exit "$EXIT_CODE"
+          fi
           if [ "$EXIT_CODE" -ne 0 ]; then
             SUMMARY=$(echo "$OUTPUT" | grep "Executed.*tests.*with.*failures" | tail -1)
             if echo "$SUMMARY" | grep -q "(0 unexpected)"; then

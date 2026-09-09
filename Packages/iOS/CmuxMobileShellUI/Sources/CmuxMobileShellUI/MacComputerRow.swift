@@ -161,8 +161,8 @@ struct MacComputerRow: View {
         }
     }
 
-    /// Whether the account device list has a known-version compatibility warning
-    /// for this Mac. A seeded/unverified row stays quiet until its first hello
+    /// Whether the account device list has a compatibility warning for this
+    /// Mac. A row with no remembered version warns until its first hello
     /// records the build version in the durable overlay.
     private var showsListAuthWarning: Bool {
         MobileMacListAuthState.shared.entry(deviceID: computer.deviceId)?.isOutdated == true
@@ -214,7 +214,7 @@ struct MacComputerRow: View {
     private var listAuthWarningMessage: String {
         guard let entry = MobileMacListAuthState.shared.entry(deviceID: computer.deviceId),
               entry.isOutdated,
-              let required = entry.minimumSupportedVersion
+              let required = entry.requiredVersionDisplay
         else {
             return ""
         }

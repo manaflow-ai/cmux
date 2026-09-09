@@ -1,6 +1,20 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import enMessages from "../messages/en.json";
+import {
+  TEST_STACK_PROJECT_ID,
+  nextHeadersMock,
+} from "./helpers/dashboard-session-mock";
+
+const previousStackProjectId = process.env.NEXT_PUBLIC_STACK_PROJECT_ID;
+process.env.NEXT_PUBLIC_STACK_PROJECT_ID = TEST_STACK_PROJECT_ID;
+afterAll(() => {
+  if (previousStackProjectId === undefined) {
+    delete process.env.NEXT_PUBLIC_STACK_PROJECT_ID;
+  } else {
+    process.env.NEXT_PUBLIC_STACK_PROJECT_ID = previousStackProjectId;
+  }
+});
 
 const authorizationFailure = new Error("Stack authorization deadline exceeded");
 const pendingAuthorization = new Promise<never>(() => {});
@@ -41,19 +55,21 @@ mock.module("next/server", () => ({
   },
 }));
 
-mock.module("next/headers", () => ({
-  headers: async () => {
-    return new Headers(
-      scopedTeamId
-        ? {
-          cookie: `cmux_coderouter_organization=${
-            encodeURIComponent(JSON.stringify(["user-1", scopedTeamId]))
-          }`,
-        }
-        : undefined,
-    );
-  },
-}));
+mock.module("next/headers", () =>
+  nextHeadersMock({
+    refreshToken: () => "refresh-1",
+    headers: () =>
+      new Headers(
+        scopedTeamId
+          ? {
+            cookie: `cmux_coderouter_organization=${
+              encodeURIComponent(JSON.stringify(["user-1", scopedTeamId]))
+            }`,
+          }
+          : undefined,
+      ),
+  }),
+);
 
 mock.module("next/cache", () => ({
   cacheLife: () => undefined,
@@ -63,6 +79,7 @@ mock.module("next/navigation", () => ({
   redirect: (target: string) => {
     throw new Error(`unexpected redirect to ${target}`);
   },
+  unstable_rethrow: () => undefined,
 }));
 
 mock.module("@/i18n/navigation", () => ({
@@ -113,6 +130,7 @@ mock.module("../services/vms/auth", () => ({
     authorizationCalls += 1;
     return { id: "user-1", selectedTeamId };
   },
+  verifyBrowserSessionRequest: async () => ({ id: "user-1", isAnonymous: false }),
   SubrouterAuthorizationUnavailableError:
     TestSubrouterAuthorizationUnavailableError,
   isSubrouterAuthorizationError: (error: unknown) =>
@@ -279,7 +297,7 @@ describe("coderouter dashboard", () => {
     }];
   });
 
-  test("keeps the page header hidden until the private page content is ready", () => {
+  test("paints the page header and a section skeleton before the private content", () => {
     authorizationPending = true;
 
     const html = renderToStaticMarkup(
@@ -289,7 +307,9 @@ describe("coderouter dashboard", () => {
       />,
     );
 
-    expect(html).not.toContain('data-testid="coderouter-page-header"');
+    expect(html).toContain('data-testid="coderouter-page-header"');
+    expect(html).toContain('data-testid="dashboard-section-skeleton"');
+    expect(html).not.toContain('data-testid="coderouter-accounts"');
   });
 
   test("renders recovery UI when Stack authorization is unavailable", async () => {
@@ -299,7 +319,6 @@ describe("coderouter dashboard", () => {
     const html = renderToStaticMarkup(page);
 
     expect(html).toContain("coderouter could not load");
-    expect(html).toContain('data-testid="coderouter-page-header"');
     expect(html).toContain(
       "The account service could not be reached. Try again shortly.",
     );

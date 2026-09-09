@@ -48,6 +48,11 @@ struct CloudTreeNodeActions {
     /// Select a local workspace.
     let selectLocalWorkspace: @MainActor (_ workspaceID: UUID) -> Void
     let copyToPasteboard: @MainActor (_ text: String) -> Void
+    /// Copy a link that works from any app on this Mac for a machine port: the
+    /// loopback forward over the user-space hub, started if needed. The private
+    /// address is only reachable with `cmux vpn up`, so it is not what "Copy
+    /// Link" hands out.
+    let copyPortLink: @MainActor (_ resource: SurfaceResourceID) -> Void
     let refresh: @MainActor () -> Void
 
     @MainActor
@@ -338,13 +343,16 @@ struct CloudTreeNodeActions {
                 }
             },
             selectLocalWorkspace: selectLocalWorkspace,
-            copyToPasteboard: { text in
-                let pasteboard = NSPasteboard.general
-                pasteboard.clearContents()
-                let ok = pasteboard.setString(text, forType: .string)
-                #if DEBUG
-                cmuxDebugLog("cloudTree.copyToPasteboard ok=\(ok) chars=\(text.count)")
-                #endif
+            copyToPasteboard: Self.copyToPasteboard,
+            copyPortLink: { resource in
+                guard let port = resource.forwardedPort else { return }
+                run(String(localized: "cloudTree.operation.copyPortLink", defaultValue: "Preparing the link\u{2026}")) { catalog in
+                    guard let provider = catalog.provider(for: resource.machine) as? CmuxTuiSurfaceProvider else {
+                        throw SurfaceCatalogError.unsupported(SurfaceCatalog.portPreviewUnavailableMessage(machineID: resource.machine.rawValue))
+                    }
+                    // The same link the pane loads and `vm.port_open` reports.
+                    Self.copyToPasteboard(try await provider.portLinkURL(port: port))
+                }
             },
             refresh: refresh
         )
@@ -448,49 +456,21 @@ struct CloudTreeNodeActions {
         return doomed.count
     }
 
-    /// The house destructive-confirm shape (`NSAlert`, warning style, verb first).
-    @MainActor
-    private static func confirmDestructive(title: String, message: String, verb: String) -> Bool {
-        let alert = NSAlert()
-        alert.messageText = title
-        alert.informativeText = message
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: verb)
-        alert.addButton(withTitle: String(localized: "cloudTree.confirm.cancel", defaultValue: "Cancel"))
-        return alert.runModal() == .alertFirstButtonReturn
-    }
-
-    /// A one-field rename prompt. A terminal may explicitly clear its custom
-    /// name; a workspace must keep a non-empty name because it is also its
-    /// stable local identity label.
-    @MainActor
-    private static func promptForName(title: String, current: String, allowsClear: Bool = false) -> String? {
-        let alert = NSAlert()
-        alert.messageText = title
-        alert.alertStyle = .informational
-        alert.addButton(withTitle: String(localized: "cloudTree.rename.confirm", defaultValue: "Rename"))
-        if allowsClear {
-            alert.addButton(withTitle: String(localized: "cloudTree.rename.clear", defaultValue: "Clear"))
-        }
-        alert.addButton(withTitle: String(localized: "cloudTree.confirm.cancel", defaultValue: "Cancel"))
-        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
-        field.stringValue = current
-        alert.accessoryView = field
-        alert.window.initialFirstResponder = field
-        let response = alert.runModal()
-        if allowsClear && response == .alertSecondButtonReturn {
-            return ""
-        }
-        guard response == .alertFirstButtonReturn else { return nil }
-        let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        return name.isEmpty ? nil : name
-    }
-
     /// A create operation returns the exact tab receipt. A newly-created
     /// resource should carry that receipt into projection, while a missing or
     /// multi-view receipt must remain explicit and use catalog resolution.
     private static func uniqueRemoteView(_ resource: SurfaceResource) -> SurfaceRemoteView? {
         guard resource.remoteViews?.count == 1 else { return nil }
         return resource.remoteViews?.first
+    }
+
+    @MainActor
+    private static func copyToPasteboard(_ text: String) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        let ok = pasteboard.setString(text, forType: .string)
+        #if DEBUG
+        cmuxDebugLog("cloudTree.copyToPasteboard ok=\(ok) chars=\(text.count)")
+        #endif
     }
 }

@@ -61,8 +61,12 @@ extension GhosttyNSView {
                 switch result {
                 case .success(let text):
                     self?.deliverUploadResultText(text)
-                case .failure:
-                    NSSound.beep()
+                case .failure(let error):
+                    if ManagedFileTransferPolicy.isRefusal(error) {
+                        ManagedFileTransferPolicy.presentRefusal()
+                    } else {
+                        NSSound.beep()
+                    }
 #if DEBUG
                     cmuxDebugLog("terminal.remoteDropUpload.customFailed surface=\(self?.terminalSurface?.id.uuidString.prefix(5) ?? "nil")")
 #endif

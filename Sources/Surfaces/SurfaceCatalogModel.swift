@@ -174,7 +174,10 @@ struct CloudVMCursor: Hashable, Codable, Sendable {
 /// look contiguous when it is not.
 enum CloudWireNumber {
     static func unsigned(_ raw: Any?) -> UInt64? {
-        if raw is Bool { return nil }
+        // A JSON number decodes as NSNumber, and `NSNumber(0) is Bool` is true,
+        // so a plain `is Bool` test would reject every zero-based sequence on
+        // the wire. Only a CFBoolean is a boolean; every other NSNumber is a
+        // number.
         if let number = raw as? NSNumber {
             guard CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
             guard number.doubleValue.isFinite,
@@ -190,7 +193,7 @@ enum CloudWireNumber {
     }
 
     static func signed(_ raw: Any?) -> Int? {
-        if raw is Bool { return nil }
+        // Same rule as `unsigned`: only a CFBoolean is a boolean.
         if let number = raw as? NSNumber {
             guard CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
             guard number.doubleValue.isFinite,
@@ -981,7 +984,7 @@ struct CloudVMStateDocument: Hashable, Codable, Sendable {
         guard uniqueMatches.count <= 1 else { return false }
         let rowID = uniqueMatches.first
         let existingObject = rowID.flatMap { collection.object(forRowID: $0) }
-        if let rowID,
+        if rowID != nil,
            let existingID = existingObject.flatMap({ Self.nonEmptyString($0["id"]) }),
            let explicitID,
            existingID != explicitID {
@@ -1614,7 +1617,14 @@ struct SurfaceRemoteView: Hashable, Codable, Sendable {
     var paneID: String? = nil
     var name: String? = nil
     var index: Int? = nil
+    /// True when this tab is the one its pane shows; the daemon flags exactly one
+    /// tab per pane. The pane's other tabs sit behind it in its tab bar.
     var focused: Bool? = nil
+    /// Where the tab's pane sits in the workspace's layout: the screen's index and
+    /// the pane's depth-first position in that screen's split tree. nil when the
+    /// snapshot carried no layout document (older daemons, focused snapshots).
+    var screenIndex: Int? = nil
+    var paneIndex: Int? = nil
 }
 
 struct SurfaceResource: Identifiable, Hashable, Codable, Sendable {

@@ -31,6 +31,9 @@ enum CloudVMPanelAuthState: Equatable {
 struct MachinesPanelView: View {
     @StateObject private var viewModel = MachinesPanelViewModel()
     @State private var expansionStore = CloudTreeExpansionStore()
+    /// The explicit Cloud VPN's state (`cmux vpn up`), shown as a banner while
+    /// it is starting, waiting for the extension approval, up, or failed.
+    @State private var tunnelStatus = CloudTunnelStatusModel()
     /// The tree's visual preset; the debug gallery's "Use" buttons write this,
     /// and @AppStorage re-renders the live panel the moment it changes.
     @AppStorage(CloudTreeStyleStore.defaultsKey) private var cloudTreeStyleID: String = CloudTreeStyle.defaultStyle.id
@@ -68,12 +71,20 @@ struct MachinesPanelView: View {
         .onDisappear {
             viewModel.stopPolling()
         }
+        .task {
+            await tunnelStatus.observe(AppDelegate.shared?.cloudTunnelCoordinator)
+        }
         .accessibilityIdentifier("CloudMachinesPanel")
     }
 
     @ViewBuilder
     private var authenticatedContent: some View {
         controlBar
+        if let banner = tunnelStatus.banner {
+            MachinesTunnelBanner(banner: banner, backgroundColor: chromeBackgroundColor) {
+                SystemExtensionSettingsLink.open()
+            }
+        }
         if let plan = viewModel.plan, !plan.isPaidPlan, let text = plan.freeAccessBannerText {
             MachinesFreeAccessBanner(
                 text: text,
@@ -443,6 +454,7 @@ struct MachinesPanelView: View {
             pendingCreates: viewModel.pendingCreates,
             snapshot: viewModel.catalog,
             localWorkspaces: viewModel.localWorkspaces,
+            unreadTerminalIDs: viewModel.unreadTerminalIDs,
             machineActions: machineActions,
             nodeActions: nodeActions,
             expansionStore: expansionStore,
@@ -704,7 +716,6 @@ struct MachineRowActions {
     let runCommand: @MainActor (String, [String]) -> Void
     let confirmDelete: @MainActor (String) -> Void
     let promptRename: @MainActor (String, String?) -> Void
-    let resizeDisk: @MainActor (String, Int) -> Void
     /// A locked (free-window-expired) machine routes here instead of a doomed
     /// connect; the backend enforces the same boundary with 402s.
     let promptUpgrade: @MainActor () -> Void
@@ -745,12 +756,6 @@ struct MachineRowActions {
             },
             promptRename: { id, currentLabel in
                 presentRenamePrompt(id: id, currentLabel: currentLabel, onWillMutate: onWillMutate, onDidMutate: onDidMutate)
-            },
-            resizeDisk: { id, gib in
-                onWillMutate(String(format: String(localized: "machines.operation.resizeDisk", defaultValue: "Increasing %@ disk to %d GiB…"), id, gib))
-                if !launch(arguments: ["vm", "resize", id, "--disk", "\(gib)G"], onDidMutate: onDidMutate) {
-                    onDidMutate()
-                }
             },
             promptUpgrade: {
                 ProUpgradePresenter.present(source: .machinesPanelMachineAction)

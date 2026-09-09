@@ -1,3 +1,4 @@
+import CmuxCore
 import Foundation
 
 /// Cloud machines attach through their cmux-tui remote daemon
@@ -573,13 +574,14 @@ extension CMUXCLI {
     ///   <machine>                      the machine's shell (the shared vmOpenShell path)
     ///   <machine>/<workspace>          a cmux-tui workspace on the machine (`ws_…` id or unique name)
     ///   <machine>/<workspace>/<term>   one terminal in it (`term_…`)
+    ///   <machine>/<workspace>/<term>/<tab>  one tab of that terminal (`tab_…`)
     ///   <machine>:desktop              the machine's noVNC screen
     ///   <machine>:port/<n>             a forwarded HTTP port
     /// The same addresses appear in `cmux vm tree`, so an agent can copy them verbatim.
     enum VMOpenTarget: Equatable {
         case machine(String)
         case workspace(machine: String, workspace: String)
-        case terminal(machine: String, workspace: String, terminal: String)
+        case terminal(machine: String, workspace: String, terminal: String, tab: String?)
         case desktop(String)
         case port(machine: String, port: Int)
 
@@ -587,305 +589,16 @@ extension CMUXCLI {
             switch self {
             case .machine(let id), .desktop(let id):
                 return id
-            case .workspace(let id, _), .terminal(let id, _, _), .port(let id, _):
+            case .workspace(let id, _), .terminal(let id, _, _, _), .port(let id, _):
                 return id
             }
         }
     }
 
-    /// Resolution of a remote workspace selector. Workspace ids are identities;
-    /// names are mutable labels and are accepted only when they identify one row.
-    /// Keeping this result explicit prevents a missing or ambiguous catalog from
-    /// falling through to an arbitrary `.first` match.
-    enum VMRemoteWorkspaceSelectorResolution: Equatable {
-        case resolved(String)
-        case notFound
-        case ambiguous([String])
-        case unavailable
-    }
-
-    /// Resolve one `<machine>/<workspace>` selector against the machine row from
-    /// `surface.catalog`. The machine's `remote_workspaces` list is authoritative,
-    /// because it also contains empty workspaces that cannot be recovered from the
-    /// terminal rows. Exact ids win over names, including when an id equals another
-    /// workspace's name. A name must be unique; otherwise the caller must use an id.
-    static func resolveVMRemoteWorkspaceSelector(
-        _ rawSelector: String,
-        in machinePayload: [String: Any]
-    ) -> VMRemoteWorkspaceSelectorResolution {
-        let selector = rawSelector.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !selector.isEmpty else { return .notFound }
-        guard let rawWorkspaces = machinePayload["remote_workspaces"] as? [[String: Any]] else {
-            return .unavailable
-        }
-        let workspaces = rawWorkspaces.compactMap { workspace -> (id: String, name: String)? in
-            guard let id = workspace["id"] as? String, !id.isEmpty,
-                  let name = workspace["name"] as? String else { return nil }
-            return (id: id, name: name)
-        }
-
-        let exactIDMatches = workspaces.filter { $0.id == selector }
-        if exactIDMatches.count == 1 { return .resolved(exactIDMatches[0].id) }
-        if exactIDMatches.count > 1 {
-            return .ambiguous(exactIDMatches.map(\.id))
-        }
-
-        let nameMatches = workspaces.filter { $0.name == selector }
-        switch nameMatches.count {
-        case 0: return .notFound
-        case 1: return .resolved(nameMatches[0].id)
-        default: return .ambiguous(nameMatches.map(\.id))
-        }
-    }
-
-    /// Return the machine row from a catalog payload. A filtered catalog should
-    /// contain one row, so duplicate rows are treated as unavailable rather than
-    /// selecting one by array order.
-    static func vmMachinePayload(
-        _ machine: String,
-        from catalog: [String: Any]
-    ) -> [String: Any]? {
-        let matches = ((catalog["machines"] as? [[String: Any]]) ?? [])
-            .filter { ($0["id"] as? String) == machine }
-        guard matches.count == 1 else { return nil }
-        return matches[0]
-    }
-
-    enum VMRemoteViewResolution {
-        case resolved([String: Any])
-        /// A legacy resource identifies one workspace but has no tab id. Whole
-        /// workspace opens may use that relationship; exact terminal selectors
-        /// must still fail closed.
-        case legacy
-        case notFound
-        case ambiguous
-        case unavailable
-    }
-
-    /// The safe first terminal for a whole-workspace open. One unresolved
-    /// terminal must not veto another terminal whose placement is known, while
-    /// an unresolved result remains available when there is no safe candidate.
-    enum VMRemoteWorkspaceTerminalResolution: Equatable {
-        case resolved(terminalID: String, tabID: String?)
-        case none
-        case ambiguous(selector: String)
-        case unavailable(selector: String)
-    }
-
-    /// Resolve the terminal a whole-workspace open should show. Exited rows are
-    /// not candidates: their stale or partial placement data cannot block a live
-    /// terminal. Among live rows, all safe candidates are collected before an
-    /// ambiguity or unavailable result is returned, so an early bad row cannot
-    /// hide a later safe row.
-    static func resolveVMRemoteWorkspaceTerminal(
-        _ resources: [[String: Any]],
-        machine: String,
-        workspaceID: String
-    ) -> VMRemoteWorkspaceTerminalResolution {
-        let liveTerminals = resources.filter { resource in
-            (resource["kind"] as? String) == "terminal" && (resource["lifecycle"] as? String) != "exited"
-        }
-        var candidates: [(terminalID: String, tabID: String?, focused: Bool, sortID: String)] = []
-        var ambiguousSelectors: [String] = []
-        var unavailableSelectors: [String] = []
-
-        for terminal in liveTerminals {
-            let selector = (terminal["key"] as? String) ?? (terminal["id"] as? String) ?? "?"
-            switch resolveVMRemoteView(in: terminal, workspaceID: workspaceID) {
-            case .resolved(let view):
-                guard let terminalID = vmTerminalID(in: terminal, machine: machine) else {
-                    unavailableSelectors.append(selector)
-                    continue
-                }
-                let tabID = (view["tab_id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard let tabID, !tabID.isEmpty else {
-                    unavailableSelectors.append(selector)
-                    continue
-                }
-                candidates.append((terminalID, tabID, (view["focused"] as? Bool) == true, selector))
-            case .legacy:
-                guard let terminalID = vmTerminalID(in: terminal, machine: machine) else {
-                    unavailableSelectors.append(selector)
-                    continue
-                }
-                candidates.append((terminalID, nil, false, selector))
-            case .notFound:
-                continue
-            case .ambiguous:
-                ambiguousSelectors.append(selector)
-            case .unavailable:
-                unavailableSelectors.append(selector)
-            }
-        }
-
-        let focusedFirst = candidates.sorted { lhs, rhs in
-            if lhs.focused != rhs.focused { return lhs.focused && !rhs.focused }
-            if lhs.sortID != rhs.sortID { return lhs.sortID < rhs.sortID }
-            return (lhs.tabID ?? "") < (rhs.tabID ?? "")
-        }
-        if let pick = focusedFirst.first {
-            return .resolved(terminalID: pick.terminalID, tabID: pick.tabID)
-        }
-        // An unavailable catalog is less actionable than a placement ambiguity:
-        // tell the caller to reconnect instead of asking it to choose from stale
-        // rows. Both are reported only after every live row proved unsafe.
-        if let selector = unavailableSelectors.sorted().first {
-            return .unavailable(selector: selector)
-        }
-        if let selector = ambiguousSelectors.sorted().first {
-            return .ambiguous(selector: selector)
-        }
-        return .none
-    }
-
-    /// Resolve a resource's exact view in one remote workspace. A view row is required for
-    /// focused/tab placement. A legacy single-workspace resource is returned as `.legacy` so
-    /// workspace opens can preserve the terminal-id fallback while exact selectors fail.
-    static func resolveVMRemoteView(
-        in resource: [String: Any],
-        workspaceID: String
-    ) -> VMRemoteViewResolution {
-        if let views = resource["remote_views"] as? [[String: Any]] {
-            let matches = views.filter { view in
-                let workspace = view["workspace"] as? [String: Any]
-                return (workspace?["id"] as? String) == workspaceID
-            }
-            guard !matches.isEmpty else { return .notFound }
-            let candidate: [String: Any]
-            if matches.count == 1 {
-                candidate = matches[0]
-            } else {
-                // A terminal may occur in several tabs of the same workspace. The focused
-                // tab is the only safe implicit choice; zero or multiple focused tabs stay
-                // unresolved instead of selecting by array order.
-                let focused = matches.filter { ($0["focused"] as? Bool) == true }
-                guard focused.count == 1 else { return .ambiguous }
-                candidate = focused[0]
-            }
-            guard let tabID = (candidate["tab_id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !tabID.isEmpty else {
-                return .unavailable
-            }
-            guard views.filter({ ($0["tab_id"] as? String) == tabID }).count == 1 else {
-                return .ambiguous
-            }
-            return .resolved(candidate)
-        }
-        guard let workspace = resource["remote_workspace"] as? [String: Any],
-              (workspace["id"] as? String) == workspaceID else {
-            return .notFound
-        }
-        return .legacy
-    }
-
-    /// Find a resource's exact view in one remote workspace. The view row is
-    /// required for focused/tab placement; the legacy single-workspace field is
-    /// retained as a compatibility fallback for providers without multi-view data.
-    static func vmRemoteView(
-        in resource: [String: Any],
-        workspaceID: String
-    ) -> [String: Any]? {
-        guard case .resolved(let view) = resolveVMRemoteView(in: resource, workspaceID: workspaceID) else {
-            return nil
-        }
-        return view
-    }
-
-    /// Resolves a terminal selector to one daemon tab. A terminal can be shown in several
-    /// tabs, so its id alone does not identify the placement whose name or pane the caller
-    /// means. The returned tab id is passed to `surface.project` as a placement fence.
-    enum VMRemoteTerminalPlacementResolution: Equatable {
-        case resolved(terminalID: String, tabID: String)
-        case notFound
-        case ambiguous
-        case unavailable
-    }
-
-    static func resolveVMRemoteTerminalPlacement(
-        _ rawSelector: String,
-        machine: String,
-        workspaceID: String,
-        in catalog: [String: Any]
-    ) -> VMRemoteTerminalPlacementResolution {
-        let selector = rawSelector.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !selector.isEmpty, !machine.isEmpty, !workspaceID.isEmpty else { return .notFound }
-        guard let rawResources = catalog["resources"] as? [[String: Any]] else { return .unavailable }
-
-        let resources = rawResources.filter { resource in
-            guard (resource["kind"] as? String) == "terminal" else { return false }
-            if let resourceMachine = resource["machine"] as? String {
-                return resourceMachine == machine
-            }
-            guard let id = resource["id"] as? String else { return false }
-            return id.hasPrefix("\(machine)/terminal/")
-        }
-
-        // Full resource ids take precedence over keys. This prevents a malformed or mutable
-        // key from shadowing an exact identity, matching workspace selector semantics.
-        let fullID = "\(machine)/terminal/\(selector)"
-        let exactIDMatches = resources.filter { resource in
-            guard let id = resource["id"] as? String else { return false }
-            return id == selector || id == fullID
-        }
-        let matchedByExactID = !exactIDMatches.isEmpty
-        let candidates = matchedByExactID
-            ? exactIDMatches
-            : resources.filter { ($0["key"] as? String) == selector }
-        guard candidates.count == 1, let resource = candidates.first else {
-            return candidates.isEmpty ? .notFound : .ambiguous
-        }
-
-        let tabID: String
-        switch resolveVMRemoteView(in: resource, workspaceID: workspaceID) {
-        case .resolved(let view):
-            guard let value = (view["tab_id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
-                return .unavailable
-            }
-            tabID = value
-        case .legacy:
-            // An exact terminal selector cannot safely invent a tab id.
-            return .unavailable
-        case .notFound:
-            return .notFound
-        case .ambiguous:
-            return .ambiguous
-        case .unavailable:
-            return .unavailable
-        }
-
-        let terminalID = vmTerminalID(in: resource, machine: machine)
-        guard let terminalID, !terminalID.isEmpty else { return .unavailable }
-        return .resolved(terminalID: terminalID, tabID: tabID)
-    }
-
-    /// Returns the terminal key accepted by `surface.project` from either a
-    /// catalog's explicit `key` or its canonical resource id. Keeping this in
-    /// one helper prevents callers from sending a full id where a key is
-    /// required and producing `machine/terminal/machine/terminal/key`.
-    static func vmTerminalID(in resource: [String: Any], machine: String) -> String? {
-        if let key = (resource["key"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !key.isEmpty {
-            // `key` is the final path component. A complete resource id would be
-            // prefixed again by callers and route to a different terminal.
-            guard !key.contains("/") else { return vmTerminalIDFromCanonicalID(in: resource, machine: machine) }
-            return key
-        }
-        return vmTerminalIDFromCanonicalID(in: resource, machine: machine)
-    }
-
-    private static func vmTerminalIDFromCanonicalID(in resource: [String: Any], machine: String) -> String? {
-        guard let id = (resource["id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !id.isEmpty else {
-            return nil
-        }
-        let prefix = "\(machine)/terminal/"
-        if id.hasPrefix(prefix) {
-            let key = String(id.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
-            return key.isEmpty ? nil : key
-        }
-        // A few older catalog producers emitted the terminal key as `id`.
-        // Accept it only when it has no path separators, so a different
-        // machine's canonical id cannot be routed to this machine.
-        return id.contains("/") ? nil : id
-    }
+    typealias VMRemoteWorkspaceSelectorResolution = VMRemoteWorkspaceResolver.VMRemoteWorkspaceSelectorResolution
+    typealias VMRemoteViewResolution = VMRemoteWorkspaceResolver.VMRemoteViewResolution
+    typealias VMRemoteWorkspaceTerminalResolution = VMRemoteWorkspaceResolver.VMRemoteWorkspaceTerminalResolution
+    typealias VMRemoteTerminalPlacementResolution = VMRemoteWorkspaceResolver.VMRemoteTerminalPlacementResolution
 
     private static func vmTerminalPlacementResolutionError(
         _ resolution: VMRemoteTerminalPlacementResolution,
@@ -945,13 +658,13 @@ extension CMUXCLI {
         machine: String,
         catalog: [String: Any]
     ) throws -> String {
-        guard let machinePayload = vmMachinePayload(machine, from: catalog) else {
+        guard let machinePayload = VMRemoteWorkspaceResolver().vmMachinePayload(machine, from: catalog) else {
             throw CLIError(message: String(
                 format: String(localized: "cli.vm.open.workspaceUnavailable", defaultValue: "Workspace state for %1$@ is unavailable. Reconnect and retry."),
                 machine
             ))
         }
-        let resolution = resolveVMRemoteWorkspaceSelector(selector, in: machinePayload)
+        let resolution = VMRemoteWorkspaceResolver().resolveVMRemoteWorkspaceSelector(selector, in: machinePayload)
         guard case .resolved(let id) = resolution else {
             throw vmWorkspaceResolutionError(resolution, machine: machine, selector: selector)
         }
@@ -983,7 +696,9 @@ extension CMUXCLI {
         case 2:
             return .workspace(machine: parts[0], workspace: parts[1])
         case 3:
-            return .terminal(machine: parts[0], workspace: parts[1], terminal: parts[2])
+            return .terminal(machine: parts[0], workspace: parts[1], terminal: parts[2], tab: nil)
+        case 4:
+            return .terminal(machine: parts[0], workspace: parts[1], terminal: parts[2], tab: parts[3])
         default:
             return nil
         }
@@ -1107,6 +822,7 @@ extension CMUXCLI {
           <machine>/<workspace>          a cmux-tui workspace on it (`ws_…` id or unique name; ambiguous names fail)
           <machine>/<workspace>/<term>   one terminal (`term_…`) — focuses the pane that
                                          already shows it instead of opening a second one
+          <machine>/<workspace>/<term>/<tab>  one tab of that terminal (`tab_…` from `cmux vm tree`)
           <machine>:desktop              the machine's noVNC screen as a browser pane
           <machine>:port/<n>             a private tokened URL for an HTTP port, as a browser pane
           <machine> <port>               same as <machine>:port/<port>
@@ -1121,6 +837,7 @@ extension CMUXCLI {
           cmux vm open vivid-newt
           cmux vm open vivid-newt/main
           cmux vm open vivid-newt/main/term_2f9c…
+          cmux vm open vivid-newt/main/term_2f9c…/tab_a
           cmux vm open vivid-newt:desktop
           cmux vm open vivid-newt:port/3000 --print
         """
@@ -1606,9 +1323,7 @@ extension CMUXCLI {
             name: String,
             index: Int,
             focused: Bool,
-            terminals: [[String: Any]],
-            browsers: [[String: Any]],
-            displays: [[String: Any]]
+            placements: [VMTreePlacement]
         )] = []
         // Terminal views can be numerous; keep membership assignment O(1)
         // instead of scanning every workspace for every view.
@@ -1629,49 +1344,39 @@ extension CMUXCLI {
                     name: (raw["name"] as? String) ?? "",
                     index: vmTreeNumber(raw["index"]).map { Int($0) } ?? Int.max,
                     focused: (raw["focused"] as? Bool) == true,
-                    terminals: [],
-                    browsers: [],
-                    displays: []
+                    placements: []
                 ))
             }
         }
         for resource in resources {
-            // Every workspace view contributes a pointer row. The sidebar uses
-            // this same partition: terminals, daemon browsers, then displays.
-            var workspacePayloads: [[String: Any]?] = []
+            // Every workspace view contributes a pointer row: one placement per daemon
+            // tab, the same partition the sidebar draws (grouped by pane below).
+            let kind = resource["kind"] as? String
+            guard ["terminal", "browser", "display", "screen"].contains(kind ?? "") else { continue }
+            var placements: [(workspace: [String: Any], view: [String: Any]?)] = []
             if let views = resource["remote_views"] as? [[String: Any]] {
-                var seen = Set<String>()
                 for view in views {
-                    guard let workspace = view["workspace"] as? [String: Any],
-                          let workspaceId = workspace["id"] as? String,
-                          seen.insert(workspaceId).inserted else { continue }
-                    workspacePayloads.append(workspace)
+                    guard let workspace = view["workspace"] as? [String: Any] else { continue }
+                    placements.append((workspace, view))
                 }
-            } else {
+            } else if let workspace = resource["remote_workspace"] as? [String: Any] {
                 // Only pre-multi-view payloads fall back to this field. An
                 // explicit empty `remote_views` is authoritative.
-                workspacePayloads = [resource["remote_workspace"] as? [String: Any]]
+                placements.append((workspace, nil))
             }
-            for workspace in workspacePayloads {
-                guard let workspaceId = workspace?["id"] as? String, !workspaceId.isEmpty else { continue }
+            for placement in placements {
+                guard let workspaceId = placement.workspace["id"] as? String, !workspaceId.isEmpty else { continue }
+                let member = VMTreePlacement(resource: resource, view: placement.view)
                 if let index = workspaceIndexByID[workspaceId] {
-                    switch resource["kind"] as? String {
-                    case "terminal": workspaces[index].terminals.append(resource)
-                    case "browser": workspaces[index].browsers.append(resource)
-                    case "display", "screen": workspaces[index].displays.append(resource)
-                    default: break
-                    }
+                    workspaces[index].placements.append(member)
                 } else {
                     workspaceIndexByID[workspaceId] = workspaces.count
-                    let kind = resource["kind"] as? String
                     workspaces.append((
                         id: workspaceId,
-                        name: (workspace?["name"] as? String) ?? "",
-                        index: vmTreeNumber(workspace?["index"]).map { Int($0) } ?? Int.max,
-                        focused: (workspace?["focused"] as? Bool) == true,
-                        terminals: kind == "terminal" ? [resource] : [],
-                        browsers: kind == "browser" ? [resource] : [],
-                        displays: kind == "display" || kind == "screen" ? [resource] : []
+                        name: (placement.workspace["name"] as? String) ?? "",
+                        index: vmTreeNumber(placement.workspace["index"]).map { Int($0) } ?? Int.max,
+                        focused: (placement.workspace["focused"] as? Bool) == true,
+                        placements: [member]
                     ))
                 }
             }
@@ -1712,14 +1417,21 @@ extension CMUXCLI {
             let workspaceId = workspace.id
             let name = workspace.name.isEmpty ? workspaceId : workspace.name
             lines.append("    \(name)  \(workspaceId)\(workspace.focused ? "  *" : "")  (cmux vm open \(id)/\(workspaceId))")
-            for terminal in workspace.terminals {
-                lines.append("      " + vmTreeResourceCell(terminal, openHint: "cmux vm open \(id)/\(workspaceId)", addressKey: "key"))
-            }
-            for browser in workspace.browsers {
-                lines.append("      " + vmTreeResourceCell(browser, openHint: "cmux surface open", showFullKey: true))
-            }
-            for display in workspace.displays {
-                lines.append("      " + vmTreeResourceCell(display, openHint: "cmux surface open", showFullKey: true))
+            // Rows follow the layout, as in the sidebar: one per pane (the tab it shows),
+            // the pane's other tabs indented beneath it.
+            for row in vmTreeLayoutRows(workspace.placements) {
+                var cell = "      " + vmTreeWorkspaceCell(row.placement, machineID: id, workspaceID: workspaceId)
+                if !row.hiddenTabs.isEmpty {
+                    cell += "  " + String(
+                        format: String(localized: "cli.vm.tree.hiddenTabs", defaultValue: "(+%d hidden)"),
+                        row.hiddenTabs.count
+                    )
+                }
+                lines.append(cell)
+                for hidden in row.hiddenTabs {
+                    lines.append("        " + String(localized: "cli.vm.tree.hiddenTab", defaultValue: "↳ tab") + "  "
+                        + vmTreeWorkspaceCell(hidden, machineID: id, workspaceID: workspaceId))
+                }
             }
         }
         // Ports come before displays, matching the Cloud sidebar's group order.
@@ -1808,15 +1520,75 @@ extension CMUXCLI {
         return terminal["remote_workspace"] == nil
     }
 
-    /// One resource line: lifecycle glyph, id, title, detail, agent badge, open marker,
-    /// and the address to open it. `addressKey` picks the resource's `key` (cloud terminal
-    /// workspace rows) or its full id (pool rows); display rows set `showFullKey` so each
-    /// screen number remains visible instead of being truncated to the common prefix.
+    /// One workspace placement as the catalog payload describes it: the resource and the
+    /// daemon tab (`remote_views` entry) showing it in this workspace; nil for payloads
+    /// that predate views.
+    struct VMTreePlacement {
+        let resource: [String: Any]
+        let view: [String: Any]?
+    }
+
+    /// One row of a workspace listing: the placement it shows and, for a pane holding
+    /// several tabs, the tabs behind the shown one.
+    struct VMTreeLayoutRow {
+        let placement: VMTreePlacement
+        let hiddenTabs: [VMTreePlacement]
+    }
+
+    /// Maps wire placements through the same ``RemoteWorkspaceLayout`` used by the sidebar.
+    /// Formatting stays in the CLI; pane grouping, ordering, and active-tab selection do not.
+    static func vmTreeLayoutRows(_ placements: [VMTreePlacement]) -> [VMTreeLayoutRow] {
+        func position(_ view: [String: Any]?, _ key: String) -> Int? {
+            vmTreeNumber(view?[key]).flatMap { Int(exactly: $0) }
+        }
+        let kindRank: [String: Int] = ["terminal": 0, "browser": 1, "display": 2, "screen": 2]
+        let layout = RemoteWorkspaceLayout(placements: placements.map { placement in
+            RemoteWorkspacePlacement(
+                screenID: placement.view?["screen_id"] as? String,
+                paneID: placement.view?["pane_id"] as? String,
+                screenIndex: position(placement.view, "screen_index"),
+                paneIndex: position(placement.view, "pane_index"),
+                tabIndex: position(placement.view, "index"),
+                focused: placement.view?["focused"] as? Bool == true,
+                kindOrder: kindRank[placement.resource["kind"] as? String ?? ""] ?? 3
+            )
+        })
+        return layout.rows.map { row in
+            VMTreeLayoutRow(
+                placement: placements[row.shownIndex],
+                hiddenTabs: row.hiddenIndices.map { placements[$0] }
+            )
+        }
+    }
+
+    /// A workspace pointer cell: terminals address through the workspace (`cmux vm open <m>/<ws>/<term>`),
+    /// and through the tab when the placement names one (`…/<term>/<tab>`). Browsers and displays
+    /// address through `cmux surface open`.
+    private static func vmTreeWorkspaceCell(_ placement: VMTreePlacement, machineID: String, workspaceID: String) -> String {
+        var resource = placement.resource
+        if let name = (placement.view?["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
+            resource["title"] = name
+        }
+        if (resource["kind"] as? String) == "terminal" {
+            let key = (resource["key"] as? String) ?? (resource["id"] as? String) ?? "?"
+            let tabID = (placement.view?["tab_id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let command: String
+            if let tabID, !tabID.isEmpty {
+                command = "cmux vm open \(machineID)/\(workspaceID)/\(key)/\(tabID)"
+            } else {
+                command = "cmux vm open \(machineID)/\(workspaceID)/\(key)"
+            }
+            return vmTreeResourceCell(resource, openHint: command, addressKey: "key", command: command)
+        }
+        return vmTreeResourceCell(resource, openHint: "cmux surface open", showFullKey: true)
+    }
+
     private static func vmTreeResourceCell(
         _ terminal: [String: Any],
         openHint: String,
         addressKey: String = "id",
-        showFullKey: Bool = false
+        showFullKey: Bool = false,
+        command: String? = nil
     ) -> String {
         let resourceId = (terminal["id"] as? String) ?? "?"
         let key = (terminal["key"] as? String) ?? resourceId
@@ -1840,7 +1612,7 @@ extension CMUXCLI {
         if let open = (terminal["open_surface_ids"] as? [String])?.first, !open.isEmpty {
             cell += "  " + String(format: String(localized: "cli.vm.tree.open", defaultValue: "(open: %@)"), String(open.prefix(8)))
         }
-        let address = addressKey == "key" ? "\(openHint)/\(key)" : "\(openHint) \(resourceId)"
+        let address = command ?? (addressKey == "key" ? "\(openHint)/\(key)" : "\(openHint) \(resourceId)")
         cell += "  (\(address))"
         return cell
     }
@@ -1875,7 +1647,7 @@ extension CMUXCLI {
             }
         case .port(let machine, let port):
             try openVMPort(vmId: machine, port: port, printOnly: printOnly, workspaceRaw: workspaceRaw, client: client, jsonOutput: jsonOutput)
-        case .terminal(let machine, let remoteWorkspace, let terminal):
+        case .terminal(let machine, let remoteWorkspace, let terminal, let tab):
             // The path contains a remote workspace selector. Resolve it before
             // opening so the catalog can retain the exact placement instead of
             // choosing an arbitrary view of a multi-view terminal. The machine row,
@@ -1887,11 +1659,12 @@ extension CMUXCLI {
                 machine: machine,
                 catalog: catalog
             )
-            let placement = Self.resolveVMRemoteTerminalPlacement(
+            let placement = VMRemoteWorkspaceResolver().resolveVMRemoteTerminalPlacement(
                 terminal,
                 machine: machine,
                 workspaceID: remoteWorkspaceID,
-                in: catalog
+                in: catalog,
+                tabID: tab
             )
             guard case .resolved(let terminalID, let remoteTabID) = placement else {
                 throw Self.vmTerminalPlacementResolutionError(
@@ -1919,7 +1692,7 @@ extension CMUXCLI {
                 catalog: catalog
             )
             let resources = (catalog["resources"] as? [[String: Any]]) ?? []
-            switch Self.resolveVMRemoteWorkspaceTerminal(
+            switch VMRemoteWorkspaceResolver().resolveVMRemoteWorkspaceTerminal(
                 resources,
                 machine: machine,
                 workspaceID: remoteWorkspaceID

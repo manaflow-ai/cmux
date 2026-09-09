@@ -30,7 +30,7 @@ export type IrohRouteOperation =
 type RouteDependencies = {
   readonly verify?: (
     request: Request,
-    options: { readonly allowCookie: false; readonly requireStackSession: boolean },
+    options: { readonly allowCookie: false; readonly requireStackSession: boolean; readonly allowStackFallback: false },
   ) => Promise<{ readonly id: string } | null>;
   readonly broker?: IrohTrustBrokerShape;
   readonly runtime?: Layer.Layer<IrohTrustBroker, never, never>;
@@ -49,15 +49,17 @@ export async function handleIrohRoute(
   dependencies: RouteDependencies = {},
 ): Promise<Response> {
   // Identity only: the broker needs the user id, and local token verification
-  // keeps the ~100 req/s registration traffic off Stack's per-request API
-  // budget. Pair grants, revocation, and relay tokens are rare and sensitive,
-  // so they still ask Stack and refuse a revoked session immediately.
+  // keeps routine Iroh traffic off Stack's per-request API budget. Pair grants
+  // and revocation still ask Stack and refuse a revoked session immediately.
+  // Relay credentials are short lived and account-scoped by the broker, so a
+  // locally verified access token is the appropriate identity proof there.
   const verify = dependencies.verify ?? verifyRequestIdentity;
   let user: { readonly id: string } | null;
   try {
     user = await verify(request, {
       allowCookie: false,
       requireStackSession: requiresStackSession(operation),
+      allowStackFallback: false,
     });
   } catch (error) {
     // A Stack Auth throttle or outage is not the caller's fault. Answering 401
@@ -219,8 +221,9 @@ export function requiresStackSession(operation: IrohRouteOperation): boolean {
       return false;
     case "revoke":
     case "pair_grant":
-    case "relay_token":
       return true;
+    case "relay_token":
+      return false;
   }
 }
 
