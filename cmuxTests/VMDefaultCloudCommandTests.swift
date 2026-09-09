@@ -94,11 +94,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
             switch method {
             case "vm.create":
                 let params = payload["params"] as? [String: Any] ?? [:]
-                // Bare `vm new` now lets the backend choose the provider and
-                // requests the desktop image by default.
+                // Bare `vm new` requests a shell-only machine by kind; the
+                // backend chooses the provider and its configured image.
                 XCTAssertNil(params["provider"])
                 XCTAssertNotEqual(params["idempotency_key"] as? String, "cmux-default-freestyle-sshd-v1")
-                XCTAssertEqual(params["image"] as? String, "sandbox/cmux-devbox:latest")
+                XCTAssertNil(params["image"])
+                XCTAssertEqual(params["kind"] as? String, "base")
                 return self.v2Response(
                     id: id,
                     ok: true,
@@ -116,6 +117,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                         "route": "ws://10.40.0.10:1337/v1/link",
                         "session": "cloud",
                         "wireguard_hub_socket": "/tmp/cmux-wg-test.sock",
+                        "trusted_carrier": true,
                     ]
                 )
             case "workspace.create":
@@ -227,7 +229,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
             case "vm.create":
                 let params = payload["params"] as? [String: Any] ?? [:]
                 XCTAssertEqual(params["provider"] as? String, "freestyle")
-                XCTAssertEqual(params["image"] as? String, "sandbox/cmux-devbox:latest")
+                XCTAssertNil(params["image"])
+                XCTAssertEqual(params["kind"] as? String, "base")
                 XCTAssertNotEqual(params["idempotency_key"] as? String, "cmux-default-freestyle-sshd-v1")
                 return self.v2Response(
                     id: id,
@@ -466,11 +469,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
             switch method {
             case "vm.create":
                 let params = payload["params"] as? [String: Any] ?? [:]
-                // A fresh machine is distinct from the legacy Base slot: the
-                // backend chooses the provider and the CLI requests a desktop.
+                // A fresh shell-only machine is distinct from the legacy Base
+                // slot; the backend chooses the provider and configured image.
                 XCTAssertNil(params["provider"])
                 XCTAssertNotEqual(params["idempotency_key"] as? String, "cmux-default-freestyle-sshd-v1")
-                XCTAssertEqual(params["image"] as? String, "sandbox/cmux-devbox:latest")
+                XCTAssertNil(params["image"])
+                XCTAssertEqual(params["kind"] as? String, "base")
                 return self.v2Response(
                     id: id,
                     ok: true,
@@ -488,6 +492,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                         "route": "ws://10.40.0.10:1337/v1/link",
                         "session": "cloud",
                         "wireguard_hub_socket": "/tmp/cmux-wg-test.sock",
+                        "trusted_carrier": true,
                     ]
                 )
             case "workspace.create":
@@ -596,12 +601,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
             switch method {
             case "vm.create":
                 let params = payload["params"] as? [String: Any] ?? [:]
-                // A fresh bare machine lets the backend choose its provider,
-                // requests the desktop image, and uses a per-create key rather
-                // than the legacy shared Base-slot idempotency key.
+                // A fresh shell-only machine lets the backend choose its provider
+                // and image, and uses a per-create key rather than the legacy
+                // shared Base-slot idempotency key.
                 XCTAssertNil(params["provider"])
                 XCTAssertNotEqual(params["idempotency_key"] as? String, "cmux-default-freestyle-sshd-v1")
-                XCTAssertEqual(params["image"] as? String, "sandbox/cmux-devbox:latest")
+                XCTAssertNil(params["image"])
+                XCTAssertEqual(params["kind"] as? String, "base")
                 return self.v2Response(
                     id: id,
                     ok: true,
@@ -619,6 +625,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                         "route": "ws://10.40.0.10:1337/v1/link",
                         "session": "cloud",
                         "wireguard_hub_socket": "/tmp/cmux-wg-test.sock",
+                        "trusted_carrier": true,
                     ]
                 )
             case "workspace.create":

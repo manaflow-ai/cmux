@@ -538,12 +538,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
             case "vm.status": return ["status": "running"]
             case "vm.tree": return ["machines": [["id": "brave-otter", "remote_workspaces": [["id": "ws_7", "name": "app"]]]], "resources": []]
             case "vm.exec": return ["exit_code": 0, "stdout": summary, "stderr": ""]
+            case "vm.open_port": return ["open_url": "https://brave-otter-3000.example.test/"]
             default: return nil
             }
         }
         XCTAssertEqual(staged.status, 0, "stdout=\(staged.stdout) stderr=\(staged.stderr)")
-        XCTAssertEqual(stagedLog.methods, ["vm.status", "vm.tree", "vm.exec"], stagedLog.methods.description)
+        XCTAssertEqual(stagedLog.methods, ["vm.status", "vm.tree", "vm.exec", "vm.open_port"], stagedLog.methods.description)
         XCTAssertTrue(staged.stdout.contains("layout applied: 2 panes"), staged.stdout)
+        XCTAssertTrue(staged.stdout.contains("url: https://brave-otter-3000.example.test/"), staged.stdout)
     }
 
     func testVMDevKeepsAnExistingWorkspaceWhoseOnlyPaneExited() throws {
