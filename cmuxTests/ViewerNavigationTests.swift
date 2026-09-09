@@ -280,7 +280,10 @@ struct ViewerNavigationTests {
         let nativeCalls = try #require(
             try await webView.evaluateJavaScript("window.__cmuxNativeNavigationCalls") as? [[String: Any]]
         )
-        #expect(nativeCalls.count == 4)
+        // `#require` so a short call list fails this test instead of trapping
+        // the whole app host on the subscripts below (run 33534585558 job
+        // 99947598489: "Index out of range" right after this expectation).
+        try #require(nativeCalls.count == 4)
         #expect(nativeCalls.map { $0["behavior"] as? String } == ["smooth", "smooth", "smooth", "smooth"])
         #expect((nativeCalls[0]["top"] as? NSNumber)?.doubleValue == 72)
         #expect(

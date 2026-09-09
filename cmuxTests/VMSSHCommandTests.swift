@@ -404,7 +404,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let bindCommands = state.commands
             .compactMap { self.jsonObject($0) }
             .filter { $0["method"] as? String == "workspace.cloud_vm_bind" }
-        XCTAssertEqual(bindCommands.count, 2)
+        guard bindCommands.count == 2 else { return XCTFail("Expected 2 cloud_vm_bind commands, saw \(bindCommands.count)") } // guard: a subscript past a short list traps the app host (#12232)
         XCTAssertNil((bindCommands[0]["params"] as? [String: Any])?["remote_workspace_id"])
         XCTAssertEqual(
             (bindCommands[1]["params"] as? [String: Any])?["remote_workspace_id"] as? String,
