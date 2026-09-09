@@ -59,13 +59,12 @@ public struct GhosttyConfig {
     public var command: String?
     /// The scrollback limit. Ghostty measures this in bytes, not lines.
     public var scrollbackLimit: Int = 50_000_000
-    /// The opacity (0...1) applied to unfocused split panes.
-    public var unfocusedSplitOpacity: Double = 0.7
-    /// The fill color for the unfocused-split overlay, or `nil` to use the
-    /// background color.
+    /// The opacity (0...1) applied to unfocused split panes; the cmux default keeps terminal content at full contrast.
+    public var unfocusedSplitOpacity: Double = 1.0
+    private var hasUnfocusedSplitOpacityDirective = false
+    /// The unfocused-split overlay fill, or `nil` to use the background color.
     public var unfocusedSplitFill: NSColor?
-    /// The explicit split-divider color, or `nil` to derive one from the
-    /// background.
+    /// The split-divider color, or `nil` to derive one from the background.
     public var splitDividerColor: NSColor?
 
     // Colors (from theme or config)
@@ -186,15 +185,13 @@ public struct GhosttyConfig {
     /// config file, theme, or optional cmux managed appearance is parsed.
     public init() {}
 
-    /// The opacity (0...1) of the overlay drawn over unfocused splits, derived
-    /// from ``unfocusedSplitOpacity``.
+    /// The overlay opacity (0...1) over unfocused splits, derived from ``unfocusedSplitOpacity``.
     public var unfocusedSplitOverlayOpacity: Double {
         let clamped = min(1.0, max(0.15, unfocusedSplitOpacity))
         return min(1.0, max(0.0, 1.0 - clamped))
     }
 
-    /// The fill color of the unfocused-split overlay: the explicit
-    /// ``unfocusedSplitFill`` when set, otherwise the background color.
+    /// The overlay fill: ``unfocusedSplitFill`` when set, otherwise the background color.
     public var unfocusedSplitOverlayFill: NSColor {
         unfocusedSplitFill ?? backgroundColor
     }
@@ -716,10 +713,13 @@ public struct GhosttyConfig {
                 case "unfocused-split-opacity":
                     if let opacity = Double(value) {
                         unfocusedSplitOpacity = opacity
+                        hasUnfocusedSplitOpacityDirective = true
                     }
                 case "unfocused-split-fill":
                     if let color = NSColor(hex: value) {
                         unfocusedSplitFill = color
+                        // A fill-only config opts into Ghostty's default dimming.
+                        if !hasUnfocusedSplitOpacityDirective { unfocusedSplitOpacity = 0.7 }
                     }
                 case "split-divider-color":
                     if let color = NSColor(hex: value) {
