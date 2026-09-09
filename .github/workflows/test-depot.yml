@@ -165,7 +165,11 @@ jobs:
               suite_output=$(run_unit_suite "-only-testing:cmuxTests/$suite") || suite_status=$?
               printf '%s\n' "$suite_output"
               if [ "$suite_status" -ne 0 ]; then return "$suite_status"; fi
-              if ! printf '%s\n' "$suite_output" | grep -Eq 'Test run with [1-9][0-9]* tests|Executed [1-9][0-9]* tests'; then
+              # A pipeline here makes `set -o pipefail` treat grep's normal
+              # early exit as a printf SIGPIPE when the xcodebuild log is
+              # large. Feed grep with a here-string so a passing suite cannot
+              # be reported as empty because of that logging artifact.
+              if ! grep -Eq 'Test run with [1-9][0-9]* tests|Executed [1-9][0-9]* tests' <<<"$suite_output"; then
                 echo "No tests executed for $suite" >&2
                 return 1
               fi

@@ -2,6 +2,9 @@ import CMUXAgentLaunch
 import Foundation
 
 struct CachedAgentProcessIdentityValidator: Sendable {
+    /// Which evidence backs the snapshot's session id when the live process
+    /// cannot state its own (a bare Hermes argv, or an argv-keyed
+    /// registration launched without its identity option).
     enum HermesSessionValidation: Sendable {
         /// A cached snapshot can outlive a conversation switch in the same process.
         case cachedSnapshot
@@ -46,7 +49,11 @@ struct CachedAgentProcessIdentityValidator: Sendable {
         guard currentProcessExecutable(process.arguments, environment: process.environment, matches: snapshot) else {
             return false
         }
-        return currentProcessSession(process, matches: snapshot)
+        return currentProcessSession(
+            process,
+            matches: snapshot,
+            hermesSessionValidation: hermesSessionValidation
+        )
     }
 
     private func currentProcessExecutable(
@@ -91,22 +98,31 @@ struct CachedAgentProcessIdentityValidator: Sendable {
 
     private func currentProcessSession(
         _ process: CmuxTopProcessArguments,
-        matches snapshot: SessionRestorableAgentSnapshot
+        matches snapshot: SessionRestorableAgentSnapshot,
+        hermesSessionValidation: HermesSessionValidation
     ) -> Bool {
         let arguments = process.arguments
         let authoritativeEnvironmentSessionID = normalizedProcessValue(
             process.environment["CMUX_AGENT_SESSION_ID"]
         )
-        if let registration = snapshot.registration {
+        if let registration = snapshot.registration ?? Self.builtInRegistration(for: snapshot.kind) {
             let observedSessionID: String?
             switch registration.sessionIdSource {
             case .argvOption(let option):
-                guard let observedSessionID = nonOptionValue(after: option, in: arguments) else {
-                    // An argv-keyed registration cannot prove ownership when
-                    // its identity option is absent. Preserve the historical
-                    // fail-closed behavior instead of treating any matching
-                    // executable as this session.
-                    return false
+                guard let observedSessionID = nonOptionValue(after: option, in: arguments)
+                    ?? authoritativeEnvironmentSessionID else {
+                    // The identity option only appears on explicit resumes. A
+                    // fresh launch has none: Antigravity mints its conversation
+                    // id in-process and reports it through its hooks. When the
+                    // current hook record is the evidence, it was written by
+                    // the very process generation that already matched on pid
+                    // identity, cmux scope, and executable above, so a bare
+                    // argv cannot contradict it; failing closed there marked
+                    // every fresh Antigravity session exited and retired its
+                    // binding on the next autosave (#5473). A cached snapshot
+                    // cannot rule out an in-process conversation switch, so it
+                    // keeps failing closed, as for Hermes.
+                    return hermesSessionValidation == .currentHookRecord
                 }
                 return ManagedAgentSessionIdentity.sessionIDsMatch(
                     kind: snapshot.kind.rawValue,
@@ -167,6 +183,22 @@ struct CachedAgentProcessIdentityValidator: Sendable {
             lhs: observedSessionID,
             rhs: snapshot.sessionId
         )
+    }
+
+    /// Built-in kinds carry no registration on hook-store snapshots, but Amp's
+    /// identity contract is its Vault registration's: the hook store that
+    /// recorded the PID generation is authoritative and argv never names the
+    /// thread. Without this, a resumed Amp that outlives cmux is never an
+    /// owner and the next restore is silently skipped instead of reported (#12158).
+    private static func builtInRegistration(
+        for kind: RestorableAgentKind
+    ) -> CmuxVaultAgentRegistration? {
+        switch kind {
+        case .amp:
+            return .builtInAmp
+        default:
+            return nil
+        }
     }
 
     private func firstValue(

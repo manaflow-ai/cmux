@@ -404,19 +404,21 @@ describe("Iroh trust broker database behavior", () => {
     const results = await Promise.allSettled([register(), register()]);
     expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
     expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
-    const [{ bindings, consumed, nextExpiry, pathHints }] = await requiredSql()<Array<{
+    const [{ bindings, challenges, nextExpiry, pathHints }] = await requiredSql()<Array<{
       bindings: string;
-      consumed: string;
+      challenges: string;
       nextExpiry: Date | null;
       pathHints: unknown[];
     }>>`
       select
         (select count(*)::text from iroh_endpoint_bindings) as bindings,
-        (select count(*)::text from iroh_registration_challenges where consumed_at is not null) as consumed,
+        (select count(*)::text from iroh_registration_challenges) as challenges,
         (select path_hints_next_expiry from iroh_endpoint_bindings limit 1) as "nextExpiry",
         (select path_hints from iroh_endpoint_bindings limit 1) as "pathHints"
     `;
-    expect({ bindings, consumed }).toEqual({ bindings: "1", consumed: "1" });
+    // The consumed challenge is deleted with its registration, so the table
+    // holds only in-flight challenges and never grows with heartbeats.
+    expect({ bindings, challenges }).toEqual({ bindings: "1", challenges: "0" });
     expect(nextExpiry).toBeNull();
     expect(pathHints).toEqual([]);
   });
@@ -1982,6 +1984,108 @@ describe("Iroh trust broker database behavior", () => {
       status: "failed",
       failureCode: "binding_inactive_after_mint",
     });
+  });
+
+  dbTest("deletes a consumed challenge and keeps later heartbeats strictly ordered", async () => {
+    const repo = requiredRepository();
+    const userId = "user-heartbeat-order";
+    const deviceId = randomUUID();
+    const appInstanceId = randomUUID();
+    const endpointId = "11".repeat(32);
+    const mint = (nonceHash: string, payloadSha256: string) => Effect.runPromise(repo.issueChallenge({
+      userId,
+      deviceUuid: deviceId,
+      appInstanceId,
+      tag: "stable",
+      endpointId,
+      identityGeneration: 1,
+      payloadSha256,
+      nonceHash,
+      now: NOW,
+      expiresAt: new Date(NOW.getTime() + 5 * 60 * 1_000),
+    }));
+    const register = (challengeId: string, nonceHash: string) => Effect.runPromise(repo.consumeChallengeAndRegister({
+      userId,
+      challengeId,
+      nonceHash,
+      payload: {
+        route_contract_version: 1,
+        deviceId,
+        appInstanceId,
+        clientNamespace: "legacy",
+        tag: "stable",
+        platform: "mac",
+        endpointId,
+        identityGeneration: 1,
+        pairingEnabled: true,
+        capabilities: [],
+        pathHints: [],
+      },
+      now: NOW,
+    }));
+
+    const first = await mint("21".repeat(32), "31".repeat(32));
+    await register(first.id, "21".repeat(32));
+    const [afterFirst] = await requiredSql()<Array<{ challenges: string; registeredAt: Date }>>`
+      select
+        (select count(*)::text from iroh_registration_challenges where user_id = ${userId}) as challenges,
+        (select registered_at from iroh_endpoint_bindings where user_id = ${userId}) as "registeredAt"
+    `;
+    // Consumption deletes the challenge; the slot remembers its mint time.
+    expect(afterFirst.challenges).toBe("0");
+    expect(afterFirst.registeredAt).toEqual(first.createdAt);
+
+    // A replay of the consumed challenge is an unknown challenge, not a
+    // conflict, because the row is gone.
+    await expect(register(first.id, "21".repeat(32))).rejects.toThrow();
+
+    // A heartbeat minted at the same wall-clock instant must still land
+    // strictly after the slot's registeredAt, or the staleness gate would
+    // reject it as superseded now that the prior challenge row is gone.
+    const heartbeat = await mint("22".repeat(32), "32".repeat(32));
+    expect(heartbeat.createdAt.getTime()).toBeGreaterThan(first.createdAt.getTime());
+    const result = await register(heartbeat.id, "22".repeat(32));
+    expect(result.created).toBe(false);
+    expect(result.binding.registeredAt).toEqual(heartbeat.createdAt);
+    const [afterHeartbeat] = await requiredSql()<Array<{ challenges: string }>>`
+      select count(*)::text as challenges from iroh_registration_challenges where user_id = ${userId}
+    `;
+    expect(afterHeartbeat.challenges).toBe("0");
+  });
+
+  dbTest("global retention drops legacy consumed challenges of any age and keeps in-flight ones", async () => {
+    const repo = requiredRepository();
+    const userId = "user-challenge-backlog";
+    const deviceId = randomUUID();
+    const insertChallenge = async (nonceHash: string, consumedAt: Date | null, expiresAt: Date) => {
+      const [row] = await requiredSql()<Array<{ id: string }>>`
+        insert into iroh_registration_challenges (
+          user_id, device_uuid, app_instance_id, client_namespace, tag, endpoint_id,
+          identity_generation, payload_sha256, nonce_hash, created_at, expires_at, consumed_at
+        ) values (
+          ${userId}, ${deviceId}, ${randomUUID()}, 'legacy', 'stable', ${"12".repeat(32)},
+          1, ${"33".repeat(32)}, ${nonceHash}, ${new Date(expiresAt.getTime() - 5 * 60 * 1_000)}, ${expiresAt}, ${consumedAt}
+        ) returning id::text
+      `;
+      return row!.id;
+    };
+    // Consumed one minute ago: the pre-fix backlog shape. Must go.
+    const recentConsumed = await insertChallenge("41".repeat(32), new Date(NOW.getTime() - 60_000), new Date(NOW.getTime() + 4 * 60_000));
+    // Expired two hours ago, never consumed: past the grace period. Must go.
+    const staleExpired = await insertChallenge("42".repeat(32), null, new Date(NOW.getTime() - 2 * 60 * 60_000));
+    // Expired ten minutes ago, never consumed: inside the grace period. Stays.
+    const freshExpired = await insertChallenge("43".repeat(32), null, new Date(NOW.getTime() - 10 * 60_000));
+    // In flight. Stays.
+    const inFlight = await insertChallenge("44".repeat(32), null, new Date(NOW.getTime() + 4 * 60_000));
+
+    await Effect.runPromise(repo.pruneExpiredStateGlobally({ now: NOW }));
+
+    const rows = await requiredSql()<Array<{ id: string }>>`
+      select id::text from iroh_registration_challenges where user_id = ${userId}
+    `;
+    expect(rows.map((row) => row.id).sort()).toEqual([freshExpired, inFlight].sort());
+    expect(rows.map((row) => row.id)).not.toContain(recentConsumed);
+    expect(rows.map((row) => row.id)).not.toContain(staleExpired);
   });
 
   dbTest("global retention clears revoked hints and expired private data from Aurora", async () => {

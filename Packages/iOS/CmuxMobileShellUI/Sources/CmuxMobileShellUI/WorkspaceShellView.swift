@@ -463,12 +463,8 @@ struct WorkspaceShellView: View {
             .onChange(of: pendingPrimarySearchNotificationNavigationID) { _, _ in
                 consumePendingPrimarySearchNavigation(for: .notifications)
             }
-        } workspaceSearch: {
-            workspaceSearchTabContent(
-                canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection
-            )
-        } notificationSearch: {
-            notificationSearchTabContent(presentation: presentation)
+        } search: {
+            primarySearchTabContent(presentation: presentation)
         }
     }
     #endif
@@ -489,42 +485,59 @@ struct WorkspaceShellView: View {
     }
     #endif
 
-    private func workspaceSearchTabContent(canCreateWorkspaceForSelection: Bool) -> some View {
+    private var primarySearchNavigationPath: Binding<[MobileWorkspacePreview.ID]> {
+        primarySearchCoordinator.scope == .workspaces
+            ? $workspaceSearchNavigationPath
+            : $notificationSearchNavigationPath
+    }
+
+    private func primarySearchTabContent(
+        presentation: WorkspaceShellRenderPresentation
+    ) -> some View {
         workspaceActionToastOverlay {
-            NavigationStack(path: $workspaceSearchNavigationPath) {
-                MobilePrimaryWorkspaceSearchContentHost(
-                    searchCoordinator: primarySearchCoordinator
-                ) { searchText in
-                    workspaceList(
-                        navigationStyle: .push,
-                        searchText: searchText,
-                        canCreateWorkspaceForSelection: canCreateWorkspaceForSelection,
-                        showsNavigationToolbar: true,
-                        selectWorkspaceAction: selectWorkspaceFromSearch,
-                        createWorkspaceAction: createWorkspaceFromSearch,
-                        createWorkspaceInGroupAction: createWorkspaceInGroupFromSearchClosure,
-                        createWorkspaceGroupAction: createWorkspaceGroupFromSearchClosure
-                    )
+            MobilePrimarySearchNavigationStack(
+                path: primarySearchNavigationPath,
+                selection: $selectedPrimaryTab,
+                searchCoordinator: primarySearchCoordinator
+            ) {
+                Group {
+                    switch primarySearchCoordinator.scope {
+                    case .workspaces:
+                        MobilePrimaryWorkspaceSearchContentHost(
+                            searchCoordinator: primarySearchCoordinator
+                        ) { searchText in
+                            workspaceList(
+                                navigationStyle: .push,
+                                searchText: searchText,
+                                canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection,
+                                showsNavigationToolbar: true,
+                                selectWorkspaceAction: selectWorkspaceFromSearch,
+                                createWorkspaceAction: createWorkspaceFromSearch,
+                                createWorkspaceInGroupAction: createWorkspaceInGroupFromSearchClosure,
+                                createWorkspaceGroupAction: createWorkspaceGroupFromSearchClosure
+                            )
+                        }
+                    case .notifications:
+                        NotificationFeedStoreView(
+                            store: store,
+                            items: presentation.notificationFeedItems,
+                            status: presentation.notificationFeedStatus,
+                            projection: notificationFeedProjection,
+                            selectedMacDeviceIDs: presentation.selectedNotificationFeedMacDeviceIDs
+                        )
+                    }
                 }
                 .toolbar {
-                    if workspaceSearchNavigationPath.isEmpty {
+                    if primarySearchNavigationPath.wrappedValue.isEmpty {
                         rootToolbarContent
                     }
                 }
-                // Selecting a search result opens the workspace inside the
-                // search tab's own stack, exactly like notification search.
-                // Transitioning to the Workspaces tab and pushing on its stack
-                // from here raced the search-field dismissal and could record
-                // the push without performing it, stranding the list with no
-                // tab bar (the "stuck after selecting from search" bug).
-                .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
-                    workspaceDestination(
-                        for: workspaceID,
-                        createWorkspace: createWorkspaceInCompactStack,
-                        canCreateWorkspaceForSelection: canCreateWorkspaceForSelection
-                    )
-                    .toolbarVisibility(.hidden, for: .tabBar)
-                }
+            } destination: { workspaceID in
+                workspaceDestination(
+                    for: workspaceID,
+                    createWorkspace: createWorkspaceInCompactStack,
+                    canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection
+                )
             }
         }
     }
@@ -547,33 +560,6 @@ struct WorkspaceShellView: View {
                 .padding(.bottom, 12)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
                 .accessibilityIdentifier("MobileWorkspaceActionToast")
-            }
-        }
-    }
-
-    private func notificationSearchTabContent(
-        presentation: WorkspaceShellRenderPresentation
-    ) -> some View {
-        NavigationStack(path: $notificationSearchNavigationPath) {
-            NotificationFeedStoreView(
-                store: store,
-                items: presentation.notificationFeedItems,
-                status: presentation.notificationFeedStatus,
-                projection: notificationFeedProjection,
-                selectedMacDeviceIDs: presentation.selectedNotificationFeedMacDeviceIDs
-            )
-            .toolbar {
-                if notificationSearchNavigationPath.isEmpty {
-                    rootToolbarContent
-                }
-            }
-            .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
-                workspaceDestination(
-                    for: workspaceID,
-                    createWorkspace: createWorkspaceInCompactStack,
-                    canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection
-                )
-                .toolbarVisibility(.hidden, for: .tabBar)
             }
         }
     }
@@ -1488,6 +1474,7 @@ struct WorkspaceShellView: View {
                 selectedTab: selectedPrimaryTab
             ) {
             case .mountedNotificationSearch:
+                primarySearchCoordinator.deactivateCurrentSearch()
                 if notificationSearchNavigationPath.last != workspaceID {
                     notificationSearchNavigationPath = [workspaceID]
                 }

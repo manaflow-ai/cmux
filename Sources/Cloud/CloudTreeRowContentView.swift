@@ -83,7 +83,7 @@ struct CloudTreeRowContentView: View {
             groupRow(title: String(localized: "cloudTree.group.displays", defaultValue: "VNC Displays"), count: count)
         case .workspacesGroup:
             groupRow(title: String(localized: "cloudTree.group.workspaces", defaultValue: "Workspaces"))
-        case .workspace(_, let workspace, let terminalCount, _):
+        case .workspace(_, let workspace, let terminalCount, let hiddenTabCount, _):
             // No open marker here (none on any row since #11069); the row's open
             // verb reads "Go to Workspace" when it is already showing locally.
             CloudTreeLeafRow(
@@ -92,7 +92,9 @@ struct CloudTreeRowContentView: View {
                 tint: CloudTreeIconPalette.workspace,
                 title: workspace.name,
                 titleWeight: workspace.focused ? .medium : .regular,
-                detail: style.showsGroupCounts ? CloudTreeRowContentView.count(terminalCount) : nil
+                detail: style.showsGroupCounts
+                    ? CloudTreeRowContentView.workspaceDetail(terminalCount: terminalCount, hiddenTabCount: hiddenTabCount)
+                    : nil
             )
         case .localWorkspace(let row):
             CloudTreeLeafRow(
@@ -123,7 +125,15 @@ struct CloudTreeRowContentView: View {
                 tint: CloudTreeIconPalette.browser,
                 title: row.resource.title.isEmpty ? String(localized: "cloudTree.browser.untitled", defaultValue: "browser") : row.resource.title,
                 detail: CloudTreeBrowserDetail.text(for: row)
-            )
+            ) {
+                if style.showsViewBadges, row.hiddenTabCount > 0 {
+                    // A pane whose shown tab is a browser: its other tabs nest beneath.
+                    Text(String(format: String(localized: "cloudTree.terminal.badge.hiddenTabs", defaultValue: "+%d"), row.hiddenTabCount))
+                        .cmuxFont(size: style.detailSize, design: style.fontDesign, monospacedDigit: true)
+                        .foregroundStyle(.secondary)
+                        .help(CloudTreeTerminalRowContent.hiddenTabsHelp(row.hiddenTabCount))
+                }
+            }
         case .portsGroup:
             groupRow(title: String(localized: "cloudTree.group.ports", defaultValue: "Ports"))
         case .port(let resource, let url, _):
@@ -192,6 +202,22 @@ struct CloudTreeRowContentView: View {
         terminals == 1
             ? String(localized: "cloudTree.workspace.terminalCount.one", defaultValue: "1 terminal")
             : String(format: String(localized: "cloudTree.workspace.terminalCount.other", defaultValue: "%d terminals"), terminals)
+    }
+
+    /// A workspace row's detail: the terminals its layout shows, then the tabs its
+    /// panes hold behind the shown ones ("2 terminals · 1 more tab"). The first
+    /// number matches the panes a person sees on opening; the second is what the
+    /// nested rows reveal.
+    static func workspaceDetail(terminalCount: Int, hiddenTabCount: Int) -> String {
+        guard hiddenTabCount > 0 else { return count(terminalCount) }
+        return count(terminalCount) + " · " + hiddenTabs(hiddenTabCount)
+    }
+
+    /// "1 more tab" / "%d more tabs": the tabs a workspace's panes hold behind their shown ones.
+    static func hiddenTabs(_ tabs: Int) -> String {
+        tabs == 1
+            ? String(localized: "cloudTree.workspace.hiddenTabs.one", defaultValue: "1 more tab")
+            : String(format: String(localized: "cloudTree.workspace.hiddenTabs.other", defaultValue: "%d more tabs"), tabs)
     }
 
     /// Formats the transport and screen label shown beneath a VNC display row.
@@ -454,6 +480,14 @@ struct CloudTreeTerminalRowContent: View {
                     .cmuxFont(size: style.detailSize, design: style.fontDesign, monospacedDigit: true)
                     .foregroundStyle(.secondary)
                     .help(Self.viewsHelp(views))
+            }
+            if style.showsViewBadges, row.hiddenTabCount > 0 {
+                // A pane row: the tabs this pane holds behind the one it shows. Those
+                // tabs are the row's nested children.
+                Text(String(format: String(localized: "cloudTree.terminal.badge.hiddenTabs", defaultValue: "+%d"), row.hiddenTabCount))
+                    .cmuxFont(size: style.detailSize, design: style.fontDesign, monospacedDigit: true)
+                    .foregroundStyle(.secondary)
+                    .help(Self.hiddenTabsHelp(row.hiddenTabCount))
             }
         }
         // Agent state stays on hover and in `cmux vm tree`; the row itself
@@ -876,7 +910,7 @@ struct CloudTreeRowHoverButtons: View {
             plus(String(localized: "cloudTree.menu.newWorkspace", defaultValue: "New Workspace")) {
                 nodeActions.newWorkspace(machine)
             }
-        case .workspace(let machine, let workspace, _, _):
+        case .workspace(let machine, let workspace, _, _, _):
             HStack(spacing: 4) {
                 plus(String(localized: "cloudTree.menu.newTerminalHere", defaultValue: "New Terminal Here")) {
                     nodeActions.newTerminal(machine, workspace.id)
@@ -918,5 +952,23 @@ struct CloudTreeRowHoverButtons: View {
 
     private func xmark(_ label: String, action: @escaping () -> Void) -> some View {
         MachinesChromeIconButton(symbolName: "xmark", accessibilityLabel: label, isBusy: false, action: action)
+    }
+}
+
+extension CloudTreeTerminalRowContent {
+    /// Tooltip for a pane row's "+N" badge: the tabs the pane holds behind the shown one.
+    static func hiddenTabsHelp(_ tabs: Int) -> String {
+        tabs == 1
+            ? String(
+                localized: "cloudTree.terminal.badge.hiddenTabs.help.one",
+                defaultValue: "1 more tab in this pane, listed beneath this row. The pane shows this tab."
+            )
+            : String(
+                format: String(
+                    localized: "cloudTree.terminal.badge.hiddenTabs.help.other",
+                    defaultValue: "%d more tabs in this pane, listed beneath this row. The pane shows this tab."
+                ),
+                tabs
+            )
     }
 }

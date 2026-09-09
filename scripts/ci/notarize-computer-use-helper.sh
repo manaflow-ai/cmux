@@ -47,17 +47,19 @@ DITTO_TOOL="${CMUX_DITTO_TOOL:-/usr/bin/ditto}"
 XCRUN_TOOL="${CMUX_XCRUN_TOOL:-xcrun}"
 CODESIGN_TOOL="${CMUX_CODESIGN_TOOL:-/usr/bin/codesign}"
 SPCTL_TOOL="${CMUX_SPCTL_TOOL:-spctl}"
-# Gatekeeper learns about a fresh notarization ticket from Apple's CDN, which
-# lags the notarytool "Accepted" status by up to a few minutes. A stapled,
-# valid helper can therefore still assess as "Unnotarized Developer ID" right
-# after stapling. Poll until it is accepted or the budget runs out.
+# Gatekeeper keeps negative assessments in a cache keyed by the helper's code
+# directory hash. The helper has the same CDHash before and after stapling, so
+# an assessment made before the ticket is attached can otherwise be replayed
+# after stapling and reported as "Unnotarized Developer ID". Force every poll
+# to assess the copied helper without consulting or populating that cache;
+# retries still cover propagation of the fresh ticket to Apple's service.
 GATEKEEPER_ASSESS_ATTEMPTS="${CMUX_GATEKEEPER_ASSESS_ATTEMPTS:-20}"
 GATEKEEPER_ASSESS_DELAY_SECONDS="${CMUX_GATEKEEPER_ASSESS_DELAY_SECONDS:-15}"
 
 assess_with_gatekeeper() {
   local target="$1" attempt=1
   while :; do
-    if "$SPCTL_TOOL" -a -vv --type execute "$target"; then
+    if "$SPCTL_TOOL" -a -vv --ignore-cache --no-cache --type execute "$target"; then
       return 0
     fi
     if [ "$attempt" -ge "$GATEKEEPER_ASSESS_ATTEMPTS" ]; then

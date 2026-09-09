@@ -366,6 +366,108 @@
         }
       }
     },
+    "socket.surfaceSyncCodexNativeTitle.invalidTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing or invalid title"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タイトルが指定されていないか無効です"
+          }
+        }
+      }
+    },
+    "socket.surfaceSyncCodexNativeTitle.asyncDispatchRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface.sync_codex_native_title requires asynchronous socket dispatch"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface.sync_codex_native_title には非同期ソケットディスパッチが必要です"
+          }
+        }
+      }
+    },
+    "socket.surfaceSyncCodexNativeTitle.tabManagerUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TabManager not available"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TabManager は利用できません"
+          }
+        }
+      }
+    },
+    "socket.surfaceSyncCodexNativeTitle.workspaceIdInvalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing or invalid workspace_id"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspace_id が指定されていないか無効です"
+          }
+        }
+      }
+    },
+    "socket.surfaceSyncCodexNativeTitle.panelIdInvalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing or invalid panel_id"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "panel_id が指定されていないか無効です"
+          }
+        }
+      }
+    },
+    "socket.surfaceSyncCodexNativeTitle.panelNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Panel not found"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パネルが見つかりません"
+          }
+        }
+      }
+    },
     "socket.error.unknownMethod": {
       "extractionState": "manual",
       "localizations": {
@@ -66384,6 +66486,57 @@
         }
       }
     },
+    "cli.terminalCreation.error.commandRequiresValue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: --command requires <text>"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: --command には <text> が必要です"
+          }
+        }
+      }
+    },
+    "cli.terminalCreation.error.commandRequiresTerminalType": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: --command can only be used with --type terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: --command は --type terminal でのみ使用できます"
+          }
+        }
+      }
+    },
+    "cli.terminalCreation.help.initialCommandDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run this as the new terminal's initial command"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいターミナルの初期コマンドとして実行"
+          }
+        }
+      }
+    },
     "cli.vm.create.machineReady": {
       "extractionState": "manual",
       "localizations": {
@@ -67156,6 +67309,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "VNC ディスプレイ/"
+          }
+        }
+      }
+    },
+    "cli.vm.tree.hiddenTabs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(+%d hidden)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(+%d 非表示)"
+          }
+        }
+      }
+    },
+    "cli.vm.tree.hiddenTab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "↳ tab"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "↳ タブ"
           }
         }
       }
@@ -69916,6 +70103,57 @@
         }
       }
     },
+    "cloudTree.terminal.badge.hiddenTabs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "+%d"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "+%d"
+          }
+        }
+      }
+    },
+    "cloudTree.terminal.badge.hiddenTabs.help.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 more tab in this pane, listed beneath this row. The pane shows this tab."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このペインには他に 1 個のタブがあり、この行の下に表示されます。ペインにはこのタブが表示されています。"
+          }
+        }
+      }
+    },
+    "cloudTree.terminal.badge.hiddenTabs.help.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d more tabs in this pane, listed beneath this row. The pane shows this tab."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このペインには他に %d 個のタブがあり、この行の下に表示されます。ペインにはこのタブが表示されています。"
+          }
+        }
+      }
+    },
     "cloudTree.terminal.detached": {
       "extractionState": "manual",
       "localizations": {
@@ -69997,6 +70235,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "ターミナル %d 個"
+          }
+        }
+      }
+    },
+    "cloudTree.workspace.hiddenTabs.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 more tab"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "他に 1 個のタブ"
+          }
+        }
+      }
+    },
+    "cloudTree.workspace.hiddenTabs.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d more tabs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "他に %d 個のタブ"
           }
         }
       }
@@ -127255,40 +127527,6 @@
         }
       }
     },
-    "featureFlags.cloudVM.description": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Shows Cloud VM entrypoints in the new-workspace dropdown and command palette."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "新規ワークスペースのドロップダウンとコマンドパレットにクラウドVMのエントリーポイントを表示します。"
-          }
-        }
-      }
-    },
-    "featureFlags.cloudVM.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM UI"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "クラウドVM UI"
-          }
-        }
-      }
-    },
     "featureFlags.column.current": {
       "extractionState": "manual",
       "localizations": {
@@ -159665,13 +159903,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Up to 50 Cloud VMs, each with its own resources; default size 8 GB RAM and 32 GB disk, with 4 to 64 GB RAM available"
+            "value": "Up to 50 Cloud VMs, with 24 GB RAM and 6 vCPUs shared across all VMs"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "最大 50 台の Cloud VM。各マシンに専用のリソースがあり、標準サイズは 8 GB RAM / 32 GB ディスク。RAM 4～64 GB のサイズを選べます"
+            "value": "最大 50 台の Cloud VM で、24 GB RAM と 6 vCPU を共有"
           }
         }
       }
@@ -159886,121 +160124,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro includes up to 50 Cloud VMs. Team includes up to 50 Cloud VMs per user. Each machine has its own CPU, memory, and disk. The default size is 8 GB RAM and 32 GB disk; sizes from 4 to 64 GB RAM are available. Disks can grow up to 256 GB. There is no metering or overage billing."
+            "value": "Pro includes up to 50 Cloud VMs, with 24 GB RAM and 6 vCPUs shared across all VMs. Team includes the same limits per user. There is no metering or overage billing."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro では最大 50 台、Team ではユーザーごとに最大 50 台の Cloud VM を利用できます。各マシンには独立した CPU、メモリ、ディスクがあります。標準サイズは 8 GB RAM / 32 GB ディスクで、RAM 4～64 GB のサイズを選べます。ディスクは最大 256 GB まで拡張できます。従量課金や超過料金はありません。"
+            "value": "Pro では最大 50 台の Cloud VM で、24 GB RAM と 6 vCPU を共有します。Team ではユーザーごとに同じ上限が適用されます。従量課金や超過料金はありません。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro includes up to 50 Cloud VMs. Team includes up to 50 Cloud VMs per user. Each machine has its own CPU, memory, and disk. The default size is 8 GB RAM and 32 GB disk; sizes from 4 to 64 GB RAM are available. Disks can grow up to 256 GB. There is no metering or overage billing."
+            "value": "Pro includes up to 50 Cloud VMs, with 24 GB RAM and 6 vCPUs shared across all VMs. Team includes the same limits per user. There is no metering or overage billing."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro includes up to 50 Cloud VMs. Team includes up to 50 Cloud VMs per user. Each machine has its own CPU, memory, and disk. The default size is 8 GB RAM and 32 GB disk; sizes from 4 to 64 GB RAM are available. Disks can grow up to 256 GB. There is no metering or overage billing."
+            "value": "Pro includes up to 50 Cloud VMs, with 24 GB RAM and 6 vCPUs shared across all VMs. Team includes the same limits per user. There is no metering or overage billing."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro includes up to 50 Cloud VMs. Team includes up to 50 Cloud VMs per user. Each machine has its own CPU, memory, and disk. The default size is 8 GB RAM and 32 GB disk; sizes from 4 to 64 GB RAM are available. Disks can grow up to 256 GB. There is no metering or overage billing."
+            "value": "Pro includes up to 50 Cloud VMs, with 24 GB RAM and 6 vCPUs shared across all VMs. Team includes the same limits per user. There is no metering or overage billing."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro includes up to 50 Cloud VMs. Team includes up to 50 Cloud VMs per user. Each machine has its own CPU, memory, and disk. The default size is 8 GB RAM and 32 GB disk; sizes from 4 to 64 GB RAM are available. Disks can grow up to 256 GB. There is no metering or overage billing."
+            "value": "Pro includes up to 50 Cloud VMs, with 24 GB RAM and 6 vCPUs shared across all VMs. Team includes the same limits per user. There is no metering or overage billing."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro includes up to 50 Cloud VMs. Team includes up to 50 Cloud VMs per user. Each machine has its own CPU, memory, and disk. The default size is 8 GB RAM and 32 GB disk; sizes from 4 to 64 GB RAM are available. Disks can grow up to 256 GB. There is no metering or overage billing."
+            "value": "Pro includes up to 50 Cloud VMs, with 24 GB RAM and 6 vCPUs shared across all VMs. Team includes the same limits per user. There is no metering or overage billing."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro includes up to 50 Cloud VMs. Team includes up to 50 Cloud VMs per user. Each machine has its own CPU, memory, and disk. The default size is 8 GB RAM and 32 GB disk; sizes from 4 to 64 GB RAM are available. Disks can grow up to 256 GB. There is no metering or overage billing."
+            "value": "Pro includes up to 50 Cloud VMs, with 24 GB RAM and 6 vCPUs shared across all VMs. Team includes the same limits per user. There is no metering or overage billing."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro includes up to 50 Cloud VMs. Team includes up to 50 Cloud VMs per user. Each machine has its own CPU, memory, and disk. The default size is 8 GB RAM and 32 GB disk; sizes from 4 to 64 GB RAM are available. Disks can grow up to 256 GB. There is no metering or overage billing."
+            "value": "Pro includes up to 50 Cloud VMs, with 24 GB RAM and 6 vCPUs shared across all VMs. Team includes the same limits per user. There is no metering or overage billing."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro includes up to 50 Cloud VMs. Team includes up to 50 Cloud VMs per user. Each machine has its own CPU, memory, and disk. The default size is 8 GB RAM and 32 GB disk; sizes from 4 to 64 GB RAM are available. Disks can grow up to 256 GB. There is no metering or overage billing."
+            "value": "Pro includes up to 50 Cloud VMs, with 24 GB RAM and 6 vCPUs shared across all VMs. Team includes the same limits per user. There is no metering or overage billing."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro includes up to 50 Cloud VMs. Team includes up to 50 Cloud VMs per user. Each machine has its own CPU, memory, and disk. The default size is 8 GB RAM and 32 GB disk; sizes from 4 to 64 GB RAM are available. Disks can grow up to 256 GB. There is no metering or overage billing."
+            "value": "Pro includes up to 50 Cloud VMs, with 24 GB RAM and 6 vCPUs shared across all VMs. Team includes the same limits per user. There is no metering or overage billing."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro includes up to 50 Cloud VMs. Team includes up to 50 Cloud VMs per user. Each machine has its own CPU, memory, and disk. The default size is 8 GB RAM and 32 GB disk; sizes from 4 to 64 GB RAM are available. Disks can grow up to 256 GB. There is no metering or overage billing."
+            "value": "Pro includes up to 50 Cloud VMs, with 24 GB RAM and 6 vCPUs shared across all VMs. Team includes the same limits per user. There is no metering or overage billing."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro includes up to 50 Cloud VMs. Team includes up to 50 Cloud VMs per user. Each machine has its own CPU, memory, and disk. The default size is 8 GB RAM and 32 GB disk; sizes from 4 to 64 GB RAM are available. Disks can grow up to 256 GB. There is no metering or overage billing."
+            "value": "Pro includes up to 50 Cloud VMs, with 24 GB RAM and 6 vCPUs shared across all VMs. Team includes the same limits per user. There is no metering or overage billing."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro includes up to 50 Cloud VMs. Team includes up to 50 Cloud VMs per user. Each machine has its own CPU, memory, and disk. The default size is 8 GB RAM and 32 GB disk; sizes from 4 to 64 GB RAM are available. Disks can grow up to 256 GB. There is no metering or overage billing."
+            "value": "Pro includes up to 50 Cloud VMs, with 24 GB RAM and 6 vCPUs shared across all VMs. Team includes the same limits per user. There is no metering or overage billing."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro includes up to 50 Cloud VMs. Team includes up to 50 Cloud VMs per user. Each machine has its own CPU, memory, and disk. The default size is 8 GB RAM and 32 GB disk; sizes from 4 to 64 GB RAM are available. Disks can grow up to 256 GB. There is no metering or overage billing."
+            "value": "Pro includes up to 50 Cloud VMs, with 24 GB RAM and 6 vCPUs shared across all VMs. Team includes the same limits per user. There is no metering or overage billing."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro includes up to 50 Cloud VMs. Team includes up to 50 Cloud VMs per user. Each machine has its own CPU, memory, and disk. The default size is 8 GB RAM and 32 GB disk; sizes from 4 to 64 GB RAM are available. Disks can grow up to 256 GB. There is no metering or overage billing."
+            "value": "Pro includes up to 50 Cloud VMs, with 24 GB RAM and 6 vCPUs shared across all VMs. Team includes the same limits per user. There is no metering or overage billing."
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro includes up to 50 Cloud VMs. Team includes up to 50 Cloud VMs per user. Each machine has its own CPU, memory, and disk. The default size is 8 GB RAM and 32 GB disk; sizes from 4 to 64 GB RAM are available. Disks can grow up to 256 GB. There is no metering or overage billing."
+            "value": "Pro includes up to 50 Cloud VMs, with 24 GB RAM and 6 vCPUs shared across all VMs. Team includes the same limits per user. There is no metering or overage billing."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro includes up to 50 Cloud VMs. Team includes up to 50 Cloud VMs per user. Each machine has its own CPU, memory, and disk. The default size is 8 GB RAM and 32 GB disk; sizes from 4 to 64 GB RAM are available. Disks can grow up to 256 GB. There is no metering or overage billing."
+            "value": "Pro includes up to 50 Cloud VMs, with 24 GB RAM and 6 vCPUs shared across all VMs. Team includes the same limits per user. There is no metering or overage billing."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro includes up to 50 Cloud VMs. Team includes up to 50 Cloud VMs per user. Each machine has its own CPU, memory, and disk. The default size is 8 GB RAM and 32 GB disk; sizes from 4 to 64 GB RAM are available. Disks can grow up to 256 GB. There is no metering or overage billing."
+            "value": "Pro includes up to 50 Cloud VMs, with 24 GB RAM and 6 vCPUs shared across all VMs. Team includes the same limits per user. There is no metering or overage billing."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro includes up to 50 Cloud VMs. Team includes up to 50 Cloud VMs per user. Each machine has its own CPU, memory, and disk. The default size is 8 GB RAM and 32 GB disk; sizes from 4 to 64 GB RAM are available. Disks can grow up to 256 GB. There is no metering or overage billing."
+            "value": "Pro includes up to 50 Cloud VMs, with 24 GB RAM and 6 vCPUs shared across all VMs. Team includes the same limits per user. There is no metering or overage billing."
           }
         }
       }
@@ -160289,13 +160527,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Up to 50 Cloud VMs per user, each with its own resources; default size 8 GB RAM and 32 GB disk, with 4 to 64 GB RAM available"
+            "value": "Up to 50 Cloud VMs per user, with 24 GB RAM and 6 vCPUs per user shared across all their VMs"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ユーザーごとに最大 50 台の Cloud VM。各マシンに専用のリソースがあり、標準サイズは 8 GB RAM / 32 GB ディスク。RAM 4～64 GB のサイズを選べます"
+            "value": "ユーザーごとに最大 50 台の Cloud VM で、ユーザーあたり 24 GB RAM と 6 vCPU を共有"
           }
         }
       }
@@ -167111,6 +167349,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "ワークスペースが見つかりません"
+          }
+        }
+      }
+    },
+    "rpc.v2.terminalCreation.error.initialInputRequiresTerminalType": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Initial command input can only be used with terminal surfaces"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "初期コマンド入力はターミナルサーフェスでのみ使用できます"
           }
         }
       }
@@ -187490,13 +187745,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hides every Cloud Machines surface unless remote rollout enables it."
+            "value": "Hides every Cloud Machines surface, and keeps the Cloud tunnel and fleet polling off, until you enable it here."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "リモートロールアウトで有効化されない限り、クラウドマシンのすべての画面を非表示にします。"
+            "value": "ここで有効にするまで、クラウドマシンのすべての画面を非表示にし、クラウドトンネルとフリートのポーリングもオフのままにします。"
           }
         }
       }
@@ -295734,43 +295989,6 @@
         }
       }
     },
-    "cloudTree.terminal.open": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Open in a pane"}},"ja":{"stringUnit":{"state":"translated","value":"ペインで開いています"}}}},
-    "cloudTunnel.vpnConfiguration.name": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"cmux Cloud"}},"ja":{"stringUnit":{"state":"translated","value":"cmux Cloud"}}}},
-    "cloudTunnel.error.backendUnavailable": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This cmux build does not include the signed Network Extension required for browser access."}},"ja":{"stringUnit":{"state":"translated","value":"この cmux ビルドには、ブラウザアクセスに必要な署名済み Network Extension が含まれていません。"}}}},
-    "cloudTunnel.error.notSignedIn": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Sign in to cmux Cloud first (`cmux auth login`), then retry."}},"ja":{"stringUnit":{"state":"translated","value":"まず cmux Cloud にサインイン（`cmux auth login`）してから再試行してください。"}}}},
-    "cloudTunnel.error.rebootRequired": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"macOS needs a restart to finish installing the cmux Cloud Tunnel extension."}},"ja":{"stringUnit":{"state":"translated","value":"cmux クラウドトンネル機能拡張のインストールを完了するには macOS の再起動が必要です。"}}}},
-    "cloudTunnel.error.appNotInApplicationsFolder": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"macOS only loads the cmux Cloud Tunnel extension from the Applications folder. Move cmux.app to /Applications and retry."}},"ja":{"stringUnit":{"state":"translated","value":"macOS は「アプリケーション」フォルダにある cmux からのみクラウドトンネル機能拡張を読み込みます。cmux.app を /Applications に移動して再試行してください。"}}}},
-    "cloudTunnel.error.startFailed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The tunnel could not start: %@"}},"ja":{"stringUnit":{"state":"translated","value":"トンネルを開始できませんでした: %@"}}}},
-    "cloudTunnel.error.deadlineExceeded": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The tunnel did not come up in time."}},"ja":{"stringUnit":{"state":"translated","value":"トンネルが時間内に接続されませんでした。"}}}},
-    "cloudTunnel.error.linkDropped": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"macOS reported the VPN as disconnected before it came up."}},"ja":{"stringUnit":{"state":"translated","value":"接続が確立する前に macOS が VPN の切断を報告しました。"}}}},
-    "cloudTunnel.error.linkStatusUnavailable": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"VPN status updates stopped arriving."}},"ja":{"stringUnit":{"state":"translated","value":"VPN の状態更新が届かなくなりました。"}}}},
-    "cloudTunnel.error.genericFailure": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"cmux could not start the Cloud VPN. Try again."}},"ja":{"stringUnit":{"state":"translated","value":"cmux はクラウド VPN を開始できませんでした。もう一度お試しください。"}}}},
-    "cloudTunnel.error.vpnConfiguration": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"macOS rejected the VPN configuration (code %d)."}},"ja":{"stringUnit":{"state":"translated","value":"macOS が VPN 構成を拒否しました（コード %d）。"}}}},
-    "cloudTunnel.error.activationCanceled": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The request to load the cmux Cloud Tunnel extension was canceled."}},"ja":{"stringUnit":{"state":"translated","value":"cmux クラウドトンネル機能拡張の読み込み要求がキャンセルされました。"}}}},
-    "cloudTunnel.error.activationNotAllowed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"macOS did not allow the cmux Cloud Tunnel extension to load. Allow it in System Settings › General › Login Items & Extensions, then retry."}},"ja":{"stringUnit":{"state":"translated","value":"macOS が cmux クラウドトンネル機能拡張の読み込みを許可しませんでした。「システム設定」›「一般」›「ログイン項目と機能拡張」で許可してから再試行してください。"}}}},
-    "cloudTunnel.error.activationFailed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"macOS could not load the cmux Cloud Tunnel extension (code %d)."}},"ja":{"stringUnit":{"state":"translated","value":"macOS が cmux クラウドトンネル機能拡張を読み込めませんでした（コード %d）。"}}}},
-    "cli.vpn.appManaged.bringingUp": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Bringing the tunnel up (app-managed, no sudo needed)…"}},"ja":{"stringUnit":{"state":"translated","value":"トンネルを接続しています（アプリ管理、sudo 不要）…"}}}},
-    "cli.vpn.appManaged.needsApproval": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"macOS needs your approval to load the cmux Cloud Tunnel extension. Open System Settings › General › Login Items & Extensions › Network Extensions, allow cmux, then return here (waiting up to 10 minutes)…"}},"ja":{"stringUnit":{"state":"translated","value":"cmux クラウドトンネル機能拡張を読み込むには macOS での承認が必要です。「システム設定」›「一般」›「ログイン項目と機能拡張」›「ネットワーク機能拡張」で cmux を許可してからここに戻ってください（最大 10 分待機します）…"}}}},
-    "cli.vpn.appManaged.pinned": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Pinned up until `cmux vpn down`. Quitting cmux or signing out also takes it down."}},"ja":{"stringUnit":{"state":"translated","value":"`cmux vpn down` まで固定されます。cmux の終了やサインアウトでも切断されます。"}}}},
-    "cli.vpn.appManaged.hostsHint": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Internal hostnames: run `cmux vpn hosts` to map <machine>.internal in /etc/hosts (needs sudo)."}},"ja":{"stringUnit":{"state":"translated","value":"内部ホスト名: <machine>.internal を /etc/hosts に登録するには `cmux vpn hosts` を実行してください（sudo が必要）。"}}}},
-    "cli.vpn.status.state.starting": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Tunnel: starting"}},"ja":{"stringUnit":{"state":"translated","value":"トンネル: 開始中"}}}},
-    "cli.vpn.status.state.awaitingApproval": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Tunnel: waiting for approval in System Settings › General › Login Items & Extensions"}},"ja":{"stringUnit":{"state":"translated","value":"トンネル: 「システム設定」›「一般」›「ログイン項目と機能拡張」での承認を待っています"}}}},
-    "cli.vpn.status.state.failed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Tunnel: failed (%@)"}},"ja":{"stringUnit":{"state":"translated","value":"トンネル: 失敗（%@）"}}}},
-    "cli.vpn.status.downAppManaged": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Tunnel: down (`cmux vpn up` gives other apps on this Mac a route to your Cloud VM network; cmux itself does not need it)"}},"ja":{"stringUnit":{"state":"translated","value":"トンネル: 切断中（`cmux vpn up` でこの Mac の他のアプリにクラウド VM ネットワークへの経路を与えます。cmux 自体には不要です）"}}}},
-    "cli.vpn.status.notSetUpAppManaged": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Tunnel: not set up (`cmux vpn up` enrolls this Mac and asks macOS to allow the cmux Cloud Tunnel extension; cmux itself does not need it)"}},"ja":{"stringUnit":{"state":"translated","value":"トンネル: 未設定（`cmux vpn up` でこの Mac を登録し、macOS に cmux クラウドトンネル機能拡張の許可を求めます。cmux 自体には不要です）"}}}},
-    "cli.vpn.status.pinned": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Pinned up by `cmux vpn up`; run `cmux vpn down` to release."}},"ja":{"stringUnit":{"state":"translated","value":"`cmux vpn up` により接続が固定されています。解除するには `cmux vpn down` を実行してください。"}}}},
-    "cli.vpn.status.autoManaged": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The tunnel starts automatically when you open a Cloud machine and stops when no Cloud sessions remain."}},"ja":{"stringUnit":{"state":"translated","value":"トンネルはクラウドマシンを開くと自動的に開始し、クラウドセッションがなくなると停止します。"}}}},
-    "cloudTunnel.error.startCancelled": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The tunnel start was cancelled."}},"ja":{"stringUnit":{"state":"translated","value":"トンネルの開始がキャンセルされました。"}}}},
-    "cloudTree.link.tunnelStarting": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The cmux Cloud Tunnel is starting…"}},"ja":{"stringUnit":{"state":"translated","value":"cmux クラウドトンネルを開始しています…"}}}},
-    "cloudTree.link.tunnelAwaitingApproval": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"macOS is waiting for you to allow the cmux Cloud Tunnel extension in System Settings › General › Login Items & Extensions."}},"ja":{"stringUnit":{"state":"translated","value":"macOS は「システム設定」›「一般」›「ログイン項目と機能拡張」で cmux クラウドトンネル機能拡張を許可するのを待っています。"}}}},
-    "cloudTree.link.tunnelFailed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The cmux Cloud Tunnel could not start: %@"}},"ja":{"stringUnit":{"state":"translated","value":"cmux クラウドトンネルを開始できませんでした: %@"}}}},
-    "cloudTunnel.error.configurationNotInstalled": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The VPN configuration was not saved before the tunnel was started."}},"ja":{"stringUnit":{"state":"translated","value":"トンネルの開始前に VPN 構成が保存されていませんでした。"}}}},
-    "cloudTree.ports.loading": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Discovering ports…"}},"ja":{"stringUnit":{"state":"translated","value":"ポートを検出中…"}}}},
-    "cloudTree.ports.failed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Couldn’t discover ports. Refresh to retry."}},"ja":{"stringUnit":{"state":"translated","value":"ポートを検出できませんでした。更新して再試行してください。"}}}},
-    "cloudTree.ports.asleep": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Open the machine to discover ports"}},"ja":{"stringUnit":{"state":"translated","value":"マシンを開いてポートを検出"}}}},
-    "cloudTree.ports.unavailable": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Port discovery unavailable. Refresh to retry."}},"ja":{"stringUnit":{"state":"translated","value":"ポート検出を利用できません。更新して再試行してください。"}}}},
-    "cloudTree.ports.empty": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"No reachable ports"}},"ja":{"stringUnit":{"state":"translated","value":"到達可能なポートはありません"}}}},
-    "cloud.managed.disabled": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Cloud Machines are disabled by your administrator."}},"ja":{"stringUnit":{"state":"translated","value":"Cloud Machines は管理者によって無効になっています。"}}}},
     "cloudTree.port.forwardListenerFailed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"cmux could not open a local port for the forward: %@"}},"ja":{"stringUnit":{"state":"translated","value":"cmux は転送用のローカルポートを開けませんでした: %@"}}}},
     "cloudTree.port.forwardListenerCancelled": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The local port forward was closed before it started."}},"ja":{"stringUnit":{"state":"translated","value":"ローカルポート転送は開始前に閉じられました。"}}}},
     "cloudTree.port.noPort": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"%@ has no port to open."}},"ja":{"stringUnit":{"state":"translated","value":"%@ には開くポートがありません。"}}}},
@@ -295785,101 +296003,6 @@
     "cloudTree.menu.copyPrivateURL": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Copy Private Address URL"}},"ja":{"stringUnit":{"state":"translated","value":"プライベートアドレスの URL をコピー"}}}},
     "cli.vpn.appManaged.explain": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This installs the cmux Cloud Tunnel network extension and a macOS VPN configuration named “cmux Cloud”, so every app on this Mac can reach your Cloud VM network. cmux itself does not need it: terminals, Ports, and Desktop use the built-in user-space tunnel. The first time, macOS asks you to allow the extension in System Settings › General › Login Items & Extensions."}},"ja":{"stringUnit":{"state":"translated","value":"これにより、cmux クラウドトンネルのネットワーク機能拡張と「cmux Cloud」という名前の macOS VPN 構成がインストールされ、この Mac のすべてのアプリがクラウド VM ネットワークに到達できるようになります。cmux 自体には不要です。ターミナル、ポート、デスクトップは内蔵のユーザー空間トンネルを使います。初回は、macOS が「システム設定」›「一般」›「ログイン項目と機能拡張」で機能拡張の許可を求めます。"}}}},
     "cloudTree.link.tunnelStopping": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The cmux Cloud Tunnel is stopping…"}},"ja":{"stringUnit":{"state":"translated","value":"cmux クラウドトンネルを停止しています…"}}}},
-    "browser.chromium.automation.commandTimedOut": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Timed out waiting for Chromium CDP command"}},"ja":{"stringUnit":{"state":"translated","value":"ChromiumのCDPコマンドを待機中にタイムアウトしました"}}}},
-    "browser.chromium.automation.documentScriptTimedOut": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Timed out registering Chromium document script"}},"ja":{"stringUnit":{"state":"translated","value":"Chromiumのドキュメントスクリプト登録中にタイムアウトしました"}}}},
-    "browser.chromium.automation.invalidCookiePayload": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Invalid cookie payload"}},"ja":{"stringUnit":{"state":"translated","value":"Cookieペイロードが無効です"}}}},
-    "browser.chromium.automation.javascriptTimedOut": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Timed out waiting for JavaScript result"}},"ja":{"stringUnit":{"state":"translated","value":"JavaScriptの結果を待機中にタイムアウトしました"}}}},
-    "browser.chromium.automation.malformedCookies": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Chromium returned malformed cookies"}},"ja":{"stringUnit":{"state":"translated","value":"Chromiumから不正なCookieが返されました"}}}},
-    "browser.chromium.automation.navigationTimedOut": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Timed out waiting for Chromium navigation"}},"ja":{"stringUnit":{"state":"translated","value":"Chromiumのナビゲーションを待機中にタイムアウトしました"}}}},
-    "browser.chromium.automation.noCommandResult": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Chromium returned no CDP command result"}},"ja":{"stringUnit":{"state":"translated","value":"ChromiumからCDPコマンドの結果が返されませんでした"}}}},
-    "browser.chromium.automation.noJavaScriptValue": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Chromium returned no JavaScript value"}},"ja":{"stringUnit":{"state":"translated","value":"ChromiumからJavaScriptの値が返されませんでした"}}}},
-    "browser.chromium.automation.noScreenshot": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Chromium returned no screenshot"}},"ja":{"stringUnit":{"state":"translated","value":"Chromiumからスクリーンショットが返されませんでした"}}}},
-    "browser.chromium.automation.operationEnded": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Chromium operation ended without a result"}},"ja":{"stringUnit":{"state":"translated","value":"結果がないままChromium操作が終了しました"}}}},
-    "browser.chromium.automation.screenshotTimedOut": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Timed out waiting for Chromium screenshot"}},"ja":{"stringUnit":{"state":"translated","value":"Chromiumのスクリーンショットを待機中にタイムアウトしました"}}}},
-    "browser.chromium.cdp.commandEncodingFailed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Could not encode CDP command"}},"ja":{"stringUnit":{"state":"translated","value":"CDPコマンドをエンコードできませんでした"}}}},
-    "browser.chromium.cdp.connectionClosed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"CDP connection closed"}},"ja":{"stringUnit":{"state":"translated","value":"CDP接続が閉じられました"}}}},
-    "browser.chromium.cdp.endpointUnavailable": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"CDP endpoint is unavailable"}},"ja":{"stringUnit":{"state":"translated","value":"CDPエンドポイントを利用できません"}}}},
-    "browser.chromium.cdp.javaScriptEvaluationFailed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"JavaScript evaluation failed"}},"ja":{"stringUnit":{"state":"translated","value":"JavaScriptの評価に失敗しました"}}}},
-    "browser.chromium.cdp.malformedNavigationHistory": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Chromium returned malformed navigation history"}},"ja":{"stringUnit":{"state":"translated","value":"Chromiumから不正なナビゲーション履歴が返されました"}}}},
-    "browser.chromium.cdp.navigationStreamEnded": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Chromium navigation stream ended"}},"ja":{"stringUnit":{"state":"translated","value":"Chromiumのナビゲーションストリームが終了しました"}}}},
-    "browser.chromium.cdp.noPageTarget": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Chromium has no page target"}},"ja":{"stringUnit":{"state":"translated","value":"Chromiumにページターゲットがありません"}}}},
-    "browser.chromium.cdp.noPageWebSocket": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Chromium has no page websocket"}},"ja":{"stringUnit":{"state":"translated","value":"ChromiumにページWebSocketがありません"}}}},
-    "browser.chromium.cdp.rendererExited": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Chromium renderer exited (%lld)"}},"ja":{"stringUnit":{"state":"translated","value":"Chromiumレンダラーが終了しました（%lld）"}}}},
-    "browser.chromium.cdp.startupTimedOut": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Timed out waiting for Chromium"}},"ja":{"stringUnit":{"state":"translated","value":"Chromiumの起動を待機中にタイムアウトしました"}}}},
-    "browser.chromium.cdp.unknownError": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Unknown CDP error"}},"ja":{"stringUnit":{"state":"translated","value":"不明なCDPエラー"}}}},
-    "browser.chromium.error.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Chromium unavailable"}},"ja":{"stringUnit":{"state":"translated","value":"Chromiumを利用できません"}}}},
-    "browser.engine.error.browserOnly": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"A browser engine can only be selected when creating a browser pane or surface."}},"ja":{"stringUnit":{"state":"translated","value":"ブラウザエンジンを選択できるのはブラウザペインまたはサーフェスの作成時だけです"}}}},
-    "browser.engine.error.invalid": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Choose WebKit or Chromium for the browser engine."}},"ja":{"stringUnit":{"state":"translated","value":"ブラウザエンジンとしてWebKitまたはChromiumを選択してください"}}}},
-    "browser.focus.error.chromiumHostUnavailable": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Chromium browser host is not in a visible window"}},"ja":{"stringUnit":{"state":"translated","value":"Chromiumブラウザホストが表示可能なウィンドウにありません"}}}},
-    "browser.import.automation.error.chromiumCookiesUnsupported": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Cookie import into Chromium is not available yet. Open a WebKit browser pane or set WebKit as the default engine and try again."}},"ja":{"stringUnit":{"state":"translated","value":"Chromium への Cookie インポートにはまだ対応していません。WebKit ブラウザペインを開くか、既定のエンジンに WebKit を設定して再試行してください。"}}}},
-    "browser.import.warning.chromiumCookiesUnsupported": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Cookies were not imported because Chromium uses an isolated cookie store. Select WebKit as the destination engine and try again."}},"ja":{"stringUnit":{"state":"translated","value":"Chromium は Cookie ストアを分離しているため、Cookie をインポートしませんでした。宛先エンジンに WebKit を選択して再試行してください。"}}}},
-    "browser.navigation.error.unsupportedAction": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Unsupported browser navigation action"}},"ja":{"stringUnit":{"state":"translated","value":"サポートされていないブラウザナビゲーション操作です"}}}},
-    "browser.viewport.error.chromiumTimedOut": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Timed out setting Chromium viewport"}},"ja":{"stringUnit":{"state":"translated","value":"Chromiumビューポートの設定がタイムアウトしました"}}}},
-    "browser.viewport.error.layoutUnavailable": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Browser viewport layout is unavailable"}},"ja":{"stringUnit":{"state":"translated","value":"ブラウザのビューポートレイアウトを利用できません"}}}},
-    "browser.viewport.error.unsupportedEngine": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Page zoom is not supported for Chromium browser panes"}},"ja":{"stringUnit":{"state":"translated","value":"Chromiumブラウザペインではページズームをサポートしていません"}}}},
-    "cli.browser.engine.error.browserOnly": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"A browser engine can only be selected when creating a browser pane or surface."}},"ja":{"stringUnit":{"state":"translated","value":"ブラウザエンジンを選択できるのはブラウザペインまたはサーフェスの作成時だけです"}}}},
-    "cli.browser.engine.error.invalid": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Choose WebKit or Chromium for the browser engine."}},"ja":{"stringUnit":{"state":"translated","value":"ブラウザエンジンとしてWebKitまたはChromiumを選択してください"}}}},
-    "cli.browser.engine.error.navigateUnsupported": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"--engine is only supported when browser open creates a new pane; omit the surface selector"}},"ja":{"stringUnit":{"state":"translated","value":"--engine は browser open が新しいペインを作成する場合のみ使用できます。サーフェスセレクターを省略してください"}}}},
-    "cli.browser.engine.error.urlOnly": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"--engine is only supported when opening a browser URL"}},"ja":{"stringUnit":{"state":"translated","value":"--engine はブラウザURLを開く場合のみ使用できます"}}}},
-    "cli.browser.engine.flagDescription": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Rendering engine (browser only)"}},"ja":{"stringUnit":{"state":"translated","value":"レンダリングエンジン（ブラウザのみ）"}}}},
-    "cli.browser.engine.option": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"[--engine <webkit|chromium>]"}},"ja":{"stringUnit":{"state":"translated","value":"[--engine <webkit|chromium>]"}}}},
-    "cli.browser.error.cookieReadFailed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Could not read browser cookies"}},"ja":{"stringUnit":{"state":"translated","value":"ブラウザのCookieを読み取れませんでした"}}}},
-    "cli.browser.error.cookieWriteFailed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Could not write browser cookies"}},"ja":{"stringUnit":{"state":"translated","value":"ブラウザのCookieを書き込めませんでした"}}}},
-    "cli.browser.error.navigationFailed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Browser navigation failed"}},"ja":{"stringUnit":{"state":"translated","value":"ブラウザのナビゲーションに失敗しました"}}}},
-    "cli.browser.error.screenshotFailed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Browser screenshot failed"}},"ja":{"stringUnit":{"state":"translated","value":"ブラウザのスクリーンショットに失敗しました"}}}},
-    "cli.open.error.unknownFlag": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"open: unknown flag '%@'. Usage: cmux open <path-or-url>... [--engine <webkit|chromium>] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>] [--focus true|false] [--no-focus]"}},"ja":{"stringUnit":{"state":"translated","value":"open: 不明なフラグ '%@'。使い方: cmux open <path-or-url>... [--engine <webkit|chromium>] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>] [--focus true|false] [--no-focus]"}}}},
-    "command.cloudVM.open.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Open Cloud VM"}},"ja":{"stringUnit":{"state":"translated","value":"Cloud VM を開く"}}}},
-    "debug.menu.splitButtonLayoutDebug": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Split Button Layout Debug…"}},"ja":{"stringUnit":{"state":"translated","value":"分割ボタンレイアウトのデバッグ…"}}}},
-    "debug.splitButtonLayout.alwaysHover": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Always Show Hover State"}},"ja":{"stringUnit":{"state":"translated","value":"ホバー状態を常に表示"}}}},
-    "debug.splitButtonLayout.backdropOptions": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Backdrop Options"}},"ja":{"stringUnit":{"state":"translated","value":"背景オプション"}}}},
-    "debug.splitButtonLayout.caretSegment": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Caret Segment"}},"ja":{"stringUnit":{"state":"translated","value":"キャレットセグメント"}}}},
-    "debug.splitButtonLayout.cloudPreview": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Cloud Split Button"}},"ja":{"stringUnit":{"state":"translated","value":"クラウド分割ボタン"}}}},
-    "debug.splitButtonLayout.hoverSegment": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Forced Hover Segment"}},"ja":{"stringUnit":{"state":"translated","value":"強制ホバーセグメント"}}}},
-    "debug.splitButtonLayout.hoverSegment.both": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Both"}},"ja":{"stringUnit":{"state":"translated","value":"両方"}}}},
-    "debug.splitButtonLayout.hoverSegment.caret": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Caret"}},"ja":{"stringUnit":{"state":"translated","value":"キャレット"}}}},
-    "debug.splitButtonLayout.hoverSegment.plus": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Plus"}},"ja":{"stringUnit":{"state":"translated","value":"プラス"}}}},
-    "debug.splitButtonLayout.inUse": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"In Use"}},"ja":{"stringUnit":{"state":"translated","value":"使用中"}}}},
-    "debug.splitButtonLayout.innerPadding": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Inner Padding and Width"}},"ja":{"stringUnit":{"state":"translated","value":"内側の余白と幅"}}}},
-    "debug.splitButtonLayout.liveNote": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Changes apply live."}},"ja":{"stringUnit":{"state":"translated","value":"変更はライブで反映されます。"}}}},
-    "debug.splitButtonLayout.option.controlBackground": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"controlBackgroundColor"}},"ja":{"stringUnit":{"state":"translated","value":"controlBackgroundColor"}}}},
-    "debug.splitButtonLayout.option.hidden": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Hidden"}},"ja":{"stringUnit":{"state":"translated","value":"非表示"}}}},
-    "debug.splitButtonLayout.option.precompositedBar": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Pre-composited barBackground"}},"ja":{"stringUnit":{"state":"translated","value":"合成済み barBackground"}}}},
-    "debug.splitButtonLayout.option.precompositedPane": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Pre-composited paneBackground"}},"ja":{"stringUnit":{"state":"translated","value":"合成済み paneBackground"}}}},
-    "debug.splitButtonLayout.option.rawBar": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"barBackground (tab chrome)"}},"ja":{"stringUnit":{"state":"translated","value":"barBackground（タブクローム）"}}}},
-    "debug.splitButtonLayout.option.rawPane": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Raw paneBackground (opaque)"}},"ja":{"stringUnit":{"state":"translated","value":"未加工 paneBackground（不透明）"}}}},
-    "debug.splitButtonLayout.option.translucentChrome": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Translucent chrome"}},"ja":{"stringUnit":{"state":"translated","value":"半透明クローム"}}}},
-    "debug.splitButtonLayout.option.windowBackground": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"windowBackgroundColor"}},"ja":{"stringUnit":{"state":"translated","value":"windowBackgroundColor"}}}},
-    "debug.splitButtonLayout.padding.bottom": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Bottom"}},"ja":{"stringUnit":{"state":"translated","value":"下"}}}},
-    "debug.splitButtonLayout.padding.leading": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Leading"}},"ja":{"stringUnit":{"state":"translated","value":"前"}}}},
-    "debug.splitButtonLayout.padding.top": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Top"}},"ja":{"stringUnit":{"state":"translated","value":"上"}}}},
-    "debug.splitButtonLayout.padding.trailing": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Trailing"}},"ja":{"stringUnit":{"state":"translated","value":"後"}}}},
-    "debug.splitButtonLayout.plusClicks": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Plus clicks: %d"}},"ja":{"stringUnit":{"state":"translated","value":"プラスのクリック数: %d"}}}},
-    "debug.splitButtonLayout.plusSegment": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Plus Segment"}},"ja":{"stringUnit":{"state":"translated","value":"プラスセグメント"}}}},
-    "debug.splitButtonLayout.resetPadding": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Reset Padding and Widths"}},"ja":{"stringUnit":{"state":"translated","value":"余白と幅をリセット"}}}},
-    "debug.splitButtonLayout.sectionWidth": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Section Width"}},"ja":{"stringUnit":{"state":"translated","value":"セクション幅"}}}},
-    "debug.splitButtonLayout.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Button Backdrop Color"}},"ja":{"stringUnit":{"state":"translated","value":"ボタン背景色"}}}},
-    "debug.splitButtonLayout.width.caretOffset": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Caret Width Offset"}},"ja":{"stringUnit":{"state":"translated","value":"キャレット幅オフセット"}}}},
-    "debug.splitButtonLayout.width.plusOffset": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Plus Width Offset"}},"ja":{"stringUnit":{"state":"translated","value":"プラス幅オフセット"}}}},
-    "debug.splitButtonLayout.windowTitle": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Split Button Layout"}},"ja":{"stringUnit":{"state":"translated","value":"分割ボタンレイアウト"}}}},
-    "settings.browser.chromiumExtensions": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Chromium Extensions"}},"ja":{"stringUnit":{"state":"translated","value":"Chromium 拡張機能"}}}},
-    "settings.browser.chromiumExtensions.subtitle": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Unpacked extension directories loaded into Chromium browser panes. One absolute path per line; each directory must contain a manifest.json. Applies when the next pane starts."}},"ja":{"stringUnit":{"state":"translated","value":"Chromium ブラウザペインに読み込むパッケージ化されていない拡張機能のディレクトリ。1 行につき絶対パス 1 件で、各ディレクトリに manifest.json が必要です。次のペイン起動時に適用されます。"}}}},
-    "settings.browser.engine": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Default Browser Engine"}},"ja":{"stringUnit":{"state":"translated","value":"デフォルトブラウザエンジン"}}}},
-    "settings.browser.engine.auto": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Auto (Match Default Browser)"}},"ja":{"stringUnit":{"state":"translated","value":"自動（既定のブラウザに合わせる）"}}}},
-    "settings.browser.engine.chromium": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Chromium"}},"ja":{"stringUnit":{"state":"translated","value":"Chromium"}}}},
-    "settings.browser.engine.subtitle.auto": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"New browser panes use Chromium when your default browser is Chromium-based (Chrome, Edge, Brave, Arc…), otherwise WebKit."}},"ja":{"stringUnit":{"state":"translated","value":"既定のブラウザが Chromium 系（Chrome、Edge、Brave、Arc など）の場合は新しいブラウザペインに Chromium を使用し、それ以外は WebKit を使用します。"}}}},
-    "settings.browser.engine.subtitle.chromium": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Use a managed out-of-process Chromium runtime for new browser panes."}},"ja":{"stringUnit":{"state":"translated","value":"新しいブラウザペインで管理対象の別プロセスChromiumランタイムを使用します。"}}}},
-    "settings.browser.engine.subtitle.webkit": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Use the built-in WebKit engine for new browser panes."}},"ja":{"stringUnit":{"state":"translated","value":"新しいブラウザペインで内蔵WebKitエンジンを使用します。"}}}},
-    "settings.browser.engine.webkit": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"WebKit"}},"ja":{"stringUnit":{"state":"translated","value":"WebKit"}}}},
-    "settings.browser.remoteDebuggingPort": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Chromium Remote Debugging Port"}},"ja":{"stringUnit":{"state":"translated","value":"Chromiumリモートデバッグポート"}}}},
-    "settings.browser.remoteDebuggingPort.subtitleOff": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Off by default. Chromium panes still use private CDP internally; no external endpoint is exposed."}},"ja":{"stringUnit":{"state":"translated","value":"デフォルトはオフです。Chromiumペインは内部で非公開CDPを使用しますが、外部エンドポイントは公開されません。"}}}},
-    "settings.browser.remoteDebuggingPort.subtitleOn": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"New panes request http://127.0.0.1:%lld. If busy, cmux chooses another loopback port; CLI JSON reports the actual Playwright endpoint."}},"ja":{"stringUnit":{"state":"translated","value":"新しいペインではhttp://127.0.0.1:%lldを要求します。使用中の場合は別のループバックポートを使用し、CLIのJSONに実際のPlaywrightエンドポイントが表示されます。"}}}},
-    "settings.search.alias.setting.browser.chromium-extensions": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"browser.chromiumExtensionDirectories chrome extension unpacked load-extension addon plugin"}},"ja":{"stringUnit":{"state":"translated","value":"browser.chromiumExtensionDirectories Chrome 拡張機能 アンパック load-extension アドオン プラグイン"}}}},
-    "settings.search.alias.setting.browser.engine": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"browser.defaultEngine auto match default browser webkit chromium chrome rendering engine out of process"}},"ja":{"stringUnit":{"state":"translated","value":"browser.defaultEngine 自動 既定のブラウザ WebKit Chromium Chrome レンダリング エンジン 別プロセス"}}}},
-    "settings.search.alias.setting.browser.remote-debugging-port": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"browser.remoteDebuggingPort cdp devtools protocol playwright puppeteer loopback localhost attach"}},"ja":{"stringUnit":{"state":"translated","value":"browser.remoteDebuggingPort CDP DevTools プロトコル Playwright Puppeteer ループバック localhost 接続"}}}},
-    "titlebar.cloudVM.accessibilityLabel": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"Cloud VM"}},"bs":{"stringUnit":{"state":"translated","value":"Cloud VM"}},"da":{"stringUnit":{"state":"translated","value":"cloud-VM"}},"de":{"stringUnit":{"state":"translated","value":"Cloud-VM"}},"en":{"stringUnit":{"state":"translated","value":"cloud VM"}},"es":{"stringUnit":{"state":"translated","value":"Cloud VM"}},"fr":{"stringUnit":{"state":"translated","value":"Cloud VM"}},"it":{"stringUnit":{"state":"translated","value":"Cloud VM"}},"ja":{"stringUnit":{"state":"translated","value":"Cloud VM"}},"km":{"stringUnit":{"state":"translated","value":"Cloud VM"}},"ko":{"stringUnit":{"state":"translated","value":"Cloud VM"}},"nb":{"stringUnit":{"state":"translated","value":"Cloud VM"}},"pl":{"stringUnit":{"state":"translated","value":"Cloud VM"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Cloud VM"}},"ru":{"stringUnit":{"state":"translated","value":"Cloud VM"}},"th":{"stringUnit":{"state":"translated","value":"Cloud VM"}},"tr":{"stringUnit":{"state":"translated","value":"Cloud VM"}},"uk":{"stringUnit":{"state":"translated","value":"Cloud VM"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"Cloud VM"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"Cloud VM"}}}},
-    "titlebar.cloudVM.menu.accessibilityLabel": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"Cloud VM Menu"}},"bs":{"stringUnit":{"state":"translated","value":"Cloud VM Menu"}},"da":{"stringUnit":{"state":"translated","value":"Cloud VM Menu"}},"de":{"stringUnit":{"state":"translated","value":"Cloud VM Menu"}},"en":{"stringUnit":{"state":"translated","value":"Cloud VM Menu"}},"es":{"stringUnit":{"state":"translated","value":"Cloud VM Menu"}},"fr":{"stringUnit":{"state":"translated","value":"Cloud VM Menu"}},"it":{"stringUnit":{"state":"translated","value":"Cloud VM Menu"}},"ja":{"stringUnit":{"state":"translated","value":"Cloud VM メニュー"}},"km":{"stringUnit":{"state":"translated","value":"Cloud VM Menu"}},"ko":{"stringUnit":{"state":"translated","value":"Cloud VM Menu"}},"nb":{"stringUnit":{"state":"translated","value":"Cloud VM Menu"}},"pl":{"stringUnit":{"state":"translated","value":"Cloud VM Menu"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Cloud VM Menu"}},"ru":{"stringUnit":{"state":"translated","value":"Cloud VM Menu"}},"th":{"stringUnit":{"state":"translated","value":"Cloud VM Menu"}},"tr":{"stringUnit":{"state":"translated","value":"Cloud VM Menu"}},"uk":{"stringUnit":{"state":"translated","value":"Cloud VM Menu"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"Cloud VM Menu"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"Cloud VM Menu"}}}},
-    "titlebar.cloudVM.menu.tooltip": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"Cloud VM actions"}},"bs":{"stringUnit":{"state":"translated","value":"Cloud VM actions"}},"da":{"stringUnit":{"state":"translated","value":"Cloud VM actions"}},"de":{"stringUnit":{"state":"translated","value":"Cloud VM actions"}},"en":{"stringUnit":{"state":"translated","value":"Cloud VM actions"}},"es":{"stringUnit":{"state":"translated","value":"Cloud VM actions"}},"fr":{"stringUnit":{"state":"translated","value":"Cloud VM actions"}},"it":{"stringUnit":{"state":"translated","value":"Cloud VM actions"}},"ja":{"stringUnit":{"state":"translated","value":"Cloud VM アクション"}},"km":{"stringUnit":{"state":"translated","value":"Cloud VM actions"}},"ko":{"stringUnit":{"state":"translated","value":"Cloud VM actions"}},"nb":{"stringUnit":{"state":"translated","value":"Cloud VM actions"}},"pl":{"stringUnit":{"state":"translated","value":"Cloud VM actions"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Cloud VM actions"}},"ru":{"stringUnit":{"state":"translated","value":"Cloud VM actions"}},"th":{"stringUnit":{"state":"translated","value":"Cloud VM actions"}},"tr":{"stringUnit":{"state":"translated","value":"Cloud VM actions"}},"uk":{"stringUnit":{"state":"translated","value":"Cloud VM actions"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"Cloud VM actions"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"Cloud VM actions"}}}},
-    "titlebar.cloudVM.tooltip": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"Open Cloud VM"}},"bs":{"stringUnit":{"state":"translated","value":"Open Cloud VM"}},"da":{"stringUnit":{"state":"translated","value":"Open Cloud VM"}},"de":{"stringUnit":{"state":"translated","value":"Open Cloud VM"}},"en":{"stringUnit":{"state":"translated","value":"Open Cloud VM"}},"es":{"stringUnit":{"state":"translated","value":"Open Cloud VM"}},"fr":{"stringUnit":{"state":"translated","value":"Open Cloud VM"}},"it":{"stringUnit":{"state":"translated","value":"Open Cloud VM"}},"ja":{"stringUnit":{"state":"translated","value":"Cloud VM を開く"}},"km":{"stringUnit":{"state":"translated","value":"Open Cloud VM"}},"ko":{"stringUnit":{"state":"translated","value":"Open Cloud VM"}},"nb":{"stringUnit":{"state":"translated","value":"Open Cloud VM"}},"pl":{"stringUnit":{"state":"translated","value":"Open Cloud VM"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Open Cloud VM"}},"ru":{"stringUnit":{"state":"translated","value":"Open Cloud VM"}},"th":{"stringUnit":{"state":"translated","value":"Open Cloud VM"}},"tr":{"stringUnit":{"state":"translated","value":"Open Cloud VM"}},"uk":{"stringUnit":{"state":"translated","value":"Open Cloud VM"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"Open Cloud VM"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"Open Cloud VM"}}}},
     "cloudTree.error.localForwardURLUnavailable": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"cmux could not build a local address for this port forward."}},"ja":{"stringUnit":{"state":"translated","value":"cmux はこのポート転送用のローカルアドレスを作成できませんでした。"}}}},
     "cli.vpn.appManaged.explainReconnect": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This turns the cmux Cloud Tunnel back on, so every app on this Mac can reach your Cloud VM network. cmux itself does not need it: terminals, Ports, and Desktop use the built-in user-space tunnel."}},"ja":{"stringUnit":{"state":"translated","value":"これにより cmux クラウドトンネルが再びオンになり、この Mac のすべてのアプリがクラウド VM ネットワークに到達できるようになります。cmux 自体には不要です。ターミナル、ポート、デスクトップは内蔵のユーザー空間トンネルを使います。"}}}},
     "agentRestore.admission.invalid": {
@@ -298710,7 +298833,69 @@
         }
       }
     }
-  }
+  },
+    "cloudTunnel.error.cloudMachinesOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines is turned off. Turn it on in Settings › Beta Features, then retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドマシンはオフになっています。設定 › ベータ機能でオンにしてから、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "cloudTunnel.error.noCloudMachine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create a Cloud machine first. The cmux Cloud Tunnel runs only for an account with at least one machine."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先にクラウドマシンを作成してください。cmux Cloud Tunnelは、マシンを1台以上持つアカウントでのみ動作します。"
+          }
+        }
+      }
+    },
+    "cli.vpn.status.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tunnel: unavailable (%@)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トンネル: 利用不可（%@）"
+          }
+        }
+      }
+    },
+    "cli.coderouter.error.notFound": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"تعذر العثور على أداة سطر الأوامر المطلوبة. ثبّت الأمر ثم أعد المحاولة."}},"bs":{"stringUnit":{"state":"translated","value":"Traženi CLI nije pronađen. Instalirajte naredbu i pokušajte ponovo."}},"da":{"stringUnit":{"state":"translated","value":"Den nødvendige CLI blev ikke fundet. Installer kommandoen, og prøv igen."}},"de":{"stringUnit":{"state":"translated","value":"Die erforderliche CLI wurde nicht gefunden. Installieren Sie den Befehl und versuchen Sie es erneut."}},"en":{"stringUnit":{"state":"translated","value":"Required CLI not found. Install the command and retry."}},"es":{"stringUnit":{"state":"translated","value":"No se encontró la CLI necesaria. Instala el comando y vuelve a intentarlo."}},"fr":{"stringUnit":{"state":"translated","value":"La CLI requise est introuvable. Installez la commande, puis réessayez."}},"it":{"stringUnit":{"state":"translated","value":"La CLI richiesta non è stata trovata. Installa il comando e riprova."}},"ja":{"stringUnit":{"state":"translated","value":"必要な CLI が見つかりません。コマンドをインストールして、もう一度お試しください。"}},"km":{"stringUnit":{"state":"translated","value":"រកមិនឃើញ CLI ដែលត្រូវការ។ សូមដំឡើងពាក្យបញ្ជា ហើយព្យាយាមម្ដងទៀត។"}},"ko":{"stringUnit":{"state":"translated","value":"필요한 CLI를 찾을 수 없습니다. 명령을 설치한 후 다시 시도하세요."}},"nb":{"stringUnit":{"state":"translated","value":"Fant ikke den nødvendige CLI-en. Installer kommandoen og prøv igjen."}},"pl":{"stringUnit":{"state":"translated","value":"Nie znaleziono wymaganej CLI. Zainstaluj polecenie i spróbuj ponownie."}},"pt-BR":{"stringUnit":{"state":"translated","value":"A CLI necessária não foi encontrada. Instale o comando e tente novamente."}},"ru":{"stringUnit":{"state":"translated","value":"Не удалось найти необходимый CLI. Установите команду и повторите попытку."}},"th":{"stringUnit":{"state":"translated","value":"ไม่พบ CLI ที่จำเป็น โปรดติดตั้งคำสั่งแล้วลองอีกครั้ง"}},"tr":{"stringUnit":{"state":"translated","value":"Gerekli CLI bulunamadı. Komutu yükleyip tekrar deneyin."}},"uk":{"stringUnit":{"state":"translated","value":"Не знайдено потрібний CLI. Установіть команду та повторіть спробу."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"未找到所需的 CLI。请安装该命令后重试。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"找不到必要的 CLI。請安裝該命令後再試一次。"}}}},
+    "featureFlags.cloudVM.description": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Shows Cloud VM entrypoints in the new-workspace dropdown and command palette."}},"ja":{"stringUnit":{"state":"translated","value":"新規ワークスペースのドロップダウンとコマンドパレットにクラウドVMのエントリーポイントを表示します。"}}}},
+    "featureFlags.cloudVM.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Cloud VM UI"}},"ja":{"stringUnit":{"state":"translated","value":"クラウドVM UI"}}}},
+    "cloud.managed.tunnelDisabled": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Cloud private-network access is disabled by your organization."}},"ja":{"stringUnit":{"state":"translated","value":"Cloud のプライベートネットワークアクセスは組織によって無効になっています。"}}}},
+    "machines.managedPolicy.disconnectedDetail": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Cloud VM access ended because your organization disabled cmux Cloud."}},"ja":{"stringUnit":{"state":"translated","value":"組織が cmux Cloud を無効にしたため、Cloud VM へのアクセスは終了しました。"}}}},
+    "managedPolicy.remoteConnections.disabled": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Remote connections are disabled by your organization."}},"ja":{"stringUnit":{"state":"translated","value":"リモート接続は組織によって無効になっています。"}}}},
+    "managedPolicy.fileTransfer.disabled": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"File transfer is disabled by your organization."}},"ja":{"stringUnit":{"state":"translated","value":"ファイル転送は組織によって無効になっています。"}}}},
+    "managedPolicy.irohNetworking.disabled": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"cmux relay networking is disabled by your organization."}},"ja":{"stringUnit":{"state":"translated","value":"cmux のリレーネットワークは組織によって無効になっています。"}}}},
+    "agentRestore.admission.unavailable.hookStoreUnreadable": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"cmux could not read its saved session records for this agent, so it cannot tell whether the session is already running. Retry 'cmux restore --surface'."}},"ja":{"stringUnit":{"state":"translated","value":"このエージェントの保存済みセッション記録を読み取れなかったため、セッションがすでに実行中かどうかを cmux で判断できません。「cmux restore --surface」を再試行してください。"}}}},
+    "agentRestore.admission.unavailable.timedOut": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"cmux could not finish checking whether this agent session is already running before the time limit. Retry 'cmux restore --surface'."}},"ja":{"stringUnit":{"state":"translated","value":"このエージェントセッションがすでに実行中かどうかの確認が制限時間内に終わりませんでした。「cmux restore --surface」を再試行してください。"}}}},
+    "agentRestore.unverifiable.notice": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"cmux could not verify whether this agent session is already running, so it did not resume the session automatically. Run 'cmux restore --surface' to resume it here."}},"ja":{"stringUnit":{"state":"translated","value":"このエージェントセッションがすでに実行中かどうかを cmux で確認できなかったため、セッションを自動的に再開しませんでした。このターミナルで再開するには「cmux restore --surface」を実行してください。"}}}}
   },
   "version": "1.0"
 }

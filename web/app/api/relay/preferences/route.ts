@@ -78,6 +78,7 @@ async function authenticatedAccount(
     ruleId: deps.rateLimitRuleId(),
     check: deps.checkRateLimit,
     isVercel: deps.isVercel(),
+    retryAfterSeconds: 60,
   }));
   return user;
 }

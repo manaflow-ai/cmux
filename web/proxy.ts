@@ -18,6 +18,7 @@ import {
   dashboardReturnPathForRequest,
 } from "./app/lib/dashboard-return-path";
 import { localizedVaultPath, vaultSignInHref } from "./app/lib/vault-auth";
+import { hasStackRefreshCookie } from "./app/lib/stack-session-cookies";
 
 const intlMiddleware = createMiddleware(routing);
 const localeSet = new Set<string>(routing.locales);
@@ -405,7 +406,7 @@ function hasStackSessionCookie(request: NextRequest): boolean {
   const projectId = process.env.NEXT_PUBLIC_STACK_PROJECT_ID?.trim();
   // Without Stack the dashboard redirects home on the server instead.
   if (!projectId) return true;
-  return Boolean(request.cookies.get(`stack-refresh-${projectId}`)?.value);
+  return hasStackRefreshCookie(request.cookies.getAll(), projectId);
 }
 
 /**

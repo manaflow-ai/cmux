@@ -57,6 +57,14 @@ cat > "$FAKE_BIN/spctl" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 printf 'spctl %s\n' "$*" >> "$CMUX_TEST_CALL_LOG"
+# Gatekeeper keeps negative assessments in a code-directory cache. A fresh
+# stapled ticket must be assessed without consulting or populating that cache.
+if [ "${CMUX_TEST_SPCTL_REQUIRE_FRESH:-0}" = "1" ]; then
+  if [[ " $* " != *" --ignore-cache "* || " $* " != *" --no-cache "* ]]; then
+    echo "assessment cache was reused" >&2
+    exit 2
+  fi
+fi
 # Simulate Gatekeeper not yet seeing the notarization ticket: reject the first
 # CMUX_TEST_SPCTL_REJECTS assessments, then accept.
 count_file="${CMUX_TEST_SPCTL_COUNT_FILE:-}"
@@ -129,7 +137,7 @@ if ! [ "$helper_sign_line" -lt "$submit_line" ] \
   echo "FAIL: helper notarization, stapling, and outer resealing ran out of order" >&2
   exit 1
 fi
-if ! grep -Eq '^spctl -a -vv --type execute .*/standalone/cmux Computer Use\.app$' "$LOG"; then
+if ! grep -Eq '^spctl -a -vv --ignore-cache --no-cache --type execute .*/standalone/cmux Computer Use\.app$' "$LOG"; then
   echo "FAIL: independently copied helper did not pass the Gatekeeper check" >&2
   exit 1
 fi
@@ -209,7 +217,7 @@ if ! CMUX_TEST_SPCTL_COUNT_FILE="$TMP_DIR/spctl-count" CMUX_TEST_SPCTL_REJECTS=2
   echo "FAIL: helper notarization gave up while the Gatekeeper ticket was still propagating" >&2
   exit 1
 fi
-if [ "$(grep -c '^spctl -a -vv --type execute .*/standalone/cmux Computer Use\.app$' "$LOG")" -ne 3 ]; then
+if [ "$(grep -c '^spctl -a -vv --ignore-cache --no-cache --type execute .*/standalone/cmux Computer Use\.app$' "$LOG")" -ne 3 ]; then
   echo "FAIL: expected three Gatekeeper assessments (two rejected, one accepted)" >&2
   exit 1
 fi
@@ -221,8 +229,22 @@ if CMUX_TEST_SPCTL_COUNT_FILE="$TMP_DIR/spctl-count" CMUX_TEST_SPCTL_REJECTS=5 C
   echo "FAIL: helper notarization passed although Gatekeeper never accepted the helper" >&2
   exit 1
 fi
-if [ "$(grep -c '^spctl -a -vv --type execute .*/standalone/cmux Computer Use\.app$' "$LOG")" -ne 3 ]; then
+if [ "$(grep -c '^spctl -a -vv --ignore-cache --no-cache --type execute .*/standalone/cmux Computer Use\.app$' "$LOG")" -ne 3 ]; then
   echo "FAIL: Gatekeeper assessment must stop after the attempt budget" >&2
+  exit 1
+fi
+
+# Regression: a stale negative assessment must not make a valid stapled helper
+# fail just because the same CDHash was assessed before stapling. The fake
+# Gatekeeper rejects any assessment that does not opt out of its cache.
+: > "$LOG"
+if ! CMUX_TEST_SPCTL_REQUIRE_FRESH=1 CMUX_GATEKEEPER_ASSESS_ATTEMPTS=1 run_helper >"$TMP_DIR/fresh-assessment.out" 2>&1; then
+  echo "FAIL: Gatekeeper assessment reused a stale negative cache entry" >&2
+  cat "$TMP_DIR/fresh-assessment.out" >&2
+  exit 1
+fi
+if ! grep -Eq '^spctl -a -vv --ignore-cache --no-cache --type execute .*/standalone/cmux Computer Use\.app$' "$LOG"; then
+  echo "FAIL: Gatekeeper assessment did not bypass its cache" >&2
   exit 1
 fi
 

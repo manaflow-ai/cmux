@@ -7,6 +7,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -226,6 +227,10 @@ def run_app_host_unit_test_step(
         runner_temp.mkdir()
         fake_bin.mkdir()
         ci_scripts.mkdir(parents=True)
+        shutil.copy2(
+            ROOT / "scripts/ci/classify-app-host-test-output.py",
+            ci_scripts / "classify-app-host-test-output.py",
+        )
 
         shard_helper = ci_scripts / "cmux_unit_test_shard.py"
         shard_helper.write_text(
@@ -260,7 +265,7 @@ iteration=$((iteration + 1))
 printf '%s\n' "$iteration" > "$counter"
 if [ "$iteration" -eq 1 ]; then
   echo "Executed 2 tests, with 2 failures (0 unexpected)"
-  exit 1
+  exit 65
 fi
 echo "simulated app-host crash before test summary" >&2
 exit 9

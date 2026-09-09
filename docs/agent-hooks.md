@@ -34,6 +34,7 @@ Supported agent names are `codex`, `grok`, `opencode`, `pi`, `omp`, `campfire`, 
 | Factory | `droid` | `~/.factory/settings.json` | `droid --resume <id>` | PreToolUse |
 | Qoder | `qodercli` | `~/.qoder/settings.json` | `qodercli --resume <id>` | PreToolUse |
 | Kimi Code | `kimi` | `~/.kimi-code/config.toml` or `~/.kimi/config.toml` | not yet | PreToolUse, PostToolUse |
+| Antigravity | `agy` | `~/.gemini/config/hooks.json` (`cmux` hook group) | `agy --conversation <id>` | none |
 
 OpenCode also supports project-local Feed installation:
 
@@ -190,6 +191,7 @@ notification bridge, rebinding, and hibernation integration for that process.
 | CodeBuddy | `CODEBUDDY_CONFIG_DIR` | `CMUX_CODEBUDDY_HOOKS_DISABLED=1` |
 | Factory | none | `CMUX_FACTORY_HOOKS_DISABLED=1` |
 | Qoder | `QODER_CONFIG_DIR` | `CMUX_QODER_HOOKS_DISABLED=1` |
+| Antigravity | none | `CMUX_ANTIGRAVITY_HOOKS_DISABLED=1` |
 
 Pi uses Pi's extension system, not the legacy Pi hooks API. The installed extension is auto-discovered from `~/.pi/agent/extensions/` or `$PI_CODING_AGENT_DIR/extensions/`.
 
@@ -202,6 +204,8 @@ Kiro stores hooks inside agent configuration files. The cmux installer creates o
 Kiro Feed verbosity follows **Settings > Automation > Kiro Notification Level** or `automation.kiroNotificationLevel` in `cmux.json`. `minimal` keeps actionable approval cards only, `standard` also keeps mutating tool events, and `verbose` keeps every Kiro tool event.
 
 Kimi ships under two config layouts: Kimi Code CLI reads `${KIMI_CODE_HOME:-~/.kimi-code}/config.toml`, and Kimi CLI 1.49 and earlier read `${KIMI_SHARE_DIR:-~/.kimi}/config.toml`. cmux installs into the file the installed binary reports through `kimi doctor`; when the binary cannot answer, it installs into the first of those two locations that already exists, defaulting to the Kimi Code CLI path. The other location is never emptied by setup: an existing cmux block there is refreshed in place so a second Kimi install keeps working, and a config without a cmux block is left untouched. `cmux hooks uninstall kimi` removes the block from both. Unrelated TOML and third-party hooks are preserved everywhere.
+
+Antigravity (`agy`) hooks are written as the `cmux` group of `~/.gemini/config/hooks.json`. Each hook command first uses the cmux that owns the terminal the session runs in (`CMUX_BUNDLED_CLI_PATH` and `CMUX_SOCKET_PATH` from that terminal's environment), so sessions started from different cmux builds (stable, nightly, tagged dev builds) each report to their own app and restore correctly. When `agy` runs a hook without that environment, the command falls back to the cmux build that installed it. Re-run `cmux hooks agy install --yes` from an up-to-date cmux to refresh that fallback.
 
 ## Troubleshooting
 

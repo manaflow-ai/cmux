@@ -604,6 +604,10 @@ extension MobileShellComposite {
                 // so the floor restore is the truthful baseline hand-back.
                 restoreTerminalPreBarrierBaselineIfNeeded(surfaceID: surfaceID)
                 terminalReplayBarrierFollowUpCountsBySurfaceID.removeValue(forKey: surfaceID)
+                // Admission updates the cursor before the renderer acknowledges
+                // the replay. Reopen a backpressured lane only after that ACK
+                // releases the barrier, so its next frame is not dropped again.
+                resumeTerminalLaneIfSuspended(surfaceID: surfaceID)
             }
         }
         guard let next,
