@@ -107,7 +107,10 @@ export async function writeStateFileForTest(path: string, port: number) {
 }
 
 // Under launchd the PATH is minimal; make sure the agent CLIs resolve.
-{
+// launchd is macOS-only and these are POSIX paths joined with ":", so skip the
+// block on Windows, where ";" separates PATH entries and a ":"-joined prefix
+// would fuse all four additions onto the first real entry and hide it.
+if (process.platform !== "win32") {
   const home = process.env.HOME ?? "";
   const extra = [`${home}/.local/bin`, `${home}/.bun/bin`, "/opt/homebrew/bin", "/usr/local/bin"];
   const cur = (process.env.PATH ?? "").split(":");
