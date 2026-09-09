@@ -4891,7 +4891,13 @@ struct CMUXCLI {
             "key": Self.browserDisabledDefaultsKey,
             "url_allowlist": urlAllowlist.patterns.map(\.rawValue),
             "url_allowlist_active": urlAllowlist.isActive,
-            "url_allowlist_managed": urlAllowlist.isManaged
+            "url_allowlist_managed": urlAllowlist.isManaged,
+            // `BrowserAllowLocalhost` / `BrowserAllowLocalFiles`: what the
+            // browser may open beyond the rules. Under a managed list localhost
+            // needs no rule unless an administrator forced it off.
+            "url_allowlist_allows_localhost": urlAllowlist.allowsLocalhost,
+            "url_allowlist_localhost_implicit": urlAllowlist.isLocalhostImplicitlyAllowed,
+            "url_allowlist_allows_local_files": urlAllowlist.allowsLocalFiles
         ]
         if effectiveJSONOutput {
             print(jsonString(payload))
@@ -14426,6 +14432,15 @@ struct CMUXCLI {
     }
 
     private func runVMPtyConnect(commandArgs: [String]) throws {
+        // `DisableCloud` (MDM): this verb dials the Cloud PTY directly from a
+        // pre-minted config, before any socket gate could refuse it, so it
+        // reads the forced preference itself (same resolver as the app).
+        if ManagedDevicePolicy().isEnforced(.disableCloud) {
+            throw CLIError(message: String(
+                localized: "cloud.managed.disabled",
+                defaultValue: "Cloud Machines are disabled by your administrator."
+            ))
+        }
         let (configPath, rem0) = parseOption(commandArgs, name: "--config")
         let (vmIDOpt, remaining) = parseOption(rem0, name: "--id")
         if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {

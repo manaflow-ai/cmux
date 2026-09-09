@@ -8,7 +8,57 @@ private enum AgentRestoreAdmissionDecision: Sendable {
     case liveOwner(LiveAgentSessionOwner)
     case concurrentLaunch
     case targetChanged
-    case indexUnavailable
+    case unverifiable(AgentRestoreAdmissionUnverifiableReason)
+
+    var debugLabel: String {
+        switch self {
+        case .admitted:
+            return "admitted"
+        case .liveOwner(let owner):
+            return "live-owner pid=\(owner.processID)"
+        case .concurrentLaunch:
+            return "concurrent-launch"
+        case .targetChanged:
+            return "target-changed"
+        case .unverifiable(let reason):
+            return "unverifiable reason=\(reason.rawValue)"
+        }
+    }
+}
+
+/// Why admission could not decide whether the session is already running.
+///
+/// Each reason carries its own explanation so the CLI shows the user what
+/// actually failed. A scan that ran out of time is worth retrying; an
+/// unreadable hook store for this agent kind is not.
+private enum AgentRestoreAdmissionUnverifiableReason: String, Sendable {
+    case scanTimedOut = "scan_timed_out"
+    case scanCancelled = "scan_cancelled"
+    case hookStoreUnreadable = "hook_store_unreadable"
+
+    var isRetryable: Bool {
+        self != .hookStoreUnreadable
+    }
+
+    var message: String {
+        switch self {
+        case .scanTimedOut:
+            return String(
+                localized: "agentRestore.admission.unavailable.timedOut",
+                defaultValue: "cmux could not finish checking whether this agent session is already running before the time limit. Retry 'cmux restore --surface'."
+            )
+        case .scanCancelled:
+            return String(
+                localized: "agentRestore.admission.unavailable",
+                defaultValue: "cmux could not verify whether this agent session is already running. Retry 'cmux restore --surface'."
+            )
+        case .hookStoreUnreadable:
+            return String(
+                localized: "agentRestore.admission.unavailable.hookStoreUnreadable",
+                defaultValue: "cmux could not read its saved session records for this agent, so it cannot tell whether the session is already running. Retry 'cmux restore --surface'."
+            )
+        }
+    }
 }
 
 extension TerminalController {
@@ -30,6 +80,7 @@ extension TerminalController {
                 )
             )
         }
+        let admissionStart = ContinuousClock.now
 
         let targetMatchesBeforeScan = await v2MainAsync {
             self.agentRestoreTargetMatches(inputs)
@@ -37,19 +88,41 @@ extension TerminalController {
         guard targetMatchesBeforeScan else {
             return Self.agentRestoreAdmissionResponse(
                 request: request,
-                decision: .targetChanged
+                inputs: inputs,
+                decision: .targetChanged,
+                startedAt: admissionStart
             )
         }
 
-        guard let index = await SharedLiveAgentIndex.shared.indexRefreshingNow(),
-              index.isComplete(
-                  forWorkspaceId: inputs.workspaceID,
-                  panelId: inputs.surfaceID,
-                  kind: inputs.kind
-              ) else {
+        let index: RestorableAgentSessionIndex
+        switch await SharedLiveAgentIndex.shared.indexForOwnershipDecision() {
+        case .index(let refreshedIndex):
+            index = refreshedIndex
+        case .timedOut:
             return Self.agentRestoreAdmissionResponse(
                 request: request,
-                decision: .indexUnavailable
+                inputs: inputs,
+                decision: .unverifiable(.scanTimedOut),
+                startedAt: admissionStart
+            )
+        case .cancelled:
+            return Self.agentRestoreAdmissionResponse(
+                request: request,
+                inputs: inputs,
+                decision: .unverifiable(.scanCancelled),
+                startedAt: admissionStart
+            )
+        }
+        guard index.isComplete(
+            forWorkspaceId: inputs.workspaceID,
+            panelId: inputs.surfaceID,
+            kind: inputs.kind
+        ) else {
+            return Self.agentRestoreAdmissionResponse(
+                request: request,
+                inputs: inputs,
+                decision: .unverifiable(.hookStoreUnreadable),
+                startedAt: admissionStart
             )
         }
         let liveOwner = index.liveSessionOwner(
@@ -88,7 +161,9 @@ extension TerminalController {
         }
         return Self.agentRestoreAdmissionResponse(
             request: request,
-            decision: decision
+            inputs: inputs,
+            decision: decision,
+            startedAt: admissionStart
         )
     }
 
@@ -214,8 +289,18 @@ extension TerminalController {
 
     private nonisolated static func agentRestoreAdmissionResponse(
         request: ControlRequest,
-        decision: AgentRestoreAdmissionDecision
+        inputs: AgentRestoreAdmissionInputs,
+        decision: AgentRestoreAdmissionDecision,
+        startedAt: ContinuousClock.Instant
     ) -> String {
+#if DEBUG
+        let elapsed = startedAt.duration(to: .now).components
+        let elapsedMilliseconds = elapsed.seconds * 1_000
+            + elapsed.attoseconds / 1_000_000_000_000_000
+        cmuxDebugLog(
+            "agentRestore.admit kind=\(inputs.kind) session=\(inputs.sessionID) surface=\(inputs.surfaceID.uuidString) decision=\(decision.debugLabel) ms=\(elapsedMilliseconds)"
+        )
+#endif
         switch decision {
         case .admitted(let claim):
             return v2Encoder.response(
@@ -250,15 +335,15 @@ extension TerminalController {
                     defaultValue: "The surface restore record changed. Run 'cmux restore --surface' again."
                 )
             )
-        case .indexUnavailable:
+        case .unverifiable(let reason):
             return v2Encoder.error(
                 id: request.id,
                 code: "busy",
-                message: String(
-                    localized: "agentRestore.admission.unavailable",
-                    defaultValue: "cmux could not verify whether this agent session is already running. Retry 'cmux restore --surface'."
-                ),
-                data: .object(["retryable": .bool(true)])
+                message: reason.message,
+                data: .object([
+                    "retryable": .bool(reason.isRetryable),
+                    "reason": .string(reason.rawValue),
+                ])
             )
         }
     }

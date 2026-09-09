@@ -153,6 +153,9 @@ jobs:
       - name: Validate docs deployment authentication guard
         run: python3 tests/test_docs_deploy_auth_guard.py
 
+      - name: Validate Localizable.xcstrings catalog structure
+        run: python3 tests/test_localizable_xcstrings_structure.py
+
       - name: Validate Python test harness syntax
         run: git ls-files 'tests/*.py' 'tests_v2/*.py' 'scripts/*.py' | xargs python3 -m py_compile
 
@@ -218,6 +221,9 @@ jobs:
 
       - name: Validate app-host xcodebuild attempt budget
         run: ./tests/test_ci_app_host_xcodebuild_attempts.sh
+
+      - name: Validate app-host test failure classification
+        run: python3 tests/test_ci_app_host_test_output.py
 
       - name: Validate app-host user configuration isolation
         run: python3 tests/test_ci_app_host_home_isolation.py
@@ -950,6 +956,27 @@ jobs:
             -only-testing:cmuxTests/BrowserSystemProxyMirrorTests \
             test
 
+      - name: Run agent restore admission regression
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: |
+          # Focused gate for https://github.com/manaflow-ai/cmux/issues/12158.
+          # The tolerant full-suite step accepts ordinary Swift Testing
+          # failures, so keep restore admission under hook-store churn, the
+          # per-kind store completeness rule, and the surviving-owner notice
+          # on a non-tolerant only-testing invocation.
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/AgentRestoreLiveOwnerAdmissionTests \
+            test
+
       - name: Run Option/Alt sided-modifier regression
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |
@@ -1247,10 +1274,13 @@ jobs:
               while kill -0 "$xcodebuild_pid" 2>/dev/null; do
                 if [ "$SECONDS" -ge "$deadline" ]; then
                   echo "xcodebuild unit-test batch ${logical_shard}/${LOGICAL_SHARD_TOTAL} timeout after ${timeout_seconds}s; terminating"
-                  # A batch that reaches this deadline is almost always a wedged
-                  # app host (main actor blocked, a WebKit load that never
-                  # finishes). Sample it before it dies so the log names the
-                  # stuck frames instead of only the tests that were in flight.
+                  # Record what was still alive: the wrapper chain, xcodebuild,
+                  # the xctest runner, and the app host launched from this
+                  # job's DerivedData. Sample the app host before it dies so a
+                  # wedged main actor or WebKit load is diagnosable.
+                  ps -axo pid,ppid,pgid,etime,command 2>/dev/null \
+                    | grep -E 'xcodebuild|xctest|run-app-host-xcodebuild|app_host_test_lock|Contents/MacOS/cmux' \
+                    | grep -v grep || true
                   for hang_pid in $(pgrep -f 'Contents/MacOS/cmux DEV( |$)' 2>/dev/null | head -2); do
                     hang_sample="$RUNNER_TEMP/app-host-hang-sample-${logical_shard}-${hang_pid}.txt"
                     if sample "$hang_pid" 3 -mayDie -file "$hang_sample" >/dev/null 2>&1; then
@@ -1260,8 +1290,10 @@ jobs:
                     fi
                   done
                   kill -TERM "$xcodebuild_pid" 2>/dev/null || true
+                  pkill -TERM -f "$CMUX_DERIVED_DATA_PATH" 2>/dev/null || true
                   sleep 5
                   kill -KILL "$xcodebuild_pid" 2>/dev/null || true
+                  pkill -KILL -f "$CMUX_DERIVED_DATA_PATH" 2>/dev/null || true
                   wait "$xcodebuild_pid" 2>/dev/null || true
                   exit 124
                 fi
@@ -1271,13 +1303,10 @@ jobs:
             } | tee "$batch_output"
             batch_status="${PIPESTATUS[0]}"
 
-            if [ "$batch_status" -ne 0 ]; then
-              local batch_summary
-              batch_summary="$(grep "Executed.*tests.*with.*failures" "$batch_output" | tail -1 || true)"
-              if echo "$batch_summary" | grep -q "(0 unexpected)"; then
+            if [ "$batch_status" -eq 65 ] \
+              && python3 scripts/ci/classify-app-host-test-output.py "$batch_output"; then
                 echo "All failures in app-host batch ${logical_shard}/${LOGICAL_SHARD_TOTAL} are expected, continuing"
                 return 0
-              fi
             fi
             return "$batch_status"
           }

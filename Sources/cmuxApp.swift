@@ -5345,7 +5345,17 @@ enum TelemetrySettings {
     // live in `CmuxSettings` (`AppCatalogSection().sendAnonymousTelemetry`) as the
     // single source of truth; this anchor only freezes that read for the lifetime
     // of the launch.
-    static let enabledForCurrentLaunch = AppCatalogSection().sendAnonymousTelemetry.value(in: .standard)
+    static let enabledForCurrentLaunch = resolveEnabled(
+        userOptIn: AppCatalogSection().sendAnonymousTelemetry.value(in: .standard),
+        policy: ManagedDevicePolicy()
+    )
+
+    /// `DisableTelemetry` (MDM) wins over the user opt-in. Frozen for the
+    /// launch like the opt-in itself, so a profile pushed mid-session applies
+    /// at the next launch; Settings shows the managed state immediately.
+    static func resolveEnabled(userOptIn: Bool, policy: ManagedDevicePolicy) -> Bool {
+        userOptIn && !policy.isEnforced(.disableTelemetry)
+    }
 }
 
 @MainActor
