@@ -87,6 +87,7 @@ extension DockSocketLifecycleTests {
             resumeBinding: resumeBinding,
             managedAgentResumeBinding: managedAgentResumeBinding,
             agentRuntime: agentRuntime,
+            agentLifecycleRecords: [:],
             isRemoteTerminal: isRemoteTerminal,
             remoteRelayPort: nil,
             remotePTYSessionID: nil,

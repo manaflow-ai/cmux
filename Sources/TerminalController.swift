@@ -1955,24 +1955,39 @@ class TerminalController {
                 await preauthorizationLimiter.release()
             }
 
-            if isEventsStreamRequest(trimmed) {
+            if isLongLivedSocketRequest(trimmed) {
                 if let response = authResponseIfNeeded(
                     for: trimmed,
                     passwordAuthorization: &passwordAuthorization
                 ) {
                     guard await writer.writeAll(Data((response + "\n").utf8)) else { return }
-                    continue
+                    return
                 }
-                // The event-bus subscription has its own bounded slow-consumer
-                // policy. Keep its legacy stream loop isolated to this admitted
-                // connection task; ordinary command traffic remains async.
-                handleEventsStreamRequest(
-                    trimmed,
-                    socket: socket,
-                    authorizationGeneration: authorizationGeneration,
-                    authorizationRevocationSignal: authorizationRevocationSignal,
-                    passwordAuthorization: passwordAuthorization
-                )
+                if isAgentWaitRequest(trimmed) {
+                    handleAgentWaitRequest(
+                        trimmed,
+                        socket: socket,
+                        authorizationGeneration: authorizationGeneration,
+                        authorizationRevocationSignal: authorizationRevocationSignal,
+                        passwordAuthorization: passwordAuthorization
+                    )
+                } else if isAgentSendAndWaitRequest(trimmed) {
+                    handleAgentSendAndWaitRequest(
+                        trimmed,
+                        socket: socket,
+                        authorizationGeneration: authorizationGeneration,
+                        authorizationRevocationSignal: authorizationRevocationSignal,
+                        passwordAuthorization: passwordAuthorization
+                    )
+                } else {
+                    handleEventsStreamRequest(
+                        trimmed,
+                        socket: socket,
+                        authorizationGeneration: authorizationGeneration,
+                        authorizationRevocationSignal: authorizationRevocationSignal,
+                        passwordAuthorization: passwordAuthorization
+                    )
+                }
                 return
             }
 
@@ -2988,6 +3003,9 @@ class TerminalController {
             "system.capabilities",
             "system.identify",
             "system.tree",
+            "events.stream",
+            "agent.wait",
+            "agent.send_and_wait",
             "sidebar.custom.open",
             "system.top",
             "system.memory",
@@ -5524,8 +5542,7 @@ class TerminalController {
             ?? v2UUID(params, "terminal_id")
             ?? v2UUID(params, "tab_id") {
             return tabManager.tabs.first(where: {
-                $0.panels[surfaceId] != nil
-                    || $0.remoteTmuxControlPane(surfaceID: surfaceId) != nil
+                $0.surfaceOwnershipTarget(for: surfaceId) != nil
             })
         }
         if let paneId = v2UUID(params, "pane_id"),
@@ -12287,7 +12304,7 @@ class TerminalController {
           set_app_focus <active|inactive|clear> - Override app focus state
           simulate_app_active             - Trigger app active handler
           set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] - Set a status entry
-          set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=X] [--panel=ID] - Report coding-agent lifecycle for hibernation
+          set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=X] [--panel=ID] [--session-id=ID] [--new-occupant] - Report coding-agent lifecycle for hibernation
           agent_hibernation <on|off> - Enable or disable routine Agent Hibernation
           report_meta <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] - Set sidebar metadata entry
           report_meta_block <key> [--priority=N] [--tab=X] -- <markdown> - Set freeform sidebar markdown block
@@ -13450,7 +13467,8 @@ class TerminalController {
                     isSubagent: meta?.isSubagent
                 ),
                 soundContext: meta?.soundContext,
-                correlationKey: meta?.correlationKey
+                correlationKey: meta?.correlationKey,
+                agentMutationGuard: meta?.agentMutationGuard
             )
             return "OK"
         }
@@ -13495,7 +13513,8 @@ class TerminalController {
                     isSubagent: meta?.isSubagent
                 ),
                 soundContext: meta?.soundContext,
-                correlationKey: meta?.correlationKey
+                correlationKey: meta?.correlationKey,
+                agentMutationGuard: meta?.agentMutationGuard
             )
             return "OK"
         }
@@ -13528,13 +13547,21 @@ class TerminalController {
             guard let tabManager = self.tabManager else { return "ERROR: TabManager not available" }
             guard !trimmed.isEmpty else { return "ERROR: Usage: notify_target <workspace_id> <surface_id> <title>|<subtitle>|<body>" }
             guard parts.count >= 2 else { return "ERROR: Usage: notify_target <workspace_id> <surface_id> <title>|<subtitle>|<body>" }
-            guard deliver else { return "OK" }
+            guard deliver else { return meta?.agentMutationGuard == nil ? "OK" : "OK:1" }
 
             if let fastPath {
                 // The surface's current workspace wins over the claimed one (the
                 // sync deliverer retargets); only a target gone everywhere errors.
                 guard AppDelegate.shared?.agentNotificationDeliveryTarget(claimedTabId: fastPath.workspaceId, surfaceId: fastPath.panelId) != nil else {
                     return "ERROR: Panel not found"
+                }
+                if let agentMutationGuard = meta?.agentMutationGuard,
+                   !self.controlSidebarAgentMutationIsAuthorized(
+                       agentMutationGuard,
+                       claimedTabID: fastPath.workspaceId,
+                       panelID: fastPath.panelId
+                   ) {
+                    return "OK:0"
                 }
                 self.deliverNotificationSynchronously(
                     tabId: fastPath.workspaceId,
@@ -13550,9 +13577,10 @@ class TerminalController {
                         isSubagent: meta?.isSubagent
                     ),
                     soundContext: meta?.soundContext,
-                    correlationKey: meta?.correlationKey
+                    correlationKey: meta?.correlationKey,
+                    agentMutationGuard: meta?.agentMutationGuard
                 )
-                return "OK"
+                return meta?.agentMutationGuard == nil ? "OK" : "OK:1"
             }
 
             let tab: Tab?
@@ -13568,6 +13596,14 @@ class TerminalController {
                   AppDelegate.shared?.agentNotificationDeliveryTarget(claimedTabId: tab.id, surfaceId: panelId) != nil else {
                 return "ERROR: Panel not found"
             }
+            if let agentMutationGuard = meta?.agentMutationGuard,
+               !self.controlSidebarAgentMutationIsAuthorized(
+                   agentMutationGuard,
+                   claimedTabID: tab.id,
+                   panelID: panelId
+               ) {
+                return "OK:0"
+            }
             self.deliverNotificationSynchronously(
                 tabId: tab.id,
                 surfaceId: panelId,
@@ -13582,9 +13618,10 @@ class TerminalController {
                     isSubagent: meta?.isSubagent
                 ),
                 soundContext: meta?.soundContext,
-                correlationKey: meta?.correlationKey
+                correlationKey: meta?.correlationKey,
+                agentMutationGuard: meta?.agentMutationGuard
             )
-            return "OK"
+            return meta?.agentMutationGuard == nil ? "OK" : "OK:1"
         }
     }
 
@@ -13615,6 +13652,7 @@ class TerminalController {
             return "ERROR: Usage: notify_target_async <workspace_uuid> <surface_uuid> <title>|<subtitle>|<body>"
         }
         let (title, subtitle, body, meta) = parseNotificationPayload(payload)
+        let agentMutationGuard = meta?.agentMutationGuard
 
         // Hook and PTY-derived agent notifications share one gate + mutation-bus path.
         guard AgentNotificationDelivery().enqueue(
@@ -13628,7 +13666,8 @@ class TerminalController {
             soundContext: meta?.soundContext,
             agentKind: meta?.agentKind,
             isSubagent: meta?.isSubagent,
-            correlationKey: meta?.correlationKey
+            correlationKey: meta?.correlationKey,
+            agentMutationGuard: agentMutationGuard
         ) else {
 #if DEBUG
             if let meta {
@@ -13706,6 +13745,12 @@ class TerminalController {
         if let error = panelResolution.error {
             return error
         }
+        let parsedAgentMutationGuard = ControlSidebarAgentMutationGuardSocketResolution(
+            parsed.options
+        )
+        guard parsedAgentMutationGuard.isValid else {
+            return "ERROR: Usage: \(usage)"
+        }
         let correlationKey: String?
         if let rawCorrelationKey = parsed.options["correlation-key"] {
             let normalized = rawCorrelationKey.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -13724,6 +13769,27 @@ class TerminalController {
             }
         } else {
             correlationKey = nil
+        }
+        if let agentMutationGuard = parsedAgentMutationGuard.value {
+            guard let panelID = panelResolution.panelId else {
+                return "ERROR: Usage: \(usage)"
+            }
+            let controlTarget: ControlSidebarTabTarget
+            switch target {
+            case .selected:
+                controlTarget = .selected
+            case .workspace(let tabID):
+                controlTarget = .workspace(tabID)
+            case .index(let index):
+                controlTarget = .index(index)
+            }
+            controlSidebarScheduleGuardedNotificationClear(
+                target: controlTarget,
+                panelID: panelID,
+                guardValue: agentMutationGuard,
+                correlationKey: correlationKey
+            )
+            return "OK"
         }
         if case .workspace(let tabId) = target {
             if let panelId = panelResolution.panelId {
@@ -14432,8 +14498,13 @@ class TerminalController {
 
     private func resolveSurfaceId(from arg: String, tab: Workspace) -> UUID? {
         if let uuid = UUID(uuidString: arg),
-           tab.panels[uuid] != nil || tab.remoteTmuxControlPane(surfaceID: uuid) != nil {
-            return uuid
+           let ownership = tab.surfaceOwnershipTarget(for: uuid) {
+            // Projected remote-tmux panes remain addressable by their exposed
+            // surface ID; ordinary Bonsplit surface IDs resolve to the stable
+            // panel that owns the surface.
+            return tab.remoteTmuxControlPane(surfaceID: uuid) != nil
+                ? uuid
+                : ownership.containerPanelID
         }
 
         if let index = Int(arg), index >= 0 {
@@ -14446,11 +14517,10 @@ class TerminalController {
     }
 
     /// Parses a `title|subtitle|body` notification payload, plus an OPTIONAL 4th
-    /// `meta` segment (e.g. `c=turn-complete;p=1`) that agent hooks append to gate
-    /// delivery by user config. The 4th segment is only treated as meta when it
-    /// begins with `c=`; otherwise it is folded back into the body, so legacy
-    /// callers whose body itself contains `|` parse byte-identically to before
-    /// (the fold reconstructs exactly the `maxSplits: 2` result).
+    /// `meta` segment that cmux-owned agent hooks append for delivery policy
+    /// (`c=turn-complete;p=1`), an apply-time ownership guard (`g=v1:...`),
+    /// or both. Anything outside the exact versioned grammar is folded back
+    /// into the body, preserving legacy free-form payload text.
     /// `nonisolated`: pure string parsing, run by the worker-lane notify
     /// bodies on the socket-worker thread.
     private nonisolated func parseNotificationPayload(_ args: String) -> (title: String, subtitle: String, body: String, meta: AgentNotificationMeta?) {
@@ -14459,19 +14529,11 @@ class TerminalController {
         var parts = trimmed.split(separator: "|", maxSplits: 3, omittingEmptySubsequences: false).map(String.init)
         var meta: AgentNotificationMeta? = nil
         if parts.count == 4 {
-            // The 4th segment is treated as gating metadata only when it parses
-            // as the FULL `c=<category>;p=<0|1>` grammar. Anything else — including
-            // a legacy body that happens to contain "|c=..." — is folded back into
-            // the body so pre-meta callers parse byte-identically to before.
-            // Conscious tradeoff: this reserves exactly three trailing literals
-            // ("|c=turn-complete;p=<0|1>", "|c=needs-permission;p=<0|1>",
-            // "|c=idle-reminder;p=<0|1>") in notify payloads; any other "c=..."
-            // tail (unknown categories included) stays part of the body. Accepted
-            // because the only meta producers are cmux's own agent hooks (whose
-            // fields are |-sanitized) and a collision requires one of those exact
-            // suffixes.
+            // Only cmux's exact canonical metadata is reserved. Its producers
+            // pipe-sanitize title/subtitle/body, so guard parsing never scans
+            // arbitrary payload bytes for an in-band marker.
             let candidate = parts[3].trimmingCharacters(in: .whitespacesAndNewlines)
-            if candidate.hasPrefix("c="), let parsed = AgentNotificationMeta(meta: candidate) {
+            if let parsed = AgentNotificationMeta(meta: candidate) {
                 meta = parsed
             } else {
                 parts[2] += "|" + parts[3]

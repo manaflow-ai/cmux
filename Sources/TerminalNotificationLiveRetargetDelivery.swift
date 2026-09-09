@@ -1,3 +1,4 @@
+import CmuxControlSocket
 import CmuxNotifications
 import CmuxSettings
 import Foundation
@@ -21,7 +22,8 @@ extension TerminalController {
         agent: TerminalNotificationPolicyAgentContext? = nil,
         soundContext: NotificationSoundOverrideContext? = nil,
         correlationKey: String? = nil,
-        retargetsToLiveSurfaceOwner: Bool = true
+        retargetsToLiveSurfaceOwner: Bool = true,
+        agentMutationGuard: ControlSidebarAgentMutationGuard? = nil
     ) -> UUID? {
         let target: (tabId: UUID, surfaceId: UUID?)
         if retargetsToLiveSurfaceOwner {
@@ -65,6 +67,7 @@ extension TerminalController {
             replyShape: replyShape,
             retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
             correlationKey: correlationKey,
+            agentMutationGuard: agentMutationGuard,
             agent: agent,
             soundContext: soundContext
         )
@@ -87,7 +90,8 @@ extension TerminalNotificationStore {
         agent: TerminalNotificationPolicyAgentContext? = nil,
         correlationKey: String? = nil,
         notificationGeneration: UInt64,
-        soundContext: NotificationSoundOverrideContext? = nil
+        soundContext: NotificationSoundOverrideContext? = nil,
+        agentMutationGuard: ControlSidebarAgentMutationGuard? = nil
     ) {
         guard let target = AppDelegate.shared?.agentNotificationDeliveryTarget(
             claimedTabId: claimedTabId,
@@ -115,6 +119,7 @@ extension TerminalNotificationStore {
             retargetsToLiveSurfaceOwner: true,
             correlationKey: correlationKey,
             notificationGeneration: notificationGeneration,
+            agentMutationGuard: agentMutationGuard,
             agent: agent,
             soundContext: soundContext
         )
@@ -135,6 +140,7 @@ extension TerminalNotificationStore {
             surfaceId: target.surfaceId,
             panelId: request.panelId,
             retargetsToLiveSurfaceOwner: true,
+            agentMutationGuard: request.agentMutationGuard,
             correlationKey: request.correlationKey,
             title: request.title,
             subtitle: request.subtitle,

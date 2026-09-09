@@ -11,6 +11,7 @@ struct CLIError: Error, CustomStringConvertible {
 
     let message: String
     let exitCode: Int32
+    let shouldPrint: Bool
     /// Structured v2 protocol error code when the failure came from a v2 error response.
     let v2Code: String?
     /// Whether this error was decoded directly from a socket v2 error response.
@@ -28,6 +29,7 @@ struct CLIError: Error, CustomStringConvertible {
     init(
         message: String,
         exitCode: Int32 = 1,
+        shouldPrint: Bool = true,
         v2Code: String? = nil,
         isStructuredProtocolResponse: Bool = false,
         vmBackendCode: String? = nil,
@@ -36,6 +38,7 @@ struct CLIError: Error, CustomStringConvertible {
     ) {
         self.message = message
         self.exitCode = exitCode
+        self.shouldPrint = shouldPrint
         self.v2Code = v2Code
         self.isStructuredProtocolResponse = isStructuredProtocolResponse
         self.vmBackendCode = vmBackendCode

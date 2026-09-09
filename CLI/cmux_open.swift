@@ -14,6 +14,14 @@ struct CMUXAgentTurnDiffBaselineRecord: Codable {
     var untrackedPathHashes: [String: String]?
     var untrackedSnapshotId: String?
     var capturedAt: TimeInterval
+
+    /// The provider-visible session identifier, without cmux's private relay
+    /// process-generation suffix. The persisted `sessionId` remains the exact
+    /// owner token so relay attempts cannot overwrite one another.
+    var publicSessionId: String {
+        guard let range = sessionId.range(of: "#relay#") else { return sessionId }
+        return String(sessionId[..<range.lowerBound])
+    }
 }
 
 struct CMUXAgentTurnDiffBaselineStore: Codable {
@@ -3134,6 +3142,11 @@ extension CMUXCLI {
         return trimmed.joined(separator: "\n") + "\n"
     }
 
+    /// Normalizes the exact owner token used to isolate relay generations.
+    private func agentTurnDiffOwnerSessionID(_ sessionID: String?) -> String? {
+        normalizedDiffSourceValue(sessionID)
+    }
+
     func recordAgentTurnDiffBaseline(
         agent: String,
         sessionId: String,
@@ -3161,7 +3174,7 @@ extension CMUXCLI {
         let record = CMUXAgentTurnDiffBaselineRecord(
             workspaceId: workspaceId,
             surfaceId: surfaceId,
-            sessionId: normalizedDiffSourceValue(sessionId) ?? "",
+            sessionId: agentTurnDiffOwnerSessionID(sessionId) ?? "",
             turnId: normalizedDiffSourceValue(turnId),
             agent: normalizedDiffSourceValue(agent) ?? "agent",
             repoRoot: repoRoot,
@@ -3179,7 +3192,7 @@ extension CMUXCLI {
                     standardizedDiffSourcePath(existing.repoRoot) == repoRoot &&
                         diffScopeIdentifierEquals(existing.workspaceId, workspaceId) &&
                         diffScopeIdentifierEquals(existing.surfaceId, surfaceId) &&
-                        existing.sessionId == record.sessionId
+                        agentTurnDiffOwnerSessionID(existing.sessionId) == record.sessionId
                 }
 
                 let previousRecords = store.records
@@ -3273,11 +3286,12 @@ extension CMUXCLI {
     ) throws -> CMUXAgentTurnDiffBaselineRecord? {
         let store = try readAgentTurnDiffBaselineStore(path: CMUXAgentTurnDiffBaselineFile.path(env: env))
         let repoRoot = standardizedDiffSourcePath(repoRoot)
+        let sessionId = agentTurnDiffOwnerSessionID(sessionId)
         let candidates = store.records.filter { record in
             standardizedDiffSourcePath(record.repoRoot) == repoRoot
                 && diffScopeIdentifierEquals(record.workspaceId, workspaceId)
                 && diffScopeIdentifierEquals(record.surfaceId, surfaceId)
-                && (sessionId == nil || record.sessionId == sessionId)
+                && (sessionId == nil || agentTurnDiffOwnerSessionID(record.sessionId) == sessionId)
         }
         return candidates.max(by: { $0.capturedAt < $1.capturedAt })
     }
@@ -5550,12 +5564,12 @@ extension CMUXCLI {
               ) else {
             return []
         }
-        let sessionId = normalizedDiffSourceValue(context.sessionId)
+        let sessionId = agentTurnDiffOwnerSessionID(context.sessionId)
         let matchingRecords = store.records
             .filter { record in
                 diffScopeIdentifierEquals(record.workspaceId, workspaceId) &&
                     diffScopeIdentifierEquals(record.surfaceId, surfaceId) &&
-                    (sessionId == nil || record.sessionId == sessionId)
+                    sessionId.map { agentTurnDiffOwnerSessionID(record.sessionId) == $0 } ?? true
             }
             .sorted { $0.capturedAt > $1.capturedAt }
         var seen: Set<String> = []

@@ -379,6 +379,12 @@ extension DockSplitStore {
             deferredAgentResumeRestore: deferredAgentResumeRestore,
             managedAgentResumeBinding: managedResumeBinding,
             agentRuntime: agentProvenExited ? nil : cachedRuntime,
+            // Only reports accepted while Dock-owned are authoritative. The
+            // runtime keeps entry-time lifecycle values for guard routing, but
+            // those cached values never enter this transfer record map.
+            agentLifecycleRecords: agentProvenExited
+                ? [:]
+                : cachedRuntime?.authoritativeAgentLifecycleRecords ?? [:],
             isRemoteTerminal: preservedTransfer?.isRemoteTerminal ?? false,
             remoteTerminalSessionPhase: preservedTransfer?.remoteTerminalSessionPhase,
             remoteTerminalAuthority: preservedTransfer?.remoteTerminalAuthority,
@@ -390,7 +396,7 @@ extension DockSplitStore {
             remoteCleanupConfiguration: preservedTransfer?.remoteCleanupConfiguration
         )
         adoptManualUnreadState(false, panelId: panelId)
-        clearSessionRestoreState(panelId: panelId)
+        clearSessionRestoreState(panelId: panelId, publishLifecycleExit: false)
         return detached
     }
 
@@ -468,7 +474,7 @@ extension DockSplitStore {
             (panel as? any FileContentChangeObservingPanel)?.stopWatchingForFileChanges()
             panels.removeValue(forKey: detached.panelId)
             removeDetachedSurfaceTransfer(forPanelID: detached.panelId)
-            clearSessionRestoreState(panelId: detached.panelId)
+            clearSessionRestoreState(panelId: detached.panelId, publishLifecycleExit: false)
             return nil
         }
         bindDetachedPanelToDock(panel)
@@ -568,7 +574,7 @@ extension DockSplitStore {
             removeSurfaceMapping(forSurfaceId: tab.id)
             removeDetachedSurfaceTransfer(forPanelID: detached.panelId)
             panels.removeValue(forKey: detached.panelId)
-            clearSessionRestoreState(panelId: detached.panelId)
+            clearSessionRestoreState(panelId: detached.panelId, publishLifecycleExit: false)
             return nil
         }
         bindDetachedPanelToDock(panel)

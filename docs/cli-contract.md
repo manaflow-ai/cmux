@@ -86,6 +86,7 @@ Environment:
 | `ping` | Check socket connectivity. |
 | `capabilities` | Print server capabilities as JSON. |
 | `events` | Stream reconnectable cmux events as newline-delimited JSON. |
+| `wait` | Block until the agent currently occupying a surface reaches `idle`, `needs-input`, or `exit`. |
 | `automation` | Manage config-backed event rules: `list`, `show <id>`, dry-run `test <id> --event <json>`, `enable`, `disable`, `logs`, and `reload`. Rules live in `~/.cmuxterm/automations.json`; actions are dispatched by the running app. |
 | `sessions [list]` | List saved agent session records without requiring a running cmux socket. Filters: `--agent <name>`, `--session <id>`, `--workspace <id>`, `--surface <id>`, `--cwd <text>`. Overrides: `--state-dir <path>`, `--codex-home <path>`. Text output defaults to 100 results; `--limit <n>` takes a positive integer and `--all` removes the limit. Supports `--json`. |
 | `auth` | Manage auth status, login, and logout through the app. |
@@ -148,7 +149,7 @@ Environment:
 | `current-workspace` | Print current workspace information. |
 | `read-selection` | Read the active selection from a terminal, file preview, Markdown, or browser surface. Plain output includes available source context; `--json` returns the complete socket response. |
 | `read-screen` | Read terminal text from a surface. `--selection` is a text-only compatibility alias for `read-selection`. |
-| `send` | Send text to a terminal surface. |
+| `send` | Send text to a terminal surface, optionally waiting atomically for an agent lifecycle state. |
 | `send-key` | Send one key to a terminal surface. |
 | `send-panel` | Send text to a panel/surface. |
 | `send-key-panel` | Send one key to a panel/surface. |
@@ -652,6 +653,73 @@ surface selection, focus, creation, or closure. The stream is bounded: cmux keep
 slow subscribers after 1,024 pending events, and rotates `events.jsonl` with one
 16 MiB archive at `events.jsonl.1`.
 
+## Agent lifecycle wait
+
+```bash
+cmux wait --surface <id|ref|index> \
+  --until <idle|needs-input|exit> \
+  [--timeout <ms>] [--json]
+```
+
+`wait` resolves the surface and its current agent lifecycle on the server. It
+subscribes to lifecycle events before taking that snapshot, so a state change
+during setup is not lost. The wait is pinned to the resolved agent session (or
+its process-local occupant revision when a session id is unavailable); a
+replacement agent on the same surface cannot satisfy it. The implementation is
+event-driven and does not poll lifecycle state.
+
+`--timeout` is a non-negative integer in milliseconds. Without it, the command
+waits until a terminal result or the socket closes. Plain successful output is
+silent. With `--json`, all terminal results use this shape:
+
+```json
+{
+  "status": "satisfied",
+  "until": "idle",
+  "state": "idle",
+  "agent": "codex",
+  "session_id": "session-123",
+  "workspace_id": "9B6920C1-6C29-4D85-8CB3-083C8D927D95",
+  "surface_id": "83F4E6A4-5246-4DB8-A412-9CE7B059FA6C",
+  "pane_id": "51D34B2A-094D-4E9E-A503-6B13D84E2431"
+}
+```
+
+`status` is `satisfied`, `timed_out`, or `surface_closed`; `state` is the last
+state observed for the pinned occupant. `session_id` and `pane_id` are nullable.
+Exit code `0` means satisfied, `124` means timed out, `3` means the surface
+closed, and `2` is CLI usage error. Other socket or resolution failures use the
+normal nonzero CLI error path.
+
+The corresponding v2 method is `agent.wait`, advertised by `capabilities`.
+Its params are `surface_id`, `until`, and optional `timeout_ms`. Like
+`events.stream`, it owns the socket connection until it returns and must run on
+a dedicated connection. Dock surfaces return `live_lifecycle_unavailable`
+instead of waiting on their transfer-time lifecycle snapshot; a wait that starts
+in a workspace returns the same error if the surface moves into the Dock.
+
+### Atomic send-and-wait
+
+```bash
+cmux send --surface <id|ref|index> \
+  --wait-until <idle|needs-input|exit> \
+  [--timeout <ms>] [--json] -- <text>
+```
+
+When `--wait-until` is present, `send` uses one server-owned request for both
+operations. cmux admits the lifecycle subscription, pins the current occupant,
+and only then delivers the text through the same `surface.send_text` mutation
+path. Events queued before the send completes are ignored, so an already-idle
+occupant cannot satisfy the wait before the submitted work starts. The response
+has the normal wait result fields plus `sent: true`, `queued`, and the send
+identity fields. It uses the same exit codes as `cmux wait` (`0` satisfied,
+`124` timed out, `3` surface closed).
+
+The corresponding v2 method is `agent.send_and_wait`, with `surface_id`,
+`text`, `until`, and optional `timeout_ms` params. Like `agent.wait`, it owns
+the socket connection until a terminal result and must run on a dedicated
+connection. A send failure is returned before any wait result is produced.
+
 ## Workspace todos
 
 Each workspace carries a persisted checklist plus a todo lifecycle status,
@@ -717,6 +785,7 @@ the expected text without connecting to a cmux socket.
 - `cmux ping --help` -> `Usage: cmux ping`
 - `cmux capabilities --help` -> `Usage: cmux capabilities`
 - `cmux events --help` -> `Usage: cmux events [options]`
+- `cmux wait --help` -> `Usage: cmux wait --surface <id|ref|index>`
 - `cmux auth --help` -> `Usage: cmux auth <status|login|logout>`
 - `cmux vm --help` -> `Usage: cmux vm <base|new|ls|domains|tree|status|stats|resize|rename|snapshot|fork|restore|rm|run|route|agent|prompt|exec|push|pull|wait|shell|tui|desktop|open|ports|tools|handoff|promote-template|attach|ssh|ssh-info|workspace|terminal|tab> [args...]`
 - `cmux cloud --help` -> `Usage: cmux cloud <base|new|ls|domains|tree|status|stats|resize|rename|snapshot|fork|restore|rm|run|route|agent|prompt|exec|push|pull|wait|shell|tui|desktop|open|ports|tools|handoff|promote-template|attach|ssh|ssh-info|workspace|terminal|tab> [args...]`

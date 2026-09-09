@@ -92,6 +92,37 @@ final class CmuxEventBusTests: XCTestCase {
         XCTAssertNil(snapshot.subscription.next(timeout: 0.05))
     }
 
+    func testSubscriptionFiltersAndAcknowledgesSurfaceScope() throws {
+        let bus = CmuxEventBus(retainedEventLimit: 8)
+        let snapshot = bus.subscribe(
+            afterSequence: nil,
+            names: [],
+            categories: [],
+            surfaceIDs: ["surface-b", "surface-a"]
+        )
+        defer { bus.unsubscribe(snapshot.subscription) }
+
+        let filters = try XCTUnwrap(snapshot.ack["filters"] as? [String: Any])
+        XCTAssertEqual(filters["surface_ids"] as? [String], ["surface-a", "surface-b"])
+
+        bus.publish(
+            name: "agent.state.changed",
+            category: "agent",
+            source: "test",
+            surfaceId: "surface-c"
+        )
+        bus.publish(
+            name: "agent.state.changed",
+            category: "agent",
+            source: "test",
+            surfaceId: "surface-b"
+        )
+
+        let event = snapshot.subscription.next(timeout: 0.2)
+        XCTAssertEqual(event?["surface_id"] as? String, "surface-b")
+        XCTAssertNil(snapshot.subscription.next(timeout: 0.05))
+    }
+
     func testSlowSubscriptionClosesWhenPendingQueueIsFull() {
         let bus = CmuxEventBus(retainedEventLimit: 8, maxPendingEventsPerSubscription: 2)
         let snapshot = bus.subscribe(afterSequence: nil, names: [], categories: [])

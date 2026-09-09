@@ -17,6 +17,30 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct RemoteTmuxMirrorCLIObservabilityTests {
+    @Test func projectedSurfaceResolvesToLifecycleOwningContainer() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        harness.workspace.setAgentLifecycle(
+            key: "codex",
+            panelId: harness.outerPanelID,
+            lifecycle: .running,
+            sessionID: "session-projected"
+        )
+        let tmuxPaneID = try #require(harness.mirror.paneIDsInOrder.first)
+        let projectedSurfaceID = try #require(
+            harness.mirror.panel(forPane: tmuxPaneID)?.id
+        )
+
+        let snapshot = try #require(
+            harness.workspace.agentWaitSurfaceSnapshot(
+                surfaceID: projectedSurfaceID
+            )
+        )
+
+        #expect(snapshot.surfaceID == harness.outerPanelID)
+        #expect(snapshot.occupant?.sessionID == "session-projected")
+    }
+
     @Test func multiPaneMirrorPublishesInnerPanesAndRoutesInput() throws {
         let harness = try Harness()
         defer { harness.tearDown() }

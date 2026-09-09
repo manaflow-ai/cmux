@@ -57,24 +57,34 @@ extension SidebarWorkspaceSnapshotRefreshPolicyTests {
         #expect(visible.showsAgentActivity)
     }
 
-    @Test func disabledSpinnerDoesNotReadAgentLifecycleStates() {
-        var didReadAgentLifecycleStates = false
-        let agentLifecycleStates: () -> [UUID: [String: AgentHibernationLifecycleState]] = {
-            didReadAgentLifecycleStates = true
+    @Test func disabledSpinnerDoesNotReadAgentLifecycleRecords() {
+        var didReadAgentLifecycleRecords = false
+        let agentLifecycleRecords: () -> [UUID: [String: AgentLifecycleRecord]] = {
+            didReadAgentLifecycleRecords = true
             return [
                 UUID(): [
-                    "codex": .running,
-                    "claude_code": .running,
+                    "codex": AgentLifecycleRecord(
+                        agent: "codex",
+                        state: .running,
+                        sessionID: "session-codex",
+                        revision: 1
+                    ),
+                    "claude_code": AgentLifecycleRecord(
+                        agent: "claude_code",
+                        state: .running,
+                        sessionID: "session-claude",
+                        revision: 2
+                    ),
                 ],
             ]
         }
 
         let count = SidebarAgentActivitySummary.visibleActiveCodingAgentCount(
             showsAgentActivity: false,
-            statesByPanelId: agentLifecycleStates()
+            recordsByPanelId: agentLifecycleRecords()
         )
 
         #expect(count == 0)
-        #expect(!didReadAgentLifecycleStates)
+        #expect(!didReadAgentLifecycleRecords)
     }
 }

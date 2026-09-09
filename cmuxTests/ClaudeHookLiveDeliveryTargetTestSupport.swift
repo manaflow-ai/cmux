@@ -71,11 +71,17 @@ enum ClaudeHookLiveDeliveryHarness {
         ttyRows: [(tty: String, workspaceId: String, surfaceId: String)] = [],
         resolverMethodAvailable: Bool = true,
         acknowledgesPIDResolution: Bool = true,
+        resumeSetSucceeds: Bool = true,
+        resumeSetUpdatedAt: Double? = 123.25,
         resumeClearSucceeds: Bool = true,
         resumeClearOwnsCheckpoint: Bool? = true,
         hibernationSessionEndPreserved: Bool = false
     ) -> DispatchSemaphore {
         startMockServer(listenerFD: context.listenerFD, state: context.state) { line in
+            if (line.hasPrefix("set_agent_lifecycle ") || line.hasPrefix("clear_agent_pid ")),
+               (line.contains(" --require-accepted") || line.contains(" --require-cleared")) {
+                return "OK:1"
+            }
             guard let payload = jsonObject(line),
                   let id = payload["id"] as? String,
                   let method = payload["method"] as? String else {
@@ -127,7 +133,15 @@ enum ClaudeHookLiveDeliveryHarness {
             case "feed.push":
                 return v2Response(id: id, ok: true, result: [:])
             case "surface.resume.set":
-                return v2Response(id: id, ok: true, result: ["resume_binding": [:]])
+                guard resumeSetSucceeds else {
+                    return v2Response(
+                        id: id,
+                        ok: false,
+                        error: ["code": "stale_owner", "message": "injected resume owner loss"]
+                    )
+                }
+                let binding = resumeSetUpdatedAt.map { ["updated_at": $0] } ?? [:]
+                return v2Response(id: id, ok: true, result: ["resume_binding": binding])
             case "surface.resume.clear":
                 if resumeClearSucceeds {
                     guard let resumeClearOwnsCheckpoint else {

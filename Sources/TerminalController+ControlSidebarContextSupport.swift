@@ -141,6 +141,67 @@ extension TerminalController {
         return .workspace(tab)
     }
 
+    /// Final apply-time authorization shared by queued status, notification,
+    /// and clear mutations from one agent hook event.
+    func controlSidebarAgentMutationIsAuthorized(
+        _ guardValue: ControlSidebarAgentMutationGuard,
+        claimedTabID: UUID,
+        panelID: UUID
+    ) -> Bool {
+        guard let owner = controlSidebarResolvePanelOwner(
+            target: .workspace(claimedTabID),
+            panelID: panelID
+        ) else {
+            return false
+        }
+        return owner.acceptsAgentMutationGuard(guardValue, panelId: panelID)
+    }
+
+    /// Enqueues an occupant-guarded notification clear without discarding
+    /// anything until the guard is revalidated against the panel's live owner.
+    nonisolated func controlSidebarScheduleGuardedNotificationClear(
+        target: ControlSidebarTabTarget,
+        panelID: UUID,
+        guardValue: ControlSidebarAgentMutationGuard,
+        correlationKey: String? = nil
+    ) {
+        let mutationBus = TerminalMutationBus.shared
+        mutationBus.enqueueGuardedNotificationClear { [weak self] clearBoundary in
+            guard let self,
+                  let owner = self.controlSidebarResolvePanelOwner(
+                      target: target,
+                      panelID: panelID
+                  ),
+                  owner.acceptsAgentMutationGuard(guardValue, panelId: panelID) else {
+                return
+            }
+            if let correlationKey {
+                mutationBus.discardPendingNotifications(
+                    forSurfaceId: panelID,
+                    correlationKey: correlationKey,
+                    through: clearBoundary
+                )
+                TerminalNotificationStore.shared.clearNotifications(
+                    forTabId: owner.id,
+                    surfaceId: panelID,
+                    correlationKey: correlationKey,
+                    throughNotificationGeneration: clearBoundary
+                )
+            } else {
+                mutationBus.discardPendingNotifications(
+                    forSurfaceId: panelID,
+                    through: clearBoundary
+                )
+                TerminalNotificationStore.shared.clearNotifications(
+                    forTabId: owner.id,
+                    surfaceId: panelID,
+                    discardQueuedNotifications: false,
+                    throughNotificationGeneration: clearBoundary
+                )
+            }
+        }
+    }
+
     /// Applies one scoped shell-state report to its current Dock or workspace
     /// owner after validating the terminal process generation at delivery.
     ///

@@ -39,6 +39,29 @@ struct CLICodexResumeNotificationTests {
             },
             "A resumed turn completion must reach the notification command"
         )
+        let lifecycleIndex = try #require(
+            outcome.commands.firstIndex {
+                $0.hasPrefix("set_agent_lifecycle codex idle ")
+                    && $0.contains(" --require-accepted")
+            },
+            "The stop hook must synchronously establish lifecycle ownership: \(outcome.commands)"
+        )
+        let resumeIndex = try #require(
+            outcome.commands.firstIndex {
+                codexHookJSONObject($0)?["method"] as? String == "surface.resume.set"
+            },
+            "The resumed stop must publish a guarded resume binding: \(outcome.commands)"
+        )
+        #expect(
+            lifecycleIndex < resumeIndex,
+            "Lifecycle ownership must precede guarded resume publication: \(outcome.commands)"
+        )
+        let pidCommand = try #require(
+            outcome.commands.first { $0.hasPrefix("set_agent_pid codex.") },
+            "The stop hook must refresh PID routing: \(outcome.commands)"
+        )
+        #expect(pidCommand.contains("--expected-pid-start-seconds="))
+        #expect(pidCommand.contains("--expected-pid-start-microseconds="))
 
         let savedPID = try persistedPID(sessionID: resumedSessionID, stateURL: stateURL)
         #expect(
@@ -140,6 +163,13 @@ struct CLICodexResumeNotificationTests {
             "pid": pid,
             "agentLifecycle": "running",
             "runtimeStatus": runtimeStatus,
+            "launchCommand": [
+                "launcher": "codex",
+                "executablePath": "/usr/local/bin/codex",
+                "arguments": ["/usr/local/bin/codex", "--model", "gpt-5.4"],
+                "workingDirectory": "/tmp",
+                "source": "test",
+            ],
             "startedAt": updatedAt,
             "updatedAt": updatedAt,
         ]

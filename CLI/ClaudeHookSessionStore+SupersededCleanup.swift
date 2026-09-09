@@ -1,10 +1,29 @@
-import Darwin
 import Foundation
 
 extension ClaudeHookSessionStore {
     private static let maxSupersededCleanupBatchSize = 4
     private static let maxPendingSupersededCleanupRecords = 128
     private static let maxSupersededCleanupAttempts = 8
+
+    /// Demotes same-process session aliases only after the replacement's app
+    /// lifecycle claim has committed. Keeping this outside the reversible
+    /// session-start write makes rollback local to one durable record.
+    func supersedeSameProcessSessions(
+        keepingSessionId: String,
+        expectedProcessIdentity: AgentHookProcessIdentity
+    ) throws -> [ClaudeHookSessionRecord] {
+        try withLockedState { state in
+            guard let owner = state.sessions[keepingSessionId],
+                  AgentHookProcessIdentity(record: owner) == expectedProcessIdentity else {
+                return []
+            }
+            return supersededSessionCleanupCandidates(
+                in: &state,
+                keepingSessionId: keepingSessionId,
+                owner: owner
+            )
+        }
+    }
 
     func supersededSessionCleanupCandidates(
         in state: inout ClaudeHookSessionStoreFile,
@@ -18,12 +37,26 @@ extension ClaudeHookSessionStore {
             return []
         }
         // Demote every superseded claimant in the locked store transaction;
-        // only the external socket cleanup is deliberately batch-limited.
-        let superseded = state.sessions.values.filter {
-            $0.sessionId != keepingSessionId
-                && $0.pid == pid
-                && $0.pidStartSeconds == startSeconds
-                && $0.pidStartMicroseconds == startMicroseconds
+        // only the external socket cleanup is deliberately batch-limited. A
+        // pre-generation OMP record has no birth fields, so a same-PID legacy
+        // alias is migrated to the already-verified owner's identity before it
+        // enters the retry queue. This keeps old aliases from remaining live
+        // forever while limiting the fallback to one process-owned OMP store.
+        var superseded: [ClaudeHookSessionRecord] = []
+        for candidate in state.sessions.values where candidate.sessionId != keepingSessionId {
+            let exactGeneration = candidate.pid == pid
+                && candidate.pidStartSeconds == startSeconds
+                && candidate.pidStartMicroseconds == startMicroseconds
+            let legacyGeneration = candidate.pid == pid
+                && candidate.pidStartSeconds == nil
+                && candidate.pidStartMicroseconds == nil
+            guard exactGeneration || legacyGeneration else { continue }
+            var migrated = candidate
+            if legacyGeneration {
+                migrated.pidStartSeconds = startSeconds
+                migrated.pidStartMicroseconds = startMicroseconds
+            }
+            superseded.append(migrated)
         }
         let supersededIDs = Set(superseded.map(\.sessionId))
         let enqueuedAt = Date().timeIntervalSince1970
@@ -59,6 +92,10 @@ extension ClaudeHookSessionStore {
         owner: ClaudeHookSessionRecord
     ) -> [ClaudeHookSessionRecord] {
         normalizePendingSupersededSessionCleanupMetadata(in: &state)
+        // Pending records without birth fields cannot prove which process
+        // generation created them. Leave them queued for expiry instead of
+        // adopting the current owner's generation: a reused PID could let a
+        // stale retry authorize cleanup against a replacement occupant.
         trimPendingSupersededSessionCleanup(in: &state)
         let orderedRecords = state.pendingSupersededSessionCleanup.values.sorted {
             switch ($0.supersededCleanupLastAttemptAt, $1.supersededCleanupLastAttemptAt) {
@@ -168,37 +205,25 @@ extension ClaudeHookSessionStore {
         _ lhs: ClaudeHookSessionRecord,
         _ rhs: ClaudeHookSessionRecord
     ) -> Bool {
-        guard let pid = lhs.pid,
-              let startSeconds = lhs.pidStartSeconds,
-              let startMicroseconds = lhs.pidStartMicroseconds else {
+        guard let lhsIdentity = AgentHookProcessIdentity(record: lhs),
+              let rhsIdentity = AgentHookProcessIdentity(record: rhs) else {
             return false
         }
-        return rhs.pid == pid
-            && rhs.pidStartSeconds == startSeconds
-            && rhs.pidStartMicroseconds == startMicroseconds
+        return lhsIdentity == rhsIdentity
     }
 
     private static func processGenerationIsConfirmedDead(_ record: ClaudeHookSessionRecord) -> Bool {
-        guard let pid = record.pid,
-              pid > 0,
-              pid <= Int(Int32.max),
-              let startSeconds = record.pidStartSeconds,
-              let startMicroseconds = record.pidStartMicroseconds else {
+        guard let recordedIdentity = AgentHookProcessIdentity(record: record) else {
             return false
         }
 
-        var info = proc_bsdinfo()
-        let expectedSize = MemoryLayout<proc_bsdinfo>.stride
-        let size = proc_pidinfo(pid_t(pid), PROC_PIDTBSDINFO, 0, &info, Int32(expectedSize))
-        if size == expectedSize {
-            return Int64(info.pbi_start_tvsec) != startSeconds
-                || Int64(info.pbi_start_tvusec) != startMicroseconds
+        if let liveIdentity = AgentHookProcessIdentity(livePID: recordedIdentity.pid) {
+            return liveIdentity != recordedIdentity
         }
 
-        if Darwin.kill(pid_t(pid), 0) == 0 || errno == EPERM {
-            return false
-        }
-        return errno == ESRCH
+        return AgentHookProcessIdentity.processGenerationIsConfirmedDead(
+            pid: recordedIdentity.pid
+        )
     }
 
     func acknowledgeSupersededSessionCleanup(_ candidates: [ClaudeHookSessionRecord]) throws {

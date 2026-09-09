@@ -10,14 +10,18 @@ extension CMUXCLI {
         title: String,
         subtitle: String,
         body: String,
-        meta: String? = nil
+        meta: String? = nil,
+        agentMutationGuardEnvelope: String? = nil
     ) -> String {
         let base = "\(sanitizeNotificationField(title))|\(sanitizeNotificationField(subtitle))|\(sanitizeNotificationField(body))"
-        // `meta` is a structured, delimiter-safe tag: it has no
-        // "|" or spaces, so it is NOT sanitized and rides as a 4th pipe segment.
-        // Omitting it reproduces the exact 3-field payload every legacy caller sends.
-        guard let meta, !meta.isEmpty else { return base }
-        return base + "|" + meta
+        // Metadata and mutation guards are structured, delimiter-safe fields.
+        // User-authored fields are pipe-sanitized above, so guard framing never
+        // scans or removes arbitrary notification text.
+        let fields = [
+            meta.flatMap { $0.isEmpty ? nil : $0 },
+            agentMutationGuardEnvelope.map { "g=\($0)" },
+        ].compactMap { $0 }
+        return fields.isEmpty ? base : base + "|" + fields.joined(separator: ";")
     }
 
     /// True when a Claude `Stop`/`Notification` payload reports unfinished

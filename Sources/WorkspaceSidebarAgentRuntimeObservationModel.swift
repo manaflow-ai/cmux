@@ -15,7 +15,9 @@ final class WorkspaceSidebarAgentRuntimeObservationModel {
     @ObservationIgnored
     private(set) var agentPIDKeysByPanelId: [UUID: Set<String>] = [:]
     @ObservationIgnored
-    private(set) var agentLifecycleStatesByPanelId: [UUID: [String: AgentHibernationLifecycleState]] = [:]
+    private(set) var agentLifecycleRecordsByPanelId: [UUID: [String: AgentLifecycleRecord]] = [:]
+    @ObservationIgnored
+    private(set) var nextAgentLifecycleRevision: UInt64 = 1
     @ObservationIgnored
     private(set) var changeGeneration: UInt64 = 0
 
@@ -57,10 +59,21 @@ final class WorkspaceSidebarAgentRuntimeObservationModel {
         notifyChanged()
     }
 
-    func setAgentLifecycleStatesByPanelId(_ newValue: [UUID: [String: AgentHibernationLifecycleState]]) {
-        guard agentLifecycleStatesByPanelId != newValue else { return }
-        agentLifecycleStatesByPanelId = newValue
+    func setAgentLifecycleRecordsByPanelId(_ newValue: [UUID: [String: AgentLifecycleRecord]]) {
+        guard agentLifecycleRecordsByPanelId != newValue else { return }
+        agentLifecycleRecordsByPanelId = newValue
         notifyChanged()
+    }
+
+    func takeNextAgentLifecycleRevision() -> UInt64 {
+        let revision = nextAgentLifecycleRevision
+        nextAgentLifecycleRevision &+= 1
+        return revision
+    }
+
+    func reserveAgentLifecycleRevisions(after revision: UInt64) {
+        guard nextAgentLifecycleRevision <= revision else { return }
+        nextAgentLifecycleRevision = revision &+ 1
     }
 
     private func notifyChanged() {

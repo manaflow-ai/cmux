@@ -1,4 +1,5 @@
 import CmuxSettings
+import CmuxControlSocket
 import CmuxNotifications
 import Foundation
 
@@ -34,7 +35,8 @@ struct AgentNotificationDelivery: Sendable {
         isSubagent: Bool? = nil,
         correlationKey: String? = nil,
         sessionId: String? = nil,
-        coalesces: Bool = false
+        coalesces: Bool = false,
+        agentMutationGuard: ControlSidebarAgentMutationGuard? = nil
     ) -> Bool {
         guard allows(category: category, pending: pending) else { return false }
         TerminalMutationBus.shared.enqueueNotification(
@@ -53,7 +55,8 @@ struct AgentNotificationDelivery: Sendable {
             ),
             soundContext: soundContext,
             correlationKey: correlationKey,
-            coalesces: coalesces
+            coalesces: coalesces,
+            agentMutationGuard: agentMutationGuard
         )
         return true
     }
