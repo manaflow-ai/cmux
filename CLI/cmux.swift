@@ -1423,7 +1423,8 @@ final class ClaudeHookSessionStore {
         guard !normalized.isEmpty else { return [] }
         return try withLockedState(deadline: deadline) { state in
             let now = Date().timeIntervalSince1970
-            let previousSurfaceId = state.sessions[normalized]?.surfaceId
+            let previousRecord = state.sessions[normalized]
+            let previousSurfaceId = previousRecord?.surfaceId
             let previousHadPending = state.sessions[normalized].map {
                 hasUnexpiredCursorShellApproval($0, now: now)
             } ?? false
@@ -1484,6 +1485,7 @@ final class ClaudeHookSessionStore {
                 superseded = []
             }
             state.sessions[normalized] = record
+            state.reconcileActiveOwnerAfterUpsert(previous: previousRecord, record: record)
             reconcileCursorPendingIndexAfterUpdate(
                 &state,
                 sessionId: normalized,
@@ -2467,7 +2469,10 @@ final class ClaudeHookSessionStore {
         if let deadline, Date.now >= deadline {
             throw CLIError(message: "Claude hook state deadline exceeded: \(lockPath)")
         }
-        var state = try loadUnlocked(deadline: deadline)
+        let loaded = try loadUnlocked(deadline: deadline)
+        var state = loaded.state
+        let originalData = persist ? try (loaded.recoveryData ?? encoder.encode(state)) : nil
+        backfillSurfaceActiveSlots(&state)
         if let deadline, Date.now >= deadline {
             throw CLIError(message: "Claude hook state deadline exceeded: \(lockPath)")
         }
@@ -2497,7 +2502,10 @@ final class ClaudeHookSessionStore {
             throw CLIError(message: "Claude hook state deadline exceeded: \(lockPath)")
         }
         if persist {
-            try saveUnlocked(state, deadline: deadline)
+            let updatedData = try encoder.encode(state)
+            if loaded.requiresPersistence || updatedData != originalData {
+                try saveUnlocked(updatedData, deadline: deadline)
+            }
         }
         return result
     }
@@ -2563,9 +2571,11 @@ final class ClaudeHookSessionStore {
         )
     }
 
-    private func loadUnlocked(deadline: Date? = nil) throws -> ClaudeHookSessionStoreFile {
+    private func loadUnlocked(
+        deadline: Date? = nil
+    ) throws -> (state: ClaudeHookSessionStoreFile, requiresPersistence: Bool, recoveryData: Data?) {
         guard fileManager.fileExists(atPath: statePath) else {
-            return ClaudeHookSessionStoreFile()
+            return (ClaudeHookSessionStoreFile(), false, nil)
         }
         let stateURL = URL(fileURLWithPath: statePath)
         guard let values = try? stateURL.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
@@ -2577,17 +2587,20 @@ final class ClaudeHookSessionStore {
             throw CLIError(message: "Claude hook state file is too large for the hook deadline: \(statePath)")
         }
         if fileSize > Self.maxRecoverableHookStateFileBytes {
-            return try quarantineOversizedState(at: stateURL)
+            return (try quarantineOversizedState(at: stateURL), true, nil)
         }
         let data = try Data(contentsOf: stateURL)
         guard var decoded = try? decoder.decode(ClaudeHookSessionStoreFile.self, from: data) else {
-            return try quarantineOversizedState(at: stateURL)
+            return (try quarantineOversizedState(at: stateURL), true, nil)
         }
-        if fileSize > Self.maxHookStateFileBytes {
+        let isOversized = fileSize > Self.maxHookStateFileBytes
+        if isOversized {
             compactRecoveredState(&decoded)
         }
-        backfillSurfaceActiveSlots(&decoded)
-        return decoded
+        // Compare recovery against the actual bytes so padding and compaction
+        // are persisted once, even if retained live records still exceed the
+        // size limit. Size alone must not force another write on every hook.
+        return (decoded, false, isOversized ? data : nil)
     }
 
     /// Moves an unreadable/oversized state file aside before rebuilding a
@@ -2703,7 +2716,7 @@ final class ClaudeHookSessionStore {
         }
     }
 
-    private func saveUnlocked(_ state: ClaudeHookSessionStoreFile, deadline: Date? = nil) throws {
+    private func saveUnlocked(_ data: Data, deadline: Date? = nil) throws {
         if let deadline, Date.now >= deadline {
             throw CLIError(message: "Claude hook state deadline exceeded: \(statePath)")
         }
@@ -2715,7 +2728,6 @@ final class ClaudeHookSessionStore {
             attributes: [.posixPermissions: NSNumber(value: Int16(0o700))]
         )
         try? fileManager.setAttributes([.posixPermissions: NSNumber(value: Int16(0o700))], ofItemAtPath: parentURL.path)
-        let data = try encoder.encode(state)
         if let deadline, Date.now >= deadline {
             throw CLIError(message: "Claude hook state deadline exceeded: \(statePath)")
         }
@@ -28596,9 +28608,22 @@ struct CMUXCLI {
 
         case "pre-tool-use":
             telemetry.breadcrumb("claude-hook.pre-tool-use")
-            // Clears "Needs input" status and notification when Claude resumes work
-            // (e.g. after permission grant). Runs async so it doesn't block tool execution.
+            // Keep the catch-all transition-driven: the first ordinary tool after
+            // a blocking prompt restores Running; an already-running observation
+            // has no durable or visible work unless verbose status is enabled.
+            let toolName = parsedInput.object?["tool_name"] as? String
+            let isBlockingNeedsInputTool = toolName == "AskUserQuestion" || toolName == "ExitPlanMode"
+            let usesVerboseToolStatus = UserDefaults.standard.bool(forKey: "claudeCodeVerboseStatus")
             let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
+            if !isBlockingNeedsInputTool,
+               !usesVerboseToolStatus,
+               mappedSession?.agentLifecycle == .running,
+               claudeHookLiveStateAllowsRunningSkip(client: client, session: mappedSession) {
+                didSendFeedTelemetry = true
+                telemetry.breadcrumb("claude-hook.pre-tool-use.unchanged")
+                printClaudeHookAck()
+                return
+            }
             // Skip only the pid/tty scan per tool call; the cheap
             // `{surface_id}` re-home probe stays enabled so a mid-turn pane
             // move cannot make this hook mutate (and re-record) the old

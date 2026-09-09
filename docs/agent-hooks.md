@@ -50,6 +50,28 @@ Session hooks write `~/.cmuxterm/<agent>-hook-sessions.json`. Each entry stores 
 
 The sanitizer preserves model, sandbox, config, and cwd-related flags. It drops prompts, credentials, old session selectors, and noninteractive commands so relaunch resumes the session instead of starting a new task or leaking secrets.
 
+### Claude Code hook writes
+
+The Claude wrapper runs a `PreToolUse` hook for each tool call, but cmux does not treat every observation as a new lifecycle transition. When the mapped session is already running and verbose tool status is disabled, an ordinary tool observation is acknowledged without changing status, notifications, Feed, or the session mapping file. A changed permission mode is still persisted for session restore; unchanged permission modes do not rewrite the file.
+
+The catch-all hook remains necessary: the first ordinary tool after `AskUserQuestion`, `ExitPlanMode`, or a native permission prompt restores Running and clears the attention notification. Lifecycle transitions, blocking prompts, permission requests, `CronCreate`, and `PushNotification` retain their existing behavior. `PermissionRequest` still runs `hooks feed --source claude` and may append a permission event. Opting into verbose tool status also retains per-tool updates and their writes.
+
+This reduces redundant writes, not hook process creation. It does not establish that hook writes caused any endpoint-security detection or guarantee that an EDR product will stop flagging Claude Code.
+
+Before skipping an unchanged ordinary tool, the CLI also makes one read-only live-surface check. The session file is not sufficient evidence that attention has cleared: its update can fail while the app still shows a permission prompt. This check adds IPC but no persistent flag or cache. If the app cannot confirm the live state (including an older app without this response field), the existing resume path runs instead. Such fallback calls can retain the previous write cost.
+
+If endpoint-security policy requires no wrapper-injected Claude hooks, turn off **Settings > Automation > Claude Code Integration** or set:
+
+```json
+{
+  "automation": {
+    "claudeCodeIntegration": false
+  }
+}
+```
+
+This disables cmux's Claude session tracking, status updates, Feed permission bridge, notifications, and automatic session resume. For one launch without changing Settings, use `CMUX_CLAUDE_HOOKS_DISABLED=1 claude`.
+
 Claude Code's `PushNotification` tool (model-initiated "notify the user now" pushes) is bridged through a `PostToolUse` hook into cmux notifications. The tool normally delivers via a raw OSC desktop notification, which cmux suppresses on surfaces running a hook-integrated agent, so the bridge is what makes those pushes visible inside cmux. It mirrors the tool's own outcome: a push the tool reports as skipped (user active, channel disabled) is not duplicated.
 
 Grok uses its `Notification` hook for user-facing completion messages. cmux records `Stop` as idle state, but leaves the visible notification text to the `Notification` payload so repeated turns keep Grok's own message instead of a generic completion fallback.

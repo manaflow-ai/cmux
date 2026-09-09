@@ -466,11 +466,18 @@ extension TerminalController {
                surfaceID: claimedSurfaceId,
                preferredTabID: claimedWorkspaceId
            ) {
-            return .ok([
+            var result: [String: Any] = [
                 "workspace_id": owner.tabID.uuidString,
                 "surface_id": owner.surfaceID.uuidString,
                 "source": "surface",
-            ])
+            ]
+            if params["include_claude_hook_state"] as? Bool == true {
+                result["claude_hook_can_skip_running"] = claudeHookCanSkipRunning(
+                    ownerID: owner.tabID, surfaceID: owner.surfaceID,
+                    workspace: owner.tabManager.workspacesById[owner.tabID], dock: owner.windowDock
+                )
+            }
+            return .ok(result)
         }
         if let claimedWorkspaceId,
            appDelegate.agentNotificationDeliveryTarget(claimedTabId: claimedWorkspaceId, surfaceId: nil) != nil {

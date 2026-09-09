@@ -9,6 +9,7 @@ import base64
 import json
 import os
 import plistlib
+import re
 import shutil
 import socket
 import subprocess
@@ -624,18 +625,23 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
             failures,
         )
 
-    # General PreToolUse telemetry should remain async to avoid blocking tool execution.
-    pre_tool_use_hooks = [
-        hook
-        for group in pre_tool_use_groups
-        for hook in group.get("hooks", [])
-        if "pre-tool-use" in hook.get("command", "")
-    ]
-    expect(
-        any(h.get("async") is True for h in pre_tool_use_hooks),
-        f"PreToolUse hook should have async:true, got {pre_tool_use_hooks}",
-        failures,
-    )
+    # Ordinary tools must still deliver the resume signal after a question,
+    # plan approval, or native permission prompt. The CLI deduplicates unchanged
+    # running observations; removing the hook also removes that transition.
+    for tool_name in ("Bash", "Read", "AskUserQuestion", "ExitPlanMode"):
+        matching_hooks = [
+            hook
+            for group in pre_tool_use_groups
+            if group.get("matcher") in (None, "", "*")
+            or re.fullmatch(group["matcher"], tool_name)
+            for hook in group.get("hooks", [])
+            if hook.get("command") == '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks claude pre-tool-use'
+        ]
+        expect(
+            len(matching_hooks) == 1 and matching_hooks[0].get("async") is True,
+            f"{tool_name} should deliver exactly one async lifecycle observation, got {matching_hooks}",
+            failures,
+        )
     permission_request_hooks = hooks.get("PermissionRequest", [{}])[0].get("hooks", [{}])
     expect(
         any(h.get("command") == '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks feed --source claude' for h in permission_request_hooks),

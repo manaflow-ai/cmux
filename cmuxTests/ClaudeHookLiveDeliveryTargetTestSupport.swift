@@ -103,11 +103,20 @@ enum ClaudeHookLiveDeliveryHarness {
                 }
                 if let surfaceId = params["surface_id"] as? String,
                    let workspaceId = surfaceTargets[surfaceId] {
-                    return v2Response(id: id, ok: true, result: [
+                    var result: [String: Any] = [
                         "workspace_id": workspaceId,
                         "surface_id": surfaceId,
                         "source": "surface",
-                    ])
+                    ]
+                    if params["include_claude_hook_state"] as? Bool == true {
+                        let lastStatus = context.state.snapshot().last {
+                            $0.hasPrefix("set_status claude_code ")
+                        }
+                        result["claude_hook_can_skip_running"] = lastStatus.map {
+                            $0.hasPrefix("set_status claude_code Running ")
+                        } ?? true
+                    }
+                    return v2Response(id: id, ok: true, result: result)
                 }
                 return v2Response(id: id, ok: false, error: ["code": "not_found", "message": "no live target"])
             case "surface.list":
@@ -214,46 +223,28 @@ enum ClaudeHookLiveDeliveryHarness {
         environment: [String: String],
         standardInput: String
     ) -> ProcessRunResult {
-        let process = Process()
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        let stdinPipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: context.cliPath)
-        process.arguments = arguments
-        process.environment = environment
-        process.standardInput = stdinPipe
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-
+        let inputURL = context.root.appendingPathComponent("hook-input-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: inputURL) }
         do {
-            try process.run()
+            try Data(standardInput.utf8).write(to: inputURL)
         } catch {
             return ProcessRunResult(status: -1, stdout: "", stderr: String(describing: error), timedOut: false)
         }
-        stdinPipe.fileHandleForWriting.write(Data(standardInput.utf8))
-        try? stdinPipe.fileHandleForWriting.close()
-
-        let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exitSignal.signal()
-        }
-        let timedOut = exitSignal.wait(timeout: .now() + 10) == .timedOut
-        if timedOut {
-            process.terminate()
-            if exitSignal.wait(timeout: .now() + 1) == .timedOut {
-                kill(process.processIdentifier, SIGKILL)
-                _ = exitSignal.wait(timeout: .now() + 1)
-            }
-        }
-
-        let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        // App-hosted Process.waitUntilExit can remain blocked after the child
+        // is reaped. Reuse the existing runner's sole POSIX waitpid owner.
+        // Positional arguments keep both payload and paths out of shell syntax;
+        // exec preserves the CLI PID and the runner's process-group timeout.
+        let result = CMUXCLIErrorOutputRegressionTests().runProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", "exec \"$@\" < \"$0\"", inputURL.path, context.cliPath] + arguments,
+            environment: environment,
+            timeout: 10
+        )
         return ProcessRunResult(
-            status: process.isRunning ? SIGKILL : process.terminationStatus,
-            stdout: stdout,
-            stderr: stderr,
-            timedOut: timedOut
+            status: result.status,
+            stdout: result.stdout,
+            stderr: result.stderr,
+            timedOut: result.timedOut
         )
     }
 
@@ -272,7 +263,7 @@ enum ClaudeHookLiveDeliveryHarness {
             Darwin.close(fd)
             throw NSError(domain: "cmux.tests", code: Int(ENAMETOOLONG))
         }
-        _ = withUnsafeMutablePointer(to: &addr.sun_path) { pointer in
+        withUnsafeMutablePointer(to: &addr.sun_path) { pointer in
             pointer.withMemoryRebound(to: CChar.self, capacity: maxPathLength) { buffer in
                 for index in 0..<utf8.count {
                     buffer[index] = CChar(bitPattern: utf8[index])
@@ -311,6 +302,14 @@ enum ClaudeHookLiveDeliveryHarness {
                 }
                 guard clientFD >= 0 else {
                     if errno == EINTR { continue }
+                    return
+                }
+                // One-way Feed clients may close before the mock replies.
+                // Keep that expected EPIPE local to this socket, not the test process.
+                var noSIGPIPE: Int32 = 1
+                guard setsockopt(clientFD, SOL_SOCKET, SO_NOSIGPIPE, &noSIGPIPE,
+                                 socklen_t(MemoryLayout<Int32>.size)) == 0 else {
+                    Darwin.close(clientFD)
                     return
                 }
 
