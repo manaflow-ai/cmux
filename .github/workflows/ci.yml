@@ -920,6 +920,7 @@ jobs:
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           for suite in \
             RemoteTmuxMirrorCloseDetachTests \
+            RemoteTmuxMirrorFocusPolicyTests \
             RemoteTmuxMirrorDedicatedPlacementTests
           do
             scripts/ci/run-in-console-session.sh \
