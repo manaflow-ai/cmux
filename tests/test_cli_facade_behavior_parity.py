@@ -96,8 +96,18 @@ KNOWN_STDERR_DIVERGENCES: set[tuple[str, ...]] = {
 }
 
 
-def run(cli: str, args: list[str], legacy: bool, socket_path: str) -> subprocess.CompletedProcess:
-    env = {**os.environ, "CMUX_SOCKET_PATH": socket_path}
+def run(
+    cli: str, args: list[str], legacy: bool, socket_path: str, home: str
+) -> subprocess.CompletedProcess:
+    # A per-run home for both parsers: these cases spawn the real cmux binary,
+    # and a runner that reads or writes user state must not reach the developer's
+    # (or the CI app host's) actual ~/.local/state/cmux or config.
+    env = {
+        **os.environ,
+        "CMUX_SOCKET_PATH": socket_path,
+        "HOME": home,
+        "CFFIXED_USER_HOME": home,
+    }
     if legacy:
         env["CMUX_CLI_LEGACY_PARSER"] = "1"
     else:
@@ -116,9 +126,11 @@ def main() -> int:
     failures: list[str] = []
     with tempfile.TemporaryDirectory() as tmpdir:
         socket_path = os.path.join(tmpdir, "cmux-facade-behavior-parity-absent.sock")
+        home = os.path.join(tmpdir, "home")
+        os.mkdir(home)
         for args, description in CASES:
-            facade = run(cli, args, legacy=False, socket_path=socket_path)
-            legacy = run(cli, args, legacy=True, socket_path=socket_path)
+            facade = run(cli, args, legacy=False, socket_path=socket_path, home=home)
+            legacy = run(cli, args, legacy=True, socket_path=socket_path, home=home)
             stderr_diverges = (
                 facade.stderr != legacy.stderr
                 and tuple(args) not in KNOWN_STDERR_DIVERGENCES
@@ -136,8 +148,8 @@ def main() -> int:
             spaced_args = [option, value, *GLOBAL_OPTION_EQUALS_COMMAND]
             equals_args = [f"{option}={value}", *GLOBAL_OPTION_EQUALS_COMMAND]
             for legacy in (False, True):
-                spaced = run(cli, spaced_args, legacy=legacy, socket_path=socket_path)
-                equals = run(cli, equals_args, legacy=legacy, socket_path=socket_path)
+                spaced = run(cli, spaced_args, legacy=legacy, socket_path=socket_path, home=home)
+                equals = run(cli, equals_args, legacy=legacy, socket_path=socket_path, home=home)
                 if spaced.returncode == equals.returncode and spaced.stderr == equals.stderr:
                     continue
                 parser = "legacy" if legacy else "facade"
@@ -149,7 +161,7 @@ def main() -> int:
                 )
 
         for args, expected_exit_code, description in FACADE_ONLY_CASES:
-            facade = run(cli, args, legacy=False, socket_path=socket_path)
+            facade = run(cli, args, legacy=False, socket_path=socket_path, home=home)
             if facade.returncode != expected_exit_code:
                 failures.append(
                     f"cmux {' '.join(args)} ({description}): "
