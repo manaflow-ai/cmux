@@ -37051,6 +37051,10 @@ export default CMUXSessionRestore;
                             surfaceId: mapped.surfaceId
                         )
                         sendAgentFeedTelemetry(workspaceId: mapped.workspaceId, surfaceId: mapped.surfaceId)
+                    } else {
+                        // The generic deferred telemetry fallback must not
+                        // republish a boundary rejected by the lifecycle fence.
+                        didSendFeedTelemetry = true
                     }
                 }
 #if DEBUG
