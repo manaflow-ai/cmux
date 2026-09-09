@@ -62,6 +62,67 @@ struct CLICodexHookPathQuotingRegressionTests {
         }
     }
 
+    @Test(arguments: ["install", "uninstall"])
+    func codexHookOwnershipUsesFilesystemPathsWhenHomeContainsSemicolons(action: String) throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux codex $hook 'home; \(UUID().uuidString)", isDirectory: true)
+        let codexHome = root.appendingPathComponent(".codex", isDirectory: true)
+        let hooksDirectory = root.appendingPathComponent(".cmux/hooks", isDirectory: true)
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: hooksDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let legacyScript = hooksDirectory.appendingPathComponent("cmux-codex-hook-persistent-stop.sh")
+        try makeCodexHookExecutableShellFile(at: legacyScript, lines: ["#!/bin/sh", "exit 0"])
+        let userCommand = "/bin/true"
+        let outsideCommand = root.appendingPathComponent("cmux-codex-hook-persistent-stop.sh").path
+        let hooks: [String: Any] = [
+            "hooks": [
+                "Stop": [["hooks": [
+                    ["type": "command", "command": legacyScript.path],
+                    ["type": "command", "command": userCommand],
+                    ["type": "command", "command": outsideCommand],
+                ]]],
+            ],
+        ]
+        let configFile = codexHome.appendingPathComponent("hooks.json")
+        try JSONSerialization.data(withJSONObject: hooks).write(to: configFile)
+        let environment = codexHookTestEnvironment(root: root, codexHome: codexHome)
+
+        let result = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", action, "--yes"],
+            environment: environment,
+            timeout: 10
+        )
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        let entries = try codexHookEntries(in: codexHome)
+        #expect(!entries.contains { $0.command == legacyScript.path })
+        #expect(entries.filter { $0.command == userCommand }.count == 1)
+        #expect(entries.filter { $0.command == outsideCommand }.count == 1)
+
+        if action == "install" {
+            let stopCommands = entries.filter { $0.eventName == "Stop" }.map(\.command)
+            #expect(stopCommands.count == 3)
+            let installed = try #require(stopCommands.first { $0 != userCommand && $0 != outsideCommand })
+            #expect(installed.hasPrefix("'"))
+
+            let uninstall = runCodexHookProcess(
+                executablePath: cliPath,
+                arguments: ["hooks", "codex", "uninstall", "--yes"],
+                environment: environment,
+                timeout: 10
+            )
+            #expect(!uninstall.timedOut, Comment(rawValue: uninstall.stderr))
+            #expect(uninstall.status == 0, Comment(rawValue: uninstall.stderr))
+            let remaining = try codexHookEntries(in: codexHome)
+            #expect(Set(remaining.map(\.command)) == [userCommand, outsideCommand])
+            #expect(remaining.count == 2)
+        }
+    }
+
     private func bundledCLIPath() throws -> String {
         try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
     }
