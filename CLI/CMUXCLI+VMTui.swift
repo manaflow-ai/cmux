@@ -42,9 +42,8 @@ extension CMUXCLI {
         /// bound as base so the sidebar cloud button reuses it.
         var pinAsBase: Bool = false
         /// `vm tui` only: the pane execs the full cmux-tui client (its own workspaces and
-        /// panes). Every other open lands a plain terminal on the machine — the app
-        /// creates one in the machine's session and attaches just that terminal, like an
-        /// ssh session — so nothing here needs a local client.
+        /// panes). Every other open reattaches a plain terminal in the machine's
+        /// active workspace, creating one only for an authoritative empty graph.
         var fullClient: Bool = false
         /// Whether the open may take over what the person is looking at: select the
         /// workspace and put keyboard focus in the new pane. `false` (`--focus false`,
@@ -455,17 +454,27 @@ extension CMUXCLI {
         var terminalId: String?
         var remoteWorkspaceId: String?
         if !options.fullClient {
-            // The pane is a plain terminal on the machine: the app creates one in the
-            // machine's cmux-tui session over its headless link and attaches just that
-            // terminal (`attach --terminal`) beside the placeholder, which is then closed.
-            // Same path the Cloud tree uses, so the terminal shows up there as open.
+            // Open the machine's existing terminal. Explicit New Terminal actions
+            // create sessions; opening or reconnecting the machine does not.
             let terminalStartedAt = Date()
             do {
-                let opened = try client.sendV2(
-                    method: "surface.new_terminal",
-                    params: ["machine": vmId, "open": true, "workspace_id": workspaceId, "focus": paneFocus, "name": "shell"],
-                    responseTimeout: 180
-                )
+                let catalog = try client.sendV2(method: "surface.catalog", params: ["machine": vmId, "refresh": true], responseTimeout: 180)
+                let opened: [String: Any]
+                switch VMRemoteWorkspaceResolver().resolveVMMachineTerminal(machine: vmId, catalog: catalog) {
+                case .resolved(let remoteWorkspaceID, let terminalID, let tabID):
+                    var params: [String: Any] = ["resource": "\(vmId)/terminal/\(terminalID)", "workspace_id": workspaceId, "remote_workspace_id": remoteWorkspaceID, "focus": paneFocus, "reuse": false]
+                    if let tabID { params["remote_tab_id"] = tabID }
+                    var projected = try client.sendV2(method: "surface.project", params: params, responseTimeout: 180)
+                    projected["terminal_id"] = terminalID
+                    projected["remote_workspace_id"] = remoteWorkspaceID
+                    opened = projected
+                case .empty(let remoteWorkspaceID):
+                    var params: [String: Any] = ["machine": vmId, "open": true, "workspace_id": workspaceId, "focus": paneFocus]
+                    if let remoteWorkspaceID { params["remote_workspace_id"] = remoteWorkspaceID }
+                    opened = try client.sendV2(method: "surface.new_terminal", params: params, responseTimeout: 180)
+                case .unavailable:
+                    throw CLIError(message: String(localized: "cli.vm.open.sessionsUnavailable", defaultValue: "The machine’s sessions are unavailable. Refresh and retry."))
+                }
                 terminalId = opened["terminal_id"] as? String
                 remoteWorkspaceId = opened["remote_workspace_id"] as? String
                 let newSurface = (opened["surface_id"] as? String).flatMap { $0.isEmpty ? nil : $0 }

@@ -6,7 +6,6 @@ import Testing
 #elseif canImport(cmux)
 @testable import cmux
 #endif
-
 typealias CMUXCLI = CmuxTuiRemoteRouting
 
 /// The cmux-tui provider's pure parts: snapshot → resources, the argv it hands the
@@ -933,6 +932,7 @@ typealias CMUXCLI = CmuxTuiRemoteRouting
         #expect(CmuxTuiSnapshotParser.createdTerminal(fromRunResult: ["terminal_id": "term_bare"])?.terminalID == "term_bare")
         #expect(CmuxTuiSnapshotParser.createdTerminal(fromRunResult: ["value": ["kind": "terminal"]]) == nil)
         #expect(CmuxTuiSnapshotParser.createdWorkspace(fromResult: ["value": ["workspace_id": "ws_9"]]) == "ws_9")
+        #expect(CmuxTuiSnapshotParser.createdWorkspace(fromResult: ["value": ["workspace": "ws_8"]]) == "ws_8")
         #expect(CmuxTuiSnapshotParser.createdWorkspace(fromResult: ["id": "ws_bare"]) == "ws_bare")
         #expect(CmuxTuiSnapshotParser.createdWorkspace(fromResult: ["value": [:]]) == nil)
 

@@ -2,6 +2,34 @@ import Foundation
 
 /// Pure catalog identity resolution shared by the CLI and its behavior tests.
 struct VMRemoteWorkspaceResolver: Sendable {
+    enum VMMachineTerminalResolution: Equatable {
+        case resolved(workspaceID: String, terminalID: String, tabID: String?)
+        case empty(workspaceID: String?)
+        case unavailable
+    }
+
+    /// A machine open reattaches its active workspace's terminal. Only an
+    /// authoritative empty graph permits creation; a missing or ambiguous graph
+    /// must not turn a reconnect into another workspace or terminal.
+    func resolveVMMachineTerminal(machine: String, catalog: [String: Any]) -> VMMachineTerminalResolution {
+        guard let machinePayload = vmMachinePayload(machine, from: catalog),
+              let workspaces = machinePayload["remote_workspaces"] as? [[String: Any]],
+              let resources = catalog["resources"] as? [[String: Any]] else { return .unavailable }
+        guard !workspaces.isEmpty else { return .empty(workspaceID: nil) }
+        let focused = workspaces.filter { ($0["focused"] as? Bool) == true }
+        guard focused.count <= 1 else { return .unavailable }
+        let workspace = focused.first ?? workspaces.first
+        guard let workspaceID = workspace?["id"] as? String, !workspaceID.isEmpty else { return .unavailable }
+        switch resolveVMRemoteWorkspaceTerminal(resources, machine: machine, workspaceID: workspaceID) {
+        case .resolved(let terminalID, let tabID):
+            return .resolved(workspaceID: workspaceID, terminalID: terminalID, tabID: tabID)
+        case .none:
+            return .empty(workspaceID: workspaceID)
+        case .ambiguous, .unavailable:
+            return .unavailable
+        }
+    }
+
     /// Resolution of a remote workspace selector. Workspace ids are identities;
     /// names are mutable labels and are accepted only when they identify one row.
     /// Keeping this result explicit prevents a missing or ambiguous catalog from

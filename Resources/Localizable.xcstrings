@@ -298784,6 +298784,13 @@
       "ja": { "stringUnit": { "state": "translated", "value": "利用可能なディスプレイはありません" } }
     }
   },
+  "cli.vm.open.sessionsUnavailable": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "The machine’s sessions are unavailable. Refresh and retry." } },
+      "ja": { "stringUnit": { "state": "translated", "value": "マシンのセッションを利用できません。更新して再試行してください。" } }
+    }
+  },
   "cloudTree.ports.failed": {
     "extractionState": "manual",
     "localizations": {
