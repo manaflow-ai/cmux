@@ -189,7 +189,10 @@ public final class HiveRemoteTerminalSession {
     }
 
     private func sendInput(_ text: String) {
-        guard phase == .live || phase == .reattaching else { return }
+        // Keep keystrokes typed while the initial replay (or a reconnect's
+        // replay) is in flight. The worker starts as soon as the session
+        // reaches `.live`, so attach/re-attach transitions do not drop input.
+        guard phase == .attaching || phase == .live || phase == .reattaching else { return }
         enqueueInput(text)
         startInputWorkerIfNeeded()
     }
