@@ -241,8 +241,7 @@ final class BonsplitTabDragUITests: XCTestCase {
                 "Expected right sidebar to be visible before measuring its titlebar. data=\(geometry)"
             )
             let modeBarHeight = CGFloat(Double(geometry["rightSidebarModeBarHeight"] ?? "") ?? .nan)
-            let modeBarMinY = CGFloat(Double(geometry["rightSidebarModeBarMinY"] ?? "") ?? .nan)
-            let modeBarTopInset = window.frame.height - (modeBarMinY + modeBarHeight)
+            let modeBarTopInset = CGFloat(Double(geometry["rightSidebarModeBarTopInset"] ?? "") ?? .nan)
             let titlebarHeight = CGFloat(Double(geometry["rightSidebarTitlebarHeight"] ?? "") ?? .nan)
 
             XCTAssertEqual(
