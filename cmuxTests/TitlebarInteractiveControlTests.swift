@@ -247,8 +247,8 @@ struct TitlebarInteractiveControlTests {
         )
     }
 
-    @Test func titlebarAccessoryIncludesPersistentRightSidebarToggle() async throws {
-        try await RightSidebarDefaultsSerialGate.withExclusive {
+    @Test func titlebarAccessoryIncludesPersistentRightSidebarToggle() async {
+        await RightSidebarDefaultsSerialGate.withExclusive {
             _ = NSApplication.shared
 
             let defaults = UserDefaults.standard
