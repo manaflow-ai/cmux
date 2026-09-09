@@ -1459,8 +1459,10 @@ extension CMUXCLI {
 
         // Displays are catalog resources, so emit one addressable row per
         // screen instead of collapsing several screens into one synthetic desktop.
-        if !displays.isEmpty {
-            lines.append("  " + String(localized: "cli.vm.tree.displays", defaultValue: "Displays/"))
+        lines.append("  " + String(localized: "cli.vm.tree.displays", defaultValue: "Displays/"))
+        if displays.isEmpty {
+            lines.append("    " + String(localized: "cli.vm.tree.noDisplays", defaultValue: "(none available)"))
+        } else {
             for display in displays {
                 lines.append("    " + vmTreeResourceCell(display, openHint: "cmux surface open", showFullKey: true))
             }

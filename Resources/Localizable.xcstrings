@@ -298791,6 +298791,13 @@
       "ja": { "stringUnit": { "state": "translated", "value": "マシンのセッションを利用できません。更新して再試行してください。" } }
     }
   },
+  "cli.vm.tree.noDisplays": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "(none available)" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "（利用可能なものはありません）" } }
+    }
+  },
   "cloudTree.ports.failed": {
     "extractionState": "manual",
     "localizations": {
