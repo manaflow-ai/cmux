@@ -56,7 +56,7 @@ struct AIAccountsCommand: LegacyAuthCommand {
 
 struct AIAccountsListCommand: LegacyAuthCommand {
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
-    static let configuration = CommandConfiguration(commandName: "list", helpNames: [])
+    static let configuration = CommandConfiguration(commandName: "list", helpNames: [], aliases: ["ls"])
 }
 
 struct AIAccountsUploadCommand: LegacyAuthCommand {
@@ -66,5 +66,5 @@ struct AIAccountsUploadCommand: LegacyAuthCommand {
 
 struct AIAccountsRemoveCommand: LegacyAuthCommand {
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
-    static let configuration = CommandConfiguration(commandName: "remove", helpNames: [])
+    static let configuration = CommandConfiguration(commandName: "remove", helpNames: [], aliases: ["rm", "delete"])
 }
