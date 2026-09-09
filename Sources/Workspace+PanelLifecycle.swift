@@ -9,7 +9,6 @@ extension Workspace {
     private static let structuredAgentHookStatusKeys = AgentHibernationLifecycleStatusKeys.allowedStatusKeys
     private static let managedSubagentEnvironmentKey = "CMUX_AGENT_MANAGED_SUBAGENT"
     private static let truthyStartupEnvironmentValues: Set<String> = ["1", "true", "yes", "on", "enabled"]
-
     var agentPIDs: [String: pid_t] {
         get { sidebarAgentRuntimeObservation.agentPIDs }
         set { sidebarAgentRuntimeObservation.setAgentPIDs(newValue) }
@@ -349,6 +348,12 @@ extension Workspace {
             )
         }
         let recordedProcessIdentity = expectedProcessIdentity ?? processIdentity
+        if key == "claude_code", let panelId, let recordedProcessIdentity {
+            AgentHibernationController.shared.disarmSessionEndPreservationIfSuperseded(
+                panelKey: AgentHibernationPanelKey(workspaceId: id, panelId: panelId),
+                processIdentity: recordedProcessIdentity
+            )
+        }
         agentPIDs[key] = pid
         agentPIDProcessIdentitiesByKey[key] = recordedProcessIdentity
         if let panelId { recordAgentPIDOwnership(key: key, panelId: panelId) } else { removeAgentPIDOwnership(key: key) }
@@ -574,9 +579,18 @@ extension Workspace {
     }
 
     func refreshTrackedAgentPorts() {
+        let remainingAgentRoots = trackedAgentPortRoots()
+        if remainingAgentRoots.isEmpty, !agentListeningPorts.isEmpty {
+            // No agent is left to own a port, so there is no later scan result
+            // to flicker against: drop the panel-owned ports now instead of
+            // waiting for the scanner's asynchronous empty publication, which
+            // is what pane close and detach promise (#3744).
+            agentListeningPorts.removeAll()
+            recomputeListeningPorts()
+        }
         PortScanner.shared.refreshAgentPorts(
             workspaceId: id,
-            agentRoots: trackedAgentPortRoots()
+            agentRoots: remainingAgentRoots
         )
     }
 

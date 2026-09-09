@@ -393,7 +393,10 @@ final class MachinesPanelViewModel: ObservableObject {
             return .sessionRejected
         case .httpStatus(402, _):
             return .requiresPro
-        case .notSignedIn, .sessionRefreshFailed, .backendUnreachable, .httpStatus, .malformedResponse:
+        case .notSignedIn, .sessionRefreshFailed, .backendUnreachable, .httpStatus, .malformedResponse,
+             .disabledByManagedPolicy:
+            // The Machines mode is removed from the sidebar under `DisableCloud`;
+            // a refresh that races the removal renders the generic state.
             return .unreachable
         }
     }

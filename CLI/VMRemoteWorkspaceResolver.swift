@@ -214,7 +214,8 @@ struct VMRemoteWorkspaceResolver: Sendable {
         _ rawSelector: String,
         machine: String,
         workspaceID: String,
-        in catalog: [String: Any]
+        in catalog: [String: Any],
+        tabID requestedTabID: String? = nil
     ) -> VMRemoteTerminalPlacementResolution {
         let selector = rawSelector.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !selector.isEmpty, !machine.isEmpty, !workspaceID.isEmpty else { return .notFound }
@@ -250,21 +251,34 @@ struct VMRemoteWorkspaceResolver: Sendable {
         }
 
         let tabID: String
-        switch resolveVMRemoteView(in: resource, workspaceID: workspaceID) {
-        case .resolved(let view):
-            guard let value = (view["tab_id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+        if let requested = requestedTabID?.trimmingCharacters(in: .whitespacesAndNewlines), !requested.isEmpty {
+            guard let views = resource["remote_views"] as? [[String: Any]] else { return .unavailable }
+            let matches = views.filter { view in
+                let workspace = view["workspace"] as? [String: Any]
+                let tab = (view["tab_id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+                return (workspace?["id"] as? String) == workspaceID && tab == requested
+            }
+            guard matches.count == 1 else {
+                return matches.isEmpty ? .notFound : .ambiguous
+            }
+            tabID = requested
+        } else {
+            switch resolveVMRemoteView(in: resource, workspaceID: workspaceID) {
+            case .resolved(let view):
+                guard let value = (view["tab_id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+                    return .unavailable
+                }
+                tabID = value
+            case .legacy:
+                // An exact terminal selector cannot safely invent a tab id.
+                return .unavailable
+            case .notFound:
+                return .notFound
+            case .ambiguous:
+                return .ambiguous
+            case .unavailable:
                 return .unavailable
             }
-            tabID = value
-        case .legacy:
-            // An exact terminal selector cannot safely invent a tab id.
-            return .unavailable
-        case .notFound:
-            return .notFound
-        case .ambiguous:
-            return .ambiguous
-        case .unavailable:
-            return .unavailable
         }
 
         let terminalID = matchedByExactID

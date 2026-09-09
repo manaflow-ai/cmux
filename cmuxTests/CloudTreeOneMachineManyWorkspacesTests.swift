@@ -78,6 +78,33 @@ struct CloudTreeOneMachineManyWorkspacesTests {
         return resource
     }
 
+    /// A terminal shown by one tab of pane `paneID` in `workspace`: `index` is the tab's
+    /// position in that pane, `focused` whether the pane currently shows it.
+    private func tabbedTerminal(
+        _ key: String,
+        title: String = "bash",
+        in workspace: SurfaceRemoteWorkspace,
+        screen screenID: String = "screen_1",
+        pane paneID: String,
+        index: Int,
+        focused: Bool
+    ) -> SurfaceResource {
+        var resource = SurfaceResource(
+            id: SurfaceResourceID(machine: machine, kind: .terminal, key: key), title: title, detail: "/root",
+            lifecycle: .running, agent: nil, remoteWorkspace: workspace, port: nil, url: nil
+        )
+        resource.remoteViews = [SurfaceRemoteView(
+            tabID: "tab_\(key)", workspace: workspace, screenID: screenID, paneID: paneID,
+            name: nil, index: index, focused: focused
+        )]
+        return resource
+    }
+
+    private func terminalKey(_ node: CloudTreeNode) -> String? {
+        if case .terminal(let row) = node.kind { return row.resource.id.key }
+        return nil
+    }
+
     private func display(in workspaces: [SurfaceRemoteWorkspace]) -> SurfaceResource {
         var resource = SurfaceResource(
             id: SurfaceResourceID(machine: machine, kind: .display, key: SurfaceResourceID.desktopDisplayKey), title: "Desktop", detail: nil,
@@ -100,6 +127,15 @@ struct CloudTreeOneMachineManyWorkspacesTests {
         machine: [String: Any],
         resources: [[String: Any]]
     ) throws -> CloudTreeCLIResult {
+        try runCLICloudCommand(arguments: ["vm", "tree"], machine: machine, resources: resources)
+    }
+
+    private func runCLICloudCommand(
+        arguments: [String],
+        machine: [String: Any],
+        resources: [[String: Any]],
+        extraResponses: [[String: Any]] = []
+    ) throws -> CloudTreeCLIResult {
         let socketPath = "/tmp/cmux-cloud-tree-cli-\(UUID().uuidString.prefix(8)).sock"
         let machineID = machine["id"] as? String
         let catalogResources = resources.map { resource -> [String: Any] in
@@ -113,16 +149,18 @@ struct CloudTreeOneMachineManyWorkspacesTests {
             }
             return resource
         }
-        let responseData = try JSONSerialization.data(withJSONObject: [
+        let catalog: [String: Any] = [
             "ok": true,
             "result": [
                 "machines": [machine],
                 "resources": catalogResources,
                 "projections": [],
             ],
-        ])
-        let response = String(decoding: responseData, as: UTF8.self)
-        let responder = try UnixSocketResponder(path: socketPath, response: response)
+        ]
+        let payloads = try ([catalog] + extraResponses).map { object in
+            String(decoding: try JSONSerialization.data(withJSONObject: object), as: UTF8.self)
+        }
+        let responder = try UnixSocketResponder(path: socketPath, responses: payloads)
         defer { responder.stop() }
 
         var environment = ProcessInfo.processInfo.environment
@@ -139,7 +177,7 @@ struct CloudTreeOneMachineManyWorkspacesTests {
         process.executableURL = try BundledCLITestSupport.bundledCLIURL(
             for: CloudTreeCLIBundleToken.self
         )
-        process.arguments = ["vm", "tree"]
+        process.arguments = arguments
         process.environment = environment
         process.standardOutput = outputPipe
         process.standardError = errorPipe
@@ -237,8 +275,8 @@ struct CloudTreeOneMachineManyWorkspacesTests {
         #expect(sharedRow.viewBadge == 2, "a tab in each of two workspaces")
         #expect(detachedRow.viewBadge == 0, "no tab shows it: still running, listed in the pool")
         // A terminal viewed in two workspaces shows under both; each row counts its own.
-        guard case .workspace(_, _, let mainCount, _) = try #require(byID["machine:brave-otter/ws/ws_main"]).kind,
-              case .workspace(_, _, let sideCount, _) = try #require(byID["machine:brave-otter/ws/ws_side"]).kind else {
+        guard case .workspace(_, _, let mainCount, _, _) = try #require(byID["machine:brave-otter/ws/ws_main"]).kind,
+              case .workspace(_, _, let sideCount, _, _) = try #require(byID["machine:brave-otter/ws/ws_side"]).kind else {
             Issue.record("expected both workspace rows"); return
         }
         #expect(mainCount == 2)
@@ -301,6 +339,280 @@ struct CloudTreeOneMachineManyWorkspacesTests {
         ], "Terminals lists every terminal once, whatever workspace shows it")
     }
 
+    /// Regression (https://github.com/manaflow-ai/cmux/issues/12044 follow-up): a pane
+    /// holding several tabs listed every tab as a peer row, so a workspace read
+    /// "3 terminals" while its layout showed one pane. A workspace's rows are its layout:
+    /// one row per pane (the tab the pane shows), the pane's other tabs nested beneath it
+    /// in tab order.
+    @Test("A pane with several tabs is one row: the tab it shows, with its other tabs nested beneath")
+    func hiddenTabsNestUnderTheirPaneRow() throws {
+        let main = workspace("ws_main", "main", index: 0, focused: true)
+        // One pane, three tabs; the daemon shows the middle one.
+        let snapshot = SurfaceCatalogSnapshot(
+            machines: [info(workspaces: [main])],
+            resources: [
+                tabbedTerminal("term_a", in: main, pane: "pane_1", index: 0, focused: false),
+                tabbedTerminal("term_b", in: main, pane: "pane_1", index: 1, focused: true),
+                tabbedTerminal("term_c", in: main, pane: "pane_1", index: 2, focused: false),
+            ],
+            projections: []
+        )
+        let tree = rows(snapshot)
+        let byID = Dictionary(tree.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let workspaceRow = try #require(byID["machine:brave-otter/ws/ws_main"])
+        #expect(workspaceRow.children.compactMap(terminalKey) == ["term_b"], "one pane in the layout, one row: the tab the pane shows")
+        let paneRow = try #require(workspaceRow.children.first)
+        #expect(paneRow.children.compactMap(terminalKey) == ["term_a", "term_c"], "the pane's other tabs nest beneath it, in tab order")
+        guard case .workspace(_, _, let count, let hiddenTabs, _) = workspaceRow.kind else {
+            Issue.record("expected the workspace row"); return
+        }
+        #expect(count == 1, "the count is what the layout shows")
+        #expect(hiddenTabs == 2, "and the row says how many tabs sit behind the shown ones")
+        #expect(CloudTreeRowContentView.workspaceDetail(terminalCount: count, hiddenTabCount: hiddenTabs) == "1 terminal · 2 more tabs")
+        guard case .terminal(let shownRow) = paneRow.kind else {
+            Issue.record("expected the pane row"); return
+        }
+        #expect(shownRow.hiddenTabCount == 2, "the pane row carries the count its badge shows")
+        #expect(paneRow.children.allSatisfy { child in
+            if case .terminal(let row) = child.kind { return row.hiddenTabCount == 0 }
+            return false
+        }, "nested tab rows carry no badge of their own")
+        // Every terminal keeps its one pool row, whatever pane or tab shows it.
+        let pool = try #require(tree.first { $0.structureTag == "terminalsPool" })
+        #expect(pool.children.compactMap(terminalKey) == ["term_a", "term_b", "term_c"])
+    }
+
+    @Test("Collapsing a pane keeps it collapsed after the pane shows a different tab")
+    @MainActor
+    func collapsingAPaneSurvivesSwitchingItsShownTab() throws {
+        let main = workspace("ws_main", "main", index: 0, focused: true)
+        func paneRow(focused: String) throws -> CloudTreeNode {
+            let snapshot = SurfaceCatalogSnapshot(
+                machines: [info(workspaces: [main])],
+                resources: [
+                    tabbedTerminal("term_a", in: main, pane: "pane_1", index: 0, focused: focused == "term_a"),
+                    tabbedTerminal("term_b", in: main, pane: "pane_1", index: 1, focused: focused == "term_b"),
+                    tabbedTerminal("term_c", in: main, pane: "pane_1", index: 2, focused: focused == "term_c"),
+                ],
+                projections: []
+            )
+            let workspaceRow = try #require(rows(snapshot).first { $0.id == "machine:brave-otter/ws/ws_main" })
+            return try #require(workspaceRow.children.first)
+        }
+        let shownB = try paneRow(focused: "term_b")
+        let shownC = try paneRow(focused: "term_c")
+        #expect(shownB.id == shownC.id, "the pane row is the same row when a different tab is shown")
+        #expect(terminalKey(shownB) == "term_b")
+        #expect(terminalKey(shownC) == "term_c")
+        let suite = "CloudTreePaneExpansion-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = CloudTreeExpansionStore(defaults: defaults)
+        store.setExpanded(false, node: shownB)
+        #expect(!store.isExpanded(shownC), "collapse is keyed by the pane, not the shown tab")
+    }
+
+    @Test("A pane row keeps its identity when a second tab appears")
+    func paneIdentitySurvivesTabAppearance() throws {
+        let main = workspace("ws_main", "main", index: 0, focused: true)
+        func paneRow(_ resources: [SurfaceResource]) throws -> CloudTreeNode {
+            let snapshot = SurfaceCatalogSnapshot(
+                machines: [info(workspaces: [main])], resources: resources, projections: []
+            )
+            let workspaceRow = try #require(rows(snapshot).first { $0.id == "machine:brave-otter/ws/ws_main" })
+            return try #require(workspaceRow.children.first)
+        }
+        let first = tabbedTerminal("term_a", in: main, pane: "pane_1", index: 0, focused: true)
+        let second = tabbedTerminal("term_b", in: main, pane: "pane_1", index: 1, focused: false)
+        let oneTab = try paneRow([first])
+        let twoTabs = try paneRow([first, second])
+        #expect(oneTab.id == twoTabs.id)
+        #expect(oneTab.id.contains("pane:pane_1"))
+    }
+
+    @Test("Pane rows follow the layout: the screen, then the pane's position in its split tree")
+    func paneRowsFollowTheLayoutOrder() throws {
+        let main = workspace("ws_main", "main", index: 0, focused: true)
+        func placed(_ key: String, pane: String, paneIndex: Int, index: Int = 0, focused: Bool = true) -> SurfaceResource {
+            var resource = tabbedTerminal(key, in: main, pane: pane, index: index, focused: focused)
+            resource.remoteViews?[0].screenIndex = 0
+            resource.remoteViews?[0].paneIndex = paneIndex
+            return resource
+        }
+        // Arrival order puts the right pane first; the layout document says left, then right.
+        let snapshot = SurfaceCatalogSnapshot(
+            machines: [info(workspaces: [main])],
+            resources: [
+                placed("term_right", pane: "pane_right", paneIndex: 1),
+                placed("term_left", pane: "pane_left", paneIndex: 0),
+                placed("term_right_hidden", pane: "pane_right", paneIndex: 1, index: 1, focused: false),
+            ],
+            projections: []
+        )
+        let tree = rows(snapshot)
+        let byID = Dictionary(tree.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let workspaceRow = try #require(byID["machine:brave-otter/ws/ws_main"])
+        #expect(workspaceRow.children.compactMap(terminalKey) == ["term_left", "term_right"], "layout order, not arrival order")
+        #expect(workspaceRow.children.last?.children.compactMap(terminalKey) == ["term_right_hidden"])
+        guard case .workspace(_, _, let count, let hidden, _) = workspaceRow.kind else {
+            Issue.record("expected the workspace row"); return
+        }
+        #expect(count == 2)
+        #expect(hidden == 1)
+        #expect(CloudTreeRowContentView.workspaceDetail(terminalCount: count, hiddenTabCount: hidden) == "2 terminals · 1 more tab")
+        // Views that name no pane (older providers) keep the flat rows they always had.
+        let legacy = SurfaceCatalogSnapshot(
+            machines: [info(workspaces: [main])],
+            resources: [terminal("term_1", in: [main]), terminal("term_2", in: [main])],
+            projections: []
+        )
+        let legacyRow = try #require(rows(legacy).first { $0.id == "machine:brave-otter/ws/ws_main" })
+        #expect(legacyRow.children.compactMap(terminalKey) == ["term_1", "term_2"])
+        #expect(legacyRow.children.allSatisfy { $0.children.isEmpty })
+    }
+
+    @Test("A row-local tab rename preserves the pane's shown row and hidden-tab order", arguments: [false, true])
+    func tabRenameKeepsSnapshotAndDeltaLayoutOrder(explicitIndices: Bool) throws {
+        let main = workspace("ws_main", "main", index: 0, focused: true)
+        var tabs: [[String: Any]] = [
+            ["id": "tab_a", "pane_id": "pane_1", "content_kind": "terminal", "content_id": "term_a"],
+            ["id": "tab_b", "pane_id": "pane_1", "content_kind": "terminal", "content_id": "term_b"],
+        ]
+        if explicitIndices {
+            tabs[0]["index"] = 0
+            tabs[1]["index"] = 1
+        }
+        let document: [String: Any] = [
+            "cursor": ["generation": "layout-test", "revision": "1"],
+            "workspaces": [["id": "ws_main", "name": "main", "index": 0, "focused": true]],
+            "screens": [["id": "screen_1", "workspace_id": "ws_main"]],
+            "panes": [["id": "pane_1", "screen_id": "screen_1"]],
+            "tabs": tabs,
+            "terminals": [
+                ["id": "term_a", "tab_ids": ["tab_a"], "title": "term_a", "running": true],
+                ["id": "term_b", "tab_ids": ["tab_b"], "title": "term_b", "running": true],
+            ],
+            "browsers": [], "agents": [],
+        ]
+        let state = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: document, machine: machine))
+        let initial = CmuxTuiSnapshotParser.resources(from: state)
+        var renamedTab = tabs[1]
+        renamedTab["name"] = "renamed"
+        let delta: [String: Any] = [
+            "kind": "delta", "previous_revision": "1", "revision": "2",
+            "changes": [["kind": "upsert", "resource": "tab", "id": "tab_b", "value": renamedTab]],
+        ]
+        let deltaData = try JSONSerialization.data(withJSONObject: delta)
+        let next = try #require(CmuxTuiSnapshotParser.applying(
+            deltaPayload: deltaData,
+            cursor: CloudVMCursor(generation: "layout-test", revision: 2), to: state
+        ))
+        let updated = try #require(CmuxTuiSnapshotParser.resources(
+            from: next, matching: [SurfaceResourceID(machine: machine, kind: .terminal, key: "term_b")]
+        ).first)
+        let rowLocal = initial.map { $0.id == updated.id ? updated : $0 }
+        func workspaceRow(_ resources: [SurfaceResource]) throws -> CloudTreeNode {
+            let catalog = SurfaceCatalogSnapshot(machines: [info(workspaces: [main])], resources: resources, projections: [])
+            return try #require(rows(catalog).first { $0.structureTag == "workspace" })
+        }
+        let before = try workspaceRow(initial)
+        let after = try workspaceRow(rowLocal)
+        let refreshed = try workspaceRow(CmuxTuiSnapshotParser.resources(from: next))
+        #expect(before.children.count == 1)
+        #expect(before.children.first?.id.contains("pane:pane_1") == true)
+        #expect(after.children.map(\.id) == before.children.map(\.id))
+        #expect(after.children.flatMap { $0.children }.map(\.id) == before.children.flatMap { $0.children }.map(\.id))
+        #expect(refreshed.children.map(\.id) == after.children.map(\.id))
+        #expect(updated.remoteViews?.first?.name == "renamed")
+    }
+
+    @Test("The CLI shows a pane's hidden tabs indented beneath the tab the pane shows")
+    func cliTreeNestsHiddenTabs() throws {
+        let workspace: [String: Any] = ["id": "ws_main", "name": "main", "index": 0, "focused": true]
+        let machine: [String: Any] = [
+            "id": machineID, "status": "running", "link_state": "connected", "has_desktop": false,
+            "remote_workspaces": [workspace],
+        ]
+        func terminal(_ key: String, tab: String, index: Int, focused: Bool) -> [String: Any] {
+            [
+                "id": "\(machineID)/terminal/\(key)", "key": key, "kind": "terminal", "title": key, "lifecycle": "running",
+                "remote_workspace": workspace,
+                "remote_views": [[
+                    "tab_id": tab, "workspace": workspace, "screen_id": "screen_1", "pane_id": "pane_1",
+                    "index": index, "focused": focused,
+                ] as [String: Any]],
+            ]
+        }
+        let result = try runCLICloudTree(machine: machine, resources: [
+            terminal("term_a", tab: "tab_a", index: 0, focused: false),
+            terminal("term_b", tab: "tab_b", index: 1, focused: true),
+        ])
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        let lines = result.stdout.split(whereSeparator: \.isNewline).map(String.init)
+        func isPaneRow(_ line: String) -> Bool { line.hasPrefix("      ") && !line.hasPrefix("        ") }
+        let shown = try #require(lines.firstIndex { isPaneRow($0) && $0.contains("term_b") }, Comment(rawValue: result.stdout))
+        #expect(lines[shown].contains("(+1 hidden)"), Comment(rawValue: lines[shown]))
+        #expect(lines[shown + 1].hasPrefix("        ↳ tab") && lines[shown + 1].contains("term_a"), Comment(rawValue: lines[shown + 1]))
+        #expect(!lines.contains { isPaneRow($0) && $0.contains("term_a") }, "the hidden tab is not a peer row")
+    }
+
+    @Test("CLI open commands name the exact tab when one terminal occupies several")
+    func cliTreeOpenCommandsIdentifyTheTab() throws {
+        let workspace: [String: Any] = ["id": "ws_main", "name": "main", "index": 0, "focused": true]
+        let machine: [String: Any] = [
+            "id": machineID, "status": "running", "link_state": "connected", "has_desktop": false,
+            "remote_workspaces": [workspace],
+        ]
+        let resource: [String: Any] = [
+            "id": "\(machineID)/terminal/term_shared",
+            "key": "term_shared",
+            "kind": "terminal",
+            "title": "bash",
+            "lifecycle": "running",
+            "remote_workspace": workspace,
+            "remote_views": [
+                [
+                    "tab_id": "tab_a", "workspace": workspace, "screen_id": "screen_1", "pane_id": "pane_1",
+                    "name": "build", "index": 0, "focused": false,
+                ] as [String: Any],
+                [
+                    "tab_id": "tab_b", "workspace": workspace, "screen_id": "screen_1", "pane_id": "pane_1",
+                    "name": "shell", "index": 1, "focused": true,
+                ] as [String: Any],
+            ],
+        ]
+        let result = try runCLICloudTree(machine: machine, resources: [resource])
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        let lines = result.stdout.split(whereSeparator: \.isNewline).map(String.init)
+        func isPaneRow(_ line: String) -> Bool { line.hasPrefix("      ") && !line.hasPrefix("        ") }
+        let shown = try #require(lines.first { isPaneRow($0) && $0.contains("term_shared") }, Comment(rawValue: result.stdout))
+        let hidden = try #require(lines.first { $0.contains("↳ tab") }, Comment(rawValue: result.stdout))
+        #expect(shown.contains("cmux vm open \(machineID)/ws_main/term_shared/tab_b"), Comment(rawValue: shown))
+        #expect(hidden.contains("cmux vm open \(machineID)/ws_main/term_shared/tab_a"), Comment(rawValue: hidden))
+        #expect(shown.contains("shell"), "the shown row uses the tab name")
+        #expect(hidden.contains("build"), "the hidden row uses its own tab name")
+        #expect(!shown.contains("/term_shared)"), "a tab-less command would open the focused tab for both rows")
+        #expect(!hidden.contains("/term_shared)"))
+
+        let opened = try runCLICloudCommand(
+            arguments: ["vm", "open", "\(machineID)/ws_main/term_shared/tab_a", "--json"],
+            machine: machine,
+            resources: [resource],
+            extraResponses: [[
+                "ok": true,
+                "result": [
+                    "surface_id": "surface-1",
+                    "workspace_id": "workspace-1",
+                    "reused": false,
+                ],
+            ]]
+        )
+        #expect(opened.status == 0, Comment(rawValue: opened.stderr))
+        let project = try #require(opened.requests.first { $0.contains("surface.project") }, Comment(rawValue: opened.requests.joined(separator: "\n")))
+        #expect(project.contains("\"remote_tab_id\":\"tab_a\""), Comment(rawValue: project))
+        #expect(!project.contains("\"remote_tab_id\":\"tab_b\""), Comment(rawValue: project))
+    }
+
     @Test("A terminal that left a workspace's layout leaves its folder; Terminals still lists it, greyed as detached")
     func aTerminalOutOfTheLayoutLeavesTheWorkspaceFolder() throws {
         let main = workspace("ws_main", "main", index: 0, focused: true)
@@ -337,7 +649,7 @@ struct CloudTreeOneMachineManyWorkspacesTests {
         #expect(CloudTreeRowHoverButtons.hasButtons(for: .terminal(poolRow)), "its hover × (Kill Terminal…) stays")
         #expect(byID["resource:brave-otter/terminal/term_bg"]?.isDragSource == true, "a click or drag re-attaches it in a pane")
         // The workspace is its layout: count, open/drag group, and `vm workspace open` agree.
-        guard case .workspace(_, _, let count, _) = try #require(byID["machine:brave-otter/ws/ws_main"]).kind else {
+        guard case .workspace(_, _, let count, _, _) = try #require(byID["machine:brave-otter/ws/ws_main"]).kind else {
             Issue.record("expected the workspace row"); return
         }
         #expect(count == 1)

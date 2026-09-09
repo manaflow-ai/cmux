@@ -244,6 +244,9 @@ struct ClaudeHookSessionRecord: Codable, Equatable {
     /// The `updated_at` revision returned by the last successful
     /// `surface.resume.set` for this exact hook process generation.
     var resumeBindingUpdatedAt: TimeInterval? = nil
+    /// Recent process generations retained so a delayed SessionEnd can be
+    /// matched after a same-session resume updates the current PID.
+    var priorProcessGenerations: [ClaudeHookProcessGeneration]? = nil
     var launchCommand: AgentHookLaunchCommandRecord?
     /// Last hook-observed `permission_mode`, re-applied on user-owned restore (#8066).
     var lastPermissionMode: String?
@@ -2339,20 +2342,13 @@ final class ClaudeHookSessionStore {
             let previousPID = record.pid
             let previousStartSeconds = record.pidStartSeconds
             let previousStartMicroseconds = record.pidStartMicroseconds
-            record.pid = pid
-            if let identity = AgentHookProcessIdentity(livePID: pid) {
-                record.pidStartSeconds = identity.startSeconds
-                record.pidStartMicroseconds = identity.startMicroseconds
-                if previousPID != pid
-                    || previousStartSeconds != identity.startSeconds
-                    || previousStartMicroseconds != identity.startMicroseconds {
-                    record.resumeBindingUpdatedAt = nil
-                }
-            } else if previousPID != pid {
-                // A different numeric PID without a captured start identity cannot
-                // inherit generation authority from the previous process.
-                record.pidStartSeconds = nil
-                record.pidStartMicroseconds = nil
+            record.updateProcessGeneration(
+                pid: pid,
+                startIdentity: processStartIdentity(pid: pid)
+            )
+            if previousPID != record.pid
+                || previousStartSeconds != record.pidStartSeconds
+                || previousStartMicroseconds != record.pidStartMicroseconds {
                 record.resumeBindingUpdatedAt = nil
             }
         }
@@ -5421,7 +5417,13 @@ struct CMUXCLI {
             "key": Self.browserDisabledDefaultsKey,
             "url_allowlist": urlAllowlist.patterns.map(\.rawValue),
             "url_allowlist_active": urlAllowlist.isActive,
-            "url_allowlist_managed": urlAllowlist.isManaged
+            "url_allowlist_managed": urlAllowlist.isManaged,
+            // `BrowserAllowLocalhost` / `BrowserAllowLocalFiles`: what the
+            // browser may open beyond the rules. Under a managed list localhost
+            // needs no rule unless an administrator forced it off.
+            "url_allowlist_allows_localhost": urlAllowlist.allowsLocalhost,
+            "url_allowlist_localhost_implicit": urlAllowlist.isLocalhostImplicitlyAllowed,
+            "url_allowlist_allows_local_files": urlAllowlist.allowsLocalFiles
         ]
         if effectiveJSONOutput {
             print(jsonString(payload))
@@ -14911,6 +14913,15 @@ struct CMUXCLI {
     }
 
     private func runVMPtyConnect(commandArgs: [String]) throws {
+        // `DisableCloud` (MDM): this verb dials the Cloud PTY directly from a
+        // pre-minted config, before any socket gate could refuse it, so it
+        // reads the forced preference itself (same resolver as the app).
+        if ManagedDevicePolicy().isEnforced(.disableCloud) {
+            throw CLIError(message: String(
+                localized: "cloud.managed.disabled",
+                defaultValue: "Cloud Machines are disabled by your administrator."
+            ))
+        }
         let (configPath, rem0) = parseOption(commandArgs, name: "--config")
         let (vmIDOpt, remaining) = parseOption(rem0, name: "--id")
         if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
@@ -29204,20 +29215,25 @@ struct CMUXCLI {
                 printClaudeHookAck()
                 return
             }
+            guard !shouldPreserveClaudeSessionEndForHibernation(
+                mappedSession: mappedSession,
+                parsedInput: parsedInput,
+                targetWorkspaceID: liveEndTarget.workspaceId,
+                targetSurfaceID: liveEndTarget.surfaceId,
+                client: client,
+                environment: ProcessInfo.processInfo.environment
+            ) else {
+                didSendFeedTelemetry = true
+                printClaudeHookAck()
+                return
+            }
             let consumedSession = try? sessionStore.consume(
                 sessionId: parsedInput.sessionId,
                 workspaceId: liveEndTarget.workspaceId,
                 surfaceId: liveEndTarget.surfaceId,
                 turnId: parsedInput.turnId
             )
-            // consume() calls clearActiveSessionIfMatching before returning
-            // consumedSession, so isCurrent can treat consumedSession.sessionId
-            // as current only when the consumed session was the active one.
             if let consumedSession {
-                // App-visible cleanup targets the live owner of the session's
-                // pane when the resolver answered authoritatively; the
-                // consumed record's address is the fallback. Store-side calls
-                // keep the record's own address.
                 let workspaceId: String
                 let cleanupSurfaceId: String
                 if liveEndTarget.isAuthoritative {

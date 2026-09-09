@@ -70,6 +70,7 @@ import Testing
         do {
             try await CmxRetryAfterPolicy.sleep(seconds: 18_446_744_074) { chunk in
                 firstTime.record(chunk)
+                #expect(chunk == 86_400)
                 throw CancellationError()
             }
             Issue.record("Expected cancellation to stop the long sleep")
@@ -78,6 +79,7 @@ import Testing
         let time = RetryAfterTestTime()
         try await CmxRetryAfterPolicy.sleep(seconds: 172_801) { chunk in
             time.record(chunk)
+            #expect(chunk > 0 && chunk <= 86_400)
         }
         let chunks = time.recordedChunks
         #expect(!chunks.isEmpty)

@@ -105,7 +105,7 @@ struct CachedAgentProcessIdentityValidator: Sendable {
         let authoritativeEnvironmentSessionID = normalizedProcessValue(
             process.environment["CMUX_AGENT_SESSION_ID"]
         )
-        if let registration = snapshot.registration {
+        if let registration = snapshot.registration ?? Self.builtInRegistration(for: snapshot.kind) {
             let observedSessionID: String?
             switch registration.sessionIdSource {
             case .argvOption(let option):
@@ -183,6 +183,22 @@ struct CachedAgentProcessIdentityValidator: Sendable {
             lhs: observedSessionID,
             rhs: snapshot.sessionId
         )
+    }
+
+    /// Built-in kinds carry no registration on hook-store snapshots, but Amp's
+    /// identity contract is its Vault registration's: the hook store that
+    /// recorded the PID generation is authoritative and argv never names the
+    /// thread. Without this, a resumed Amp that outlives cmux is never an
+    /// owner and the next restore is silently skipped instead of reported (#12158).
+    private static func builtInRegistration(
+        for kind: RestorableAgentKind
+    ) -> CmuxVaultAgentRegistration? {
+        switch kind {
+        case .amp:
+            return .builtInAmp
+        default:
+            return nil
+        }
     }
 
     private func firstValue(

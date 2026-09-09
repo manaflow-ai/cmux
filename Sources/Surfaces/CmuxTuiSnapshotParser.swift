@@ -1,3 +1,4 @@
+import CmuxCore
 import CoreFoundation
 import Foundation
 
@@ -389,6 +390,20 @@ struct CmuxTuiSnapshotParser: Sendable {
         return values.filter { !$0.isEmpty && seen.insert($0).inserted }
     }
 
+    /// The panes of one screen in layout order, read from its `layout` document
+    /// (`screens[].layout`): depth-first over the split tree with the first child
+    /// before the second, stacked panes in their listed order, viewport columns
+    /// left to right. Panes the document does not mention, and an unreadable
+    /// document, get no position, so callers fall back to arrival order.
+    static func layoutPaneOrder(fromLayout layout: Any?) -> [String: Int] {
+        RemoteWorkspacePaneOrder(document: layout).positions
+    }
+
+    /// The same order read from a screen state's opaque layout data (the delta path).
+    static func layoutPaneOrder(fromLayoutData data: Data?) -> [String: Int] {
+        RemoteWorkspacePaneOrder(data: data).positions
+    }
+
     /// Orders wire rows by their semantic index when one is present. The
     /// daemon's older snapshots omit indexes on some rows, so their original
     /// order remains the compatibility fallback. An explicit index wins over
@@ -483,18 +498,30 @@ struct CmuxTuiSnapshotParser: Sendable {
             )
         }
 
+        // One layout-order read per screen for this delta, not one per row.
+        var paneOrderByScreen: [String: [String: Int]] = [:]
+        func paneIndex(on screen: CloudVMScreenState, paneID: String) -> Int? {
+            if let order = paneOrderByScreen[screen.id] { return order[paneID] }
+            let order = layoutPaneOrder(fromLayoutData: screen.layout)
+            paneOrderByScreen[screen.id] = order
+            return order[paneID]
+        }
+
         func view(for tab: CloudVMTabState) -> SurfaceRemoteView? {
             guard let workspace = workspace(for: tab) else { return nil }
+            let screen = state.lookupIndex.pane(id: tab.paneID).flatMap {
+                state.lookupIndex.screen(id: $0.screenID)
+            }
             return SurfaceRemoteView(
                 tabID: tab.id,
                 workspace: workspace,
-                screenID: state.lookupIndex.pane(id: tab.paneID).flatMap {
-                    state.lookupIndex.screen(id: $0.screenID)?.id
-                },
+                screenID: screen?.id,
                 paneID: tab.paneID,
                 name: tab.name,
                 index: tab.index,
-                focused: tab.focused
+                focused: tab.focused,
+                screenIndex: screen?.index,
+                paneIndex: screen.flatMap { paneIndex(on: $0, paneID: tab.paneID) }
             )
         }
 
@@ -1358,6 +1385,18 @@ struct CmuxTuiSnapshotParser: Sendable {
                 workspaceOfScreen[id] = workspaceID
             }
         }
+        // Layout coordinates for every view: the screen's index and the pane's
+        // position in that screen's layout document, so rows can follow the layout
+        // rather than tab arrival order.
+        var indexOfScreen: [String: Int] = [:]
+        var paneOrderOfPane: [String: Int] = [:]
+        for (screenOffset, screen) in screensRaw.enumerated() {
+            guard let id = screen["id"] as? String else { continue }
+            indexOfScreen[id] = integer(screen["index"]) ?? screenOffset
+            for (paneID, position) in layoutPaneOrder(fromLayout: screen["layout"]) {
+                paneOrderOfPane[paneID] = position
+            }
+        }
         var screenOfPane: [String: String] = [:]
         for pane in panesRaw {
             if let id = pane["id"] as? String, let screenID = pane["screen_id"] as? String {
@@ -1370,7 +1409,7 @@ struct CmuxTuiSnapshotParser: Sendable {
         var nameOfTab: [String: String] = [:]
         var indexOfTab: [String: Int] = [:]
         var focusedOfTab: [String: Bool] = [:]
-        for tab in tabsRaw {
+        for (tabOffset, tab) in tabsRaw.enumerated() {
             guard let id = tab["id"] as? String else { continue }
             if let paneID = tab["pane_id"] as? String {
                 paneOfTab[id] = paneID
@@ -1384,7 +1423,7 @@ struct CmuxTuiSnapshotParser: Sendable {
             if let name = (tab["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
                 nameOfTab[id] = name
             }
-            indexOfTab[id] = integer(tab["index"])
+            indexOfTab[id] = integer(tab["index"]) ?? tabOffset
             focusedOfTab[id] = tab["focused"] as? Bool
         }
         var agentByTerminal: [String: SurfaceAgentBadge] = [:]
@@ -1433,7 +1472,9 @@ struct CmuxTuiSnapshotParser: Sendable {
                     paneID: paneID,
                     name: nameOfTab[tabID],
                     index: indexOfTab[tabID],
-                    focused: focusedOfTab[tabID]
+                    focused: focusedOfTab[tabID],
+                    screenIndex: indexOfScreen[screenID],
+                    paneIndex: paneOrderOfPane[paneID]
                 )
             }
             terminal.remoteWorkspace = terminal.remoteViews?.first?.workspace
@@ -1461,7 +1502,9 @@ struct CmuxTuiSnapshotParser: Sendable {
                     paneID: paneID,
                     name: nameOfTab[tabID],
                     index: indexOfTab[tabID],
-                    focused: focusedOfTab[tabID]
+                    focused: focusedOfTab[tabID],
+                    screenIndex: indexOfScreen[screenID],
+                    paneIndex: paneOrderOfPane[paneID]
                 )]
             }
             var browser = SurfaceResource(
@@ -1499,7 +1542,9 @@ struct CmuxTuiSnapshotParser: Sendable {
                 paneID: paneID,
                 name: nameOfTab[tabID],
                 index: indexOfTab[tabID],
-                focused: focusedOfTab[tabID]
+                focused: focusedOfTab[tabID],
+                screenIndex: indexOfScreen[screenID],
+                paneIndex: paneOrderOfPane[paneID]
             ))
         }
         for contentID in displayOrder {
@@ -1704,8 +1749,11 @@ struct CmuxTuiSnapshotParser: Sendable {
         Set(listeningPortBindings(fromSocketListing: text).map(\.port)).sorted()
     }
 
-    /// Transport ports reserved for the daemon and the machine's noVNC display.
-    static let internalPorts: Set<Int> = [1337, 5901, 6901, 8080]
+    /// Listeners that are never web previews, so the Ports scan does not
+    /// publish them: SSH (22), the cmux-tui daemon (1337), the VNC server
+    /// (5901) and its noVNC front end (6901, the Desktop surface), and the
+    /// image's internal 8080 listener.
+    static let internalPorts: Set<Int> = [22, 1337, 5901, 6901, 8080]
 
     static let desktopPort = 6901
 
