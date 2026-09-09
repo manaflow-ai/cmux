@@ -97,6 +97,114 @@ struct CLICompletionCandidateLiveTests {
         #expect(result.stderr.isEmpty, "an app error must not corrupt the prompt")
     }
 
+    @Test("completion falls back to a list entry's id when it carries no ref")
+    func completionFallsBackToIdWhenRefIsMissing() throws {
+        let socketPath = Self.socketPath()
+        let listenerFD = try Self.bindSocket(at: socketPath)
+        let serverHandled = Self.startMockServer(
+            listenerFD: listenerFD,
+            response: { request in
+                guard let id = request["id"] as? String,
+                      request["method"] as? String == "workspace.list" else {
+                    return Self.errorResponse(
+                        id: request["id"] as? String ?? "unknown",
+                        code: "unexpected_request"
+                    )
+                }
+                return Self.successResponse(
+                    id: id,
+                    result: [
+                        "workspaces": [
+                            ["id": "6E079F88-C679-4DFE-A92D-B7DD4C31B69E", "ref": "workspace:1"],
+                            // No `ref`: `vm.list` publishes only `id`, and the rest
+                            // of the CLI reads these lists with an `id ?? ref`
+                            // fallback. Reading `ref` alone dropped the entry and
+                            // silently shrank the candidate set.
+                            ["id": "6B135E84-618F-4E1F-9318-3FDCB2C14A66"],
+                        ],
+                    ]
+                )
+            }
+        )
+
+        defer {
+            shutdown(listenerFD, SHUT_RDWR)
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let result = try runCLI(
+            cliPath,
+            arguments: ["__complete-candidates", "workspaces"],
+            environment: ["CMUX_SOCKET_PATH": socketPath]
+        )
+
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        #expect(result.exitCode == 0)
+        #expect(
+            result.stdout.split(separator: "\n").map(String.init) == [
+                "workspace:1",
+                "6B135E84-618F-4E1F-9318-3FDCB2C14A66",
+            ],
+            "an entry without a ref must complete as its id, not vanish"
+        )
+    }
+
+    @Test("completion drops a candidate carrying a control character")
+    func completionDropsCandidatesWithControlCharacters() throws {
+        let socketPath = Self.socketPath()
+        let listenerFD = try Self.bindSocket(at: socketPath)
+        let serverHandled = Self.startMockServer(
+            listenerFD: listenerFD,
+            response: { request in
+                guard let id = request["id"] as? String,
+                      request["method"] as? String == "workspace.list" else {
+                    return Self.errorResponse(
+                        id: request["id"] as? String ?? "unknown",
+                        code: "unexpected_request"
+                    )
+                }
+                return Self.successResponse(
+                    id: id,
+                    result: [
+                        "workspaces": [
+                            ["ref": "workspace:1"],
+                            // Candidates are newline-delimited, so an embedded
+                            // newline would split one name into two bogus
+                            // candidates; an escape sequence would drive the
+                            // completing terminal.
+                            ["ref": "workspace:2\ninjected"],
+                            ["ref": "workspace:3\u{1B}[31m"],
+                            ["ref": "workspace:4"],
+                        ],
+                    ]
+                )
+            }
+        )
+
+        defer {
+            shutdown(listenerFD, SHUT_RDWR)
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let result = try runCLI(
+            cliPath,
+            arguments: ["__complete-candidates", "workspaces"],
+            environment: ["CMUX_SOCKET_PATH": socketPath]
+        )
+
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        #expect(result.exitCode == 0)
+        #expect(
+            result.stdout.split(separator: "\n").map(String.init) == ["workspace:1", "workspace:4"],
+            "a name that cannot be represented in the newline-delimited protocol must be dropped, not emitted"
+        )
+        #expect(!result.stdout.contains("injected"), "a newline must not become a second candidate")
+    }
+
     private static func startMockServer(
         listenerFD: Int32,
         response: @escaping ([String: Any]) -> String
