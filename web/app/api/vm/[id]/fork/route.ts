@@ -1,18 +1,15 @@
 import { unauthorized, verifyRequest, type AuthedUser } from "../../../../../services/vms/auth";
 import {
   jsonResponse,
-  notFoundVm,
   requestedVmTeamIdFromRequest,
-  vmCreateLikeErrorResponse,
+  vmCreateLikeErrorResponders,
   withAuthedVmApiRoute,
   resolveVmProvisioningAccountScope,
 } from "../../../../../services/vms/routeHelpers";
+import { runVmRoute } from "../../../../../services/vms/routeWorkflow";
 import { setSpanAttributes } from "../../../../../services/telemetry";
 import { captureVmProvisionOutcome } from "../../../../../services/vms/observability";
-import {
-  isVmNotFoundError,
-} from "../../../../../services/vms/errors";
-import { forkVm, runVmWorkflow } from "../../../../../services/vms/workflows";
+import { forkVm } from "../../../../../services/vms/workflows";
 import { VmTimingRecorder } from "../../../../../services/vms/timings";
 import { authProviderErrorResponse } from "../../../../../services/vms/authErrors";
 import {
@@ -70,38 +67,36 @@ export async function POST(
         "cmux.billing.team_id_set": !!entitlements.billingTeamId,
         "cmux.idempotency_key_set": !!idempotencyKey,
       });
-      try {
-        const result = await runVmWorkflow(forkVm({
-          userId: user.id,
-          billingCustomerType: entitlements.billingCustomerType,
-          billingTeamId: entitlements.billingTeamId,
-          teamIds: user.teamIds,
-          billingPlanId: entitlements.planId,
-          maxActiveVms: entitlements.maxActiveVms,
-          providerVmId: id,
-          name,
-          idempotencyKey,
-          timing,
-        }));
-        return jsonResponse({
-          snapshotId: result.snapshot?.id ?? null,
-          id: result.fork.providerVmId,
-          provider: result.fork.provider,
-          image: result.fork.image,
-          imageVersion: result.fork.imageVersion,
-          status: result.fork.status,
-          createdAt: result.fork.createdAt,
-        });
-      } catch (err) {
-        if (isVmNotFoundError(err)) return notFoundVm(id);
-        const response = vmCreateLikeErrorResponse(err, {
+      const run = await runVmRoute(forkVm({
+        userId: user.id,
+        billingCustomerType: entitlements.billingCustomerType,
+        billingTeamId: entitlements.billingTeamId,
+        teamIds: user.teamIds,
+        billingPlanId: entitlements.planId,
+        maxActiveVms: entitlements.maxActiveVms,
+        providerVmId: id,
+        name,
+        idempotencyKey,
+        timing,
+      }), {
+        request,
+        onError: vmCreateLikeErrorResponders({
           operation: "fork",
           planId: entitlements.planId,
           retryAction: "Run `cmux vm ls`, then delete an active VM with `cmux vm rm <id>` before forking another.",
-        });
-        if (response) return response;
-        throw err;
-      }
+        }),
+      });
+      if (!run.ok) return run.response;
+      const result = run.value;
+      return jsonResponse({
+        snapshotId: result.snapshot?.id ?? null,
+        id: result.fork.providerVmId,
+        provider: result.fork.provider,
+        image: result.fork.image,
+        imageVersion: result.fork.imageVersion,
+        status: result.fork.status,
+        createdAt: result.fork.createdAt,
+      });
     },
   );
 }

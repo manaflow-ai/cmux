@@ -1,6 +1,61 @@
 import Foundation
 import Observation
 
+struct MachineSizeOption: Equatable, Sendable {
+    let memoryMb: Int
+    let diskMb: Int
+
+    init?(memoryMb: Int) {
+        switch memoryMb {
+        case 4096: self.init(memoryMb: memoryMb, diskMb: 16384)
+        case 8192: self.init(memoryMb: memoryMb, diskMb: 32768)
+        case 16384: self.init(memoryMb: memoryMb, diskMb: 65536)
+        case 24576: self.init(memoryMb: memoryMb, diskMb: 98304)
+        case 32768: self.init(memoryMb: memoryMb, diskMb: 131072)
+        case 65536: self.init(memoryMb: memoryMb, diskMb: 131072)
+        default: return nil
+        }
+    }
+
+    private init(memoryMb: Int, diskMb: Int) {
+        self.memoryMb = memoryMb
+        self.diskMb = diskMb
+    }
+
+    /// The localized RAM value shown as the selected picker title.
+    var title: String {
+        String(
+            format: String(localized: "machines.new.size.option", defaultValue: "%d GB RAM"),
+            memoryMb / 1024
+        )
+    }
+
+    /// The localized disk value shown below the selected picker title.
+    var detail: String {
+        String(
+            format: String(localized: "machines.new.size.detail", defaultValue: "%d GB disk included"),
+            diskMb / 1024
+        )
+    }
+
+    /// The localized disk value shown in the resource summary.
+    var diskTitle: String {
+        String(
+            format: String(localized: "machines.new.size.gb", defaultValue: "%d GB"),
+            diskMb / 1024
+        )
+    }
+
+    /// The localized, compact row title shown in the size menu.
+    var menuTitle: String {
+        String(
+            format: String(localized: "machines.new.size.menu", defaultValue: "%1$d GB RAM · %2$d GB disk"),
+            memoryMb / 1024,
+            diskMb / 1024
+        )
+    }
+}
+
 /// State behind the New Machine sheet: what the person picked, what the plan
 /// allows, and the one create call. The model never talks to the backend
 /// itself and never waits for it: ``create()`` packs the choice into a
@@ -33,32 +88,32 @@ final class NewMachineModel {
     /// stays up and says so.
     typealias Submit = @MainActor (MachineCreateRequest) -> Bool
 
-    /// Memory sizes the backend accepts (`VM_MEMORY_OPTIONS_MB` in
-    /// `web/services/vms/entitlements.ts`); the plan ceiling trims the tail.
-    static let memoryOptionsMb: [Int] = [planMachineMemoryMb]
-    /// The plan machine (`PLAN_MACHINE_MEMORY_MB`): 20 GB, 5 vCPU, 200 GB disk,
-    /// the only size /pricing sells.
-    static let planMachineMemoryMb = 20480
-    /// Mirrors `maxMemoryMbForPlan`: the free machine is a full-size computer;
-    /// paid plans unlock the largest size.
+    /// The base-image sizes the backend exposes, in ascending memory order.
+    /// Each row is a validated Freestyle snapshot: 4/16, 8/32, 16/64,
+    /// 24/96, 32/128, or 64/128 GB of memory/disk. The server's list trims
+    /// this set for plan limits. The 128 MiB BusyBox image is intentionally
+    /// not a coding-machine option because it has no baked dev tools.
+    nonisolated static let memoryOptionsMb: [Int] = [4096, 8192, 16384, 24576, 32768, 65536]
+    static let planMachineMemoryMb = 8192
+    /// The pre-ladder backend default. It is used only when the server omits
+    /// `limits.memoryOptionsMb`, so the client does not send an unsupported
+    /// `--size` flag during a rolling upgrade.
+    static let legacyPlanMachineMemoryMb = 20480
+    /// Mirrors `maxMemoryMbForPlan`: development and paid plans may use the
+    /// largest supported base image unless an operator sets a lower ceiling.
+    /// Each machine has its own resources within the paid machine allowance.
     static func maxMemoryMb(planId: String?) -> Int {
         _ = planId
-        return planMachineMemoryMb
+        return memoryOptionsMb.max() ?? planMachineMemoryMb
     }
-    /// Mirrors `defaultMemoryMbForPlan`: the plan machine, never above the max.
+    /// Mirrors `defaultMemoryMbForPlan`: the provider sizing profile, never above the max.
     static func defaultMemoryMb(planId: String?) -> Int {
         min(planMachineMemoryMb, maxMemoryMb(planId: planId))
     }
 
     let mode: Mode
     let plan: MachinePlanSnapshot?
-    let imageKinds: [VMImageKindOption]
-
-    var name: String = ""
-    /// Defaults to a kind the backend says it can actually serve (see
-    /// ``defaultKind(imageKinds:)``), so the sheet never opens preselected on
-    /// a kind whose create can only fail with an image config error.
-    var kind: VMMachineKind
+    let availableMemoryOptionsMb: [Int]
     var memoryMb: Int
     /// Why the create could not be launched; nil once a retry starts. Failures
     /// of the create itself never land here: by then the sheet is gone and the
@@ -74,41 +129,26 @@ final class NewMachineModel {
     init(
         mode: Mode,
         plan: MachinePlanSnapshot?,
-        imageKinds: [VMImageKindOption],
+        memoryOptionsMb: [Int] = [],
         submit: @escaping Submit
     ) {
         self.mode = mode
         self.plan = plan
-        self.imageKinds = imageKinds
+        let serverOptions = Set(memoryOptionsMb.filter { MachineSizeOption(memoryMb: $0) != nil }).sorted()
+        // An empty list means an older control plane did not advertise the
+        // ladder. Preserve its 20 GiB default and omit --size entirely.
+        self.availableMemoryOptionsMb = serverOptions
         self.submit = submit
-        self.memoryMb = Self.defaultMemoryMb(planId: plan?.planId)
-        self.kind = Self.defaultKind(imageKinds: imageKinds)
+        self.memoryMb = serverOptions.isEmpty
+            ? Self.legacyPlanMachineMemoryMb
+            : Self.defaultMemoryMb(planId: plan?.planId, options: serverOptions)
     }
 
-    /// Kinds the backend reports it can provision, in picker order.
-    private static func servableKinds(imageKinds: [VMImageKindOption]) -> [VMMachineKind] {
-        VMMachineKind.allCases.filter { kind in
-            imageKinds.contains { $0.kind == kind }
-        }
+    static func defaultMemoryMb(planId: String?, options: [Int] = memoryOptionsMb) -> Int {
+        let allowed = options.filter { $0 <= maxMemoryMb(planId: planId) }.sorted()
+        if allowed.contains(planMachineMemoryMb) { return planMachineMemoryMb }
+        return allowed.first ?? planMachineMemoryMb
     }
-
-    /// Kinds the sheet offers: what the backend reports it can provision, and
-    /// every kind when it reports none (an older control plane that predates
-    /// `limits.imageKinds`, where refusing to offer anything would be worse).
-    static func selectableKinds(imageKinds: [VMImageKindOption]) -> [VMMachineKind] {
-        let servable = servableKinds(imageKinds: imageKinds)
-        return servable.isEmpty ? VMMachineKind.allCases : servable
-    }
-
-    /// The kind the sheet opens on: the first kind the backend can serve.
-    /// When it reports none, shell-only: no provider ships a desktop image
-    /// today, so preselecting Desktop would make the primary button fail with
-    /// an image config error, while the picker still offers it.
-    static func defaultKind(imageKinds: [VMImageKindOption]) -> VMMachineKind {
-        servableKinds(imageKinds: imageKinds).first ?? .base
-    }
-
-    var selectableKinds: [VMMachineKind] { Self.selectableKinds(imageKinds: imageKinds) }
 
     var isBaseSetup: Bool {
         if case .base = mode { return true }
@@ -116,23 +156,13 @@ final class NewMachineModel {
     }
 
     /// Base is sized by the backend; only `vm new` takes `--size`.
-    var supportsSize: Bool { mode == .newMachine }
-    var supportsName: Bool { mode == .newMachine }
-
+    var supportsSize: Bool { mode == .newMachine && !availableMemoryOptionsMb.isEmpty }
     var memoryOptions: [Int] {
         let ceiling = Self.maxMemoryMb(planId: plan?.planId)
-        return Self.memoryOptionsMb.filter { $0 <= ceiling }
+        return availableMemoryOptionsMb.filter { $0 <= ceiling }.sorted()
     }
 
-    /// The image the backend maps the chosen kind to, when it told us.
-    var selectedImage: String? {
-        imageKinds.first { $0.kind == kind }?.image
-    }
-
-    var trimmedName: String? {
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
+    var selectedSize: MachineSizeOption? { MachineSizeOption(memoryMb: memoryMb) }
 
     /// "1 of 1 machine" from the panel's meter; nil when the plan is unknown.
     /// Uncapped plans read "2 machines in use".
@@ -171,8 +201,8 @@ final class NewMachineModel {
         return String(format: format, mb)
     }
 
-    /// The exact CLI invocation the create runs. Kind travels as `--base` /
-    /// `--desktop`; the backend maps it to an image, so no image id is pinned.
+    /// The exact CLI invocation the create runs. Freestyle's base snapshot is
+    /// selected by the requested size; no kind, name, or image is user input.
     /// `--focus false` is what makes the sheet's create a background one: the
     /// machine still opens (its own workspace, the Base placeholder) but the
     /// CLI never selects that workspace or moves keyboard focus out of the
@@ -180,23 +210,15 @@ final class NewMachineModel {
     var cliArguments: [String] {
         switch mode {
         case .newMachine:
-            var arguments = ["vm", "new", kind == .desktop ? "--desktop" : "--base"]
-            // `--size` travels only for a non-default pick: an omitted size lets
-            // the backend apply its plan default, which an operator memory brake
-            // (`CMUX_VM_*_MAX_MEMORY_MB`) may have clamped below the plan machine.
-            if supportsSize, memoryMb != Self.defaultMemoryMb(planId: plan?.planId) {
-                arguments += ["--size", String(memoryMb)]
-            }
-            if let trimmedName {
-                arguments += ["--name", trimmedName]
-            }
+            var arguments = ["vm", "new", "--base"]
+            if supportsSize { arguments += ["--size", String(memoryMb)] }
             arguments += ["--focus", "false"]
             return arguments
         case .base(let workspaceID):
             return [
                 "vm", "base", "open",
                 "--workspace", workspaceID.uuidString,
-                kind == .desktop ? "--desktop" : "--base",
+                "--base",
                 "--focus", "false",
             ]
         }
@@ -206,8 +228,8 @@ final class NewMachineModel {
     var createRequest: MachineCreateRequest {
         MachineCreateRequest(
             mode: mode,
-            kind: kind,
-            name: supportsName ? trimmedName : nil,
+            kind: .base,
+            name: nil,
             arguments: cliArguments
         )
     }

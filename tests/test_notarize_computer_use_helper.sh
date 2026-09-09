@@ -57,6 +57,26 @@ cat > "$FAKE_BIN/spctl" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 printf 'spctl %s\n' "$*" >> "$CMUX_TEST_CALL_LOG"
+# Gatekeeper keeps negative assessments in a code-directory cache. A fresh
+# stapled ticket must be assessed without consulting or populating that cache.
+if [ "${CMUX_TEST_SPCTL_REQUIRE_FRESH:-0}" = "1" ]; then
+  if [[ " $* " != *" --ignore-cache "* || " $* " != *" --no-cache "* ]]; then
+    echo "assessment cache was reused" >&2
+    exit 2
+  fi
+fi
+# Simulate Gatekeeper not yet seeing the notarization ticket: reject the first
+# CMUX_TEST_SPCTL_REJECTS assessments, then accept.
+count_file="${CMUX_TEST_SPCTL_COUNT_FILE:-}"
+if [ -n "$count_file" ]; then
+  n=0; [ -f "$count_file" ] && n="$(cat "$count_file")"
+  n=$((n + 1)); printf '%s' "$n" > "$count_file"
+  if [ "$n" -le "${CMUX_TEST_SPCTL_REJECTS:-0}" ]; then
+    echo "$*: rejected" >&2
+    echo "source=Unnotarized Developer ID" >&2
+    exit 3
+  fi
+fi
 EOF
 
 cat > "$FAKE_BIN/sign-bundle" <<'EOF'
@@ -74,6 +94,7 @@ run_helper() {
   CMUX_XCRUN_TOOL="$FAKE_BIN/xcrun" \
   CMUX_CODESIGN_TOOL="$FAKE_BIN/codesign" \
   CMUX_SPCTL_TOOL="$FAKE_BIN/spctl" \
+  CMUX_GATEKEEPER_ASSESS_DELAY_SECONDS=0 \
   CMUX_SIGN_BUNDLE_TOOL="$FAKE_BIN/sign-bundle" \
   APPLE_ID=fixture@example.com \
   APPLE_APP_SPECIFIC_PASSWORD=fixture-password \
@@ -116,7 +137,7 @@ if ! [ "$helper_sign_line" -lt "$submit_line" ] \
   echo "FAIL: helper notarization, stapling, and outer resealing ran out of order" >&2
   exit 1
 fi
-if ! grep -Eq '^spctl -a -vv --type execute .*/standalone/cmux Computer Use\.app$' "$LOG"; then
+if ! grep -Eq '^spctl -a -vv --ignore-cache --no-cache --type execute .*/standalone/cmux Computer Use\.app$' "$LOG"; then
   echo "FAIL: independently copied helper did not pass the Gatekeeper check" >&2
   exit 1
 fi
@@ -184,6 +205,46 @@ if grep -Fq 'sign-bundle mode=main-only' "$LOG"; then
 fi
 if ! grep -Fq 'xcrun notarytool log helper-fixture-id' "$LOG"; then
   echo "FAIL: rejected helper notarization did not retrieve its diagnostic log" >&2
+  exit 1
+fi
+
+# Gatekeeper may not see a fresh ticket immediately after stapling. The
+# assessment polls: two rejections then acceptance must still succeed, and the
+# accepted assessment must be the one that ends the poll.
+: > "$LOG"
+rm -f "$TMP_DIR/spctl-count"
+if ! CMUX_TEST_SPCTL_COUNT_FILE="$TMP_DIR/spctl-count" CMUX_TEST_SPCTL_REJECTS=2 run_helper >/dev/null 2>&1; then
+  echo "FAIL: helper notarization gave up while the Gatekeeper ticket was still propagating" >&2
+  exit 1
+fi
+if [ "$(grep -c '^spctl -a -vv --ignore-cache --no-cache --type execute .*/standalone/cmux Computer Use\.app$' "$LOG")" -ne 3 ]; then
+  echo "FAIL: expected three Gatekeeper assessments (two rejected, one accepted)" >&2
+  exit 1
+fi
+
+# A ticket that never propagates within the budget still fails the release.
+: > "$LOG"
+rm -f "$TMP_DIR/spctl-count"
+if CMUX_TEST_SPCTL_COUNT_FILE="$TMP_DIR/spctl-count" CMUX_TEST_SPCTL_REJECTS=5 CMUX_GATEKEEPER_ASSESS_ATTEMPTS=3 run_helper >/dev/null 2>&1; then
+  echo "FAIL: helper notarization passed although Gatekeeper never accepted the helper" >&2
+  exit 1
+fi
+if [ "$(grep -c '^spctl -a -vv --ignore-cache --no-cache --type execute .*/standalone/cmux Computer Use\.app$' "$LOG")" -ne 3 ]; then
+  echo "FAIL: Gatekeeper assessment must stop after the attempt budget" >&2
+  exit 1
+fi
+
+# Regression: a stale negative assessment must not make a valid stapled helper
+# fail just because the same CDHash was assessed before stapling. The fake
+# Gatekeeper rejects any assessment that does not opt out of its cache.
+: > "$LOG"
+if ! CMUX_TEST_SPCTL_REQUIRE_FRESH=1 CMUX_GATEKEEPER_ASSESS_ATTEMPTS=1 run_helper >"$TMP_DIR/fresh-assessment.out" 2>&1; then
+  echo "FAIL: Gatekeeper assessment reused a stale negative cache entry" >&2
+  cat "$TMP_DIR/fresh-assessment.out" >&2
+  exit 1
+fi
+if ! grep -Eq '^spctl -a -vv --ignore-cache --no-cache --type execute .*/standalone/cmux Computer Use\.app$' "$LOG"; then
+  echo "FAIL: Gatekeeper assessment did not bypass its cache" >&2
   exit 1
 fi
 

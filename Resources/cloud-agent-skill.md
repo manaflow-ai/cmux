@@ -9,6 +9,7 @@ You are helping the user work with cmux Cloud machines through the `cmux` CLI. T
 - New machines boot a desktop image (xfce + noVNC) plus a shell, with a persistent per-machine home. `--base` gives a shell-only machine.
 - Base is a separate single per-user persistent slot, pinned to the top of the sidebar. `cmux vm new` mints fresh machines; `cmux vm base` always reopens the same one.
 - Terminals on a machine live in its cmux-tui session (workspaces `ws_…`, terminals `term_…`). They keep running detached. `cmux vm tree` catalogs every surface, and every line is an address `cmux vm open` (machine targets) or `cmux surface open` (any entry, including This Mac) accepts: `brave-otter/main/term_2f9c…`, `brave-otter:desktop`, `brave-otter:port/3000`.
+- One machine hosts many workspaces. Make a workspace per task *inside* the machine (`cmux vm workspace new <id> --name <task>`, the machine's ⌘N) rather than a machine per task; the Cloud sidebar groups them under the machine's Workspaces group. `cmux vm open <machine>/<ws>` takes the `ws_…` id, or the workspace name only when exactly one workspace has it (colliding names need the id), and starts a shell in an empty one.
 - Pool machines (labeled `agent-pool` in `cmux vm ls`) are provisioned by the `vm run`/`vm agent` router and reused for routed work. The router never drafts machines a person made by hand.
 - Plans cap active machine count and memory. `cmux vm ls` prints the meter and, on free plans, when free cloud access expires.
 
@@ -119,11 +120,14 @@ cmux vm rm <id>          # irreversible and unprompted
 
 ## Inside a machine
 
-The guest `cmux` binary is the machine's relay CLI: commands go to the connected cmux app on the user's Mac; they do not act inside the VM. The most useful verb for agents running on a machine:
+Run `cmux self` first. The guest `cmux` command answers only two questions, through the machine's TLS edge (no account token lives in the VM):
 
 ```
-cmux notify --title "Build done" --subtitle "myrepo" --body "Tests green"
+cmux self [--json]     # this machine: name, id, status, team, machine count
+cmux vm ls [--json]    # the team's live machines, this one marked with *
 ```
+
+`--json` returns `{schema, machine: {id, vmId, name, displayName, slug, status, createdAt, self}, team: {id}, machines: [...]}`. `id` is the machine id every Mac `cmux vm …` verb takes. Every other verb (`vm new`, `vm exec`, `notify`, …) exits 2 and names the Mac CLI; run those there.
 
 ## Rules
 

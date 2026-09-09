@@ -32,6 +32,7 @@ void ghostty_config_load_string(
     const char *contents,
     uintptr_t contents_len,
     const char *path);
+ghostty_string_s ghostty_config_serialize(void *config);
 bool ghostty_config_get(
     void *config,
     void *value,
@@ -51,6 +52,10 @@ bool ghostty_surface_set_font_size_action_callback(
 void ghostty_surface_config_new(void);
 void ghostty_surface_free(void *surface);
 void ghostty_surface_free_text(void);
+bool ghostty_surface_read_selection_clipboard_text(
+    void *surface,
+    uintptr_t max_bytes,
+    void *selection);
 float ghostty_surface_font_size(void *surface);
 bool ghostty_surface_font_size_adjusted(void *surface);
 uint64_t ghostty_surface_foreground_pid(void *surface);

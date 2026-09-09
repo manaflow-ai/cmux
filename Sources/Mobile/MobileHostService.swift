@@ -1132,6 +1132,11 @@ final class MobileHostService {
 
     func stop() {
         MobileHostIrohRuntime.shared.setDesiredActive(false)
+        if MobileHostIrxRuntime.isEnabled {
+            Task { @MainActor in
+                await MobileHostIrxRuntime.shared.stopHost()
+            }
+        }
         stopLegacyListener(reason: "service stopped")
         for connection in MobileHostConnectionRegistry.shared.removeAll() {
             Task { await connection.close(reason: "service stopped") }
@@ -1273,6 +1278,14 @@ final class MobileHostService {
     /// against the app's real store; `start`/`restart` do the same, so there is
     /// no caller-supplied store to honor here.
     func syncToSettings() {
+        // IRX is the primary transport. Reconcile it on every settings/policy
+        // pass so `DisableIrohNetworking` and `DisableRemoteControl` tear the
+        // live endpoint down immediately, not at the next account poll.
+        if MobileHostIrxRuntime.isEnabled {
+            Task { @MainActor in
+                await MobileHostIrxRuntime.shared.applyManagedNetworkingPolicy()
+            }
+        }
         // An MDM-managed remote-control disable overrides every transport:
         // tear down the Iroh runtime, the legacy listener, and every live
         // connection, and refuse to re-arm until the policy is lifted.
@@ -1364,6 +1377,7 @@ final class MobileHostService {
         authorization: MobileHostConnectionAuthorizationContext,
         artifactTransfers: MobileHostIrohArtifactTransferRegistry? = nil,
         independentEventWriter: (any MobileHostIndependentEventWriting)? = nil,
+        idleTimeoutNanoseconds: UInt64? = nil,
         promoteUsableSession: @escaping @Sendable () async -> Bool = { true },
         remoteControlDisabledByPolicy: @escaping @Sendable () -> Bool = {
             MobileRemoteControlPolicy.isDisabled
@@ -1394,6 +1408,8 @@ final class MobileHostService {
         let session = MobileHostConnection(
             id: id,
             transport: transport,
+            idleTimeoutNanoseconds: idleTimeoutNanoseconds
+                ?? MobileHostConnection.defaultIdleTimeoutNanoseconds,
             independentEventWriter: independentEventWriter,
             authorizeRequest: { request in
                 await Self.connectionAuthorizationError(
@@ -2034,7 +2050,7 @@ extension MobileHostService {
 actor MobileHostConnection {
     private static let maximumReceiveBufferByteCount = MobileSyncFrameCodec.defaultMaximumFrameByteCount + MobileSyncFrameCodec.headerByteCount
     private static let defaultFirstFrameTimeoutNanoseconds: UInt64 = 15 * 1_000_000_000
-    private static let defaultIdleTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000
+    fileprivate static let defaultIdleTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000
     /// Bounded deadline for one control-lane event write. A peer that accepted
     /// the connection but stopped reading (TCP zero-window, QUIC flow-control
     /// stall) would otherwise pin the drain — and with it this connection's

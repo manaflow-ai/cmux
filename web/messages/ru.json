@@ -7,12 +7,14 @@
         "snapshot": "Эта Cloud VM не поддерживает сохранённое состояние VM.",
         "restore": "Этот тип Cloud VM не поддерживает восстановление сохранённого состояния VM.",
         "fork": "Эта Cloud VM не поддерживает копирование в новую VM.",
+        "openPort": "Провайдер этой Cloud VM не может предоставлять порты машины как URL предварительного просмотра.",
         "default": "Эта Cloud VM не поддерживает запрошенную операцию."
       },
       "action": {
         "snapshot": "Не повторяйте попытку. Работа на этом типе машины сохраняется на постоянном домашнем томе.",
         "restore": "Не повторяйте попытку. Работа на этом типе машины сохраняется на постоянном домашнем томе.",
         "fork": "Не повторяйте попытку. Создайте новую VM с помощью `cmux vm new`.",
+        "openPort": "Не повторяйте попытку. Обратитесь к сервису изнутри машины с помощью `cmux vm exec` или используйте тип машины, который поддерживает открытие портов.",
         "default": "Не повторяйте попытку. Выполните `cmux vm ls` или обратитесь в поддержку, если считаете это ошибкой."
       }
     },
@@ -59,6 +61,15 @@
     "genericTitle": "Не удалось войти",
     "genericBody": "Попробуйте ещё раз. Если проблема не исчезнет, обратитесь в поддержку.",
     "backToSignIn": "Вернуться ко входу"
+  },
+  "cloudPublicationAccess": {
+    "title": "У вас нет доступа",
+    "signIn": "Войти в cmux",
+    "signedInAs": "Вы вошли как {identity}",
+    "switchAccount": "Сменить аккаунт",
+    "invalidTitle": "Эта ссылка для доступа недействительна",
+    "invalidBody": "Вернитесь на сайт и повторите попытку.",
+    "footer": "Доступом управляет cmux."
   },
   "common": {
     "downloadForMac": "Скачать для Mac",
@@ -261,7 +272,18 @@
       "metaTitle": "coderouter — cmux",
       "metaDescription": "Управляйте общими ИИ-аккаунтами и распределяйте запросы с помощью coderouter.",
       "title": "coderouter",
-      "description": "coderouter распределяет LLM-запросы между аккаунтами провайдеров с отказоустойчивостью и планированием по нагрузке."
+      "description": "coderouter распределяет LLM-запросы между аккаунтами провайдеров с отказоустойчивостью и планированием по нагрузке.",
+      "machines": {
+        "title": "Машины",
+        "description": "Использование coderouter по машинам для {team} за последние {days} дней.",
+        "machineColumn": "Машина",
+        "tokensColumn": "Всего токенов",
+        "apiEquivalentColumn": "Эквивалентная стоимость API",
+        "unnamed": "Машина без имени",
+        "empty": "За последние {days} дней ни одна машина не использовала coderouter.",
+        "unavailable": "Данные по машинам временно недоступны.",
+        "estimateNote": "Эквивалентная стоимость API является оценкой по публичным прайс-листам, а не фактическими расходами."
+      }
     },
     "accountMenu": {
       "label": "Меню аккаунта",
@@ -272,64 +294,6 @@
       "signOutError": "Не удалось выйти. Повторите попытку.",
       "organizationSwitchError": "Не удалось сменить организацию. Повторите попытку.",
       "signIn": "Войти"
-    },
-    "aiAccounts": {
-      "metaTitle": "Аккаунты ИИ — cmux",
-      "metaDescription": "Управляйте аккаунтами ИИ-провайдеров команды в cmux.",
-      "section": "Панель",
-      "title": "Аккаунты ИИ",
-      "description": "Управляйте аккаунтами провайдеров, которые эта команда может использовать в cmux AI.",
-      "personalTeam": "Личный",
-      "teamSwitcherLabel": "Команда",
-      "notConfiguredTitle": "Управление аккаунтами ИИ пока недоступно",
-      "notConfiguredBody": "Командные аккаунты ИИ не включены для этого развертывания. Повторите попытку позже или обратитесь в поддержку.",
-      "loadErrorTitle": "Не удалось загрузить аккаунты",
-      "loadErrorBody": "Сервис аккаунтов недоступен. Повторите попытку чуть позже.",
-      "accountsTitle": "Подключенные аккаунты",
-      "accountsCount": "{count, plural, one {# аккаунт} few {# аккаунта} many {# аккаунтов} other {# аккаунта}}",
-      "emptyTitle": "Аккаунтов пока нет",
-      "emptyBody": "Добавьте аккаунт провайдера, чтобы команда могла им пользоваться.",
-      "providerColumn": "Провайдер",
-      "labelColumn": "Метка",
-      "createdColumn": "Создан",
-      "actionsColumn": "Действия",
-      "unlabeledAccount": "Без метки",
-      "unknownCreatedAt": "Неизвестно",
-      "addAccountsTitle": "Добавить аккаунт",
-      "providerClaude": "Claude OAuth",
-      "providerAnthropicApiKey": "API-ключ Anthropic",
-      "providerCodex": "Codex OAuth",
-      "providerOpenAiApiKey": "API-ключ OpenAI",
-      "providerUnknown": "Неизвестный провайдер",
-      "labelField": "Метка",
-      "labelPlaceholder": "По умолчанию для команды",
-      "oauthJsonField": "OAuth JSON",
-      "apiKeyField": "API-ключ",
-      "addClaude": "Добавить Claude",
-      "addAnthropic": "Добавить Anthropic",
-      "addCodex": "Добавить Codex",
-      "addOpenAi": "Добавить OpenAI",
-      "addSuccess": "Аккаунт добавлен.",
-      "addError": "Не удалось сохранить аккаунт.",
-      "deleteError": "Не удалось удалить аккаунт.",
-      "jsonError": "Вставьте корректный JSON-объект.",
-      "validationError": "Проверьте данные аккаунта и повторите попытку.",
-      "teamAccessError": "У вас нет доступа к этой команде.",
-      "deletingAction": "Удаление",
-      "deleteAction": "Удалить",
-      "deleteConfirmTitle": "Удалить этот аккаунт?",
-      "deleteConfirmBody": "Аккаунт провайдера будет удален для всей команды. Чтобы добавить его снова, понадобятся исходные учетные данные.",
-      "cancelAction": "Отмена",
-      "claudeJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"expiresAt\":1770000000000}",
-      "codexJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"idToken\":\"...\",\"accountID\":\"...\"}",
-      "anthropicKeyPlaceholder": "sk-ant-...",
-      "openAiKeyPlaceholder": "sk-...",
-      "cliAddBody": "Add provider accounts securely from your terminal. Sign in with your team, then run one of these commands:",
-      "codexTool": "Codex",
-      "codexCommand": "Copy codex command",
-      "opencodeTool": "OpenCode",
-      "opencodeCommand": "Copy opencode command",
-      "copied": "Copied"
     },
     "billing": {
       "plan": {
@@ -1161,6 +1125,14 @@
         "shortcuts": {
           "when": "Необязательные контекстные предикаты для каждой операции (условия `when` в стиле VS Code), заданные по идентификатору операции cmux. Каждое значение — булево выражение над ключами контекста, объединенными с помощью !, &&, || и скобок. Булевы ключи: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Типизированные ключи поддерживают сравнения: строка sidebarMode (files, find, sessions, feed или dock) и целые числа paneCount и workspaceCount. Операторы сравнения: ==, !=, =~ (регулярное выражение), <, <=, >, >= и `in [a, b]`; неизвестный или отсутствующий ключ считается false. Также принимаются булевы литералы true и false; `key == false` эквивалентно `!key`. Сочетание клавиш операции срабатывает (и конфликтует с другими сочетаниями) только когда условие истинно. Примеры: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } выбирает рабочие области с помощью Ctrl+1–9 везде, кроме случаев, когда в фокусе правая боковая панель; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } ограничивает привязку боковой панелью поиска, когда в рабочей области несколько панелей.",
           "showModifierHoldHints": "Показывать подсказки сочетаний клавиш, пока удерживается Cmd или Control."
+        },
+        "fileEditor": {
+          "wordWrap": "Переносит длинные строки у правого края редактора вместо горизонтальной прокрутки.",
+          "syntaxHighlighting": "Раскрашивает токены исходного кода во встроенном редакторе файлов.",
+          "lineNumbers": "Показывает поле с номерами строк во встроенном редакторе файлов.",
+          "indentGuides": "Рисует вертикальные направляющие отступа во встроенном редакторе файлов.",
+          "currentLineHighlight": "Подсвечивает строку с кареткой, когда ничего не выделено.",
+          "tabWidth": "Ширина табуляции в столбцах для отступов и направляющих отступа."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

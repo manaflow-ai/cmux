@@ -1,3 +1,4 @@
+import CMUXMobileCore
 public import Foundation
 
 /// Persisted control-plane sync position: the highest account route revision
@@ -96,9 +97,15 @@ public actor IrxControlPlaneClient {
     /// old loop before starting its replacement.
     private var loopGeneration: UInt64 = 0
     private var backoff: Duration = .seconds(1)
+    private let retryAfterGate = CmxRetryAfterGate()
     /// Highest revision acknowledged on the CURRENT socket; duplicate acks
     /// (a directory frame that also fanned hint updates) collapse here.
     private var lastAckedRev: Int?
+    /// Most recent inbound frame on the current socket. Foreground recovery
+    /// uses this to distinguish a healthy idle socket from one left behind by
+    /// suspension. A healthy socket is retained instead of being torn down
+    /// just because the app became active again.
+    private var lastActivityAt: ContinuousClock.Instant?
     private static let maxBackoff: Duration = .seconds(30)
 
     /// Frame router probe: read only the discriminator, then decode the
@@ -109,14 +116,27 @@ public actor IrxControlPlaneClient {
         let type: String
     }
 
+    /// The two ISO 8601 parsers shared by every date the decoder sees.
+    ///
+    /// `ISO8601DateFormatter` is thread-safe, but only newer SDKs declare it
+    /// `Sendable`; with Swift 6.0 and the macOS 15 SDK the bare formatters
+    /// cannot be captured by the `@Sendable` custom decoding closure. Boxing
+    /// them keeps one pair per decoder instead of allocating per date.
+    private struct ISO8601Formatters: @unchecked Sendable {
+        let plain = ISO8601DateFormatter()
+        let fractional: ISO8601DateFormatter = {
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            return formatter
+        }()
+    }
+
     private static func makeDecoder() -> JSONDecoder {
         let decoder = JSONDecoder()
-        let iso = ISO8601DateFormatter()
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let formatters = ISO8601Formatters()
         decoder.dateDecodingStrategy = .custom { decoder in
             let raw = try decoder.singleValueContainer().decode(String.self)
-            if let date = iso.date(from: raw) ?? fractional.date(from: raw) {
+            if let date = formatters.plain.date(from: raw) ?? formatters.fractional.date(from: raw) {
                 return date
             }
             throw DecodingError.dataCorrupted(.init(
@@ -227,20 +247,30 @@ public actor IrxControlPlaneClient {
         loop = nil
         socket?.cancel(with: .goingAway, reason: nil)
         socket = nil
+        lastActivityAt = nil
         journal.record("control-plane", "stopped")
     }
 
     /// Foreground reset: reconnect NOW with a fresh token instead of waiting
-    /// out whatever backoff a background suspension left behind.
-    public func kick() {
+    /// out whatever backoff a background suspension left behind. A healthy
+    /// active socket is retained. Replacing it on every foreground callback
+    /// created duplicate sockets during app and notification-extension races.
+    public func kick() async {
+        if socket != nil, let lastActivityAt,
+           ContinuousClock.now - lastActivityAt < Self.receiveTimeout
+        {
+            journal.record("control-plane", "foreground-retained")
+            return
+        }
         loopGeneration &+= 1
         let generation = loopGeneration
         loop?.cancel()
         socket?.cancel(with: .goingAway, reason: nil)
         socket = nil
+        lastActivityAt = nil
         backoff = .seconds(1)
         loop = Task { await self.run(generation: generation) }
-        journal.record("control-plane", "kicked")
+        journal.record("control-plane", "kicked", ["reason": "foreground-stale"])
     }
 
     // MARK: - Connection loop
@@ -248,10 +278,22 @@ public actor IrxControlPlaneClient {
     private func run(generation: UInt64) async {
         while !Task.isCancelled && generation == loopGeneration {
             do {
+                try await retryAfterGate.wait()
+            } catch {
+                return
+            }
+            guard !Task.isCancelled, generation == loopGeneration else { return }
+            var retryAfterSeconds: Int?
+            do {
                 try await connectAndServe(generation: generation)
             } catch is CancellationError {
                 return
             } catch {
+                retryAfterSeconds = (error as? any CmxRetryAfterProviding)?
+                    .retryAfterSeconds
+                if let retryAfterSeconds {
+                    await retryAfterGate.extend(by: retryAfterSeconds)
+                }
                 journal.record(
                     "control-plane", "socket-ended",
                     ["error": String(describing: error)]
@@ -259,11 +301,15 @@ public actor IrxControlPlaneClient {
             }
             if Task.isCancelled || generation != loopGeneration { return }
             let jitter = Duration.milliseconds(Int.random(in: 0...500))
-            let delay = backoff + jitter
+            let serverFloor = Duration.seconds(Int64(max(0, retryAfterSeconds ?? 0)))
+            let delay = max(backoff + jitter, serverFloor)
             backoff = min(backoff * 2, Self.maxBackoff)
             journal.record(
                 "control-plane", "reconnect-scheduled",
-                ["delay": String(describing: delay)]
+                [
+                    "delay": String(describing: delay),
+                    "server_floor_s": retryAfterSeconds.map(String.init) ?? "-",
+                ]
             )
             try? await Task.sleep(for: delay)
         }
@@ -289,7 +335,14 @@ public actor IrxControlPlaneClient {
         let task = URLSession.shared.webSocketTask(with: request)
         socket = task
         lastAckedRev = nil
+        lastActivityAt = nil
         task.resume()
+        defer {
+            if socket === task {
+                socket = nil
+                lastActivityAt = nil
+            }
+        }
 
         // Hello v2: the generated hello fields plus optional client info
         // (device, platform, version, capabilities); old servers ignore the
@@ -301,27 +354,57 @@ public actor IrxControlPlaneClient {
             clientInfo: configuration.clientInfo
         )
         let helloData = try JSONEncoder().encode(hello)
-        try await task.send(.string(String(decoding: helloData, as: UTF8.self)))
+        do {
+            try await task.send(.string(String(decoding: helloData, as: UTF8.self)))
+        } catch {
+            throw Self.rateLimitError(from: task) ?? error
+        }
         journal.record(
             "control-plane", "hello-sent",
             ["have_rev": cursorCache.load()?.haveRev.map(String.init) ?? "-"]
         )
 
         while !Task.isCancelled && generation == loopGeneration {
-            let message = try await receive(from: task)
-            guard generation == loopGeneration else { return }
+            let message: URLSessionWebSocketTask.Message
+            do {
+                message = try await receive(from: task)
+            } catch {
+                throw Self.rateLimitError(from: task) ?? error
+            }
+            guard generation == loopGeneration, socket === task else { return }
+            // Record transport activity before consumer handlers run. The
+            // exact generation/socket guard prevents an old receive loop from
+            // refreshing the replacement's liveness.
+            lastActivityAt = .now
             let data: Data
             switch message {
             case .string(let text): data = Data(text.utf8)
             case .data(let raw): data = raw
             @unknown default: continue
             }
-            await route(data, generation: generation)
+            await route(data, generation: generation, socket: task)
         }
     }
 
-    private func route(_ data: Data, generation: UInt64) async {
-        guard generation == loopGeneration, !Task.isCancelled else { return }
+    private static func rateLimitError(
+        from task: URLSessionWebSocketTask
+    ) -> CmxRateLimitedError? {
+        guard let response = task.response as? HTTPURLResponse,
+              response.statusCode == 429 else { return nil }
+        return CmxRateLimitedError(retryAfterSeconds: CmxRetryAfterPolicy.seconds(
+            from: response,
+            defaultSeconds: CmxRetryAfterPolicy.defaultRateLimitSeconds
+        ))
+    }
+
+    private func route(
+        _ data: Data,
+        generation: UInt64,
+        socket: URLSessionWebSocketTask
+    ) async {
+        guard generation == loopGeneration, self.socket === socket, !Task.isCancelled else {
+            return
+        }
         guard let probe = try? decoder.decode(TypeProbe.self, from: data) else {
             journal.record("control-plane", "frame-unparseable")
             return
@@ -333,7 +416,6 @@ public actor IrxControlPlaneClient {
                 // portable server-side RFC6455 ping, so the DO uses a small
                 // application heartbeat. Reply immediately without routing
                 // it through the durable fact decoder.
-                guard let socket else { return }
                 let pong = Data("{\"v\":1,\"type\":\"pong\",\"payload\":{}}".utf8)
                 do {
                     try await socket.send(
@@ -379,10 +461,12 @@ public actor IrxControlPlaneClient {
                     "control-plane", "passes-received",
                     ["rev": String(fact.rev), "count": String(credentials.count)]
                 )
+                guard generation == loopGeneration, self.socket === socket else { return }
                 if await handlers.onRelayPasses(credentials) {
+                    guard generation == loopGeneration, self.socket === socket else { return }
                     // Relay credentials are a revisioned control-plane fact.
                     // Ack only after the consumer accepted and persisted them.
-                    await acknowledge(rev: fact.rev)
+                    await acknowledge(rev: fact.rev, on: socket, generation: generation)
                 }
             case "hint_update":
                 let fact = try decoder.decode(CTLHintUpdate.self, from: data)
@@ -394,12 +478,14 @@ public actor IrxControlPlaneClient {
                         "relay": fact.payload.homeRelayURL,
                     ]
                 )
+                guard generation == loopGeneration, self.socket === socket else { return }
                 if await handlers.onHintUpdate(
                     fact.payload.endpointID, fact.payload.homeRelayURL)
                 {
+                    guard generation == loopGeneration, self.socket === socket else { return }
                     // Hint updates are independently revisioned when delivered
                     // outside a directory snapshot; ack after applying them.
-                    await acknowledge(rev: fact.rev)
+                    await acknowledge(rev: fact.rev, on: socket, generation: generation)
                 }
             case "directory":
                 // The tolerant overlay is the PRIMARY decode: every list-auth
@@ -418,22 +504,28 @@ public actor IrxControlPlaneClient {
                 )
                 var applied = false
                 if let fact = try? decoder.decode(CTLDirectory.self, from: data) {
+                    guard generation == loopGeneration, self.socket === socket else { return }
                     applied = await handlers.onDirectory(fact.payload)
                 } else {
+                    guard generation == loopGeneration, self.socket === socket else { return }
                     applied = await handlers.onDirectory(
                         Self.legacyDirectoryPayload(from: listFact))
                 }
                 for binding in listFact.payload.bindings {
                     if let relay = binding.homeRelayURL {
+                        guard generation == loopGeneration, self.socket === socket else { return }
                         applied = await handlers.onHintUpdate(binding.endpointID, relay) && applied
                     }
                 }
                 if let onDirectoryFact = handlers.onDirectoryFact {
+                    guard generation == loopGeneration, self.socket === socket else { return }
                     applied = await onDirectoryFact(listFact) && applied
                 }
                 // Directory delivery is itself a revisioned fact. Ack only
                 // after every consumer reports durable application.
-                if applied { await acknowledge(rev: listFact.rev) }
+                if applied {
+                    await acknowledge(rev: listFact.rev, on: socket, generation: generation)
+                }
             case "current":
                 // Explicit freshness re-stamp for the device-list lease.
                 let stamp = try decoder.decode(IrxCtlFreshnessStamp.self, from: data)
@@ -445,6 +537,7 @@ public actor IrxControlPlaneClient {
                     ]
                 )
                 if let issuedAt = stamp.issuedAt {
+                    guard generation == loopGeneration, self.socket === socket else { return }
                     await handlers.onFreshness?(stamp.rev, issuedAt)
                 }
             case "snapshot_complete":
@@ -454,6 +547,7 @@ public actor IrxControlPlaneClient {
                 journal.record(
                     "control-plane", "snapshot-complete", ["rev": String(fact.rev)]
                 )
+                guard generation == loopGeneration, self.socket === socket else { return }
                 await handlers.onSnapshotComplete(fact.rev)
                 // The server may extend snapshot_complete with issuedAt as a
                 // lease re-stamp; handle it defensively alongside `current`.
@@ -461,6 +555,7 @@ public actor IrxControlPlaneClient {
                     IrxCtlFreshnessStamp.self, from: data),
                     let issuedAt = stamp.issuedAt
                 {
+                    guard generation == loopGeneration, self.socket === socket else { return }
                     await handlers.onFreshness?(stamp.rev, issuedAt)
                 }
             case "error":
@@ -494,6 +589,15 @@ public actor IrxControlPlaneClient {
     /// server re-learns position from the hello's `haveRev`.
     public func acknowledge(rev: Int) async {
         guard let socket else { return }
+        await acknowledge(rev: rev, on: socket, generation: loopGeneration)
+    }
+
+    private func acknowledge(
+        rev: Int,
+        on socket: URLSessionWebSocketTask,
+        generation: UInt64
+    ) async {
+        guard generation == loopGeneration, self.socket === socket else { return }
         if let lastAckedRev, rev <= lastAckedRev { return }
         guard let data = try? Self.encodedAck(rev: rev) else { return }
         do {

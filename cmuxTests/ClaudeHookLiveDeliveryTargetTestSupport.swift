@@ -22,23 +22,7 @@ enum ClaudeHookLiveDeliveryHarness {
         }
     }
 
-    final class ServerState: @unchecked Sendable {
-        private let lock = NSLock()
-        private var commands: [String] = []
 
-        func append(_ command: String) {
-            lock.lock()
-            commands.append(command)
-            lock.unlock()
-        }
-
-        func snapshot() -> [String] {
-            lock.lock()
-            let value = commands
-            lock.unlock()
-            return value
-        }
-    }
 
     struct ProcessRunResult {
         let status: Int32
@@ -88,7 +72,8 @@ enum ClaudeHookLiveDeliveryHarness {
         resolverMethodAvailable: Bool = true,
         acknowledgesPIDResolution: Bool = true,
         resumeClearSucceeds: Bool = true,
-        resumeClearOwnsCheckpoint: Bool? = true
+        resumeClearOwnsCheckpoint: Bool? = true,
+        hibernationSessionEndPreserved: Bool = false
     ) -> DispatchSemaphore {
         startMockServer(listenerFD: context.listenerFD, state: context.state) { line in
             guard let payload = jsonObject(line),
@@ -159,6 +144,12 @@ enum ClaudeHookLiveDeliveryHarness {
                     ok: false,
                     error: ["code": "cleanup_failed", "message": "injected resume cleanup failure"]
                 )
+            case "agent.hibernation.session_end":
+                return v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["preserve": hibernationSessionEndPreserved]
+                )
             default:
                 return v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
             }
@@ -181,7 +172,10 @@ enum ClaudeHookLiveDeliveryHarness {
         workspaceId: String,
         surfaceId: String,
         cwd: String,
-        pid: Int? = nil
+        pid: Int? = nil,
+        pidStartSeconds: Int64? = nil,
+        pidStartMicroseconds: Int64? = nil,
+        priorProcessGenerations: [[String: Any]]? = nil
     ) throws {
         let now = Date().timeIntervalSince1970
         var record: [String: Any] = [
@@ -194,6 +188,9 @@ enum ClaudeHookLiveDeliveryHarness {
             "updatedAt": now,
         ]
         if let pid { record["pid"] = pid }
+        if let pidStartSeconds { record["pidStartSeconds"] = pidStartSeconds }
+        if let pidStartMicroseconds { record["pidStartMicroseconds"] = pidStartMicroseconds }
+        if let priorProcessGenerations { record["priorProcessGenerations"] = priorProcessGenerations }
         let store: [String: Any] = [
             "version": 1,
             "sessions": [sessionId: record],

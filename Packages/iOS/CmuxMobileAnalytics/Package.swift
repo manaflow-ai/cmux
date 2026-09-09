@@ -2,10 +2,10 @@
 
 import PackageDescription
 
-// `CmuxMobileAnalytics` is the concrete analytics infrastructure: the
-// fire-and-forget `AnalyticsEmitter` actor, the pure sessionization and
-// connection-edge throttle logic, and the HTTP capture client that posts batches
-// to the cmux web analytics proxy. It conforms to the `AnalyticsEmitting` seam
+// `CmuxMobileAnalytics` is the concrete product and operational telemetry
+// infrastructure: the fire-and-forget `AnalyticsEmitter` actor, pure
+// sessionization and connection-edge throttle logic, and separate HTTP clients
+// for PostHog product events and Axiom network outcomes. It conforms to the `AnalyticsEmitting` seam
 // declared in `CMUXMobileCore`, so it depends only on that base package and
 // Foundation — keeping the package graph an acyclic DAG. Everything it touches
 // (the opt-out gate, the clock, `UserDefaults`, reachability, the base URL) is

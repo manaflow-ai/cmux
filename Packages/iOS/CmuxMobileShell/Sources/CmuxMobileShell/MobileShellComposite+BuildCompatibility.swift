@@ -42,19 +42,36 @@ extension MobileShellComposite {
         return .macAppVersionTooOld(violation)
     }
 
-    /// Converts a policy violation into the user-facing failure category. A
-    /// missing stable floor is a distinct state from an outdated stable Mac:
-    /// there is no stable release to update to yet.
-    func macVersionGateFailureCategory(
-        for violation: MobileMacCompatPolicy.Violation
-    ) -> MobilePairingFailureCategory {
-        if violation.stableUnavailable {
-            return .stableMacUnavailable
+    /// Rechecks the live foreground Mac after a background policy refresh.
+    /// Startup remains non-blocking, but a newly stricter remote policy cannot
+    /// leave an already-connected older Mac admitted indefinitely.
+    public func revalidateActiveMacCompatibilityPolicy() {
+        guard connectionState == .connected else {
+            pendingMacCompatibilityPolicyRevalidation = true
+            return
         }
-        return .macAppVersionTooOld(
-            macVersion: violation.macAppVersion,
-            requiredVersion: violation.requiredVersionDisplay,
-            isNightlyChannel: violation.channel == .nightly
+        pendingMacCompatibilityPolicyRevalidation = false
+        guard let channel = versionGateChannel(
+                  instanceTag: activeMacInstanceTag,
+                  macAppVersion: authenticatedMacAppVersion
+              ),
+              let violation = macCompatPolicy.violation(
+                  iosVersion: versionGateIOSAppVersion,
+                  channel: channel,
+                  macAppVersion: authenticatedMacAppVersion
+              ) else {
+            return
+        }
+        let macDeviceID = connectedMacDeviceID ?? activeTicket?.macDeviceID
+        noteMacVersionUpdateRequired(for: macDeviceID ?? "")
+        disconnectLiveConnection(preservingOtherMacWorkspaceState: true)
+        applyPairingFailure(
+            .macAppVersionTooOld(
+                macVersion: violation.macAppVersion,
+                requiredVersion: violation.requiredVersionDisplay,
+                isNightlyChannel: violation.channel == .nightly
+            ),
+            phase: "policy-refresh"
         )
     }
 

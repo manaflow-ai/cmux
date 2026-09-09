@@ -62,6 +62,23 @@ archives_dir="$work_dir/archives"
 mkdir -p "$archives_dir"
 cp "$DMG_PATH" "$archives_dir/$(basename "$DMG_PATH")"
 
+# Delta updates: older archives of the same track placed next to the new one
+# make generate_appcast emit <sparkle:deltas> items plus .delta files, so a
+# machine on a recent build downloads only what changed.
+delta_args=()
+if [[ -n "${SPARKLE_PREVIOUS_ARCHIVES_DIR:-}" ]]; then
+  previous_count=0
+  for previous in "$SPARKLE_PREVIOUS_ARCHIVES_DIR"/*.dmg; do
+    [[ -f "$previous" ]] || continue
+    cp "$previous" "$archives_dir/$(basename "$previous")"
+    previous_count=$((previous_count + 1))
+  done
+  echo "Previous archives available for deltas: $previous_count"
+  if [[ "$previous_count" -gt 0 ]]; then
+    delta_args=(--maximum-deltas "${SPARKLE_MAXIMUM_DELTAS:-2}")
+  fi
+fi
+
 key_file="$work_dir/sparkle_ed_key"
 # Ensure base64 padding (keys may be stored without trailing '=')
 padded_key="$SPARKLE_PRIVATE_KEY"
@@ -76,6 +93,7 @@ generated_appcast_path="$archives_dir/$(basename "$OUT_PATH")"
   --ed-key-file "$key_file" \
   --download-url-prefix "$DOWNLOAD_URL_PREFIX" \
   --full-release-notes-url "$RELEASE_NOTES_URL" \
+  "${delta_args[@]}" \
   "$archives_dir"
 
 if [[ ! -f "$generated_appcast_path" ]]; then
@@ -101,21 +119,38 @@ if ! grep -q 'sparkle:edSignature' "$generated_appcast_path"; then
   echo "  EdDSA signature: ${SIGNATURE:0:20}..."
   echo "  DMG length: $DMG_LENGTH"
 
-  # Inject sparkle:edSignature and correct length into the enclosure element
-  python3 -c "
-import sys
-xml = open('$generated_appcast_path').read()
-sig = '$SIGNATURE'
-length = '$DMG_LENGTH'
-# Add edSignature to enclosure
-xml = xml.replace(
-    'type=\"application/octet-stream\"',
-    'sparkle:edSignature=\"' + sig + '\" length=\"' + length + '\" type=\"application/octet-stream\"'
-)
-open('$generated_appcast_path', 'w').write(xml)
-print('  Injected edSignature into appcast.xml')
-"
+  # Inject sparkle:edSignature and correct length into the full-archive
+  # enclosure only. Deltas cannot be signed here, and unsigned deltas would be
+  # rejected by Sparkle at install time, so drop them from the feed.
+  python3 - "$generated_appcast_path" "$SIGNATURE" "$DMG_LENGTH" "$(basename "$DMG_PATH")" <<'EOF'
+import re, sys, urllib.parse
+path, sig, length, dmg_name = sys.argv[1:5]
+xml = open(path, encoding="utf-8").read()
+deltas = re.compile(r"\s*<sparkle:deltas>.*?</sparkle:deltas>", re.S)
+if deltas.search(xml):
+    print("  Dropping unsigned delta entries from the appcast")
+    xml = deltas.sub("", xml)
+needle = re.compile(r'<enclosure(?P<attrs>[^>]*url="[^"]*' + re.escape(urllib.parse.quote(dmg_name)) + r'"[^>]*)/>')
+match = needle.search(xml) or re.search(r'<enclosure(?P<attrs>[^>]*url="[^"]*' + re.escape(dmg_name) + r'"[^>]*)/>', xml)
+if not match:
+    print("  error: full-archive enclosure not found in appcast", file=sys.stderr)
+    sys.exit(1)
+attrs = match.group("attrs")
+if "sparkle:edSignature" not in attrs:
+    attrs = attrs.replace('type="application/octet-stream"', 'sparkle:edSignature="' + sig + '" length="' + length + '" type="application/octet-stream"')
+    xml = xml[:match.start()] + "<enclosure" + attrs + "/>" + xml[match.end():]
+open(path, "w", encoding="utf-8").write(xml)
+print("  Injected edSignature into the full-archive enclosure")
+EOF
+  rm -f "$archives_dir"/*.delta
 fi
+
+# generate_appcast names deltas after the app ("cmux NIGHTLY<new>-<old>.delta"),
+# which collides across per-architecture tracks and gets mangled by GitHub
+# release assets. Rename them after the archive and rewrite the appcast URLs.
+delta_prefix="${SPARKLE_DELTA_NAME_PREFIX:-$(basename "$DMG_PATH" .dmg | sed -E 's/-[0-9]+$//')-}"
+"$(dirname "$0")/ci/finalize-sparkle-deltas.sh" \
+  "$generated_appcast_path" "$archives_dir" "$(cd "$(dirname "$OUT_PATH")" && pwd)" "$delta_prefix"
 
 cp "$generated_appcast_path" "$OUT_PATH"
 echo "Generated appcast at $OUT_PATH"

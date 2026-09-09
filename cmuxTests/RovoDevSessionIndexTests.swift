@@ -143,8 +143,13 @@ final class RovoDevSessionIndexTests: XCTestCase {
 
         XCTAssertEqual(outcome.entries, [])
         XCTAssertEqual(outcome.errors.count, 1)
-        XCTAssertTrue(outcome.errors[0].contains("Rovo Dev: cannot read metadata"))
-        XCTAssertTrue(outcome.errors[0].contains("metadata.json"))
+        XCTAssertEqual(
+            outcome.errors[0],
+            String(
+                localized: "sessionIndex.search.providerFailure",
+                defaultValue: "Some session history could not be searched"
+            )
+        )
     }
 
     func testRovoDevSessionIndexMissingRootIsEmptyWithoutError() throws {

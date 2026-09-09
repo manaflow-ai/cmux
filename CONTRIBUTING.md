@@ -3,7 +3,7 @@
 ## Prerequisites
 
 - macOS 14+
-- Xcode 15+
+- Xcode 26 (the pinned toolchain); Xcode 16.2 on Intel Macs running macOS 14 also builds the macOS app (best effort)
 - [Zig](https://ziglang.org/) (install via `brew install zig`)
 
 ## Getting Started

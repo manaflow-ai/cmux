@@ -7,11 +7,12 @@
 //   no metadata filter, so these are found by paging through all accounts in
 //   bounded pages that the page walks one request at a time.
 
-import { and, desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 
 import { cloudDb } from "../../db/client";
 import { adminPlanGrants, stripeCustomers, stripeSubscriptions } from "../../db/schema";
 import { getStackServerApp } from "../../app/lib/stack";
+import { withStackAuthSpan } from "../auth/stackTelemetry";
 import {
   ACTIVE_STRIPE_PRO_STATUSES,
   PRO_PLAN_ID,
@@ -91,7 +92,48 @@ export type ProListScanPage<Row> = {
   readonly nextCursor: string | null;
 };
 
-export type ProListDb = Pick<ReturnType<typeof cloudDb>, "select">;
+type CloudDb = ReturnType<typeof cloudDb>;
+
+/** Clock and scheduler seam so timeout behavior is testable with virtual time. */
+export type ProListClock = {
+  now(): number;
+  /** Schedules `fn` after `ms`; returns a cancel function. */
+  schedule(fn: () => void, ms: number): () => void;
+};
+
+export const realProListClock: ProListClock = {
+  now: () => Date.now(),
+  schedule: (fn, ms) => {
+    const timer = setTimeout(fn, ms);
+    return () => clearTimeout(timer);
+  },
+};
+
+export type ProListDb = Pick<CloudDb, "select"> & {
+  /** Present on the real client; the roster uses it to scope a statement timeout. */
+  transaction?<Result>(operation: (tx: Pick<CloudDb, "select" | "execute">) => Promise<Result>): Promise<Result>;
+};
+
+/**
+ * Runs `work` inside a transaction with a Postgres statement timeout, so a
+ * read that outlives the caller's budget is cancelled by the server instead
+ * of lingering in the pool. Doubles without `transaction` run `work` directly.
+ */
+export async function withStatementTimeout<Result>(
+  db: ProListDb,
+  timeoutMs: number | undefined,
+  work: (db: ProListDb) => Promise<Result>,
+): Promise<Result> {
+  if (!timeoutMs || !Number.isFinite(timeoutMs) || timeoutMs <= 0 || typeof db.transaction !== "function") {
+    return await work(db);
+  }
+  const ms = Math.floor(timeoutMs);
+  return await db.transaction(async (tx) => {
+    // SET does not take bind parameters; ms is a validated integer.
+    await tx.execute(sql.raw(`set local statement_timeout = ${ms}`));
+    return await work(tx as ProListDb);
+  });
+}
 
 export type ProListStackApp = {
   getTeam(teamId: string): Promise<Pick<AdminStackTeam, "id" | "displayName"> | null>;
@@ -152,20 +194,13 @@ export async function listStripeProSubscribers(
   return { rows: out, truncated };
 }
 
-/**
- * Every team with an active Stripe Team row, with its Stack display name
- * when reachable. Name lookups run a few at a time so a large roster cannot
- * open thousands of Stack requests at once.
- */
-export async function listStripeTeamSubscriptions(
-  options: {
-    readonly db?: ProListDb;
-    readonly app?: ProListStackApp;
-    readonly concurrency?: number;
-  } = {},
-): Promise<CappedList<StripeTeamSubscription>> {
+export type StripeTeamSubscriptionRow = Omit<StripeTeamSubscription, "displayName">;
+
+/** The database half of the team roster: active Stripe Team rows, one per team, no Stack calls. */
+export async function listStripeTeamSubscriptionRows(
+  options: { readonly db?: ProListDb } = {},
+): Promise<CappedList<StripeTeamSubscriptionRow>> {
   const db = options.db ?? cloudDb();
-  const app = options.app ?? defaultProListStackApp();
   const fetched = await db
     .select({
       teamId: stripeSubscriptions.stackTeamId,
@@ -187,33 +222,88 @@ export async function listStripeTeamSubscriptions(
     .orderBy(desc(stripeSubscriptions.currentPeriodEnd), desc(stripeSubscriptions.updatedAt))
     .limit(PRO_LIST_MAX_ROWS + 1);
   const truncated = fetched.length > PRO_LIST_MAX_ROWS;
-  const rows = fetched.slice(0, PRO_LIST_MAX_ROWS);
   const seen = new Set<string>();
-  const unique = rows.filter((row) => {
-    if (!row.teamId || seen.has(row.teamId)) return false;
+  const rows: StripeTeamSubscriptionRow[] = [];
+  for (const row of fetched.slice(0, PRO_LIST_MAX_ROWS)) {
+    if (!row.teamId || seen.has(row.teamId)) continue;
     seen.add(row.teamId);
-    return true;
-  });
-  const resolved = await mapWithConcurrency(
-    unique,
-    options.concurrency ?? PRO_LIST_TEAM_LOOKUP_CONCURRENCY,
-    async (row): Promise<StripeTeamSubscription> => {
-      const team = await app.getTeam(row.teamId!).catch(() => null);
-      return {
-        teamId: row.teamId!,
-        displayName: team?.displayName ?? null,
-        subscriptionId: row.subscriptionId,
-        status: row.status,
-        seats: row.seats ?? null,
-        cancelAtPeriodEnd: Boolean(row.cancelAtPeriodEnd),
-        currentPeriodEnd: row.currentPeriodEnd ? row.currentPeriodEnd.toISOString() : null,
-      };
-    },
-  );
-  return { rows: resolved, truncated };
+    rows.push({
+      teamId: row.teamId,
+      subscriptionId: row.subscriptionId,
+      status: row.status,
+      seats: row.seats ?? null,
+      cancelAtPeriodEnd: Boolean(row.cancelAtPeriodEnd),
+      currentPeriodEnd: row.currentPeriodEnd ? row.currentPeriodEnd.toISOString() : null,
+    });
+  }
+  return { rows, truncated };
 }
 
-/** Runs `work` over `items` with at most `limit` in flight, preserving order. */
+export type TeamNameResolveOptions = {
+  readonly app?: ProListStackApp;
+  readonly concurrency?: number;
+  /** No new name lookup starts once this instant (ms since epoch) has passed. */
+  readonly deadlineMs?: number;
+  readonly clock?: ProListClock;
+};
+
+/**
+ * The Stack half of the team roster: display names, resolved OUTSIDE any
+ * database transaction so a slow provider never holds a connection. Lookups
+ * run a few at a time; none starts after the deadline and one that outlives
+ * the remaining budget is abandoned. Either way the row is kept with a null
+ * name, so a slow provider degrades the roster instead of failing it.
+ */
+export async function resolveStripeTeamNames(
+  rows: readonly StripeTeamSubscriptionRow[],
+  options: TeamNameResolveOptions = {},
+): Promise<StripeTeamSubscription[]> {
+  const app = options.app ?? defaultProListStackApp();
+  const clock = options.clock ?? realProListClock;
+  return await mapWithConcurrency(
+    rows,
+    options.concurrency ?? PRO_LIST_TEAM_LOOKUP_CONCURRENCY,
+    async (row): Promise<StripeTeamSubscription> => {
+      const remaining = options.deadlineMs === undefined ? undefined : options.deadlineMs - clock.now();
+      if (remaining !== undefined && remaining <= 0) {
+        return { ...row, displayName: null };
+      }
+      const team = await raceWithin(app.getTeam(row.teamId).catch(() => null), remaining, clock);
+      return { ...row, displayName: team?.displayName ?? null };
+    },
+  );
+}
+
+/** Resolves to null when `promise` has not settled within `ms` (undefined = no limit). */
+async function raceWithin<Value>(
+  promise: Promise<Value | null>,
+  ms: number | undefined,
+  clock: ProListClock,
+): Promise<Value | null> {
+  if (ms === undefined) return await promise;
+  let cancel: (() => void) | undefined;
+  const timeout = new Promise<null>((resolve) => {
+    cancel = clock.schedule(() => resolve(null), ms);
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    cancel?.();
+  }
+}
+
+/** Every team with an active Stripe Team row, with its Stack display name when reachable. */
+export async function listStripeTeamSubscriptions(
+  options: { readonly db?: ProListDb } & TeamNameResolveOptions = {},
+): Promise<CappedList<StripeTeamSubscription>> {
+  const { rows, truncated } = await listStripeTeamSubscriptionRows({ db: options.db });
+  return { rows: await resolveStripeTeamNames(rows, options), truncated };
+}
+
+/**
+ * Runs `work` over `items` with at most `limit` in flight, preserving order.
+ * The first rejection stops every worker from starting more items.
+ */
 export async function mapWithConcurrency<Item, Result>(
   items: readonly Item[],
   limit: number,
@@ -221,10 +311,16 @@ export async function mapWithConcurrency<Item, Result>(
 ): Promise<Result[]> {
   const results: Result[] = new Array(items.length);
   let next = 0;
+  let failed = false;
   const workers = Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, async () => {
-    while (next < items.length) {
+    while (!failed && next < items.length) {
       const index = next++;
-      results[index] = await work(items[index]!);
+      try {
+        results[index] = await work(items[index]!);
+      } catch (error) {
+        failed = true;
+        throw error;
+      }
     }
   });
   await Promise.all(workers);
@@ -320,9 +416,15 @@ export function isValidScanCursor(value: string): boolean {
 function defaultProListStackApp(): ProListStackApp {
   const app = getStackServerApp();
   return {
-    getTeam: (teamId) => app.getTeam(teamId),
-    listUsers: (options) => app.listUsers(options),
-    listTeams: (options) => app.listTeams(options),
+    getTeam: (teamId) => withStackAuthSpan("get_team", () => app.getTeam(teamId), {
+      "cmux.auth.flow": "admin_pro_list",
+    }),
+    listUsers: (options) => withStackAuthSpan("list_users", () => app.listUsers(options), {
+      "cmux.auth.flow": "admin_pro_list",
+    }),
+    listTeams: (options) => withStackAuthSpan("list_teams", () => app.listTeams(options), {
+      "cmux.auth.flow": "admin_pro_list",
+    }),
   };
 }
 
@@ -340,17 +442,78 @@ export class ProListDatabaseUnavailableError extends Error {
  * ProListDatabaseUnavailableError.
  */
 export async function loadProListSnapshot(
-  options: { readonly db?: ProListDb; readonly app?: ProListStackApp } = {},
+  options: {
+    readonly db?: ProListDb;
+    readonly app?: ProListStackApp;
+    /** Server-side cancel budget per read; see withStatementTimeout. */
+    readonly statementTimeoutMs?: number;
+    /**
+     * Absolute time (ms since epoch) after which no further read starts.
+     * Combined with the statement timeout this bounds the work left behind
+     * when the caller stops waiting: at most one in-flight statement.
+     */
+    readonly deadlineMs?: number;
+    /** Clock and scheduler, injectable for tests. */
+    readonly clock?: ProListClock;
+  } = {},
 ): Promise<ProListSnapshot> {
+  const clock = options.clock ?? realProListClock;
+  const now = () => clock.now();
+  const guard = () => {
+    if (options.deadlineMs !== undefined && now() >= options.deadlineMs) {
+      throw new ProListTimeoutError(0);
+    }
+  };
+  // Each read's statement timeout is the smaller of the configured budget and
+  // what is left of the absolute deadline, so a read started late in the
+  // budget cannot hold a connection past the point the page stopped waiting.
+  const budgetFor = (): number | undefined => {
+    const configured = options.statementTimeoutMs;
+    if (options.deadlineMs === undefined) return configured;
+    const remaining = Math.max(1, options.deadlineMs - now());
+    return configured === undefined ? remaining : Math.min(configured, remaining);
+  };
   try {
-    const [subscribers, teamSubscriptions, pendingGrants] = await Promise.all([
-      listStripeProSubscribers(options),
-      listStripeTeamSubscriptions(options),
-      listAllPendingEmailGrants(options).catch((error: unknown) => {
+    // Client creation can fail the same way a read does (no DATABASE_URL), so
+    // it lives inside the same error boundary.
+    const db = options.db ?? cloudDb();
+    // Each read gets its own short transaction, so a failed optional read
+    // (missing admin_plan_grants table) aborts only its own transaction and
+    // the catch below still yields an empty pending list.
+    // The three database reads are independent: run them concurrently, each
+    // in its own short statement-timeout transaction (a failed optional read
+    // on a missing admin_plan_grants table aborts only its own). guard()
+    // runs before acquiring each transaction and again inside it, after SET
+    // LOCAL, so a slow acquisition cannot start a read past the deadline.
+    guard();
+    const [subscribers, teamRows, pendingGrants] = await Promise.all([
+      withStatementTimeout(db, budgetFor(), async (scoped) => {
+        guard();
+        return await listStripeProSubscribers({ db: scoped });
+      }),
+      withStatementTimeout(db, budgetFor(), async (scoped) => {
+        guard();
+        return await listStripeTeamSubscriptionRows({ db: scoped });
+      }),
+      withStatementTimeout(db, budgetFor(), async (scoped) => {
+        guard();
+        return await listAllPendingEmailGrants({ db: scoped });
+      }).catch((error: unknown) => {
         if (isMissingGrantsTableError(error)) return { rows: [], truncated: false };
         throw error;
       }),
     ]);
+    // Names resolve only after every transaction has ended, outside any of
+    // them, so a slow provider never holds a database connection.
+    guard();
+    const teamSubscriptions: CappedList<StripeTeamSubscription> = {
+      truncated: teamRows.truncated,
+      rows: await resolveStripeTeamNames(teamRows.rows, {
+        app: options.app,
+        deadlineMs: options.deadlineMs,
+        clock,
+      }),
+    };
     return {
       subscribers: subscribers.rows,
       teamSubscriptions: teamSubscriptions.rows,
@@ -366,5 +529,51 @@ export async function loadProListSnapshot(
       throw new ProListDatabaseUnavailableError();
     }
     throw error;
+  }
+}
+
+export class ProListTimeoutError extends Error {
+  constructor(readonly afterMs: number) {
+    super(`Pro roster snapshot took longer than ${afterMs}ms`);
+    this.name = "ProListTimeoutError";
+  }
+}
+
+/** Default budget for the server-rendered roster before the page falls back to a retry state. */
+export const PRO_LIST_RENDER_TIMEOUT_MS = 8_000;
+
+/**
+ * Bounds how long the page render waits for the roster. A stalled database
+ * must not hold the admin page; the client shows a retry instead. The same
+ * budget is applied as a statement timeout, so the reads are cancelled by
+ * Postgres rather than left running after the page gave up on them.
+ */
+export type ProListLoadBudget = {
+  readonly statementTimeoutMs: number;
+  readonly deadlineMs: number;
+  readonly clock: ProListClock;
+};
+
+export async function loadProListSnapshotWithin(
+  timeoutMs: number = PRO_LIST_RENDER_TIMEOUT_MS,
+  load: (budget: ProListLoadBudget) => Promise<ProListSnapshot> =
+    (budget) => loadProListSnapshot(budget),
+  clock: ProListClock = realProListClock,
+): Promise<ProListSnapshot> {
+  const deadlineMs = clock.now() + timeoutMs;
+  let cancel: (() => void) | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    cancel = clock.schedule(() => reject(new ProListTimeoutError(timeoutMs)), timeoutMs);
+  });
+  try {
+    // When the timer wins, the load is not awaited further; the deadline stops
+    // it from starting any new read or name lookup and the statement timeout
+    // ends the one in flight, so at most one bounded statement outlives this.
+    return await Promise.race([
+      load({ statementTimeoutMs: timeoutMs, deadlineMs, clock }),
+      timeout,
+    ]);
+  } finally {
+    cancel?.();
   }
 }

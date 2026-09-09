@@ -160,7 +160,7 @@ extension CMUXCLI {
     }
 
     enum AgentHookAction {
-        case sessionStart, promptSubmit, stop, notification, approvalResponse
+        case sessionStart, promptSubmit, titleUpdate, stop, notification, approvalResponse
         case codexSubagentStart, codexSubagentStop
         case shellObserved, shellDone, shellFailed, sessionEnd, sessionFinalize, noop
     }
@@ -168,6 +168,7 @@ extension CMUXCLI {
     static let subcommandActions: [String: AgentHookAction] = [
         "session-start": .sessionStart,
         "prompt-submit": .promptSubmit,
+        "title-update": .titleUpdate,
         "stop": .stop,
         "notification": .notification,
         "notify": .notification,
@@ -374,6 +375,16 @@ extension CMUXCLI {
             routedArguments: routedArguments,
             socketPath: socketPath
         )
+        // The terminal that launched the agent owns the surface. When the agent
+        // preserved that terminal's cmux environment, dispatch there first so a
+        // session started from one cmux build (stable, nightly, a tagged dev
+        // build) is never reported to whichever build last ran `hooks setup`.
+        // The pinned install remains the fallback for sanitized hook
+        // environments, and for a stale socket node left by an exited app: the
+        // ambient invocation must succeed, otherwise the pinned chain runs.
+        // https://github.com/manaflow-ai/cmux/issues/5473
+        let ambientGuard = pinnedHookAmbientDispatchGuard
+        let ambientInvocation = pinnedHookAmbientInvocation(routedArguments: routedArguments)
         let dispatch: String
         if let cliPath = pinnedAgentHookCLIPath() {
             let quotedCLIPath = shellSingleQuote(cliPath)
@@ -382,11 +393,22 @@ extension CMUXCLI {
                 routedArguments: routedArguments,
                 socketPath: socketPath
             )
-            dispatch = "if [ -x \(quotedCLIPath) ]; then \(primaryInvocation); elif command -v cmux >/dev/null 2>&1; then \(fallbackInvocation); else \(noOpSnippet); fi"
+            dispatch = "if \(ambientGuard) && \(ambientInvocation); then :; elif [ -x \(quotedCLIPath) ]; then \(primaryInvocation); elif command -v cmux >/dev/null 2>&1; then \(fallbackInvocation); else \(noOpSnippet); fi"
         } else {
-            dispatch = "command -v cmux >/dev/null 2>&1 && \(fallbackInvocation) || \(noOpSnippet)"
+            dispatch = "if \(ambientGuard) && \(ambientInvocation); then :; elif command -v cmux >/dev/null 2>&1; then \(fallbackInvocation); else \(noOpSnippet); fi"
         }
         return ": \(marker); \(shellTraceStart); printenv \(def.disableEnvVar) | grep -qx 1 && { \(shellTraceDisabled); \(noOpSnippet); } || { \(dispatch); cmux_hook_status=$?; \(shellTraceExit); exit $cmux_hook_status; }"
+    }
+
+    /// Shell test that is true only when the hook inherited a live cmux terminal
+    /// environment: a socket that exists plus an executable bundled CLI file.
+    /// `-f` matters because a directory also satisfies `-x`.
+    static let pinnedHookAmbientDispatchGuard =
+        "[ -n \"${CMUX_SOCKET_PATH:-}\" ] && [ -S \"$CMUX_SOCKET_PATH\" ] && [ -f \"${CMUX_BUNDLED_CLI_PATH:-}\" ] && [ -x \"$CMUX_BUNDLED_CLI_PATH\" ]"
+
+    /// Dispatches through the launching terminal's own cmux build and socket.
+    static func pinnedHookAmbientInvocation(routedArguments: String) -> String {
+        "\"$CMUX_BUNDLED_CLI_PATH\" --socket \"$CMUX_SOCKET_PATH\" \(routedArguments)"
     }
 
     private static func pinnedHookInvocation(

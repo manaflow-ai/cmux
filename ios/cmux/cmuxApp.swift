@@ -64,6 +64,7 @@ struct cmuxApp: App {
         let irxEnabled = MobileIrxRuntimeComposition.isEnabled
         let irx = MobileIrxRuntimeComposition(
             apiBaseURL: auth.config.apiBaseURL,
+            reachability: reachability,
             appNamespace: auth.appNamespace,
             keychainAccessGroup: auth.keychainAccessGroup
         )
@@ -136,6 +137,20 @@ struct cmuxApp: App {
                         for: request,
                         surfaceID: surfaceUUID,
                         cursor: cursor
+                    )
+            },
+            terminalInputLaneProvider: { request, surfaceID, _ in
+                guard let surfaceUUID = UUID(uuidString: surfaceID) else {
+                    throw MobileIrohTerminalLaneError.invalidSurfaceID
+                }
+                return irxEnabled
+                    ? try await irx.openTerminalInputLane(
+                        for: request,
+                        surfaceID: surfaceUUID
+                    )
+                    : try await iroh.openTerminalInputLane(
+                        for: request,
+                        surfaceID: surfaceUUID
                     )
             },
             artifactLaneProvider: { request, resourceID, offset in
@@ -217,7 +232,7 @@ struct cmuxApp: App {
             mobileRootScene
             #endif
         }
-        .environment(\.irohSettingsController, Self.root.iroh)
+        .environment(\.irohSettingsController, Self.root.irohSettingsController)
         .environment(\.mobileKeyboardFrameTracker, Self.root.keyboardFrameTracker)
         .environment(
             \.dogfoodAttachPreparation,
@@ -253,7 +268,8 @@ struct cmuxApp: App {
             personalIrohForget: Self.root.irxDiscovery ?? Self.root.iroh,
             buildCompatibilityPolicy: Self.root.buildCompatibilityPolicy,
             signOutHook: Self.root.signOutHook,
-            diagnosticLog: Self.root.diagnosticLog
+            diagnosticLog: Self.root.diagnosticLog,
+            appLog: Self.root.appLog
         )
     }
 }

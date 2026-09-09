@@ -149,6 +149,7 @@ impl TerminalExit {
 ///
 /// cmux-pty's Unix backend returns `std::process::Child`, so failure to downcast
 /// is an alternate backend and becomes an explicit unknown outcome.
+#[cfg(test)]
 pub(crate) fn wait_for_native_child_status(
     child: &mut (dyn cmux_pty::Child + Send + Sync),
 ) -> TerminalExit {

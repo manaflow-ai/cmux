@@ -1,5 +1,6 @@
 #include "include/GhosttyRuntimeTestStubs.h"
 #include <pthread.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
@@ -260,6 +261,46 @@ void ghostty_config_load_string(
     config->diagnostics_count = 1;
 }
 
+ghostty_string_s ghostty_config_serialize(void *raw_config) {
+    const GhosttyRuntimeTestConfig *config = raw_config;
+    if (config == NULL) {
+        return (ghostty_string_s){0};
+    }
+
+    const int length = snprintf(
+        NULL,
+        0,
+        "foreground=%u,%u,%u;has=%u;diagnostics=%u",
+        config->foreground.r,
+        config->foreground.g,
+        config->foreground.b,
+        (unsigned)config->has_foreground,
+        config->diagnostics_count
+    );
+    if (length < 0) {
+        return (ghostty_string_s){0};
+    }
+    char *serialized = malloc((size_t)length + 1);
+    if (serialized == NULL) {
+        return (ghostty_string_s){0};
+    }
+    snprintf(
+        serialized,
+        (size_t)length + 1,
+        "foreground=%u,%u,%u;has=%u;diagnostics=%u",
+        config->foreground.r,
+        config->foreground.g,
+        config->foreground.b,
+        (unsigned)config->has_foreground,
+        config->diagnostics_count
+    );
+    return (ghostty_string_s){
+        .ptr = serialized,
+        .len = (uintptr_t)length,
+        .sentinel = true,
+    };
+}
+
 bool ghostty_config_get(
     void *raw_config,
     void *raw_value,
@@ -282,7 +323,9 @@ uint32_t ghostty_config_diagnostics_count(void *raw_config) {
 
 void ghostty_config_get_diagnostic(void) {}
 void ghostty_string_free(ghostty_string_s string) {
-    (void)string;
+    if (string.sentinel) {
+        free((void *)string.ptr);
+    }
 }
 bool ghostty_surface_binding_action(
     void *surface,
@@ -394,6 +437,15 @@ void ghostty_surface_free(void *surface) {
     }
 }
 void ghostty_surface_free_text(void) {}
+bool ghostty_surface_read_selection_clipboard_text(
+    void *surface,
+    uintptr_t max_bytes,
+    void *selection) {
+    (void)surface;
+    (void)max_bytes;
+    (void)selection;
+    return false;
+}
 float ghostty_surface_font_size(void *surface) {
     return surface == cmux_test_font_surface
         ? cmux_test_font_runtime_points

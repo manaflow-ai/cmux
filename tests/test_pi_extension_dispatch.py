@@ -2898,8 +2898,8 @@ for (const [value, expected] of parsingCases) {
 
 const commandTimeoutCases = [
   [["hooks", "pi", "session-start"], undefined, 15000],
-  [["hooks", "feed", "--source", "pi"], undefined, 4500],
-  [["hooks", "feed", "--source", "pi"], "25000", 4500],
+  [["hooks", "feed", "--source", "pi"], undefined, 5000],
+  [["hooks", "feed", "--source", "pi"], "25000", 5000],
   [["hooks", "feed", "--source", "pi"], "4200", 4200],
   [["hooks", "feed", "--source", "pi"], "1000", 1000],
 ];

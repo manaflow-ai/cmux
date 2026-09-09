@@ -17,6 +17,11 @@ struct TerminalSurfaceAgentCommandShimDefinition: Sendable {
             environmentVariablePrefix: "CMUX_CODEX"
         ),
         Self(
+            commandName: "amp",
+            wrapperName: "cmux-amp-wrapper",
+            environmentVariablePrefix: "CMUX_AMP"
+        ),
+        Self(
             commandName: "hermes",
             wrapperName: "cmux-hermes-agent-wrapper",
             environmentVariablePrefix: "CMUX_HERMES_AGENT"

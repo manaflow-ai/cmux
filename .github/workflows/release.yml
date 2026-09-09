@@ -15,6 +15,15 @@ env:
   CREATE_DMG_VERSION: 8.0.0
 
 jobs:
+  generate-ios-screenshots:
+    name: Generate iOS App Store screenshots
+    uses: ./.github/workflows/ios-screenshots.yml
+    with:
+      ref: ${{ github.ref }}
+      languages: "en-US,de-DE,fr-FR,ar-SA,es-ES,zh-Hant,zh-Hans,ko,ja"
+      upload: false
+    secrets: inherit
+
   build-ghostty-cli-helper:
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 20
@@ -34,6 +43,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          fetch-depth: 0
           submodules: recursive
 
       - name: Install zig
@@ -62,7 +72,9 @@ jobs:
           retention-days: 3
 
   build-sign-notarize:
-    needs: build-ghostty-cli-helper
+    needs:
+      - build-ghostty-cli-helper
+      - generate-ios-screenshots
     # Build the app on macOS 26 so SDK-gated SwiftUI Liquid Glass code compiles
     # into stable releases. The real universal Ghostty CLI helper is built on
     # macOS 15 above because Zig 0.15.2 cannot link it on macOS 26.
@@ -240,6 +252,13 @@ jobs:
           echo "Derived Sparkle public key: $DERIVED_PUBLIC_KEY"
           echo "SPARKLE_PUBLIC_KEY=$DERIVED_PUBLIC_KEY" >> "$GITHUB_ENV"
 
+      - name: Set up Go for the Cloud tunnel extension
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26.x'
+          cache: false
+
       - name: Build universal app (Release)
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |
@@ -305,12 +324,22 @@ jobs:
           ./scripts/install-prebuilt-ghostty-cli-helper.sh \
             ghostty-cli-helper/ghostty \
             build-universal/Build/Products/Release/cmux.app
-          ./scripts/install-cmux-tui-client.sh build-universal/Build/Products/Release/cmux.app
+          # actions/checkout is depth 1 here, so a bare `git log -1 -- cmux-tui` would answer
+          # HEAD. A release bundles the exact client of the newest cmux-tui commit or fails.
+          cmux_tui_commit="$(./scripts/ci/resolve-cmux-tui-client-commit.sh)"
+          test -n "$cmux_tui_commit"
+          ./scripts/install-cmux-tui-client.sh \
+            build-universal/Build/Products/Release/cmux.app \
+            --manifest-url "https://files.cmux.com/cmux-tui/${cmux_tui_commit}/manifest.json" \
+            --expected-commit "$cmux_tui_commit" \
+            --require-capability wireguard-hub
 
       - name: Verify binary architectures
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |
           set -euo pipefail
+          APP="build-universal/Build/Products/Release/cmux.app"
+          ./scripts/normalize-system-extension-bundle.sh "$APP" "7WLXT3NR37.com.cmuxterm.app.tunnel"
           APP_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/MacOS/cmux"
           CLI_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux"
           HELPER_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/ghostty"
@@ -326,6 +355,12 @@ jobs:
           [[ "$APP_ARCHS" == *arm64* && "$APP_ARCHS" == *x86_64* ]]
           [[ "$CLI_ARCHS" == *arm64* && "$CLI_ARCHS" == *x86_64* ]]
           [[ "$HELPER_ARCHS" == *arm64* && "$HELPER_ARCHS" == *x86_64* ]]
+          TUNNEL_BINARY="$APP/Contents/Library/SystemExtensions/7WLXT3NR37.com.cmuxterm.app.tunnel.systemextension/Contents/MacOS/cmuxTunnel"
+          [ -x "$TUNNEL_BINARY" ] || { echo "Cloud tunnel extension binary not found at $TUNNEL_BINARY" >&2; exit 1; }
+          TUNNEL_ARCHS="$(lipo -archs "$TUNNEL_BINARY")"
+          echo "Tunnel extension architectures: $TUNNEL_ARCHS"
+          [[ "$TUNNEL_ARCHS" == *arm64* && "$TUNNEL_ARCHS" == *x86_64* ]]
+          ./scripts/verify-tunnel-extension-engine.sh "$TUNNEL_BINARY"
           ./scripts/verify-diff-sidecar-artifact.sh "$DIFF_SIDECAR"
           [[ "$SDK_VERSION" == 26.* ]]
 
@@ -391,9 +426,34 @@ jobs:
           fi
           cp "$TMP_PROFILE" "$PROFILE_PATH"
 
+      - name: Embed Cloud tunnel extension provisioning profile
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        env:
+          APPLE_RELEASE_TUNNEL_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_RELEASE_TUNNEL_PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          set -euo pipefail
+          ./scripts/ci/embed-tunnel-extension-profile.sh \
+            "build-universal/Build/Products/Release/cmux.app" \
+            "7WLXT3NR37.com.cmuxterm.app.tunnel" \
+            "${APPLE_RELEASE_TUNNEL_PROVISIONING_PROFILE_BASE64:-}"
+
       - name: Strip release binaries
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: ./scripts/strip-release-bundle.sh "build-universal/Build/Products/Release/cmux.app"
+
+      - name: Verify Cloud tunnel engine before signing
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        run: |
+          set -euo pipefail
+          app="build-universal/Build/Products/Release/cmux.app"
+          sysext="$(find "$app/Contents/Library/SystemExtensions" -mindepth 1 -maxdepth 1 -name '*.systemextension' -print -quit 2>/dev/null || true)"
+          if [[ -z "$sysext" ]]; then
+            echo "::error::Cloud tunnel system extension is missing"
+            exit 1
+          fi
+          executable="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$sysext/Contents/Info.plist")"
+          binary="$sysext/Contents/MacOS/$executable"
+          ./scripts/verify-tunnel-extension-engine.sh "$binary"
 
       - name: Codesign app
         if: steps.guard_release_assets.outputs.skip_all != 'true'
@@ -410,6 +470,16 @@ jobs:
             "$APP_PATH" \
             cmux.release.entitlements \
             "$APPLE_SIGNING_IDENTITY"
+
+      - name: Smoke launch signed app before notarization
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        run: |
+          set -euo pipefail
+          # Catch macOS policy failures before the Apple ticket wait and DMG
+          # work. Direct execution is isolated from the runner's Dock state.
+          CMUX_SMOKE_DIRECT_EXEC=1 CMUX_SMOKE_DEBUG_LOGS=1 \
+            ./scripts/smoke-launch-macos-app.sh \
+            "build-universal/Build/Products/Release/cmux.app"
 
       - name: Notarize app
         if: steps.guard_release_assets.outputs.skip_all != 'true'

@@ -1,25 +1,53 @@
 name: iOS App Store screenshots
+run-name: iOS App Store screenshots (${{ inputs.request_id || github.run_id }})
 
 # Captures fastlane screenshots for the public App Store listing (com.cmux.app)
-# on the required device classes — 6.9" iPhone + 13" iPad — in every locale the
-# app is localized in (en-US + ja). The capture runs against a DEBUG build with
+# on the required device classes — 6.9" iPhone + 13" iPad — in every language
+# the app is localized in. The capture runs against a DEBUG build with
 # the CMUX_UITEST_MOCK_DATA hook, so no Apple signing is needed to shoot; only
 # the optional upload-to-ASC step needs the App Store Connect API key.
 #
-# During the CI pause this runs only on explicit dispatch. Upload to App Store
-# Connect additionally requires upload=true.
+# Manual dispatch remains available for review runs. Stable releases call this
+# workflow as a reusable job, which captures the release tag and publishes the
+# raw and composed screenshot artifacts without uploading to ASC.
 
 on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Branch or SHA to capture from
+        required: false
+        type: string
+        default: ""
+      request_id:
+        description: Correlation identifier for CLI-dispatched capture runs
+        required: false
+        type: string
+        default: ""
+      languages:
+        description: "Comma-separated App Store locale identifiers for localized app captures"
+        required: false
+        type: string
+        default: "en-US,de-DE,fr-FR,ar-SA,es-ES,zh-Hant,zh-Hans,ko,ja"
+      upload:
+        description: "Upload captured screenshots to the com.cmux.app App Store listing"
+        required: false
+        type: boolean
+        default: false
   workflow_dispatch:
     inputs:
       ref:
         description: Branch or SHA to capture from
         required: false
         default: ""
-      languages:
-        description: "Comma-separated App Store locales (app is localized in en-US, ja)"
+      request_id:
+        description: Correlation identifier for CLI-dispatched capture runs
         required: false
-        default: "en-US,ja"
+        default: ""
+      languages:
+        description: "Comma-separated App Store locale identifiers for localized app captures"
+        required: false
+        default: "en-US,de-DE,fr-FR,ar-SA,es-ES,zh-Hant,zh-Hans,ko,ja"
       upload:
         description: "Upload captured screenshots to the com.cmux.app App Store listing"
         required: false
@@ -35,7 +63,10 @@ jobs:
     # not as a foregrounded Mac app, so the Blacksmith foreground limitation does
     # not apply.
     runs-on: ${{ vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
-    timeout-minutes: 60
+    # Nine localized languages are captured serially on each required device
+    # class. Keep enough budget for cold Xcode builds plus the frame lane on
+    # shared macOS runners, where simulator resets can be slow.
+    timeout-minutes: 300
     steps:
       - name: Guard trusted upload ref
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.upload && (inputs.ref != '' || github.ref != 'refs/heads/main') }}
@@ -150,7 +181,7 @@ jobs:
       - name: Capture screenshots
         working-directory: ios
         env:
-          SNAPSHOT_LANGUAGES: ${{ inputs.languages || 'en-US,ja' }}
+          SNAPSHOT_LANGUAGES: ${{ inputs.languages || 'en-US,de-DE,fr-FR,ar-SA,es-ES,zh-Hant,zh-Hans,ko,ja' }}
           FASTLANE_SKIP_UPDATE_CHECK: "1"
           FASTLANE_HIDE_CHANGELOG: "1"
         run: |
@@ -168,7 +199,7 @@ jobs:
           # This runs before framing/localization propagation, so it contains
           # only the untouched simulator captures reviewers need for fidelity.
           if [ -d ios/fastlane/screenshots ]; then
-            rsync -a --include '*/' --include '*.png' --exclude '*' \
+            rsync -a --include '*/' --exclude '*_framed.png' --include '*.png' --exclude '*' \
               ios/fastlane/screenshots/ ios/fastlane/raw-screenshot-captures/
           else
             echo "No raw screenshots were produced before capture failed." >&2

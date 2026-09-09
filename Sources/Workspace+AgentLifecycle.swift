@@ -312,6 +312,7 @@ extension Workspace {
             switch restoredAgentResumeStatesByPanelId[panelId] {
             case .some(.awaitingAutoResumeCommand):
                 restoredAgentLifecycle.setResumeState(.autoResumeCommandRunning, panelId: panelId)
+                restoredAgentLifecycle.clearStartupInput(panelId: panelId)
             case .some(.autoResumeCommandRunning), .some(.observedAgentCommandRunning),
                  .some(.completedAgentExit):
                 break
@@ -324,7 +325,9 @@ extension Workspace {
                 markRestoredAgentCompleted(panelId: panelId, snapshot: restoredAgent)
                 restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
                 retireAgentHookResumeBinding(panelId: panelId, matching: restoredAgent)
-            case .some(.awaitingAutoResumeCommand), .some(.manualResumeAvailable), .some(.completedAgentExit), nil:
+            case .some(.awaitingAutoResumeCommand):
+                scheduleRestoredStartupInputResend(panelId: panelId)
+            case .some(.manualResumeAvailable), .some(.completedAgentExit), nil:
                 break
             }
         case .unknown:
@@ -339,6 +342,9 @@ extension Workspace {
         switch (shellState, restoredAgentResumeStatesByPanelId[panelId]) {
         case (.commandRunning, .some(.awaitingAutoResumeCommand)):
             restoredAgentLifecycle.setResumeState(.autoResumeCommandRunning, panelId: panelId)
+            restoredAgentLifecycle.clearStartupInput(panelId: panelId)
+        case (.promptIdle, .some(.awaitingAutoResumeCommand)):
+            scheduleRestoredStartupInputResend(panelId: panelId)
         case (.promptIdle, .some(.autoResumeCommandRunning)),
              (.promptIdle, .some(.observedAgentCommandRunning)):
             restoredAgentLifecycle.setResumeState(nil, panelId: panelId)
@@ -347,6 +353,28 @@ extension Workspace {
         default:
             break
         }
+    }
+
+    /// Grace period before replaying startup input that a slow login shell may discard.
+    static var restoredStartupInputResendGrace: TimeInterval = 2
+
+    /// Replays a retained restore selector once after the shell reports an idle prompt.
+    func scheduleRestoredStartupInputResend(panelId: UUID) {
+        guard restoredAgentLifecycle.armStartupInputResend(panelId: panelId) else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.restoredStartupInputResendGrace) { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.resendRestoredStartupInputIfStillIdle(panelId: panelId)
+            }
+        }
+    }
+
+    func resendRestoredStartupInputIfStillIdle(panelId: UUID) {
+        let shellState = panelShellActivityStates[panelId] ?? .unknown
+        guard !isRetiredFromOwningTabManager,
+              let terminal = panels[panelId] as? TerminalPanel,
+              let input = restoredAgentLifecycle.takeStartupInputForResend(panelId: panelId, shellState: shellState),
+              terminal.surface.surface != nil else { return }
+        _ = terminal.sendInputResult(input)
     }
 
     private func invalidateRestoredAgentSnapshot(
@@ -524,8 +552,12 @@ extension Workspace {
             snapshot: detached.restorableAgent,
             resumeState: detached.restorableAgentResumeState,
             completedGeneration: detached.restoredAgentCompletedGeneration,
-            resumeWorkingDirectory: detached.restoredResumeSessionWorkingDirectory
+            resumeWorkingDirectory: detached.restoredResumeSessionWorkingDirectory,
+            startupInput: detached.restoredStartupInput
         )
+        if detached.shellActivityState == .promptIdle {
+            scheduleRestoredStartupInputResend(panelId: detached.panelId)
+        }
         if let deferredRestore = detached.deferredAgentResumeRestore {
             let adoptedRemoteContext = surfaceResumeBindingsByPanelId[detached.panelId]?
                 .launchFlavor.remoteContext
@@ -618,15 +650,18 @@ extension Workspace {
         deferredAgentResumeRestoresByPanelId[panelId] = restore
         guard deferredAgentResumeIndexTask == nil else { return }
         deferredAgentResumeIndexTask = Task { @MainActor [weak self] in
-            let index = await SharedLiveAgentIndex.shared.indexRefreshingNow()
+            let outcome = await SharedLiveAgentIndex.shared.indexForOwnershipDecision()
             guard !Task.isCancelled else { return }
             guard let self else { return }
             self.deferredAgentResumeIndexTask = nil
-            guard let index else {
+            switch outcome {
+            case .index(let index):
+                self.resolveDeferredAgentResumeRestores(using: index)
+            case .timedOut:
+                self.explainUnverifiableDeferredAgentResumeRestores()
+            case .cancelled:
                 self.clearDeferredAgentResumeRestores()
-                return
             }
-            self.resolveDeferredAgentResumeRestores(using: index)
         }
     }
 
@@ -693,6 +728,34 @@ extension Workspace {
             }
             let ownershipPanelID = restore.stablePanelID
             let expectedSessionId = restore.restorableAgent?.sessionId ?? restore.resumeBinding?.checkpointId
+            let liveSessionOwner: LiveAgentSessionOwner? = if let expectedKind,
+                let expectedSessionId {
+                index.liveSessionOwner(
+                    kind: expectedKind,
+                    sessionID: expectedSessionId,
+                    revalidateProcessEvidence: true
+                )
+            } else {
+                nil
+            }
+            if let liveSessionOwner {
+                explainDeferredAgentResumeRestore(
+                    panelId: panelId,
+                    restore: restore,
+                    terminal: terminal,
+                    noticeInput: AgentRestoreLiveOwnerNotice(
+                        processID: liveSessionOwner.processID
+            ).startupInput(dialect: restore.noticeDialect)
+                )
+                AgentRestoreSuppressionJournal().record(
+                    kind: liveSessionOwner.kind,
+                    sessionID: liveSessionOwner.sessionID,
+                    workspaceID: id,
+                    surfaceID: panelId,
+                    processID: liveSessionOwner.processID
+                )
+                continue
+            }
             // Deferred admission has no exact-owner snapshot that can override a
             // stable-panel tie, so structural ambiguity remains fail-closed even
             // after the old owners' PIDs have exited.
@@ -768,16 +831,19 @@ extension Workspace {
                 cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
                 continue
             }
-            if let claim,
+            let ownedClaim = restore.restoresRemoteWorkspaceTerminalSnapshot
+                ? claim
+                : nil
+            if let ownedClaim,
                !AgentResumeLaunchGuard.shared.claimResumeLaunch(
-                   kind: claim.kind,
-                   sessionId: claim.sessionId
+                   kind: ownedClaim.kind,
+                   sessionId: ownedClaim.sessionId
                ) {
                 cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
                 continue
             }
-            if let claim {
-                deferredAgentResumeClaimsByPanelId[panelId] = claim
+            if let ownedClaim {
+                deferredAgentResumeClaimsByPanelId[panelId] = ownedClaim
             }
             if let restoreWorkingDirectory = restore.resumeWorkingDirectory {
                 restoredResumeSessionWorkingDirectoriesByPanelId[panelId] = restoreWorkingDirectory
@@ -786,14 +852,17 @@ extension Workspace {
                 .awaitingAutoResumeCommand,
                 panelId: panelId
             )
+            let admittedInput = restore.remoteResumeCommandEmbedded ? nil : startupInput
+            restoredAgentLifecycle.registerStartupInput(admittedInput, panelId: panelId)
             let admitted = terminal.surface.admitStartupRestoreRuntime(
-                initialInput: restore.remoteResumeCommandEmbedded ? nil : startupInput
+                initialInput: admittedInput
             )
             if !admitted {
-                if let claim {
+                restoredAgentLifecycle.clearStartupInput(panelId: panelId)
+                if let ownedClaim {
                     AgentResumeLaunchGuard.shared.releaseResumeLaunch(
-                        kind: claim.kind,
-                        sessionId: claim.sessionId
+                        kind: ownedClaim.kind,
+                        sessionId: ownedClaim.sessionId
                     )
                 }
                 deferredAgentResumeClaimsByPanelId.removeValue(forKey: panelId)
@@ -810,10 +879,10 @@ extension Workspace {
                     workingDirectory: restore.resumeWorkingDirectory ?? restore.workingDirectory
                 )
                 deferredAgentResumeRestoresByPanelId.removeValue(forKey: panelId)
-                if let claim,
+                if let ownedClaim,
                    let pendingClaim = deferredAgentResumeClaimsByPanelId[panelId],
-                   pendingClaim.kind == claim.kind,
-                   pendingClaim.sessionId == claim.sessionId {
+                   pendingClaim.kind == ownedClaim.kind,
+                   pendingClaim.sessionId == ownedClaim.sessionId {
                     // After admission the guard's bounded TTL owns this claim;
                     // do not let later panel teardown release a newer claimant.
                     deferredAgentResumeClaimsByPanelId.removeValue(forKey: panelId)
@@ -835,7 +904,8 @@ extension Workspace {
     func cancelDeferredAgentResumeRestore(
         panelId: UUID,
         restore: DeferredAgentResumeRestore,
-        startRuntime: Bool = true
+        startRuntime: Bool = true,
+        retireBinding: Bool = true
     ) {
         if startRuntime {
             (panels[panelId] as? TerminalPanel)?.surface.cancelStartupRestoreAdmission()
@@ -844,7 +914,8 @@ extension Workspace {
             restoredAgentLifecycle.clearSessionRestore(panelId: panelId)
         }
         removeDeferredAgentResumeRestore(panelId: panelId)
-        if startRuntime, restore.restorableAgent == nil {
+        restoredAgentLifecycle.clearStartupInput(panelId: panelId)
+        if startRuntime, retireBinding, restore.restorableAgent == nil {
             if let binding = restore.resumeBinding {
                 retireAgentHookResumeBinding(panelId: panelId, matching: binding)
             }
@@ -918,7 +989,74 @@ extension Workspace {
         retireAgentHookResumeBinding(panelId: panelId)
     }
 
-    func clearDeferredAgentResumeRestores(startRuntime: Bool = true) {
+    /// Replaces a deferred automatic resume with a typed explanation, so the
+    /// pane says why nothing was resumed and how to resume it by hand.
+    private func explainDeferredAgentResumeRestore(
+        panelId: UUID,
+        restore: DeferredAgentResumeRestore,
+        terminal: TerminalPanel,
+        noticeInput: String
+    ) {
+        removeDeferredAgentResumeRestore(panelId: panelId)
+        restoredAgentLifecycle.setResumeState(
+            .manualResumeAvailable,
+            panelId: panelId
+        )
+        if restore.remoteResumeCommandEmbedded {
+            let fallbackCommand: String
+            if let remoteResumeContext = restore.remoteResumeContext,
+               let remoteNoticeCommand = persistentSSHLiveOwnerNoticeCommand(noticeInput) {
+                fallbackCommand = remotePTYAttachStartupCommand(
+                    sessionID: remoteResumeContext.persistentPTYSessionID,
+                    remoteCommand: remoteNoticeCommand
+                )
+            } else {
+                fallbackCommand = noticeInput
+            }
+            terminal.surface.setStartupRestoreAdmissionFallbackCommand(fallbackCommand)
+            // The original remote attach command contains the agent resume
+            // payload. Cancel admission so the attach-only/notice fallback
+            // replaces it and the payload can never execute.
+            terminal.surface.cancelStartupRestoreAdmission()
+        } else {
+            _ = terminal.surface.admitStartupRestoreRuntime(
+                initialInput: noticeInput
+            )
+        }
+    }
+
+    /// The live-agent scan did not finish inside the admission deadline, so
+    /// liveness is unknown. Say so in each pane instead of leaving a bare
+    /// prompt; the manual resume path re-checks ownership at exec (#12158).
+    private func explainUnverifiableDeferredAgentResumeRestores() {
+        for (panelId, restore) in Array(deferredAgentResumeRestoresByPanelId) {
+            guard deferredAgentResumeRestoresByPanelId[panelId] != nil else {
+                continue
+            }
+            guard let terminal = panels[panelId] as? TerminalPanel else {
+                removeDeferredAgentResumeRestore(panelId: panelId)
+                continue
+            }
+#if DEBUG
+            cmuxDebugLog(
+                "session.restore.admissionUnverifiable workspace=\(id.uuidString) panel=\(panelId.uuidString) kind=\(restore.restorableAgent?.kind.rawValue ?? restore.resumeBinding?.kind ?? "unknown")"
+            )
+#endif
+            explainDeferredAgentResumeRestore(
+                panelId: panelId,
+                restore: restore,
+                terminal: terminal,
+                noticeInput: AgentRestoreUnverifiableNotice()
+                    .startupInput(dialect: restore.noticeDialect)
+            )
+        }
+        deferredAgentResumeRestoresByPanelId.removeAll()
+    }
+
+    func clearDeferredAgentResumeRestores(
+        startRuntime: Bool = true,
+        retireBindings: Bool = true
+    ) {
         deferredAgentResumeIndexTask?.cancel()
         deferredAgentResumeIndexTask = nil
         let panelIds = Set(
@@ -930,7 +1068,8 @@ extension Workspace {
                 cancelDeferredAgentResumeRestore(
                     panelId: panelId,
                     restore: restore,
-                    startRuntime: startRuntime
+                    startRuntime: startRuntime,
+                    retireBinding: retireBindings
                 )
             } else {
                 if startRuntime {
@@ -943,6 +1082,16 @@ extension Workspace {
             }
         }
         deferredAgentResumeRestoresByPanelId.removeAll()
+    }
+
+    /// Uses the most recent completed index when a refresh could not settle.
+    /// A missing refreshed index means the scan was inconclusive, not that the
+    /// previously loaded session index is stale.
+    nonisolated static func deferredResumeIndex(
+        refreshed: RestorableAgentSessionIndex?,
+        lastKnown: RestorableAgentSessionIndex?
+    ) -> RestorableAgentSessionIndex? {
+        refreshed ?? lastKnown
     }
 
     func agentHibernationLifecycleState(

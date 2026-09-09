@@ -1013,6 +1013,17 @@ cmux_computer_use_json_escape() {
     printf '%s' "$value"
 }
 
+cmux_claude_load_skill_link_policy() {
+    local self_dir resource_dir policy
+    self_dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P)" || return 1
+    resource_dir="${self_dir%/bin}"
+    policy="$resource_dir/cmux-cua/link-policy.sh"
+    [[ -r "$policy" ]] || return 1
+    # Keep global-link ownership and collision handling identical to Codex.
+    # shellcheck source=/dev/null
+    . "$policy"
+}
+
 cmux_computer_use_resolve_client() {
     local self_dir app_contents bundled_client
     self_dir="$(cd "$(dirname "$0")" && pwd)" || return 1
@@ -1154,68 +1165,27 @@ cmux_computer_use_config() {
 }
 
 cmux_claude_global_skill_install_enabled() {
-    # Keep Claude and Codex discovery symmetric. Both pickers can only show a
-    # skill that exists in a filesystem skill root; the session-only plugin
-    # flag is not a durable picker entry. Users who want a strictly local
-    # session can opt out explicitly.
-    case "${CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL:-1}" in
-        0|false|FALSE|no|NO) return 1 ;;
+    # A durable Claude skill link is an explicit user choice, never a side
+    # effect of starting an agent.
+    case "${CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL:-0}" in
+        1|true|TRUE|yes|YES) return 0 ;;
     esac
-    return 0
+    return 1
 }
 
-cmux_claude_install_computer_use_skill() {
-    # Claude surfaces personal skills from ~/.claude/skills with a plain
-    # unqualified name; ~/.agents/skills is Codex's discovery root, not
-    # Claude's. Keep the source inside the signed cmux app and link it instead
-    # of copying stale versions. Never replace a real directory or a symlink
-    # the user owns. Returns 0 only when the cmux-cua link now points at this
-    # app bundle, so callers can skip the namespaced session-scoped fallback.
-    local home="${HOME:-}"
-    [[ "$home" = /* ]] || return 1
-    local self_dir resource_dir source_dir skills_root destination target legacy legacy_target
+cmux_claude_reconcile_skill_links() {
+    local self_dir resource_dir source_dir install_requested=0
     self_dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P)" || return 1
     resource_dir="${self_dir%/bin}"
     source_dir="$resource_dir/cmux-cua"
     [[ -f "$source_dir/SKILL.md" ]] || return 1
+    cmux_claude_global_skill_install_enabled && install_requested=1
 
-    skills_root="$home/.claude/skills"
-    destination="$skills_root/cmux-cua"
-    /bin/mkdir -p "$skills_root" 2>/dev/null || return 1
-
-    # Retire the pre-rename cmux-computer-use link (written by older wrappers
-    # into Codex's shared root) so pickers do not show two copies of the same
-    # skill. Only a symlink into a cmux app bundle is removed; user-owned
-    # paths at that name are left alone.
-    legacy="$home/.agents/skills/cmux-computer-use"
-    if [[ -L "$legacy" ]]; then
-        legacy_target="$(/usr/bin/readlink "$legacy" 2>/dev/null || /bin/readlink "$legacy" 2>/dev/null)" || legacy_target=""
-        case "$legacy_target" in
-            */Contents/Resources/cmux-computer-use|*/Contents/Resources/cmux-cua)
-                /bin/rm -f "$legacy" 2>/dev/null || true
-                ;;
-        esac
+    if ! cmux_claude_load_skill_link_policy; then
+        return 0
     fi
 
-    if [[ -L "$destination" ]]; then
-        target="$(/usr/bin/readlink "$destination" 2>/dev/null || /bin/readlink "$destination" 2>/dev/null)" || return 1
-        case "$target" in
-            */Contents/Resources/cmux-cua|*/Contents/Resources/cmux-computer-use)
-                /bin/ln -sfn "$source_dir" "$destination" 2>/dev/null || return 1
-                ;;
-            *)
-                return 1
-                ;;
-        esac
-    elif [[ -e "$destination" ]]; then
-        # A user-owned path wins; report not-installed so the session-scoped
-        # fallback still delivers the current bundled skill.
-        return 1
-    else
-        /bin/ln -s "$source_dir" "$destination" 2>/dev/null || return 1
-    fi
-    target="$(/usr/bin/readlink "$destination" 2>/dev/null || /bin/readlink "$destination" 2>/dev/null)" || return 1
-    [[ "$target" == "$source_dir" ]]
+    cmux_cua_skill_reconcile claude "$source_dir" "${PWD:-}" "$install_requested" || return 1
 }
 
 claude_interactive_entry_flag() {
@@ -1629,16 +1599,13 @@ if [[ "$cmux_claude_teams_wrapper_launch" != "1" ]]; then
     fi
 fi
 
-# Keep the bundled skill discoverable by Claude's picker as well as Codex's.
-# Installation is best-effort and never replaces a user-owned path; set
-# CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL=0 for a strictly session-local run.
-# There is deliberately no --plugin-dir fallback: a plugin manifest in the
-# skill directory makes Codex namespace the skill (cmux-cua:cmux-cua) and
-# Claude display plugin skills qualified, so the durable ~/.claude/skills
-# link is the only Claude-side delivery path.
-if cmux_claude_global_skill_install_enabled \
-      && cmux_claude_computer_use_enabled_for_invocation "$@"; then
-    cmux_claude_install_computer_use_skill || true
+# Reconcile the bundled skill's discovery path before the session starts.
+# Normal launches clean up only links proven to be cmux-managed. Skill
+# discovery remains inert unless durable installation is explicitly requested.
+# CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL=1 is the explicit opt-in for a durable
+# user-global link.
+if cmux_claude_computer_use_enabled_for_invocation "$@"; then
+    cmux_claude_reconcile_skill_links || true
 fi
 
 # Attach the cmux computer use MCP server. Prepended so a user-supplied

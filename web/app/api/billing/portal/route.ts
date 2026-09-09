@@ -73,7 +73,7 @@ export async function GET(request: NextRequest) {
     const session = await stripe().billingPortal.sessions.create({
       customer: customerId,
       return_url: new URL(
-        team ? "/dashboard/billing" : "/pricing",
+        "/dashboard/billing",
         requestOrigin(request),
       ).toString(),
     });

@@ -13,6 +13,8 @@ mod app;
 mod browser_input;
 mod cli;
 mod client_log;
+#[cfg(unix)]
+mod coderouter_usage;
 mod config;
 mod host_colors;
 mod keys;
@@ -446,6 +448,9 @@ START OPTIONS
   --remote          Run the authenticated remote daemon with this session.
   --remote-ws <addr> Listen for direct remote WebSocket links.
   --remote-ws-insecure-bind  Allow plaintext remote WebSocket off loopback.
+  --remote-ws-trusted-carrier  Grant every remote WebSocket link carrier auth (no
+                    enrollment): only behind a private network whose members are
+                    all authorized. Also CMUX_TUI_REMOTE_WS_TRUSTED_CARRIER=1.
   --remote-http <addr> Listen for bearer-authenticated workspace HTTP RPC on loopback.
   --remote-state-dir <path>  Override remote identity and runtime state.
   --remote-link-socket <path> Override the local authenticated link socket.
@@ -507,6 +512,7 @@ struct Args {
     remote: bool,
     remote_ws: Option<String>,
     remote_ws_insecure_bind: bool,
+    remote_ws_trusted_carrier: bool,
     remote_http: Option<String>,
     remote_state_dir: Option<PathBuf>,
     remote_link_socket: Option<PathBuf>,
@@ -581,6 +587,7 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
         remote: false,
         remote_ws: None,
         remote_ws_insecure_bind: false,
+        remote_ws_trusted_carrier: false,
         remote_http: None,
         remote_state_dir: None,
         remote_link_socket: None,
@@ -694,6 +701,10 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
             }
             "--remote-ws-insecure-bind" => {
                 out.remote_ws_insecure_bind = true;
+                out.remote = true;
+            }
+            "--remote-ws-trusted-carrier" => {
+                out.remote_ws_trusted_carrier = true;
                 out.remote = true;
             }
             "--remote-http" => {
@@ -1359,6 +1370,7 @@ fn is_cli_invocation(args: &[String]) -> bool {
             | "--ws-insecure-bind"
             | "--remote"
             | "--remote-ws-insecure-bind"
+            | "--remote-ws-trusted-carrier"
             | "--iroh" => index += 1,
             "-h" | "--help" | "help" => return true,
             "attach" => return false,
@@ -1612,7 +1624,10 @@ fn run_main() {
         None => run_server(args, provider_workspace_authority, config),
     };
     if let Err(e) = result {
-        crate::client_log::stderr_log!("startup", "cmux-tui: {e}");
+        if session::is_expected_remote_shutdown(&e) {
+            return;
+        }
+        crate::client_log::stderr_log!("startup", "cmux-tui: {e:#}");
         client_log::exit(1);
     }
 }
@@ -2072,6 +2087,8 @@ fn run_server(
                 admin_socket: args.remote_admin_socket,
                 direct_websocket: remote_direct_websocket,
                 allow_insecure_non_loopback: args.remote_ws_insecure_bind,
+                trusted_carrier_websocket: args.remote_ws_trusted_carrier
+                    || remote_ws_trusted_carrier_from_env(),
                 workspace_http: remote_workspace_http,
                 relays: remote_relays,
                 iroh: args.iroh,
@@ -2136,6 +2153,10 @@ fn run_server(
     }
     let served_socket = pending_server.into_bound_path();
     let mut served_mux_cleanup = ServedMuxCleanup::new(mux.clone(), served_socket);
+    // Cloud VMs carry coderouter identity in their model-plane env; every
+    // other host resolves no source and gets no poller.
+    #[cfg(unix)]
+    let machine_usage_poller = coderouter_usage::start_poller(Arc::downgrade(&mux));
 
     let machine_runtime = (config.machine_sidebar.enabled
         || !config.machine_sidebar.create_sources.is_empty()
@@ -2178,6 +2199,10 @@ fn run_server(
         }
     };
     let owner_event_result = owner_event_loop.map_or(Ok(()), LocalOwnerEventLoop::finish);
+    #[cfg(unix)]
+    if let Some(poller) = machine_usage_poller {
+        poller.stop();
+    }
     #[cfg(unix)]
     let remote_shutdown = remote_runtime.map(|runtime| runtime.shutdown()).transpose();
     #[cfg(unix)]
@@ -2266,11 +2291,22 @@ fn finish_server_shutdown<W, R>(
     result
 }
 
+/// `CMUX_TUI_REMOTE_WS_TRUSTED_CARRIER=1` is how a systemd drop-in turns the
+/// trusted listener on for a daemon whose baked launch line predates the flag
+/// (cmux Cloud machines healed in place). Only an exact truthy value counts.
+#[cfg(unix)]
+fn remote_ws_trusted_carrier_from_env() -> bool {
+    std::env::var("CMUX_TUI_REMOTE_WS_TRUSTED_CARRIER")
+        .map(|value| matches!(value.trim(), "1" | "true" | "yes"))
+        .unwrap_or(false)
+}
+
 #[cfg(not(unix))]
 fn reject_unsupported_remote_options(args: &Args) -> anyhow::Result<()> {
     let requested = args.remote
         || args.remote_ws.is_some()
         || args.remote_ws_insecure_bind
+        || args.remote_ws_trusted_carrier
         || args.remote_http.is_some()
         || args.remote_state_dir.is_some()
         || args.remote_link_socket.is_some()

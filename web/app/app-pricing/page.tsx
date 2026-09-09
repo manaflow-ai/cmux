@@ -3,13 +3,24 @@ import { NextRequest } from "next/server";
 import { redirect } from "next/navigation";
 import { getStackServerApp, isStackConfigured } from "../lib/stack";
 import { validatedNativeCallbackScheme } from "../lib/native-callback";
-import { FREE_PLAN_ID, resolveProPlanStatus } from "../../services/billing/pro";
+import {
+  FREE_PLAN_ID,
+  isDevelopmentProAccessEnabled,
+  PRO_PLAN_ID,
+  resolveProPlanStatus,
+} from "../../services/billing/pro";
 import enMessages from "../../messages/en.json";
 import {
   appPricingCheckoutURL,
   isAppStoreDistributionMode,
   withExternalBrowserIntent,
 } from "../lib/billing";
+import {
+  CHECKOUT_CLIENT_PARAM,
+  CHECKOUT_SOURCE_APP_PRICING,
+  CHECKOUT_SOURCE_PARAM,
+  checkoutAttributionParamsFrom,
+} from "../../services/analytics/checkoutAttribution";
 import { DOWNLOAD_CONFIRMATION_HREF } from "../lib/download";
 import {
   appPricingTheme,
@@ -66,13 +77,21 @@ export default async function AppPricingPage({
   );
   const appStorePaymentGated = isAppStoreDistributionMode(params);
   const interval = proBillingInterval(firstParam(params.interval));
+  // The app that opened this page tags it with the button it came from and
+  // its release channel; forward that to checkout. An app build that predates
+  // the tags still counts as an app-originated checkout.
+  const attribution = {
+    [CHECKOUT_SOURCE_PARAM]: CHECKOUT_SOURCE_APP_PRICING,
+    [CHECKOUT_CLIENT_PARAM]: appStorePaymentGated ? "ios" : "mac",
+    ...checkoutAttributionParamsFrom(params),
+  };
   const proCheckoutHrefs = {
-    month: appPricingCheckoutURL("pro", requestOrigin, cmuxScheme, "month"),
-    year: appPricingCheckoutURL("pro", requestOrigin, cmuxScheme, "year"),
+    month: appPricingCheckoutURL("pro", requestOrigin, cmuxScheme, "month", attribution),
+    year: appPricingCheckoutURL("pro", requestOrigin, cmuxScheme, "year", attribution),
   };
   const teamCheckoutHrefs = {
-    month: appPricingCheckoutURL("team", requestOrigin, cmuxScheme, "month"),
-    year: appPricingCheckoutURL("team", requestOrigin, cmuxScheme, "year"),
+    month: appPricingCheckoutURL("team", requestOrigin, cmuxScheme, "month", attribution),
+    year: appPricingCheckoutURL("team", requestOrigin, cmuxScheme, "year", attribution),
   };
   const signInHref = appPricingSignInHref(cmuxScheme, params);
   const banner = appPricingBanner(params, snapshot, signInHref);
@@ -189,11 +208,11 @@ export default async function AppPricingPage({
                 {snapshot.isPro ? (
                   <div className="space-y-2">
                     <DisabledButton>{pricing.currentPlan}</DisabledButton>
-                    {appStorePaymentGated ? null : (
+                    {snapshot.billingManagement === "stripe" && !appStorePaymentGated ? (
                       <SecondaryLink href="/api/billing/portal">
                         {pricing.manageBilling}
                       </SecondaryLink>
-                    )}
+                    ) : null}
                   </div>
                 ) : appStorePaymentGated ? (
                   <DisabledButton>{pricing.billingUnavailable}</DisabledButton>
@@ -319,6 +338,7 @@ export default async function AppPricingPage({
 
 type AppPlanSnapshot = {
   authenticated: boolean;
+  developmentPro: boolean;
   planId: string;
   isPro: boolean;
   billingManagement: "stripe" | "none";
@@ -329,6 +349,7 @@ async function currentPlanSnapshot(): Promise<AppPlanSnapshot> {
   if (!isStackConfigured()) {
     return {
       authenticated: false,
+      developmentPro: false,
       planId: FREE_PLAN_ID,
       isPro: false,
       billingManagement: "none",
@@ -338,10 +359,24 @@ async function currentPlanSnapshot(): Promise<AppPlanSnapshot> {
 
   const user = await getStackServerApp().getUser({ or: ANONYMOUS_IF_EXISTS });
   if (!user) {
+    const developmentPro = isDevelopmentProAccessEnabled();
     return {
       authenticated: false,
-      planId: FREE_PLAN_ID,
-      isPro: false,
+      developmentPro,
+      planId: developmentPro ? PRO_PLAN_ID : FREE_PLAN_ID,
+      isPro: developmentPro,
+      billingManagement: "none",
+      email: null,
+    };
+  }
+
+  const developmentPro = user.isAnonymous && isDevelopmentProAccessEnabled();
+  if (developmentPro) {
+    return {
+      authenticated: false,
+      developmentPro: true,
+      planId: PRO_PLAN_ID,
+      isPro: true,
       billingManagement: "none",
       email: null,
     };
@@ -350,6 +385,7 @@ async function currentPlanSnapshot(): Promise<AppPlanSnapshot> {
   const status = await resolveProPlanStatus(user);
   return {
     authenticated: !user.isAnonymous,
+    developmentPro: false,
     planId: status.planId,
     isPro: status.isPro,
     billingManagement: status.billingManagement,
@@ -417,6 +453,9 @@ function appPricingBanner(
   }
   if (billing === "invalid_relay") {
     return { message: pricing.billingInvalidRelay };
+  }
+  if (snapshot.developmentPro) {
+    return null;
   }
   if (!snapshot.authenticated) {
     return {

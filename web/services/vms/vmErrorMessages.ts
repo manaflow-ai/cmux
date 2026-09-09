@@ -36,8 +36,20 @@ export function vmRequestLocale(request: Request): Locale {
 }
 
 /** Load and translate the phase-specific unsupported-operation response copy. */
+export type VmUnsupportedOperationKey = "snapshot" | "restore" | "fork" | "openPort" | "default";
+
+/** Maps a workflow operation to the stable copy key used by the API response. */
+export function vmUnsupportedOperationKey(operation: string): VmUnsupportedOperationKey {
+  const normalized = operation.toLowerCase();
+  if (normalized.includes("openport") || normalized.includes("open_port")) return "openPort";
+  if (normalized.includes("restore")) return "restore";
+  if (normalized.includes("fork")) return "fork";
+  if (normalized.includes("snapshot")) return "snapshot";
+  return "default";
+}
+
 export async function vmUnsupportedCopy(
-  phase: "snapshot" | "restore" | "fork" | "default",
+  phase: VmUnsupportedOperationKey,
   locale: Locale,
 ): Promise<VmUnsupportedCopy> {
   const translator = createTranslator({
@@ -45,7 +57,7 @@ export async function vmUnsupportedCopy(
     messages: await loadMessages(locale),
     namespace: "vmErrors.unsupported",
   }) as unknown as (key: string) => string;
-  const phaseKey = phase === "snapshot" || phase === "restore" || phase === "fork"
+  const phaseKey: VmUnsupportedOperationKey = ["snapshot", "restore", "fork", "openPort"].includes(phase)
     ? phase
     : "default";
   return {
@@ -80,6 +92,7 @@ export async function vmRequiresProCopy(
   };
 }
 
+/** Copy returned when an account's shared Cloud VM resource pool is full. */
 function localeFromPath(value: string): Locale | null {
   try {
     const firstSegment = new URL(value).pathname.split("/").filter(Boolean)[0];

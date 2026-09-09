@@ -22,43 +22,55 @@ export default async function StackHandlerPage(
     headers(),
   ]);
 
-  if (
+  const isCoderouterSignIn =
     coderouterHost(requestHeaders.get("host")) &&
     stack.length === 1 &&
-    stack[0] === "sign-in"
-  ) {
+    stack[0] === "sign-in";
+
+  const handlerContent = isCoderouterSignIn ? (
     // The shared cmux Google connector requests Drive, Gmail, and Calendar
     // scopes for optional integrations. Those scopes are inappropriate for
     // coderouter authentication, so coderouter deliberately offers
     // passwordless email only.
-    return (
-      <main className="flex min-h-screen items-center justify-center bg-[#faf9f6] px-6 text-[#25231f]">
-        <section className="w-full max-w-sm border border-[#ded9cf] bg-white p-7 shadow-[4px_4px_0_#eee8dc]">
-          <p className="mb-2 font-mono text-xs lowercase tracking-[0.16em] text-[#9a5b22]">
-            coderouter
-          </p>
-          <h1 className="mb-2 text-xl font-medium">sign in</h1>
-          <p className="mb-6 text-sm leading-6 text-[#6f6a61]">
-            use your cmux account email. we’ll send a one-time code.
-          </p>
-          <MagicLinkSignIn />
-        </section>
-      </main>
-    );
-  }
-
-  const stackHandler = (
+    <main className="flex min-h-screen items-center justify-center bg-[#faf9f6] px-6 text-[#25231f]">
+      <section className="w-full max-w-sm border border-[#ded9cf] bg-white p-7 shadow-[4px_4px_0_#eee8dc]">
+        <p className="mb-2 font-mono text-xs lowercase tracking-[0.16em] text-[#9a5b22]">
+          coderouter
+        </p>
+        <h1 className="mb-2 text-xl font-medium">sign in</h1>
+        <p className="mb-6 text-sm leading-6 text-[#6f6a61]">
+          use your cmux account email. we’ll send a one-time code.
+        </p>
+        <MagicLinkSignIn />
+      </section>
+    </main>
+  ) : (
     <StackHandler fullPage app={stackServerApp} params={props.params} />
   );
 
-  // Stack's email-verification page calls useUser() while rendering its
-  // client component. Next requires that CSR bailout to have a boundary on
-  // this route, otherwise a real verification link returns HTTP 500.
-  if (stack[0] === "email-verification") {
-    return <Suspense fallback={null}>{stackHandler}</Suspense>;
-  }
+  // Stack handler pages use client hooks for session and query state. Keep the
+  // complete handler, including custom host variants, behind one boundary so
+  // every current and future auth path can opt into client rendering without
+  // a missing-boundary error.
+  return (
+    <Suspense fallback={<StackHandlerLoading />}>
+      {handlerContent}
+    </Suspense>
+  );
+}
 
-  return stackHandler;
+function StackHandlerLoading() {
+  return (
+    <main
+      aria-busy="true"
+      className="flex min-h-screen items-center justify-center"
+    >
+      <div
+        aria-hidden="true"
+        className="h-5 w-5 animate-spin rounded-full border-2 border-current border-t-transparent"
+      />
+    </main>
+  );
 }
 
 function coderouterHost(host: string | null): boolean {

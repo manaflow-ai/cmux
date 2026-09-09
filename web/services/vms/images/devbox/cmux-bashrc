@@ -10,6 +10,11 @@ export LANG="${LANG:-C.UTF-8}"
 export USER="${USER:-$(id -un)}"
 export HOME="${HOME:-$(getent passwd "$(id -u)" | cut -d: -f6)}"
 
+# Keep a persistent HOME's terminfo from shadowing cmux's capabilities. Login
+# shells source the same file through /etc/profile.d; this covers non-login
+# interactive shells opened by the session daemon.
+[ -f /etc/profile.d/cmux-terminfo.sh ] && . /etc/profile.d/cmux-terminfo.sh
+
 # First interactive shell on a fresh HOME (the persistent volume shadows the
 # image's /root): seed history so ble.sh ghost text completes agent launches.
 if [ ! -f "$HOME/.bash_history" ] && [ -f /etc/cmux/seed-history ]; then
@@ -48,6 +53,16 @@ if [ -f /usr/local/share/blesh/ble.sh ] && [ -z "${BLE_VERSION:-}" ]; then
   # foreground gray.
   bleopt highlight_syntax= highlight_filename= highlight_variable=
   ble-face auto_complete=fg=245
+  # Alt+Backspace (Option+Delete on macOS) word delete. Once ble.sh identifies
+  # the terminal from its DA2 reply it turns on xterm modifyOtherKeys, and from
+  # then on it neither keeps the legacy ESC DEL binding nor decodes the
+  # modifyOtherKeys form (CSI 27;3;127~) back to M-C-?, so the key does nothing
+  # (ble.sh nightly, also reproducible under tmux). Keep the terminal on the
+  # legacy encoding, which Ghostty and the cmux cloud pane send by default, and
+  # bind both backspace forms explicitly.
+  bleopt term_modifyOtherKeys_internal=0 term_modifyOtherKeys_external=0
+  ble-bind -f 'M-C-?' kill-backward-cword
+  ble-bind -f 'M-C-h' kill-backward-cword
 fi
 
 # half-life palette: purple 135, lime 118, orange 166, hotpink 161. The machine

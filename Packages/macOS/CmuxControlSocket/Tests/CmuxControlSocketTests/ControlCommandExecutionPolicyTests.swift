@@ -26,15 +26,33 @@ struct ControlCommandExecutionPolicyTests {
         #expect(ControlCommandExecutionPolicy(forMethod: "aiAccounts.remove") == .socketWorker(mainThreadCallable: false))
     }
 
+    @Test func coderouterPrefixedMethodsRunOnTheSocketWorker() {
+        // `cmux coderouter` verbs (team Claude upstream, per-machine usage) make
+        // blocking authenticated web API calls like `aiAccounts.*`; off the
+        // worker the dispatcher answers method_not_found.
+        #expect(ControlCommandExecutionPolicy(forMethod: "coderouter.claude_upstream.get") == .socketWorker(mainThreadCallable: false))
+        #expect(ControlCommandExecutionPolicy(forMethod: "coderouter.claude_upstream.set") == .socketWorker(mainThreadCallable: false))
+        #expect(ControlCommandExecutionPolicy(forMethod: "coderouter.claude_upstream.clear") == .socketWorker(mainThreadCallable: false))
+        #expect(ControlCommandExecutionPolicy(forMethod: "coderouter.claude_upstream.add") == .socketWorker(mainThreadCallable: false))
+        #expect(ControlCommandExecutionPolicy(forMethod: "coderouter.claude_upstream.remove") == .socketWorker(mainThreadCallable: false))
+        #expect(ControlCommandExecutionPolicy(forMethod: "coderouter.claude_upstream.update") == .socketWorker(mainThreadCallable: false))
+        #expect(ControlCommandExecutionPolicy(forMethod: "coderouter.machines") == .socketWorker(mainThreadCallable: false))
+    }
+
     @Test func fixedWorkerSetRunsOnTheSocketWorker() {
         for method in [
             "system.ping", "system.capabilities", "auth.status", "auth.sign_in_url",
-            "feed.jump", "feed.push", "browser.download.wait", "system.top", "system.memory",
+            "feed.jump", "feed.push", "agent.restore.admit", "agent.restore.release",
+            "browser.download.wait", "system.top", "system.memory",
             "workspace.remote.pty_bridge", "workspace.env", "sidebar.custom.reload",
             "sidebar.custom.open",
             "debug.sidebar.simulate_drag", "debug.mobile.transport.disconnect",
             "debug.window.screenshot", "mobile.attach_ticket.create",
             "mobile.terminal.set_font", "mobile.task.models.list",
+            // Vault session-index verbs scan transcript stores on disk and
+            // must never hold the main actor (see socketWorkerMethods).
+            "vault.sessions", "vault.search", "vault.checkpoints",
+            "vault.checkpoint", "vault.fork",
             "mobile.compatible_tags.get", "mobile.compatible_tags.set",
             "mobile.panel.artifact.stat", "mobile.panel.artifact.fetch",
             "mobile.panel.artifact.thumbnail",
@@ -54,6 +72,13 @@ struct ControlCommandExecutionPolicyTests {
             "browser.design_mode.set", "browser.design_mode.status",
         ] {
             #expect(ControlCommandExecutionPolicy(forMethod: method).runsOnSocketWorker, "\(method)")
+        }
+        for method in ["agent.restore.admit", "agent.restore.release"] {
+            #expect(
+                ControlCommandExecutionPolicy(forMethod: method)
+                    == .socketWorker(mainThreadCallable: false),
+                "\(method)"
+            )
         }
     }
 
@@ -264,6 +289,13 @@ struct ControlCommandExecutionPolicyTests {
         // The read-side notification verbs stay on the main lane.
         #expect(ControlCommandExecutionPolicy(forMethod: "notification.list") == .mainActor)
         #expect(ControlCommandExecutionPolicy(forMethod: "notification.clear") == .mainActor)
+    }
+
+    @Test func codexNativeTitleSyncRunsAsyncOnTheWorker() {
+        #expect(
+            ControlCommandExecutionPolicy(forMethod: "surface.sync_codex_native_title")
+                == .socketWorker(mainThreadCallable: false)
+        )
     }
 
     @Test func v1CommandsDefaultToTheMainActor() {

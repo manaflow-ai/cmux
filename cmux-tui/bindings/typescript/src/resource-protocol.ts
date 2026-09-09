@@ -1396,12 +1396,9 @@ type DecodedResponse =
   | { readonly ok: false; readonly error: ResourceError };
 
 function decodeResponseEnvelope(value: Record<string, unknown>): DecodedResponse {
-  if (
-    value.protocol !== PROTOCOL
-    || value.type !== "response"
-    || typeof value.id !== "string"
-    || typeof value.ok !== "boolean"
-  ) {
+  // receive() validates the shared envelope, response type, and request ID
+  // before calling this response-specific decoder.
+  if (typeof value.ok !== "boolean") {
     throw new CmuxProtocolError("invalid response envelope");
   }
   if (value.ok) {

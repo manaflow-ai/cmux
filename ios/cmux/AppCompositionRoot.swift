@@ -25,6 +25,10 @@ final class AppCompositionRoot {
     /// The irx (from-scratch iroh) composition when its DEBUG flag owns the
     /// `.iroh` route; nil when the legacy runtime is active.
     let irx: MobileIrxRuntimeComposition?
+    /// Settings surface routed to the same Iroh implementation that owns
+    /// connections. In IRX mode, private addresses must never mutate only the
+    /// dormant legacy runtime.
+    let irohSettingsController: any CmxIrohSettingsControlling
     /// irx-backed first-pair discovery/forget; nil when legacy owns the slot.
     let irxDiscovery: MobileIrxDiscoveryProvider?
     /// One build-compatibility policy shared by discovery, persistence, and
@@ -84,6 +88,11 @@ final class AppCompositionRoot {
     /// (consent revoked or crash reporting disabled for the build).
     private let transportSentryReporter: TransportSentryReporter
 
+    /// Sends the important subset of the same diagnostic stream through the
+    /// authenticated web bridge into Axiom. Held separately from product
+    /// analytics so network outcomes never enter PostHog.
+    private let networkOutcomeReporter: MobileNetworkOutcomeReporter
+
     init(
         runtime: CMUXMobileRuntime,
         auth: MobileAuthComposition,
@@ -104,6 +113,14 @@ final class AppCompositionRoot {
         self.auth = auth
         self.iroh = iroh
         self.irx = irx
+        if let irx {
+            self.irohSettingsController = MobileIrxSettingsController(
+                irx: irx,
+                legacy: iroh
+            )
+        } else {
+            self.irohSettingsController = iroh
+        }
         self.irxDiscovery = irxDiscovery
         self.buildCompatibilityPolicy = buildCompatibilityPolicy
         self.reachability = reachability
@@ -126,18 +143,35 @@ final class AppCompositionRoot {
         // revocation (which closes the SDK) without extra plumbing.
         let transportSentryReporter = TransportSentryReporter(
             role: .mobileClient,
-            exportRing: { [diagnosticLog] in await diagnosticLog.export() }
+            exportRing: { [diagnosticLog] in await diagnosticLog.export() },
+            incidentConfiguration: .init(captureIndividualFailures: false),
+            logsPerHour: 0
         )
         self.transportSentryReporter = transportSentryReporter
         let appLog = AppLog(
             appFileURL: AppLog.defaultAppLogFileURL,
             networkFileURL: AppLog.defaultNetworkLogFileURL,
-            buildStamp: MobileDebugLog.buildStamp
+            buildStamp: MobileDebugLog.buildStamp,
+            supplementalAppLogURLs: { MobileDebugLog.logFileURLs },
+            flushSupplementalAppLog: { await MobileDebugLog.shared.flush() },
+            supplementalAppLogSnapshot: {
+                await MobileDebugLog.shared.snapshotPersistedLogData()
+            }
         )
         self.appLog = appLog
+        let analytics = MobileAnalyticsComposition(
+            apiBaseURL: auth.config.apiBaseURL,
+            tokenProvider: auth.coordinator,
+            consent: telemetryConsent,
+            diagnosticLog: diagnosticLog
+        )
+        self.analytics = analytics
+        let networkOutcomeReporter = analytics.networkOutcomeReporter
+        self.networkOutcomeReporter = networkOutcomeReporter
         diagnosticLog.setEventTap { event in
             appLog.ingest(event)
             transportSentryReporter.ingest(event)
+            networkOutcomeReporter.ingest(event)
         }
         self.appLifecycleDiagnostics = MobileAppLifecycleDiagnostics(
             diagnosticLog: diagnosticLog
@@ -150,17 +184,10 @@ final class AppCompositionRoot {
         // opt-in), so this mirror never widens what gets persisted.
         Task {
             let sink = MobileDebugLog.shared.sink
-            for await line in await sink.lines() {
-                appLog.mirrorAppLine(line)
+            await sink.addLineObserver { [weak appLog] line in
+                appLog?.mirrorAppLine(line)
             }
         }
-        let analytics = MobileAnalyticsComposition(
-            apiBaseURL: auth.config.apiBaseURL,
-            tokenProvider: auth.coordinator,
-            consent: telemetryConsent,
-            diagnosticLog: diagnosticLog
-        )
-        self.analytics = analytics
         self.featureFlags = MobileFeatureFlags(
             loader: analytics.clientConfig,
             request: analytics.anonymousClientConfigRequest
@@ -438,7 +465,11 @@ final class AppCompositionRoot {
                 emitter.capture("ios_session_ended", props)
             }
             // Force a flush before the OS may suspend us, so queued events survive.
-            Task { await emitter.flush() }
+            let networkOutcomeReporter = self.networkOutcomeReporter
+            Task {
+                await emitter.flush()
+                await networkOutcomeReporter.flush()
+            }
         @unknown default:
             break
         }

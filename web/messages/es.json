@@ -7,12 +7,14 @@
         "snapshot": "Esta Cloud VM no admite el estado guardado de la VM.",
         "restore": "Este tipo de Cloud VM no admite restaurar el estado guardado de la VM.",
         "fork": "Esta Cloud VM no admite copiar a una nueva VM.",
+        "openPort": "El proveedor de esta Cloud VM no puede exponer los puertos de la máquina como URL de vista previa.",
         "default": "Esta Cloud VM no admite la operación solicitada."
       },
       "action": {
         "snapshot": "No vuelvas a intentarlo. El trabajo de este tipo de máquina se conserva en su volumen de inicio persistente.",
         "restore": "No vuelvas a intentarlo. El trabajo de este tipo de máquina se conserva en su volumen de inicio persistente.",
         "fork": "No vuelvas a intentarlo. Crea una nueva VM con `cmux vm new`.",
+        "openPort": "No vuelvas a intentarlo. Accede al servicio desde la máquina con `cmux vm exec` o usa un tipo de máquina que pueda abrir puertos.",
         "default": "No vuelvas a intentarlo. Ejecuta `cmux vm ls` o contacta con soporte si crees que esto es un error."
       }
     },
@@ -59,6 +61,15 @@
     "genericTitle": "No se pudo completar el inicio de sesión",
     "genericBody": "Inténtalo de nuevo. Si el problema continúa, contacta con soporte.",
     "backToSignIn": "Volver a iniciar sesión"
+  },
+  "cloudPublicationAccess": {
+    "title": "No tienes acceso",
+    "signIn": "Iniciar sesión en cmux",
+    "signedInAs": "Sesión iniciada como {identity}",
+    "switchAccount": "Cambiar de cuenta",
+    "invalidTitle": "Este enlace de acceso no es válido",
+    "invalidBody": "Vuelve al sitio e inténtalo de nuevo.",
+    "footer": "cmux administra el acceso."
   },
   "common": {
     "downloadForMac": "Descargar para Mac",
@@ -261,7 +272,18 @@
       "metaTitle": "coderouter — cmux",
       "metaDescription": "Gestiona cuentas de IA compartidas y distribuye solicitudes con coderouter.",
       "title": "coderouter",
-      "description": "coderouter distribuye solicitudes LLM entre cuentas de proveedores con conmutación por error y programación según el uso."
+      "description": "coderouter distribuye solicitudes LLM entre cuentas de proveedores con conmutación por error y programación según el uso.",
+      "machines": {
+        "title": "Máquinas",
+        "description": "Uso de coderouter por máquina para {team} en los últimos {days} días.",
+        "machineColumn": "Máquina",
+        "tokensColumn": "Tokens totales",
+        "apiEquivalentColumn": "Valor equivalente en API",
+        "unnamed": "Máquina sin nombre",
+        "empty": "Ninguna máquina ha usado coderouter en los últimos {days} días.",
+        "unavailable": "El uso por máquina no está disponible temporalmente.",
+        "estimateNote": "El valor equivalente en API es una estimación basada en precios de lista públicos, no el gasto real."
+      }
     },
     "accountMenu": {
       "label": "Menú de la cuenta",
@@ -272,64 +294,6 @@
       "signOutError": "No se pudo cerrar la sesión. Inténtalo de nuevo.",
       "organizationSwitchError": "No se pudo cambiar de organización. Inténtalo de nuevo.",
       "signIn": "Iniciar sesión"
-    },
-    "aiAccounts": {
-      "metaTitle": "Cuentas de IA — cmux",
-      "metaDescription": "Gestiona las cuentas de proveedores de IA del equipo para cmux.",
-      "section": "Panel",
-      "title": "Cuentas de IA",
-      "description": "Gestiona las cuentas de proveedores que este equipo puede usar con cmux AI.",
-      "personalTeam": "Personal",
-      "teamSwitcherLabel": "Equipo",
-      "notConfiguredTitle": "La gestión de cuentas de IA aún no está disponible",
-      "notConfiguredBody": "Las cuentas de IA de equipo no están habilitadas en esta implementación. Inténtalo más tarde o contacta con soporte.",
-      "loadErrorTitle": "No se pudieron cargar las cuentas",
-      "loadErrorBody": "No se pudo conectar con el servicio de cuentas. Inténtalo de nuevo en un momento.",
-      "accountsTitle": "Cuentas conectadas",
-      "accountsCount": "{count, plural, one {# cuenta} other {# cuentas}}",
-      "emptyTitle": "Aún no hay cuentas",
-      "emptyBody": "Añade una cuenta de proveedor para que este equipo pueda usarla.",
-      "providerColumn": "Proveedor",
-      "labelColumn": "Etiqueta",
-      "createdColumn": "Creada",
-      "actionsColumn": "Acciones",
-      "unlabeledAccount": "Sin etiqueta",
-      "unknownCreatedAt": "Desconocida",
-      "addAccountsTitle": "Añadir cuenta",
-      "providerClaude": "Claude OAuth",
-      "providerAnthropicApiKey": "Clave de API de Anthropic",
-      "providerCodex": "Codex OAuth",
-      "providerOpenAiApiKey": "Clave de API de OpenAI",
-      "providerUnknown": "Proveedor desconocido",
-      "labelField": "Etiqueta",
-      "labelPlaceholder": "Predeterminada del equipo",
-      "oauthJsonField": "OAuth JSON",
-      "apiKeyField": "Clave de API",
-      "addClaude": "Añadir Claude",
-      "addAnthropic": "Añadir Anthropic",
-      "addCodex": "Añadir Codex",
-      "addOpenAi": "Añadir OpenAI",
-      "addSuccess": "Cuenta añadida.",
-      "addError": "No se pudo guardar la cuenta.",
-      "deleteError": "No se pudo eliminar la cuenta.",
-      "jsonError": "Pega un objeto JSON válido.",
-      "validationError": "Revisa los datos de la cuenta y vuelve a intentarlo.",
-      "teamAccessError": "No tienes acceso a este equipo.",
-      "deletingAction": "Eliminando",
-      "deleteAction": "Eliminar",
-      "deleteConfirmTitle": "¿Eliminar esta cuenta?",
-      "deleteConfirmBody": "La cuenta del proveedor se eliminará para todo el equipo. Para volver a añadirla necesitarás las credenciales originales.",
-      "cancelAction": "Cancelar",
-      "claudeJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"expiresAt\":1770000000000}",
-      "codexJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"idToken\":\"...\",\"accountID\":\"...\"}",
-      "anthropicKeyPlaceholder": "sk-ant-...",
-      "openAiKeyPlaceholder": "sk-...",
-      "cliAddBody": "Add provider accounts securely from your terminal. Sign in with your team, then run one of these commands:",
-      "codexTool": "Codex",
-      "codexCommand": "Copy codex command",
-      "opencodeTool": "OpenCode",
-      "opencodeCommand": "Copy opencode command",
-      "copied": "Copied"
     },
     "billing": {
       "plan": {
@@ -1161,6 +1125,14 @@
         "shortcuts": {
           "when": "Predicados de contexto opcionales por acción (cláusulas `when` al estilo de VS Code), indexados por el id de acción de cmux. Cada valor es una expresión booleana sobre claves de contexto, combinada con !, &&, || y paréntesis. Claves booleanas: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Las claves tipadas admiten comparaciones: la cadena sidebarMode (files, find, sessions, feed o dock) y los enteros paneCount y workspaceCount. Los operadores de comparación son ==, !=, =~ (expresión regular), <, <=, >, >= e `in [a, b]`; una clave desconocida o ausente se evalúa como false. También se aceptan los literales booleanos true y false; `key == false` equivale a `!key`. El atajo de la acción solo se activa (y solo entra en conflicto con otros atajos) cuando la cláusula se cumple. Ejemplos: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } selecciona espacios de trabajo con Ctrl+1–9 en todas partes excepto cuando la barra lateral derecha tiene el foco; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } limita una asignación a la barra lateral de búsqueda cuando el espacio de trabajo tiene varios paneles.",
           "showModifierHoldHints": "Muestra chips de sugerencias de atajos mientras mantienes pulsado Cmd o Control."
+        },
+        "fileEditor": {
+          "wordWrap": "Ajusta las líneas largas al borde derecho del editor en lugar de desplazarlas horizontalmente.",
+          "syntaxHighlighting": "Colorea los tokens del código en el editor de archivos integrado.",
+          "lineNumbers": "Muestra un margen con números de línea en el editor de archivos integrado.",
+          "indentGuides": "Dibuja guías verticales de sangría en el editor de archivos integrado.",
+          "currentLineHighlight": "Resalta la línea del cursor cuando no hay selección.",
+          "tabWidth": "Ancho de un tabulador, en columnas, para la sangría y las guías de sangría."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

@@ -3,7 +3,7 @@ import * as Effect from "effect/Effect";
 import type * as Layer from "effect/Layer";
 import { after } from "next/server";
 import { env } from "../../app/env";
-import { unauthorized, verifyRequest, type AuthedUser } from "../vms/auth";
+import { unauthorized, verifyRequestIdentity } from "../vms/auth";
 import { authProviderErrorResponse } from "../vms/authErrors";
 import { enforceBrowserMutationProtection, jsonResponse } from "../vms/routeHelpers";
 import { irohExpectedError } from "./errors";
@@ -28,7 +28,10 @@ export type IrohRouteOperation =
   | "relay_token";
 
 type RouteDependencies = {
-  readonly verify?: typeof verifyRequest;
+  readonly verify?: (
+    request: Request,
+    options: { readonly allowCookie: false; readonly requireStackSession: boolean; readonly allowStackFallback: false },
+  ) => Promise<{ readonly id: string } | null>;
   readonly broker?: IrohTrustBrokerShape;
   readonly runtime?: Layer.Layer<IrohTrustBroker, never, never>;
   readonly publishConnectivityInvalidation?: (
@@ -45,10 +48,19 @@ export async function handleIrohRoute(
   operation: IrohRouteOperation,
   dependencies: RouteDependencies = {},
 ): Promise<Response> {
-  const verify = dependencies.verify ?? verifyRequest;
-  let user: AuthedUser | null;
+  // Identity only: the broker needs the user id, and local token verification
+  // keeps routine Iroh traffic off Stack's per-request API budget. Pair grants
+  // and revocation still ask Stack and refuse a revoked session immediately.
+  // Relay credentials are short lived and account-scoped by the broker, so a
+  // locally verified access token is the appropriate identity proof there.
+  const verify = dependencies.verify ?? verifyRequestIdentity;
+  let user: { readonly id: string } | null;
   try {
-    user = await verify(request, { allowCookie: false });
+    user = await verify(request, {
+      allowCookie: false,
+      requireStackSession: requiresStackSession(operation),
+      allowStackFallback: false,
+    });
   } catch (error) {
     // A Stack Auth throttle or outage is not the caller's fault. Answering 401
     // told every host that its credentials were rejected, and the irx host
@@ -200,6 +212,21 @@ export function buildConnectivityInvalidationRequest(
     body: JSON.stringify({ revision }),
   });
 }
+export function requiresStackSession(operation: IrohRouteOperation): boolean {
+  switch (operation) {
+    case "challenge":
+    case "register":
+    case "discover":
+    case "endpoint_attestation":
+      return false;
+    case "revoke":
+    case "pair_grant":
+      return true;
+    case "relay_token":
+      return false;
+  }
+}
+
 function invoke(
   broker: IrohTrustBrokerShape,
   operation: IrohRouteOperation,

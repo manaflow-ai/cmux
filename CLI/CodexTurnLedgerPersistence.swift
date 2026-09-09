@@ -109,6 +109,7 @@ extension CodexTurnLedger {
     /// Serializes only the cross-process read/modify/atomic-replace transaction;
     /// the lock is released before any socket or UI work begins.
     func withLockedState<T>(
+        persist: Bool = true,
         _ body: (inout CodexTurnLedgerFile) throws -> T
     ) throws -> T {
         let lockPath = path + ".lock"
@@ -130,6 +131,7 @@ extension CodexTurnLedger {
 
         var state = try load()
         let result = try body(&state)
+        guard persist else { return result }
         let data = try encoder.encode(state)
         let temporary = parent.appendingPathComponent(
             ".\(parent.lastPathComponent).codex-ledger.\(UUID().uuidString).tmp"

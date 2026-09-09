@@ -21,10 +21,6 @@ const USER: AuthedUser = {
   userBillingPlanId: null,
   billingPlanId: null,
   billingSeats: null,
-  resolveSubrouterPermissions: async () => ({
-    use: false,
-    manageAccounts: false,
-  }),
 };
 
 const snapshot = {

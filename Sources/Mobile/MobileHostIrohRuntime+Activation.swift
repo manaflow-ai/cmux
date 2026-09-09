@@ -6,6 +6,12 @@ import Foundation
 @MainActor
 extension MobileHostIrohRuntime {
     func activate(accountID: String, revision: UInt64) async throws {
+        // `DisableIrohNetworking` (MDM): no endpoint, no relay traffic, no
+        // route publication. Checked before any state is mutated so a profile
+        // pushed mid-session stops the next activation attempt outright.
+        guard ManagedIrohNetworkingPolicy.isEnabled else {
+            throw CmxIrohHostRuntimeError.inactive
+        }
         beginIrohRouteActivation(revision: revision)
         guard let auth else { throw CmxIrohHostRuntimeError.inactive }
         // Pin the runtime's broker to the session identity that owns
@@ -344,6 +350,7 @@ extension MobileHostIrohRuntime {
                             authorization: .irohAdmission(session.peer),
                             artifactTransfers: artifactTransfers,
                             independentEventWriter: eventWriter,
+                            idleTimeoutNanoseconds: 0,
                             promoteUsableSession: {
                                 await session.markUsable()
                             },

@@ -18,15 +18,30 @@ struct MachineCreateCoordinatorTests {
     @MainActor
     final class LaunchRecorder {
         var arguments: [[String]] = []
+        var progressHandlers: [@MainActor (String) -> Void] = []
         var completions: [@MainActor (CloudVMActionLauncher.Completion) -> Void] = []
         var starts = true
+        var cancellations = 0
 
         var launch: MachineCreateCoordinator.Launch {
-            { [self] arguments, completion in
+            { [self] arguments, progress, completion in
                 self.arguments.append(arguments)
                 guard starts else { return false }
+                progressHandlers.append(progress)
                 completions.append(completion)
                 return true
+            }
+        }
+
+        var cancellableLaunch: MachineCreateCoordinator.CancellableLaunch {
+            { [self] arguments, progress, completion in
+                self.arguments.append(arguments)
+                guard starts else { return nil }
+                progressHandlers.append(progress)
+                completions.append(completion)
+                return CloudVMActionLauncher.CancellationHandle {
+                    self.cancellations += 1
+                }
             }
         }
 
@@ -148,7 +163,7 @@ struct MachineCreateCoordinatorTests {
     /// it, and notify — never leave a phantom pending row behind.
     @Test func synchronousCompletionStillResolvesTheOperation() {
         let (coordinator, _, notices, changes, _) = makeCoordinator()
-        let immediate: MachineCreateCoordinator.Launch = { _, completion in
+        let immediate: MachineCreateCoordinator.Launch = { _, _, completion in
             completion(CloudVMActionLauncher.Completion(
                 terminationStatus: 0,
                 output: "",
@@ -161,6 +176,41 @@ struct MachineCreateCoordinatorTests {
         #expect(coordinator.operations.isEmpty, "the synchronous completion resolved the row")
         #expect(changes.finished.count == 1)
         #expect(notices.notices.first?.title == "calm-petrel is ready")
+    }
+
+    @Test func emittedMachineMarkerCorrelatesPendingRowBeforeCLIExits() {
+        let (coordinator, launches, _, _, _) = makeCoordinator()
+        coordinator.start(Self.newMachineRequest(), launch: launches.launch)
+        #expect(coordinator.operations.first?.createdMachineID == nil)
+        launches.progressHandlers[0]("Created Cloud VM calm-petrel\nOK machine=calm-petrel\n")
+        #expect(coordinator.operations.first?.createdMachineID == "calm-petrel")
+        let machine = MachineSnapshot(
+            id: "calm-petrel", provider: "freestyle", image: "image", isDesktop: false,
+            activity: .ready, createdAt: nil, label: nil
+        )
+        #expect(coordinator.operations.first?.isSuperseded(by: [machine], catalogMachines: []) == true)
+    }
+
+    @Test func markerAtTheStartOfALargeProgressCallbackIsNotDropped() {
+        let (coordinator, launches, _, _, _) = makeCoordinator()
+        coordinator.start(Self.newMachineRequest(), launch: launches.launch)
+        let largeChunk = "OK machine=calm-petrel\n" + String(repeating: "progress ", count: 5_000)
+
+        launches.progressHandlers[0](largeChunk)
+
+        #expect(coordinator.operations.first?.createdMachineID == "calm-petrel")
+    }
+
+    @Test func launchRegistryDoesNotLetAStalePIDCallbackRemoveTheReplacement() {
+        var registry = CloudVMActionLauncher.LaunchRegistry<String>()
+        let oldLaunch = UUID()
+        let replacementLaunch = UUID()
+        registry.insert("old", processID: 42, launchID: oldLaunch)
+        registry.insert("replacement", processID: 42, launchID: replacementLaunch)
+
+        #expect(registry.remove(processID: 42, launchID: oldLaunch) == nil)
+        #expect(registry.entry(processID: 42)?.value == "replacement")
+        #expect(registry.remove(processID: 42, launchID: replacementLaunch) == "replacement")
     }
 
     // MARK: Success
@@ -254,6 +304,41 @@ struct MachineCreateCoordinatorTests {
         #expect(changes.changes == 3, "start, failure, dismiss")
     }
 
+    @Test func runningCreateCanBeCancelledAndLateCompletionCleansUpCreatedMachine() {
+        let center = NotificationCenter()
+        let launches = LaunchRecorder()
+        let notices = NoticeRecorder()
+        var cleanedMachineIDs: [String] = []
+        let coordinator = MachineCreateCoordinator(
+            notifier: { notices.notices.append($0) },
+            notificationCenter: center,
+            cancelCreatedMachine: { cleanedMachineIDs.append($0) }
+        )
+        let request = Self.newMachineRequest(name: "cancel me")
+
+        #expect(coordinator.start(request, cancellableLaunch: launches.cancellableLaunch))
+        let id = coordinator.operations[0].id
+        launches.progressHandlers[0]("OK machine=calm-petrel\n")
+
+        coordinator.cancel(id)
+
+        #expect(coordinator.operations.isEmpty, "Cancel removes the pending row immediately")
+        #expect(launches.cancellations == 1, "Cancel terminates the in-flight CLI")
+        #expect(cleanedMachineIDs == ["calm-petrel"], "A machine announced before cancellation is destroyed")
+
+        // A process can report its final bytes after the row is gone. They must not
+        // recreate the row or post a misleading success notification.
+        launches.completions[0](CloudVMActionLauncher.Completion(
+            terminationStatus: 0,
+            output: "OK machine=calm-petrel",
+            workspaceId: nil,
+            machineId: "calm-petrel"
+        ))
+        #expect(coordinator.operations.isEmpty)
+        #expect(notices.notices.isEmpty)
+        #expect(cleanedMachineIDs == ["calm-petrel"], "Late completion is reconciled exactly once")
+    }
+
     @Test func retryThatCannotLaunchReportsInline() {
         let (coordinator, launches, _, _, _) = makeCoordinator()
         coordinator.start(Self.newMachineRequest(), launch: launches.launch)
@@ -293,6 +378,22 @@ struct MachineCreateCoordinatorTests {
         #expect(notice?.body == "attach failed (HTTP 502)\nOpen it from the Machines list.", "the reason, not the CLI's progress line, leads the body")
     }
 
+    @Test func completionWithoutMachineIDUsesTheProgressMarker() {
+        let (coordinator, launches, _, changes, _) = makeCoordinator()
+        coordinator.start(Self.newMachineRequest(), launch: launches.launch)
+        let id = coordinator.operations[0].id
+        launches.progressHandlers[0]("OK machine=calm-petrel\n")
+
+        launches.complete(status: 1, output: "Error: attach failed")
+
+        #expect(coordinator.operations.isEmpty)
+        #expect(changes.finished.first?.outcome == .createdButOpenFailed(
+            machineID: "calm-petrel",
+            output: "Error: attach failed"
+        ))
+        #expect(!coordinator.retry(id), "a machine already announced by progress must not be created again")
+    }
+
     /// An older bundled CLI without the `machine=` token still classifies via
     /// the localized "Created Cloud VM" line.
     @Test func createdButOpenFailedFallsBackToTheLocalizedCreatedLine() {
@@ -313,7 +414,7 @@ struct MachineCreateCoordinatorTests {
     @Test func failureOutputIsRedactedBeforeItEntersSharedState() {
         let (coordinator, launches, notices, _, _) = makeCoordinator()
         coordinator.start(Self.newMachineRequest(), launch: launches.launch)
-        launches.complete(status: 1, output: "Error: provider blaxel rejected the request token abc123")
+        launches.complete(status: 1, output: "Error: provider freestyle rejected the request token abc123")
         let stored = coordinator.operations.first?.failureOutput
         #expect(stored == CloudVMActionLauncher.hiddenOutputPlaceholder)
         #expect(stored?.contains("token") == false)
@@ -338,6 +439,7 @@ struct MachineCreateCoordinatorTests {
     }
 
     @Test func createdMachineIDIsParsedFromTheCLIsCreatedLine() {
+        #expect(MachineCreateCoordinator.createdMachineID(fromOutput: "OK machine=calm-petrel") == "calm-petrel")
         #expect(MachineCreateCoordinator.createdMachineID(fromOutput: "Created Cloud VM calm-petrel\nError: noProvider(calm-petrel)") == "calm-petrel")
         #expect(MachineCreateCoordinator.createdMachineID(fromOutput: "  Created Cloud VM noble_wren2  ") == "noble_wren2")
         #expect(MachineCreateCoordinator.createdMachineID(fromOutput: "Error: Creating Cloud VM (HTTP 502)") == nil)
@@ -359,6 +461,35 @@ struct MachineCreateCoordinatorTests {
         launches.complete(status: 0, output: "Opened Base base-1")
         #expect(coordinator.operations.isEmpty)
         #expect(notices.notices.isEmpty, "the account this belonged to is gone; nobody to tell")
+    }
+
+    @Test func signOutRetainsCreateTombstoneForLateMachineCleanup() {
+        let center = NotificationCenter()
+        let launches = LaunchRecorder()
+        var cleanedMachineIDs: [String] = []
+        let coordinator = MachineCreateCoordinator(
+            notifier: { _ in },
+            notificationCenter: center,
+            cancelCreatedMachine: { cleanedMachineIDs.append($0) }
+        )
+
+        #expect(coordinator.start(Self.newMachineRequest(), cancellableLaunch: launches.cancellableLaunch))
+        launches.progressHandlers[0]("OK machine=late-box\n")
+        center.post(name: .cmuxCloudVMAccessDidEnd, object: nil)
+
+        #expect(coordinator.operations.isEmpty)
+        #expect(cleanedMachineIDs == ["late-box"], "known machine is cleaned before auth state is cleared")
+
+        // The process can flush the same marker after sign-out. The retained
+        // tombstone reconciles it without resurrecting a row or issuing a
+        // duplicate delete.
+        launches.completions[0](CloudVMActionLauncher.Completion(
+            terminationStatus: 1,
+            output: "OK machine=late-box",
+            workspaceId: nil,
+            machineId: "late-box"
+        ))
+        #expect(cleanedMachineIDs == ["late-box"])
     }
 }
 
@@ -401,6 +532,77 @@ struct MachinesPanelPendingCreateTests {
         #expect(viewModel.pendingCreates.isEmpty)
     }
 
+    /// Regression: while `cmux vm new --name troll` was still opening its
+    /// terminal, the fleet list (and, before it, the catalog) already showed
+    /// "troll", so the panel listed "troll · Creating…" above "troll". The
+    /// stand-in row exists only until the machine has a row of its own.
+    @Test func pendingRowStepsAsideOnceItsMachineHasARow() {
+        let started = Date(timeIntervalSince1970: 1_787_400_000)
+        let named = MachineCreateOperation(
+            id: UUID(),
+            request: MachineCreateCoordinatorTests.newMachineRequest(name: "troll"),
+            startedAt: started,
+            createdMachineID: "vm-e0382b"
+        )
+        let unnamed = MachineCreateOperation(
+            id: UUID(),
+            request: MachineCreateCoordinatorTests.newMachineRequest(name: nil),
+            startedAt: started,
+            createdMachineID: "calm-petrel"
+        )
+        func machine(_ id: String, label: String?, createdAt: Date?) -> MachineSnapshot {
+            MachineSnapshot(
+                id: id, provider: "freestyle", image: "sh-08be343bf2b54b4bb0e5226b97eaa6c4",
+                isDesktop: false, activity: .ready, createdAt: createdAt, label: label
+            )
+        }
+        func rows(machines: [MachineSnapshot], catalog: [SurfaceMachineInfo] = [], pending: [MachineCreateOperation]) -> [String] {
+            CloudTreeNodeBuilder.nodes(
+                machines: machines,
+                pendingCreates: pending,
+                snapshot: SurfaceCatalogSnapshot(machines: catalog, resources: [], projections: []),
+                localWorkspaces: []
+            ).map(\.id)
+        }
+        let older = machine("old-hare", label: "troll", createdAt: started.addingTimeInterval(-3_600))
+        let created = machine("vm-e0382b", label: "troll", createdAt: started.addingTimeInterval(20))
+        let anonymous = machine("calm-petrel", label: nil, createdAt: started.addingTimeInterval(20))
+
+        // The fleet list returned the named machine: its stand-in is gone; an
+        // older machine that happens to share the label is not it.
+        #expect(rows(machines: [older], pending: [named]) == ["pending-machine:\(named.id.uuidString)", "machine:old-hare"])
+        #expect(rows(machines: [older, created], pending: [named]) == ["machine:old-hare", "machine:vm-e0382b"])
+        // The catalog registered it (the CLI is opening it) before the fleet
+        // list caught up: the catalog row is the machine's row.
+        let catalogTroll = SurfaceMachineInfo(
+            id: .cloud("vm-e0382b"), name: "troll", status: "running", image: nil, hasDesktop: false,
+            memoryMb: nil, diskMb: nil, linkState: .connecting, linkError: nil, cpuPercent: nil, memoryUsedMb: nil, diskUsedMb: nil
+        )
+        #expect(rows(machines: [], catalog: [catalogTroll], pending: [named]) == ["machine:vm-e0382b"])
+        // An unnamed create is the machine that appeared after it started.
+        #expect(rows(machines: [older], pending: [unnamed]) == ["pending-machine:\(unnamed.id.uuidString)", "machine:old-hare"])
+        #expect(rows(machines: [anonymous], pending: [unnamed]) == ["machine:calm-petrel"])
+        // A failed create keeps its row so it can be retried or dismissed.
+        var failed = named
+        failed.phase = .failed(output: "Error: quota")
+        #expect(rows(machines: [created], pending: [failed]) == ["pending-machine:\(failed.id.uuidString)", "machine:vm-e0382b"])
+
+        // A pending operation without its emitted machine id cannot safely be
+        // matched by a label or timestamp, especially with concurrent creates.
+        let uncorrelated = MachineCreateOperation(
+            id: UUID(), request: MachineCreateCoordinatorTests.newMachineRequest(name: "troll"), startedAt: started
+        )
+        #expect(rows(machines: [created], pending: [uncorrelated]).first?.hasPrefix("pending-machine:") == true)
+
+        // Two concurrent unnamed creates must not both disappear when one
+        // newly observed machine has no matching authoritative id.
+        let uncorrelatedOther = MachineCreateOperation(
+            id: UUID(), request: MachineCreateCoordinatorTests.newMachineRequest(name: nil), startedAt: started
+        )
+        let concurrentRows = rows(machines: [anonymous], pending: [uncorrelated, uncorrelatedOther])
+        #expect(concurrentRows.filter { $0.hasPrefix("pending-machine:") }.count == 2)
+    }
+
     @Test func treeShowsPendingRowsFirstAndIsNotEmptyWhileOneRuns() {
         let running = MachineCreateOperation(
             id: UUID(),
@@ -415,8 +617,8 @@ struct MachinesPanelPendingCreateTests {
         failed.phase = .failed(output: "Error: quota")
         let machine = MachineSnapshot(
             id: "noble-wren",
-            provider: "blaxel",
-            image: "blaxel/base-image:latest",
+            provider: "freestyle",
+            image: "sh-08be343bf2b54b4bb0e5226b97eaa6c4",
             isDesktop: false,
             activity: .ready,
             createdAt: nil,

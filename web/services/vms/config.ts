@@ -28,6 +28,9 @@ export function vmCreateDisabledReason(
   if (isFalseFlag(env[providerEnabledEnvKey(provider)])) {
     return `${provider} VM creation is disabled`;
   }
+  if (!vmPrivateNetworkEnabled(env)) {
+    return "Cloud VM creation requires private networking";
+  }
   return null;
 }
 
@@ -41,19 +44,11 @@ export function providerEnabledEnvKey(provider: ProviderId): string {
 }
 
 /**
- * Whether new machines join their owner's private network — the default.
+ * Whether private-network operations are enabled.
  *
- * This is one switch rather than two because the network and the closed
- * inbound port are the same decision: a machine placed on the VPC is reached
- * at its private address and opens no public port, and a machine kept off it
- * is reached at its public IPv6 and must open one. Splitting them would let a
- * deployment configure a machine that is on the network but still publicly
- * exposed, or on the network but addressed publicly and therefore unreachable.
- *
- * Setting `CMUX_VM_PRIVATE_NETWORK_ENABLED=0` is the complete rollback: later
- * creates go back to the public-IPv6 posture, and machines already on a network
- * keep working, because reachability is resolved per machine from the addresses
- * it actually holds.
+ * This is a fail-closed kill switch. Turning it off disables new Cloud VM
+ * creation and tunnel enrollment. It never changes a machine to public ingress
+ * and it never selects a public route for an existing machine.
  */
 export function vmPrivateNetworkEnabled(env: VmRuntimeEnv = process.env): boolean {
   return !isFalseFlag(env.CMUX_VM_PRIVATE_NETWORK_ENABLED);

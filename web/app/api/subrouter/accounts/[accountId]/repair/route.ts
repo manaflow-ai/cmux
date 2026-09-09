@@ -22,9 +22,7 @@ export async function POST(
     return jsonResponse({ error: "invalid_request" }, 400);
   }
 
-  const resolved = await resolveSubrouterRequestContext(request, {
-    permission: "manage",
-  });
+  const resolved = await resolveSubrouterRequestContext(request);
   if (!resolved.ok) return resolved.response;
   const context = resolved.value;
 

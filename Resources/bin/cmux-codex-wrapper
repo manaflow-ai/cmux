@@ -93,6 +93,18 @@ resolve_hook_cmux_bin() {
     printf '%s' "cmux"
 }
 
+cmux_codex_load_skill_link_policy() {
+    local self_dir resource_dir policy
+    self_dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P)" || return 1
+    resource_dir="${self_dir%/bin}"
+    policy="$resource_dir/cmux-cua/link-policy.sh"
+    [[ -r "$policy" ]] || return 1
+    # The policy is shipped inside the same app resource directory as this
+    # wrapper. It is the one mutation path shared with the Claude wrapper.
+    # shellcheck source=/dev/null
+    . "$policy"
+}
+
 cmux_computer_use_surface_socket_available() {
     # CMUX_SURFACE_ID can outlive its owning cmux process in a detached shell.
     # Keep main's hook injection behavior independent of socket reachability,
@@ -243,78 +255,30 @@ cmux_computer_use_auth_token() {
 }
 
 cmux_codex_global_skill_install_enabled() {
-    # Codex's picker scans filesystem skill roots before it starts a session;
-    # an invocation-only `skills.config` override is not enough to make the
-    # bundled skill appear there. Keep the shared user link in sync by default,
-    # while allowing a user who wants a strictly session-local setup to opt out.
-    case "${CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL:-1}" in
-        0|false|FALSE|no|NO) return 1 ;;
+    # Codex's picker scans filesystem skill roots before it starts a session.
+    # Writing a user-global link is therefore an explicit opt-in, never a
+    # side effect of starting an agent.
+    case "${CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL:-0}" in
+        1|true|TRUE|yes|YES) return 0 ;;
     esac
-    return 0
+    return 1
 }
 
-cmux_codex_install_computer_use_skill() {
-    # Codex discovers user-wide skills under ~/.agents/skills. Keep the source
-    # inside the signed cmux app and link it instead of copying stale versions.
-    # Never replace a real directory or a symlink the user owns. Returns 0 only
-    # when the cmux-cua link now points at this app bundle, so callers can skip
-    # the namespaced invocation-scoped fallback.
-    local home="${HOME:-}"
-    [[ "$home" = /* ]] || return 1
-    local self_dir resource_dir source_dir skills_root destination target legacy legacy_target
+cmux_codex_reconcile_skill_links() {
+    local self_dir resource_dir source_dir install_requested=0
     self_dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P)" || return 1
     resource_dir="${self_dir%/bin}"
     source_dir="$resource_dir/cmux-cua"
     [[ -f "$source_dir/SKILL.md" ]] || return 1
+    cmux_codex_global_skill_install_enabled && install_requested=1
 
-    skills_root="$home/.agents/skills"
-    destination="$skills_root/cmux-cua"
-    /bin/mkdir -p "$skills_root" 2>/dev/null || return 1
-
-    # Retire the pre-rename cmux-computer-use link so pickers do not show two
-    # copies of the same skill. Only a symlink into a cmux app bundle is
-    # removed; user-owned paths at that name are left alone.
-    legacy="$skills_root/cmux-computer-use"
-    if [[ -L "$legacy" ]]; then
-        legacy_target="$(/usr/bin/readlink "$legacy" 2>/dev/null || /bin/readlink "$legacy" 2>/dev/null)" || legacy_target=""
-        case "$legacy_target" in
-            */Contents/Resources/cmux-computer-use|*/Contents/Resources/cmux-cua)
-                /bin/rm -f "$legacy" 2>/dev/null || true
-                ;;
-        esac
+    if ! cmux_codex_load_skill_link_policy; then
+        # An older app may not carry the policy helper. Fail closed rather than
+        # mutating an unknown global path or creating a duplicate picker row.
+        return 0
     fi
 
-    if [[ -L "$destination" ]]; then
-        target="$(/usr/bin/readlink "$destination" 2>/dev/null || /bin/readlink "$destination" 2>/dev/null)" || return 1
-        case "$target" in
-            */Contents/Resources/cmux-cua|*/Contents/Resources/cmux-computer-use)
-                /bin/ln -sfn "$source_dir" "$destination" 2>/dev/null || return 1
-                ;;
-            *)
-                return 1
-                ;;
-        esac
-    elif [[ -e "$destination" ]]; then
-        # A user-owned path wins; report not-installed so the invocation-scoped
-        # fallback still delivers the current bundled skill.
-        return 1
-    else
-        /bin/ln -s "$source_dir" "$destination" 2>/dev/null || return 1
-    fi
-    target="$(/usr/bin/readlink "$destination" 2>/dev/null || /bin/readlink "$destination" 2>/dev/null)" || return 1
-    [[ "$target" == "$source_dir" ]]
-}
-
-cmux_codex_computer_use_skill_path() {
-    # Derive the skill only from this wrapper's own app bundle. Do not consult
-    # project directories or user-global configuration: the path is scoped to
-    # the cmux build that launched this Codex process.
-    local self_dir resource_dir skill_path
-    self_dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P)" || return 1
-    resource_dir="${self_dir%/bin}"
-    skill_path="$resource_dir/cmux-cua/SKILL.md"
-    [[ -f "$skill_path" ]] || return 1
-    printf '%s' "$skill_path"
+    cmux_cua_skill_reconcile codex "$source_dir" "${PWD:-}" "$install_requested" || return 1
 }
 
 cmux_codex_computer_use_app_enabled() {
@@ -337,6 +301,55 @@ cmux_codex_computer_use_app_enabled() {
     [[ "$enabled" != "0" ]]
 }
 
+# Attachment diagnostics are deliberately opt-in. The normal wrapper remains
+# quiet, while a maintainer can set CMUX_CUA_DIAGNOSTICS=1 to see the single
+# fail-closed reason for this invocation. Keep this machine-readable line
+# free of paths, socket names, and credentials: it is safe to collect from a
+# terminal transcript without weakening the TCC/proxy boundary.
+cmux_codex_cua_diagnostic() {
+    [[ "${CMUX_CUA_DIAGNOSTICS:-0}" == "1" ]] || return 0
+    local reason="${1:-unknown}"
+    printf 'cmux-cua: codex attachment=%s\n' "$reason" >&2
+}
+
+cmux_codex_cua_attachment_present() {
+    local arg
+    for arg in "${cmux_codex_computer_use_args[@]}"; do
+        [[ "$arg" == mcp_servers.cmux-cua.command=* ]] && return 0
+    done
+    return 1
+}
+
+# Re-evaluate the same fail-closed gates in the parent shell after the
+# NUL-separated emitter finishes. The emitter runs in process substitution,
+# so shell variables assigned there cannot be used as a diagnostic channel.
+# These checks are read-only (including the private credential validation) and
+# do not launch a helper or probe the daemon.
+cmux_codex_cua_attachment_reason() {
+    if ! cmux_codex_computer_use_enabled_for_invocation "$@"; then
+        if [[ "${CMUX_COMPUTER_USE_MCP_DISABLED:-0}" == "1" ]] ||
+           ! cmux_codex_computer_use_app_enabled; then
+            printf '%s' 'computer-use-disabled'
+        else
+            printf '%s' 'strict-mcp-config'
+        fi
+        return 0
+    fi
+    if ! cmux_computer_use_surface_socket_available; then
+        printf '%s' 'stale-cmux-socket'
+        return 0
+    fi
+    if ! cmux_computer_use_resolve_client >/dev/null 2>&1; then
+        printf '%s' 'missing-client'
+        return 0
+    fi
+    if ! cmux_computer_use_auth_token >/dev/null 2>&1; then
+        printf '%s' 'missing-auth'
+        return 0
+    fi
+    printf '%s' 'attachment-unavailable'
+}
+
 cmux_codex_computer_use_enabled_for_invocation() {
     [[ "${CMUX_COMPUTER_USE_MCP_DISABLED:-0}" == "1" ]] && return 1
     cmux_codex_computer_use_app_enabled || return 1
@@ -353,24 +366,11 @@ cmux_codex_computer_use_enabled_for_invocation() {
 
 cmux_codex_emit_computer_use_args() {
     cmux_codex_computer_use_enabled_for_invocation "$@" || return 1
-    # Invocation-scoped fallback only: a skills.config entry displays
-    # dir-qualified (cmux-cua:cmux-cua) in Codex's picker, so it must not ride
-    # along when the plain ~/.agents/skills/cmux-cua link already covers this
-    # session.
-    local skill_path
-    skill_path=""
-    if [[ "${CMUX_COMPUTER_USE_GLOBAL_SKILL_INSTALLED:-0}" != 1 ]]; then
-        skill_path="$(cmux_codex_computer_use_skill_path 2>/dev/null)" || skill_path=""
-    fi
-    if [[ -n "$skill_path" ]]; then
-        printf '%s\0' \
-            "-c" \
-            "skills.config=[{path=\"$(cmux_computer_use_json_escape "$skill_path")\",enabled=true}]"
-    fi
-
-    # Skill discovery is useful while onboarding is still preparing the
-    # helper. The MCP attachment itself remains fail-closed on cmux ownership,
-    # daemon credentials, and the installed approval broker.
+    # Codex v0.153 consumes skills.config as enable/disable rules only; it does
+    # not turn a session flag path into a discovery root. A picker-visible
+    # bundled skill therefore requires the explicit global-install opt-in
+    # reconciled above. The MCP attachment remains fail-closed on cmux
+    # ownership, daemon credentials, and the installed approval broker.
     cmux_computer_use_surface_socket_available || return 0
     local client default_session runtime_scope runtime_uid cua_socket state_dir auth_token
     client="$(cmux_computer_use_resolve_client)" || return 1
@@ -557,18 +557,21 @@ cmux_codex_read_computer_use_args() {
 # CMUX_CODEX_HOOKS_DISABLED is the documented MASTER opt-out: the wrapper
 # stays fully inert — no cmux calls, no Computer Use attach, no argv changes.
 if [[ "${CMUX_CODEX_HOOKS_DISABLED:-}" == "1" ]]; then
+    cmux_codex_cua_diagnostic "hooks-disabled"
     exec_real_codex_passthrough "$@"
 fi
 
 # Outside cmux the wrapper does nothing: Computer Use is a feature of
 # cmux-launched agents, so plain `codex` in a random terminal stays untouched.
 if [[ "$IN_CMUX" == "0" ]]; then
+    cmux_codex_cua_diagnostic "outside-cmux"
     exec_real_codex_passthrough "$@"
 fi
 
 # Not a session entrypoint (review/login/doctor/--help/...): pass through with
 # no injection of any kind.
 if ! should_inject_codex_hooks "$@"; then
+    cmux_codex_cua_diagnostic "not-session"
     exec_real_codex_passthrough "$@"
 fi
 
@@ -648,24 +651,31 @@ cmux_codex_read_inject_args() {
     return 0
 }
 
-# Keep the bundled skill discoverable by Codex's picker before the session
-# starts. Installation is best-effort so an existing user-owned skill can
-# never prevent Codex from launching; set CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL=0
-# for a strictly invocation-scoped session. When the durable link is in place,
-# the emitter skips its invocation-scoped skills.config fallback so the picker
-# shows one plain cmux-cua entry.
-CMUX_COMPUTER_USE_GLOBAL_SKILL_INSTALLED=0
-if cmux_codex_global_skill_install_enabled \
-      && cmux_codex_computer_use_enabled_for_invocation "$@"; then
-    if cmux_codex_install_computer_use_skill; then
-        CMUX_COMPUTER_USE_GLOBAL_SKILL_INSTALLED=1
-    fi
+# Reconcile the bundled skill's discovery path before the session starts.
+# Normal launches clean up only links proven to be cmux-managed and use a
+# session-scoped path when it cannot create a same-name picker collision.
+# CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL=1 is the explicit opt-in for a durable
+# user-global link.
+if cmux_codex_computer_use_enabled_for_invocation "$@"; then
+    # The policy helper performs both explicit installation and stale-link
+    # migration; it re-reads the opt-in flag itself. Disabled and strict
+    # invocations remain fully inert.
+    cmux_codex_reconcile_skill_links || true
 fi
 
 # Computer-use args are generated independently of hook injection: the bundled
 # CLI is local and does not need the cmux hook socket, so a failed or empty
 # `hooks codex inject-args` emit must not silently drop computer use.
 cmux_codex_read_computer_use_args "$@" || true
+
+if [[ "${CMUX_CUA_DIAGNOSTICS:-0}" == "1" ]]; then
+    if cmux_codex_cua_attachment_present; then
+        cmux_codex_cua_diagnostic "attached"
+    else
+        cmux_codex_cua_reason="$(cmux_codex_cua_attachment_reason "$@")"
+        cmux_codex_cua_diagnostic "$cmux_codex_cua_reason"
+    fi
+fi
 
 if cmux_codex_read_inject_args; then
     exec "$REAL_CODEX" "${cmux_codex_computer_use_args[@]}" "${cmux_codex_injected_args[@]}" "$@"

@@ -437,7 +437,7 @@ mod tests {
         let path = fixture(&enrollment(), 0o600, "oversized");
         let current_len = std::fs::metadata(&path).unwrap().len() as usize;
         let padding = vec![b' '; MAX_ENROLLMENT_BYTES + 1 - current_len];
-        let mut file = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
+        let mut file = OpenOptions::new().append(true).open(&path).unwrap();
         file.write_all(&padding).unwrap();
 
         let error = load_managed_enrollment_file(&path, NOW).expect_err("oversized enrollment");

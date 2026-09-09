@@ -150,13 +150,14 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         screenRecordingGranted: Bool,
         directCaptureReady: Bool
     ) -> Bool {
-        featureEnabled
+        // `seen` is only a presentation marker; it does not prove helper TCC
+        // grants remain valid. Missing or unknown grants must fail closed.
+        _ = seen
+        return featureEnabled
             && (
                 !directCaptureReady
-                    || (!seen && (
-                        !permissionStatusIsKnown
-                            || !(accessibilityGranted && screenRecordingGranted)
-                    ))
+                    || !permissionStatusIsKnown
+                    || !(accessibilityGranted && screenRecordingGranted)
             )
     }
 

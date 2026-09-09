@@ -102,6 +102,10 @@ extension CmuxTuiSurfaceProvider {
             throw ProviderError.terminalNotCreated(terminalID)
         case .failed:
             throw ProviderError.terminalNotCreated(terminalID)
+        case .exited:
+            // The remote shell already ended. Opening a pane for it would show
+            // a frozen screen that never reconnects.
+            throw ProviderError.terminalNotCreated(terminalID)
         case .noPlacement:
             try await ensureRemoteTerminalView(
                 terminalID: terminalID,
@@ -172,9 +176,10 @@ extension CmuxTuiSurfaceProvider {
             ) {
             case .resolved:
                 return
-            case .failed, .unsupported:
+            case .failed, .unsupported, .exited:
                 // This helper is reached only after a modern resolver reported no placement;
-                // a generation change or malformed response is fail-closed.
+                // a generation change, a malformed response, and a terminal that
+                // exited in the meantime are all fail-closed.
                 throw ProviderError.terminalNotCreated(terminalID)
             case .noPlacement:
                 break
@@ -263,14 +268,20 @@ extension CmuxTuiSurfaceProvider {
     func reprojectManualMirror(
         resource: SurfaceResource,
         projection: SurfaceProjection,
-        paneID: String
+        paneID: String,
+        generation: UInt64
     ) async {
+        guard isCurrentLifecycleGeneration(generation), isRegisteredInCatalog() else { return }
         do {
             let materialized = try await materializeManualMirrorTerminal(
                 resource,
                 at: .tab(workspaceID: projection.workspaceID, paneID: paneID, index: nil),
                 focus: false
             )
+            guard isCurrentLifecycleGeneration(generation), isRegisteredInCatalog() else {
+                SurfacePaneFactory.close(panelID: materialized.panelID, in: materialized.workspaceID)
+                return
+            }
             materializedPanels.insert(materialized.panelID)
             catalog.endProjections(panelID: projection.panelID)
             catalog.record(SurfaceProjection(
@@ -310,7 +321,7 @@ extension CmuxTuiSurfaceProvider {
                 arguments: CloudTuiCommandLine.legacyListWorkspacesArguments(socketPath: socketPath)
             ) else { return nil }
             return parser.surfaceID(from: tree, terminalID: terminalID)
-        case .noPlacement, .failed:
+        case .noPlacement, .exited, .failed:
             return nil
         }
     }
@@ -339,6 +350,8 @@ extension CmuxTuiSurfaceProvider {
                 return .resolved(surfaceID)
             case .noPlacement:
                 return .noPlacement
+            case .exited:
+                return .exited
             case .malformed:
                 return .failed
             }

@@ -60,7 +60,7 @@ describe("coderouter credential refresh coordination", () => {
     await didClaim;
     await expect(refresh(input())).rejects.toBeInstanceOf(CodeRouterRefreshBusy);
     releaseProvider();
-    expect((await first).refreshToken).toBe("new-refresh");
+    expect(((await first) as CodexCredential).refreshToken).toBe("new-refresh");
   });
 
   test("an abandoned lease becomes claimable after expiry", async () => {
@@ -76,7 +76,7 @@ describe("coderouter credential refresh coordination", () => {
     const refresh = createCredentialRefresher(dependencies);
     await expect(refresh(input())).rejects.toBeInstanceOf(CodeRouterRefreshBusy);
     now = 1_001;
-    expect((await refresh(input())).accessToken).toBe("new-access");
+    expect(((await refresh(input())) as CodexCredential).accessToken).toBe("new-access");
   });
 
   test("persists a rotated provider refresh token at the next revision", async () => {
@@ -88,9 +88,9 @@ describe("coderouter credential refresh coordination", () => {
         completed = value;
       },
     }));
-    const result = await refresh(input());
+    const result = (await refresh(input())) as CodexCredential;
     expect(result.refreshToken).toBe("new-refresh");
-    expect(completed?.credential.refreshToken).toBe("new-refresh");
+    expect((completed?.credential as CodexCredential | undefined)?.refreshToken).toBe("new-refresh");
     expect(completed?.encrypted.credentialRevision).toBe(2);
   });
 
@@ -122,6 +122,33 @@ describe("coderouter credential refresh coordination", () => {
     }));
     await expect(refresh(input())).rejects.toThrow("database unavailable");
     expect(failedLease).toBe(true);
+  });
+
+  test("propagates cancellation to the refresh lease claim", async () => {
+    let claimSignal: AbortSignal | undefined;
+    let claimStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      claimStarted = resolve;
+    });
+    const refresh = createCredentialRefresher(fakeDependencies({
+      claim: async (...args) => {
+        claimSignal = (args as readonly unknown[])[2] as AbortSignal | undefined;
+        claimStarted();
+        return await new Promise<never>((_resolve, reject) => {
+          const signal = claimSignal;
+          const abort = () => reject(signal?.reason ?? new DOMException("aborted", "AbortError"));
+          if (signal?.aborted) abort();
+          else signal?.addEventListener("abort", abort, { once: true });
+        });
+      },
+    }));
+    const controller = new AbortController();
+    const pending = refresh({ ...input(), signal: controller.signal });
+    await started;
+    controller.abort(new DOMException("client disconnected", "AbortError"));
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    expect(claimSignal).toBeDefined();
+    expect(claimSignal?.aborted).toBe(true);
   });
 });
 
