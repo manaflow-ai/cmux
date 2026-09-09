@@ -33,7 +33,7 @@ extension AgentHibernationPlannerSwiftTests {
                     isProtected: false,
                     lifecycle: .idle,
                     hasUnconfirmedTerminalInput: false,
-                    lastActivityAt: 0
+                    lastActivityAt: 90
                 ),
                 AgentHibernationPlannerInput(
                     key: runningKey,
@@ -44,7 +44,9 @@ extension AgentHibernationPlannerSwiftTests {
                     isProtected: false,
                     lifecycle: .running,
                     hasUnconfirmedTerminalInput: false,
-                    lastActivityAt: 0
+                    // Older than the idle candidate and beyond the idle
+                    // threshold: only its running lifecycle may exclude it.
+                    lastActivityAt: 80
                 ),
             ],
             settings: settings,
