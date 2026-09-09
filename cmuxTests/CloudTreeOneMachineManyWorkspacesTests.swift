@@ -105,9 +105,9 @@ struct CloudTreeOneMachineManyWorkspacesTests {
         return nil
     }
 
-    private func display(in workspaces: [SurfaceRemoteWorkspace]) -> SurfaceResource {
+    private func display(_ key: String = SurfaceResourceID.desktopDisplayKey, in workspaces: [SurfaceRemoteWorkspace]) -> SurfaceResource {
         var resource = SurfaceResource(
-            id: SurfaceResourceID(machine: machine, kind: .display, key: SurfaceResourceID.desktopDisplayKey), title: "Desktop", detail: nil,
+            id: SurfaceResourceID(machine: machine, kind: .display, key: key), title: key == SurfaceResourceID.desktopDisplayKey ? "Desktop" : key, detail: nil,
             lifecycle: .running, agent: nil, remoteWorkspace: workspaces.first, port: 6901, url: nil
         )
         resource.remoteViews = workspaces.enumerated().map { SurfaceRemoteView(tabID: "tab_desk_\($0.offset)", workspace: $0.element) }
@@ -289,11 +289,11 @@ struct CloudTreeOneMachineManyWorkspacesTests {
             SurfaceResourceID(machine: machine, kind: .terminal, key: "term_1"), shared.id,
         ])
         // VNC Displays is one row per screen; the group is searchable under that name.
-        #expect(byID["machine:brave-otter/displays"]?.searchableTitle == "VNC Displays")
+        #expect(byID["machine:brave-otter/displays"]?.searchableTitle == "Displays")
         #expect(tree.last?.id == "resource:brave-otter/terminal/term_shared", "Terminals is the machine's last section")
     }
 
-    @Test("An empty machine still offers its Workspaces and Terminals groups: their + make the first ones")
+    @Test("An empty machine still offers Workspaces, Ports, Displays, and Terminals")
     func emptyMachineKeepsItsGroups() throws {
         let snapshot = SurfaceCatalogSnapshot(machines: [info(workspaces: [])], resources: [], projections: [])
         let tree = rows(snapshot)
@@ -301,20 +301,43 @@ struct CloudTreeOneMachineManyWorkspacesTests {
             "machine:brave-otter",
             "machine:brave-otter/workspaces",
             "machine:brave-otter/workspaces/placeholder",
+            "machine:brave-otter/ports",
+            "machine:brave-otter/ports/status",
+            "machine:brave-otter/displays",
+            "machine:brave-otter/displays/placeholder",
             "machine:brave-otter/terminals",
             "machine:brave-otter/terminals/placeholder",
         ])
-        for groupID in ["machine:brave-otter/workspaces", "machine:brave-otter/terminals"] {
+        for groupID in ["machine:brave-otter/workspaces", "machine:brave-otter/terminals", "machine:brave-otter/displays"] {
             let group = try #require(tree.first { $0.id == groupID })
             #expect(CloudTreeRowHoverButtons.hasButtons(for: group.kind), "\(groupID) keeps its hover +")
         }
         let placeholders = tree.filter { $0.structureTag == "placeholder" }
-        #expect(placeholders.map(\.searchableTitle) == ["No workspaces yet", "No terminals yet"])
+        #expect(placeholders.map(\.searchableTitle) == ["No workspaces yet", "No reachable ports", "No displays available", "No terminals yet"])
         #expect(placeholders.allSatisfy { $0.machine == machine })
         for row in placeholders {
             guard case .placeholder(_, let placeholder) = row.kind else { Issue.record("expected a placeholder"); continue }
             #expect(placeholder.style == .dimmed)
         }
+    }
+
+    @Test("Displays keeps every real VNC screen from the catalog")
+    func displaysCategoryKeepsRealScreens() throws {
+        let main = workspace("ws_main", "main", index: 0, focused: true)
+        let first = display(in: [main])
+        let second = display("display:2", in: [main])
+        let snapshot = SurfaceCatalogSnapshot(
+            machines: [info(workspaces: [main], hasDesktop: false)],
+            resources: [first, second],
+            projections: []
+        )
+        let tree = rows(snapshot)
+        let displays = try #require(tree.first { $0.id == "machine:brave-otter/displays" })
+        #expect(displays.children.map(\.id) == [
+            "resource:brave-otter/display/display:1",
+            "resource:brave-otter/display/display:2",
+        ])
+        #expect(displays.children.allSatisfy { $0.children.isEmpty })
     }
 
     @Test("Several workspaces on one machine each list their own terminals under the one machine row")
@@ -339,13 +362,11 @@ struct CloudTreeOneMachineManyWorkspacesTests {
         ], "Terminals lists every terminal once, whatever workspace shows it")
     }
 
-    /// Regression (https://github.com/manaflow-ai/cmux/issues/12044 follow-up): a pane
-    /// holding several tabs listed every tab as a peer row, so a workspace read
-    /// "3 terminals" while its layout showed one pane. A workspace's rows are its layout:
-    /// one row per pane (the tab the pane shows), the pane's other tabs nested beneath it
-    /// in tab order.
-    @Test("A pane with several tabs is one row: the tab it shows, with its other tabs nested beneath")
-    func hiddenTabsNestUnderTheirPaneRow() throws {
+    /// Regression for #12226: a pane holding several tabs must expose every tab as a
+    /// sibling leaf row. The pane hierarchy is an implementation detail and must not
+    /// become a terminal-under-terminal presentation.
+    @Test("A pane with several tabs exposes flat sibling terminal rows")
+    func tabsAreFlatSiblingRows() throws {
         let main = workspace("ws_main", "main", index: 0, focused: true)
         // One pane, three tabs; the daemon shows the middle one.
         let snapshot = SurfaceCatalogSnapshot(
@@ -360,33 +381,28 @@ struct CloudTreeOneMachineManyWorkspacesTests {
         let tree = rows(snapshot)
         let byID = Dictionary(tree.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let workspaceRow = try #require(byID["machine:brave-otter/ws/ws_main"])
-        #expect(workspaceRow.children.compactMap(terminalKey) == ["term_b"], "one pane in the layout, one row: the tab the pane shows")
-        let paneRow = try #require(workspaceRow.children.first)
-        #expect(paneRow.children.compactMap(terminalKey) == ["term_a", "term_c"], "the pane's other tabs nest beneath it, in tab order")
+        #expect(workspaceRow.children.compactMap(terminalKey) == ["term_b", "term_a", "term_c"], "all tabs are sibling rows in layout order")
+        #expect(workspaceRow.children.allSatisfy { $0.children.isEmpty }, "terminal rows are leaves")
         guard case .workspace(_, _, let count, let hiddenTabs, _) = workspaceRow.kind else {
             Issue.record("expected the workspace row"); return
         }
-        #expect(count == 1, "the count is what the layout shows")
-        #expect(hiddenTabs == 2, "and the row says how many tabs sit behind the shown ones")
-        #expect(CloudTreeRowContentView.workspaceDetail(terminalCount: count, hiddenTabCount: hiddenTabs) == "1 terminal · 2 more tabs")
-        guard case .terminal(let shownRow) = paneRow.kind else {
-            Issue.record("expected the pane row"); return
+        #expect(count == 3, "the count includes every visible terminal row")
+        #expect(hiddenTabs == 0, "flat rows have no hidden tabs")
+        #expect(CloudTreeRowContentView.workspaceDetail(terminalCount: count, hiddenTabCount: hiddenTabs) == "3 terminals")
+        for child in workspaceRow.children {
+            guard case .terminal(let row) = child.kind else { Issue.record("expected terminal row"); continue }
+            #expect(row.hiddenTabCount == 0)
         }
-        #expect(shownRow.hiddenTabCount == 2, "the pane row carries the count its badge shows")
-        #expect(paneRow.children.allSatisfy { child in
-            if case .terminal(let row) = child.kind { return row.hiddenTabCount == 0 }
-            return false
-        }, "nested tab rows carry no badge of their own")
         // Every terminal keeps its one pool row, whatever pane or tab shows it.
         let pool = try #require(tree.first { $0.structureTag == "terminalsPool" })
         #expect(pool.children.compactMap(terminalKey) == ["term_a", "term_b", "term_c"])
     }
 
-    @Test("Collapsing a pane keeps it collapsed after the pane shows a different tab")
+    @Test("Each tab row has a stable identity when the pane selection changes")
     @MainActor
     func collapsingAPaneSurvivesSwitchingItsShownTab() throws {
         let main = workspace("ws_main", "main", index: 0, focused: true)
-        func paneRow(focused: String) throws -> CloudTreeNode {
+        func tabRows(focused: String) throws -> [CloudTreeNode] {
             let snapshot = SurfaceCatalogSnapshot(
                 machines: [info(workspaces: [main])],
                 resources: [
@@ -397,37 +413,31 @@ struct CloudTreeOneMachineManyWorkspacesTests {
                 projections: []
             )
             let workspaceRow = try #require(rows(snapshot).first { $0.id == "machine:brave-otter/ws/ws_main" })
-            return try #require(workspaceRow.children.first)
+            return workspaceRow.children
         }
-        let shownB = try paneRow(focused: "term_b")
-        let shownC = try paneRow(focused: "term_c")
-        #expect(shownB.id == shownC.id, "the pane row is the same row when a different tab is shown")
-        #expect(terminalKey(shownB) == "term_b")
-        #expect(terminalKey(shownC) == "term_c")
-        let suite = "CloudTreePaneExpansion-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
-        let store = CloudTreeExpansionStore(defaults: defaults)
-        store.setExpanded(false, node: shownB)
-        #expect(!store.isExpanded(shownC), "collapse is keyed by the pane, not the shown tab")
+        let shownB = try tabRows(focused: "term_b")
+        let shownC = try tabRows(focused: "term_c")
+        #expect(Set(shownB.map(\.id)) == Set(shownC.map(\.id)), "tab rows retain exact identities across selection changes")
+        #expect(shownB.allSatisfy { $0.children.isEmpty } && shownC.allSatisfy { $0.children.isEmpty })
     }
 
-    @Test("A pane row keeps its identity when a second tab appears")
-    func paneIdentitySurvivesTabAppearance() throws {
+    @Test("A tab row keeps its identity when a second tab appears")
+    func tabIdentitySurvivesTabAppearance() throws {
         let main = workspace("ws_main", "main", index: 0, focused: true)
-        func paneRow(_ resources: [SurfaceResource]) throws -> CloudTreeNode {
+        func tabRows(_ resources: [SurfaceResource]) throws -> [CloudTreeNode] {
             let snapshot = SurfaceCatalogSnapshot(
                 machines: [info(workspaces: [main])], resources: resources, projections: []
             )
             let workspaceRow = try #require(rows(snapshot).first { $0.id == "machine:brave-otter/ws/ws_main" })
-            return try #require(workspaceRow.children.first)
+            return workspaceRow.children
         }
         let first = tabbedTerminal("term_a", in: main, pane: "pane_1", index: 0, focused: true)
         let second = tabbedTerminal("term_b", in: main, pane: "pane_1", index: 1, focused: false)
-        let oneTab = try paneRow([first])
-        let twoTabs = try paneRow([first, second])
-        #expect(oneTab.id == twoTabs.id)
-        #expect(oneTab.id.contains("pane:pane_1"))
+        let oneTab = try tabRows([first])
+        let twoTabs = try tabRows([first, second])
+        #expect(oneTab.first?.id == twoTabs.first?.id)
+        #expect(oneTab.first?.id.contains("tab:tab_term_a") == true)
+        #expect(twoTabs.allSatisfy { $0.children.isEmpty })
     }
 
     @Test("Pane rows follow the layout: the screen, then the pane's position in its split tree")
@@ -452,14 +462,14 @@ struct CloudTreeOneMachineManyWorkspacesTests {
         let tree = rows(snapshot)
         let byID = Dictionary(tree.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let workspaceRow = try #require(byID["machine:brave-otter/ws/ws_main"])
-        #expect(workspaceRow.children.compactMap(terminalKey) == ["term_left", "term_right"], "layout order, not arrival order")
-        #expect(workspaceRow.children.last?.children.compactMap(terminalKey) == ["term_right_hidden"])
+        #expect(workspaceRow.children.compactMap(terminalKey) == ["term_left", "term_right", "term_right_hidden"], "layout order, not arrival order")
+        #expect(workspaceRow.children.allSatisfy { $0.children.isEmpty })
         guard case .workspace(_, _, let count, let hidden, _) = workspaceRow.kind else {
             Issue.record("expected the workspace row"); return
         }
-        #expect(count == 2)
-        #expect(hidden == 1)
-        #expect(CloudTreeRowContentView.workspaceDetail(terminalCount: count, hiddenTabCount: hidden) == "2 terminals · 1 more tab")
+        #expect(count == 3)
+        #expect(hidden == 0)
+        #expect(CloudTreeRowContentView.workspaceDetail(terminalCount: count, hiddenTabCount: hidden) == "3 terminals")
         // Views that name no pane (older providers) keep the flat rows they always had.
         let legacy = SurfaceCatalogSnapshot(
             machines: [info(workspaces: [main])],
