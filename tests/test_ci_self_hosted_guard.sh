@@ -318,7 +318,7 @@ check_release_helper_artifact_from_package_lane() {
       next
     }
     in_job && /uses: actions\/upload-artifact@/ { saw_upload=1 }
-    in_job && /name:[[:space:]]*cmux-ghostty-cli-helper/ { saw_artifact_name=1 }
+    in_job && /(name|pattern):[[:space:]]*cmux-ghostty-cli-helper/ { saw_artifact_name=1 }
     in_job && /\[\[ "\$HELPER_SDK_VERSION" == 15\.\* \]\]/ { saw_helper_sdk_validation=1 }
 
     END {
@@ -336,7 +336,7 @@ check_release_helper_artifact_from_package_lane() {
     in_job && /- swift-package-tests/ { saw_need=1 }
     in_job && /- name: Download universal Ghostty CLI helper/ { saw_download_step=1; next }
     in_job && /uses: actions\/download-artifact@/ { saw_download=1 }
-    in_job && /name:[[:space:]]*cmux-ghostty-cli-helper/ { saw_artifact_name=1 }
+    in_job && /(name|pattern):[[:space:]]*cmux-ghostty-cli-helper/ { saw_artifact_name=1 }
     in_job && /- name: Install universal Ghostty CLI helper/ { saw_install_step=1; next }
     in_job && /\.\/scripts\/install-prebuilt-ghostty-cli-helper\.sh/ { saw_install=1 }
 

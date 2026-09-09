@@ -1707,7 +1707,11 @@ jobs:
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: cmux-ghostty-cli-helper
+          # Attempt-unique: artifact names are scoped to the workflow run, so
+          # a "re-run failed jobs" attempt that reused the fixed name failed
+          # with "409 Conflict: an artifact with this name already exists"
+          # (run 34246255291). release-build downloads by attempt pattern.
+          name: cmux-ghostty-cli-helper-${{ github.run_attempt }}
           path: ghostty-cli-helper/ghostty
           if-no-files-found: error
           retention-days: 1
@@ -1716,11 +1720,14 @@ jobs:
         if: steps.upload-ghostty-cli-helper.outcome == 'failure'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: cmux-ghostty-cli-helper
+          # A distinct name: a first upload that created the artifact but
+          # failed to finalize cannot be overwritten, so the retry must not
+          # reuse its name either (FinalizeArtifact 403 then CreateArtifact
+          # 409 in run 34246255291).
+          name: cmux-ghostty-cli-helper-${{ github.run_attempt }}-retry
           path: ghostty-cli-helper/ghostty
           if-no-files-found: error
           retention-days: 1
-          overwrite: true
 
       - name: Select Xcode
         run: |
@@ -2481,7 +2488,10 @@ jobs:
       - name: Download universal Ghostty CLI helper
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: cmux-ghostty-cli-helper
+          # Matches this attempt's upload and, when the first upload could not
+          # finalize, its "-retry" twin; both carry the identical helper.
+          pattern: cmux-ghostty-cli-helper-${{ github.run_attempt }}*
+          merge-multiple: true
           path: ghostty-cli-helper
 
       - name: Install universal Ghostty CLI helper
