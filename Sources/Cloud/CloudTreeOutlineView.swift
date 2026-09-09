@@ -436,7 +436,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 if !operation.isRunning {
                     machineActions.create.showFailure(operation.id)
                 }
-            case .workspace(let machine, let workspace, _, let openIn):
+            case .workspace(let machine, let workspace, _, _, let openIn):
                 // Open-or-focus (D13). Already showing in a local workspace -> go there
                 // instead of opening a second copy; a
                 // stray pane showing one of its terminals -> focus that pane.
@@ -446,7 +446,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 // menu own creation.
                 if let openIn {
                     nodeActions.selectLocalWorkspace(openIn)
-                } else if let shown = node.children.first(where: { child in
+                } else if let shown = CloudTreeNodeBuilder.flattened(node.children).first(where: { child in
                     if case .terminal(let row) = child.kind { return row.isOpen }
                     return false
                 }), case .terminal(let openRow) = shown.kind {
@@ -625,7 +625,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     item(String(localized: "cloudTree.menu.newTerminal", defaultValue: "New Terminal")) { [nodeActions] in nodeActions.newTerminal(machine, nil) },
                     item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() },
                 ]
-            case .workspace(let machine, let workspace, _, let openIn):
+            case .workspace(let machine, let workspace, _, _, let openIn):
                 // One open verb, THE SAME PATH as a click and Return (`open`):
                 // jump to the local workspace already showing it (the verb says so),
                 // focus a stray pane showing one of its terminals, refuse an empty

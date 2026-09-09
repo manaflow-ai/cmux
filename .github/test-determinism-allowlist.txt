@@ -7,3 +7,5 @@ Packages/iOS/CmuxMobileShellUI/Tests/CmuxMobileShellUITests/OnboardingMacDiscove
 cmuxTests/WorkspaceForkConversationContextMenuTests.swift	assert-on-duration	grandfathered
 cmuxTests/WorkspaceForkConversationContextMenuTests.swift	sleep-then-assert	grandfathered
 tests/test_ci_sparkle_build_monotonic.sh	live-network-host	release pretag guard intentionally probes the published appcast and soft-passes offline
+Packages/Shared/CMUXMobileCore/Tests/CMUXMobileCoreTests/CmxRetryAfterPolicyTests.swift	sleep-then-assert	upstream retry policy timing assertions
+Packages/iOS/CmuxMobileShell/Tests/CmuxMobileShellTests/MobileTerminalLaneCoordinatorTests.swift	sleep-then-assert	upstream coordinator readiness timing assertion

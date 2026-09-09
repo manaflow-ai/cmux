@@ -9379,12 +9379,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     DispatchQueue.main.async(execute: send)
                 }
             },
-            onFailure: { [weak self] _ in
+            onFailure: { [weak self] error in
                 if let operation {
                     self?.terminalSurface?.hostedView.endImageTransferIndicator(for: operation)
                 }
                 DispatchQueue.main.async {
-                    NSSound.beep()
+                    if ManagedFileTransferPolicy.isRefusal(error) {
+                        ManagedFileTransferPolicy.presentRefusal()
+                    } else {
+                        NSSound.beep()
+                    }
 #if DEBUG
                     cmuxDebugLog("terminal.remoteDropUpload.failed surface=\(self?.terminalSurface?.id.uuidString.prefix(5) ?? "nil")")
 #endif

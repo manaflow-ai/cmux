@@ -9,6 +9,7 @@ extension DockSplitStore {
     func clearSessionRestoreState(panelId: UUID) {
         discardPendingTerminalTitleUpdate(panelId: panelId)
         removeDeferredAgentResumeRestore(panelId: panelId)
+        restoredAgentLifecycle.clearStartupInput(panelId: panelId)
         restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
         restoredAgentLifecycle.clearSessionRestore(panelId: panelId)
         restoredAgentLifecycle.invalidatedFingerprintsByPanelId.removeValue(forKey: panelId)
@@ -140,9 +141,6 @@ extension DockSplitStore {
             resumeWorkingDirectory: detached.restoredResumeSessionWorkingDirectory,
             startupInput: detached.restoredStartupInput
         )
-        // Dock twin of `Workspace.rearmTransferredStartupInputResend(from:)`:
-        // the idle prompt was reported to the previous owner and never repeats
-        // here, so arm the replay for a launch still awaiting its selector.
         if detached.shellActivityState == .promptIdle {
             scheduleRestoredStartupInputResend(panelId: detached.panelId)
         }
@@ -496,28 +494,18 @@ extension DockSplitStore {
         deferredAgentResumeRestoresByPanelId[panelId] = restore
         guard deferredAgentResumeIndexTask == nil else { return }
         deferredAgentResumeIndexTask = Task { @MainActor [weak self] in
-            let refreshed = await SharedLiveAgentIndex.shared.indexRefreshingNow()
+            let outcome = await SharedLiveAgentIndex.shared.indexForOwnershipDecision()
             guard !Task.isCancelled else { return }
             guard let self else { return }
             self.deferredAgentResumeIndexTask = nil
-            // Same rule as Workspace.deferAgentResumeRestore: a refresh that
-            // could not settle is not a reason to abandon every restore.
-            let index = Workspace.deferredResumeIndex(
-                refreshed: refreshed,
-                lastKnown: SharedLiveAgentIndex.shared.index
-            )
-#if DEBUG
-            cmuxDebugLog(
-                "session.restore.deferred.index dock=\(self.workspaceId.uuidString.prefix(5)) " +
-                "settled=\(refreshed == nil ? 0 : 1) available=\(index == nil ? 0 : 1) " +
-                "pending=\(self.deferredAgentResumeRestoresByPanelId.count)"
-            )
-#endif
-            guard let index else {
-                self.clearDeferredAgentResumeRestores(retireBindings: false)
-                return
+            switch outcome {
+            case .index(let index):
+                self.resolveDeferredAgentResumeRestores(using: index)
+            case .timedOut:
+                self.explainUnverifiableDeferredAgentResumeRestores()
+            case .cancelled:
+                self.clearDeferredAgentResumeRestores()
             }
-            self.resolveDeferredAgentResumeRestores(using: index)
         }
     }
     private func resolveDeferredAgentResumeRestores(
@@ -594,37 +582,14 @@ extension DockSplitStore {
                 nil
             }
             if let liveSessionOwner {
-                let noticeInput = AgentRestoreLiveOwnerNotice(
-                    processID: liveSessionOwner.processID
-                ).startupInput(
-                    dialect: restore.restoresRemoteWorkspaceTerminalSnapshot
-                        ? .remoteHost
-                        : .loginShell
+                explainDeferredAgentResumeRestore(
+                    panelId: panelId,
+                    restore: restore,
+                    terminal: terminal,
+                    noticeInput: AgentRestoreLiveOwnerNotice(
+                        processID: liveSessionOwner.processID
+                    ).startupInput(dialect: restore.noticeDialect)
                 )
-                removeDeferredAgentResumeRestore(panelId: panelId)
-                restoredAgentLifecycle.setResumeState(
-                    .manualResumeAvailable,
-                    panelId: panelId
-                )
-                if restore.remoteResumeCommandEmbedded {
-                    if let noticeAttachCommand = detachedRemoteLiveOwnerNoticeAttachCommand(
-                        panelID: panelId,
-                        restore: restore,
-                        noticeInput: noticeInput
-                    ) {
-                        terminal.surface.setStartupRestoreAdmissionFallbackCommand(
-                            noticeAttachCommand
-                        )
-                    }
-                    // The original remote attach command contains the agent
-                    // resume payload. Cancel admission so it is replaced by
-                    // the attach-only/notice fallback and can never execute.
-                    terminal.surface.cancelStartupRestoreAdmission()
-                } else {
-                    _ = terminal.surface.admitStartupRestoreRuntime(
-                        initialInput: noticeInput
-                    )
-                }
                 AgentRestoreSuppressionJournal().record(
                     kind: liveSessionOwner.kind,
                     sessionID: liveSessionOwner.sessionID,
@@ -846,11 +811,8 @@ extension DockSplitStore {
     func cancelDeferredAgentResumeRestore(
         panelId: UUID,
         restore: DeferredAgentResumeRestore,
-        startRuntime: Bool = true,
-        retireBinding: Bool = true
+        startRuntime: Bool = true
     ) {
-        // A cancelled launch must never have its selector replayed later.
-        restoredAgentLifecycle.clearStartupInput(panelId: panelId)
         if startRuntime {
             (panels[panelId] as? TerminalPanel)?.surface.cancelStartupRestoreAdmission()
         } else {
@@ -858,7 +820,8 @@ extension DockSplitStore {
             restoredAgentLifecycle.clearSessionRestore(panelId: panelId)
         }
         removeDeferredAgentResumeRestore(panelId: panelId)
-        if startRuntime, retireBinding, restore.restorableAgent == nil {
+        restoredAgentLifecycle.clearStartupInput(panelId: panelId)
+        if startRuntime, restore.restorableAgent == nil {
             if let binding = restore.resumeBinding {
                 retireAgentHookResumeBinding(panelId: panelId, matching: binding)
             }
@@ -932,7 +895,66 @@ extension DockSplitStore {
         retireAgentHookResumeBinding(panelId: panelId)
     }
 
-    func clearDeferredAgentResumeRestores(startRuntime: Bool = true, retireBindings: Bool = true) {
+    /// Replaces a deferred automatic resume with a typed explanation, so the
+    /// pane says why nothing was resumed and how to resume it by hand.
+    private func explainDeferredAgentResumeRestore(
+        panelId: UUID,
+        restore: DeferredAgentResumeRestore,
+        terminal: TerminalPanel,
+        noticeInput: String
+    ) {
+        removeDeferredAgentResumeRestore(panelId: panelId)
+        restoredAgentLifecycle.setResumeState(
+            .manualResumeAvailable,
+            panelId: panelId
+        )
+        if restore.remoteResumeCommandEmbedded {
+            let fallbackCommand = detachedRemoteLiveOwnerNoticeAttachCommand(
+                panelID: panelId,
+                restore: restore,
+                noticeInput: noticeInput
+            ) ?? noticeInput
+            terminal.surface.setStartupRestoreAdmissionFallbackCommand(fallbackCommand)
+            // The original remote attach command contains the agent resume
+            // payload. Cancel admission so it is replaced by the
+            // attach-only/notice fallback and can never execute.
+            terminal.surface.cancelStartupRestoreAdmission()
+        } else {
+            _ = terminal.surface.admitStartupRestoreRuntime(
+                initialInput: noticeInput
+            )
+        }
+    }
+
+    /// The live-agent scan did not finish inside the admission deadline, so
+    /// liveness is unknown. Say so in each pane instead of leaving a bare
+    /// prompt; the manual resume path re-checks ownership at exec (#12158).
+    private func explainUnverifiableDeferredAgentResumeRestores() {
+        for (panelId, restore) in Array(deferredAgentResumeRestoresByPanelId) {
+            guard deferredAgentResumeRestoresByPanelId[panelId] != nil else {
+                continue
+            }
+            guard let terminal = panels[panelId] as? TerminalPanel else {
+                removeDeferredAgentResumeRestore(panelId: panelId)
+                continue
+            }
+#if DEBUG
+            cmuxDebugLog(
+                "dock.restore.admissionUnverifiable workspace=\(workspaceId.uuidString) panel=\(panelId.uuidString) kind=\(restore.restorableAgent?.kind.rawValue ?? restore.resumeBinding?.kind ?? "unknown")"
+            )
+#endif
+            explainDeferredAgentResumeRestore(
+                panelId: panelId,
+                restore: restore,
+                terminal: terminal,
+                noticeInput: AgentRestoreUnverifiableNotice()
+                    .startupInput(dialect: restore.noticeDialect)
+            )
+        }
+        deferredAgentResumeRestoresByPanelId.removeAll()
+    }
+
+    func clearDeferredAgentResumeRestores(startRuntime: Bool = true) {
         deferredAgentResumeIndexTask?.cancel()
         deferredAgentResumeIndexTask = nil
         let panelIds = Set(
@@ -944,8 +966,7 @@ extension DockSplitStore {
                 cancelDeferredAgentResumeRestore(
                     panelId: panelId,
                     restore: restore,
-                    startRuntime: startRuntime,
-                    retireBinding: retireBindings
+                    startRuntime: startRuntime
                 )
             } else {
                 if startRuntime {

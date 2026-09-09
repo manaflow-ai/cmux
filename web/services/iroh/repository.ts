@@ -38,8 +38,14 @@ import {
 import type { IrohDiscoveryScope } from "./discoveryScope";
 
 export const IROH_RETENTION_BATCH_SIZE = 500;
-export const IROH_RETENTION_MAX_ROWS = 10_000;
+export const IROH_RETENTION_MAX_ROWS = 50_000;
 export const IROH_RETENTION_MAX_DURATION_MS = 8_000;
+/**
+ * An expired registration challenge can never be consumed. Keep it briefly
+ * for incident debugging, then drop it. Consumed challenges are deleted in
+ * the transaction that consumes them, so they never need retention.
+ */
+export const IROH_EXPIRED_CHALLENGE_RETENTION_MS = 60 * 60 * 1_000;
 export const IROH_RELAY_RESERVATION_LEASE_MS = 60 * 1_000;
 
 export type IrohRetentionCategory =
@@ -247,8 +253,26 @@ function makeLiveRepository(): IrohRepositoryShape {
           ))
           .orderBy(desc(irohRegistrationChallenges.createdAt))
           .limit(1);
-        const createdAt = priorChallenge && input.now <= priorChallenge.createdAt
-          ? new Date(priorChallenge.createdAt.getTime() + 1)
+        // A consumed challenge is deleted with its registration, so the slot's
+        // registeredAt (stamped from that challenge's createdAt) is the other
+        // high-water mark the new mint must clear.
+        const [slot] = await tx
+          .select({ registeredAt: irohEndpointBindings.registeredAt })
+          .from(irohEndpointBindings)
+          .where(and(
+            eq(irohEndpointBindings.userId, input.userId),
+            eq(irohEndpointBindings.deviceUuid, input.deviceUuid),
+            eq(irohEndpointBindings.clientNamespace, input.clientNamespace ?? "legacy"),
+            eq(irohEndpointBindings.tag, input.tag),
+            isNull(irohEndpointBindings.revokedAt),
+          ))
+          .limit(1);
+        const floor = Math.max(
+          priorChallenge?.createdAt.getTime() ?? 0,
+          slot?.registeredAt?.getTime() ?? 0,
+        );
+        const createdAt = input.now.getTime() <= floor
+          ? new Date(floor + 1)
           : input.now;
         const [challenge] = await tx
           .insert(irohRegistrationChallenges)
@@ -450,9 +474,10 @@ function makeLiveRepository(): IrohRepositoryShape {
             })
             .where(eq(irohEndpointBindings.id, existingSlot.id))
             .returning();
+          // The challenge has done its job; a replay now reads as not found.
+          // Deleting here keeps the table bounded by in-flight challenges.
           await tx
-            .update(irohRegistrationChallenges)
-            .set({ consumedAt: input.now })
+            .delete(irohRegistrationChallenges)
             .where(eq(irohRegistrationChallenges.id, challenge.id));
           if (!updated) throw new Error("binding update returned no row");
           const accountRevision = await advanceRouteRevision(tx, input.userId, input.now);
@@ -545,12 +570,8 @@ function makeLiveRepository(): IrohRepositoryShape {
             });
         }
         await tx
-          .update(irohRegistrationChallenges)
-          .set({ consumedAt: input.now })
-          .where(and(
-            eq(irohRegistrationChallenges.id, challenge.id),
-            isNull(irohRegistrationChallenges.consumedAt),
-          ));
+          .delete(irohRegistrationChallenges)
+          .where(eq(irohRegistrationChallenges.id, challenge.id));
         const accountRevision = await advanceRouteRevision(tx, input.userId, input.now);
         return { binding, created: true, accountRevision };
       });
@@ -985,7 +1006,7 @@ function makeLiveRepository(): IrohRepositoryShape {
           await advanceRouteRevision(tx, input.userId, input.now);
         }
 
-        const challengeRetentionCutoff = new Date(input.now.getTime() - 24 * 60 * 60 * 1_000);
+        const challengeRetentionCutoff = new Date(input.now.getTime() - IROH_EXPIRED_CHALLENGE_RETENTION_MS);
         const auditRetentionCutoff = new Date(input.now.getTime() - 30 * 24 * 60 * 60 * 1_000);
         await tx.execute(sql`
           with candidates as materialized (
@@ -1006,7 +1027,7 @@ function makeLiveRepository(): IrohRepositoryShape {
             select id
             from iroh_registration_challenges
             where user_id = ${input.userId}
-              and consumed_at < ${challengeRetentionCutoff.toISOString()}::timestamptz
+              and consumed_at is not null
             order by consumed_at, id
             limit ${IROH_RETENTION_BATCH_SIZE}
             for update skip locked
@@ -1407,7 +1428,7 @@ async function drainIrohRetention(input: {
     30_000,
     "maxDurationMs",
   );
-  const challengeRetentionCutoff = new Date(input.now.getTime() - 24 * 60 * 60 * 1_000);
+  const challengeRetentionCutoff = new Date(input.now.getTime() - IROH_EXPIRED_CHALLENGE_RETENTION_MS);
   const auditRetentionCutoff = new Date(input.now.getTime() - 30 * 24 * 60 * 60 * 1_000);
   const nowIso = input.now.toISOString();
   const challengeCutoffIso = challengeRetentionCutoff.toISOString();
@@ -1519,7 +1540,7 @@ async function drainIrohRetention(input: {
         with candidates as materialized (
           select id
           from iroh_registration_challenges
-          where consumed_at < ${challengeCutoffIso}::timestamptz
+          where consumed_at is not null
           order by consumed_at, id
           limit ${limit}
           for update skip locked
@@ -1672,7 +1693,7 @@ async function irohRetentionBacklogExists(
         where expires_at < ${challengeRetentionCutoff.toISOString()}::timestamptz
       ) or exists (
         select 1 from iroh_registration_challenges
-        where consumed_at < ${challengeRetentionCutoff.toISOString()}::timestamptz
+        where consumed_at is not null
       ) or exists (
         select 1 from iroh_relay_token_issuances
         where requested_at < ${auditRetentionCutoff.toISOString()}::timestamptz

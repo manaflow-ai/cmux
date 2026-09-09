@@ -1,7 +1,7 @@
 // Mint endpoint-bound access credentials and a signed, server-driven Iroh relay policy.
 // Auth is native-only because both credentials leave the browser boundary.
 
-import type { KeyObject } from "node:crypto";
+import { randomUUID, type KeyObject } from "node:crypto";
 
 import { checkRateLimit } from "@vercel/firewall";
 import * as Effect from "effect/Effect";
@@ -50,7 +50,9 @@ import { rateLimitDeploymentPartition } from "../../../../services/rateLimitPart
 
 
 const MAX_BODY_BYTES = 4 * 1_024;
-const RELAY_TOKEN_RATE_LIMIT_BUCKET_SECONDS = 60;
+// Keep the partition stable for the deployed ten-minute firewall window.
+// Including the minute number here would create a fresh bucket every minute.
+const RELAY_TOKEN_RATE_LIMIT_BUCKET_SECONDS = 600;
 
 export interface RelayTokenDeps {
   /**
@@ -144,11 +146,13 @@ export async function handleRelayTokenRequest(
   request: Request,
   deps: RelayTokenDeps,
 ): Promise<Response> {
+  const requestId = randomUUID();
+  const errorContext = { requestId };
   let user: { readonly id: string } | null;
   try {
     user = await deps.verifyRequest(request);
   } catch (error) {
-    return relayErrorResponse(relayAuthenticationError(error));
+    return relayErrorResponse(relayAuthenticationError(error), errorContext);
   }
   if (!user) return unauthorized();
 
@@ -158,11 +162,11 @@ export async function handleRelayTokenRequest(
     const { bindingProof, clientNamespace, endpointId } = parsed;
     const key = deps.signingKey();
     const nowSeconds = deps.nowSeconds();
-    // Namespaced requests always require a proof. Charge their credential
-    // partition before database/crypto work, including rejected signatures.
-    if (clientNamespace !== "legacy") {
-      await checkTokenQuota(request, deps, user.id, clientNamespace, endpointId, "credential", nowSeconds);
-    }
+    // Every request consumes quota before database/crypto work, even when
+    // the binding lookup fails. Legacy admission cannot depend on the binding
+    // result; its bootstrap and credential budgets remain separate below.
+    await checkTokenQuota(request, deps, user.id, clientNamespace, endpointId,
+      clientNamespace === "legacy" ? "admission" : "credential", requestId);
     const isEndpointAuthorized = await deps.isEndpointAuthorized({
       accountId: user.id,
       endpointId,
@@ -178,14 +182,11 @@ export async function handleRelayTokenRequest(
       return jsonResponse({ error: "relay_token_not_configured" }, 503);
     }
     // A fresh endpoint must fetch policy before registration, then fetch its
-    // bound credential immediately after registration. Renewals happen every
-    // four minutes because both artifacts expire after five. Give bootstrap
-    // and credential issuance separate one-minute partitions so the external
-    // rule cannot make the valid two-leg bootstrap or renewal cadence
-    // impossible. Duplicate work inside one phase and minute is still bounded.
+    // bound credential immediately after registration. Keep bootstrap and
+    // credential issuance in stable, separate partitions.
     if (clientNamespace === "legacy") {
       await checkTokenQuota(request, deps, user.id, clientNamespace, endpointId,
-        isEndpointAuthorized ? "credential" : "bootstrap", nowSeconds);
+        isEndpointAuthorized ? "credential" : "bootstrap", requestId);
     }
     const policy = await deps.signedPolicy(user.id, nowSeconds);
     const relayUrls = policy.payload.relays.map((relay) => relay.url);
@@ -229,7 +230,7 @@ export async function handleRelayTokenRequest(
       preferenceRevision: policy.preferenceRevision,
     });
   } catch (error) {
-    return relayErrorResponse(error);
+    return relayErrorResponse(error, errorContext);
   }
 }
 
@@ -239,20 +240,21 @@ async function checkTokenQuota(
   accountId: string,
   namespace: string,
   endpointId: string,
-  phase: "credential" | "bootstrap",
-  nowSeconds: number,
+  phase: "credential" | "bootstrap" | "admission",
+  requestId: string,
 ): Promise<void> {
-  const bucket = Math.floor(nowSeconds / RELAY_TOKEN_RATE_LIMIT_BUCKET_SECONDS);
   await runRelayEffect(enforceRelayRateLimit({
     request,
+    requestId,
     accountId,
     deploymentPartition: rateLimitDeploymentPartition(),
-    devicePartition: `${namespace}:${endpointId}:${phase}:${bucket}`,
+    devicePartition: `${namespace}:${endpointId}:${phase}`,
     ruleId: deps.rateLimitRuleId(),
     check: deps.checkRateLimit,
     isVercel: deps.isVercel(),
-    retryAfterSeconds: RELAY_TOKEN_RATE_LIMIT_BUCKET_SECONDS -
-      (nowSeconds % RELAY_TOKEN_RATE_LIMIT_BUCKET_SECONDS),
+    // The SDK exposes no counter reset timestamp. Its window need not start
+    // on a Unix-time boundary, so conservatively wait a full configured window.
+    retryAfterSeconds: RELAY_TOKEN_RATE_LIMIT_BUCKET_SECONDS,
   }));
 }
 

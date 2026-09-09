@@ -1,3 +1,4 @@
+import CmuxCore
 import Foundation
 
 /// Cloud machines attach through their cmux-tui remote daemon
@@ -573,13 +574,14 @@ extension CMUXCLI {
     ///   <machine>                      the machine's shell (the shared vmOpenShell path)
     ///   <machine>/<workspace>          a cmux-tui workspace on the machine (`ws_…` id or unique name)
     ///   <machine>/<workspace>/<term>   one terminal in it (`term_…`)
+    ///   <machine>/<workspace>/<term>/<tab>  one tab of that terminal (`tab_…`)
     ///   <machine>:desktop              the machine's noVNC screen
     ///   <machine>:port/<n>             a forwarded HTTP port
     /// The same addresses appear in `cmux vm tree`, so an agent can copy them verbatim.
     enum VMOpenTarget: Equatable {
         case machine(String)
         case workspace(machine: String, workspace: String)
-        case terminal(machine: String, workspace: String, terminal: String)
+        case terminal(machine: String, workspace: String, terminal: String, tab: String?)
         case desktop(String)
         case port(machine: String, port: Int)
 
@@ -587,7 +589,7 @@ extension CMUXCLI {
             switch self {
             case .machine(let id), .desktop(let id):
                 return id
-            case .workspace(let id, _), .terminal(let id, _, _), .port(let id, _):
+            case .workspace(let id, _), .terminal(let id, _, _, _), .port(let id, _):
                 return id
             }
         }
@@ -694,7 +696,9 @@ extension CMUXCLI {
         case 2:
             return .workspace(machine: parts[0], workspace: parts[1])
         case 3:
-            return .terminal(machine: parts[0], workspace: parts[1], terminal: parts[2])
+            return .terminal(machine: parts[0], workspace: parts[1], terminal: parts[2], tab: nil)
+        case 4:
+            return .terminal(machine: parts[0], workspace: parts[1], terminal: parts[2], tab: parts[3])
         default:
             return nil
         }
@@ -818,6 +822,7 @@ extension CMUXCLI {
           <machine>/<workspace>          a cmux-tui workspace on it (`ws_…` id or unique name; ambiguous names fail)
           <machine>/<workspace>/<term>   one terminal (`term_…`) — focuses the pane that
                                          already shows it instead of opening a second one
+          <machine>/<workspace>/<term>/<tab>  one tab of that terminal (`tab_…` from `cmux vm tree`)
           <machine>:desktop              the machine's noVNC screen as a browser pane
           <machine>:port/<n>             a private tokened URL for an HTTP port, as a browser pane
           <machine> <port>               same as <machine>:port/<port>
@@ -832,6 +837,7 @@ extension CMUXCLI {
           cmux vm open vivid-newt
           cmux vm open vivid-newt/main
           cmux vm open vivid-newt/main/term_2f9c…
+          cmux vm open vivid-newt/main/term_2f9c…/tab_a
           cmux vm open vivid-newt:desktop
           cmux vm open vivid-newt:port/3000 --print
         """
@@ -1317,9 +1323,7 @@ extension CMUXCLI {
             name: String,
             index: Int,
             focused: Bool,
-            terminals: [[String: Any]],
-            browsers: [[String: Any]],
-            displays: [[String: Any]]
+            placements: [VMTreePlacement]
         )] = []
         // Terminal views can be numerous; keep membership assignment O(1)
         // instead of scanning every workspace for every view.
@@ -1340,49 +1344,39 @@ extension CMUXCLI {
                     name: (raw["name"] as? String) ?? "",
                     index: vmTreeNumber(raw["index"]).map { Int($0) } ?? Int.max,
                     focused: (raw["focused"] as? Bool) == true,
-                    terminals: [],
-                    browsers: [],
-                    displays: []
+                    placements: []
                 ))
             }
         }
         for resource in resources {
-            // Every workspace view contributes a pointer row. The sidebar uses
-            // this same partition: terminals, daemon browsers, then displays.
-            var workspacePayloads: [[String: Any]?] = []
+            // Every workspace view contributes a pointer row: one placement per daemon
+            // tab, the same partition the sidebar draws (grouped by pane below).
+            let kind = resource["kind"] as? String
+            guard ["terminal", "browser", "display", "screen"].contains(kind ?? "") else { continue }
+            var placements: [(workspace: [String: Any], view: [String: Any]?)] = []
             if let views = resource["remote_views"] as? [[String: Any]] {
-                var seen = Set<String>()
                 for view in views {
-                    guard let workspace = view["workspace"] as? [String: Any],
-                          let workspaceId = workspace["id"] as? String,
-                          seen.insert(workspaceId).inserted else { continue }
-                    workspacePayloads.append(workspace)
+                    guard let workspace = view["workspace"] as? [String: Any] else { continue }
+                    placements.append((workspace, view))
                 }
-            } else {
+            } else if let workspace = resource["remote_workspace"] as? [String: Any] {
                 // Only pre-multi-view payloads fall back to this field. An
                 // explicit empty `remote_views` is authoritative.
-                workspacePayloads = [resource["remote_workspace"] as? [String: Any]]
+                placements.append((workspace, nil))
             }
-            for workspace in workspacePayloads {
-                guard let workspaceId = workspace?["id"] as? String, !workspaceId.isEmpty else { continue }
+            for placement in placements {
+                guard let workspaceId = placement.workspace["id"] as? String, !workspaceId.isEmpty else { continue }
+                let member = VMTreePlacement(resource: resource, view: placement.view)
                 if let index = workspaceIndexByID[workspaceId] {
-                    switch resource["kind"] as? String {
-                    case "terminal": workspaces[index].terminals.append(resource)
-                    case "browser": workspaces[index].browsers.append(resource)
-                    case "display", "screen": workspaces[index].displays.append(resource)
-                    default: break
-                    }
+                    workspaces[index].placements.append(member)
                 } else {
                     workspaceIndexByID[workspaceId] = workspaces.count
-                    let kind = resource["kind"] as? String
                     workspaces.append((
                         id: workspaceId,
-                        name: (workspace?["name"] as? String) ?? "",
-                        index: vmTreeNumber(workspace?["index"]).map { Int($0) } ?? Int.max,
-                        focused: (workspace?["focused"] as? Bool) == true,
-                        terminals: kind == "terminal" ? [resource] : [],
-                        browsers: kind == "browser" ? [resource] : [],
-                        displays: kind == "display" || kind == "screen" ? [resource] : []
+                        name: (placement.workspace["name"] as? String) ?? "",
+                        index: vmTreeNumber(placement.workspace["index"]).map { Int($0) } ?? Int.max,
+                        focused: (placement.workspace["focused"] as? Bool) == true,
+                        placements: [member]
                     ))
                 }
             }
@@ -1423,14 +1417,21 @@ extension CMUXCLI {
             let workspaceId = workspace.id
             let name = workspace.name.isEmpty ? workspaceId : workspace.name
             lines.append("    \(name)  \(workspaceId)\(workspace.focused ? "  *" : "")  (cmux vm open \(id)/\(workspaceId))")
-            for terminal in workspace.terminals {
-                lines.append("      " + vmTreeResourceCell(terminal, openHint: "cmux vm open \(id)/\(workspaceId)", addressKey: "key"))
-            }
-            for browser in workspace.browsers {
-                lines.append("      " + vmTreeResourceCell(browser, openHint: "cmux surface open", showFullKey: true))
-            }
-            for display in workspace.displays {
-                lines.append("      " + vmTreeResourceCell(display, openHint: "cmux surface open", showFullKey: true))
+            // Rows follow the layout, as in the sidebar: one per pane (the tab it shows),
+            // the pane's other tabs indented beneath it.
+            for row in vmTreeLayoutRows(workspace.placements) {
+                var cell = "      " + vmTreeWorkspaceCell(row.placement, machineID: id, workspaceID: workspaceId)
+                if !row.hiddenTabs.isEmpty {
+                    cell += "  " + String(
+                        format: String(localized: "cli.vm.tree.hiddenTabs", defaultValue: "(+%d hidden)"),
+                        row.hiddenTabs.count
+                    )
+                }
+                lines.append(cell)
+                for hidden in row.hiddenTabs {
+                    lines.append("        " + String(localized: "cli.vm.tree.hiddenTab", defaultValue: "↳ tab") + "  "
+                        + vmTreeWorkspaceCell(hidden, machineID: id, workspaceID: workspaceId))
+                }
             }
         }
         // Ports come before displays, matching the Cloud sidebar's group order.
@@ -1519,15 +1520,75 @@ extension CMUXCLI {
         return terminal["remote_workspace"] == nil
     }
 
-    /// One resource line: lifecycle glyph, id, title, detail, agent badge, open marker,
-    /// and the address to open it. `addressKey` picks the resource's `key` (cloud terminal
-    /// workspace rows) or its full id (pool rows); display rows set `showFullKey` so each
-    /// screen number remains visible instead of being truncated to the common prefix.
+    /// One workspace placement as the catalog payload describes it: the resource and the
+    /// daemon tab (`remote_views` entry) showing it in this workspace; nil for payloads
+    /// that predate views.
+    struct VMTreePlacement {
+        let resource: [String: Any]
+        let view: [String: Any]?
+    }
+
+    /// One row of a workspace listing: the placement it shows and, for a pane holding
+    /// several tabs, the tabs behind the shown one.
+    struct VMTreeLayoutRow {
+        let placement: VMTreePlacement
+        let hiddenTabs: [VMTreePlacement]
+    }
+
+    /// Maps wire placements through the same ``RemoteWorkspaceLayout`` used by the sidebar.
+    /// Formatting stays in the CLI; pane grouping, ordering, and active-tab selection do not.
+    static func vmTreeLayoutRows(_ placements: [VMTreePlacement]) -> [VMTreeLayoutRow] {
+        func position(_ view: [String: Any]?, _ key: String) -> Int? {
+            vmTreeNumber(view?[key]).flatMap { Int(exactly: $0) }
+        }
+        let kindRank: [String: Int] = ["terminal": 0, "browser": 1, "display": 2, "screen": 2]
+        let layout = RemoteWorkspaceLayout(placements: placements.map { placement in
+            RemoteWorkspacePlacement(
+                screenID: placement.view?["screen_id"] as? String,
+                paneID: placement.view?["pane_id"] as? String,
+                screenIndex: position(placement.view, "screen_index"),
+                paneIndex: position(placement.view, "pane_index"),
+                tabIndex: position(placement.view, "index"),
+                focused: placement.view?["focused"] as? Bool == true,
+                kindOrder: kindRank[placement.resource["kind"] as? String ?? ""] ?? 3
+            )
+        })
+        return layout.rows.map { row in
+            VMTreeLayoutRow(
+                placement: placements[row.shownIndex],
+                hiddenTabs: row.hiddenIndices.map { placements[$0] }
+            )
+        }
+    }
+
+    /// A workspace pointer cell: terminals address through the workspace (`cmux vm open <m>/<ws>/<term>`),
+    /// and through the tab when the placement names one (`…/<term>/<tab>`). Browsers and displays
+    /// address through `cmux surface open`.
+    private static func vmTreeWorkspaceCell(_ placement: VMTreePlacement, machineID: String, workspaceID: String) -> String {
+        var resource = placement.resource
+        if let name = (placement.view?["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
+            resource["title"] = name
+        }
+        if (resource["kind"] as? String) == "terminal" {
+            let key = (resource["key"] as? String) ?? (resource["id"] as? String) ?? "?"
+            let tabID = (placement.view?["tab_id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let command: String
+            if let tabID, !tabID.isEmpty {
+                command = "cmux vm open \(machineID)/\(workspaceID)/\(key)/\(tabID)"
+            } else {
+                command = "cmux vm open \(machineID)/\(workspaceID)/\(key)"
+            }
+            return vmTreeResourceCell(resource, openHint: command, addressKey: "key", command: command)
+        }
+        return vmTreeResourceCell(resource, openHint: "cmux surface open", showFullKey: true)
+    }
+
     private static func vmTreeResourceCell(
         _ terminal: [String: Any],
         openHint: String,
         addressKey: String = "id",
-        showFullKey: Bool = false
+        showFullKey: Bool = false,
+        command: String? = nil
     ) -> String {
         let resourceId = (terminal["id"] as? String) ?? "?"
         let key = (terminal["key"] as? String) ?? resourceId
@@ -1551,7 +1612,7 @@ extension CMUXCLI {
         if let open = (terminal["open_surface_ids"] as? [String])?.first, !open.isEmpty {
             cell += "  " + String(format: String(localized: "cli.vm.tree.open", defaultValue: "(open: %@)"), String(open.prefix(8)))
         }
-        let address = addressKey == "key" ? "\(openHint)/\(key)" : "\(openHint) \(resourceId)"
+        let address = command ?? (addressKey == "key" ? "\(openHint)/\(key)" : "\(openHint) \(resourceId)")
         cell += "  (\(address))"
         return cell
     }
@@ -1586,7 +1647,7 @@ extension CMUXCLI {
             }
         case .port(let machine, let port):
             try openVMPort(vmId: machine, port: port, printOnly: printOnly, workspaceRaw: workspaceRaw, client: client, jsonOutput: jsonOutput)
-        case .terminal(let machine, let remoteWorkspace, let terminal):
+        case .terminal(let machine, let remoteWorkspace, let terminal, let tab):
             // The path contains a remote workspace selector. Resolve it before
             // opening so the catalog can retain the exact placement instead of
             // choosing an arbitrary view of a multi-view terminal. The machine row,
@@ -1602,7 +1663,8 @@ extension CMUXCLI {
                 terminal,
                 machine: machine,
                 workspaceID: remoteWorkspaceID,
-                in: catalog
+                in: catalog,
+                tabID: tab
             )
             guard case .resolved(let terminalID, let remoteTabID) = placement else {
                 throw Self.vmTerminalPlacementResolutionError(

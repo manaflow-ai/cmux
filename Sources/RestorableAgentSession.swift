@@ -975,6 +975,11 @@ struct RestorableAgentSessionIndex: Sendable {
     /// Missing files are complete (the agent kind may not be installed); a
     /// present but unreadable/invalid file is incomplete and unsafe for auto-resume.
     let isComplete: Bool
+    /// Agent kinds whose present hook-store file was unreadable or invalid.
+    /// Owners are recorded per kind and process-detected owners come from no
+    /// store, so a corrupt store for one kind cannot hide a live owner of
+    /// another kind; kind-scoped completeness consults this set (#12158).
+    private let incompleteHookStoreKinds: Set<RestorableAgentKind>
     /// Panel owners whose Codex hook records were outside the bounded
     /// verification pass or had inconclusive durable evidence.
     private let incompleteCodexPanelKeys: Set<PanelKey>
@@ -1032,7 +1037,7 @@ struct RestorableAgentSessionIndex: Sendable {
         panelId: UUID,
         kind: String? = nil
     ) -> Bool {
-        guard isComplete else { return false }
+        guard hookStoreIsComplete(forKind: kind) else { return false }
         guard kind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "codex"
                 || kind == nil else {
             return true
@@ -1050,7 +1055,7 @@ struct RestorableAgentSessionIndex: Sendable {
     /// the pre-restart workspace UUID, so this form intentionally ignores the
     /// workspace component.
     func isComplete(forPanelId panelId: UUID, kind: String? = nil) -> Bool {
-        guard isComplete else { return false }
+        guard hookStoreIsComplete(forKind: kind) else { return false }
         guard kind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "codex"
                 || kind == nil else {
             return true
@@ -1059,6 +1064,22 @@ struct RestorableAgentSessionIndex: Sendable {
             return false
         }
         return !hasUnboundedCodexIncompleteness || verifiedCodexPanelIds.contains(panelId)
+    }
+
+    /// Whether the hook store that owns `kind` was read and decoded.
+    ///
+    /// Callers without a kind, and fixtures that mark the whole index
+    /// incomplete without naming a store, keep the global answer. Stores are
+    /// matched by kind id: registry-owned kinds (pi, grok, antigravity, kimi,
+    /// ollama) load as `.custom(id)` while their raw value parses to the
+    /// native case, and both name the same store file.
+    private func hookStoreIsComplete(forKind kind: String?) -> Bool {
+        if isComplete { return true }
+        guard !incompleteHookStoreKinds.isEmpty,
+              let kindID = kind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(), !kindID.isEmpty else {
+            return false
+        }
+        return !incompleteHookStoreKinds.contains { $0.rawValue.lowercased() == kindID }
     }
 
     /// Fingerprint used by the shared index cache to publish scoped completion
@@ -1070,6 +1091,9 @@ struct RestorableAgentSessionIndex: Sendable {
         if !isComplete {
             values.append("global")
         }
+        values.append(contentsOf: incompleteHookStoreKinds.map {
+            "incomplete-store|" + $0.rawValue
+        })
         if hasUnboundedCodexIncompleteness {
             values.append("codex-omitted")
         }
@@ -1506,6 +1530,7 @@ struct RestorableAgentSessionIndex: Sendable {
                 processIdentityProvider: processIdentityProvider
             ),
             isComplete: self.isComplete,
+            incompleteHookStoreKinds: self.incompleteHookStoreKinds,
             incompleteCodexPanelKeys: self.incompleteCodexPanelKeys,
             verifiedCodexPanelKeys: self.verifiedCodexPanelKeys,
             hasUnboundedCodexIncompleteness: self.hasUnboundedCodexIncompleteness
@@ -1594,7 +1619,7 @@ struct RestorableAgentSessionIndex: Sendable {
     ) -> RestorableAgentSessionIndex {
         let decoder = JSONDecoder()
         var resolved: [PanelKey: Entry] = [:]
-        var isComplete = true
+        var incompleteHookStoreKinds = Set<RestorableAgentKind>()
         let claudeTranscriptLookup = ClaudeTranscriptLookupCache(
             homeDirectory: homeDirectory,
             fileManager: fileManager
@@ -1882,7 +1907,7 @@ struct RestorableAgentSessionIndex: Sendable {
                 }
                 guard let data = try? Data(contentsOf: fileURL),
                       let state = try? decoder.decode(RestorableAgentHookSessionStoreFile.self, from: data) else {
-                    isComplete = false
+                    incompleteHookStoreKinds.insert(kind)
                     continue
                 }
                 if kind == .hermesAgent {
@@ -1913,7 +1938,7 @@ struct RestorableAgentSessionIndex: Sendable {
                 guard !normalizedSessionId.isEmpty,
                       let workspaceId = UUID(uuidString: effectiveRecord.workspaceId),
                       let panelId = UUID(uuidString: effectiveRecord.surfaceId) else {
-                    isComplete = false
+                    incompleteHookStoreKinds.insert(kind)
                     continue
                 }
                 let panelKey = PanelKey(workspaceId: workspaceId, panelId: panelId)
@@ -2244,7 +2269,8 @@ struct RestorableAgentSessionIndex: Sendable {
             liveSessionOwners: LiveAgentSessionOwnerIndex(
                 observations: liveSessionOwnerObservations
             ),
-            isComplete: isComplete,
+            isComplete: incompleteHookStoreKinds.isEmpty,
+            incompleteHookStoreKinds: incompleteHookStoreKinds,
             incompleteCodexPanelKeys: incompleteCodexPanelKeys,
             verifiedCodexPanelKeys: verifiedCodexPanelKeys,
             hasUnboundedCodexIncompleteness: hasUnboundedCodexIncompleteness
@@ -3458,6 +3484,7 @@ struct RestorableAgentSessionIndex: Sendable {
         entriesByPanel: [PanelKey: Entry],
         liveSessionOwners: LiveAgentSessionOwnerIndex = .empty,
         isComplete: Bool = true,
+        incompleteHookStoreKinds: Set<RestorableAgentKind> = [],
         incompleteCodexPanelKeys: Set<PanelKey> = [],
         verifiedCodexPanelKeys: Set<PanelKey> = [],
         hasUnboundedCodexIncompleteness: Bool = false
@@ -3465,6 +3492,7 @@ struct RestorableAgentSessionIndex: Sendable {
         self.entriesByPanel = entriesByPanel
         self.liveSessionOwners = liveSessionOwners
         self.isComplete = isComplete
+        self.incompleteHookStoreKinds = incompleteHookStoreKinds
         self.incompleteCodexPanelKeys = incompleteCodexPanelKeys
         self.incompleteCodexPanelIds = Set(incompleteCodexPanelKeys.map(\.panelId))
         self.verifiedCodexPanelKeys = verifiedCodexPanelKeys
@@ -3543,6 +3571,11 @@ struct DeferredAgentResumeRestore: Sendable {
     let remoteResumeCommandEmbedded: Bool
     let workingDirectory: String?
     let resumeWorkingDirectory: String?
+
+    /// The shell dialect used for notices typed into this deferred restore.
+    var noticeDialect: TerminalStartupShellDialect {
+        restoresRemoteWorkspaceTerminalSnapshot ? .remoteHost : .loginShell
+    }
 
     init(
         stablePanelID: UUID,

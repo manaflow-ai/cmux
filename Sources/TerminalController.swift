@@ -2816,7 +2816,6 @@ class TerminalController {
         // surface.refresh/health/resume.set/get/clear, debug.terminals, surface.send_text/
         // send_key/report_tty/report_pwd/report_shell_state/ports_kick/clear_history/
         // trigger_flash/read_text handled by ControlCommandCoordinator.
-
         // Panes
         // pane.* handled by ControlCommandCoordinator.
 
@@ -2825,6 +2824,7 @@ class TerminalController {
         case "notification.create_for_caller":
             return v2Result(id: id, self.v2NotificationCreateForCaller(params: params))
         case "agent.resolve_delivery_target": return v2Result(id: id, self.v2AgentResolveDeliveryTarget(params: params))
+        case "agent.hibernation.session_end": return v2Result(id: id, self.v2AgentHibernationSessionEnd(params: params))
         #if DEBUG
         case "debug.notification.status":
             return v2Ok(id: id, result: notificationDebugStatus())
@@ -3220,7 +3220,7 @@ class TerminalController {
             "pane.join",
             "pane.last",
             "notification.create",
-            "notification.create_for_caller", "agent.resolve_delivery_target",
+            "notification.create_for_caller", "agent.resolve_delivery_target", "agent.hibernation.session_end",
             "notification.create_for_surface",
             "notification.create_for_target",
             "notification.list",
@@ -4132,6 +4132,11 @@ class TerminalController {
         case .success(let payload):
             return v2Ok(id: id, result: payload)
         case .failure(let error):
+            if case VMClientError.disabledByManagedPolicy = error {
+                // Same code the pre-flight socket gate uses, so a policy that
+                // activates between the gate and the service call reads alike.
+                return v2Error(id: id, code: "cloud_disabled", message: String(describing: error))
+            }
             if let vmError = error as? VMClientError,
                Self.isCloudVMAuthenticationError(vmError) {
                 // Keep the auth boundary explicit for every VM verb. The CLI
@@ -4199,7 +4204,7 @@ class TerminalController {
             return true
         case .httpStatus(let status, _):
             return status == 401
-        case .sessionRefreshFailed, .backendUnreachable, .malformedResponse:
+        case .sessionRefreshFailed, .backendUnreachable, .malformedResponse, .disabledByManagedPolicy:
             return false
         }
     }
@@ -15283,6 +15288,15 @@ class TerminalController {
         // MobileHostRPCResult` type round-trip with no behavior change. The v2
         // control socket shares the same bodies through `handleMobileHost`, so the
         // wire bytes stay identical across both entrypoints without a bridge here.
+        // `DisableFileTransfer` (MDM): every phone↔Mac byte-moving method fails
+        // closed here, whichever lane carried it, with a stable code the phone
+        // can render.
+        if MobileHostService.methodTransfersFiles(request.method), ManagedFileTransferPolicy.isDisabled {
+            return .failure(MobileHostRPCError(
+                code: "file_transfer_disabled",
+                message: ManagedFileTransferPolicy.disabledMessage
+            ))
+        }
         let result: V2CallResult
         switch request.method {
         case "mobile.host.status":

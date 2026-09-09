@@ -514,7 +514,8 @@ Socket methods (the CLI, the sidebar tree, and agents all go through them):
 
 | Method | Params | Result |
 | --- | --- | --- |
-| `vm.tree` | `{id?, refresh?}` | `{machines: [{id, status, image, has_desktop, memory_mb?, disk_mb?, link_state, remote_workspaces?}], cloud_states: [{machine, sync_mode, cursor?, freshness, pending_writes?}], resources: [{id, machine, kind: terminal\|display\|browser, key, title, detail?, lifecycle, agent?, remote_workspace?, remote_views: [{tab_id, workspace: {id, name, index, focused}, screen_id?, pane_id?, name?, index?, focused?}], port?, url?, open_surface_ids}], projections: [{resource, workspace_id, panel_id}]}`. The renderer orders each machine as Workspaces, Ports, VNC Displays, then Terminals; empty workspaces and exact multi-tab placements remain visible. |
+| `vm.tree` | `{id?, refresh?}` | `{machines: [{id, status, image, has_desktop, memory_mb?, disk_mb?, link_state, remote_workspaces?}], cloud_states: [{machine, sync_mode, cursor?, freshness, pending_writes?}], resources: [{id, machine, kind: terminal\|display\|browser, key, title, detail?, lifecycle, agent?, remote_workspace?, remote_views: [{tab_id, workspace: {id, name, index, focused}, screen_id?, pane_id?, name?, index?, focused?, screen_index?, pane_index?}], port?, url?, open_surface_ids}], projections: [{resource, workspace_id, panel_id}]}`. The renderer orders each machine as Workspaces, Ports, VNC Displays, then Terminals; empty workspaces and exact multi-tab placements remain visible. |
+| | | `screen_index` is the screen's position in its workspace and `pane_index` the pane's depth-first position in that screen's layout document (`screens[].layout`); both are additive and absent for daemons that send no layout, in which case rows keep arrival order. |
 | `vm.terminal_open` | `{id, terminal_id, remote_workspace_id?, remote_tab_id?, workspace_id?, placement?, focus?}` | `{surface_id, workspace_id, reused}` — exact remote placement is preserved; an existing pane with the same IDs is focused instead of duplicated |
 | `vm.terminal_new` | `{id, workspace_id?: ws_…, command?: [string], cwd?, name?, open?}` | `{terminal_id, workspace_id, surface_id?}` — a detached terminal in the machine's session |
 | `vm.desktop_open` | `{id, workspace_id?, focus?}` | `{surface_id, url}` |
@@ -524,9 +525,11 @@ Socket methods (the CLI, the sidebar tree, and agents all go through them):
 | `vm.terminal_rename` | `{id, terminal_id, name}` | Explicit compatibility fan-out that renames every tab view of one terminal. `name: ""` clears the custom label on every view. |
 
 CLI addresses are the tree's lines: `cmux vm tree`, then
-`cmux vm open <machine>[/<ws>[/<term>]]`, `cmux vm open <machine>:desktop`,
+`cmux vm open <machine>[/<ws>[/<term>[/<tab>]]]`, `cmux vm open <machine>:desktop`,
 `cmux vm open <machine>:port/<n>`. A workspace name is accepted only when it
-is unique; IDs always win. A terminal opens locally as a pane running
+is unique; IDs always win. The `/<tab>` suffix (a `tab_…` id from the tree)
+picks one exact tab of a terminal that occupies several. A terminal opens
+locally as a pane running
 `cmux-tui attach --terminal <term_…>` against the link socket, with the exact
 remote workspace and tab IDs retained in the projection.
 
