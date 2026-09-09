@@ -148,7 +148,8 @@ jobs:
               xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -disableAutomaticPackageResolution \
-              -destination "platform=macOS" "$@" test 2>&1
+              -destination "platform=macOS" \
+              -parallel-testing-enabled NO "$@" test 2>&1
           }
           run_unit_tests() {
             if [ -z "$UNIT_TEST_SUITES" ]; then

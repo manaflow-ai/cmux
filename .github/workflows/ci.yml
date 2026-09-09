@@ -762,6 +762,7 @@ jobs:
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
             -destination "platform=macOS" \
+            -parallel-testing-enabled NO \
             CMUX_SKIP_ZIG_BUILD=1 \
             -only-testing:cmuxTests/CmuxBundledBinPathIntegrationTests \
             test
@@ -786,6 +787,7 @@ jobs:
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -disableAutomaticPackageResolution \
               -destination "platform=macOS" \
+              -parallel-testing-enabled NO \
               CMUX_SKIP_ZIG_BUILD=1 \
               -only-testing:"cmuxTests/$suite" \
               test
@@ -807,6 +809,7 @@ jobs:
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
             -destination "platform=macOS" \
+            -parallel-testing-enabled NO \
             CMUX_SKIP_ZIG_BUILD=1 \
             -only-testing:cmuxTests/BrowserViewportRuntimeTests \
             test
@@ -827,6 +830,7 @@ jobs:
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
             -destination "platform=macOS" \
+            -parallel-testing-enabled NO \
             CMUX_SKIP_ZIG_BUILD=1 \
             -only-testing:cmuxTests/GhosttySurfaceOverlayTests/testFiveTabRendererFootprintReturnsToOneRendererTargetAcrossHideRevealCycles \
             test
@@ -847,6 +851,7 @@ jobs:
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
             -destination "platform=macOS" \
+            -parallel-testing-enabled NO \
             CMUX_SKIP_ZIG_BUILD=1 \
             -only-testing:cmuxTests/BackgroundPrimeStartableSurfaceTests \
             -only-testing:cmuxTests/CLISendQueuedOutputTests \
@@ -867,6 +872,7 @@ jobs:
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
             -destination "platform=macOS" \
+            -parallel-testing-enabled NO \
             CMUX_SKIP_ZIG_BUILD=1 \
             -only-testing:cmuxTests/AgentNotificationRegressionTests \
             -only-testing:cmuxTests/DockNotificationAttentionTests \
@@ -900,6 +906,7 @@ jobs:
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -disableAutomaticPackageResolution \
               -destination "platform=macOS" \
+              -parallel-testing-enabled NO \
               CMUX_SKIP_ZIG_BUILD=1 \
               -only-testing:"cmuxTests/$suite" \
               test
@@ -929,6 +936,7 @@ jobs:
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -disableAutomaticPackageResolution \
               -destination "platform=macOS" \
+              -parallel-testing-enabled NO \
               CMUX_SKIP_ZIG_BUILD=1 \
               -only-testing:"cmuxTests/$suite" \
               test
@@ -952,6 +960,7 @@ jobs:
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
             -destination "platform=macOS" \
+            -parallel-testing-enabled NO \
             CMUX_SKIP_ZIG_BUILD=1 \
             -only-testing:cmuxTests/BrowserSystemProxyMirrorTests \
             test
@@ -973,6 +982,7 @@ jobs:
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
             -destination "platform=macOS" \
+            -parallel-testing-enabled NO \
             CMUX_SKIP_ZIG_BUILD=1 \
             -only-testing:cmuxTests/AgentRestoreLiveOwnerAdmissionTests \
             test
@@ -989,6 +999,7 @@ jobs:
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
             -destination "platform=macOS" \
+            -parallel-testing-enabled NO \
             CMUX_SKIP_ZIG_BUILD=1 \
             -only-testing:cmuxTests/GhosttyOptionAsAltModsTests \
             test
@@ -1013,6 +1024,7 @@ jobs:
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
             -destination "platform=macOS" \
+            -parallel-testing-enabled NO \
             CMUX_SKIP_ZIG_BUILD=1 \
             -only-testing:cmuxTests/CLISSHSessionAttachAnchorTests \
             test
@@ -1039,6 +1051,7 @@ jobs:
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -disableAutomaticPackageResolution \
               -destination "platform=macOS" \
+              -parallel-testing-enabled NO \
               CMUX_SKIP_ZIG_BUILD=1 \
               -only-testing:"cmuxTests/$suite" \
               test
@@ -1060,6 +1073,7 @@ jobs:
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
             -destination "platform=macOS" \
+            -parallel-testing-enabled NO \
             CMUX_SKIP_ZIG_BUILD=1 \
             -only-testing:cmuxTests/RemoteTmuxWindowMirrorFocusSeedTests \
             test
@@ -1079,6 +1093,7 @@ jobs:
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
             -destination "platform=macOS" \
+            -parallel-testing-enabled NO \
             CMUX_SKIP_ZIG_BUILD=1 \
             -only-testing:cmuxTests/RemoteTmuxMirrorLayoutIdentityTests \
             test
@@ -1098,6 +1113,7 @@ jobs:
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
             -destination "platform=macOS" \
+            -parallel-testing-enabled NO \
             CMUX_SKIP_ZIG_BUILD=1 \
             -only-testing:cmuxTests/SocketACLReloadRegressionTests \
             test
@@ -1114,6 +1130,7 @@ jobs:
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
             -destination "platform=macOS" \
+            -parallel-testing-enabled NO \
             CMUX_SKIP_ZIG_BUILD=1 \
             -only-testing:cmuxTests/NotificationRowSnapshotBoundaryTests \
             -only-testing:cmuxTests/NotificationScrollRestoreLifecycleTests \
@@ -1153,6 +1170,7 @@ jobs:
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
             -destination "platform=macOS" \
+            -parallel-testing-enabled NO \
             CMUX_SKIP_ZIG_BUILD=1 \
             -only-testing:cmuxTests/KeyboardShortcutSettingsFileStoreNoOpPersistenceTests \
             test
@@ -1173,6 +1191,7 @@ jobs:
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
             -destination "platform=macOS" \
+            -parallel-testing-enabled NO \
             CMUX_SKIP_ZIG_BUILD=1 \
             -only-testing:cmuxTests/SidebarWorkspaceSwitchLayoutFaultTests \
             test
@@ -1192,6 +1211,7 @@ jobs:
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
             -destination "platform=macOS" \
+            -parallel-testing-enabled NO \
             CMUX_SKIP_ZIG_BUILD=1 \
             -only-testing:cmuxTests/GhosttyTerminalViewVisibilityPolicyTests \
             test
@@ -1210,6 +1230,13 @@ jobs:
           # lifetime. Keep cross-machine parallelism, but give each worker two
           # balanced, sequential app-host processes so each stays inside the
           # existing per-invocation timeout without changing the shared scheme.
+          #
+          # Every app-host invocation passes -parallel-testing-enabled NO. Swift
+          # Testing otherwise runs suites concurrently inside the one GUI app
+          # host: tests that own AppDelegate/TabManager/window/first-responder
+          # state interleave, trivial tests took 30-55 s waiting for the main
+          # actor, and a crash in one suite poisoned every in-flight selector
+          # (issue #12232, run 34342638735). XCTest is already serial.
 
           run_unit_test_batch() {
             local logical_shard="$1"
@@ -1262,6 +1289,7 @@ jobs:
                 -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
                 -disableAutomaticPackageResolution \
                 -destination "platform=macOS" \
+                -parallel-testing-enabled NO \
                 "${only_testing_args[@]}" \
                 -test-timeouts-enabled YES \
                 -default-test-execution-time-allowance "${CMUX_UNIT_TEST_CASE_TIMEOUT_SECONDS:-300}" \
@@ -1281,9 +1309,15 @@ jobs:
                   ps -axo pid,ppid,pgid,etime,command 2>/dev/null \
                     | grep -E 'xcodebuild|xctest|run-app-host-xcodebuild|app_host_test_lock|Contents/MacOS/cmux' \
                     | grep -v grep || true
+                  # Bound the sampler: an unbounded `sample` of a wedged app
+                  # host symbolicated the 300 MB Debug dylib for 40 minutes
+                  # and turned a batch timeout into the 75-minute job cancel
+                  # (#12180, run 34246255291 shard 1/6: the app host kept
+                  # logging until the runner killed the step).
                   for hang_pid in $(pgrep -f 'Contents/MacOS/cmux DEV( |$)' 2>/dev/null | head -2); do
                     hang_sample="$RUNNER_TEMP/app-host-hang-sample-${logical_shard}-${hang_pid}.txt"
-                    if sample "$hang_pid" 3 -mayDie -file "$hang_sample" >/dev/null 2>&1; then
+                    if python3 scripts/ci/run_with_timeout.py --timeout-seconds 60 -- \
+                      sample "$hang_pid" 3 -mayDie -file "$hang_sample" >/dev/null 2>&1; then
                       echo "::group::app-host hang sample (pid ${hang_pid}, first threads)"
                       awk '/^Call graph:/{p=1} p' "$hang_sample" | head -900
                       echo "::endgroup::"
@@ -1303,12 +1337,29 @@ jobs:
             } | tee "$batch_output"
             batch_status="${PIPESTATUS[0]}"
 
-            if [ "$batch_status" -eq 65 ] \
-              && python3 scripts/ci/classify-app-host-test-output.py "$batch_output"; then
-                echo "All failures in app-host batch ${logical_shard}/${LOGICAL_SHARD_TOTAL} are expected, continuing"
-                return 0
+            # Every batch is classified, whatever xcodebuild returned: the
+            # report lists each failed XCTest case, each failed Swift Testing
+            # test, and each app-host crash with the in-flight test, in the
+            # job summary and in the uploaded per-shard JSON. A batch passes
+            # only when xcodebuild succeeded AND the report is clean; plain
+            # assertion failures are never tolerated as "expected" (that
+            # classification hid hundreds of failing tests on main, #12232).
+            local report_dir="$RUNNER_TEMP/app-host-test-reports"
+            mkdir -p "$report_dir"
+            local classify_status=0
+            python3 scripts/ci/classify-app-host-test-output.py "$batch_output" \
+              --label "app-host shard ${PHYSICAL_SHARD}/${PHYSICAL_SHARD_TOTAL} batch ${logical_shard}/${LOGICAL_SHARD_TOTAL}" \
+              --summary-markdown "${GITHUB_STEP_SUMMARY:-$report_dir/summary.md}" \
+              --summary-json "$report_dir/shard-${PHYSICAL_SHARD}-batch-${logical_shard}.json" \
+              || classify_status=$?
+            if [ "$batch_status" -eq 0 ] && [ "$classify_status" -eq 0 ]; then
+              return 0
             fi
-            return "$batch_status"
+            echo "App-host batch ${logical_shard}/${LOGICAL_SHARD_TOTAL} failed (xcodebuild status ${batch_status}, report status ${classify_status})"
+            if [ "$batch_status" -ne 0 ]; then
+              return "$batch_status"
+            fi
+            return 1
           }
 
           run_unit_tests() {
@@ -1347,12 +1398,23 @@ jobs:
           fi
 
           if [ "$EXIT_CODE" -ne 0 ]; then
-            # Expected failures are normalized inside run_unit_test_batch. Any
-            # remaining non-zero status is a real batch failure or an incomplete
-            # run with no trustworthy summary and must stay red.
+            # A non-zero status is a failed test, an app-host crash, a hung
+            # batch, or an incomplete run with no trustworthy summary; each
+            # stays red. The job summary carries the per-test report.
             echo "App-host unit-test batch failed with status ${EXIT_CODE}"
             exit "$EXIT_CODE"
           fi
+
+      - name: Upload app-host test reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          # Attempt-unique so a re-run never collides with the earlier
+          # attempt's artifact (409 Conflict).
+          name: app-host-test-reports-shard-${{ matrix.shard }}-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/app-host-test-reports/
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Run bundled Ghostty theme picker helper regression
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}

@@ -453,6 +453,9 @@ jobs:
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR"
               -disableAutomaticPackageResolution
               -destination "platform=macOS"
+              # Match ci.yml: Swift Testing suites share the one GUI app host,
+              # so they run serially there (issue #12232).
+              -parallel-testing-enabled NO
               -maximum-test-execution-time-allowance "$TEST_TIMEOUT"
               "$ONLY_TESTING"
               CMUX_SKIP_ZIG_BUILD=1

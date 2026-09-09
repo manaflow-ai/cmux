@@ -215,6 +215,7 @@ def run_linux_preflight(needs: dict[str, object]) -> subprocess.CompletedProcess
 
 def run_app_host_unit_test_step(
     shard_mode: str = "selectors",
+    batch1_mode: str = "assertion-failures",
 ) -> tuple[subprocess.CompletedProcess[str], bool]:
     script = workflow_job_step_script("app-host-unit-tests", "Run unit tests")
     script = script.replace("${{ matrix.shard }}", "1")
@@ -264,8 +265,21 @@ fi
 iteration=$((iteration + 1))
 printf '%s\n' "$iteration" > "$counter"
 if [ "$iteration" -eq 1 ]; then
-  echo "Executed 2 tests, with 2 failures (0 unexpected)"
-  exit 65
+  case "${CMUX_TEST_BATCH1_MODE:-assertion-failures}" in
+    clean)
+      echo "Test Case '-[cmuxTests.FakeTests testOne]' started."
+      echo "Test Case '-[cmuxTests.FakeTests testOne]' passed (0.001 seconds)."
+      echo "Executed 1 test, with 0 failures (0 unexpected)"
+      exit 0
+      ;;
+    *)
+      echo "Test Case '-[cmuxTests.FakeTests testOne]' started."
+      echo "cmuxTests/FakeTests.swift:1: error: -[cmuxTests.FakeTests testOne] : XCTAssertTrue failed"
+      echo "Test Case '-[cmuxTests.FakeTests testOne]' failed (0.001 seconds)."
+      echo "Executed 2 tests, with 2 failures (0 unexpected)"
+      exit 65
+      ;;
+  esac
 fi
 echo "simulated app-host crash before test summary" >&2
 exit 9
@@ -290,6 +304,7 @@ exit 9
                 "CMUX_TEST_BATCH_COUNTER": str(root / "batch-counter"),
                 "CMUX_TEST_RUNNER_MARKER": str(runner_marker),
                 "CMUX_TEST_SHARD_MODE": shard_mode,
+                "CMUX_TEST_BATCH1_MODE": batch1_mode,
             },
             text=True,
             stdout=subprocess.PIPE,
@@ -840,12 +855,26 @@ def test_determinism_workflow_runs_self_test_before_strict_scan() -> None:
     assert script.index("--self-test") < script.index("--strict")
 
 
-def test_app_host_multi_batch_failure_cannot_reuse_prior_expected_summary() -> None:
+def test_app_host_assertion_failures_fail_the_first_batch() -> None:
+    # XCTest reports plain assertion failures as "(0 unexpected)". The old
+    # classifier accepted that as "expected" and moved on to the next batch;
+    # the strict classifier must stop at the first failing batch.
     result, runner_invoked = run_app_host_unit_test_step()
 
     assert runner_invoked
     assert result.returncode != 0, result.stdout
+    assert "XCTest reported 2 failure(s) (0 unexpected)" in result.stdout + result.stderr
+    assert "`testOne`" in result.stdout + result.stderr
+    assert "simulated app-host crash before test summary" not in result.stdout
+
+
+def test_app_host_crash_after_clean_batch_stays_red() -> None:
+    result, runner_invoked = run_app_host_unit_test_step(batch1_mode="clean")
+
+    assert runner_invoked
+    assert result.returncode != 0, result.stdout
     assert "simulated app-host crash before test summary" in result.stdout
+    assert "no XCTest or Swift Testing run summary was found" in result.stdout + result.stderr
 
 
 def test_app_host_rejects_failed_or_empty_shard_generation() -> None:

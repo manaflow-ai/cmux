@@ -225,6 +225,17 @@ while [ "$attempt" -le "$max_attempts" ]; do
       retry_reason="test helper communication failure"
     fi
 
+    # Retry only startup-level failures. Once a test case has started, an
+    # idle timeout means a test hung: rerunning the whole invocation would be
+    # a retry loop that hides the hang and, at 30 minutes per batch, is what
+    # drove app-host shards into the 75-minute job timeout (#12180). The
+    # per-test execution allowance fails a hung test instead.
+    if [ "$status" -eq 124 ] \
+      && grep -qE "Test Case '-\[|◇ Test " "$log_path"; then
+      echo "App-host xcodebuild idle timed out after tests started; not retrying (the hung test is reported as a failure)" >&2
+      retry_reason=""
+    fi
+
     if [ -n "$retry_reason" ] && [ "$attempt" -lt "$max_attempts" ]; then
       echo "Retrying app-host xcodebuild after ${retry_reason} (attempt $attempt/$max_attempts)" >&2
       kill_stale_app_host
