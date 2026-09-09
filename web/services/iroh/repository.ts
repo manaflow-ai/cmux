@@ -30,6 +30,7 @@ import {
   type IrohPathHint,
   type IrohRegistrationPayload,
   IROH_MIN_REGISTRATION_SPACING_MS,
+  IROH_REGISTRATION_SPACING_NAMESPACES,
 } from "./model";
 import {
   canIOSBindingForgetMac,
@@ -280,6 +281,7 @@ function makeLiveRepository(): IrohRepositoryShape {
         // write rate is capped per slot however fast observed addresses churn.
         if (
           slot
+          && IROH_REGISTRATION_SPACING_NAMESPACES.has(input.clientNamespace ?? "legacy")
           && slot.endpointId === input.endpointId
           && slot.identityGeneration === input.identityGeneration
         ) {

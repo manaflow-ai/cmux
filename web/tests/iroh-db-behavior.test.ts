@@ -2135,6 +2135,52 @@ describe("Iroh trust broker database behavior", () => {
     expect(later.createdAt.getTime()).toBeGreaterThan(first.createdAt.getTime());
   });
 
+  dbTest("does not space a bundle-namespace slot, whose irx runtime ignores Retry-After", async () => {
+    const repo = requiredRepository();
+    const userId = "user-spacing-irx";
+    const deviceId = randomUUID();
+    const appInstanceId = randomUUID();
+    const endpointId = "16".repeat(32);
+    const namespace = "com.cmuxterm.app.debug.irohhb";
+    const mint = (nonceHash: string, at: Date) => Effect.runPromise(repo.issueChallenge({
+      userId,
+      deviceUuid: deviceId,
+      appInstanceId,
+      clientNamespace: namespace,
+      tag: "stable",
+      endpointId,
+      identityGeneration: 1,
+      payloadSha256: "36".repeat(32),
+      nonceHash,
+      now: at,
+      expiresAt: new Date(at.getTime() + 5 * 60 * 1_000),
+    }));
+    const first = await mint("55".repeat(32), NOW);
+    await Effect.runPromise(repo.consumeChallengeAndRegister({
+      userId,
+      challengeId: first.id,
+      nonceHash: "55".repeat(32),
+      payload: {
+        route_contract_version: 1,
+        deviceId,
+        appInstanceId,
+        clientNamespace: namespace,
+        tag: "stable",
+        platform: "mac",
+        endpointId,
+        identityGeneration: 1,
+        pairingEnabled: true,
+        capabilities: [],
+        pathHints: [],
+      },
+      now: NOW,
+    }));
+    // Ten seconds later, same identity: accepted, because a refused mint
+    // would only make this runtime poll every five seconds.
+    const soon = await mint("56".repeat(32), new Date(NOW.getTime() + 10_000));
+    expect(soon.createdAt.getTime()).toBeGreaterThan(first.createdAt.getTime());
+  });
+
   dbTest("keeps the route revision on a heartbeat that changes nothing a peer can act on", async () => {
     const repo = requiredRepository();
     const userId = "user-noop-heartbeat";
