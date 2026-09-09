@@ -44,8 +44,11 @@ class SwiftTestingSuiteTimeoutTests(unittest.TestCase):
             )
 
             self.assertEqual(completed.returncode, 124, completed.stdout)
-            self.assertEqual(completed.stdout.count("timed out after 1s"), 2)
-            self.assertIn("retrying HangingSuite once", completed.stdout)
+            # Exactly one attempt: a hung suite fails fast and is never
+            # silently rerun.
+            self.assertEqual(completed.stdout.count("command timed out after 1s"), 1)
+            self.assertIn("HangingSuite timed out after 1s; failing without retry", completed.stdout)
+            self.assertNotIn("retrying", completed.stdout)
 
 
 if __name__ == "__main__":

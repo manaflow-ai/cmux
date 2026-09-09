@@ -34,13 +34,11 @@ while IFS= read -r suite; do
     --timeout-seconds "$suite_timeout_seconds" \
     -- swift test --package-path "$package_path" --filter "$suite" \
     < /dev/null || suite_status=$?
+  # A suite that times out is a hung test, reported as such. It is not rerun:
+  # a silent second attempt hides a nondeterministic test instead of getting
+  # it fixed or deleted (issue #12232 test policy).
   if [ "$suite_status" -eq 124 ]; then
-    echo "Swift test suite timed out; retrying $suite once." >&2
-    suite_status=0
-    python3 "$script_dir/run_with_timeout.py" \
-      --timeout-seconds "$suite_timeout_seconds" \
-      -- swift test --package-path "$package_path" --filter "$suite" \
-      < /dev/null || suite_status=$?
+    echo "Swift test suite $suite timed out after ${suite_timeout_seconds}s; failing without retry." >&2
   fi
   if [ "$suite_status" -ne 0 ]; then
     exit "$suite_status"
