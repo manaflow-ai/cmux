@@ -315,8 +315,11 @@ extension CMUXCLI {
             return nil
         }
         let url = URL(fileURLWithPath: path, isDirectory: false)
-        let hooksDirectory = codexHookScriptsURL().standardizedFileURL
-        guard url.deletingLastPathComponent().standardizedFileURL == hooksDirectory,
+        let hooksDirectoryPath = codexHookScriptsURL().standardizedFileURL.path
+        // File URLs built by appending components can percent-encode semicolons
+        // differently from URLs initialized from a full path. Ownership follows
+        // the filesystem path, not those equivalent URL representations.
+        guard url.deletingLastPathComponent().standardizedFileURL.path == hooksDirectoryPath,
               CodexHookScriptName(filename: url.lastPathComponent) != nil else {
             return nil
         }
