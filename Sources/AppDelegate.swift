@@ -16221,7 +16221,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return false
     }
 
-    private func enqueueWorkspaceTerminalFontSizeChange(
+    // Shared by keyboard shortcuts and the socket command. Admission may queue
+    // behind a panel transfer; callers must not interpret it as completion.
+    func enqueueWorkspaceTerminalFontSizeChange(
         _ action: KeyboardShortcutSettings.Action,
         workspace: Workspace,
         tabManager: TabManager?,

@@ -29,6 +29,8 @@ extension ControlCommandCoordinator {
             return workspaceSelect(request.params)
         case "workspace.current":
             return workspaceCurrent(request.params, context: context)
+        case "workspace.font_size":
+            return workspaceFontSize(request.params)
         case "workspace.close":
             return workspaceClose(request.params)
         case "workspace.move_to_window":
