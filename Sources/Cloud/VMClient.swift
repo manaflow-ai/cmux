@@ -83,7 +83,10 @@ enum VMClientError: Error, CustomStringConvertible {
                   Machines here stay available until you delete them; `cmux vm rm <id>` when the work is done.
                 """
         case .disabledByManagedPolicy:
-            return "Cloud is disabled by a managed device policy."
+            return String(
+                localized: "cloud.managed.disabled",
+                defaultValue: "Cloud Machines are disabled by your administrator."
+            )
         case .malformedResponse(let message):
             return """
                 The cmux Cloud VM backend returned a response this client could not read.
@@ -889,6 +892,7 @@ actor VMClient {
             }
             return summary
         }
+        machineCache.record(hasAnyMachine: !vms.isEmpty)
         return VMListPage(vms: vms, limits: limits)
     }
 
@@ -1263,6 +1267,7 @@ actor VMClient {
         summary.capabilities = VMCapabilities(vmResponse: obj)
         summary.displayName = (obj["displayName"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         summary.slug = (obj["slug"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        machineCache.record(hasAnyMachine: true)
         return summary
     }
 
@@ -1307,6 +1312,7 @@ actor VMClient {
         var summary = VMSummary(id: id, provider: providerValue, status: displayStatus, image: imageValue, createdAt: createdAt, base: decodeBaseSummary(obj["base"]))
         summary.kind = Self.decodeKind(obj["kind"])
         summary.capabilities = VMCapabilities(vmResponse: obj)
+        machineCache.record(hasAnyMachine: true)
         return summary
     }
 
@@ -1355,6 +1361,7 @@ actor VMClient {
         let encodedID = try pathSegment(id, fieldName: "vm id")
         let (data, http) = try await request("DELETE", path: "/api/vm/\(encodedID)")
         try ensureOK(http, data: data)
+        machineCache.clear()
     }
 
     /// `POST /api/vm/<id>/pause`: park the machine — compute stops (and stops billing), the
@@ -1509,6 +1516,7 @@ actor VMClient {
             base: nil
         )
         forked.capabilities = VMCapabilities(vmResponse: obj)
+        machineCache.record(hasAnyMachine: true)
         return (
             snapshot: snapshotID.map { VMSnapshotResult(id: $0, name: nil, createdAt: Int64(Date().timeIntervalSince1970 * 1000)) },
             vm: forked
@@ -1538,6 +1546,7 @@ actor VMClient {
         let status = (obj["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         var restored = VMSummary(id: id, provider: providerValue, status: status?.isEmpty == false ? status! : "running", image: image, createdAt: createdAt, base: nil)
         restored.capabilities = VMCapabilities(vmResponse: obj)
+        machineCache.record(hasAnyMachine: true)
         return restored
     }
 
@@ -1713,7 +1722,8 @@ actor VMClient {
         let (data, http) = try await request(
             "DELETE",
             path: revocation.path,
-            jsonBody: revocation.body
+            jsonBody: revocation.body,
+            allowedUnderManagedPolicy: true
         )
         try ensureOK(http, data: data)
     }
@@ -2006,8 +2016,12 @@ actor VMClient {
         jsonBody: [String: Any]? = nil,
         extraHeaders: [String: String] = [:],
         timeoutSeconds: TimeInterval? = nil,
-        retryTransientServiceUnavailable: Bool = false
+        retryTransientServiceUnavailable: Bool = false,
+        allowedUnderManagedPolicy: Bool = false
     ) async throws -> (Data, HTTPURLResponse) {
+        if !allowedUnderManagedPolicy, isDisabledByManagedPolicy?() == true {
+            throw VMClientError.disabledByManagedPolicy
+        }
         let trace = VMRequestTraceContext.mint()
         let route = VMClientTelemetry.normalizedRoute(path: path)
         let startedAt = DispatchTime.now().uptimeNanoseconds

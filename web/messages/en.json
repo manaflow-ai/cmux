@@ -100,14 +100,22 @@
         "restore": "This Cloud VM kind does not support restoring saved VM state.",
         "fork": "This Cloud VM does not support copying to a new VM.",
         "openPort": "This Cloud VM cannot expose machine ports as preview URLs.",
-        "default": "This Cloud VM does not support the requested operation."
+        "default": "This Cloud VM does not support the requested operation.",
+        "sizing": "This machine does not support custom memory sizes.",
+        "persistentHome": "This machine does not support persistent home volumes.",
+        "pause": "This Cloud VM cannot be paused.",
+        "resume": "This Cloud VM cannot be resumed from a paused state."
       },
       "action": {
         "snapshot": "Do not retry. Work on this machine kind is kept on its persistent home volume.",
         "restore": "Do not retry. Work on this machine kind is kept on its persistent home volume.",
         "fork": "Do not retry. Create a new VM with `cmux vm new`.",
         "openPort": "Do not retry. Reach the service from inside the machine (`cmux vm exec`), or use a machine kind that can open ports.",
-        "default": "Do not retry. Run `cmux vm ls` to see your machines, or contact support if you believe this is wrong."
+        "default": "Do not retry. Run `cmux vm ls` to see your machines, or contact support if you believe this is wrong.",
+        "sizing": "Omit `memoryMb` and retry.",
+        "persistentHome": "Omit `persistentHome`/`perMachineHome` and retry.",
+        "pause": "Do not retry. Leave the machine running, or remove it with `cmux vm rm` when you are done with it.",
+        "resume": "Do not retry. Create a new VM with `cmux vm new`."
       }
     },
     "requiresPro": {
