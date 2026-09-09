@@ -1,6 +1,127 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "socket.workspace.fontSize.invalidParams": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use increase, decrease, or reset with optional window_id and workspace_id selectors."
+          }
+        }
+      }
+    },
+    "socket.workspace.fontSize.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace font-size coordinator unavailable."
+          }
+        }
+      }
+    },
+    "socket.workspace.fontSize.notFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace not found in the requested window."
+          }
+        }
+      }
+    },
+    "socket.workspace.fontSize.rejected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace font-size request was not accepted."
+          }
+        }
+      }
+    },
+    "cli.workspaceFontSize.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux workspace-font-size <increase|decrease|reset> [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]\n\nRequest the same font-size action as the GUI for all terminal panels in the\ntarget workspace. Increase and decrease use a relative 1pt step; reset\nrestores the configured size. The command does not change focus. Human\noutput confirms that the request was accepted; queued work may defer it."
+          }
+        }
+      }
+    },
+    "cli.workspaceFontSize.accepted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace font size request accepted: %@. Application may be deferred."
+          }
+        }
+      }
+    },
+    "cli.workspaceFontSize.error.missingAction": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspace-font-size requires increase, decrease, or reset"
+          }
+        }
+      }
+    },
+    "cli.workspaceFontSize.error.invalidAction": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid workspace font-size action '%@'; expected increase, decrease, or reset"
+          }
+        }
+      }
+    },
+    "cli.workspaceFontSize.error.optionValue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ requires a workspace or window id, ref, or index"
+          }
+        }
+      }
+    },
+    "cli.workspaceFontSize.error.unknownArgument": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown workspace-font-size argument: %@"
+          }
+        }
+      }
+    },
+    "cli.workspaceFontSize.error.duplicateArgument": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Duplicate workspace-font-size argument: %@"
+          }
+        }
+      }
+    },
     "cloud.portAccess.invalidURL": {
       "extractionState": "manual",
       "localizations": {
