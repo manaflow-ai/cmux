@@ -20,6 +20,7 @@ describe("authorized development relay rate-limit bypass", () => {
     expect([...parseDevRelayRateLimitBypassTeamIds(" team-a,TEAM-B ,, team-a ")])
       .toEqual(["team-a", "team-b"]);
     expect(parseDevRelayRateLimitBypassTeamIds(" , ").size).toBe(0);
+    expect(parseDevRelayRateLimitBypassTeamIds("team-a,not a team").size).toBe(0);
   });
 
   test("requires explicit enablement, the dev Stack project, a debug namespace, and membership", () => {

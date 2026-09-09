@@ -62,6 +62,7 @@ function deps(overrides: Partial<RelayTokenDeps> = {}): RelayTokenDeps {
     rateLimitRuleId: () => undefined,
     isVercel: () => false,
     credentialSigningRequired: () => false,
+    isDevRateLimitBypassAllowed: async () => false,
     ...overrides,
   };
 }
@@ -160,10 +161,8 @@ describe("POST /api/relay/token", () => {
           checks += 1;
           return { rateLimited: true };
         },
-        // This seam is added by the implementation. Keeping the test cast here
-        // makes this first commit the intentionally failing regression proof.
         isDevRateLimitBypassAllowed: async () => true,
-      } as Partial<RelayTokenDeps>),
+      }),
     );
     expect(response.status).toBe(200);
     expect(checks).toBe(0);
@@ -181,7 +180,7 @@ describe("POST /api/relay/token", () => {
           return { rateLimited: true };
         },
         isDevRateLimitBypassAllowed: async () => false,
-      } as Partial<RelayTokenDeps>),
+      }),
     );
     expect(response.status).toBe(429);
     expect(checks).toBe(1);

@@ -32,6 +32,7 @@ function deps(overrides: Partial<RelayPreferenceDeps> = {}): RelayPreferenceDeps
     checkRateLimit: async () => ({ rateLimited: false }),
     rateLimitRuleId: () => undefined,
     isVercel: () => false,
+    isDevRateLimitBypassAllowed: () => false,
     ...overrides,
   };
 }
@@ -175,10 +176,8 @@ describe("/api/relay/preferences", () => {
           checks += 1;
           return { rateLimited: true };
         },
-        // This seam is added by the implementation. Keeping the test cast here
-        // makes this first commit the intentionally failing regression proof.
         isDevRateLimitBypassAllowed: () => true,
-      } as Partial<RelayPreferenceDeps>),
+      }),
     );
     expect(response.status).toBe(200);
     expect(checks).toBe(0);

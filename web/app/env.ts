@@ -382,6 +382,11 @@ export const env = createEnv({
     CMUX_IROH_DEV_BINDING_OVERRIDE_ENVIRONMENTS: z.string().max(256).optional(),
     CMUX_IROH_DEV_BINDING_ACCOUNT_LIMIT: irohBindingLimit.optional(),
     CMUX_IROH_DEV_BINDING_DEVICE_LIMIT: irohBindingLimit.optional(),
+    // Explicit opt-in for the hosted DEV relay limiter exemption. The route
+    // still requires the development Stack project, a tagged debug namespace,
+    // and membership in CMUX_IROH_DEV_RATE_LIMIT_BYPASS_TEAM_IDS.
+    CMUX_IROH_DEV_RATE_LIMIT_BYPASS_ENABLED: z.enum(["0", "1"]).optional(),
+    CMUX_IROH_DEV_RATE_LIMIT_BYPASS_TEAM_IDS: z.string().max(8_192).optional(),
     // Self-hosted relay fleet. Preview and local builds remain credential-free,
     // while every deployed non-preview runtime must be able to mint endpoint-
     // bound credentials, sign the fleet policy, and enforce its account limit.
@@ -519,6 +524,12 @@ export const env = createEnv({
     CMUX_IROH_DEV_BINDING_OVERRIDE_ENVIRONMENTS: trimEnv(process.env.CMUX_IROH_DEV_BINDING_OVERRIDE_ENVIRONMENTS),
     CMUX_IROH_DEV_BINDING_ACCOUNT_LIMIT: trimEnv(process.env.CMUX_IROH_DEV_BINDING_ACCOUNT_LIMIT),
     CMUX_IROH_DEV_BINDING_DEVICE_LIMIT: trimEnv(process.env.CMUX_IROH_DEV_BINDING_DEVICE_LIMIT),
+    CMUX_IROH_DEV_RATE_LIMIT_BYPASS_ENABLED: trimEnv(
+      process.env.CMUX_IROH_DEV_RATE_LIMIT_BYPASS_ENABLED,
+    ),
+    CMUX_IROH_DEV_RATE_LIMIT_BYPASS_TEAM_IDS: trimEnv(
+      process.env.CMUX_IROH_DEV_RATE_LIMIT_BYPASS_TEAM_IDS,
+    ),
     CMUX_RELAY_JWT_PRIVATE_KEY_PEM: trimEnv(process.env.CMUX_RELAY_JWT_PRIVATE_KEY_PEM),
     CMUX_RELAY_POLICY_KEY_ID: trimEnv(process.env.CMUX_RELAY_POLICY_KEY_ID),
     CMUX_RELAY_POLICY_PRIVATE_KEY_PEM: trimEnv(process.env.CMUX_RELAY_POLICY_PRIVATE_KEY_PEM),

@@ -44,9 +44,14 @@ import {
 } from "../../../../services/iroh/routeHandler";
 import {
   unauthorized,
+  verifyRequestFromSnapshot,
   verifyRequestIdentity,
 } from "../../../../services/vms/auth";
 import { rateLimitDeploymentPartition } from "../../../../services/rateLimitPartition";
+import {
+  isAuthorizedDevRelayRateLimitBypass,
+  isDevelopmentRelayClientNamespace,
+} from "../../../../services/relay/devRateLimitBypass";
 
 
 const MAX_BODY_BYTES = 4 * 1_024;
@@ -85,6 +90,11 @@ export interface RelayTokenDeps {
   readonly rateLimitRuleId: () => string | undefined;
   readonly isVercel: () => boolean;
   readonly credentialSigningRequired: () => boolean;
+  readonly isDevRateLimitBypassAllowed: (input: {
+    readonly request: Request;
+    readonly userId: string;
+    readonly clientNamespace: string;
+  }) => boolean | Promise<boolean>;
 }
 
 const productionDeps: RelayTokenDeps = {
@@ -140,6 +150,20 @@ const productionDeps: RelayTokenDeps = {
   isVercel: () => process.env.VERCEL === "1",
   credentialSigningRequired: () =>
     process.env.VERCEL === "1" && process.env.VERCEL_ENV !== "preview",
+  isDevRateLimitBypassAllowed: async ({ request, userId, clientNamespace }) => {
+    if (!isDevelopmentRelayClientNamespace(clientNamespace)) return false;
+    try {
+      const user = await verifyRequestFromSnapshot(request);
+      return user?.id === userId && isAuthorizedDevRelayRateLimitBypass({
+        clientNamespace,
+        teamIds: user.teamIds,
+      });
+    } catch {
+      // Membership lookup is an authorization check. If Stack or the snapshot
+      // store is unavailable, retain the normal limiter instead of widening it.
+      return false;
+    }
+  },
 };
 
 export async function handleRelayTokenRequest(
@@ -165,8 +189,14 @@ export async function handleRelayTokenRequest(
     // Every request consumes quota before database/crypto work, even when
     // the binding lookup fails. Legacy admission cannot depend on the binding
     // result; its bootstrap and credential budgets remain separate below.
-    await checkTokenQuota(request, deps, user.id, clientNamespace, endpointId,
-      clientNamespace === "legacy" ? "admission" : "credential", requestId);
+    const bypassRateLimit = await checkTokenQuotaUnlessAuthorizedDev(
+      request,
+      deps,
+      user.id,
+      clientNamespace,
+      endpointId,
+      requestId,
+    );
     const isEndpointAuthorized = await deps.isEndpointAuthorized({
       accountId: user.id,
       endpointId,
@@ -184,7 +214,7 @@ export async function handleRelayTokenRequest(
     // A fresh endpoint must fetch policy before registration, then fetch its
     // bound credential immediately after registration. Keep bootstrap and
     // credential issuance in stable, separate partitions.
-    if (clientNamespace === "legacy") {
+    if (clientNamespace === "legacy" && !bypassRateLimit) {
       await checkTokenQuota(request, deps, user.id, clientNamespace, endpointId,
         isEndpointAuthorized ? "credential" : "bootstrap", requestId);
     }
@@ -232,6 +262,37 @@ export async function handleRelayTokenRequest(
   } catch (error) {
     return relayErrorResponse(error, errorContext);
   }
+}
+
+async function checkTokenQuotaUnlessAuthorizedDev(
+  request: Request,
+  deps: RelayTokenDeps,
+  userId: string,
+  clientNamespace: string,
+  endpointId: string,
+  requestId: string,
+): Promise<boolean> {
+  let bypassRateLimit = false;
+  try {
+    bypassRateLimit = await deps.isDevRateLimitBypassAllowed({
+      request,
+      userId,
+      clientNamespace,
+    });
+  } catch {
+    // A failed authorization lookup must retain the normal limiter.
+    bypassRateLimit = false;
+  }
+  if (bypassRateLimit) {
+    console.info("relay.rate_limit_bypassed", {
+      requestId,
+      reason: "authorized_dev_team",
+    });
+    return true;
+  }
+  await checkTokenQuota(request, deps, userId, clientNamespace, endpointId,
+    clientNamespace === "legacy" ? "admission" : "credential", requestId);
+  return false;
 }
 
 async function checkTokenQuota(
