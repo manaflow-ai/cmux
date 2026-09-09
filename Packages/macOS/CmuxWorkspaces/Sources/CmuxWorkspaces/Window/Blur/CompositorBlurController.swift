@@ -33,11 +33,26 @@ public struct CompositorBlurController: Sendable {
     /// Creates a compositor-blur controller.
     public init() {}
 
+    /// Whether `windowNumber` names a window the window server knows about.
+    ///
+    /// `NSWindow.windowNumber` is zero or negative until the window has a
+    /// backing window device (it was never ordered on screen, or it already
+    /// lost its device). CGS window numbers are unsigned, so converting such a
+    /// value traps with "Negative value is not representable"; the app-host
+    /// test suite applies backdrops to never-shown windows and crashed on this
+    /// conversion every run. There is no blur to reset on a device-less
+    /// window, so those numbers are skipped instead of converted.
+    public static func canResetBackgroundBlur(windowNumber: Int) -> Bool {
+        windowNumber > 0
+    }
+
     /// Resets the compositor background blur on the window with the given
     /// `windowNumber` to zero, matching the legacy
     /// `cmuxResetCompositorBackgroundBlur(on:)`. The caller resolves
-    /// `window.windowNumber` in its own (main-actor) isolation domain.
+    /// `window.windowNumber` in its own (main-actor) isolation domain. A window
+    /// without a window device (`windowNumber <= 0`) is left untouched.
     public func resetBackgroundBlur(windowNumber: Int) {
+        guard Self.canResetBackgroundBlur(windowNumber: windowNumber) else { return }
         _ = cmuxCGSSetWindowBackgroundBlurRadius(
             cmuxCGSDefaultConnectionForThread(),
             UInt(windowNumber),
