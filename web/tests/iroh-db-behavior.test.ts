@@ -205,6 +205,7 @@ describe("Iroh trust broker database behavior", () => {
         identityGeneration: 1,
         payloadSha256: "08".repeat(32),
         nonceHash: "07".repeat(32),
+        minimumSpacingMs: 0,
         now: NOW,
         expiresAt: new Date(NOW.getTime() + 5 * 60 * 1_000),
       }));
@@ -379,6 +380,7 @@ describe("Iroh trust broker database behavior", () => {
       identityGeneration: 1,
       payloadSha256: "30".repeat(32),
       nonceHash,
+      minimumSpacingMs: 0,
       now: NOW,
       expiresAt: new Date(NOW.getTime() + 5 * 60 * 1_000),
     }));
@@ -444,6 +446,7 @@ describe("Iroh trust broker database behavior", () => {
         identityGeneration: 1,
         payloadSha256: "36".repeat(32),
         nonceHash,
+        minimumSpacingMs: 0,
         now: NOW,
         expiresAt: new Date(NOW.getTime() + 5 * 60 * 1_000),
       }));
@@ -662,6 +665,7 @@ describe("Iroh trust broker database behavior", () => {
       identityGeneration: 1,
       payloadSha256: "42".repeat(32),
       nonceHash,
+      minimumSpacingMs: 0,
       now: NOW,
       expiresAt: new Date(NOW.getTime() + 5 * 60 * 1_000),
     }));
@@ -723,6 +727,7 @@ describe("Iroh trust broker database behavior", () => {
         identityGeneration: 1,
         payloadSha256: (sequence + 10).toString(16).padStart(64, "0"),
         nonceHash,
+        minimumSpacingMs: 0,
         now,
         expiresAt: new Date(now.getTime() + 5 * 60 * 1_000),
       }));
@@ -809,6 +814,7 @@ describe("Iroh trust broker database behavior", () => {
         identityGeneration: 1,
         payloadSha256: `${suffix}${"0".repeat(63)}`,
         nonceHash,
+        minimumSpacingMs: 0,
         now,
         expiresAt: new Date(now.getTime() + 5 * 60 * 1_000),
       }));
@@ -941,6 +947,7 @@ describe("Iroh trust broker database behavior", () => {
         identityGeneration: input.identityGeneration,
         payloadSha256: `${input.suffix}${"0".repeat(63)}`,
         nonceHash,
+        minimumSpacingMs: 0,
         now: input.now,
         expiresAt: new Date(input.now.getTime() + 5 * 60 * 1_000),
       }));
@@ -1064,6 +1071,7 @@ describe("Iroh trust broker database behavior", () => {
         identityGeneration: 1,
         payloadSha256: `${input.suffix}${"0".repeat(63)}`,
         nonceHash,
+        minimumSpacingMs: 0,
         now: input.now,
         expiresAt: new Date(input.now.getTime() + 5 * 60 * 1_000),
       }));
@@ -1162,6 +1170,7 @@ describe("Iroh trust broker database behavior", () => {
         identityGeneration: 1,
         payloadSha256: `${input.suffix}${"0".repeat(63)}`,
         nonceHash,
+        minimumSpacingMs: 0,
         now: input.now,
         expiresAt: new Date(input.now.getTime() + 5 * 60 * 1_000),
       }));
@@ -1247,6 +1256,7 @@ describe("Iroh trust broker database behavior", () => {
         identityGeneration: 1,
         payloadSha256: `${input.suffix}${"0".repeat(63)}`,
         nonceHash,
+        minimumSpacingMs: 0,
         now: input.now,
         expiresAt: new Date(input.now.getTime() + 5 * 60 * 1_000),
       }));
@@ -1334,6 +1344,7 @@ describe("Iroh trust broker database behavior", () => {
         identityGeneration: 1,
         payloadSha256: `${input.suffix}${"0".repeat(63)}`,
         nonceHash,
+        minimumSpacingMs: 0,
         now: input.now,
         expiresAt: new Date(input.now.getTime() + 5 * 60 * 1_000),
       }));
@@ -1452,6 +1463,7 @@ describe("Iroh trust broker database behavior", () => {
       identityGeneration: 1,
       payloadSha256: `8${"0".repeat(63)}`,
       nonceHash,
+      minimumSpacingMs: 0,
       now: new Date(NOW.getTime() + 301_000),
       expiresAt: new Date(NOW.getTime() + 601_000),
     }));
@@ -2001,6 +2013,7 @@ describe("Iroh trust broker database behavior", () => {
       identityGeneration: 1,
       payloadSha256,
       nonceHash,
+      minimumSpacingMs: 0,
       now: NOW,
       expiresAt: new Date(NOW.getTime() + 5 * 60 * 1_000),
     }));
@@ -2051,6 +2064,148 @@ describe("Iroh trust broker database behavior", () => {
       select count(*)::text as challenges from iroh_registration_challenges where user_id = ${userId}
     `;
     expect(afterHeartbeat.challenges).toBe("0");
+  });
+
+  dbTest("spaces same-identity re-registrations and never delays identity rotation", async () => {
+    const repo = requiredRepository();
+    const userId = "user-spacing";
+    const deviceId = randomUUID();
+    const appInstanceId = randomUUID();
+    const endpointId = "13".repeat(32);
+    const mint = (nonceHash: string, at: Date, endpoint = endpointId, generation = 1) => Effect.runPromise(repo.issueChallenge({
+      userId,
+      deviceUuid: deviceId,
+      appInstanceId,
+      tag: "stable",
+      endpointId: endpoint,
+      identityGeneration: generation,
+      payloadSha256: "34".repeat(32),
+      nonceHash,
+      now: at,
+      expiresAt: new Date(at.getTime() + 5 * 60 * 1_000),
+    }));
+    const first = await mint("51".repeat(32), NOW);
+    await Effect.runPromise(repo.consumeChallengeAndRegister({
+      userId,
+      challengeId: first.id,
+      nonceHash: "51".repeat(32),
+      payload: {
+        route_contract_version: 1,
+        deviceId,
+        appInstanceId,
+        clientNamespace: "legacy",
+        tag: "stable",
+        platform: "mac",
+        endpointId,
+        identityGeneration: 1,
+        pairingEnabled: true,
+        capabilities: [],
+        pathHints: [],
+      },
+      now: NOW,
+    }));
+
+    // Same identity, ten seconds later: told to wait for the remainder.
+    const tooSoon = await Effect.runPromiseExit(repo.issueChallenge({
+      userId,
+      deviceUuid: deviceId,
+      appInstanceId,
+      tag: "stable",
+      endpointId,
+      identityGeneration: 1,
+      payloadSha256: "34".repeat(32),
+      nonceHash: "52".repeat(32),
+      now: new Date(NOW.getTime() + 10_000),
+      expiresAt: new Date(NOW.getTime() + 10_000 + 5 * 60 * 1_000),
+    }));
+    expect(tooSoon._tag).toBe("Failure");
+    const failure = tooSoon._tag === "Failure"
+      ? Option.getOrUndefined(Cause.failureOption(tooSoon.cause))
+      : undefined;
+    expect(failure).toMatchObject({
+      _tag: "IrohQuotaExceededError",
+      code: "registration_spacing",
+      retryAfterSeconds: 50,
+    });
+    // A rotated identity on the same slot is never delayed.
+    const rotated = await mint("53".repeat(32), new Date(NOW.getTime() + 10_000), "14".repeat(32), 2);
+    expect(rotated.endpointId).toBe("14".repeat(32));
+    // Same identity after the floor: accepted.
+    const later = await mint("54".repeat(32), new Date(NOW.getTime() + 61_000));
+    expect(later.createdAt.getTime()).toBeGreaterThan(first.createdAt.getTime());
+  });
+
+  dbTest("keeps the route revision on a heartbeat that changes nothing a peer can act on", async () => {
+    const repo = requiredRepository();
+    const userId = "user-noop-heartbeat";
+    const deviceId = randomUUID();
+    const appInstanceId = randomUUID();
+    const endpointId = "15".repeat(32);
+    let counter = 0x60;
+    const registerAt = async (at: Date, pathHints: Parameters<typeof repo.consumeChallengeAndRegister>[0]["payload"]["pathHints"]) => {
+      const nonceHash = (counter++).toString(16).repeat(32);
+      const challenge = await Effect.runPromise(repo.issueChallenge({
+        userId,
+        deviceUuid: deviceId,
+        appInstanceId,
+        tag: "stable",
+        endpointId,
+        identityGeneration: 1,
+        payloadSha256: "35".repeat(32),
+        nonceHash,
+        minimumSpacingMs: 0,
+        now: at,
+        expiresAt: new Date(at.getTime() + 5 * 60 * 1_000),
+      }));
+      return Effect.runPromise(repo.consumeChallengeAndRegister({
+        userId,
+        challengeId: challenge.id,
+        nonceHash,
+        payload: {
+          route_contract_version: 1,
+          deviceId,
+          appInstanceId,
+          clientNamespace: "legacy",
+          tag: "stable",
+          platform: "mac",
+          endpointId,
+          identityGeneration: 1,
+          pairingEnabled: true,
+          capabilities: ["attach"],
+          pathHints,
+        },
+        now: at,
+      }));
+    };
+    const relay = (observedAt: Date) => ({
+      kind: "relay_url" as const,
+      value: "https://use1.relay.cmux.dev/",
+      source: "native" as const,
+      privacy_scope: "public_internet" as const,
+      observed_at: observedAt.toISOString(),
+      expires_at: new Date(observedAt.getTime() + 60 * 60 * 1_000).toISOString(),
+    });
+    const t0 = NOW;
+    const t1 = new Date(NOW.getTime() + 61_000);
+    const t2 = new Date(NOW.getTime() + 122_000);
+
+    const created = await registerAt(t0, [relay(t0)]);
+    expect(created.created).toBe(true);
+    // Same route, fresh timestamps: liveness refreshed, revision untouched.
+    const heartbeat = await registerAt(t1, [relay(t1)]);
+    expect(heartbeat.created).toBe(false);
+    expect(heartbeat.accountRevision).toBe(created.accountRevision);
+    expect(heartbeat.binding.lastSeenAt).toEqual(t1);
+    // A new direct address is news for peers: revision advances.
+    const changed = await registerAt(t2, [relay(t2), {
+      kind: "direct_address" as const,
+      value: "203.0.113.7:4433",
+      source: "native" as const,
+      privacy_scope: "public_internet" as const,
+      observed_at: t2.toISOString(),
+      expires_at: new Date(t2.getTime() + 60 * 60 * 1_000).toISOString(),
+    }]);
+    expect(changed.accountRevision).toBe(created.accountRevision + 1);
   });
 
   dbTest("global retention drops legacy consumed challenges of any age and keeps in-flight ones", async () => {
