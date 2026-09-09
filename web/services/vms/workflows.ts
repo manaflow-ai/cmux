@@ -1283,6 +1283,18 @@ function finalizeNativeForkReservation(
   );
 }
 
+/**
+ * Native only when the driver itself forks. The gateway's `fork` function is
+ * always defined and fails "unsupported" from inside for drivers without one,
+ * so its presence alone must not select the native path: Freestyle has
+ * snapshot and create but no fork, and every fork used to die here instead of
+ * taking the snapshot path below.
+ */
+function providerForksNatively(providers: VmProviderGatewayShape, provider: ProviderId): boolean {
+  if (provider !== "freestyle" || providers.fork === undefined) return false;
+  return providers.capabilities?.(provider).fork ?? true;
+}
+
 export function forkVm(input: {
   readonly userId: string;
   readonly billingCustomerType: BillingCustomerType;
@@ -1320,7 +1332,7 @@ export function forkVm(input: {
       { forceProviderProbe: true, maxActiveVms: input.maxActiveVms },
     );
 
-    const nativeFork = source.provider === "freestyle" && providers.fork !== undefined;
+    const nativeFork = providerForksNatively(providers, source.provider) ? providers.fork : undefined;
     // The provider owns cloning the source. Record its initial shape and
     // reconcile the copied machine independently after the fork completes.
     const sourceHasReservation = hasVmResourceReservationMetadata(source.providerMetadata);
@@ -1401,7 +1413,7 @@ export function forkVm(input: {
       const handle = yield* measureVmEffect(
         input.timing,
         "provider_create",
-        providers.fork(source.provider, source.providerVmId ?? input.providerVmId),
+        nativeFork(source.provider, source.providerVmId ?? input.providerVmId),
       ).pipe(
         Effect.tapError((err) =>
           Effect.all([

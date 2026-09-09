@@ -21,7 +21,8 @@ import { forkVm } from "../services/vms/workflows";
 // the snapshot-based path a few lines below was unreachable.
 describe("forkVm provider capability", () => {
   test("the live gateway reports no native fork for freestyle", () => {
-    expect(VmProviderGatewayLive.capabilities?.("freestyle").fork).toBe(false);
+    const live = Effect.runSync(VmProviderGateway.pipe(Effect.provide(VmProviderGatewayLive)));
+    expect(live.capabilities?.("freestyle").fork).toBe(false);
   });
 
   test("a provider without native fork takes the snapshot path, never the fork call", async () => {

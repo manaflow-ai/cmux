@@ -27,6 +27,8 @@ import {
   type CmuxRemoteApprovalOptions,
   type CmuxRemoteAttachOptions,
   type CmuxRemoteEndpoint,
+  type VmCapabilities,
+  vmCapabilitiesFor,
 } from "./drivers";
 import { VmOperationUnsupportedError, VmProviderOperationError } from "./errors";
 
@@ -57,6 +59,14 @@ export type VmProviderGatewayShape = {
     options?: RestoreOptions,
   ) => Effect.Effect<VMHandle, VmProviderOperationError>;
   readonly fork?: (provider: ProviderId, vmId: string) => Effect.Effect<VMHandle, VmProviderOperationError>;
+  /**
+   * What the provider's driver implements. `fork` here is the truth about
+   * native cloning; the `fork` function above always exists on the live
+   * gateway and answers "unsupported" from inside, so its presence says
+   * nothing. Optional so older test doubles keep compiling; a double that
+   * omits it is read as "every function it defines is native".
+   */
+  readonly capabilities?: (provider: ProviderId) => VmCapabilities;
   readonly exec: (
     provider: ProviderId,
     vmId: string,
@@ -210,6 +220,7 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
     providerEffect(provider, "snapshot", () => getProvider(provider).snapshot(vmId, name)),
   restore: (provider, snapshotId, options) =>
     providerEffect(provider, "restore", () => getProvider(provider).restore(snapshotId, options)),
+  capabilities: (provider) => vmCapabilitiesFor(provider),
   fork: (provider, vmId) =>
     providerEffect(provider, "fork", async () => {
       const driver = getProvider(provider);
