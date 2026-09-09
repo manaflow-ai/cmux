@@ -261,6 +261,7 @@ describe("confirm-on-hello", () => {
       appVersion: "1.2.3",
       releaseTrack: "internal",
       capabilities: ["cmux.irx.v1"],
+      platform: "mac",
       lastConfirmedAt: new Date(T0).toISOString(),
       deviceId: "77116c35-0000-4000-8000-000000000001",
     });
@@ -479,6 +480,7 @@ describe("internal DEV directory partition", () => {
       binding_id: `binding-dev-${index}`,
       endpoint_id: binding.endpointId,
       client_namespace: binding.clientNamespace,
+      platform: "mac",
       ...(binding.appVersion === undefined ? {} : { app_version: binding.appVersion }),
     }));
     return base;

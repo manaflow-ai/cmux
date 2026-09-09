@@ -10,10 +10,11 @@ describe("control-plane namespace validation", () => {
     expect(canonicalControlPlaneNamespace("dev.cmux.ios.lane-a")).toBe("dev.cmux.ios.lane-a");
   });
 
-  it("rejects legacy, missing, and arbitrary namespaces", () => {
-    expect(canonicalControlPlaneNamespace(undefined)).toBeNull();
-    expect(canonicalControlPlaneNamespace("legacy")).toBeNull();
+  it("maps legacy callers to one bounded compatibility scope", () => {
+    expect(canonicalControlPlaneNamespace(undefined)).toBe("legacy");
+    expect(canonicalControlPlaneNamespace("legacy")).toBe("legacy");
     expect(canonicalControlPlaneNamespace("other-app")).toBeNull();
     expect(canonicalControlPlaneNamespace("namespace:attacker")).toBeNull();
+    expect(canonicalControlPlaneNamespace(`com.cmux.app.${"x".repeat(33)}`)).toBeNull();
   });
 });

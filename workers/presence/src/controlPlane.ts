@@ -44,21 +44,24 @@ export const CONTROL_PROTOCOL_VERSION = 1;
  * Return only namespaces issued by a cmux application lane. The control
  * socket is partitioned before its first protocol frame, so accepting an
  * arbitrary header value would let a caller allocate an unbounded set of
- * Durable Objects or opt into the legacy, unfiltered audience.
+ * Durable Objects. Missing and pre-namespace clients share one bounded legacy
+ * compatibility partition.
  */
 export function canonicalControlPlaneNamespace(value: string | undefined): string | null {
   const namespace = value?.trim();
-  if (!namespace || namespace === "legacy") return null;
-  if (namespace === "com.cmux.app" || namespace.startsWith("com.cmux.app.")) {
+  if (!namespace || namespace === "legacy") return "legacy";
+  if (namespace.length > 255) return null;
+  if (namespace === "com.cmux.app"
+    || /^com\.cmux\.app\.[a-z0-9-]{1,32}$/.test(namespace)) {
     return namespace;
   }
   if (namespace === "mac:com.cmuxterm.app"
     || namespace === "mac:com.cmuxterm.app.nightly"
-    || namespace.startsWith("mac:com.cmuxterm.app.nightly.")
-    || namespace.startsWith("mac:com.cmuxterm.app.debug.")) {
+    || /^mac:com\.cmuxterm\.app\.nightly\.[a-z0-9-]{1,32}$/.test(namespace)
+    || /^mac:com\.cmuxterm\.app\.debug\.[A-Za-z0-9._-]{1,64}$/.test(namespace)) {
     return namespace;
   }
-  if (/^dev\.cmux\.ios\.[A-Za-z0-9._-]+$/.test(namespace)) return namespace;
+  if (/^dev\.cmux\.ios\.[A-Za-z0-9._-]{1,64}$/.test(namespace)) return namespace;
   return null;
 }
 
@@ -197,6 +200,7 @@ export interface DeviceOverlay {
   appVersion?: string;
   releaseTrack?: ReleaseTrack;
   capabilities?: string[];
+  platform?: "mac" | "ios";
   lastConfirmedAt?: string;
   lastAckedRev?: number;
   deviceId?: string;
@@ -502,7 +506,7 @@ export function decodeControlFrame(value: unknown): DecodedControlFrame | null {
 export type BrokerBinding = Omit<
   Binding,
   "status" | "revoked" | "appVersion" | "releaseTrack" | "capabilities" | "lastConfirmedAt"
-> & { appVersion?: string | null };
+> & { appVersion?: string | null; platform?: "mac" | "ios" };
 
 /** What DIR_KEY stores: broker truth only — no overlay join and no freshness
  * stamps (issuedAt/ttlSeconds are stamped per outbound frame, so a re-stamp
@@ -563,9 +567,11 @@ function compareMacBase(
  * old seeded rows and for broker updates arriving after a socket is open. */
 function appStoreMacVisible(
   clientNamespace: string,
+  platform: "mac" | "ios" | undefined,
   overlay: DeviceOverlay | undefined,
   brokerAppVersion?: string | null,
 ): boolean {
+  if (platform !== "mac") return false;
   if (overlay === undefined) return false;
   // A broker registration is endpoint-authenticated and carries the same
   // version stamp as the control hello. It may be visible before the socket
@@ -592,12 +598,14 @@ function appStoreMacVisible(
 function developmentMacVisible(
   recipientNamespace: string,
   clientNamespace: string,
+  platform: "mac" | "ios" | undefined,
   overlay: DeviceOverlay | undefined,
   brokerAppVersion?: string | null,
 ): boolean {
   const tag = /^dev\.cmux\.ios\.([A-Za-z0-9._-]+)$/.exec(recipientNamespace)?.[1];
   if (tag !== DEVELOPMENT_COMPATIBILITY_TEST_TAG) return true;
   if (clientNamespace !== `mac:com.cmuxterm.app.debug.${tag}`) return false;
+  if (platform !== "mac") return false;
   if (overlay === undefined) return false;
   if (overlay.status !== "active" && brokerAppVersion == null) return false;
   const parsed = parseMacVersion(brokerAppVersion ?? overlay.appVersion);
@@ -611,16 +619,18 @@ function developmentMacVisible(
 function recipientMaySeeMac(
   recipientNamespace: string | undefined,
   clientNamespace: string,
+  platform: "mac" | "ios" | undefined,
   overlay: DeviceOverlay | undefined,
   brokerAppVersion?: string | null,
 ): boolean {
   if (recipientNamespace === APP_STORE_IOS_NAMESPACE) {
-    return appStoreMacVisible(clientNamespace, overlay, brokerAppVersion);
+    return appStoreMacVisible(clientNamespace, platform, overlay, brokerAppVersion);
   }
   if (recipientNamespace === undefined) return true;
   return developmentMacVisible(
     recipientNamespace,
     clientNamespace,
+    platform,
     overlay,
     brokerAppVersion,
   );
@@ -729,6 +739,7 @@ export function directoryPayloadFromDiscovery(
     const clientNamespace = raw.client_namespace;
     if (typeof bindingId !== "string" || typeof endpointId !== "string"
       || typeof clientNamespace !== "string") continue;
+    const platform = raw.platform === "mac" || raw.platform === "ios" ? raw.platform : undefined;
     let homeRelayUrl: string | null = null;
     if (Array.isArray(raw.path_hints)) {
       for (const hint of raw.path_hints) {
@@ -742,6 +753,7 @@ export function directoryPayloadFromDiscovery(
       bindingId,
       endpointId,
       clientNamespace,
+      ...(platform !== undefined ? { platform } : {}),
       ...(typeof raw.app_version === "string" ? { appVersion: raw.app_version } : {}),
       deviceId: typeof raw.device_id === "string" ? raw.device_id : null,
       instanceTag: typeof raw.tag === "string" ? raw.tag : null,
@@ -1279,6 +1291,7 @@ export class ControlPlaneCore {
       ...(payload.appVersion != null ? { appVersion: payload.appVersion } : {}),
       ...(payload.releaseTrack != null ? { releaseTrack: payload.releaseTrack } : {}),
       ...(payload.capabilities != null ? { capabilities: [...payload.capabilities] } : {}),
+      ...(payload.platform != null ? { platform: payload.platform } : {}),
       ...(payload.deviceId != null ? { deviceId: payload.deviceId } : {}),
       ...(attachment.namespace !== undefined ? { clientNamespace: attachment.namespace } : {}),
     };
@@ -1497,7 +1510,8 @@ export class ControlPlaneCore {
     const broker = await this.deps.storage.get<BrokerDirectoryPayload>(DIR_KEY);
     const hintedBinding = broker?.bindings.find((binding) => binding.endpointId === endpointId);
     const hintedOverlay = await this.deps.storage.get<DeviceOverlay>(DEV_PREFIX + endpointId);
-    const hintedMacMayBeSeen = hintedBinding?.clientNamespace.startsWith("mac:") === true
+    const hintedMacMayBeSeen = hintedBinding?.platform === "mac"
+      && hintedBinding.clientNamespace.startsWith("mac:")
       && hintedOverlay !== undefined;
     // The announcement is NOT revision-bearing (rev did not move), so it never
     // arms the peers' ack retry ladders; the confirm re-fetch does when the
@@ -1510,6 +1524,7 @@ export class ControlPlaneCore {
       if (hintedMacMayBeSeen && !recipientMaySeeMac(
         peerAttachment.namespace,
         hintedBinding.clientNamespace,
+        hintedBinding.platform,
         hintedOverlay,
         hintedBinding.appVersion,
       )) continue;
@@ -1554,6 +1569,7 @@ export class ControlPlaneCore {
       if (!recipientMaySeeMac(
         recipientNamespace,
         binding.clientNamespace,
+        binding.platform,
         overlay,
         binding.appVersion,
       )) {
@@ -1561,9 +1577,13 @@ export class ControlPlaneCore {
       }
       emitted.add(binding.endpointId);
       const appVersion = binding.appVersion ?? overlay.appVersion;
-      const { appVersion: _brokerAppVersion, ...bindingWithoutAppVersion } = binding;
+      const {
+        appVersion: _brokerAppVersion,
+        platform: _brokerPlatform,
+        ...bindingWithoutBrokerMetadata
+      } = binding;
       bindings.push({
-        ...bindingWithoutAppVersion,
+        ...bindingWithoutBrokerMetadata,
         status: overlay.status,
         revoked: overlay.revoked,
         ...(appVersion !== undefined && appVersion !== null ? { appVersion } : {}),
@@ -1595,6 +1615,7 @@ export class ControlPlaneCore {
       if (!recipientMaySeeMac(
         recipientNamespace,
         overlay.clientNamespace ?? "legacy",
+        overlay.platform,
         overlay,
       )) {
         continue;
