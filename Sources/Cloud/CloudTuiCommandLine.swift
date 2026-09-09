@@ -64,10 +64,9 @@ struct CloudTuiCommandLine: Sendable {
         ["--socket", socketPath, "--json", "workspace", workspaceID, "run", "--"] + command
     }
 
-    /// `workspace create [--name <name>] [--empty]`: the daemon owns auto-naming.
-    static func createWorkspaceArguments(socketPath: String, name: String? = nil, empty: Bool = false) -> [String] {
+    /// `workspace create [--name <name>]`: the daemon owns auto-naming.
+    static func createWorkspaceArguments(socketPath: String, name: String? = nil) -> [String] {
         var arguments = ["--socket", socketPath, "--json", "workspace", "create"]
-        if empty { arguments.append("--empty") }
         if let name, !name.isEmpty {
             arguments += ["--name", name]
         }

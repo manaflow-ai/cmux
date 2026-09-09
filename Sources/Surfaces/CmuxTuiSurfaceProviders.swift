@@ -1088,19 +1088,10 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?) async throws -> SurfaceResource {
         let connected = try await links.connected(machineID: machineID)
         guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
-        let workspaceID: String
-        if let remoteWorkspaceID = remoteWorkspaceID?.trimmingCharacters(in: .whitespacesAndNewlines), !remoteWorkspaceID.isEmpty {
-            workspaceID = remoteWorkspaceID
-        } else if let existing = catalog.snapshot.resources(on: machine).compactMap(\.remoteWorkspace).sorted(by: { ($0.focused ? 0 : 1, $0.index) < ($1.focused ? 0 : 1, $1.index) }).first {
-            workspaceID = existing.id
-        } else {
-            let created = try await link.run(arguments: CloudTuiCommandLine.createWorkspaceArguments(socketPath: connected.socketPath, empty: true))
-            guard let object = try JSONSerialization.jsonObject(with: created) as? [String: Any],
-                  let id = CmuxTuiSnapshotParser.createdWorkspace(fromResult: object) else {
-                throw ProviderError.noWorkspaceOnMachine(machineID)
-            }
-            workspaceID = id
-        }
+        // Resolve the active workspace inside the daemon mutation. A stale Mac
+        // catalog must never bootstrap a second workspace during concurrent creates.
+        let requestedWorkspace = remoteWorkspaceID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let workspaceID = requestedWorkspace.flatMap { $0.isEmpty ? nil : $0 } ?? "current"
         let argv = CloudTuiCommandLine.commandStartingIn(
             cwd: cwd,
             command: (command?.isEmpty == false ? command : nil) ?? CloudTuiCommandLine.defaultTerminalCommand
@@ -1110,6 +1101,18 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
               let created = CmuxTuiSnapshotParser.createdTerminal(fromRunResult: object) else {
             throw ProviderError.terminalNotCreated(String(data: data, encoding: .utf8) ?? "")
         }
+        guard let resolvedWorkspaceID = created.workspaceID ?? (workspaceID == "current" ? nil : workspaceID) else {
+            throw ProviderError.noWorkspaceOnMachine(machineID)
+        }
+        return recordCreatedTerminal(created, workspaceID: resolvedWorkspaceID, name: name, cwd: cwd)
+    }
+
+    private func recordCreatedTerminal(
+        _ created: CmuxTuiSnapshotParser.CreatedTerminalPath,
+        workspaceID: String,
+        name: String?,
+        cwd: String?
+    ) -> SurfaceResource {
         let resolvedWorkspaceID = created.workspaceID ?? workspaceID
         let remoteWorkspace = cloudState?.workspaces.first(where: { $0.id == resolvedWorkspaceID }).map {
             SurfaceRemoteWorkspace(id: $0.id, name: $0.name, index: $0.index, focused: $0.focused)
@@ -1164,13 +1167,18 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
               let id = CmuxTuiSnapshotParser.createdWorkspace(fromResult: object) else {
             throw ProviderError.noWorkspaceOnMachine(machineID)
         }
-        // Auto-naming belongs to the daemon. Read its committed workspace back
-        // instead of maintaining a second name sequence in the Mac projection.
-        guard await refresh(force: true),
-              let workspace = info.remoteWorkspaces?.first(where: { $0.id == id }) else {
-            throw ProviderError.noWorkspaceOnMachine(machineID)
+        // Creation already committed. Retain its exact starter receipt while a
+        // delayed snapshot catches up, so the caller cannot create a second one.
+        let provisional = SurfaceRemoteWorkspace(id: id, name: workspaceName?.isEmpty == false ? workspaceName! : id, index: info.remoteWorkspaces?.count ?? 0, focused: false)
+        if info.remoteWorkspaces?.contains(where: { $0.id == id }) != true {
+            info.remoteWorkspaces = (info.remoteWorkspaces ?? []) + [provisional]
+            catalog.updateMachine(info, from: self)
         }
-        return workspace
+        if let starter = CmuxTuiSnapshotParser.createdTerminal(fromRunResult: object) {
+            _ = recordCreatedTerminal(starter, workspaceID: id, name: nil, cwd: nil)
+        }
+        _ = await refresh(force: true)
+        return info.remoteWorkspaces?.first(where: { $0.id == id }) ?? provisional
     }
 
     func renameRemoteWorkspace(id: String, name: String) async throws {

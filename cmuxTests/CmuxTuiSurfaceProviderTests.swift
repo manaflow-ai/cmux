@@ -7,12 +7,10 @@ import Testing
 @testable import cmux
 #endif
 typealias CMUXCLI = CmuxTuiRemoteRouting
-
 /// The cmux-tui provider's pure parts: snapshot → resources, the argv it hands the
 /// client, the URLs it opens, and the client identity paths it shares with the CLI.
 @Suite struct CmuxTuiSurfaceProviderTests {
     static let machine = SurfaceMachineID.cloud("vivid-newt")
-
     static let sessionSnapshot: [String: Any] = [
         "workspaces": [
             ["id": "ws_main", "name": "main", "focused": true],
@@ -220,6 +218,8 @@ typealias CMUXCLI = CmuxTuiRemoteRouting
         #expect(VMRemoteWorkspaceResolver().resolveVMRemoteWorkspaceSelector("same", in: machine) == .ambiguous(["ws-a", "ws-b"]))
         #expect(VMRemoteWorkspaceResolver().resolveVMRemoteWorkspaceSelector("missing", in: machine) == .notFound)
         #expect(VMRemoteWorkspaceResolver().resolveVMRemoteWorkspaceSelector("ws-id", in: ["id": "vivid-newt"]) == .unavailable)
+        let unfocused: [String: Any] = ["machines": [["id": "vivid-newt", "remote_workspaces": [["id": "ws-a"], ["id": "ws-b"]]]], "resources": [[String: Any]]()]
+        #expect(VMRemoteWorkspaceResolver().resolveVMMachineTerminal(machine: "vivid-newt", catalog: unfocused) == .unavailable)
     }
 
     @Test func vmOpenWorkspaceUsesTheSelectedTabView() {

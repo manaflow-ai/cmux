@@ -67302,13 +67302,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "VNC Displays/"
+            "value": "Displays/"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "VNC ディスプレイ/"
+            "value": "ディスプレイ/"
           }
         }
       }
@@ -67376,7 +67376,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用法: cmux vm tree [<machine>|local] [--refresh] [--json]\n       cmux surface ls [<machine>|local] [--refresh] [--json]\n\nすべてのサーフェスを Finder 風に表示します。最初にこの Mac（ワークスペース別の\nターミナルとブラウザ）、続いて各クラウドマシンの Workspaces、Ports、VNC Displays\n（画面ごとに 1 行）、最後にマシンが所有するすべてのターミナルを含む Terminals\nセクションを表示します。各行には `cmux vm open` または `cmux surface open` が\n受け付けるアドレスが含まれます。\n\nオプション:\n  <machine>   このマシンだけを表示します（この Mac は `local`）。\n  --refresh   最初に全プロバイダ（マシン一覧、リンク、ローカルペイン）を再読み込みします。\n  --json      カタログのペイロード（{machines, resources, projections}）を表示します。"
+            "value": "使用法: cmux vm tree [<machine>|local] [--refresh] [--json]\n       cmux surface ls [<machine>|local] [--refresh] [--json]\n\nすべてのサーフェスを Finder 風に表示します。最初にこの Mac（ワークスペース別の\nターミナルとブラウザ）、続いて各クラウドマシンの Workspaces、Ports、Displays\n（画面ごとに 1 行）、最後にマシンが所有するすべてのターミナルを含む Terminals\nセクションを表示します。各行には `cmux vm open` または `cmux surface open` が\n受け付けるアドレスが含まれます。\n\nオプション:\n  <machine>   このマシンだけを表示します（この Mac は `local`）。\n  --refresh   最初に全プロバイダ（マシン一覧、リンク、ローカルペイン）を再読み込みします。\n  --json      カタログのペイロード（{machines, resources, projections}）を表示します。"
           }
         }
       }
@@ -68551,7 +68551,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "VNC ディスプレイ"
+            "value": "ディスプレイ"
           }
         }
       }
@@ -298766,8 +298766,8 @@
   "cloudTree.displays.asleep": {
     "extractionState": "manual",
     "localizations": {
-      "en": { "stringUnit": { "state": "translated", "value": "Open the machine to discover displays" } },
-      "ja": { "stringUnit": { "state": "translated", "value": "マシンを開いてディスプレイを検出" } }
+      "en": { "stringUnit": { "state": "translated", "value": "Displays unavailable while the machine sleeps" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "マシンがスリープ中はディスプレイを利用できません" } }
     }
   },
   "cloudTree.displays.unavailable": {

@@ -26,7 +26,7 @@ struct CloudMachineSurfacePresentation {
             text = info.linkError ?? String(localized: "cloudTree.displays.failed", defaultValue: "Couldn’t discover displays. Refresh to retry.")
             style = .error
         case .asleep:
-            text = String(localized: "cloudTree.displays.asleep", defaultValue: "Open the machine to discover displays")
+            text = String(localized: "cloudTree.displays.asleep", defaultValue: "Displays unavailable while the machine sleeps")
             style = .dimmed
         case .unavailable:
             text = String(localized: "cloudTree.displays.unavailable", defaultValue: "Display discovery unavailable. Refresh to retry.")
@@ -37,7 +37,7 @@ struct CloudMachineSurfacePresentation {
         }
         return CloudTreeNode(
             id: "machine:\(info.id.rawValue)/displays/placeholder",
-            kind: .placeholder(machine: info.id, CloudTreePlaceholder(text: text, style: style, opensMachine: info.linkState == .asleep))
+            kind: .placeholder(machine: info.id, CloudTreePlaceholder(text: text, style: style))
         )
     }
 

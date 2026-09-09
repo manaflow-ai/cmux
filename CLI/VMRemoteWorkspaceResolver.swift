@@ -18,8 +18,11 @@ struct VMRemoteWorkspaceResolver: Sendable {
         guard !workspaces.isEmpty else { return .empty(workspaceID: nil) }
         let focused = workspaces.filter { ($0["focused"] as? Bool) == true }
         guard focused.count <= 1 else { return .unavailable }
-        let workspace = focused.first ?? workspaces.first
-        guard let workspaceID = workspace?["id"] as? String, !workspaceID.isEmpty else { return .unavailable }
+        // A single workspace is unambiguous without a focus marker. Several
+        // unfocused workspaces have no authoritative active target, so fail
+        // closed instead of selecting by wire-array order.
+        guard let workspace = focused.first ?? (workspaces.count == 1 ? workspaces[0] : nil),
+              let workspaceID = workspace["id"] as? String, !workspaceID.isEmpty else { return .unavailable }
         switch resolveVMRemoteWorkspaceTerminal(resources, machine: machine, workspaceID: workspaceID) {
         case .resolved(let terminalID, let tabID):
             return .resolved(workspaceID: workspaceID, terminalID: terminalID, tabID: tabID)
