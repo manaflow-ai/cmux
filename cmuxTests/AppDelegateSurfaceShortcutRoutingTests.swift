@@ -672,6 +672,74 @@ struct AppDelegateSurfaceShortcutRoutingTests {
         }
     }
 
+    /// AppKit delivers real arrow keys as private-use function-key characters and
+    /// adds `.function`/`.numericPad` to the modifier flags. Synthetic glyph-based
+    /// events cannot prove the shortcuts fire on hardware, so this reproduces the
+    /// hardware event shape end-to-end (PR #10532 review).
+    @Test func paneResizeShortcutsMatchHardwareArrowEvents() throws {
+        try withIsolatedShortcutSettings {
+            let appDelegate = try #require(AppDelegate.shared)
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            let window = try #require(mainWindow(for: windowId))
+            let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+            let workspace = try #require(manager.selectedWorkspace)
+            let firstPanelId = try #require(workspace.focusedPanelId)
+            let rightPanel = try #require(
+                workspace.newTerminalSplit(from: firstPanelId, orientation: .horizontal)
+            )
+            workspace.bonsplitController.setContainerFrame(
+                CGRect(x: 0, y: 0, width: 900, height: 600)
+            )
+            workspace.focusPanel(rightPanel.id)
+            window.makeKeyAndOrderFront(nil)
+            window.displayIfNeeded()
+
+            let snapshot = workspace.bonsplitController.treeSnapshot()
+            let widthSplitId = try #require(splitNodes(in: snapshot, orientation: "horizontal").first?.id)
+            let originalWidth = try #require(dividerPosition(of: widthSplitId, in: snapshot))
+
+            let growWidthEvent = try #require(makeHardwareArrowKeyDownEvent(
+                functionKey: NSRightArrowFunctionKey,
+                keyCode: 124,
+                modifiers: [.command, .control],
+                windowNumber: window.windowNumber
+            ))
+            let shrinkWidthEvent = try #require(makeHardwareArrowKeyDownEvent(
+                functionKey: NSLeftArrowFunctionKey,
+                keyCode: 123,
+                modifiers: [.command, .control],
+                windowNumber: window.windowNumber
+            ))
+
+            // The event really does carry the flags the review flagged.
+            #expect(growWidthEvent.modifierFlags.contains(.function))
+            #expect(growWidthEvent.modifierFlags.contains(.numericPad))
+            #expect(growWidthEvent.charactersIgnoringModifiers != "\u{2192}")
+
+            #expect(appDelegate.matchConfiguredShortcut(event: growWidthEvent, action: .growPaneWidth))
+            #expect(appDelegate.matchConfiguredShortcut(event: shrinkWidthEvent, action: .shrinkPaneWidth))
+            #expect(!appDelegate.matchConfiguredShortcut(event: growWidthEvent, action: .shrinkPaneWidth))
+
+#if DEBUG
+            #expect(appDelegate.debugHandleCustomShortcut(event: growWidthEvent))
+#else
+            Issue.record("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+            let grownSnapshot = workspace.bonsplitController.treeSnapshot()
+            let grownWidth = try #require(dividerPosition(of: widthSplitId, in: grownSnapshot))
+            #expect(abs(grownWidth - (originalWidth - (20.0 / 900.0))) < 0.000_1)
+
+#if DEBUG
+            #expect(appDelegate.debugHandleCustomShortcut(event: shrinkWidthEvent))
+#endif
+            let restoredSnapshot = workspace.bonsplitController.treeSnapshot()
+            let restoredWidth = try #require(dividerPosition(of: widthSplitId, in: restoredSnapshot))
+            #expect(abs(restoredWidth - originalWidth) < 0.000_1)
+        }
+    }
+
     @Test func explicitLegacyBindingWinsOverImplicitPaneResizeDefault() throws {
         try withIsolatedShortcutSettings {
             let appDelegate = try #require(AppDelegate.shared)
@@ -704,6 +772,30 @@ struct AppDelegateSurfaceShortcutRoutingTests {
 #endif
             #expect(workspace.bonsplitController.allPaneIds.count == paneCount + 1)
         }
+    }
+
+    /// Builds the event shape AppKit delivers for a physical arrow key: the
+    /// private-use function-key character plus `.function`/`.numericPad` flags.
+    private func makeHardwareArrowKeyDownEvent(
+        functionKey: Int,
+        keyCode: UInt16,
+        modifiers: NSEvent.ModifierFlags,
+        windowNumber: Int
+    ) -> NSEvent? {
+        guard let scalar = UnicodeScalar(functionKey) else { return nil }
+        let characters = String(Character(scalar))
+        return NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: modifiers.union([.function, .numericPad]),
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: windowNumber,
+            context: nil,
+            characters: characters,
+            charactersIgnoringModifiers: characters,
+            isARepeat: false,
+            keyCode: keyCode
+        )
     }
 
     private func makeKeyDownEvent(
