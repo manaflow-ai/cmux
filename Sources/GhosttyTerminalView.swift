@@ -883,13 +883,13 @@ class GhosttyApp {
             )
             return
         }
+        GhosttyNumericLocaleController().pinProcessNumericLocale()
 
         resolvedUserShell = TerminalShellResolver.resolveCurrentUserShell()
         if let resolvedUserShell {
             setenv("SHELL", resolvedUserShell, 1)
         }
 
-        // Load config
         guard let primaryConfig = ghostty_config_new() else {
             #if DEBUG
             cmuxDebugLog("ghostty.initialize.config.failed")
