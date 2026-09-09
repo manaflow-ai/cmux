@@ -242,6 +242,7 @@ final class BonsplitTabDragUITests: XCTestCase {
             )
             let modeBarHeight = CGFloat(Double(geometry["rightSidebarModeBarHeight"] ?? "") ?? .nan)
             let modeBarMinY = CGFloat(Double(geometry["rightSidebarModeBarMinY"] ?? "") ?? .nan)
+            let modeBarTopInset = window.frame.height - (modeBarMinY + modeBarHeight)
             let titlebarHeight = CGFloat(Double(geometry["rightSidebarTitlebarHeight"] ?? "") ?? .nan)
 
             XCTAssertEqual(
@@ -264,13 +265,13 @@ final class BonsplitTabDragUITests: XCTestCase {
 
             if let referenceTopInset {
                 XCTAssertEqual(
-                    modeBarMinY,
+                    modeBarTopInset,
                     referenceTopInset,
                     accuracy: 2,
                     "Expected right sidebar mode bar top position not to shift between presentation modes. mode=\(presentationMode.rawValue) geometry=\(geometry) window=\(window.frame)"
                 )
             } else {
-                referenceTopInset = modeBarMinY
+                referenceTopInset = modeBarTopInset
             }
         }
     }
