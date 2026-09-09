@@ -273,8 +273,8 @@ struct CloudTreeOneMachineManyWorkspacesTests {
         #expect(sharedRow.viewBadge == 2, "a tab in each of two workspaces")
         #expect(detachedRow.viewBadge == 0, "no tab shows it: still running, listed in the pool")
         // A terminal viewed in two workspaces shows under both; each row counts its own.
-        guard case .workspace(_, _, let mainCount, _) = try #require(byID["machine:brave-otter/ws/ws_main"]).kind,
-              case .workspace(_, _, let sideCount, _) = try #require(byID["machine:brave-otter/ws/ws_side"]).kind else {
+        guard case .workspace(_, _, let mainCount, _, _) = try #require(byID["machine:brave-otter/ws/ws_main"]).kind,
+              case .workspace(_, _, let sideCount, _, _) = try #require(byID["machine:brave-otter/ws/ws_side"]).kind else {
             Issue.record("expected both workspace rows"); return
         }
         #expect(mainCount == 2)
@@ -381,7 +381,7 @@ struct CloudTreeOneMachineManyWorkspacesTests {
         let workspaceRow = try #require(byID["machine:brave-otter/ws/ws_main"])
         #expect(workspaceRow.children.compactMap(terminalKey) == ["term_b", "term_a", "term_c"], "all tabs are sibling rows in layout order")
         #expect(workspaceRow.children.allSatisfy { $0.children.isEmpty }, "terminal rows are leaves")
-        guard case .workspace(_, _, let count, _) = workspaceRow.kind else {
+        guard case .workspace(_, _, let count, _, _) = workspaceRow.kind else {
             Issue.record("expected the workspace row"); return
         }
         #expect(count == 3, "the count includes every visible terminal row")
@@ -456,7 +456,7 @@ struct CloudTreeOneMachineManyWorkspacesTests {
         let workspaceRow = try #require(byID["machine:brave-otter/ws/ws_main"])
         #expect(workspaceRow.children.compactMap(terminalKey) == ["term_left", "term_right", "term_right_hidden"], "layout order, not arrival order")
         #expect(workspaceRow.children.allSatisfy { $0.children.isEmpty })
-        guard case .workspace(_, _, let count, _) = workspaceRow.kind else {
+        guard case .workspace(_, _, let count, _, _) = workspaceRow.kind else {
             Issue.record("expected the workspace row"); return
         }
         #expect(count == 3)
@@ -649,7 +649,7 @@ struct CloudTreeOneMachineManyWorkspacesTests {
         #expect(CloudTreeRowHoverButtons.hasButtons(for: .terminal(poolRow)), "its hover × (Kill Terminal…) stays")
         #expect(byID["resource:brave-otter/terminal/term_bg"]?.isDragSource == true, "a click or drag re-attaches it in a pane")
         // The workspace is its layout: count, open/drag group, and `vm workspace open` agree.
-        guard case .workspace(_, _, let count, _) = try #require(byID["machine:brave-otter/ws/ws_main"]).kind else {
+        guard case .workspace(_, _, let count, _, _) = try #require(byID["machine:brave-otter/ws/ws_main"]).kind else {
             Issue.record("expected the workspace row"); return
         }
         #expect(count == 1)

@@ -1925,7 +1925,7 @@ typealias CMUXCLI = CmuxTuiRemoteRouting
         )
         let flattened = CloudTreeNodeBuilder.flattened(nodes)
         let workspaceNode = try #require(flattened.first { $0.id == "machine:legacy-placement/ws/ws_main" })
-        if case .workspace(_, _, _, let openIn) = workspaceNode.kind {
+        if case .workspace(_, _, _, _, let openIn) = workspaceNode.kind {
             #expect(openIn == localWorkspaceID)
         } else {
             Issue.record("expected the legacy workspace row")

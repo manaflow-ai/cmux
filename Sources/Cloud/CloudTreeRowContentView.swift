@@ -83,7 +83,7 @@ struct CloudTreeRowContentView: View {
             groupRow(title: String(localized: "cloudTree.group.displays", defaultValue: "Displays"), count: count)
         case .workspacesGroup:
             groupRow(title: String(localized: "cloudTree.group.workspaces", defaultValue: "Workspaces"))
-        case .workspace(_, let workspace, let terminalCount, _):
+        case .workspace(_, let workspace, let terminalCount, _, _):
             // No open marker here (none on any row since #11069); the row's open
             // verb reads "Go to Workspace" when it is already showing locally.
             CloudTreeLeafRow(
@@ -875,7 +875,7 @@ struct CloudTreeRowHoverButtons: View {
             plus(String(localized: "cloudTree.menu.newWorkspace", defaultValue: "New Workspace")) {
                 nodeActions.newWorkspace(machine)
             }
-        case .workspace(let machine, let workspace, _, _):
+        case .workspace(let machine, let workspace, _, _, _):
             HStack(spacing: 4) {
                 plus(String(localized: "cloudTree.menu.newTerminalHere", defaultValue: "New Terminal Here")) {
                     nodeActions.newTerminal(machine, workspace.id)

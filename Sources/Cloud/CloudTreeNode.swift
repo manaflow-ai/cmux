@@ -33,7 +33,7 @@ final class CloudTreeNode: NSObject {
         /// `terminalCount` counts every terminal placement in the workspace.
         /// `openIn`: the local workspace already showing this remote one (its open mark;
         /// clicking jumps there), else nil.
-        case workspace(machine: SurfaceMachineID, SurfaceRemoteWorkspace, terminalCount: Int, openIn: UUID?)
+        case workspace(machine: SurfaceMachineID, SurfaceRemoteWorkspace, terminalCount: Int, hiddenTabCount: Int, openIn: UUID?)
         /// A local workspace, grouping the local terminals it projects.
         case localWorkspace(CloudTreeLocalWorkspaceRow)
         case terminal(CloudTreeTerminalRow)
@@ -120,7 +120,7 @@ final class CloudTreeNode: NSObject {
             return machine
         case .terminalsPool(let machine, _), .displaysPool(let machine, _):
             return machine
-        case .workspace(let machine, _, _, _), .placeholder(let machine, _):
+        case .workspace(let machine, _, _, _, _), .placeholder(let machine, _):
             return machine
         case .localWorkspace: return .local
         case .terminal(let row): return row.resource.machine
@@ -146,7 +146,7 @@ final class CloudTreeNode: NSObject {
         case .terminalsPool: return String(localized: "cloudTree.group.terminals", defaultValue: "Terminals")
         case .displaysPool: return String(localized: "cloudTree.group.displays", defaultValue: "Displays")
         case .workspacesGroup: return String(localized: "cloudTree.group.workspaces", defaultValue: "Workspaces")
-        case .workspace(_, let workspace, _, _): return workspace.name
+        case .workspace(_, let workspace, _, _, _): return workspace.name
         case .localWorkspace(let row): return row.title
         case .terminal(let row): return row.displayTitle
         case .display(let resource, _, let remoteView):
@@ -254,6 +254,8 @@ struct CloudTreeTerminalRow: Equatable {
     /// The exact daemon tab represented by a workspace pointer row. Pool rows
     /// leave this nil because one terminal may have several placement names.
     var remoteView: SurfaceRemoteView? = nil
+    /// Legacy payload retained for source compatibility; flat projections always set zero.
+    var hiddenTabCount: Int = 0
 
     /// A terminal resource has one process title, but each daemon tab can have
     /// its own user name. Workspace rows must render the placement name, or a
@@ -279,6 +281,8 @@ struct CloudTreeBrowserRow: Equatable {
     /// currently have one tab in the public schema, but retaining the same
     /// placement contract as terminals keeps future multi-view browsers safe.
     var remoteView: SurfaceRemoteView? = nil
+    /// Legacy payload retained for source compatibility; flat projections always set zero.
+    var hiddenTabCount: Int = 0
 }
 
 /// A one-line explanatory row under a machine.
@@ -951,6 +955,7 @@ enum CloudTreeNodeBuilder {
                     machine: machine,
                     workspace,
                     terminalCount: layout.terminalCount,
+                    hiddenTabCount: 0,
                     openIn: openInLocal
                 ),
                 children: layout.rows,
@@ -1122,7 +1127,8 @@ enum CloudTreeNodeBuilder {
         projectionIndex: LocalProjectionIndex,
         id: String? = nil,
         viewBadge: Int? = nil,
-        remoteView: SurfaceRemoteView? = nil
+        remoteView: SurfaceRemoteView? = nil,
+        hiddenTabCount: Int = 0
     ) -> CloudTreeNode {
         CloudTreeNode(
             id: id ?? nodeID(resource: resource.id),
@@ -1131,7 +1137,8 @@ enum CloudTreeNodeBuilder {
                 isOpen: projectionIndex.isOpen(resource.id, remoteView: remoteView),
                 viewBadge: viewBadge,
                 hasUnreadNotification: projectionIndex.hasUnreadNotification(resource.id),
-                remoteView: remoteView
+                remoteView: remoteView,
+                hiddenTabCount: hiddenTabCount
             ))
         )
     }
