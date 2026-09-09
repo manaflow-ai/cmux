@@ -226,6 +226,13 @@ import Testing
             persistenceKey: "completed"
         )
         let rejectingManager = RejectingWorkspaceCreationTabManager()
+        // `TabManager.init` creates the initial workspace through the same
+        // overridable `addWorkspaceIfActive` seam and treats a nil result as a
+        // fatal invariant violation (`preconditionFailure` in
+        // `addInitialWorkspaceAssumingActive`). Arm the rejection only after
+        // construction so the fixture models a mobile-create failure, not a
+        // window manager that could never have existed.
+        rejectingManager.rejectsWorkspaceCreation = true
         let retryManager = TabManager()
         let operationID = UUID()
         defer {
@@ -267,6 +274,10 @@ import Testing
 
 @MainActor
 private final class RejectingWorkspaceCreationTabManager: TabManager {
+    /// Off during `init` so the initial workspace is created like any other
+    /// window manager; the test flips it on before the mobile create call.
+    var rejectsWorkspaceCreation = false
+
     override func addWorkspaceIfActive(
         id: UUID?,
         title: String?,
@@ -291,7 +302,33 @@ private final class RejectingWorkspaceCreationTabManager: TabManager {
         applyCreationTitleAsCustomTitle: Bool,
         allowTextBoxFocusDefault: Bool
     ) -> Workspace? {
-        nil
+        guard rejectsWorkspaceCreation else {
+            return super.addWorkspaceIfActive(
+                id: id,
+                title: title,
+                titleSource: titleSource,
+                workingDirectory: overrideWorkingDirectory,
+                initialSurface: initialSurface,
+                initialTerminalCommand: initialTerminalCommand,
+                initialTerminalInput: initialTerminalInput,
+                initialTerminalStartupRestoreAgent: initialTerminalStartupRestoreAgent,
+                initialTerminalEnvironment: initialTerminalEnvironment,
+                initialBrowserURL: initialBrowserURL,
+                initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
+                initialBrowserTransparentBackground: initialBrowserTransparentBackground,
+                workspaceEnvironment: workspaceEnvironment,
+                inheritWorkingDirectory: inheritWorkingDirectory,
+                select: select,
+                eagerLoadTerminal: eagerLoadTerminal,
+                placementOverride: placementOverride,
+                autoWelcomeIfNeeded: autoWelcomeIfNeeded,
+                autoRefreshMetadata: autoRefreshMetadata,
+                normalizeWorkspaceGroupsAfterInsert: normalizeWorkspaceGroupsAfterInsert,
+                applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle,
+                allowTextBoxFocusDefault: allowTextBoxFocusDefault
+            )
+        }
+        return nil
     }
 }
 
