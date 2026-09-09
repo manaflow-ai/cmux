@@ -212,7 +212,8 @@ enum ClaudeHookLiveDeliveryHarness {
         context: Context,
         arguments: [String],
         environment: [String: String],
-        standardInput: String
+        standardInput: String,
+        timeout: TimeInterval = 10
     ) -> ProcessRunResult {
         let process = Process()
         let stdoutPipe = Pipe()
@@ -238,7 +239,7 @@ enum ClaudeHookLiveDeliveryHarness {
             process.waitUntilExit()
             exitSignal.signal()
         }
-        let timedOut = exitSignal.wait(timeout: .now() + 10) == .timedOut
+        let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
         if timedOut {
             process.terminate()
             if exitSignal.wait(timeout: .now() + 1) == .timedOut {
