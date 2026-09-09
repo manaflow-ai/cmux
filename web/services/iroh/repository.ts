@@ -274,13 +274,14 @@ function makeLiveRepository(): IrohRepositoryShape {
         const createdAt = input.now.getTime() <= floor
           ? new Date(floor + 1)
           : input.now;
+        const clientNamespace = input.clientNamespace ?? "legacy";
         const [challenge] = await tx
           .insert(irohRegistrationChallenges)
           .values({
             userId: input.userId,
             deviceUuid: input.deviceUuid,
             appInstanceId: input.appInstanceId,
-            clientNamespace: input.clientNamespace ?? "legacy",
+            clientNamespace,
             tag: input.tag,
             endpointId: input.endpointId,
             identityGeneration: input.identityGeneration,
@@ -288,6 +289,24 @@ function makeLiveRepository(): IrohRepositoryShape {
             nonceHash: input.nonceHash,
             createdAt,
             expiresAt: input.expiresAt,
+          })
+          .onConflictDoUpdate({
+            target: [
+              irohRegistrationChallenges.userId,
+              irohRegistrationChallenges.clientNamespace,
+              irohRegistrationChallenges.deviceUuid,
+              irohRegistrationChallenges.tag,
+            ],
+            set: {
+              appInstanceId: input.appInstanceId,
+              endpointId: input.endpointId,
+              identityGeneration: input.identityGeneration,
+              payloadSha256: input.payloadSha256,
+              nonceHash: input.nonceHash,
+              createdAt,
+              expiresAt: input.expiresAt,
+              consumedAt: null,
+            },
           })
           .returning();
         if (!challenge) throw new Error("challenge insert returned no row");
