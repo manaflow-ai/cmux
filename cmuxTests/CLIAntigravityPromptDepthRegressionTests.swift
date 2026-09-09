@@ -248,6 +248,15 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertNil(record["activePromptDepth"])
         XCTAssertEqual(record["agentLifecycle"] as? String, "idle")
         XCTAssertEqual(record["runtimeStatus"] as? String, "idle")
+        XCTAssertTrue(
+            AgentJournalAppendCapture.contains(
+                context.state.snapshot(),
+                kind: "agent.turn.completed",
+                agentKey: "antigravity",
+                sessionId: sessionId
+            ),
+            "An accepted SessionEnd must still journal turn completion"
+        )
 
         // A subsequent session-start with the same conversation id must also
         // discard a depth left behind when the provider omits SessionEnd.
@@ -347,6 +356,23 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(
             (finalRecord["promptLifecycleRevision"] as? NSNumber)?.int64Value,
             newerRevision
+        )
+        let commands = context.state.snapshot()
+        XCTAssertFalse(
+            AgentJournalAppendCapture.contains(
+                commands,
+                kind: "agent.turn.completed",
+                agentKey: "antigravity",
+                sessionId: sessionId
+            ),
+            "A fenced SessionEnd must not journal completion for the newer prompt"
+        )
+        XCTAssertFalse(
+            commands.contains {
+                $0.contains(#""method":"feed.push""#)
+                    && $0.contains(#""hook_event_name":"SessionEnd""#)
+            },
+            "A fenced SessionEnd must not publish completion to Feed"
         )
     }
 
@@ -514,6 +540,23 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(
             (finalRecord["promptLifecycleRevision"] as? NSNumber)?.int64Value,
             newerRevision
+        )
+        let commands = context.state.snapshot()
+        XCTAssertFalse(
+            AgentJournalAppendCapture.contains(
+                commands,
+                kind: "agent.turn.completed",
+                agentKey: "antigravity",
+                sessionId: sessionId
+            ),
+            "A fenced SessionEnd must not journal completion for an ID-less newer prompt"
+        )
+        XCTAssertFalse(
+            commands.contains {
+                $0.contains(#""method":"feed.push""#)
+                    && $0.contains(#""hook_event_name":"SessionEnd""#)
+            },
+            "A fenced SessionEnd must not publish ID-less prompt completion to Feed"
         )
     }
 
