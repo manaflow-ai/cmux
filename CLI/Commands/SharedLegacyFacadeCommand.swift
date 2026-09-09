@@ -19,6 +19,14 @@ extension SharedLegacyFacadeCommand {
         try await GlobalOptions().makeCLI().run()
     }
 
+    /// Stands in for the value of a bare `--surface`, which `restore` and `fork`
+    /// document as "use the calling surface". ArgumentParser has no optional-value
+    /// option without a `defaultAsFlag`, and without one `cmux restore --surface`
+    /// fails with "missing value" before `run()` can hand the argv to the legacy
+    /// parser that implements the form. The value itself is never read: `run()`
+    /// re-parses the raw argv, so this only widens what ArgumentParser accepts.
+    static var continuationCurrentSurfaceSentinel: String { "--surface" }
+
     static var workspaceCompletion: CompletionKind { .custom(CompletionCandidates.workspaces) }
     static var surfaceCompletion: CompletionKind { .custom(CompletionCandidates.surfaces) }
     static var paneCompletion: CompletionKind { .custom(CompletionCandidates.panes) }

@@ -27134,10 +27134,19 @@ struct CMUXCLI {
         return URL(fileURLWithPath: "/tmp/cmux-wait-for-\(String(sanitized)).sig")
     }
 
+    /// A lock file name must distinguish every channel name, so the readable
+    /// sanitized form is only a prefix: `a/b` and `a.b` both sanitize to `a_b`
+    /// and would otherwise share one lock, letting either channel block or
+    /// unlock the other. The appended digest is taken over the raw name, so
+    /// distinct names always land on distinct files.
     private func tmuxWaitForLockURL(name: String) -> URL {
         let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._-"))
-        let sanitized = name.unicodeScalars.map { allowed.contains($0) ? Character($0) : "_" }
-        return URL(fileURLWithPath: "/tmp/cmux-wait-for-\(String(sanitized)).lock")
+        let sanitized = String(name.unicodeScalars.map { allowed.contains($0) ? Character($0) : "_" })
+        let digest = SHA256.hash(data: Data(name.utf8))
+            .prefix(8)
+            .map { String(format: "%02x", $0) }
+            .joined()
+        return URL(fileURLWithPath: "/tmp/cmux-wait-for-\(sanitized.prefix(64))-\(digest).lock")
     }
 
     private func runTmuxCompatCommand(
@@ -27272,7 +27281,14 @@ struct CMUXCLI {
                 return
             }
             if unlock {
-                try? FileManager.default.removeItem(at: tmuxWaitForLockURL(name: name))
+                // Unlocking an unlocked channel is a no-op, but a removal that
+                // actually failed (permissions, I/O) must not report success:
+                // the lock file survives and every waiter stays blocked while
+                // the caller believes the channel is free.
+                let lockURL = tmuxWaitForLockURL(name: name)
+                if unlink(lockURL.path) != 0, errno != ENOENT {
+                    throw CLIError(message: "wait-for failed to unlock '\(name)': \(String(cString: strerror(errno)))")
+                }
                 print("OK")
                 return
             }
