@@ -57,6 +57,7 @@ export function canonicalControlPlaneNamespace(value: string | undefined): strin
   }
   if (namespace === "mac:com.cmuxterm.app"
     || namespace === "mac:com.cmuxterm.app.nightly"
+    || namespace === "mac:com.cmuxterm.app.debug"
     || /^mac:com\.cmuxterm\.app\.nightly\.[a-z0-9-]{1,32}$/.test(namespace)
     || /^mac:com\.cmuxterm\.app\.debug\.[A-Za-z0-9._-]{1,64}$/.test(namespace)) {
     return namespace;
@@ -69,6 +70,14 @@ export function canonicalControlPlaneNamespace(value: string | undefined): strin
  * few; a runaway client must not pin unbounded sockets on the account DO. */
 export const MAX_CONTROL_SUBSCRIBERS_PER_ACCOUNT = 32;
 
+export const CONTROL_PLANE_SCOPES = [
+  "app-store-ios",
+  "official-stable-mac",
+  "official-nightly-mac",
+  "development",
+  "legacy",
+] as const;
+
 /** Stable Durable Object partition for a control-plane audience. Product
  * lanes deliberately receive different objects so retired clients cannot
  * consume the App Store lane's subscriber or upstream budgets. */
@@ -80,12 +89,11 @@ export function controlPlaneScope(namespace: string | undefined): string {
     normalized === "mac:com.cmuxterm.app.nightly"
     || normalized.startsWith("mac:com.cmuxterm.app.nightly.")
   ) return "official-nightly-mac";
-  const iosTag = normalized.match(/^dev\.cmux\.ios\.([A-Za-z0-9._-]+)$/)?.[1];
-  const macTag = normalized.match(/^mac:com\.cmuxterm\.app\.debug\.([A-Za-z0-9._-]+)$/)?.[1];
-  if (iosTag && macTag && iosTag === macTag) return `development:${iosTag}`;
-  if (iosTag) return `development:${iosTag}`;
-  if (macTag) return `development:${macTag}`;
-  return `namespace:${normalized}`;
+  if (/^dev\.cmux\.ios\.[A-Za-z0-9._-]+$/.test(normalized)
+    || /^mac:com\.cmuxterm\.app\.debug(?:\.[A-Za-z0-9._-]+)?$/.test(normalized)) {
+    return "development";
+  }
+  return "legacy";
 }
 
 /** Max bytes of an inbound WS message the DO will parse. Client-controlled
@@ -1649,13 +1657,20 @@ export class ControlPlaneCore {
     const broker = await this.deps.storage.get<BrokerDirectoryPayload>(DIR_KEY);
     if (broker === undefined) return rev; // no directory yet; nothing to broadcast
     const now = this.deps.now();
+    const mergedByNamespace = new Map<string, Promise<WireDirectoryBody>>();
     for (const socket of this.deps.sockets()) {
       const peer = socket.getAttachment();
       if (!peer) continue;
       if (excludeSessionId !== null && peer.sessionId === excludeSessionId) continue;
       if (!this.deliverable(peer, now)) continue;
       try {
-        const merged = await this.mergedDirectory(broker, peer.namespace);
+        const key = peer.namespace ?? "__unscoped__";
+        let mergedPromise = mergedByNamespace.get(key);
+        if (mergedPromise === undefined) {
+          mergedPromise = this.mergedDirectory(broker, peer.namespace);
+          mergedByNamespace.set(key, mergedPromise);
+        }
+        const merged = await mergedPromise;
         socket.send(JSON.stringify(directoryFrame(rev, merged, rfc3339FromMs(now))));
       } catch {
         continue; // Socket already gone; hibernation cleans it up.
@@ -1924,6 +1939,7 @@ export class ControlPlaneCore {
     const delta = directoryDelta(previous, next);
     if (delta.kind === "none") return;
     const now = this.deps.now();
+    const mergedByNamespace = new Map<string, Promise<WireDirectoryBody>>();
     for (const socket of this.deps.sockets()) {
       const attachment = socket.getAttachment();
       if (!attachment) continue;
@@ -1932,17 +1948,20 @@ export class ControlPlaneCore {
       // A filtered App Store directory cannot safely consume a raw hint delta:
       // the hinted endpoint may be hidden, newly eligible, or newly ineligible.
       // Send a complete scoped snapshot for that audience instead.
-      const frames = recipientNeedsFilteredDirectory(attachment.namespace)
-        ? [JSON.stringify(directoryFrame(
-          rev,
-          await this.mergedDirectory(next, attachment.namespace),
-          rfc3339FromMs(now),
-        ))]
-        : delta.kind === "full"
-          ? [JSON.stringify(directoryFrame(rev, await this.mergedDirectory(next), rfc3339FromMs(now)))]
-          : delta.updates.map((update) => JSON.stringify(
-            hintUpdateFrame(rev, update.endpointId, update.homeRelayUrl, update.updatedAt),
-          ));
+      let frames: string[];
+      if (recipientNeedsFilteredDirectory(attachment.namespace) || delta.kind === "full") {
+        const key = attachment.namespace ?? "__unscoped__";
+        let mergedPromise = mergedByNamespace.get(key);
+        if (mergedPromise === undefined) {
+          mergedPromise = this.mergedDirectory(next, attachment.namespace);
+          mergedByNamespace.set(key, mergedPromise);
+        }
+        frames = [JSON.stringify(directoryFrame(rev, await mergedPromise, rfc3339FromMs(now)))];
+      } else {
+        frames = delta.updates.map((update) => JSON.stringify(
+          hintUpdateFrame(rev, update.endpointId, update.homeRelayUrl, update.updatedAt),
+        ));
+      }
       let delivered = false;
       for (const json of frames) {
         try {

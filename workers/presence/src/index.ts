@@ -38,6 +38,7 @@ import { MAX_SUBSCRIBE_AGE_MS, TeamPresence } from "./do";
 import { AccountControlPlane, type ControlPlaneEnv } from "./controlPlaneDo";
 import {
   canonicalControlPlaneNamespace,
+  CONTROL_PLANE_SCOPES,
   controlPlaneScope,
   parseRevocationRequest,
 } from "./controlPlane";
@@ -179,12 +180,19 @@ const worker = {
       );
       if (!namespace) return json({ error: "invalid_client_namespace" }, 400);
       headers.set("x-cmux-app-namespace", namespace);
-      const stub = controlPlaneStub(env, user.id, namespace);
-      return stub.fetch(new Request(request.url, {
+      const init = {
         method: "POST",
         headers,
         body: JSON.stringify(parsed),
-      }));
+      } as const;
+      const responses = await Promise.all(CONTROL_PLANE_SCOPES.map((scope) =>
+        env.ACCOUNT_CONTROL_PLANE.get(
+          env.ACCOUNT_CONTROL_PLANE.idFromName(`control:user:${user.id}:${scope}`),
+        ).fetch(new Request(request.url, init))
+      ));
+      const failed = responses.find((response) => !response.ok);
+      if (failed) return failed;
+      return json({ ok: true });
     }
 
     if (url.pathname === "/v1/connectivity/invalidate") {
