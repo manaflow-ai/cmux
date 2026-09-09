@@ -250,20 +250,31 @@ def test_workspace_font_size_honors_global_window_override() -> None:
 
 
 @pytest.mark.parametrize(
-    "args",
+    ("args", "expected_error"),
     [
-        ("workspace-font-size",),
-        ("workspace-font-size", "grow"),
-        ("workspace-font-size", "increase", "--unknown", "value"),
-        ("workspace-font-size", "increase", "--workspace", WORKSPACE_ID, "--workspace", WORKSPACE_ID),
+        (("workspace-font-size",), "requires increase, decrease, or reset"),
+        (("workspace-font-size", "grow"), "Invalid workspace font-size action"),
+        (("workspace-font-size", "increase", "--unknown", "value"), "Unknown workspace-font-size argument"),
+        (
+            ("workspace-font-size", "increase", "--workspace", WORKSPACE_ID, "--workspace", WORKSPACE_ID),
+            "Duplicate workspace-font-size argument",
+        ),
+        (
+            ("workspace-font-size", "increase", "--workspace", "--window", WINDOW_ID),
+            "--workspace requires a workspace or window id, ref, or index",
+        ),
     ],
 )
-def test_workspace_font_size_rejects_invalid_arguments_without_mutation(args: tuple[str, ...]) -> None:
+def test_workspace_font_size_rejects_invalid_arguments_without_mutation(
+    args: tuple[str, ...], expected_error: str
+) -> None:
     cli_path = _cli_path()
     with _fake_socket() as (socket_path, state):
         result = _run_cli(cli_path, socket_path, *args)
 
-    assert result.returncode != 0
+    assert result.returncode == 1
+    assert result.stderr.startswith("Error: ")
+    assert expected_error in result.stderr
     assert not [request for request in state.requests if request.get("method") == "workspace.font_size"]
 
 
