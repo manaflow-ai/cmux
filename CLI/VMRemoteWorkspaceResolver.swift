@@ -118,7 +118,12 @@ struct VMRemoteWorkspaceResolver: Sendable {
         workspaceID: String
     ) -> VMRemoteWorkspaceTerminalResolution {
         let liveTerminals = resources.filter { resource in
-            (resource["kind"] as? String) == "terminal" && (resource["lifecycle"] as? String) != "exited"
+            guard (resource["kind"] as? String) == "terminal",
+                  (resource["lifecycle"] as? String) != "exited" else { return false }
+            if let resourceMachine = resource["machine"] as? String {
+                return resourceMachine == machine
+            }
+            return (resource["id"] as? String)?.hasPrefix("\(machine)/terminal/") == true
         }
         var candidates: [(terminalID: String, tabID: String?, focused: Bool, sortID: String)] = []
         var ambiguousSelectors: [String] = []

@@ -1169,7 +1169,11 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         }
         // Creation already committed. Retain its exact starter receipt while a
         // delayed snapshot catches up, so the caller cannot create a second one.
-        let provisional = SurfaceRemoteWorkspace(id: id, name: workspaceName?.isEmpty == false ? workspaceName! : id, index: info.remoteWorkspaces?.count ?? 0, focused: false)
+        let committedName = ((object["value"] as? [String: Any]) ?? object)["name"] as? String
+        let provisionalName = workspaceName?.isEmpty == false
+            ? workspaceName!
+            : (committedName ?? String(localized: "cloudTree.workspace.pending", defaultValue: "New workspace"))
+        let provisional = SurfaceRemoteWorkspace(id: id, name: provisionalName, index: info.remoteWorkspaces?.count ?? 0, focused: false)
         if info.remoteWorkspaces?.contains(where: { $0.id == id }) != true {
             info.remoteWorkspaces = (info.remoteWorkspaces ?? []) + [provisional]
             catalog.updateMachine(info, from: self)

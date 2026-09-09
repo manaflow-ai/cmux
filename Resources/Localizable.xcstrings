@@ -298784,6 +298784,13 @@
       "ja": { "stringUnit": { "state": "translated", "value": "利用可能なディスプレイはありません" } }
     }
   },
+  "cloudTree.workspace.pending": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "New workspace" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "新しいワークスペース" } }
+    }
+  },
   "cli.vm.open.sessionsUnavailable": {
     "extractionState": "manual",
     "localizations": {
