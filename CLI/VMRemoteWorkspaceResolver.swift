@@ -2,12 +2,6 @@ import Foundation
 
 /// Pure catalog identity resolution shared by the CLI and its behavior tests.
 struct VMRemoteWorkspaceResolver: Sendable {
-    enum VMMachineTerminalResolution: Equatable {
-        case resolved(workspaceID: String, terminalID: String, tabID: String?)
-        case empty(workspaceID: String?)
-        case unavailable
-    }
-
     /// A machine open reattaches its active workspace's terminal. Only an
     /// authoritative empty graph permits creation; a missing or ambiguous graph
     /// must not turn a reconnect into another workspace or terminal.

@@ -842,25 +842,27 @@ enum CloudTreeNodeBuilder {
             ))
         }
 
-        // Displays are always a machine-level category, just like Ports and
-        // Terminals. The catalog owns the real VNC resources; an empty state is
-        // explicit so a reconnect never makes the category silently disappear.
-        children.append(CloudTreeNode(
-            id: nodeID(displaysPool: machine),
-            kind: .displaysPool(machine: machine, count: displays.count),
-            children: displays.isEmpty
-                ? [CloudMachineSurfacePresentation.emptyDisplays(info: info)]
-                : displays.map {
-                    CloudTreeNode(
-                        id: nodeID(resource: $0.id),
-                        kind: .display(
-                            $0,
-                            openIn: nil,
-                            remoteView: $0.remoteViews?.count == 1 ? $0.remoteViews?.first : nil
+        // Connected machines expose Displays as a machine-level category, just
+        // like Ports and Terminals. The catalog owns real VNC resources; a
+        // connected empty state is explicit, while a down link stays truthful.
+        if info.linkState == .connected || info.linkState == .notApplicable || !displays.isEmpty {
+            children.append(CloudTreeNode(
+                id: nodeID(displaysPool: machine),
+                kind: .displaysPool(machine: machine, count: displays.count),
+                children: displays.isEmpty
+                    ? [CloudMachineSurfacePresentation.emptyDisplays(info: info)]
+                    : displays.map {
+                        CloudTreeNode(
+                            id: nodeID(resource: $0.id),
+                            kind: .display(
+                                $0,
+                                openIn: nil,
+                                remoteView: $0.remoteViews?.count == 1 ? $0.remoteViews?.first : nil
+                            )
                         )
-                    )
-                }
-        ))
+                    }
+            ))
+        }
 
         // The pool is a process index. It lists every terminal, including
         // terminals already placed in workspaces and detached terminals.
