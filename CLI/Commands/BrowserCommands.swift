@@ -377,14 +377,19 @@ struct BrowserImportCommand: LegacyBrowserCommand {
 
 struct BrowserCookiesCommand: LegacyBrowserCommand {
     @Argument(completion: .list(["get", "set", "clear"])) var action: String?
+    // `set` takes the cookie as two positionals or as `--name`/`--value`; both
+    // spellings reach the same runner, which requires one of them.
     @Argument var name: String?
     @Argument var value: String?
     @OptionGroup var target: BrowserTargetOptions
+    @Option(name: .customLong("name")) var nameOption: String?
+    @Option(name: .customLong("value")) var valueOption: String?
     @Option(name: .customLong("url")) var url: String?
     @Option(name: .customLong("domain")) var domain: String?
     @Option(name: .customLong("path"), completion: .file()) var path: String?
     @Option(name: .customLong("expires")) var expires: String?
     @Flag(name: .customLong("secure")) var secure = false
+    @Flag(name: .customLong("http-only")) var httpOnly = false
     @Flag(name: .customLong("all")) var all = false
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "cookies", helpNames: [])

@@ -57,6 +57,13 @@ struct VMBaseCommand: LegacyVMCommand {
 struct VMBaseOpenCommand: LegacyVMCommand {
     @Option(name: .customLong("workspace"), completion: .custom(CompletionCandidates.workspaces)) var workspace: String?
     @Option(name: .customLong("window"), completion: .custom(CompletionCandidates.windows)) var window: String?
+    @Option(name: .customLong("focus")) var focus: String?
+    // The image-kind flags. The legacy runner rejects a conflicting pair itself,
+    // so they stay independent declarations rather than an exclusive group that
+    // would fail before `run()` delegates.
+    @Flag(name: .customLong("base")) var base = false
+    @Flag(name: .customLong("desktop")) var desktop = false
+    @Flag(name: .customLong("no-desktop")) var noDesktop = false
     @Flag(name: [.customLong("detach"), .customShort("d")]) var detach = false
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "open", helpNames: [])
@@ -66,6 +73,10 @@ struct VMBaseResetCommand: LegacyVMCommand {
     @Option(name: .customLong("reason")) var reason: String?
     @Option(name: .customLong("workspace"), completion: .custom(CompletionCandidates.workspaces)) var workspace: String?
     @Option(name: .customLong("window"), completion: .custom(CompletionCandidates.windows)) var window: String?
+    // See VMBaseOpenCommand: the kind flags are validated by the legacy runner.
+    @Flag(name: .customLong("base")) var base = false
+    @Flag(name: .customLong("desktop")) var desktop = false
+    @Flag(name: .customLong("no-desktop")) var noDesktop = false
     @Flag(name: [.customLong("detach"), .customShort("d")]) var detach = false
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "reset", helpNames: [])
@@ -74,8 +85,18 @@ struct VMBaseResetCommand: LegacyVMCommand {
 struct VMNewCommand: LegacyVMCommand {
     @Option(name: .customLong("image")) var image: String?
     @Option(name: .customLong("provider")) var provider: String?
+    @Option(name: .customLong("name")) var name: String?
+    // `String?`, not an enum: the legacy runner accepts raw megabytes as well as
+    // the named sizes, and owns the "unknown size" diagnostic.
+    @Option(name: .customLong("size"), completion: .list(["4g", "8g", "16g", "24g", "32g", "64g"]))
+    var size: String?
     @Option(name: .customLong("workspace"), completion: .custom(CompletionCandidates.workspaces)) var workspace: String?
     @Option(name: .customLong("window"), completion: .custom(CompletionCandidates.windows)) var window: String?
+    @Option(name: .customLong("focus")) var focus: String?
+    // See VMBaseOpenCommand: the kind flags are validated by the legacy runner.
+    @Flag(name: .customLong("base")) var base = false
+    @Flag(name: .customLong("desktop")) var desktop = false
+    @Flag(name: .customLong("no-desktop")) var noDesktop = false
     @Flag(name: [.customLong("detach"), .customShort("d")]) var detach = false
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "new", helpNames: [], aliases: ["create"])
@@ -174,8 +195,13 @@ struct VMPromoteTemplateCommand: VMIDCommand {
 }
 
 /// Retains the undocumented legacy command so VM routing remains transparent.
+/// `runVMSSHAttach` reads the machine from `--id` and rejects every positional,
+/// so this declares the option rather than the positional the other VM leaves
+/// use: the startup command cmux generates for a split attach spells it
+/// `vm ssh-attach --id <vm> --default-freestyle-sshd`.
 struct VMSSHAttachCommand: VMIDCommand {
-    @Argument(completion: vmID) var id: String?
+    @Option(name: .customLong("id"), completion: vmID) var id: String?
+    @Flag(name: .customLong("default-freestyle-sshd")) var usesDefaultFreestyleSSHD = false
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "ssh-attach", shouldDisplay: false, helpNames: [])
 }
