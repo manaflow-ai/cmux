@@ -12,8 +12,22 @@ on:
       - scripts/validate-xcframework-archive.py
       - scripts/ghosttykit-checksums.txt
       - tests/test_ci_ghosttykit_release_check.sh
+      - Resources/bin/cmux-hermes-agent-wrapper
+      - tests/test_hermes_wrapper_hooks.py
       - tests/test_ci_change_areas.py
       - .github/workflows/ci.yml
+      - "Sources/**"
+      - "Packages/**"
+      - "cmuxTests/**"
+      - "CLI/**"
+      - "TunnelExtension/**"
+      - "Resources/**"
+      - "cmux.xcodeproj/**"
+      - "cmux.xcworkspace/**"
+      - "scripts/ci/**"
+      - "scripts/swift_warning_budget.py"
+      - ".github/swift-warning-budget.tsv"
+      - "vendor/bonsplit"
     types: [opened, edited, reopened, synchronize, ready_for_review]
   workflow_dispatch: {}
 

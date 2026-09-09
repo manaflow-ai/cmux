@@ -687,6 +687,7 @@ def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
         "web-db-migrations",
         "linux-preflight",
         "app-host-unit-tests",
+        "swift-build-gate",
         "tests",
         "tests-build-and-lag",
         "release-build",
@@ -704,10 +705,14 @@ def test_required_tests_status_waits_for_app_host_matrix() -> None:
     assert "      - changes" in block
     assert "      - linux-preflight" in block
     assert "      - app-host-unit-tests" in block
+    assert "      - swift-build-gate" in block
     assert "if: ${{ always() }}" in block
     assert 'preflight["result"] != "success"' in block
-    assert 'macos == "true" and tests["result"] != "success"' in block
+    # The app-host matrix is required only when the app-host lane was routed;
+    # a macOS pull request without that lane must pass the build gate instead.
+    assert 'app_host == "true" and tests["result"] != "success"' in block
     assert 'tests["result"] not in {"success", "skipped"}' in block
+    assert 'macos == "true" and app_host != "true" and gate["result"] != "success"' in block
 
 
 def test_macos_jobs_wait_for_linux_preflight() -> None:
@@ -716,8 +721,12 @@ def test_macos_jobs_wait_for_linux_preflight() -> None:
     # success() gate, which GitHub evaluates over the transitive needs chain:
     # routed linux jobs that legitimately skip (web/agent-session paths)
     # then mark every macOS job skipped even though linux-preflight succeeded.
+    # The expensive app-host lane (shards, display regressions, Release build)
+    # is routed by the `app_host` output; the headless package tests and the
+    # PR build gate follow the plain `macos` area.
     for job_name in [
         "app-host-unit-tests",
+        "swift-build-gate",
         "swift-package-tests",
         "tests-build-and-lag",
         "release-build",
@@ -729,12 +738,106 @@ def test_macos_jobs_wait_for_linux_preflight() -> None:
         expected_needs = ["changes", "linux-preflight"]
         if job_name == "release-build":
             expected_needs.append("swift-package-tests")
+        if job_name == "swift-package-tests":
+            route = "needs.changes.outputs.macos == 'true'"
+        elif job_name == "swift-build-gate":
+            route = "needs.changes.outputs.macos == 'true' && needs.changes.outputs.app_host != 'true'"
+        else:
+            route = "needs.changes.outputs.app_host == 'true'"
         expected_if = (
             "if: ${{ !cancelled() && "
             + " && ".join(f"needs.{need}.result == 'success'" for need in expected_needs)
-            + " && needs.changes.outputs.macos == 'true' }}"
+            + f" && {route} }}}}"
         )
         assert expected_if in block, f"{job_name} must gate on direct needs explicitly"
+
+
+def run_app_host_lane_decision(env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+    script = workflow_job_step_script("changes", "Decide app-host lane")
+    with tempfile.TemporaryDirectory() as temp_dir:
+        output = Path(temp_dir) / "output"
+        output.touch()
+        result = subprocess.run(
+            ["bash", "-c", script],
+            cwd=ROOT,
+            env={**os.environ, "GITHUB_OUTPUT": str(output), **env},
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        result.stdout += output.read_text(encoding="utf-8")
+    return result
+
+
+def test_pull_request_macos_changes_route_to_build_gate_not_app_host() -> None:
+    result = run_app_host_lane_decision(
+        {"EVENT_NAME": "pull_request", "MACOS": "true", "PR_OPTED_IN": "false", "DISPATCH_APP_HOST": "true"}
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "app_host=false" in result.stdout
+
+
+def test_pull_request_label_opts_into_app_host_lane() -> None:
+    result = run_app_host_lane_decision(
+        {"EVENT_NAME": "pull_request", "MACOS": "true", "PR_OPTED_IN": "true", "DISPATCH_APP_HOST": "true"}
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "app_host=true" in result.stdout
+
+
+def test_scheduled_and_dispatched_runs_take_the_app_host_lane() -> None:
+    for event in ("schedule", "workflow_dispatch"):
+        result = run_app_host_lane_decision(
+            {"EVENT_NAME": event, "MACOS": "true", "PR_OPTED_IN": "false", "DISPATCH_APP_HOST": "true"}
+        )
+        assert result.returncode == 0, result.stderr
+        assert "app_host=true" in result.stdout, event
+
+
+def test_dispatch_can_skip_the_app_host_lane() -> None:
+    result = run_app_host_lane_decision(
+        {"EVENT_NAME": "workflow_dispatch", "MACOS": "true", "PR_OPTED_IN": "false", "DISPATCH_APP_HOST": "false"}
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "app_host=false" in result.stdout
+
+
+def test_app_host_lane_never_runs_without_macos_changes() -> None:
+    result = run_app_host_lane_decision(
+        {"EVENT_NAME": "schedule", "MACOS": "false", "PR_OPTED_IN": "true", "DISPATCH_APP_HOST": "true"}
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "app_host=false" in result.stdout
+
+
+def test_swift_build_gate_compiles_the_test_bundle_and_enforces_the_warning_budget() -> None:
+    block = workflow_job_block("swift-build-gate")
+
+    assert "-scheme cmux-unit" in block
+    assert "build-for-testing" in block
+    assert "scripts/swift_warning_budget.py --log" in block
+    assert "CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}" in block
+    assert "xcodebuild test" not in block
+
+
+def test_pull_request_paths_stay_in_sync_with_the_status_fallback() -> None:
+    import yaml
+
+    ci = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
+    fallback = yaml.safe_load((ROOT / ".github/workflows/ci-status-fallback.yml").read_text(encoding="utf-8"))
+    ci_paths = set(ci[True]["pull_request"]["paths"])
+    fallback_ignored = set(fallback[True]["pull_request"]["paths-ignore"])
+
+    assert ci_paths == fallback_ignored, (
+        f"ci.yml paths and fallback paths-ignore differ: "
+        f"{sorted(ci_paths ^ fallback_ignored)}"
+    )
+    for required in ("Sources/**", "Packages/**", "cmuxTests/**"):
+        assert required in ci_paths
 
 
 def test_linux_preflight_blocks_macos_on_cheap_layer_failure() -> None:

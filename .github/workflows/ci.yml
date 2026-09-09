@@ -1,10 +1,29 @@
 name: CI
 
 on:
-  # Keep the full suite available for explicit validation, while always
-  # Changes to CI guard scripts also retrigger the full workflow through this path.
-  # running the lightweight GhosttyKit provenance check when its pointer,
-  # checksum, or helper changes in a PR.
+  # Pull requests run the lightweight GhosttyKit provenance check when its
+  # pointer, checksum, or helper changes, and the Swift build gate plus the
+  # headless package tests when app code changes. The app-host unit-test
+  # shards, the display regressions, and the Release build do NOT run on
+  # pull_request by default (see the `changes` job and #12232):
+  #
+  #   - A full app-host run costs about 300 macOS runner-minutes (six shards
+  #     of 23-67 min each plus package tests, display regressions, and a
+  #     universal Release build) and holds one GUI runner per shard for the
+  #     whole time. At this repository's PR volume that would queue every
+  #     PR behind every other PR for hours.
+  #   - What let main rot was never-compiled code: three compile breaks and
+  #     a warning-budget break merged unseen because no PR lane compiled
+  #     Sources/, Packages/, or cmuxTests/. The build gate (build-for-testing
+  #     of the cmux-unit scheme, which compiles the app, every package, and
+  #     the test bundle) plus the warning budget closes that hole in roughly
+  #     20 minutes on one runner, and swift-package-tests covers package
+  #     logic headlessly.
+  #   - Runtime regressions in the app-host suite are caught by the
+  #     scheduled main run below (every four hours, plus workflow_dispatch),
+  #     so a bad merge is visible within one cycle instead of never. A PR
+  #     that needs the full app-host suite before merge opts in with the
+  #     `ci:app-host` label.
   pull_request:
     paths:
       - ghostty
@@ -16,7 +35,31 @@ on:
       - tests/test_hermes_wrapper_hooks.py
       - tests/test_ci_change_areas.py
       - .github/workflows/ci.yml
+      # Swift build gate + package tests. Keep this list in sync with
+      # .github/workflows/ci-status-fallback.yml `paths-ignore`.
+      - "Sources/**"
+      - "Packages/**"
+      - "cmuxTests/**"
+      - "CLI/**"
+      - "TunnelExtension/**"
+      - "Resources/**"
+      - "cmux.xcodeproj/**"
+      - "cmux.xcworkspace/**"
+      - "scripts/ci/**"
+      - "scripts/swift_warning_budget.py"
+      - ".github/swift-warning-budget.tsv"
+      - "vendor/bonsplit"
+  # Continuous signal on main: the app-host suite only ever ran by hand, so
+  # main was red for eight days before anyone dispatched it (#12232).
+  schedule:
+    - cron: "17 */4 * * *"
   workflow_dispatch:
+    inputs:
+      app_host:
+        description: "Run the app-host unit-test shards, display regressions, and Release build"
+        required: false
+        default: true
+        type: boolean
 
 permissions:
   contents: read
@@ -33,6 +76,7 @@ jobs:
       macos: ${{ steps.detect.outputs.macos }}
       web: ${{ steps.detect.outputs.web }}
       agent_session_web: ${{ steps.detect.outputs.agent_session_web }}
+      app_host: ${{ steps.app-host.outputs.app_host }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -130,6 +174,32 @@ jobs:
             --event-name "$EVENT_NAME" \
             --base-sha "$BASE_SHA" \
             --head-sha "$HEAD_SHA"
+
+      - name: Decide app-host lane
+        id: app-host
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          MACOS: ${{ steps.detect.outputs.macos }}
+          PR_OPTED_IN: ${{ contains(github.event.pull_request.labels.*.name, 'ci:app-host') }}
+          DISPATCH_APP_HOST: ${{ github.event_name != 'workflow_dispatch' || inputs.app_host }}
+        run: |
+          set -euo pipefail
+          # The app-host shards, display regressions, and Release build are
+          # the expensive macOS lane (see the trigger comment at the top of
+          # this file). They run for every non-PR event with macOS changes
+          # (schedule, workflow_dispatch) and for a PR only when it carries
+          # the `ci:app-host` label; every other macOS PR gets the Swift
+          # build gate and the headless package tests instead.
+          app_host=false
+          if [ "$MACOS" = "true" ]; then
+            if [ "$EVENT_NAME" != "pull_request" ] && [ "$DISPATCH_APP_HOST" = "true" ]; then
+              app_host=true
+            elif [ "$EVENT_NAME" = "pull_request" ] && [ "$PR_OPTED_IN" = "true" ]; then
+              app_host=true
+            fi
+          fi
+          echo "app_host=$app_host" >> "$GITHUB_OUTPUT"
+          echo "event=$EVENT_NAME macos=$MACOS app_host=$app_host"
 
   workflow-guard-tests:
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
@@ -587,7 +657,7 @@ jobs:
     # jobs that legitimately skip (web/go/agent-session paths), and that
     # transitive skip otherwise marks every macOS job skipped even when
     # linux-preflight itself succeeds. Require the direct needs explicitly.
-    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.linux-preflight.result == 'success' && needs.changes.outputs.macos == 'true' }}
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.linux-preflight.result == 'success' && needs.changes.outputs.app_host == 'true' }}
     name: app-host unit tests (${{ matrix.shard }}/6)
     # App-host XCTest needs a runner that can broker testmanagerd control
     # sessions. Validated head-to-head that warp-macos-15-arm64-6x runs the
@@ -1582,6 +1652,7 @@ jobs:
       - changes
       - linux-preflight
       - app-host-unit-tests
+      - swift-build-gate
       - swift-package-tests
       - agent-session-web-resources
     if: ${{ always() }}
@@ -1601,6 +1672,7 @@ jobs:
           changes = needs["changes"]
           tests = needs["app-host-unit-tests"]
           macos = changes.get("outputs", {}).get("macos")
+          app_host = changes.get("outputs", {}).get("app_host")
 
           if changes["result"] != "success":
               print(f"changes: {changes['result']}", file=sys.stderr)
@@ -1611,30 +1683,150 @@ jobs:
               print(f"linux preflight did not pass: {preflight['result']}", file=sys.stderr)
               sys.exit(1)
 
-          if macos == "true" and tests["result"] != "success":
+          if app_host == "true" and tests["result"] != "success":
               print(f"app-host unit tests were required but did not pass: {tests['result']}", file=sys.stderr)
               sys.exit(1)
 
-          if macos != "true" and tests["result"] not in {"success", "skipped"}:
-              print(f"app-host unit tests had unexpected result for macos={macos}: {tests['result']}", file=sys.stderr)
+          if app_host != "true" and tests["result"] not in {"success", "skipped"}:
+              print(f"app-host unit tests had unexpected result for app_host={app_host}: {tests['result']}", file=sys.stderr)
+              sys.exit(1)
+
+          gate = needs["swift-build-gate"]
+          if macos == "true" and app_host != "true" and gate["result"] != "success":
+              print(f"Swift build gate was required but did not pass: {gate['result']}", file=sys.stderr)
               sys.exit(1)
 
           # The remaining test/build suites in this workflow gate too. A job that
           # opts out via its own path filter reports "skipped", which is fine; a
           # job that actually ran and failed must block the merge.
           allowed = {"success", "skipped"}
-          for name in ("swift-package-tests", "agent-session-web-resources"):
+          for name in ("swift-build-gate", "swift-package-tests", "agent-session-web-resources"):
               result = needs[name]["result"]
               if result not in allowed:
                   print(f"{name} did not pass: {result}", file=sys.stderr)
                   sys.exit(1)
 
-          print(f"changes.macos={macos}")
+          print(f"changes.macos={macos} changes.app_host={app_host}")
           print(f"linux-preflight={preflight['result']}")
           print(f"app-host unit tests={tests['result']}")
-          for name in ("swift-package-tests", "agent-session-web-resources"):
+          for name in ("swift-build-gate", "swift-package-tests", "agent-session-web-resources"):
               print(f"{name}={needs[name]['result']}")
           PY
+
+  swift-build-gate:
+    needs:
+      - changes
+      - linux-preflight
+    # The pull-request replacement for the app-host shards (see the trigger
+    # comment): compile the app, every Swift package, and the cmuxTests bundle
+    # with build-for-testing, then enforce the warning budget. Runs only when
+    # the expensive app-host lane does not, so a scheduled or dispatched run
+    # (which compiles all of this anyway) never pays for it twice.
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.linux-preflight.result == 'success' && needs.changes.outputs.macos == 'true' && needs.changes.outputs.app_host != 'true' }}
+    runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
+    timeout-minutes: 45
+    env:
+      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+      CMUX_SKIP_ZIG_BUILD: "1"
+    steps:
+      - name: Clear stale git locks (self-hosted reused workspace)
+        shell: bash
+        run: |
+          ws="${GITHUB_WORKSPACE:-$PWD}"
+          rm -f "$ws/.git/index.lock" 2>/dev/null || true
+          if [ -d "$ws/.git/modules" ]; then
+            find "$ws/.git/modules" -type f -name "*.lock" -delete 2>/dev/null || true
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          submodules: recursive
+
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          ./scripts/select-ci-xcode.sh
+
+      - name: Capture Ghostty revision
+        id: ghostty-revision
+        run: |
+          echo "sha=$(git -C ghostty rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache GhosttyKit.xcframework
+        id: cache-ghosttykit
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: GhosttyKit.xcframework
+          key: ghosttykit-sentry-off-v1-${{ steps.ghostty-revision.outputs.sha }}
+
+      - name: Download pre-built GhosttyKit.xcframework
+        if: steps.cache-ghosttykit.outputs.cache-hit != 'true'
+        run: |
+          ./scripts/download-prebuilt-ghosttykit.sh
+
+      - name: Install Rust
+        run: |
+          ./scripts/install-rust-ci.sh
+
+      - name: Cache Swift packages
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: .ci-source-packages
+          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-
+
+      - name: Sanitize Swift package cache
+        run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .ci-source-packages
+
+      - name: Prepare isolated DerivedData
+        run: |
+          set -euo pipefail
+          DERIVED_DATA_PATH="${RUNNER_TEMP}/cmux-derived-data-build-gate-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          rm -rf "$DERIVED_DATA_PATH"
+          mkdir -p "$DERIVED_DATA_PATH"
+          echo "CMUX_DERIVED_DATA_PATH=$DERIVED_DATA_PATH" >> "$GITHUB_ENV"
+
+      - name: Resolve Swift packages
+        run: |
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          mkdir -p "$SOURCE_PACKAGES_DIR"
+          for attempt in 1 2 3; do
+            if xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+              -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+              -resolvePackageDependencies; then
+              if [ -d "$SOURCE_PACKAGES_DIR/artifacts/sparkle/Sparkle/Sparkle.xcframework" ] && [ -d "$SOURCE_PACKAGES_DIR/artifacts/sentry-cocoa/Sentry/Sentry.xcframework" ]; then
+                exit 0
+              fi
+              echo "Resolve succeeded but binary artifacts are missing (stale cache); clearing and retrying" >&2
+              rm -rf "$SOURCE_PACKAGES_DIR"
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "Failed to resolve Swift packages after 3 attempts" >&2
+              exit 1
+            fi
+            echo "Package resolution failed on attempt $attempt, retrying..."
+            sleep $((attempt * 5))
+          done
+
+      - name: Build app, packages, and test bundle
+        run: |
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            build-for-testing 2>&1 | tee "$RUNNER_TEMP/cmux-build-gate-output.txt"
+
+      - name: Validate Swift warning budget
+        run: python3 scripts/swift_warning_budget.py --log "$RUNNER_TEMP/cmux-build-gate-output.txt"
 
   swift-package-tests:
     needs:
@@ -2007,7 +2199,7 @@ jobs:
     # jobs that legitimately skip (web/go/agent-session paths), and that
     # transitive skip otherwise marks every macOS job skipped even when
     # linux-preflight itself succeeds. Require the direct needs explicitly.
-    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.linux-preflight.result == 'success' && needs.changes.outputs.macos == 'true' }}
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.linux-preflight.result == 'success' && needs.changes.outputs.app_host == 'true' }}
     # Build the full cmux scheme once, then run the required display/runtime
     # regressions from the same DerivedData instead of queuing a second display
     # runner for UI-only checks.
@@ -2346,7 +2538,7 @@ jobs:
     # See app-host-unit-tests: explicit direct-needs gate instead of the
     # implicit success() so skipped routed linux jobs upstream of
     # linux-preflight do not skip this job transitively.
-    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.linux-preflight.result == 'success' && needs.swift-package-tests.result == 'success' && needs.changes.outputs.macos == 'true' }}
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.linux-preflight.result == 'success' && needs.swift-package-tests.result == 'success' && needs.changes.outputs.app_host == 'true' }}
     # Compile the same unsigned universal Release app that nightly builds before
     # signing, notarization, and publishing. This catches DEBUG/Release boundary
     # mistakes before they reach main.
@@ -2541,6 +2733,7 @@ jobs:
       - web-db-migrations
       - linux-preflight
       - app-host-unit-tests
+      - swift-build-gate
       - tests
       - swift-package-tests
       - agent-session-web-resources
