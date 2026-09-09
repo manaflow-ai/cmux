@@ -3,8 +3,8 @@ import Foundation
 import CoreGraphics
 
 final class BonsplitTabDragUITests: XCTestCase {
-    private let launchTimeout: TimeInterval = 20.0
-    private let setupTimeout: TimeInterval = 25.0
+    let launchTimeout: TimeInterval = 20.0
+    let setupTimeout: TimeInterval = 25.0
 
     override func setUp() {
         super.setUp()
@@ -273,152 +273,6 @@ final class BonsplitTabDragUITests: XCTestCase {
                 referenceTopInset = modeBarMinY
             }
         }
-    }
-
-    func testRightSidebarCloseButtonKeepsPersistentTitlebarToggle() {
-        let (app, dataPath) = launchConfiguredApp(
-            presentationMode: .standard,
-            showRightSidebar: true,
-            alwaysShowShortcutHints: true
-        )
-
-        XCTAssertTrue(
-            ensureAppRunningAfterLaunch(app, timeout: launchTimeout),
-            "Expected app to launch for right-sidebar close button UI test. state=\(app.state.rawValue)"
-        )
-        XCTAssertTrue(waitForAnyJSON(atPath: dataPath, timeout: setupTimeout), "Expected tab-drag setup data at \(dataPath)")
-        guard let ready = waitForJSONKey("ready", equals: "1", atPath: dataPath, timeout: setupTimeout) else {
-            XCTFail("Timed out waiting for ready=1. data=\(loadJSON(atPath: dataPath) ?? [:])")
-            return
-        }
-
-        if let setupError = ready["setupError"], !setupError.isEmpty {
-            XCTFail("Setup failed: \(setupError)")
-            return
-        }
-
-        let titlebarToggle = app.descendants(matching: .any).matching(identifier: "titlebarControl.toggleRightSidebar").firstMatch
-        XCTAssertTrue(
-            titlebarToggle.waitForExistence(timeout: 5.0),
-            "Expected a persistent right-sidebar toggle in the titlebar."
-        )
-        XCTAssertTrue(
-            waitForCondition(timeout: 3.0) { titlebarToggle.isHittable },
-            "Expected the persistent right-sidebar titlebar toggle to be hittable. button=\(titlebarToggle.debugDescription)"
-        )
-
-        let closeButton = app.buttons["RightSidebar.closeButton"]
-        XCTAssertTrue(closeButton.waitForExistence(timeout: 5.0), "Expected close button inside the right sidebar chrome.")
-        XCTAssertTrue(
-            waitForCondition(timeout: 3.0) { closeButton.isHittable },
-            "Expected right sidebar close button to be hittable. button=\(closeButton.debugDescription)"
-        )
-        let openAsPaneButton = app.buttons["RightSidebar.openAsPaneButton"]
-        XCTAssertTrue(openAsPaneButton.waitForExistence(timeout: 5.0), "Expected open-as-pane button inside the right sidebar chrome.")
-        XCTAssertTrue(
-            waitForCondition(timeout: 3.0) { openAsPaneButton.isHittable },
-            "Expected right sidebar open-as-pane button to be hittable. button=\(openAsPaneButton.debugDescription)"
-        )
-        XCTAssertEqual(openAsPaneButton.frame.width, closeButton.frame.width, accuracy: 1)
-        XCTAssertEqual(openAsPaneButton.frame.height, closeButton.frame.height, accuracy: 1)
-        XCTAssertEqual(openAsPaneButton.frame.minY, closeButton.frame.minY, accuracy: 1)
-        XCTAssertEqual(openAsPaneButton.frame.maxY, closeButton.frame.maxY, accuracy: 1)
-        let headerGeometryKeys = [
-            "rightSidebarHeaderCloseMinX",
-            "rightSidebarHeaderCloseMaxX",
-            "rightSidebarHeaderCloseMinY",
-            "rightSidebarHeaderCloseMaxY",
-            "rightSidebarHeaderCloseWidth",
-            "rightSidebarHeaderCloseHeight",
-            "rightSidebarHeaderOpenAsPaneMinX",
-            "rightSidebarHeaderOpenAsPaneMaxX",
-            "rightSidebarHeaderOpenAsPaneMinY",
-            "rightSidebarHeaderOpenAsPaneMaxY",
-            "rightSidebarHeaderOpenAsPaneWidth",
-            "rightSidebarHeaderOpenAsPaneHeight",
-        ]
-        guard let headerGeometry = waitForJSONNumbers(
-            headerGeometryKeys,
-            atPath: dataPath,
-            timeout: 5.0
-        ),
-              let closeMinX = Double(headerGeometry["rightSidebarHeaderCloseMinX"] ?? ""),
-              let closeMaxX = Double(headerGeometry["rightSidebarHeaderCloseMaxX"] ?? ""),
-              let closeWidth = Double(headerGeometry["rightSidebarHeaderCloseWidth"] ?? ""),
-              let closeHeight = Double(headerGeometry["rightSidebarHeaderCloseHeight"] ?? ""),
-              let closeMinY = Double(headerGeometry["rightSidebarHeaderCloseMinY"] ?? ""),
-              let closeMaxY = Double(headerGeometry["rightSidebarHeaderCloseMaxY"] ?? ""),
-              let openMinX = Double(headerGeometry["rightSidebarHeaderOpenAsPaneMinX"] ?? ""),
-              let openMaxX = Double(headerGeometry["rightSidebarHeaderOpenAsPaneMaxX"] ?? ""),
-              let openWidth = Double(headerGeometry["rightSidebarHeaderOpenAsPaneWidth"] ?? ""),
-              let openHeight = Double(headerGeometry["rightSidebarHeaderOpenAsPaneHeight"] ?? ""),
-              let openMinY = Double(headerGeometry["rightSidebarHeaderOpenAsPaneMinY"] ?? ""),
-              let openMaxY = Double(headerGeometry["rightSidebarHeaderOpenAsPaneMaxY"] ?? "") else {
-            XCTFail("Timed out waiting for right sidebar header control geometry. data=\(loadJSON(atPath: dataPath) ?? [:])")
-            return
-        }
-        XCTAssertEqual(closeMaxX - closeMinX, closeWidth, accuracy: 0.5, "Expected close x bounds to match width. geometry=\(headerGeometry)")
-        XCTAssertEqual(openMaxX - openMinX, openWidth, accuracy: 0.5, "Expected open-as-pane x bounds to match width. geometry=\(headerGeometry)")
-        XCTAssertLessThan(openMaxX, closeMinX, "Expected open-as-pane control to remain left of close. geometry=\(headerGeometry)")
-        XCTAssertEqual(openWidth, closeWidth, accuracy: 0.5, "Expected header accessory controls to share width. geometry=\(headerGeometry)")
-        XCTAssertEqual(openHeight, closeHeight, accuracy: 0.5, "Expected header accessory controls to share height. geometry=\(headerGeometry)")
-        XCTAssertEqual(openMinY, closeMinY, accuracy: 0.5, "Expected header accessory controls to share top edge. geometry=\(headerGeometry)")
-        XCTAssertEqual(openMaxY, closeMaxY, accuracy: 0.5, "Expected header accessory controls to share bottom edge. geometry=\(headerGeometry)")
-
-        let shortcutHint = app.staticTexts["rightSidebarCloseShortcutHint"]
-        XCTAssertTrue(shortcutHint.waitForExistence(timeout: 5.0), "Expected Cmd+Option+B hint over the close button.")
-        let focusShortcutHint = app.staticTexts["rightSidebarFocusShortcutHint"]
-        XCTAssertTrue(focusShortcutHint.waitForExistence(timeout: 5.0), "Expected Cmd+Shift+E hint inside the right sidebar.")
-        let window = app.windows.element(boundBy: 0)
-        XCTAssertTrue(window.waitForExistence(timeout: 5.0), "Expected main window to exist.")
-        XCTAssertGreaterThanOrEqual(
-            shortcutHint.frame.minY,
-            window.frame.minY - 1,
-            "Expected close shortcut hint to stay inside the visible window bounds. hint=\(shortcutHint.frame) window=\(window.frame)"
-        )
-        XCTAssertGreaterThanOrEqual(
-            focusShortcutHint.frame.minY,
-            window.frame.minY - 1,
-            "Expected focus shortcut hint to stay inside the visible window bounds. hint=\(focusShortcutHint.frame) window=\(window.frame)"
-        )
-        XCTAssertLessThanOrEqual(
-            abs(shortcutHint.frame.midX - closeButton.frame.midX),
-            40,
-            "Expected close shortcut hint to stay attached to the close button. hint=\(shortcutHint.frame) button=\(closeButton.frame)"
-        )
-        XCTAssertLessThan(
-            shortcutHint.frame.midY,
-            closeButton.frame.midY,
-            "Expected close shortcut hint to render above the close button so it does not shift titlebar controls. hint=\(shortcutHint.frame) button=\(closeButton.frame)"
-        )
-
-        closeButton.click()
-        XCTAssertTrue(
-            waitForCondition(timeout: 3.0) {
-                !closeButton.exists || !closeButton.isHittable
-            },
-            "Expected clicking the right sidebar close button to hide the sidebar."
-        )
-
-        XCTAssertTrue(
-            ensureAppForegroundForKeyboardInteraction(app, timeout: 6.0),
-            "Expected cmux to be foreground before toggling the right sidebar shortcut. state=\(app.state.rawValue)"
-        )
-        titlebarToggle.click()
-        XCTAssertTrue(
-            waitForCondition(timeout: 3.0) {
-                closeButton.exists && closeButton.isHittable
-            },
-            "Expected the persistent titlebar toggle to reopen the right sidebar."
-        )
-
-        titlebarToggle.click()
-        XCTAssertTrue(
-            waitForCondition(timeout: 3.0) {
-                !closeButton.exists || !closeButton.isHittable
-            },
-            "Expected the persistent titlebar toggle to hide the right sidebar."
-        )
     }
 
     func testLaunchCompletesWithHiddenRightSidebarRestoringFindMode() {
@@ -968,17 +822,19 @@ final class BonsplitTabDragUITests: XCTestCase {
         )
     }
 
-    private enum WorkspacePresentationMode: String {
+    enum WorkspacePresentationMode: String {
         case standard
         case minimal
     }
 
-    private func launchConfiguredApp(
+    func launchConfiguredApp(
         startWithHiddenSidebar: Bool = false,
         presentationMode: WorkspacePresentationMode = .minimal,
         rightSidebarMode: String? = nil,
         showRightSidebar: Bool = false,
         alwaysShowShortcutHints: Bool = false,
+        showTitlebarToggle: Bool = true,
+        showOpenAsPaneButton: Bool = true,
         windowSize: String? = nil,
         actionButtonCount: Int? = nil,
         fourTabSetup: Bool = false
@@ -1011,8 +867,8 @@ final class BonsplitTabDragUITests: XCTestCase {
         // Keep this UI fixture deterministic even when a prior run persisted the
         // optional titlebar control as hidden in the shared test account.
         app.launchArguments += [
-            "-rightSidebar.showTitlebarToggle", "YES",
-            "-rightSidebar.showOpenAsPaneButton", "YES",
+            "-rightSidebar.showTitlebarToggle", showTitlebarToggle ? "YES" : "NO",
+            "-rightSidebar.showOpenAsPaneButton", showOpenAsPaneButton ? "YES" : "NO",
             "-workspacePresentationMode", presentationMode.rawValue,
         ]
         if let rightSidebarMode {
@@ -1029,7 +885,7 @@ final class BonsplitTabDragUITests: XCTestCase {
         return (app, dataPath)
     }
 
-    private func ensureAppRunningAfterLaunch(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
+    func ensureAppRunningAfterLaunch(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
         let launched = waitForCondition(timeout: timeout) {
             app.state == .runningForeground ||
                 app.state == .runningBackground ||
@@ -1059,7 +915,7 @@ final class BonsplitTabDragUITests: XCTestCase {
         return app.windows.firstMatch.waitForExistence(timeout: timeout)
     }
 
-    private func ensureAppForegroundForKeyboardInteraction(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
+    func ensureAppForegroundForKeyboardInteraction(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
         if app.state == .runningForeground {
             return true
         }
@@ -1073,7 +929,7 @@ final class BonsplitTabDragUITests: XCTestCase {
         }
     }
 
-    private func waitForAnyJSON(atPath path: String, timeout: TimeInterval) -> Bool {
+    func waitForAnyJSON(atPath path: String, timeout: TimeInterval) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if loadJSON(atPath: path) != nil { return true }
@@ -1082,7 +938,7 @@ final class BonsplitTabDragUITests: XCTestCase {
         return loadJSON(atPath: path) != nil
     }
 
-    private func waitForJSONKey(_ key: String, equals expected: String, atPath path: String, timeout: TimeInterval) -> [String: String]? {
+    func waitForJSONKey(_ key: String, equals expected: String, atPath path: String, timeout: TimeInterval) -> [String: String]? {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if let data = loadJSON(atPath: path), data[key] == expected {
@@ -1121,7 +977,7 @@ final class BonsplitTabDragUITests: XCTestCase {
         return nil
     }
 
-    private func waitForJSONNumbers(
+    func waitForJSONNumbers(
         _ keys: [String],
         atPath path: String,
         timeout: TimeInterval
@@ -1153,7 +1009,7 @@ final class BonsplitTabDragUITests: XCTestCase {
         return nil
     }
 
-    private func loadJSON(atPath path: String) -> [String: String]? {
+    func loadJSON(atPath path: String) -> [String: String]? {
         guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
             return nil
@@ -1161,7 +1017,7 @@ final class BonsplitTabDragUITests: XCTestCase {
         return object
     }
 
-    private func waitForCondition(timeout: TimeInterval, _ condition: () -> Bool) -> Bool {
+    func waitForCondition(timeout: TimeInterval, _ condition: () -> Bool) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if condition() { return true }

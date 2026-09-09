@@ -57,7 +57,7 @@ final class RightSidebarTitlebarAccessoryViewController: NSTitlebarAccessoryView
                     }
                 )
                 .frame(
-                    width: HeaderChromeControlMetrics.buttonSize + 10,
+                    width: RightSidebarChromeMetrics.titlebarToggleReservationWidth,
                     height: WindowChromeMetrics.appTitlebarHeight,
                     alignment: .center
                 )
@@ -95,7 +95,7 @@ final class RightSidebarTitlebarAccessoryViewController: NSTitlebarAccessoryView
     }
 
     private static let preferredSize = NSSize(
-        width: HeaderChromeControlMetrics.buttonSize + 10,
+        width: RightSidebarChromeMetrics.titlebarToggleReservationWidth,
         height: WindowChromeMetrics.appTitlebarHeight
     )
 }
