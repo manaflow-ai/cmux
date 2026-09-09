@@ -14190,7 +14190,8 @@ extension Workspace: BonsplitDelegate {
             requestTransferredRemoteCleanup: false,
             discardAgentHibernationTracking: !isDetaching,
             cleanupControllerSurfaceState: !isDetaching,
-            preservesTerminalForTransfer: isDetaching
+            preservesTerminalForTransfer: isDetaching,
+            capturedAgentRuntimeState: isDetaching ? agentRuntime : nil
         )
         if !isDetaching {
             owningTabManager?.invalidateFocusHistoryTarget(workspaceId: id, panelId: panelId)

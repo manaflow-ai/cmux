@@ -662,14 +662,20 @@ extension Workspace {
         requestTransferredRemoteCleanup: Bool,
         discardAgentHibernationTracking: Bool = true,
         cleanupControllerSurfaceState: Bool = false,
-        preservesTerminalForTransfer: Bool = false
+        preservesTerminalForTransfer: Bool = false,
+        capturedAgentRuntimeState: DetachedAgentRuntimeState? = nil
     ) -> WorkspaceRemoteConfiguration? {
         appLinkHandoffCoordinator.cancel(sourcePanelID: panelId)
         if publishSurfaceClosedEvent {
             publishCmuxSurfaceClosed(panelId, paneId: paneId, panel: panel, origin: origin)
         }
 
-        let closedAgentRuntimeState = agentRuntimeState(forPanelId: panelId)
+        // A detach captures the panel runtime before moving its lifecycle
+        // records out of Workspace ownership. Reuse that snapshot here so the
+        // source workspace can discard its status contribution even after the
+        // records have been transferred to the destination owner.
+        let closedAgentRuntimeState = capturedAgentRuntimeState
+            ?? agentRuntimeState(forPanelId: panelId)
         removePendingTerminalInputObservers(forPanelId: panelId)
         let transferredRemoteCleanupConfiguration = transferredRemoteCleanupConfigurationsByPanelId.removeValue(forKey: panelId)
         panelSubscriptions.removeValue(forKey: panelId)?.cancel()
