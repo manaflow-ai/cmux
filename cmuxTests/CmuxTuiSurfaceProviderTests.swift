@@ -40,7 +40,6 @@ typealias CMUXCLI = CmuxTuiRemoteRouting
             ["id": "agent_1", "terminal_id": "term_build", "state": "working", "source": "claude"],
         ],
     ]
-
     @Test func legacyScreensKeepArrivalOrderAndExplicitPositions() throws {
         var snapshot = Self.sessionSnapshot
         snapshot["screens"] = [
@@ -53,7 +52,6 @@ typealias CMUXCLI = CmuxTuiRemoteRouting
         #expect(views.first { $0.screenID == "screen_2" }?.screenIndex == 0)
         #expect(views.first { $0.screenID == "screen_1" }?.screenIndex == 7)
     }
-
     @Test func layoutDocumentOrdersPanesAndPlacesEveryView() throws {
         let layout: [String: Any] = [
             "version": 1, "screen_id": "screen_1", "active_pane_id": "pane_b", "zoomed_pane_id": NSNull(),
@@ -220,6 +218,8 @@ typealias CMUXCLI = CmuxTuiRemoteRouting
         #expect(VMRemoteWorkspaceResolver().resolveVMRemoteWorkspaceSelector("ws-id", in: ["id": "vivid-newt"]) == .unavailable)
         let unfocused: [String: Any] = ["machines": [["id": "vivid-newt", "remote_workspaces": [["id": "ws-a"], ["id": "ws-b"]]]], "resources": [[String: Any]]()]
         #expect(VMRemoteWorkspaceResolver().resolveVMMachineTerminal(machine: "vivid-newt", catalog: unfocused) == .unavailable)
+        let disconnected: [String: Any] = ["machines": [["id": "vivid-newt", "link_state": "asleep", "remote_workspaces": [["id": "ws-a"]]]], "resources": [[String: Any]]()]
+        #expect(VMRemoteWorkspaceResolver().resolveVMMachineTerminal(machine: "vivid-newt", catalog: disconnected) == .unavailable)
     }
 
     @Test func vmOpenWorkspaceUsesTheSelectedTabView() {

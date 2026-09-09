@@ -8,7 +8,8 @@ struct VMRemoteWorkspaceResolver: Sendable {
     func resolveVMMachineTerminal(machine: String, catalog: [String: Any]) -> VMMachineTerminalResolution {
         guard let machinePayload = vmMachinePayload(machine, from: catalog),
               let workspaces = machinePayload["remote_workspaces"] as? [[String: Any]],
-              let resources = catalog["resources"] as? [[String: Any]] else { return .unavailable }
+              let resources = catalog["resources"] as? [[String: Any]],
+              machinePayload["link_state"] as? String == "connected" else { return .unavailable }
         guard !workspaces.isEmpty else { return .empty(workspaceID: nil) }
         let focused = workspaces.filter { ($0["focused"] as? Bool) == true }
         guard focused.count <= 1 else { return .unavailable }
