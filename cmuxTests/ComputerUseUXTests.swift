@@ -1956,18 +1956,16 @@ struct ComputerUseUXTests {
     }
 
     @Test func untaggedRuntimeUsesBundleIdentityToIsolateAppVariants() {
-        let production = ComputerUseRuntimePaths(
-            homeDirectoryURL: URL(fileURLWithPath: "/Users/tester"),
-            environment: [:],
-            bundleIdentifier: "com.cmuxterm.app",
-            authenticationToken: "production-token"
-        )
-        let staging = ComputerUseRuntimePaths(
-            homeDirectoryURL: URL(fileURLWithPath: "/Users/tester"),
-            environment: [:],
-            bundleIdentifier: "com.cmuxterm.app.staging",
-            authenticationToken: "staging-token"
-        )
+        // Socket root pinned to /tmp: a long default temp dir hashes the staging scope (#12232).
+        let paths = { (bundleIdentifier: String, token: String) in
+            ComputerUseRuntimePaths(
+                homeDirectoryURL: URL(fileURLWithPath: "/Users/tester"),
+                socketRootDirectoryURL: URL(fileURLWithPath: "/tmp", isDirectory: true),
+                environment: [:], bundleIdentifier: bundleIdentifier, authenticationToken: token
+            )
+        }
+        let production = paths("com.cmuxterm.app", "production-token")
+        let staging = paths("com.cmuxterm.app.staging", "staging-token")
 
         #expect(production.scope == "com.cmuxterm.app")
         #expect(staging.scope == "com.cmuxterm.app.staging")
