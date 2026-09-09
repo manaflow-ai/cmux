@@ -2051,8 +2051,8 @@ fn run_server(
     // workspace-1 with one terminal before accepting clients, and the
     // idempotent Session bootstrap preserves existing names and sessions.
     #[cfg(unix)]
-    let trusted_carrier = args.remote
-        && (args.remote_ws_trusted_carrier || remote_ws_trusted_carrier_from_env());
+    let trusted_carrier =
+        args.remote && (args.remote_ws_trusted_carrier || remote_ws_trusted_carrier_from_env());
     #[cfg(unix)]
     if trusted_carrier {
         Session::Local(mux.clone()).ensure_initial(None)?;
