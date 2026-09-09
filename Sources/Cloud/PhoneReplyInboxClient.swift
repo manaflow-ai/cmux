@@ -70,7 +70,7 @@ final class PhoneReplyInboxClient {
     @MainActor
     func fetchPending() async -> [PhoneReplyRecord]? {
         guard let request = await authorizedRequest(
-            path: "/v1/replies",
+            path: "/v2/replies",
             queryItems: [URLQueryItem(
                 name: "macDeviceId",
                 value: MobileHostIdentity.deviceID()
@@ -94,7 +94,7 @@ final class PhoneReplyInboxClient {
     @discardableResult
     func acknowledge(replyIds: [String]) async -> Bool {
         guard !replyIds.isEmpty else { return true }
-        guard var request = await authorizedRequest(path: "/v1/replies/ack") else { return false }
+        guard var request = await authorizedRequest(path: "/v2/replies/ack") else { return false }
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "content-type")
         request.httpBody = try? JSONSerialization.data(
