@@ -2,6 +2,7 @@ import CmuxFoundation
 import Darwin
 import Foundation
 import Testing
+import XCTest
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -97,7 +98,10 @@ struct SSHConfiguredRemoteCommandHostTests {
             environment: captureEnvironment,
             timeout: 20
         )
-        processSupport.wait(for: [captureHandled], timeout: 5)
+        #expect(
+            XCTWaiter().wait(for: [captureHandled], timeout: 5) == .completed,
+            "cli mock socket was not handled within 5 seconds"
+        )
         #expect(!captureResult.timedOut, Comment(rawValue: captureResult.stderr))
         #expect(captureResult.status == 0, Comment(rawValue: captureResult.stderr))
 
@@ -195,7 +199,10 @@ struct SSHConfiguredRemoteCommandHostTests {
             "A cmux-supplied command-line remote command reached ssh without a RemoteCommand override; events: \(events)"
         )
 
-        processSupport.wait(for: [attachHandled], timeout: 5)
+        #expect(
+            XCTWaiter().wait(for: [attachHandled], timeout: 5) == .completed,
+            "attach mock socket was not handled within 5 seconds"
+        )
         #expect(bridgeHandled.wait(timeout: .now() + 5) == .success)
         let attachMethods = attachState.commands.compactMap {
             processSupport.jsonObject($0)?["method"] as? String
@@ -274,7 +281,10 @@ struct SSHConfiguredRemoteCommandHostTests {
             environment: environment,
             timeout: 20
         )
-        processSupport.wait(for: [handled], timeout: 5)
+        #expect(
+            XCTWaiter().wait(for: [handled], timeout: 5) == .completed,
+            "cli mock socket was not handled within 5 seconds"
+        )
 
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 0, Comment(rawValue: result.stderr))
@@ -375,7 +385,10 @@ struct SSHConfiguredRemoteCommandHostTests {
             environment: captureEnvironment,
             timeout: 20
         )
-        processSupport.wait(for: [captureHandled], timeout: 5)
+        #expect(
+            XCTWaiter().wait(for: [captureHandled], timeout: 5) == .completed,
+            "cli mock socket was not handled within 5 seconds"
+        )
         #expect(!captureResult.timedOut, Comment(rawValue: captureResult.stderr))
         #expect(captureResult.status == 0, Comment(rawValue: captureResult.stderr))
 
