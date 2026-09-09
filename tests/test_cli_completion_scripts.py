@@ -127,6 +127,13 @@ def run_completion(cli: str, shell: str) -> tuple[subprocess.CompletedProcess[st
     with tempfile.TemporaryDirectory(prefix="cmux-comp-", dir="/tmp") as tmpdir:
         socket_path = os.path.join(tmpdir, f"{uuid.uuid4().hex[:8]}.sock")
         env["CMUX_SOCKET_PATH"] = socket_path
+        # A per-run home, removed with the temp directory: this spawns the real
+        # cmux binary, and a facade regression that reads or writes user config
+        # or state must not reach the developer's actual home.
+        home = os.path.join(tmpdir, "home")
+        os.mkdir(home)
+        env["HOME"] = home
+        env["CFFIXED_USER_HOME"] = home
         with SocketConnectionRecorder(socket_path) as recorder:
             proc = subprocess.run(
                 [cli, "completion", shell],
@@ -229,6 +236,15 @@ def main() -> int:
     if failures:
         print("FAIL: completion script checks failed")
         print("\n\n".join(failures))
+        return 1
+
+    # Every shell missing means every check above was skipped. Passing on zero
+    # validated scripts reports green for a run that proved nothing.
+    if parsed_count == 0:
+        print(
+            "FAIL: no completion scripts were validated; install at least one of "
+            + ", ".join(SHELL_PARSE_COMMANDS)
+        )
         return 1
 
     print(f"PASS: {parsed_count} completion scripts generated and parsed")
