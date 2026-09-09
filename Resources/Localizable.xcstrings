@@ -161728,7 +161728,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nach unten bewegen"
+            "value": "Ganz nach unten verschieben"
           }
         },
         "en": {
@@ -161788,7 +161788,7 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Переместить вниз"
+            "value": "Переместить в конец"
           }
         },
         "th": {
