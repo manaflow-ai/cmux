@@ -2135,13 +2135,13 @@ describe("Iroh trust broker database behavior", () => {
     expect(later.createdAt.getTime()).toBeGreaterThan(first.createdAt.getTime());
   });
 
-  dbTest("does not space a bundle-namespace slot, whose irx runtime ignores Retry-After", async () => {
+  dbTest("does not space an irx slot, whose runtime ignores Retry-After", async () => {
     const repo = requiredRepository();
     const userId = "user-spacing-irx";
     const deviceId = randomUUID();
     const appInstanceId = randomUUID();
     const endpointId = "16".repeat(32);
-    const namespace = "com.cmuxterm.app.debug.irohhb";
+    const namespace = "mac:com.cmuxterm.app.debug.irohhb";
     const mint = (nonceHash: string, at: Date) => Effect.runPromise(repo.issueChallenge({
       userId,
       deviceUuid: deviceId,
@@ -2170,15 +2170,70 @@ describe("Iroh trust broker database behavior", () => {
         endpointId,
         identityGeneration: 1,
         pairingEnabled: true,
-        capabilities: [],
+        capabilities: ["cmux.irx.v1", "iroh.private_paths.v1"],
         pathHints: [],
       },
       now: NOW,
     }));
     // Ten seconds later, same identity: accepted, because a refused mint
-    // would only make this runtime poll every five seconds.
+    // would only make the irx runtime poll every five seconds. The slot's
+    // stored capabilities, not its namespace, identify the runtime.
     const soon = await mint("56".repeat(32), new Date(NOW.getTime() + 10_000));
     expect(soon.createdAt.getTime()).toBeGreaterThan(first.createdAt.getTime());
+  });
+
+  dbTest("measures spacing from the newest outstanding mint, not only the last registration", async () => {
+    const repo = requiredRepository();
+    const userId = "user-spacing-outstanding";
+    const deviceId = randomUUID();
+    const appInstanceId = randomUUID();
+    const endpointId = "17".repeat(32);
+    const mint = (nonceHash: string, at: Date) => Effect.runPromiseExit(repo.issueChallenge({
+      userId,
+      deviceUuid: deviceId,
+      appInstanceId,
+      clientNamespace: "mac:com.cmuxterm.app",
+      tag: "stable",
+      endpointId,
+      identityGeneration: 1,
+      payloadSha256: "37".repeat(32),
+      nonceHash,
+      now: at,
+      expiresAt: new Date(at.getTime() + 5 * 60 * 1_000),
+    }));
+    const first = await mint("57".repeat(32), NOW);
+    expect(first._tag).toBe("Success");
+    const firstId = first._tag === "Success" ? first.value.id : "";
+    await Effect.runPromise(repo.consumeChallengeAndRegister({
+      userId,
+      challengeId: firstId,
+      nonceHash: "57".repeat(32),
+      payload: {
+        route_contract_version: 1,
+        deviceId,
+        appInstanceId,
+        clientNamespace: "mac:com.cmuxterm.app",
+        tag: "stable",
+        platform: "mac",
+        endpointId,
+        identityGeneration: 1,
+        pairingEnabled: true,
+        capabilities: ["mobile-rpc-v1", "multistream-v1"],
+        pathHints: [],
+      },
+      now: NOW,
+    }));
+    // 61 s after the registration: accepted but left outstanding.
+    const outstanding = await mint("58".repeat(32), new Date(NOW.getTime() + 61_000));
+    expect(outstanding._tag).toBe("Success");
+    // 9 s after that outstanding mint: refused, measured from the mint, not
+    // from the registration 70 s ago.
+    const banked = await mint("59".repeat(32), new Date(NOW.getTime() + 70_000));
+    expect(banked._tag).toBe("Failure");
+    const failure = banked._tag === "Failure"
+      ? Option.getOrUndefined(Cause.failureOption(banked.cause))
+      : undefined;
+    expect(failure).toMatchObject({ _tag: "IrohQuotaExceededError", code: "registration_spacing", retryAfterSeconds: 51 });
   });
 
   dbTest("keeps the route revision on a heartbeat that changes nothing a peer can act on", async () => {
