@@ -24,7 +24,7 @@ extension BonsplitTabDragUITests {
             return
         }
 
-        let titlebarToggle = app.descendants(matching: .any).matching(identifier: "titlebarControl.toggleRightSidebar").firstMatch
+        let titlebarToggle = rightSidebarTitlebarToggle(in: app)
         XCTAssertTrue(
             titlebarToggle.waitForExistence(timeout: 5.0),
             "Expected a persistent right-sidebar toggle in the titlebar."
@@ -162,7 +162,7 @@ extension BonsplitTabDragUITests {
             let controls = [
                 app.buttons["RightSidebar.openAsPaneButton"],
                 app.buttons["RightSidebar.closeButton"],
-                app.descendants(matching: .any).matching(identifier: "titlebarControl.toggleRightSidebar").firstMatch,
+                rightSidebarTitlebarToggle(in: app),
             ]
             for control in controls {
                 XCTAssertTrue(waitForCondition(timeout: 5) { control.exists && control.isHittable })
@@ -200,7 +200,7 @@ extension BonsplitTabDragUITests {
             )
             let closeButton = app.buttons["RightSidebar.closeButton"]
             let openButton = app.buttons["RightSidebar.openAsPaneButton"]
-            let toggle = app.descendants(matching: .any).matching(identifier: "titlebarControl.toggleRightSidebar").firstMatch
+            let toggle = rightSidebarTitlebarToggle(in: app)
             let expectsToggle = presentation == .standard && showToggle
             XCTAssertTrue(waitForCondition(timeout: 5) {
                 (toggle.exists && toggle.isHittable) == expectsToggle
@@ -225,7 +225,7 @@ extension BonsplitTabDragUITests {
         let app = try launchRightSidebarChrome()
         let window = app.windows.firstMatch
         let closeButton = app.buttons["RightSidebar.closeButton"]
-        let toggle = app.descendants(matching: .any).matching(identifier: "titlebarControl.toggleRightSidebar").firstMatch
+        let toggle = rightSidebarTitlebarToggle(in: app)
         XCTAssertTrue(waitForCondition(timeout: 5) { toggle.exists && toggle.isHittable })
         let standardWindowFrame = window.frame
         let standardTrailingGap = window.frame.maxX - closeButton.frame.maxX
@@ -269,6 +269,13 @@ extension BonsplitTabDragUITests {
             app.buttons["RightSidebar.closeButton"].exists && app.buttons["RightSidebar.closeButton"].isHittable
         })
         return app
+    }
+
+    private func rightSidebarTitlebarToggle(in app: XCUIApplication) -> XCUIElement {
+        // The accessory belongs to this window. Keep absence checks out of
+        // unrelated application descendants such as dynamically populated menus.
+        app.windows.firstMatch.descendants(matching: .any)
+            .matching(identifier: "titlebarControl.toggleRightSidebar").firstMatch
     }
 
     private func attachRightSidebarScreenshot(_ app: XCUIApplication, name: String) {
