@@ -65,7 +65,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             unlink(socketPath)
         }
 
-        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+        let serve: @Sendable (String) -> String = { line in
             guard let payload = self.jsonObject(line),
                   let id = payload["id"] as? String,
                   let method = payload["method"] as? String else {
@@ -80,6 +80,18 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 ok: false,
                 error: ["code": "unexpected", "message": "Unexpected method \(method)"]
             )
+        }
+        // A test that expects the CLI to never touch the socket must not
+        // create an XCTestExpectation it never waits on: XCTest reports that
+        // as an unwaited expectation at teardown, which counts as an
+        // unexpected failure and turned the app-host shard red on every main
+        // run since #11691 (run 34342638735, jobs 102640654820/102640654864).
+        let serverHandled: XCTestExpectation?
+        if waitForSocket {
+            serverHandled = startMockServer(listenerFD: listenerFD, state: state, handler: serve)
+        } else {
+            serverHandled = nil
+            startDetachedMockServer(listenerFD: listenerFD, state: state, handler: serve)
         }
 
         var environment = ProcessInfo.processInfo.environment
@@ -98,7 +110,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             standardInput: standardInput,
             timeout: 5
         )
-        if waitForSocket {
+        if let serverHandled {
             wait(for: [serverHandled], timeout: 5)
         }
         return (result, state)
