@@ -53,17 +53,14 @@ public struct HiveViewerRootView: View {
         switch session.phase {
         case .idle, .connecting:
             ProgressView(String(localized: "hive.viewer.connecting", defaultValue: "Connecting…"))
-        case .failed:
+        case .failed(let message):
             ContentUnavailableView {
                 Label(
                     String(localized: "hive.viewer.failed.title", defaultValue: "Couldn't Connect"),
                     systemImage: "wifi.exclamationmark"
                 )
             } description: {
-                Text(String(
-                    localized: "hive.viewer.error.connection",
-                    defaultValue: "The other Mac couldn't be reached. Check that it is online and paired, then try again."
-                ))
+                Text(message)
             } actions: {
                 Button(String(localized: "hive.viewer.retry", defaultValue: "Retry")) {
                     session.connect()
