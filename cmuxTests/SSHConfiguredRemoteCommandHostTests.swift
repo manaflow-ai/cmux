@@ -53,7 +53,7 @@ struct SSHConfiguredRemoteCommandHostTests {
 
         // Phase 1: capture the generated startup command from the CLI.
         let captureState = MockSocketServerState()
-        let captureHandled = processSupport.startMockServer(listenerFD: listenerFD, state: captureState) { line in
+        let captureHandled = processSupport.startMockServerSignal(listenerFD: listenerFD, state: captureState) { line in
             guard let payload = processSupport.jsonObject(line),
                   let id = payload["id"] as? String,
                   let method = payload["method"] as? String else {
@@ -97,7 +97,7 @@ struct SSHConfiguredRemoteCommandHostTests {
             environment: captureEnvironment,
             timeout: 20
         )
-        processSupport.wait(for: [captureHandled], timeout: 5)
+        #expect(captureHandled.wait(timeout: 5), "mock control socket was never contacted")
         #expect(!captureResult.timedOut, Comment(rawValue: captureResult.stderr))
         #expect(captureResult.status == 0, Comment(rawValue: captureResult.stderr))
 
@@ -122,7 +122,7 @@ struct SSHConfiguredRemoteCommandHostTests {
             capture: bridgeInput
         )
         let attachState = MockSocketServerState()
-        let attachHandled = processSupport.startMockServer(
+        let attachHandled = processSupport.startMockServerSignal(
             listenerFD: listenerFD,
             state: attachState
         ) { line in
@@ -195,7 +195,7 @@ struct SSHConfiguredRemoteCommandHostTests {
             "A cmux-supplied command-line remote command reached ssh without a RemoteCommand override; events: \(events)"
         )
 
-        processSupport.wait(for: [attachHandled], timeout: 5)
+        #expect(attachHandled.wait(timeout: 5), "mock control socket was never contacted")
         #expect(bridgeHandled.wait(timeout: .now() + 5) == .success)
         let attachMethods = attachState.commands.compactMap {
             processSupport.jsonObject($0)?["method"] as? String
@@ -224,7 +224,7 @@ struct SSHConfiguredRemoteCommandHostTests {
         }
 
         let state = MockSocketServerState()
-        let handled = processSupport.startMockServer(listenerFD: listenerFD, state: state) { line in
+        let handled = processSupport.startMockServerSignal(listenerFD: listenerFD, state: state) { line in
             guard let payload = processSupport.jsonObject(line),
                   let id = payload["id"] as? String,
                   let method = payload["method"] as? String else {
@@ -274,7 +274,7 @@ struct SSHConfiguredRemoteCommandHostTests {
             environment: environment,
             timeout: 20
         )
-        processSupport.wait(for: [handled], timeout: 5)
+        #expect(handled.wait(timeout: 5), "mock control socket was never contacted")
 
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 0, Comment(rawValue: result.stderr))
@@ -327,7 +327,7 @@ struct SSHConfiguredRemoteCommandHostTests {
         }
 
         let captureState = MockSocketServerState()
-        let captureHandled = processSupport.startMockServer(
+        let captureHandled = processSupport.startMockServerSignal(
             listenerFD: listenerFD,
             state: captureState
         ) { line in
@@ -375,7 +375,7 @@ struct SSHConfiguredRemoteCommandHostTests {
             environment: captureEnvironment,
             timeout: 20
         )
-        processSupport.wait(for: [captureHandled], timeout: 5)
+        #expect(captureHandled.wait(timeout: 5), "mock control socket was never contacted")
         #expect(!captureResult.timedOut, Comment(rawValue: captureResult.stderr))
         #expect(captureResult.status == 0, Comment(rawValue: captureResult.stderr))
 

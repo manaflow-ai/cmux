@@ -25,6 +25,26 @@ final class CLIMockOnceFlag: @unchecked Sendable {
     }
 }
 
+/// A one-shot completion latch for mock servers driven from Swift Testing.
+/// Waiting on an `XCTestExpectation` through a detached `XCTestCase(invocation:
+/// nil)` records a timeout on a case with no test run, which XCTest raises as
+/// an uncaught NSInternalInconsistencyException that aborts the app host (run
+/// 34416451322 shard 5/6). This latch has no XCTest coupling.
+final class CLIMockHandledSignal: @unchecked Sendable {
+    private let semaphore = DispatchSemaphore(value: 0)
+    private let once = CLIMockOnceFlag()
+
+    func signal() {
+        guard once.claim() else { return }
+        semaphore.signal()
+    }
+
+    /// Waits up to `timeout` seconds; returns false when nothing signalled.
+    func wait(timeout: TimeInterval) -> Bool {
+        semaphore.wait(timeout: .now() + timeout) == .success
+    }
+}
+
 /// Reads newline-framed requests from `clientFD` and writes back each response
 /// `respond` returns, until the peer closes the connection or a write fails.
 /// Returning nil from `respond` consumes the request without answering it.
@@ -377,6 +397,34 @@ extension CLINotifyProcessIntegrationRegressionTests {
             // Unblock the waiter if the listener is torn down before any client
             // connected (matches the previous accept-failure fulfillment).
             fulfillmentGate.fulfill(handled)
+        })
+        return handled
+    }
+
+    /// Like ``startMockServer(listenerFD:state:fulfillWhen:handler:)`` for
+    /// Swift Testing suites: completion is a ``CLIMockHandledSignal`` instead of
+    /// an XCTestExpectation, so waiting cannot abort the app host.
+    func startMockServerSignal(
+        listenerFD: Int32,
+        state: MockSocketServerState,
+        fulfillWhen: (@Sendable (String) -> Bool)? = nil,
+        handler: @escaping @Sendable (String) -> String
+    ) -> CLIMockHandledSignal {
+        let handled = CLIMockHandledSignal()
+        CLIMockAcceptLoopRegistry.shared.start(listenerFD: listenerFD, onConnection: { clientFD in
+            defer {
+                Darwin.close(clientFD)
+                handled.signal()
+            }
+            cliMockServeLineFramedConnection(clientFD: clientFD) { line in
+                state.append(line)
+                if fulfillWhen?(line) == true {
+                    handled.signal()
+                }
+                return handler(line)
+            }
+        }, onListenerClosed: {
+            handled.signal()
         })
         return handled
     }
