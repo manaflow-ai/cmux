@@ -5,7 +5,8 @@ struct CLIChildEnvironment {
     let appHostEnvironment: [String: String]
 
     func normalizing(_ environment: [String: String]) -> [String: String] {
-        guard environment["CMUX_APP_HOST_ISOLATION_REQUIRED"] == "1",
+        // Callers scrub CMUX_* from the child; isolation belongs to the host.
+        guard appHostEnvironment["CMUX_APP_HOST_ISOLATION_REQUIRED"] == "1",
               let rawHome = environment["HOME"]?.trimmingCharacters(in: .whitespacesAndNewlines),
               !rawHome.isEmpty else {
             return environment
