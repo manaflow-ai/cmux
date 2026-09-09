@@ -182,6 +182,44 @@ struct WorkspaceCoordinatorTests {
     }
 
     @Test
+    func moveTabsToBottomKeepsPinnedTierAboveUnpinned() {
+        let (model, host, _, reorder) = makeWorld()
+        let pinnedA = CoordinatorStubTab(isPinned: true)
+        let pinnedB = CoordinatorStubTab(isPinned: true)
+        let plain1 = CoordinatorStubTab()
+        let plain2 = CoordinatorStubTab()
+        model.tabs = [pinnedA, pinnedB, plain1, plain2]
+        reorder.moveTabsToBottom([plain1.id, pinnedA.id])
+        // Each selection sinks to the end of its own tier; tiers stay separated.
+        #expect(model.tabs.map(\.id) == [pinnedB.id, pinnedA.id, plain2.id, plain1.id])
+        #expect(host.orderChanges.last?.sorted(by: { $0.uuidString < $1.uuidString })
+            == [pinnedA.id, plain1.id].sorted(by: { $0.uuidString < $1.uuidString }))
+    }
+
+    @Test
+    func moveTabToBottomSinksSingleRowWithinItsTier() {
+        let (model, _, _, reorder) = makeWorld()
+        let plain1 = CoordinatorStubTab()
+        let plain2 = CoordinatorStubTab()
+        let plain3 = CoordinatorStubTab()
+        model.tabs = [plain1, plain2, plain3]
+        reorder.moveTabToBottom(plain1.id)
+        #expect(model.tabs.map(\.id) == [plain2.id, plain3.id, plain1.id])
+    }
+
+    @Test
+    func moveTabToBottomOnLastRowPublishesNoOrderChange() {
+        let (model, host, _, reorder) = makeWorld()
+        let plain1 = CoordinatorStubTab()
+        let plain2 = CoordinatorStubTab()
+        model.tabs = [plain1, plain2]
+        let before = host.orderChanges.count
+        reorder.moveTabToBottom(plain2.id)
+        #expect(model.tabs.map(\.id) == [plain1.id, plain2.id])
+        #expect(host.orderChanges.count == before)
+    }
+
+    @Test
     func reorderWorkspaceClampsUnpinnedAbovePinnedBoundary() {
         let (model, host, _, reorder) = makeWorld()
         _ = host
