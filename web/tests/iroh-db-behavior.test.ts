@@ -1067,11 +1067,16 @@ describe("Iroh trust broker database behavior", () => {
         now: input.now,
         expiresAt: new Date(input.now.getTime() + 5 * 60 * 1_000),
       }));
-      return { id: challenge.id, nonceHash, appInstanceId: input.appInstanceId };
+      return {
+        id: challenge.id,
+        nonceHash,
+        appInstanceId: input.appInstanceId,
+        createdAt: challenge.createdAt,
+      };
     };
 
     const register = (
-      prepared: { id: string; nonceHash: string; appInstanceId: string },
+      prepared: { id: string; nonceHash: string; appInstanceId: string; createdAt?: Date },
       now: Date,
     ) => repo.consumeChallengeAndRegister({
       userId,
@@ -1099,31 +1104,27 @@ describe("Iroh trust broker database behavior", () => {
     );
     expect(initial.created).toBe(true);
 
-    // Two heartbeat challenges for the same slot, minted in order: OLDER at
-    // t0+1s, NEWER at t0+2s. Both are outstanding before either is consumed.
+    // A newer heartbeat replaces the older challenge for the same slot.
     const olderApp = randomUUID();
     const newerApp = randomUUID();
     const older = await prepare({ appInstanceId: olderApp, suffix: "2", now: new Date(NOW.getTime() + 1_000) });
     const newer = await prepare({ appInstanceId: newerApp, suffix: "3", now: new Date(NOW.getTime() + 2_000) });
 
-    // The NEWER challenge lands first and refreshes the slot.
+    // The replacement keeps one row and carries the newer nonce/payload.
     const newerResult = await Effect.runPromise(register(newer, new Date(NOW.getTime() + 2_500)));
     expect(newerResult.created).toBe(false);
     expect(newerResult.binding.appInstanceId).toBe(newerApp);
 
-    // The OLDER challenge, delayed, completes second. It was minted before the
-    // newer registration landed, so it must be rejected as superseded rather
-    // than clobbering the newer incarnation's mutable fields back to the stale
-    // appInstanceId. This only holds if an applied heartbeat advances the slot's
-    // registration high-water mark.
+    // The superseded response carries the same row id but its old nonce no
+    // longer matches, so it cannot clobber the newer heartbeat.
     const stale = await Effect.runPromiseExit(register(older, new Date(NOW.getTime() + 3_000)));
     expect(stale._tag).toBe("Failure");
     const causeError = stale._tag === "Failure"
       ? Option.getOrUndefined(Cause.failureOption(stale.cause))
       : undefined;
     expect(causeError).toMatchObject({
-      _tag: "IrohConflictError",
-      code: "challenge_superseded",
+      _tag: "IrohForbiddenError",
+      code: "invalid_challenge_nonce",
     });
 
     // The slot still reflects the NEWER heartbeat, never the older one.
@@ -1143,14 +1144,9 @@ describe("Iroh trust broker database behavior", () => {
     const endpoint = "5b".repeat(32);
     const tag = "stable";
 
-    // Same signed fields (endpoint, platform, generation) throughout, so the
-    // second landing takes the in-place update path. Only appInstanceId differs.
-    // The difference from the heartbeat case: NO row exists yet when both
-    // challenges are minted, so the FIRST landing goes through the insert path.
-    // If the insert stamps registeredAt with its own wall-clock landing time
-    // instead of its challenge mint time, an older challenge that happens to
-    // land first sets the high-water mark above a newer outstanding challenge's
-    // mint time, and the genuinely newer registration is wrongly superseded.
+    // Same signed fields (endpoint, platform, generation) throughout, so a
+    // replacement challenge would take the in-place update path after the
+    // first registration. Only appInstanceId differs.
     const prepare = async (input: { appInstanceId: string; suffix: string; now: Date }) => {
       const nonceHash = input.suffix.repeat(64);
       const challenge = await Effect.runPromise(repo.issueChallenge({
@@ -1191,25 +1187,36 @@ describe("Iroh trust broker database behavior", () => {
       now,
     });
 
-    // Two challenges for a slot that does not exist yet, minted in order:
-    // OLDER at t0+1s, NEWER at t0+2s. Both outstanding before either is consumed.
+    // Two challenges for a slot that does not exist yet, minted in order. The
+    // newer challenge replaces the older one before registration begins.
     const olderApp = randomUUID();
     const newerApp = randomUUID();
     const older = await prepare({ appInstanceId: olderApp, suffix: "2", now: new Date(NOW.getTime() + 1_000) });
     const newer = await prepare({ appInstanceId: newerApp, suffix: "3", now: new Date(NOW.getTime() + 2_000) });
 
-    // The OLDER challenge lands first and CREATES the slot via the insert path.
-    const olderResult = await Effect.runPromise(register(older, new Date(NOW.getTime() + 2_500)));
-    expect(olderResult.created).toBe(true);
-    expect(olderResult.binding.appInstanceId).toBe(olderApp);
+    expect(older.id).toBe(newer.id);
+    const [{ challenges }] = await requiredSql()<Array<{ challenges: string }>>`
+      select count(*)::text as challenges
+      from iroh_registration_challenges
+      where user_id = ${userId}
+        and client_namespace = 'legacy'
+        and device_uuid = ${deviceId}
+        and tag = ${tag}
+    `;
+    expect(challenges).toBe("1");
+    const stale = await Effect.runPromiseExit(register(older, new Date(NOW.getTime() + 2_500)));
+    expect(stale._tag).toBe("Failure");
+    const staleError = stale._tag === "Failure"
+      ? Option.getOrUndefined(Cause.failureOption(stale.cause))
+      : undefined;
+    expect(staleError).toMatchObject({
+      _tag: "IrohForbiddenError",
+      code: "invalid_challenge_nonce",
+    });
 
-    // The NEWER challenge, minted after the older one but before the slot
-    // existed, completes second. It is genuinely newer, so it must refresh the
-    // slot in place, not be rejected. This only holds if the insert stamped the
-    // high-water mark from the older challenge's MINT time (t0+1s), leaving the
-    // newer challenge's mint time (t0+2s) above it.
+    // The newest challenge creates the slot.
     const newerResult = await Effect.runPromise(register(newer, new Date(NOW.getTime() + 3_000)));
-    expect(newerResult.created).toBe(false);
+    expect(newerResult.created).toBe(true);
     expect(newerResult.binding.appInstanceId).toBe(newerApp);
 
     // The slot reflects the NEWER registration.
@@ -1222,14 +1229,10 @@ describe("Iroh trust broker database behavior", () => {
     expect(row?.appInstanceId).toBe(newerApp);
   });
 
-  dbTest("rejects a stale challenge minted in the same millisecond as the applied one", async () => {
-    // 9071 review finding 2: the register gate is strict (`createdAt <
-    // registeredAt`), and challenge createdAt is a millisecond wall clock, so
-    // two serialized mints CAN tie. Without total ordering at mint time, the
-    // older-of-two-equal challenges completes after the newer and passes the
-    // gate, reversing the order the gate exists to enforce. Minting now bumps
-    // a tying createdAt strictly above the slot's latest challenge, so the
-    // delayed twin must be rejected as superseded.
+  dbTest("orders replacement challenges minted in the same millisecond", async () => {
+    // 9071 review finding 2: serialized mints with the same wall-clock input
+    // still receive strictly increasing createdAt values before the newer
+    // challenge replaces the slot's current row.
     const repo = requiredRepository();
     const userId = "user-slot-equal-millis";
     const deviceId = randomUUID();
@@ -1250,10 +1253,15 @@ describe("Iroh trust broker database behavior", () => {
         now: input.now,
         expiresAt: new Date(input.now.getTime() + 5 * 60 * 1_000),
       }));
-      return { id: challenge.id, nonceHash, appInstanceId: input.appInstanceId };
+      return {
+        id: challenge.id,
+        nonceHash,
+        appInstanceId: input.appInstanceId,
+        createdAt: challenge.createdAt,
+      };
     };
     const register = (
-      prepared: { id: string; nonceHash: string; appInstanceId: string },
+      prepared: { id: string; nonceHash: string; appInstanceId: string; createdAt: Date },
       now: Date,
     ) => repo.consumeChallengeAndRegister({
       userId,
@@ -1275,8 +1283,8 @@ describe("Iroh trust broker database behavior", () => {
       now,
     });
 
-    // Establish the slot, then mint two challenges with the SAME wall-clock
-    // input. Serialized issuance must still order them.
+    // Establish the slot, then mint two replacement challenges with the SAME
+    // wall-clock input. Serialized issuance must still order them.
     const initial = await prepare({ appInstanceId: randomUUID(), suffix: "1", now: NOW });
     expect((await Effect.runPromise(register(initial, new Date(NOW.getTime() + 500)))).created).toBe(true);
 
@@ -1286,21 +1294,23 @@ describe("Iroh trust broker database behavior", () => {
     const older = await prepare({ appInstanceId: olderApp, suffix: "2", now: tieInstant });
     const newer = await prepare({ appInstanceId: newerApp, suffix: "3", now: tieInstant });
 
-    // The NEWER twin lands first and refreshes the slot.
-    const newerResult = await Effect.runPromise(register(newer, new Date(NOW.getTime() + 2_000)));
-    expect(newerResult.created).toBe(false);
-    expect(newerResult.binding.appInstanceId).toBe(newerApp);
+    expect(newer.createdAt.getTime()).toBeGreaterThan(older.createdAt.getTime());
+    expect(older.id).toBe(newer.id);
 
-    // The OLDER twin, delayed, must be rejected — not clobber the newer state.
-    const stale = await Effect.runPromiseExit(register(older, new Date(NOW.getTime() + 3_000)));
+    // The old nonce no longer matches the one current row.
+    const stale = await Effect.runPromiseExit(register(older, new Date(NOW.getTime() + 2_000)));
     expect(stale._tag).toBe("Failure");
     const causeError = stale._tag === "Failure"
       ? Option.getOrUndefined(Cause.failureOption(stale.cause))
       : undefined;
     expect(causeError).toMatchObject({
-      _tag: "IrohConflictError",
-      code: "challenge_superseded",
+      _tag: "IrohForbiddenError",
+      code: "invalid_challenge_nonce",
     });
+
+    const newerResult = await Effect.runPromise(register(newer, new Date(NOW.getTime() + 3_000)));
+    expect(newerResult.created).toBe(false);
+    expect(newerResult.binding.appInstanceId).toBe(newerApp);
 
     const [row] = await requiredSql()<Array<{ appInstanceId: string }>>`
       select app_instance_id as "appInstanceId"
@@ -1309,6 +1319,38 @@ describe("Iroh trust broker database behavior", () => {
         and tag = ${tag} and revoked_at is null
     `;
     expect(row?.appInstanceId).toBe(newerApp);
+  });
+
+  dbTest("keeps legacy and namespaced challenge slots independent", async () => {
+    const repo = requiredRepository();
+    const userId = "user-challenge-namespace-compat";
+    const deviceId = randomUUID();
+    const issue = (clientNamespace: string, suffix: string) => repo.issueChallenge({
+      userId,
+      deviceUuid: deviceId,
+      appInstanceId: randomUUID(),
+      clientNamespace,
+      tag: "stable",
+      endpointId: `${suffix}${"0".repeat(63)}`,
+      identityGeneration: 1,
+      payloadSha256: `${suffix}${"0".repeat(63)}`,
+      nonceHash: `${suffix}${suffix.repeat(63)}`,
+      now: NOW,
+      expiresAt: new Date(NOW.getTime() + 5 * 60 * 1_000),
+    });
+
+    const legacy = await Effect.runPromise(issue("legacy", "a"));
+    const namespaced = await Effect.runPromise(issue("dev.cmux.app.internal", "b"));
+    expect(namespaced.id).not.toBe(legacy.id);
+
+    const [{ challenges }] = await requiredSql()<Array<{ challenges: string }>>`
+      select count(*)::text as challenges
+      from iroh_registration_challenges
+      where user_id = ${userId}
+        and device_uuid = ${deviceId}
+        and tag = 'stable'
+    `;
+    expect(challenges).toBe("2");
   });
 
   dbTest("revokes a retired incarnation's pair grants instead of reassigning them", async () => {

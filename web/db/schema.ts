@@ -1719,9 +1719,11 @@ export const irohEndpointBindings = pgTable(
 );
 
 /**
- * One-use registration challenges. Only a SHA-256 hash of the random nonce is
- * persisted. The payload hash binds all endpoint metadata before signature
- * verification and the consumed timestamp provides replay protection.
+ * Ephemeral registration challenges. At most one current challenge exists for
+ * each user, namespace, device, and tag tuple. Only a SHA-256 hash of the
+ * random nonce is persisted. The payload hash binds all endpoint metadata
+ * before signature verification and the consumed timestamp provides replay
+ * protection.
  */
 export const irohRegistrationChallenges = pgTable(
   "iroh_registration_challenges",
@@ -1748,6 +1750,8 @@ export const irohRegistrationChallenges = pgTable(
     check("iroh_registration_challenges_payload_hash_check", sql`${table.payloadSha256} ~ '^[0-9a-f]{64}$'`),
     check("iroh_registration_challenges_nonce_hash_check", sql`${table.nonceHash} ~ '^[0-9a-f]{64}$'`),
     uniqueIndex("iroh_registration_challenges_nonce_hash_unique").on(table.nonceHash),
+    uniqueIndex("iroh_registration_challenges_slot_unique")
+      .on(table.userId, table.clientNamespace, table.deviceUuid, table.tag),
     index("iroh_registration_challenges_user_created_idx").on(table.userId, table.createdAt),
     index("iroh_registration_challenges_user_device_created_idx")
       .on(table.userId, table.deviceUuid, table.createdAt),
