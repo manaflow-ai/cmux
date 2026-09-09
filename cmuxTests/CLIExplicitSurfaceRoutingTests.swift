@@ -54,7 +54,7 @@ struct CLIExplicitSurfaceRoutingTests {
         let state = ServerState()
         let handled = Self.startMockServer(listenerFD: listenerFD, state: state) { line in
             guard let payload = Self.jsonObject(line),
-                  let id = payload["id"] as? String,
+                  let id = Self.requestID(from: payload),
                   let method = payload["method"] as? String else {
                 return Self.malformedRequestResponse(raw: line)
             }
@@ -98,6 +98,429 @@ struct CLIExplicitSurfaceRoutingTests {
         let readParams = try #require(requests.last?["params"] as? [String: Any])
         #expect(readParams["workspace_id"] as? String == Self.callerWorkspaceId)
         #expect(readParams["surface_id"] as? String == Self.numericSurfaceId)
+    }
+
+    @Test func sendAtomicPreservesPresentationFlagsAndPromptText() throws {
+        let socketPath = Self.makeSocketPath("send-atomic-json")
+        let listenerFD = try Self.bindUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let state = ServerState()
+        let handled = Self.startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.jsonObject(line),
+                  let id = Self.requestID(from: payload),
+                  let method = payload["method"] as? String else {
+                return Self.malformedRequestResponse(raw: line)
+            }
+            guard method == "workspace.agent_submit" else {
+                return Self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": method]
+                )
+            }
+            return Self.v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "submitted": true,
+                    "queued": false,
+                    "message_id": "11111111-2222-3333-4444-555555555555",
+                    "delivery_state": "accepted",
+                    "workspace_id": Self.targetWorkspaceId,
+                    "surface_id": Self.targetSurfaceId,
+                ]
+            )
+        }
+
+        // "--agent" collides with the value-taking `hooks setup --agent
+        // <name>` option, so "--atomic" is the only addressed-delivery
+        // flag for `send`. Presentation flags after it must keep working.
+        let result = Self.runProcess(
+            executablePath: try Self.bundledCLIPath(),
+            arguments: [
+                "send",
+                "--workspace", Self.targetWorkspaceId,
+                "--atomic", "--json",
+                "ship", "the", "change",
+            ],
+            environment: cliEnvironment(socketPath: socketPath),
+            timeout: Self.processTimeout
+        )
+
+        #expect(handled.wait(timeout: .now() + Self.serverTimeout) == .success)
+        #expect(state.errorsSnapshot().isEmpty)
+        #expect(!result.timedOut)
+        #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
+
+        let requests = try state.requestObjects()
+        #expect(requests.count == 1)
+        let request = try #require(requests.first)
+        #expect(request["method"] as? String == "workspace.agent_submit")
+        let params = try #require(request["params"] as? [String: Any])
+        #expect(params["workspace_id"] as? String == Self.targetWorkspaceId)
+        #expect(params["surface_id"] == nil)
+        #expect(params["text"] as? String == "ship the change")
+
+        // --json survived flag parsing: stdout is the payload object.
+        let stdoutJSON = Self.jsonObject(result.stdout)
+        #expect(stdoutJSON?["message_id"] as? String == "11111111-2222-3333-4444-555555555555")
+    }
+
+    @Test func agentSubmitUsesAtomicWorkspaceMethodAndPreservesPromptText() throws {
+        let socketPath = Self.makeSocketPath("agent-submit")
+        let listenerFD = try Self.bindUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let state = ServerState()
+        let handled = Self.startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.jsonObject(line),
+                  let id = Self.requestID(from: payload),
+                  let method = payload["method"] as? String else {
+                return Self.malformedRequestResponse(raw: line)
+            }
+            guard method == "workspace.agent_submit" else {
+                return Self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": method]
+                )
+            }
+            return Self.v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "submitted": true,
+                    "queued": false,
+                    "workspace_id": Self.targetWorkspaceId,
+                    "surface_id": Self.targetSurfaceId,
+                ]
+            )
+        }
+
+        let result = Self.runProcess(
+            executablePath: try Self.bundledCLIPath(),
+            arguments: [
+                "agent-submit",
+                "--workspace", Self.targetWorkspaceId,
+                "--surface", Self.targetSurfaceId,
+                "review", "the", "current", "diff",
+            ],
+            environment: cliEnvironment(socketPath: socketPath),
+            timeout: Self.processTimeout
+        )
+
+        #expect(handled.wait(timeout: .now() + Self.serverTimeout) == .success)
+        #expect(state.errorsSnapshot().isEmpty)
+        #expect(!result.timedOut)
+        #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
+
+        let requests = try state.requestObjects()
+        #expect(requests.count == 1)
+        let request = try #require(requests.first)
+        #expect(request["method"] as? String == "workspace.agent_submit")
+        let params = try #require(request["params"] as? [String: Any])
+        #expect(params["workspace_id"] as? String == Self.targetWorkspaceId)
+        #expect(params["surface_id"] as? String == Self.targetSurfaceId)
+        #expect(params["text"] as? String == "review the current diff")
+    }
+
+    @Test func agentSubmitUsesCallerSurfaceEnvironmentWhenNoExplicitSurface() throws {
+        let socketPath = Self.makeSocketPath("agent-submit-caller-surface")
+        let listenerFD = try Self.bindUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let state = ServerState()
+        let handled = Self.startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.jsonObject(line),
+                  let id = Self.requestID(from: payload),
+                  payload["method"] as? String == "workspace.agent_submit" else {
+                return Self.malformedRequestResponse(raw: line)
+            }
+            return Self.v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "submitted": true,
+                    "queued": false,
+                    "workspace_id": Self.targetWorkspaceId,
+                    "surface_id": Self.callerSurfaceId,
+                ]
+            )
+        }
+
+        var environment = cliEnvironment(socketPath: socketPath)
+        environment["CMUX_WORKSPACE_ID"] = Self.targetWorkspaceId
+        environment["CMUX_SURFACE_ID"] = Self.callerSurfaceId
+        let result = Self.runProcess(
+            executablePath: try Self.bundledCLIPath(),
+            arguments: [
+                "agent-submit",
+                "review", "the", "current", "surface",
+            ],
+            environment: environment,
+            timeout: Self.processTimeout
+        )
+
+        #expect(handled.wait(timeout: .now() + Self.serverTimeout) == .success)
+        #expect(state.errorsSnapshot().isEmpty)
+        #expect(!result.timedOut)
+        #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
+
+        let requests = try state.requestObjects()
+        #expect(requests.count == 1)
+        let request = try #require(requests.first)
+        let params = try #require(request["params"] as? [String: Any])
+        #expect(params["workspace_id"] as? String == Self.targetWorkspaceId)
+        #expect(params["surface_id"] as? String == Self.callerSurfaceId)
+        #expect(params["text"] as? String == "review the current surface")
+    }
+
+    @Test func sendAtomicExplicitUUIDSurfaceUsesCallerWorkspaceContext() throws {
+        let socketPath = Self.makeSocketPath("send-atomic-surface")
+        let listenerFD = try Self.bindUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let state = ServerState()
+        let handled = Self.startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.jsonObject(line),
+                  let id = Self.requestID(from: payload),
+                  let method = payload["method"] as? String else {
+                return Self.malformedRequestResponse(raw: line)
+            }
+            guard method == "workspace.agent_submit" else {
+                return Self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": method]
+                )
+            }
+            return Self.v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "submitted": true,
+                    "queued": false,
+                    "message_id": "11111111-2222-3333-4444-555555555555",
+                    "delivery_state": "accepted",
+                    "workspace_id": Self.targetWorkspaceId,
+                    "surface_id": Self.targetSurfaceId,
+                ]
+            )
+        }
+
+        var environment = cliEnvironment(socketPath: socketPath)
+        environment["CMUX_WORKSPACE_ID"] = Self.targetWorkspaceId
+        environment["CMUX_SURFACE_ID"] = Self.callerSurfaceId
+        let result = Self.runProcess(
+            executablePath: try Self.bundledCLIPath(),
+            arguments: [
+                "send",
+                "--surface", Self.targetSurfaceId,
+                "--atomic",
+                "deliver", "to", "the", "selected", "agent",
+            ],
+            environment: environment,
+            timeout: Self.processTimeout
+        )
+
+        #expect(handled.wait(timeout: .now() + Self.serverTimeout) == .success)
+        #expect(state.errorsSnapshot().isEmpty)
+        #expect(!result.timedOut)
+        #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
+
+        let requests = try state.requestObjects()
+        #expect(requests.count == 1)
+        let request = try #require(requests.first)
+        #expect(request["method"] as? String == "workspace.agent_submit")
+        let params = try #require(request["params"] as? [String: Any])
+        #expect(params["workspace_id"] as? String == Self.targetWorkspaceId)
+        #expect(params["surface_id"] as? String == Self.targetSurfaceId)
+        #expect(params["text"] as? String == "deliver to the selected agent")
+    }
+
+    @Test func agentSubmitWindowDoesNotInheritCallerWorkspace() throws {
+        let socketPath = Self.makeSocketPath("agent-window")
+        let listenerFD = try Self.bindUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let state = ServerState()
+        let handled = Self.startMockServer(
+            listenerFD: listenerFD,
+            state: state
+        ) { line in
+            guard let payload = Self.jsonObject(line),
+                  let id = Self.requestID(from: payload),
+                  let method = payload["method"] as? String else {
+                return Self.malformedRequestResponse(raw: line)
+            }
+            switch method {
+            case "workspace.current":
+                return Self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["workspace_id": Self.targetWorkspaceId]
+                )
+            case "workspace.agent_submit":
+                return Self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "submitted": true,
+                        "queued": false,
+                        "workspace_id": Self.targetWorkspaceId,
+                        "surface_id": Self.targetSurfaceId,
+                    ]
+                )
+            default:
+                return Self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": method]
+                )
+            }
+        }
+
+        let result = Self.runProcess(
+            executablePath: try Self.bundledCLIPath(),
+            arguments: [
+                "agent-submit",
+                "--window", Self.targetWindowId,
+                "review", "the", "other", "workspace",
+            ],
+            environment: cliEnvironment(socketPath: socketPath),
+            timeout: Self.processTimeout
+        )
+
+        #expect(handled.wait(timeout: .now() + Self.serverTimeout) == .success)
+        #expect(state.errorsSnapshot().isEmpty)
+        #expect(!result.timedOut)
+        #expect(
+            result.status == 0,
+            Comment(rawValue: result.stderr + result.stdout)
+        )
+
+        let requests = try state.requestObjects()
+        #expect(
+            requests.compactMap { $0["method"] as? String }
+                == ["workspace.current", "workspace.agent_submit"]
+        )
+        let currentParams = try #require(
+            requests.first?["params"] as? [String: Any]
+        )
+        #expect(
+            currentParams["window_id"] as? String == Self.targetWindowId
+        )
+        let submitParams = try #require(
+            requests.last?["params"] as? [String: Any]
+        )
+        #expect(
+            submitParams["workspace_id"] as? String
+                == Self.targetWorkspaceId
+        )
+        #expect(
+            submitParams["workspace_id"] as? String
+                != Self.callerWorkspaceId
+        )
+        // The caller's CMUX_SURFACE_ID must never leak into a request that
+        // targets another workspace.
+        #expect(submitParams["surface_id"] == nil)
+        #expect(
+            submitParams["text"] as? String
+                == "review the other workspace"
+        )
+    }
+
+    @Test func agentSubmitHelpIsRegisteredAsATopLevelCommand() throws {
+        let result = Self.runProcess(
+            executablePath: try Self.bundledCLIPath(),
+            arguments: ["agent-submit", "--help"],
+            environment: ProcessInfo.processInfo.environment,
+            timeout: Self.processTimeout
+        )
+
+        #expect(!result.timedOut)
+        #expect(
+            result.status == 0,
+            Comment(rawValue: result.stderr + result.stdout)
+        )
+        #expect(
+            result.stdout.contains(
+                "Usage: cmux agent-submit [--workspace"
+            )
+        )
+    }
+
+    @Test func sendAtomicWindowResolvesItsCurrentWorkspace() throws {
+        let (result, state) = try runMockCommand(
+            arguments: [
+                "send",
+                "--window", Self.targetWindowId,
+                "--atomic",
+                "review", "the", "other", "workspace",
+            ],
+            socketName: "send-atomic-window"
+        ) { line in
+            guard let request = Self.jsonObject(line),
+                  let id = Self.requestID(from: request),
+                  let method = request["method"] as? String else {
+                return Self.malformedRequestResponse(raw: line)
+            }
+            switch method {
+            case "workspace.current":
+                return Self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["workspace_id": Self.targetWorkspaceId]
+                )
+            case "workspace.agent_submit":
+                return Self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "submitted": true,
+                        "queued": false,
+                        "workspace_id": Self.targetWorkspaceId,
+                        "surface_id": Self.targetSurfaceId,
+                    ]
+                )
+            default:
+                return Self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": method]
+                )
+            }
+        }
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
+        let requests = try state.requestObjects()
+        #expect(requests.compactMap { $0["method"] as? String } == [
+            "workspace.current",
+            "workspace.agent_submit",
+        ])
+        let currentParams = try #require(requests.first?["params"] as? [String: Any])
+        #expect(currentParams["window_id"] as? String == Self.targetWindowId)
+        let submitParams = try #require(requests.last?["params"] as? [String: Any])
+        #expect(submitParams["workspace_id"] as? String == Self.targetWorkspaceId)
+        #expect(submitParams["surface_id"] == nil)
+        #expect(submitParams["text"] as? String == "review the other workspace")
     }
 
     @Test func readSelectionPlainOutputIncludesSourceContext() throws {
@@ -655,6 +1078,9 @@ struct CLIExplicitSurfaceRoutingTests {
     private static let callerSurfaceId = "22222222-2222-2222-2222-222222222222"
     private static let targetSurfaceRef = "surface:11"
     private static let numericSurfaceId = "33333333-3333-3333-3333-333333333333"
+    private static let targetWindowId = "44444444-4444-4444-4444-444444444444"
+    private static let targetWorkspaceId = "55555555-5555-5555-5555-555555555555"
+    private static let targetSurfaceId = "66666666-6666-6666-6666-666666666666"
     private static let reproWindowId = "44444444-4444-4444-4444-444444443001"
     private static let reproWorkspaceId = "44444444-4444-4444-4444-444444443071"
     private static let reproWorkspaceRef = "workspace:71"
@@ -855,6 +1281,17 @@ struct CLIExplicitSurfaceRoutingTests {
         return String(data: data ?? Data("{}".utf8), encoding: .utf8) ?? "{}"
     }
 
+    private static func requestID(from payload: [String: Any]) -> String? {
+        switch payload["id"] {
+        case let id as String:
+            id
+        case let id as NSNumber:
+            id.stringValue
+        default:
+            nil
+        }
+    }
+
     private static func malformedRequestResponse(id: String? = nil, raw: String) -> String {
         v2Response(
             id: id ?? "unknown",
@@ -874,35 +1311,58 @@ struct CLIExplicitSurfaceRoutingTests {
         environment: [String: String],
         timeout: TimeInterval
     ) -> ProcessRunResult {
+        // Every child gets a private home so CLI config, hook state, and
+        // idempotency files cannot read or mutate the developer's account.
+        let isolatedHome = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-cli-home-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try? FileManager.default.createDirectory(
+            at: isolatedHome,
+            withIntermediateDirectories: true
+        )
+        var childEnvironment = environment
+        childEnvironment["HOME"] = isolatedHome.path
+        childEnvironment["CFFIXED_USER_HOME"] = isolatedHome.path
+        defer { try? FileManager.default.removeItem(at: isolatedHome) }
+
         let process = Process()
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
         process.executableURL = URL(fileURLWithPath: executablePath)
         process.arguments = arguments
-        process.environment = environment
+        process.environment = childEnvironment
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
 
+        let exitSignal = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in
+            exitSignal.signal()
+        }
         do {
             try process.run()
         } catch {
             return ProcessRunResult(status: -1, stdout: "", stderr: String(describing: error), timedOut: false)
         }
 
-        let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exitSignal.signal()
-        }
-
-        let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
+        // Process.terminationHandler is the authoritative exit edge. A
+        // background waitUntilExit task can fail to signal on macOS when the
+        // child has already reaped itself, falsely turning a successful CLI
+        // response into a timeout.
+        let waitTimedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
+        let timedOut = waitTimedOut && process.isRunning
         if timedOut {
             process.terminate()
             if exitSignal.wait(timeout: .now() + 1) == .timedOut {
                 kill(process.processIdentifier, SIGKILL)
                 _ = exitSignal.wait(timeout: .now() + 1)
             }
+        } else if waitTimedOut {
+            // The process exited while the termination callback was still
+            // being delivered; do not report a timeout for that race.
+            _ = exitSignal.wait(timeout: .now() + 1)
         }
 
         let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""

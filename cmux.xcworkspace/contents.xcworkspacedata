@@ -124,6 +124,9 @@
          location = "group:CMUXAgentLaunch">
       </FileRef>
       <FileRef
+         location = "group:CmuxAgentPromptCore">
+      </FileRef>
+      <FileRef
          location = "group:CmuxAgentSessionStore">
       </FileRef>
       <FileRef

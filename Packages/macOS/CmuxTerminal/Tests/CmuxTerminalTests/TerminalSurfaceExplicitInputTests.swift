@@ -89,6 +89,57 @@ struct TerminalSurfaceExplicitInputTests {
         )
     }
 
+    @Test func promptSubmissionChecksComposerOwnershipBeforeClipboardDeferral() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+        fixture.nativeView.shouldDeferRuntimeInput = true
+        fixture.surface.synchronizePromptInputAgentScope(
+            "agentPIDKey:codex.clipboard-admission"
+        )
+        fixture.surface.recordHumanPromptInput(.unknown)
+
+        #expect(
+            fixture.surface.sendPromptSubmission(
+                "must remain separate",
+                submitKey: "return",
+                hookRecordingSource: "workspace.agent_submit"
+            ) == .composerBusy
+        )
+        #expect(fixture.nativeView.deferredRuntimeInputs.isEmpty)
+        #expect(fixture.surface.hasUnconfirmedHumanPromptInput)
+    }
+
+    @Test func deferredPromptSubmissionReplaysAfterLaterHumanMutation() {
+        let runtimeSurface = allocatedRuntimeSurface()
+        let fixture = makeFixture(runtimeSurface: runtimeSurface)
+        defer {
+            fixture.surface.releaseSurfaceForTesting()
+            runtimeSurface.deallocate()
+        }
+        fixture.nativeView.shouldDeferRuntimeInput = true
+        fixture.surface.synchronizePromptInputAgentScope(
+            "agentPIDKey:codex.clipboard-replay"
+        )
+
+        #expect(
+            fixture.surface.sendPromptSubmission(
+                "admitted before clipboard read",
+                submitKey: "return",
+                hookRecordingSource: "workspace.agent_submit"
+            ) == .queued
+        )
+        fixture.surface.recordHumanPromptInput(.unknown)
+        fixture.nativeView.shouldDeferRuntimeInput = false
+        fixture.nativeView.deferredRuntimeInputs.removeFirst()()
+
+        #expect(
+            fixture.surface.confirmPromptSubmission(
+                message: "admitted before clipboard read"
+            ) == .programmatic(source: "workspace.agent_submit")
+        )
+        #expect(fixture.surface.hasUnconfirmedHumanPromptInput)
+    }
+
     @Test func pasteTextNotifiesPaneHostBeforeQueueingOnAColdSurface() {
         let fixture = makeFixture()
         defer { fixture.surface.releaseSurfaceForTesting() }
@@ -140,6 +191,274 @@ struct TerminalSurfaceExplicitInputTests {
         #expect(fixture.paneHost.explicitInputCount == 1)
     }
 
+    @Test func genericSocketDraftBlocksAnAtomicPromptSubmission() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+        fixture.surface.synchronizePromptInputAgentScope(
+            "agentPIDKey:codex.socket-draft"
+        )
+
+        #expect(fixture.surface.sendInputResult("phone draft").accepted)
+        #expect(fixture.surface.hasUnconfirmedHumanPromptInput)
+        #expect(
+            fixture.surface.sendPromptSubmission(
+                "supervisor prompt",
+                submitKey: "return"
+            ) == .composerBusy
+        )
+
+        let pending = fixture.surface.pendingSocketInputSnapshotForTests
+        #expect(pending.items == 1)
+        #expect(pending.inputTextItems == 1)
+        #expect(pending.promptSubmissionItems == 0)
+    }
+
+    @Test func genericSocketReturnRequiresAHookBeforeClearingOwnership() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+        fixture.surface.synchronizePromptInputAgentScope(
+            "agentPIDKey:codex.socket-submit"
+        )
+
+        #expect(
+            fixture.surface.sendInputResult("phone prompt\r").accepted
+        )
+        #expect(fixture.surface.hasUnconfirmedHumanPromptInput)
+        #expect(
+            fixture.surface.confirmPromptSubmission(
+                message: "phone prompt"
+            ) == .human
+        )
+        #expect(!fixture.surface.hasUnconfirmedHumanPromptInput)
+    }
+
+    @Test func genericPasteAndNamedReturnShareTheOwnershipLedger() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+        fixture.surface.synchronizePromptInputAgentScope(
+            "agentPIDKey:codex.paste-submit"
+        )
+
+        #expect(fixture.surface.sendText("pasted draft"))
+        #expect(fixture.surface.hasUnconfirmedHumanPromptInput)
+        #expect(fixture.surface.sendNamedKey("return").accepted)
+        #expect(
+            fixture.surface.confirmPromptSubmission(
+                message: "pasted draft"
+            ) == .human
+        )
+        #expect(!fixture.surface.hasUnconfirmedHumanPromptInput)
+    }
+
+    @Test func configuredControlReturnCreatesARecoverableBoundary() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+        fixture.surface.synchronizePromptInputAgentScope(
+            "agentPIDKey:claude.session",
+            controlReturnIsPromptSubmissionBoundary: true
+        )
+
+        #expect(fixture.surface.sendText("first line\nsecond line"))
+        #expect(fixture.surface.sendNamedKey("ctrl+enter").accepted)
+        #expect(
+            fixture.surface.confirmPromptSubmission(
+                message: "first line second line"
+            ) == .human
+        )
+        #expect(!fixture.surface.hasUnconfirmedHumanPromptInput)
+    }
+
+    @Test func unconfiguredControlReturnRemainsFailClosed() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+        fixture.surface.synchronizePromptInputAgentScope(
+            "agentPIDKey:codex.session",
+            controlReturnIsPromptSubmissionBoundary: false
+        )
+
+        #expect(fixture.surface.sendText("draft"))
+        #expect(fixture.surface.sendNamedKey("ctrl+enter").accepted)
+        #expect(
+            fixture.surface.confirmPromptSubmission(
+                message: "not a known boundary"
+            ) == .unmatched
+        )
+        #expect(fixture.surface.hasUnconfirmedHumanPromptInput)
+    }
+
+    @Test func acceptedExternalInputUsesTheGenericInputLedgerGrammar() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+        fixture.surface.synchronizePromptInputAgentScope(
+            "agentPIDKey:codex.remote-input"
+        )
+
+        fixture.surface.recordAcceptedUnownedPromptInput(
+            "\u{1B}]0;title\u{7}remote prompt\r"
+        )
+
+        #expect(fixture.surface.hasUnconfirmedHumanPromptInput)
+        #expect(
+            fixture.surface.confirmPromptSubmission(
+                message: "remote prompt"
+            ) == .human
+        )
+        #expect(!fixture.surface.hasUnconfirmedHumanPromptInput)
+    }
+
+    @Test func acceptedManualMirrorNamedKeyRecordsPromptOwnership() {
+        let runtimeSurface = allocatedRuntimeSurface()
+        let fixture = makeFixture(
+            ioMode: .manualMirror,
+            manualInputHandler: { _ in },
+            manualInputKeyNameResolver: { _ in "return" },
+            runtimeSurface: runtimeSurface
+        )
+        defer {
+            fixture.surface.releaseSurfaceForTesting()
+            runtimeSurface.deallocate()
+        }
+        fixture.surface.synchronizePromptInputAgentScope(
+            "agentPIDKey:codex.manual-mirror"
+        )
+
+        #expect(fixture.surface.enqueueManualInputNamedKey("return"))
+        #expect(fixture.surface.hasUnconfirmedHumanPromptInput)
+    }
+
+    @Test func acceptedExternalNamedReturnCreatesARecoverableBoundary() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+        fixture.surface.synchronizePromptInputAgentScope(
+            "agentPIDKey:codex.remote-key"
+        )
+
+        fixture.surface.recordAcceptedUnownedPromptInput("remote draft")
+        fixture.surface.recordAcceptedUnownedPromptKey("return")
+
+        #expect(
+            fixture.surface.confirmPromptSubmission(
+                message: "remote draft"
+            ) == .human
+        )
+        #expect(!fixture.surface.hasUnconfirmedHumanPromptInput)
+    }
+
+    @Test func promptPreparationQueuesInsideOneAppOwnedCompoundItem() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+        fixture.surface.synchronizePromptInputAgentScope(
+            "agentPIDKey:codex.preparation"
+        )
+
+        #expect(
+            fixture.surface.sendPromptSubmission(
+                "first line\nsecond line",
+                submitKey: "return",
+                preparationKeys: ["ctrl+a", "ctrl+k", "ctrl+u"],
+                hookRecordingSource: "workspace.agent_submit"
+            ) == .queued
+        )
+
+        let pending = fixture.surface.pendingSocketInputSnapshotForTests
+        #expect(pending.items == 1)
+        #expect(pending.promptSubmissionItems == 1)
+        #expect(pending.pasteTextItems == 0)
+        #expect(pending.keyEvents == 0)
+        #expect(
+            fixture.surface.pendingPromptPreparationKeyLabelsForTests
+                == [["ctrl+a", "ctrl+k", "ctrl+u"]]
+        )
+        #expect(
+            pending.bytes
+                == Data("first line\nsecond line".utf8).count
+                    + "ctrl+a".utf8.count
+                    + "ctrl+k".utf8.count
+                    + "ctrl+u".utf8.count
+                    + "return".utf8.count
+        )
+        #expect(fixture.paneHost.explicitInputCount == 1)
+        #expect(!fixture.surface.hasUnconfirmedHumanPromptInput)
+        #expect(
+            fixture.surface.confirmPromptSubmission(
+                message: "first line second line"
+            ) == .unmatched
+        )
+    }
+
+    @Test func invalidPromptPreparationRejectsBeforeQueueMutation() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+
+        #expect(
+            fixture.surface.sendPromptSubmission(
+                "supervisor prompt",
+                submitKey: "return",
+                preparationKeys: ["ctrl+a", "unsupported-preparation"]
+            ) == .unknownKey
+        )
+
+        #expect(fixture.surface.pendingSocketInputSnapshotForTests.items == 0)
+        #expect(!fixture.surface.hasUnconfirmedHumanPromptInput)
+        #expect(fixture.paneHost.explicitInputCount == 0)
+    }
+
+    @Test func promptSubmissionRejectsWithoutChangingARecordedHumanDraft() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+        fixture.surface.recordHumanPromptInput(.unknown)
+
+        #expect(
+            fixture.surface.sendPromptSubmission(
+                "supervisor prompt",
+                submitKey: "return"
+            ) == .composerBusy
+        )
+
+        let pending = fixture.surface.pendingSocketInputSnapshotForTests
+        #expect(pending.items == 0)
+        #expect(fixture.surface.hasUnconfirmedHumanPromptInput)
+        #expect(fixture.paneHost.explicitInputCount == 0)
+    }
+
+    @Test func rejectedOversizedPromptDoesNotNotifyPaneHost() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+
+        #expect(
+            fixture.surface.sendPromptSubmission(
+                String(repeating: "x", count: 1_048_577),
+                submitKey: "return"
+            ) == .inputQueueFull
+        )
+
+        #expect(fixture.surface.pendingSocketInputSnapshotForTests.items == 0)
+        #expect(fixture.paneHost.explicitInputCount == 0)
+    }
+
+    @Test func emptyPromptStillQueuesItsSubmitKeyAsACompoundItem() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+        var acceptedInputCount = 0
+        fixture.surface.onExplicitInput = { acceptedInputCount += 1 }
+
+        #expect(
+            fixture.surface.sendPromptSubmission(
+                "",
+                submitKey: "return",
+                hookRecordingSource: "workspace.agent_submit"
+            ) == .queued
+        )
+        let pending = fixture.surface.pendingSocketInputSnapshotForTests
+        #expect(pending.items == 1)
+        #expect(pending.promptSubmissionItems == 1)
+        #expect(pending.pasteTextItems == 0)
+        #expect(pending.keyEvents == 0)
+        #expect(pending.bytes == "return".utf8.count)
+        #expect(fixture.paneHost.explicitInputCount == 1)
+        #expect(acceptedInputCount == 1)
+    }
+
     @Test func keyTextNotifiesPaneHostBeforeWritingToALiveSurface() {
         let runtimeSurface = allocatedRuntimeSurface()
         let fixture = makeFixture(runtimeSurface: runtimeSurface)
@@ -151,6 +470,27 @@ struct TerminalSurfaceExplicitInputTests {
         _ = fixture.surface.sendKeyText("x")
 
         #expect(fixture.paneHost.explicitInputCount == 1)
+    }
+
+    @Test func coldKeyTextClaimsHumanOwnershipBeforeAnAgentSubmissionCanAdmit() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+        let scope = "agentPIDKey:codex.cold-key-text"
+        fixture.surface.synchronizePromptInputAgentScope(scope)
+
+        #expect(fixture.surface.sendKeyText("draft"))
+        #expect(fixture.surface.hasUnconfirmedHumanPromptInput)
+        #expect(
+            fixture.surface.sendPromptSubmission(
+                "automation",
+                submitKey: "return",
+                rejectIfHumanComposerBusy: true,
+                hookRecordingSource: "workspace.agent_submit"
+            ) == .composerBusy
+        )
+        #expect(
+            fixture.surface.debugPendingSocketInputForTesting().items == 1
+        )
     }
 
     @Test func explicitBindingActionNotifiesWithoutChangingInternalBindingActions() {
@@ -264,6 +604,10 @@ struct TerminalSurfaceExplicitInputTests {
 
     private func makeFixture(
         initialInput: String? = nil,
+        ioMode: TerminalSurfaceIOMode = .exec,
+        manualInputHandler: (@Sendable (TerminalManualInput) -> Void)? = nil,
+        manualInputKeyNameResolver:
+            (@MainActor @Sendable (ghostty_input_key_s) -> String?)? = nil,
         preparePaneHost: @Sendable @MainActor (any TerminalSurfacePaneHosting) -> Void = { _ in },
         onAttach: (() -> Void)? = nil,
         runtimeSurface: ghostty_surface_t? = nil
@@ -282,6 +626,9 @@ struct TerminalSurfaceExplicitInputTests {
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: nil,
             initialInput: initialInput,
+            ioMode: ioMode,
+            manualInputHandler: manualInputHandler,
+            manualInputKeyNameResolver: manualInputKeyNameResolver,
             preparePaneHost: preparePaneHost,
             dependencies: TerminalSurfaceRuntimeDependencies(
                 registry: registry,
@@ -318,5 +665,65 @@ struct TerminalSurfaceExplicitInputTests {
 
     private func allocatedRuntimeSurface() -> ghostty_surface_t {
         UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+    }
+}
+
+private extension TerminalSurface {
+    var pendingPromptPreparationKeyLabelsForTests: [[String]] {
+        pendingSocketInputQueue.compactMap { item -> [String]? in
+            guard case .promptSubmission(
+                _,
+                let preparationKeys,
+                _,
+                _,
+                _,
+                _
+            ) = item else {
+                return nil
+            }
+            return preparationKeys.map(\.label)
+        }
+    }
+
+    var pendingSocketInputSnapshotForTests: (
+        items: Int,
+        bytes: Int,
+        keyEvents: Int,
+        pasteTextItems: Int,
+        promptSubmissionItems: Int,
+        inputTextItems: Int,
+        processOutputItems: Int
+    ) {
+        let counts = pendingSocketInputQueue.reduce(
+            into: (
+                keyEvents: 0,
+                pasteTextItems: 0,
+                promptSubmissionItems: 0,
+                inputTextItems: 0,
+                processOutputItems: 0
+            )
+        ) { counts, item in
+            switch item {
+            case .key, .keyText:
+                counts.keyEvents += 1
+            case .pasteText:
+                counts.pasteTextItems += 1
+            case .promptSubmission:
+                counts.promptSubmissionItems += 1
+            case .inputText:
+                counts.inputTextItems += 1
+            case .processOutput:
+                counts.processOutputItems += 1
+            }
+        }
+        return (
+            pendingSocketInputQueue.count,
+            pendingSocketInputBytes,
+            counts.keyEvents,
+            counts.pasteTextItems,
+            counts.promptSubmissionItems,
+            counts.inputTextItems,
+            counts.processOutputItems
+        )
     }
 }

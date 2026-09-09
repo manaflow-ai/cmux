@@ -208,7 +208,20 @@ struct ControlCommandExecutionPolicyTests {
         #expect(
             ControlCommandExecutionPolicy(
                 forMethod: "workspace.remote.terminal_session_connected"
+        ) == .socketWorker(mainThreadCallable: false)
+        )
+    }
+
+    @Test func addressedAgentSubmissionUsesOnlyTheAsyncWorkerEntryPoint() {
+        #expect(
+            ControlCommandExecutionPolicy(
+                forMethod: "workspace.agent_submit"
             ) == .socketWorker(mainThreadCallable: false)
+        )
+        #expect(
+            !ControlCommandExecutionPolicy
+                .mainThreadCallableSocketWorkerMethods
+                .contains("workspace.agent_submit")
         )
     }
 

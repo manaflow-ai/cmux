@@ -236,6 +236,7 @@ Workspace:
 | `workspace.moved` | Workspace moved to another window. |
 | `workspace.action` | Workspace action command completed. |
 | `workspace.prompt.submitted` | A prompt was submitted in a workspace. Used by extension sidebars to keep derived state fresh without polling. |
+| `workspace.agent_prompt.delivery` | An addressed `workspace.agent_submit` prompt changed delivery state (`queued`, `accepted`, `confirmed`, or `failed`). |
 
 `workspace.reordered` payloads are published by the shared workspace lifecycle
 path and include ordered `workspace_ids`, `moved_workspace_ids`,
@@ -244,7 +245,22 @@ path and include ordered `workspace_ids`, `moved_workspace_ids`,
 `workspace.prompt.submitted` payloads include `workspace_id`, a redacted
 `message`, `message_preview`, `message_length`, and `redacted_fields`. This is
 local sensitive data, so consumers should only forward it with explicit user
-opt-in.
+opt-in. Prompts accepted through `workspace.agent_submit` also carry the
+opaque `message_id` when the matching agent hook confirms delivery.
+
+Addressed prompt admission publishes `workspace.agent_prompt.delivery` with
+`message_id`, `workspace_id`, `surface_id`, an optional `reason`, and a state of
+`queued`, `accepted`, `confirmed`, or `failed`. `reason` carries the stable queue
+or failure reason when one applies, such as `workspace_not_found`,
+`surface_not_found`, or `delivery_failed`. A queued message is retained by cmux
+while a human draft, an active agent turn, or a temporary process-identity gap
+owns the composer. No event means the app never admitted the request; a
+`failed` event names a stable protocol reason without exposing prompt text.
+`confirmed` is best-effort hook enrichment: an accepted prompt whose agent never
+emits a matching hook stops blocking the workspace FIFO after a bounded
+confirmation window, so later queued messages still deliver.
+The immediate socket response uses the same `delivery_state` vocabulary:
+`accepted` for a non-queued admission and `queued` when the request is retained.
 
 Extension sidebars should bootstrap from the v2 socket method
 `extension.sidebar.snapshot`, then subscribe to `cmux events --category

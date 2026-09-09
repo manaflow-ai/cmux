@@ -57,6 +57,7 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
         "surface.report_shell_state",
         "surface.ports_kick",
         "agent.resolve_delivery_target",
+        "workspace.agent_submit",
         "notification.create",
         "notification.create_for_target",
     ]).union(tmuxCompatibleMethods)
@@ -83,6 +84,7 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
         "surface.ports_kick",
         "notification.create",
         "notification.create_for_target",
+        "workspace.agent_submit",
     ]).union(tmuxCompatibleMethods)
 
     private static let surfaceRequiredMethods: Set<String> = [

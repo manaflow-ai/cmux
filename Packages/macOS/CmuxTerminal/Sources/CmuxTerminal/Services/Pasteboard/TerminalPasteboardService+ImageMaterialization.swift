@@ -71,14 +71,15 @@ extension TerminalPasteboardService: TerminalImagePasteWriting {
     }
 
     /// Writes raw image bytes forwarded from a remote client (e.g. an image
-    /// pasted on the paired iOS app) to a temporary file and returns its
-    /// shell-escaped path, ready to inject as terminal input exactly the way
-    /// ``saveClipboardImageIfNeeded(from:assumeNoText:)`` does for a local paste.
+    /// pasted on the paired iOS app) to an owned temporary file.
     ///
     /// Returns `nil` when the payload is empty, exceeds the 10 MB clipboard-image
     /// cap, or cannot be written. The temp file is registered as owned so the
     /// usual cleanup paths reclaim it.
-    public func saveImageData(_ data: Data, fileExtension: String) -> String? {
+    public func saveImageDataFileURL(
+        _ data: Data,
+        fileExtension: String
+    ) -> URL? {
         guard !data.isEmpty, data.count <= Self.maxClipboardImageSize else { return nil }
 
         let fileURL = temporaryImageFileURL(fileExtension: sanitizedImageFileExtension(fileExtension))
@@ -89,7 +90,14 @@ extension TerminalPasteboardService: TerminalImagePasteWriting {
             return nil
         }
         registerOwnedTemporaryImageFile(fileURL)
-        return fileURL.path.terminalShellEscaped
+        return fileURL
+    }
+
+    /// Writes raw image bytes and returns a shell-escaped path for terminal
+    /// injection, preserving the legacy API.
+    public func saveImageData(_ data: Data, fileExtension: String) -> String? {
+        saveImageDataFileURL(data, fileExtension: fileExtension)
+            .map(\.path.terminalShellEscaped)
     }
 }
 

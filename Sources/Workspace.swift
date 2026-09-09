@@ -1590,7 +1590,13 @@ extension Workspace {
                 }
                 return Self.defaultSSHPTYSessionID(workspaceId: snapshotWorkspaceId ?? id, panelId: snapshot.id)
             }()
+            // A persisted binding carries the authoritative owner for a remote
+            // resume.  Prefer it over the workspace UUID encoded in a legacy
+            // PTY session id, which may be stale after relay alias migration.
+            // Legacy snapshots without a launch flavor still use the PTY UUID
+            // as their migration hint below.
             let restoredResumeSnapshotWorkspaceID = snapshotWorkspaceId
+                ?? persistedResumeBinding?.launchFlavor.remoteContext?.workspaceID
                 ?? restoredRemotePTYSessionID.flatMap { Self.parsedDefaultSSHPTYSessionID($0)?.workspaceId }
                 ?? id
             let locatedResumeBinding = migratingLegacyPersistentSSHResumeBinding(
@@ -1679,8 +1685,15 @@ extension Workspace {
             }
             let deferredPersistentSSHResumeCommand: String? = if restoreIndexUnavailable,
                 restoresRemoteWorkspaceTerminalSnapshot,
-                restorableAgent == nil,
                 let restoredRemotePTYSessionID {
+                // Persistent PTY attachment is independent from managed-agent
+                // launch admission. The attach command is guarded by
+                // `--require-existing`: an existing durable PTY is reused, and
+                // the encoded remote resume payload is only used when the
+                // daemon must create that missing PTY. Keep this path available
+                // when the snapshot also carries an agent record; the later
+                // deferred admission still validates the binding and owner
+                // before admitting the local runtime restore.
                 sessionRestorePolicy
                     .approvedSurfaceResumeBinding(
                         resumeBinding,
@@ -3190,6 +3203,13 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         get { surfaceRegistry.panelShellActivityStates }
         set { surfaceRegistry.panelShellActivityStates = newValue }
     }
+    /// Hook-observed agent turns in flight, by panel id. Shell activity
+    /// cannot express this: a TUI agent keeps the shell in `commandRunning`
+    /// even while its composer sits idle, so addressed prompt delivery gates
+    /// on this hook-derived state instead. Entries are bounded by
+    /// `activeAgentTurnMaximumAge` so a missed stop hook cannot wedge the
+    /// addressed-prompt queue forever.
+    var activeAgentTurnStartsByPanelId: [UUID: AgentTurnStartRecord] = [:]
     /// Per-panel admission state preventing restored PTY startup noise from
     /// taking ownership of the persisted title.
     var restoredPanelTitleBoundariesByPanelId: [UUID: RestoredPanelTitleBoundary] = [:]
@@ -5963,6 +5983,18 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         return true
     }
 
+    /// Marks a resumed agent ready only when its panel is in the prompt-idle state.
+    private func markAgentPromptResumeReadyIfPromptIdle(
+        panelId: UUID,
+        state: PanelShellActivityState
+    ) {
+        guard state == .promptIdle,
+              agentPromptInputScope(forPanelId: panelId) != nil else {
+            return
+        }
+        _ = markAgentPromptResumeReady(panelId: panelId)
+    }
+
     func updatePanelShellActivityState(panelId: UUID, state: PanelShellActivityState) {
         guard panels[panelId] != nil else { return }
         let previousState = panelShellActivityStates[panelId] ?? .unknown
@@ -5993,6 +6025,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             if let terminalPanel = panels[panelId] as? TerminalPanel {
                 terminalPanel.updateShellActivityState(state)
             }
+            markAgentPromptResumeReadyIfPromptIdle(panelId: panelId, state: state)
             return
         }
         let pendingRestoredTitle = restoredPanelTitleAfterShellActivity(
@@ -6018,6 +6051,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             updateBindingOnlyRestoredAgentResumeState(panelId: panelId, shellState: state)
         }
         if state == .promptIdle { _ = clearStaleAgentPIDs(panelId: panelId, refreshPorts: true) }
+        markAgentPromptResumeReadyIfPromptIdle(panelId: panelId, state: state)
 #if DEBUG
         cmuxDebugLog(
             "surface.shellState workspace=\(id.uuidString.prefix(5)) " +
@@ -6066,6 +6100,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
               ) else {
             return false
         }
+        // Hibernation permanently ends the old process generation. Do not
+        // carry its logical turn into the replacement runtime.
+        activeAgentTurnStartsByPanelId.removeValue(forKey: panelId)
         restoredAgentLifecycle.setSnapshot(agent, panelId: panelId)
         restoredAgentLifecycle.setResumeState(.manualResumeAvailable, panelId: panelId)
         invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
@@ -6541,6 +6578,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         pruneRemoteRelaySurfaceAliases(validSurfaceIds: validSurfaceIds)
         remoteDetectedSurfaceIds = remoteDetectedSurfaceIds.filter { validSurfaceIds.contains($0) }
         panelShellActivityStates = panelShellActivityStates.filter { validSurfaceIds.contains($0.key) }
+        activeAgentTurnStartsByPanelId = activeAgentTurnStartsByPanelId.filter {
+            validSurfaceIds.contains($0.key)
+        }
         restoredPanelTitleBoundariesByPanelId = restoredPanelTitleBoundariesByPanelId.filter {
             validSurfaceIds.contains($0.key)
         }

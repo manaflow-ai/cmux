@@ -99,9 +99,45 @@ extension TerminalController {
                 message: "Relay request authentication failed"
             )
         }
+        // `workspace.agent_submit` is also a public CLI entry point, so its
+        // relay callers may send short workspace/surface refs such as
+        // `workspace:1`. Resolve those refs only after the relay MAC has been
+        // verified, and constrain the result to the authenticated owner's
+        // topology before the package policy validates the selectors.
+        var authorizedParams = request.params
+        if request.method == "workspace.agent_submit" {
+            let resolvedSelectors = v2MainSync {
+                (
+                    self.v2UUIDAny(foundationParams["workspace_id"]),
+                    self.v2UUIDAny(foundationParams["surface_id"])
+                )
+            }
+            guard let resolvedWorkspaceID = resolvedSelectors.0,
+                  resolvedWorkspaceID == snapshot.ownerWorkspaceID else {
+                return deniedRemoteRelayRequest(
+                    request,
+                    code: "remote_relay_workspace_denied",
+                    message: "Relay request targets a different or unknown workspace"
+                )
+            }
+            authorizedParams["workspace_id"] = .string(resolvedWorkspaceID.uuidString)
+            if foundationParams["surface_id"] != nil,
+               !(foundationParams["surface_id"] is NSNull) {
+                guard let resolvedSurfaceID = resolvedSelectors.1,
+                      snapshot.surfaceIDs.contains(resolvedSurfaceID) else {
+                    return deniedRemoteRelayRequest(
+                        request,
+                        code: "remote_relay_surface_denied",
+                        message: "Relay request targets a different or unknown surface"
+                    )
+                }
+                authorizedParams["surface_id"] = .string(resolvedSurfaceID.uuidString)
+            }
+        }
+        let authorizedFoundationParams = authorizedParams.mapValues(\.foundationObject)
         switch RemoteRelayAuthorizationPolicy().validate(
             method: request.method,
-            parameters: foundationParams,
+            parameters: authorizedFoundationParams,
             ownerWorkspaceID: snapshot.ownerWorkspaceID,
             surfaceIDs: snapshot.surfaceIDs
         ) {
@@ -115,7 +151,7 @@ extension TerminalController {
             )
         }
 
-        var sanitizedParams = request.params
+        var sanitizedParams = authorizedParams
         sanitizedParams.removeValue(forKey: WorkspaceRemoteRelayCommandRewriter.requestAuthenticationCodeKey)
         let sanitizedRequest = ControlRequest(
             id: request.id,

@@ -148,7 +148,8 @@ Environment:
 | `current-workspace` | Print current workspace information. |
 | `read-selection` | Read the active selection from a terminal, file preview, Markdown, or browser surface. Plain output includes available source context; `--json` returns the complete socket response. |
 | `read-screen` | Read terminal text from a surface. `--selection` is a text-only compatibility alias for `read-selection`. |
-| `send` | Send text to a terminal surface. |
+| `send` | Send text to a terminal surface. Add `--atomic` to use addressed agent delivery and receive a `message_id`; without it this remains the raw input path. (`--agent` is reserved by `hooks setup --agent <name>` and is not a `send` flag.) |
+| `agent-submit` | Queue one complete prompt for a workspace's agent terminal. Admission is serialized per workspace, the text and submit key are one terminal transaction, and the response includes a `message_id`. A human terminal draft is left untouched; the message remains queued until the agent composer is safe. Subscribe to `workspace.agent_prompt.delivery` events for `queued`, `accepted`, `confirmed`, and terminal `failed` states. `agent_scope_unavailable` and `agent_busy` are retryable when called through the low-level socket path. Use `--surface` when a workspace has multiple agent terminals. |
 | `send-key` | Send one key to a terminal surface. |
 | `send-panel` | Send text to a panel/surface. |
 | `send-key-panel` | Send one key to a panel/surface. |
@@ -836,6 +837,7 @@ the expected text without connecting to a cmux socket.
 - `cmux display-message --help` -> `Usage: cmux display-message`
 - `cmux read-screen --help` -> `Usage: cmux read-screen`
 - `cmux send --help` -> `Usage: cmux send`
+- `cmux agent-submit --help` -> `Usage: cmux agent-submit`
 - `cmux send-key --help` -> `Usage: cmux send-key`
 - `cmux send-panel --help` -> `Usage: cmux send-panel`
 - `cmux send-key-panel --help` -> `Usage: cmux send-key-panel`

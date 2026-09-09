@@ -81,6 +81,16 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
 
+      - name: Set up Node.js for Node-backed unit suites
+        if: ${{ contains(inputs.unit_test_suites, 'OpenCodeHookRegressionTests') }}
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "20"
+
+      - name: Export Node binary for Xcode test runners
+        if: ${{ contains(inputs.unit_test_suites, 'OpenCodeHookRegressionTests') }}
+        run: echo "TEST_RUNNER_CMUX_NODE_BINARY=$(command -v node)" >> "$GITHUB_ENV"
+
       - name: Download pre-built GhosttyKit.xcframework
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,4 +1,5 @@
 import CmuxAgentChat
+import CmuxFoundation
 import CmuxTerminal
 import Foundation
 
@@ -24,6 +25,14 @@ extension TerminalController {
         String(
             localized: "mobile.chat.error.serviceUnavailable",
             defaultValue: "Agent chat transcript service is not configured"
+        )
+    }
+
+    /// Product-facing failure for invalid or unwritable mobile attachments.
+    static var chatAttachmentPreparationErrorMessage: String {
+        String(
+            localized: "mobile.chat.error.attachmentPreparationFailed",
+            defaultValue: "The attachment could not be prepared. Check it and try again."
         )
     }
 
@@ -145,7 +154,7 @@ extension TerminalController {
         for record in service.sessionRecords(workspaceID: nil) {
             guard let surfaceID = record.surfaceID,
                   let surfaceUUID = UUID(uuidString: surfaceID),
-                  workspace.terminalInputTarget(forPanelID: surfaceUUID) != nil else {
+                  workspace.controlSocketTerminalTarget(for: surfaceUUID) != nil else {
                 #if DEBUG
                 dropNotInWorkspace += 1
                 #endif
@@ -265,75 +274,289 @@ extension TerminalController {
             return .err(code: "invalid_params", message: "Missing session_id", data: nil)
         }
         let text = v2RawString(params, "text") ?? ""
-        let attachments = params["attachments"] as? [[String: Any]] ?? []
+        let rawAttachments = params["attachments"]
+        guard rawAttachments == nil || rawAttachments is [[String: Any]] else {
+            return .err(
+                code: "invalid_params",
+                message: Self.chatAttachmentPreparationErrorMessage,
+                data: nil
+            )
+        }
+        let attachments = (rawAttachments as? [[String: Any]]) ?? []
         guard !text.isEmpty || !attachments.isEmpty else {
             return .err(code: "invalid_params", message: "Nothing to send", data: nil)
         }
+        var attachmentPayloads: [MobileChatAttachmentPayload] = []
+        attachmentPayloads.reserveCapacity(attachments.count)
+        for attachment in attachments {
+            guard let encodedData = attachment["data_b64"] as? String,
+                  !encodedData.isEmpty else {
+                return .err(
+                    code: "invalid_params",
+                    message: Self.chatAttachmentPreparationErrorMessage,
+                    data: nil
+                )
+            }
+            attachmentPayloads.append(
+                MobileChatAttachmentPayload(
+                    encodedData: encodedData,
+                    fileExtension:
+                        (attachment["format"] as? String) ?? "png"
+                )
+            )
+        }
+        guard MobileChatAttachmentPayload.encodedBatchFitsAdmissionBudget(
+            attachmentPayloads
+        ) else {
+            return .err(
+                code: "invalid_params",
+                message: Self.chatAttachmentPreparationErrorMessage,
+                data: nil
+            )
+        }
         guard let terminalParams = await mobileChatTerminalParams(sessionID: sessionID) else {
-            return .err(code: "not_found", message: Self.chatTerminalBindingErrorMessage, data: [
-                "session_id": sessionID
-            ])
+            return .err(
+                code: "not_found",
+                message: Self.chatTerminalBindingErrorMessage,
+                data: nil
+            )
         }
-        guard let terminalTarget = await mobileChatTerminalTarget(sessionID: sessionID) else {
-            return .err(code: "not_found", message: Self.chatTerminalBindingErrorMessage, data: [
-                "session_id": sessionID
-            ])
+        guard mobileCanonicalTerminalTarget(params: terminalParams) != nil else {
+            return .err(
+                code: "not_found",
+                message: Self.chatTerminalBindingErrorMessage,
+                data: nil
+            )
         }
-        let clearResult = clearAgentPrompt(terminalTarget)
-        guard clearResult.accepted else {
-            return mobileChatInputError(clearResult)
+
+        // Materialize every attachment before the first terminal write. The
+        // Sendable payloads cross to a concurrent worker; only the completed
+        // paths return to the main-actor submission owner.
+        guard let attachmentFileURLs =
+                await Self.prepareMobileChatAttachments(
+                    attachmentPayloads,
+                    pasteboard: GhosttyApp.terminalPasteboard
+                ) else {
+            return .err(
+                code: "invalid_params",
+                message: Self.chatAttachmentPreparationErrorMessage,
+                data: nil
+            )
         }
-        for (index, attachment) in attachments.enumerated() {
-            guard let base64 = attachment["data_b64"] as? String else {
-                return .err(code: "invalid_params", message: "Attachment missing data_b64", data: nil)
+
+        // Attachment materialization suspends, so the session can move or
+        // disappear before delivery. Re-resolve after the suspension and use
+        // only that authoritative binding for the terminal transaction.
+        guard let refreshedTerminalParams =
+                await mobileChatTerminalParams(sessionID: sessionID) else {
+            GhosttyApp.terminalPasteboard
+                .cleanupTransferredTemporaryImageFiles(attachmentFileURLs)
+            return .err(
+                code: "not_found",
+                message: Self.chatTerminalBindingErrorMessage,
+                data: nil
+            )
+        }
+        guard let refreshedTerminalTarget = mobileCanonicalTerminalTarget(
+            params: refreshedTerminalParams
+        ) else {
+            GhosttyApp.terminalPasteboard
+                .cleanupTransferredTemporaryImageFiles(attachmentFileURLs)
+            return .err(
+                code: "not_found",
+                message: Self.chatTerminalBindingErrorMessage,
+                data: nil
+            )
+        }
+
+        var promptComponents: [String] = []
+        promptComponents.reserveCapacity(
+            attachments.count + (text.isEmpty ? 0 : 1)
+        )
+        for attachmentFileURL in attachmentFileURLs {
+            promptComponents.append(
+                attachmentFileURL.path.terminalShellEscaped
+            )
+        }
+        if !text.isEmpty {
+            promptComponents.append(text)
+        }
+        var pasteParams = refreshedTerminalParams
+        pasteParams["text"] = promptComponents.joined(separator: " ")
+        let attachmentDeliveryID: UUID? = attachmentFileURLs.isEmpty
+            ? nil
+            : retainMobileChatAttachmentDelivery(
+                workspaceID: refreshedTerminalTarget.workspace.id,
+                surfaceID: refreshedTerminalTarget.surfaceID,
+                promptText: pasteParams["text"] as? String ?? "",
+                fileURLs: attachmentFileURLs
+            )
+        let result = v2MobileTerminalPaste(
+            params: pasteParams,
+            rejectIfHumanComposerBusy: true
+        )
+        if case .err = result {
+            if let attachmentDeliveryID {
+                finishMobileChatAttachmentDelivery(id: attachmentDeliveryID)
             }
-            var imageParams = terminalParams
-            imageParams["image_base64"] = base64
-            imageParams["image_format"] = (attachment["format"] as? String) ?? "png"
-            let result = v2MobileTerminalPasteImage(params: imageParams)
-            if case .err = result {
-                return result
+        }
+        return result
+    }
+
+    /// Decodes and writes mobile attachments away from the main actor.
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
+    nonisolated static func prepareMobileChatAttachments(
+        _ attachments: [MobileChatAttachmentPayload],
+        pasteboard: TerminalPasteboardService
+    ) async -> [URL]? {
+        guard MobileChatAttachmentPayload.encodedBatchFitsAdmissionBudget(
+            attachments
+        ) else {
+            return nil
+        }
+        var fileURLs: [URL] = []
+        fileURLs.reserveCapacity(attachments.count)
+        var decodedBytes = 0
+
+        for attachment in attachments {
+            guard let imageData = Data(
+                      base64Encoded: attachment.encodedData
+                  ),
+                  !imageData.isEmpty,
+                  imageData.count
+                      <= MobileChatAttachmentPayload.maximumPerAttachmentDecodedBytes else {
+                pasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
+                return nil
             }
-            // Separate each pasted path from the next path or the prompt
-            // (the local Mac paste joins with spaces too) so the agent
-            // detects the paths and the echo is "<path> <path> <text>" —
-            // the shape the client's pending-row reconcile matches. A
-            // dropped separator corrupts that shape; surface it.
-            let needsSeparator = index < attachments.count - 1 || !text.isEmpty
-            if needsSeparator {
-                guard let currentTarget = mobileCanonicalTerminalTarget(params: terminalParams)?.target else {
-                    return .err(code: "not_found", message: Self.chatTerminalBindingErrorMessage, data: [
-                        "session_id": sessionID
-                    ])
+            let (nextDecodedBytes, overflowed) =
+                decodedBytes.addingReportingOverflow(imageData.count)
+            guard !overflowed,
+                  nextDecodedBytes
+                      <= MobileChatAttachmentPayload.maximumTotalDecodedBytes,
+                  let fileURL = pasteboard.saveImageDataFileURL(
+                      imageData,
+                      fileExtension: attachment.fileExtension
+                  ) else {
+                pasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
+                return nil
+            }
+            decodedBytes = nextDecodedBytes
+            fileURLs.append(fileURL)
+        }
+        return fileURLs
+    }
+
+    /// Retains materialized attachment files until their prompt hook arrives,
+    /// with a bounded deadline for a queued or abandoned submission.
+    @MainActor
+    func retainMobileChatAttachmentDelivery(
+        workspaceID: UUID,
+        surfaceID: UUID,
+        promptText: String,
+        fileURLs: [URL]
+    ) -> UUID {
+        while mobileChatAttachmentDeliveryOrder.count
+                >= Self.maximumMobileChatAttachmentDeliveries {
+            guard let oldestID = mobileChatAttachmentDeliveryOrder.first else {
+                break
+            }
+            if mobileChatAttachmentDeliveries[oldestID] == nil {
+                mobileChatAttachmentDeliveryOrder.removeFirst()
+                mobileChatAttachmentCleanupSchedulers.removeValue(forKey: oldestID)?.cancel()
+                continue
+            }
+            finishMobileChatAttachmentDelivery(id: oldestID)
+        }
+
+        let delivery = MobileChatAttachmentDelivery(
+            id: UUID(),
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            promptText: promptText,
+            fileURLs: fileURLs
+        )
+        mobileChatAttachmentDeliveries[delivery.id] = delivery
+        mobileChatAttachmentDeliveryOrder.append(delivery.id)
+
+        let scheduler = MainActorDeferredActionScheduler()
+        mobileChatAttachmentCleanupSchedulers[delivery.id] = scheduler
+        scheduler.schedule(after: .seconds(10 * 60)) { [weak self] in
+            self?.finishMobileChatAttachmentDelivery(id: delivery.id)
+        }
+        return delivery.id
+    }
+
+    /// Releases one retained batch after the agent's matching prompt hook or
+    /// the bounded abandonment deadline.
+    @MainActor
+    func finishMobileChatAttachmentDelivery(id: UUID) {
+        guard let delivery = mobileChatAttachmentDeliveries.removeValue(forKey: id) else {
+            return
+        }
+        mobileChatAttachmentDeliveryOrder.removeAll { $0 == id }
+        mobileChatAttachmentCleanupSchedulers.removeValue(forKey: id)?.cancel()
+        GhosttyApp.terminalPasteboard
+            .cleanupTransferredTemporaryImageFiles(delivery.fileURLs)
+    }
+
+    /// Releases the oldest matching batch after an authoritative prompt hook.
+    @MainActor
+    func finishMobileChatAttachmentDelivery(
+        workspaceID: UUID,
+        surfaceID: UUID,
+        submittedMessage: String?
+    ) {
+        let normalizedMessage = submittedMessage.map {
+            $0.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        }
+        guard let deliveryID = mobileChatAttachmentDeliveryOrder.first(
+            where: { id in
+                guard let delivery = mobileChatAttachmentDeliveries[id],
+                      delivery.workspaceID == workspaceID,
+                      delivery.surfaceID == surfaceID,
+                      let normalizedMessage,
+                      !normalizedMessage.isEmpty else {
+                    return false
                 }
-                let separatorResult = currentTarget.sendInputResult(" ")
-                switch separatorResult {
-                case .sent, .queued:
-                    break
-                case .inputQueueFull:
-                    return .err(code: "input_queue_full", message: Self.terminalInputQueueFullMessage, data: nil)
-                case .surfaceUnavailable:
-                    return .err(code: "surface_unavailable", message: Self.terminalSurfaceUnavailableMessage, data: nil)
-                case .processExited:
-                    return .err(code: "process_exited", message: Self.terminalProcessExitedMessage, data: nil)
+                let normalizedPrompt = delivery.promptText
+                    .split(whereSeparator: \.isWhitespace)
+                    .joined(separator: " ")
+                if normalizedMessage == normalizedPrompt {
+                    return true
+                }
+                return delivery.fileURLs.allSatisfy { fileURL in
+                    normalizedMessage.contains(fileURL.path)
+                        || normalizedMessage.contains(
+                            fileURL.path.terminalShellEscaped
+                        )
                 }
             }
+        ) else {
+            return
         }
-        guard !text.isEmpty else {
-            // Attachment-only send: the image path is sitting pasted at the
-            // agent's prompt; submit it so the send actually reaches the
-            // agent instead of idling in the line editor.
-            guard let currentTarget = mobileCanonicalTerminalTarget(params: terminalParams)?.target else {
-                return .err(code: "not_found", message: Self.chatTerminalBindingErrorMessage, data: [
-                    "session_id": sessionID
-                ])
+        finishMobileChatAttachmentDelivery(id: deliveryID)
+    }
+
+    /// Releases all attachment batches owned by a closing workspace or surface.
+    @MainActor
+    func discardMobileChatAttachmentDeliveries(
+        workspaceID: UUID,
+        surfaceID: UUID? = nil
+    ) {
+        let ids = mobileChatAttachmentDeliveryOrder.filter { id in
+            guard let delivery = mobileChatAttachmentDeliveries[id],
+                  delivery.workspaceID == workspaceID else {
+                return false
             }
-            let keyResult = currentTarget.sendNamedKeyResult("return")
-            return .ok(["submitted": keyResult.accepted])
+            return surfaceID == nil || delivery.surfaceID == surfaceID
         }
-        var pasteParams = terminalParams
-        pasteParams["text"] = text
-        return v2MobileTerminalPaste(params: pasteParams)
+        for id in ids {
+            finishMobileChatAttachmentDelivery(id: id)
+        }
     }
 
     /// `mobile.chat.interrupt`: polite (Esc) or hard (ctrl-C) interrupt of
@@ -348,7 +571,10 @@ extension TerminalController {
                 "session_id": sessionID
             ])
         }
-        let keyResult = terminalTarget.sendNamedKeyResult(hard ? "ctrl+c" : "escape")
+        let keyResult = terminalTarget.sendNamedKeyResult(
+            hard ? "ctrl+c" : "escape",
+            recordsPromptInput: false
+        )
         guard keyResult.accepted else {
             return .err(code: "surface_unavailable", message: String(
                 localized: "mobile.chat.error.interruptNotAccepted",
@@ -414,10 +640,17 @@ extension TerminalController {
         cmuxDebugLog("mobile.chat binding stale session=\(sessionID.prefix(8)) surface=\(record.surfaceID?.prefix(8) ?? "nil"); refreshing from hook store")
         #endif
         if let refreshed = await service.refreshSessionBindings(sessionID: sessionID),
+           let refreshedWorkspaceID = refreshed.workspaceID,
            let surfaceID = refreshed.surfaceID,
-           mobileChatBindingResolves(workspaceID: workspaceID, surfaceID: surfaceID),
+           mobileChatBindingResolves(
+               workspaceID: refreshedWorkspaceID,
+               surfaceID: surfaceID
+           ),
            mobileChatBindingIsCurrentAgent(refreshed) {
-            return ["workspace_id": workspaceID, "surface_id": surfaceID]
+            return [
+                "workspace_id": refreshedWorkspaceID,
+                "surface_id": surfaceID
+            ]
         }
         #if DEBUG
         cmuxDebugLog("mobile.chat binding unresolved session=\(sessionID.prefix(8))")

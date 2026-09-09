@@ -575,6 +575,47 @@ struct RemoteResumeBindingTests {
         let pingEnvelope = try v2Envelope(requestData: ping)
         #expect(pingEnvelope["ok"] as? Bool == true, "\(pingEnvelope)")
 
+        // Relay callers use the same short refs as the CLI. Authorization must
+        // resolve them inside the authenticated owner's topology before the
+        // selector allow-list rejects non-UUID values.
+        let workspaceRef = try #require(
+            TerminalController.shared.v2Ref(
+                kind: .workspace,
+                uuid: workspace.id
+            ) as? String
+        )
+        let surfaceRef = try #require(
+            TerminalController.shared.v2Ref(
+                kind: .surface,
+                uuid: surfaceID
+            ) as? String
+        )
+        let relayedAgentSubmit = rewriter.rewriteRemoteRelayCommandLine(
+            try requestData([
+                "id": "relay-agent-submit-refs",
+                "method": "workspace.agent_submit",
+                "params": [
+                    "workspace_id": workspaceRef,
+                    "surface_id": surfaceRef,
+                    "text": "queued from a relay ref",
+                ],
+            ]),
+            workspaceAliases: [:],
+            surfaceAliases: [:]
+        )
+        let relayedAgentRequest = try controlRequest(relayedAgentSubmit)
+        let agentAuthorization = TerminalController.shared
+            .authorizeRemoteRelayRequest(relayedAgentRequest)
+        #expect(agentAuthorization.errorResponse == nil)
+        #expect(
+            agentAuthorization.request.params["workspace_id"]
+                == .string(workspace.id.uuidString)
+        )
+        #expect(
+            agentAuthorization.request.params["surface_id"]
+                == .string(surfaceID.uuidString)
+        )
+
         let readSelection = rewriter.rewriteRemoteRelayCommandLine(
             try requestData([
                 "id": "relay-read-selection",
@@ -643,6 +684,88 @@ struct RemoteResumeBindingTests {
         #expect(nestedEnvelope["ok"] as? Bool == false, "\(nestedEnvelope)")
         let nestedError = try #require(nestedEnvelope["error"] as? [String: Any])
         #expect(nestedError["code"] as? String == "remote_relay_workspace_denied")
+    }
+
+    @Test
+    func relayedAgentSubmitRejectsForeignAndUnresolvableSelectors() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        let windowID = UUID()
+        let window = makeMainWindow(id: windowID)
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        app.registerMainWindow(
+            window,
+            windowId: windowID,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            for workspace in manager.tabs {
+                workspace.teardownAllPanels()
+            }
+            TerminalController.shared.setActiveTabManager(nil)
+            app.unregisterMainWindowContextForTesting(windowId: windowID)
+            AppDelegate.shared = previousAppDelegate
+            window.orderOut(nil)
+        }
+
+        let owner = try #require(manager.selectedWorkspace)
+        let ownerSurfaceID = try #require(owner.focusedPanelId)
+        let foreign = manager.addWorkspace(select: false)
+        let foreignSurfaceID = try #require(foreign.focusedPanelId)
+        owner.configureRemoteConnection(remoteConfiguration(), autoConnect: false)
+        let relayToken = try #require(owner.remoteConfiguration?.relayToken)
+        let rewriter = WorkspaceRemoteRelayCommandRewriter(
+            remoteWorkspaceID: owner.id,
+            remoteRelayTokenHex: relayToken
+        )
+
+        func denialCode(
+            id: String,
+            workspaceID: String,
+            surfaceID: String
+        ) throws -> String {
+            let rewritten = rewriter.rewriteRemoteRelayCommandLine(
+                try requestData([
+                    "id": id,
+                    "method": "workspace.agent_submit",
+                    "params": [
+                        "workspace_id": workspaceID,
+                        "surface_id": surfaceID,
+                        "text": "must stay inside owner topology",
+                    ],
+                ]),
+                workspaceAliases: [:],
+                surfaceAliases: [:]
+            )
+            let envelope = try v2Envelope(requestData: rewritten)
+            #expect(
+                envelope["ok"] as? Bool == false,
+                Comment(rawValue: String(describing: envelope))
+            )
+            let error = try #require(envelope["error"] as? [String: Any])
+            return try #require(error["code"] as? String)
+        }
+
+        #expect(try denialCode(
+            id: "foreign-workspace",
+            workspaceID: foreign.id.uuidString,
+            surfaceID: ownerSurfaceID.uuidString
+        ) == "remote_relay_workspace_denied")
+        #expect(try denialCode(
+            id: "foreign-surface",
+            workspaceID: owner.id.uuidString,
+            surfaceID: foreignSurfaceID.uuidString
+        ) == "remote_relay_surface_denied")
+        #expect(try denialCode(
+            id: "unresolvable-workspace",
+            workspaceID: "workspace:does-not-exist",
+            surfaceID: ownerSurfaceID.uuidString
+        ) == "remote_relay_workspace_denied")
     }
 
     @Test
@@ -1199,6 +1322,10 @@ struct RemoteResumeBindingTests {
             remotePTYSessionID: remotePTYSessionID,
             restoredPanelId: surfaceID
         )
+        // The persisted PTY and relay binding represent an active remote
+        // terminal. Keep the fixture's topology aligned with production so
+        // session restore exercises the remote startup command path.
+        workspace.trackRemoteTerminalSurface(surfaceID)
 
         let relayedRequest: [String: Any] = [
             "id": "relayed-resume-set",
@@ -1595,6 +1722,21 @@ struct RemoteResumeBindingTests {
         TerminalController.shared.stop(cleanupDiscoveryState: true)
         try? FileManager.default.removeItem(atPath: path)
         try? FileManager.default.removeItem(atPath: path + ".lock")
+    }
+
+    private func controlRequest(_ data: Data) throws -> ControlRequest {
+        let line = String(decoding: data, as: UTF8.self)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        switch ControlRequestParser().request(fromLine: line) {
+        case .success(let request):
+            return request
+        case .failure(let error):
+            throw NSError(
+                domain: "cmux.tests",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: String(describing: error)]
+            )
+        }
     }
 
     private func makeMainWindow(id: UUID) -> NSWindow {

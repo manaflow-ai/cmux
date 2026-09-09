@@ -149,17 +149,26 @@ extension TerminalSurface {
         bytes: Int,
         keyEvents: Int,
         pasteTextItems: Int,
+        promptSubmissionItems: Int,
         inputTextItems: Int,
         processOutputItems: Int
     ) {
         let counts = pendingSocketInputQueue.reduce(
-            into: (keyEvents: 0, pasteTextItems: 0, inputTextItems: 0, processOutputItems: 0)
+            into: (
+                keyEvents: 0,
+                pasteTextItems: 0,
+                promptSubmissionItems: 0,
+                inputTextItems: 0,
+                processOutputItems: 0
+            )
         ) { counts, item in
             switch item {
             case .key, .keyText:
                 counts.keyEvents += 1
             case .pasteText:
                 counts.pasteTextItems += 1
+            case .promptSubmission:
+                counts.promptSubmissionItems += 1
             case .inputText:
                 counts.inputTextItems += 1
             case .processOutput:
@@ -171,6 +180,7 @@ extension TerminalSurface {
             pendingSocketInputBytes,
             counts.keyEvents,
             counts.pasteTextItems,
+            counts.promptSubmissionItems,
             counts.inputTextItems,
             counts.processOutputItems
         )

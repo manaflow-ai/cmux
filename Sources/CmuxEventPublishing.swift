@@ -83,20 +83,50 @@ extension CmuxEventBus {
         workspaceId: UUID,
         message: String?,
         preview: String?,
-        source: String = "workspace.prompt_submit"
+        source: String = "workspace.prompt_submit",
+        messageID: UUID? = nil
     ) {
+        var payload: [String: Any] = [
+            "workspace_id": workspaceId.uuidString,
+            "message": NSNull(),
+            "message_preview": preview ?? NSNull(),
+            "message_length": message?.count ?? 0,
+            "redacted_fields": ["message"]
+        ]
+        if let messageID {
+            payload["message_id"] = messageID.uuidString
+        }
         publish(
             name: "workspace.prompt.submitted",
             category: "workspace",
             source: source,
             workspaceId: workspaceId.uuidString,
-            payload: [
-                "workspace_id": workspaceId.uuidString,
-                "message": NSNull(),
-                "message_preview": preview ?? NSNull(),
-                "message_length": message?.count ?? 0,
-                "redacted_fields": ["message"]
-            ]
+            payload: payload
+        )
+    }
+
+    /// Publishes an addressed prompt's lifecycle without exposing its text.
+    func publishAgentPromptDelivery(
+        messageID: UUID,
+        workspaceId: UUID,
+        surfaceId: UUID?,
+        state: String,
+        reason: String? = nil
+    ) {
+        var payload: [String: Any] = [
+            "message_id": messageID.uuidString,
+            "workspace_id": workspaceId.uuidString,
+            "surface_id": surfaceId?.uuidString ?? NSNull(),
+            "state": state
+        ]
+        if let reason { payload["reason"] = reason }
+        publish(
+            name: "workspace.agent_prompt.delivery",
+            category: "workspace",
+            source: "workspace.agent_submit",
+            workspaceId: workspaceId.uuidString,
+            surfaceId: surfaceId?.uuidString,
+            payload: payload
         )
     }
 

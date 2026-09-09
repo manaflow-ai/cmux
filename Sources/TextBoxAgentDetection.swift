@@ -1,7 +1,7 @@
 import CmuxAgentChat
 import Foundation
 
-enum TextBoxAgentDetection: CaseIterable {
+enum TextBoxAgentDetection: CaseIterable, Equatable {
     case claudeCode
     case codex
     case opencode
@@ -77,6 +77,20 @@ enum TextBoxAgentDetection: CaseIterable {
 
     static func isClaudeCode(context: String) -> Bool {
         claudeCode.matches(context: context)
+    }
+
+    static func representsSameAgentKind(
+        _ lhsContext: String,
+        _ rhsContext: String
+    ) -> Bool {
+        guard let lhs = allCases.first(where: {
+            $0.matches(context: lhsContext)
+        }), let rhs = allCases.first(where: {
+            $0.matches(context: rhsContext)
+        }) else {
+            return false
+        }
+        return lhs == rhs
     }
 
     static func composedPromptSubmitKey(containsNewline: Bool, context: String) -> String {

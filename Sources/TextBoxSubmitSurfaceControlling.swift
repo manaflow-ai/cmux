@@ -30,6 +30,13 @@ extension TextBoxSubmitSurfaceControlling {
 }
 
 extension TerminalSurface: TextBoxSubmitSurfaceControlling {
+    /// Satisfies the protocol requirement; the defaulted
+    /// `recordsPromptInput:` parameter on the concrete method cannot.
+    @discardableResult
+    func sendNamedKey(_ keyName: String) -> NamedKeySendResult {
+        sendNamedKey(keyName, recordsPromptInput: true)
+    }
+
     var textBoxSubmitObservationWindow: NSWindow? {
         hostedView.window
     }

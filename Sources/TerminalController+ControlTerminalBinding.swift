@@ -43,11 +43,77 @@ struct ControlTerminalSocketTarget {
 
     /// Sends a named key through the canonical surface, retaining the panel's
     /// explicit-input resume behavior for an ordinary bound target.
-    func sendNamedKeyResult(_ key: String) -> TerminalSurface.NamedKeySendResult {
+    ///
+    /// - Parameter recordsPromptInput: Whether the key should be attributed to
+    ///   the human prompt ledger. Interrupt keys opt out because they control
+    ///   the agent turn rather than editing its prompt.
+    func sendNamedKeyResult(
+        _ key: String,
+        recordsPromptInput: Bool = true
+    ) -> TerminalSurface.NamedKeySendResult {
         if surface === panel.surface {
-            return panel.sendNamedKeyResult(key)
+            return panel.sendNamedKeyResult(
+                key,
+                recordsPromptInput: recordsPromptInput
+            )
         }
-        return surface.sendNamedKey(key)
+        return surface.sendNamedKey(
+            key,
+            recordsPromptInput: recordsPromptInput
+        )
+    }
+
+    /// Delivers a compound prompt through the canonical runtime surface.
+    ///
+    /// The panel remains the structural owner for hibernation state, while a
+    /// registry-rebound target may point at a newer ``TerminalSurface``. In
+    /// that overlap window, composer admission and the compound write must
+    /// inspect and mutate the same canonical ledger.
+    func sendPromptSubmissionResult(
+        _ text: String,
+        submitKey: String,
+        preparationKeys: [String] = [],
+        agentInputScope: String?,
+        rejectIfHumanComposerBusy: Bool,
+        hookRecordingSource: String?,
+        hookConfirmsHumanInput: Bool = false,
+        deferDuringRuntimeClipboardRead: Bool = true,
+        messageID: UUID? = nil
+    ) -> TerminalSurface.PromptSubmissionSendResult {
+        if surface === panel.surface {
+            return panel.sendPromptSubmissionResult(
+                text,
+                submitKey: submitKey,
+                preparationKeys: preparationKeys,
+                agentInputScope: agentInputScope,
+                rejectIfHumanComposerBusy: rejectIfHumanComposerBusy,
+                hookRecordingSource: hookRecordingSource,
+                hookConfirmsHumanInput: hookConfirmsHumanInput,
+                deferDuringRuntimeClipboardRead:
+                    deferDuringRuntimeClipboardRead,
+                messageID: messageID
+            )
+        }
+
+        if panel.isAgentHibernated {
+            _ = panel.prepareAgentHibernationResume()
+            return .agentScopeUnavailable
+        }
+        surface.synchronizePromptInputAgentScope(agentInputScope)
+        if rejectIfHumanComposerBusy,
+           surface.hasUnconfirmedHumanPromptInput {
+            return .composerBusy
+        }
+        return surface.sendPromptSubmission(
+            text,
+            submitKey: submitKey,
+            preparationKeys: preparationKeys,
+            rejectIfHumanComposerBusy: rejectIfHumanComposerBusy,
+            hookRecordingSource: hookRecordingSource,
+            hookConfirmsHumanInput: hookConfirmsHumanInput,
+            deferDuringRuntimeClipboardRead: deferDuringRuntimeClipboardRead,
+            messageID: messageID
+        )
     }
 
     /// Performs a Ghostty binding action against the canonical surface.
