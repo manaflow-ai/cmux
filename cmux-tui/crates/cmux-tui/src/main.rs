@@ -2047,6 +2047,12 @@ fn run_server(
                 state_root.as_deref(),
             )
         })?;
+    // Cloud's trusted-carrier daemon owns the initial session shape. It creates
+    // workspace-1 with one terminal before accepting clients, and the
+    // idempotent Session bootstrap preserves existing names and sessions.
+    if args.remote_ws_trusted_carrier {
+        Session::Local(mux.clone()).ensure_initial(None)?;
+    }
     // Background mux workers can report reconnect diagnostics before an
     // interactive client attaches. Install the non-terminal sink as soon as
     // the owner mux exists, before serving or adopting clients.

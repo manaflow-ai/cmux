@@ -440,7 +440,7 @@ final class MachinesPanelModelTests: XCTestCase {
         )
         let ids = CloudTreeNodeBuilder.flattened(nodes).map(\.id)
         // One machine, many workspaces: the Workspaces group leads (every workspace the
-        // machine reports, pointer rows under each), then Ports, VNC Displays (one row
+        // machine reports, pointer rows under each), then Ports, Displays (one row
         // per screen), and last, its own section, Terminals (every terminal the machine owns).
         XCTAssertEqual(ids, [
             "machine:local",
@@ -497,13 +497,13 @@ final class MachinesPanelModelTests: XCTestCase {
             includeLocalMachine: true
         )
         let openByID = Dictionary(CloudTreeNodeBuilder.flattened(openNodes).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        if case .workspace(_, _, _, _, let openIn) = openByID["machine:vivid-newt/ws/ws_main"]!.kind {
+        if case .workspace(_, _, _, let openIn) = openByID["machine:vivid-newt/ws/ws_main"]!.kind {
             XCTAssertEqual(openIn, local, "term_1's pane lives in the local workspace")
         } else { XCTFail("expected ws_main row") }
-        if case .workspace(_, _, _, _, let openIn) = openByID["machine:vivid-newt/ws/ws_side"]!.kind {
+        if case .workspace(_, _, _, let openIn) = openByID["machine:vivid-newt/ws/ws_side"]!.kind {
             XCTAssertEqual(openIn, remoteSideLocalWorkspace, "term_1's second remote view uses its own local workspace")
         } else { XCTFail("expected ws_side row") }
-        if case .workspace(_, _, _, _, let openIn) = openByID["machine:vivid-newt/ws/ws_empty"]!.kind {
+        if case .workspace(_, _, _, let openIn) = openByID["machine:vivid-newt/ws/ws_empty"]!.kind {
             XCTAssertNil(openIn, "nothing of it is open anywhere")
         } else { XCTFail("expected ws_empty row") }
         // Desktop rows: a workspace's own display pointer opens inside the local
@@ -556,7 +556,7 @@ final class MachinesPanelModelTests: XCTestCase {
             XCTAssertEqual(row.remoteView?.tabID, "tab_9")
         } else { XCTFail("expected pointer row") }
         // The empty workspace still gets a row (from the machine info), with no pointers.
-        if case .workspace(_, let workspace, let count, _, _) = byID["machine:vivid-newt/ws/ws_empty"]!.kind {
+        if case .workspace(_, let workspace, let count, _) = byID["machine:vivid-newt/ws/ws_empty"]!.kind {
             XCTAssertEqual(workspace.name, "scratch")
             XCTAssertEqual(count, 0)
         } else { XCTFail("expected empty workspace row") }

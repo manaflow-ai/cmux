@@ -68545,7 +68545,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "VNC Displays"
+            "value": "Displays"
           }
         },
         "ja": {
@@ -298747,6 +298747,41 @@
           "value": "ポートを検出中…"
         }
       }
+    }
+  },
+  "cloudTree.displays.loading": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Discovering displays…" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "ディスプレイを検出中…" } }
+    }
+  },
+  "cloudTree.displays.failed": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Couldn’t discover displays. Refresh to retry." } },
+      "ja": { "stringUnit": { "state": "translated", "value": "ディスプレイを検出できませんでした。更新して再試行してください。" } }
+    }
+  },
+  "cloudTree.displays.asleep": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Open the machine to discover displays" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "マシンを開いてディスプレイを検出" } }
+    }
+  },
+  "cloudTree.displays.unavailable": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Display discovery unavailable. Refresh to retry." } },
+      "ja": { "stringUnit": { "state": "translated", "value": "ディスプレイ検出を利用できません。更新して再試行してください。" } }
+    }
+  },
+  "cloudTree.displays.empty": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "No displays available" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "利用可能なディスプレイはありません" } }
     }
   },
   "cloudTree.ports.failed": {

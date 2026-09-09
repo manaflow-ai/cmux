@@ -1106,26 +1106,43 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         let connected = try await links.connected(machineID: machineID)
         guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
         let workspaceID: String
+        var initialTerminal: CmuxTuiSnapshotParser.CreatedTerminalPath? = nil
         if let remoteWorkspaceID = remoteWorkspaceID?.trimmingCharacters(in: .whitespacesAndNewlines), !remoteWorkspaceID.isEmpty {
             workspaceID = remoteWorkspaceID
         } else if let existing = catalog.snapshot.resources(on: machine).compactMap(\.remoteWorkspace).sorted(by: { ($0.focused ? 0 : 1, $0.index) < ($1.focused ? 0 : 1, $1.index) }).first {
             workspaceID = existing.id
         } else {
-            let created = try await link.run(arguments: CloudTuiCommandLine.createWorkspaceArguments(socketPath: connected.socketPath, name: name ?? "main"))
-            guard let object = try JSONSerialization.jsonObject(with: created) as? [String: Any],
-                  let id = CmuxTuiSnapshotParser.createdWorkspace(fromResult: object) else {
+            let created = try await link.run(arguments: CloudTuiCommandLine.createWorkspaceArguments(socketPath: connected.socketPath))
+            guard let object = try JSONSerialization.jsonObject(with: created) as? [String: Any] else {
                 throw ProviderError.noWorkspaceOnMachine(machineID)
             }
-            workspaceID = id
+            if let path = CmuxTuiSnapshotParser.createdTerminal(fromRunResult: object),
+               let id = path.workspaceID, !id.isEmpty {
+                // `workspace create` is effectful and already owns the one
+                // starter terminal. Reuse its exact receipt instead of running
+                // a second shell, which previously produced two terminals.
+                initialTerminal = path
+                workspaceID = id
+            } else if let id = CmuxTuiSnapshotParser.createdWorkspace(fromResult: object) {
+                workspaceID = id
+            } else {
+                throw ProviderError.noWorkspaceOnMachine(machineID)
+            }
         }
         let argv = CloudTuiCommandLine.commandStartingIn(
             cwd: cwd,
             command: (command?.isEmpty == false ? command : nil) ?? CloudTuiCommandLine.defaultTerminalCommand
         )
-        let data = try await link.run(arguments: CloudTuiCommandLine.runArguments(socketPath: connected.socketPath, workspaceID: workspaceID, command: argv))
-        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let created = CmuxTuiSnapshotParser.createdTerminal(fromRunResult: object) else {
-            throw ProviderError.terminalNotCreated(String(data: data, encoding: .utf8) ?? "")
+        let created: CmuxTuiSnapshotParser.CreatedTerminalPath
+        if let initialTerminal {
+            created = initialTerminal
+        } else {
+            let data = try await link.run(arguments: CloudTuiCommandLine.runArguments(socketPath: connected.socketPath, workspaceID: workspaceID, command: argv))
+            guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let path = CmuxTuiSnapshotParser.createdTerminal(fromRunResult: object) else {
+                throw ProviderError.terminalNotCreated(String(data: data, encoding: .utf8) ?? "")
+            }
+            created = path
         }
         let resolvedWorkspaceID = created.workspaceID ?? workspaceID
         let remoteWorkspace = cloudState?.workspaces.first(where: { $0.id == resolvedWorkspaceID }).map {

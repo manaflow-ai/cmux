@@ -1417,21 +1417,10 @@ extension CMUXCLI {
             let workspaceId = workspace.id
             let name = workspace.name.isEmpty ? workspaceId : workspace.name
             lines.append("    \(name)  \(workspaceId)\(workspace.focused ? "  *" : "")  (cmux vm open \(id)/\(workspaceId))")
-            // Rows follow the layout, as in the sidebar: one per pane (the tab it shows),
-            // the pane's other tabs indented beneath it.
-            for row in vmTreeLayoutRows(workspace.placements) {
-                var cell = "      " + vmTreeWorkspaceCell(row.placement, machineID: id, workspaceID: workspaceId)
-                if !row.hiddenTabs.isEmpty {
-                    cell += "  " + String(
-                        format: String(localized: "cli.vm.tree.hiddenTabs", defaultValue: "(+%d hidden)"),
-                        row.hiddenTabs.count
-                    )
-                }
-                lines.append(cell)
-                for hidden in row.hiddenTabs {
-                    lines.append("        " + String(localized: "cli.vm.tree.hiddenTab", defaultValue: "↳ tab") + "  "
-                        + vmTreeWorkspaceCell(hidden, machineID: id, workspaceID: workspaceId))
-                }
+            // Rows follow the layout, as in the sidebar, with every tab as a
+            // sibling leaf. Pane grouping is retained only for ordering.
+            for placement in vmTreeLayoutRows(workspace.placements) {
+                lines.append("      " + vmTreeWorkspaceCell(placement, machineID: id, workspaceID: workspaceId))
             }
         }
         // Ports come before displays, matching the Cloud sidebar's group order.
@@ -1459,10 +1448,10 @@ extension CMUXCLI {
             }
         }
 
-        // VNC Displays are catalog resources, so emit one addressable row per
+        // Displays are catalog resources, so emit one addressable row per
         // screen instead of collapsing several screens into one synthetic desktop.
         if !displays.isEmpty {
-            lines.append("  " + String(localized: "cli.vm.tree.displays", defaultValue: "VNC Displays/"))
+            lines.append("  " + String(localized: "cli.vm.tree.displays", defaultValue: "Displays/"))
             for display in displays {
                 lines.append("    " + vmTreeResourceCell(display, openHint: "cmux surface open", showFullKey: true))
             }
@@ -1528,16 +1517,9 @@ extension CMUXCLI {
         let view: [String: Any]?
     }
 
-    /// One row of a workspace listing: the placement it shows and, for a pane holding
-    /// several tabs, the tabs behind the shown one.
-    struct VMTreeLayoutRow {
-        let placement: VMTreePlacement
-        let hiddenTabs: [VMTreePlacement]
-    }
-
     /// Maps wire placements through the same ``RemoteWorkspaceLayout`` used by the sidebar.
     /// Formatting stays in the CLI; pane grouping, ordering, and active-tab selection do not.
-    static func vmTreeLayoutRows(_ placements: [VMTreePlacement]) -> [VMTreeLayoutRow] {
+    static func vmTreeLayoutRows(_ placements: [VMTreePlacement]) -> [VMTreePlacement] {
         func position(_ view: [String: Any]?, _ key: String) -> Int? {
             vmTreeNumber(view?[key]).flatMap { Int(exactly: $0) }
         }
@@ -1553,12 +1535,7 @@ extension CMUXCLI {
                 kindOrder: kindRank[placement.resource["kind"] as? String ?? ""] ?? 3
             )
         })
-        return layout.rows.map { row in
-            VMTreeLayoutRow(
-                placement: placements[row.shownIndex],
-                hiddenTabs: row.hiddenIndices.map { placements[$0] }
-            )
-        }
+        return layout.flatPlacementIndices.map { placements[$0] }
     }
 
     /// A workspace pointer cell: terminals address through the workspace (`cmux vm open <m>/<ws>/<term>`),
