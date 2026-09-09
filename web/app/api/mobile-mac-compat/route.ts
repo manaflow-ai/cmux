@@ -77,10 +77,22 @@ function validateEntry(entry: MobileMacCompatEntry, path: string): void {
       );
     }
   }
-  version(entry.stableMinVersion, `${path}.stableMinVersion`);
-  if (entry.nightly !== undefined) {
-    version(entry.nightly.minBaseVersion, `${path}.nightly.minBaseVersion`);
-    build(entry.nightly.minBuild, `${path}.nightly.minBuild`);
+  if (entry.buildKinds !== undefined) {
+    for (const [kind, requirement] of Object.entries(entry.buildKinds)) {
+      const requirementPath = `${path}.buildKinds.${kind}`;
+      version(requirement.stableMinVersion, `${requirementPath}.stableMinVersion`);
+      if (requirement.nightly !== undefined) {
+        version(requirement.nightly.minBaseVersion, `${requirementPath}.nightly.minBaseVersion`);
+        build(requirement.nightly.minBuild, `${requirementPath}.nightly.minBuild`);
+      }
+    }
+  } else {
+    // Accept the pre-build-kind shape during a rolling deployment.
+    version(entry.stableMinVersion, `${path}.stableMinVersion`);
+    if (entry.nightly !== undefined) {
+      version(entry.nightly.minBaseVersion, `${path}.nightly.minBaseVersion`);
+      build(entry.nightly.minBuild, `${path}.nightly.minBuild`);
+    }
   }
 }
 
