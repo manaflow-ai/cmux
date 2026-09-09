@@ -1,3 +1,5 @@
+import CmuxSettings
+
 struct ResolvedSettingsSnapshot {
     var path: String?
     var shortcuts: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
