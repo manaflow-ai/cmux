@@ -11651,7 +11651,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let buildType = versionGateBuildType
         let requirement = tier?.buildKinds[buildType.token]
         let requiredStableMacVersion = (requirement?.stableMinVersion ?? tier?.stableMinVersion)?.description
-        let requiredNightlyMacVersion = (requirement?.nightly ?? tier?.nightly).map {
+        let nightlyRequirement = tier == nil ? nil : (requirement != nil ? requirement?.nightly : tier?.nightly)
+        let requiredNightlyMacVersion = nightlyRequirement.map {
             "\($0.minBaseVersion)-nightly.\($0.minBuild)"
         }
         MobileMacListAuthState.shared.applyPolicyMinimumSupportedMacVersions(
