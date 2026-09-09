@@ -2,6 +2,16 @@ import Foundation
 import CmuxFoundation
 
 extension CMUXCLI {
+    /// Completion candidates for `cmux config`, matching the subcommands the
+    /// runner switches on and `configUsage()` documents. Canonical spellings
+    /// only; `check`/`validate`/`paths`/`documentation` still resolve.
+    static let configSubcommandNames = [
+        "doctor", "path", "docs", "reload", "get", "set",
+        CmuxGhosttyConfigSettingEditor.sidebarFontSizeKey,
+        CmuxGhosttyConfigSettingEditor.surfaceTabBarFontSizeKey,
+        "help",
+    ]
+
     func runConfigCommand(
         commandArgs: [String],
         socketPath: String?,

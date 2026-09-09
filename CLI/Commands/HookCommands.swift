@@ -8,7 +8,14 @@ private protocol LegacyHookCommand: SharedLegacyFacadeCommand {}
 private protocol AgentLauncherCommand: LegacyHookCommand {}
 
 struct HooksCommand: LegacyHookCommand {
-    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    @Option(name: .customLong("agent"), completion: .list(CMUXCLI.hookAgentNames)) var agent: String?
+    @Flag(name: [.customLong("yes"), .customShort("y")]) var yes = false
+    @Flag(name: .customLong("project")) var project = false
+    // See `CMUXCLI.hooksTargetNames` for why this stays a sink instead of a
+    // subcommand tree; the completion kind is what makes `cmux hooks <TAB>`
+    // offer `setup`, `uninstall`, and every agent the catalog knows.
+    @Argument(parsing: .allUnrecognized, completion: .list(CMUXCLI.hooksTargetNames))
+    var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "hooks", helpNames: [])
 }
 

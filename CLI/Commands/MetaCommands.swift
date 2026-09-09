@@ -12,17 +12,32 @@ struct WelcomeCommand: LegacyMetaCommand {
 }
 
 struct DocsCommand: LegacyMetaCommand {
-    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    // A single topic, not a subcommand tree: the runner rejects more than one
+    // argument, so `.allUnrecognized` keeps the shape while the completion kind
+    // supplies the topics.
+    @Argument(parsing: .allUnrecognized, completion: .list(CMUXCLI.docsTopicNames))
+    var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "docs", helpNames: [])
 }
 
 struct SettingsCommand: LegacyMetaCommand {
-    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    // `open`, `path`, and `docs` are subcommands; every other value is a target
+    // section, and `open <target>` accepts the targets too. One flat candidate
+    // list covers both positions without splitting the runner's dispatch.
+    @Argument(
+        parsing: .allUnrecognized,
+        completion: .list(["open", "path", "docs"] + CMUXCLI.settingsTargetNames)
+    ) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "settings", helpNames: [])
 }
 
 struct ConfigCommand: LegacyMetaCommand {
-    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    @Option(name: .customLong("path"), completion: .file()) var path: String?
+    // The two font-size keys are both subcommands and the values `get`/`set`
+    // take, so one list covers every position; the runner validates which
+    // combination is legal.
+    @Argument(parsing: .allUnrecognized, completion: .list(CMUXCLI.configSubcommandNames))
+    var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "config", helpNames: [])
 }
 
@@ -64,6 +79,11 @@ struct ReloadConfigCommand: LegacyMetaCommand {
 }
 
 struct FeedbackCommand: LegacyMetaCommand {
+    @Option(name: .customLong("email")) var email: String?
+    @Option(name: .customLong("body")) var body: String?
+    // `--image` repeats; the array default `.singleValue` already reads exactly
+    // one value per occurrence, matching the legacy `parseRepeatedOption`.
+    @Option(name: .customLong("image"), completion: .file()) var images: [String] = []
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "feedback", helpNames: [])
 }
