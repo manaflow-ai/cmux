@@ -12,11 +12,22 @@ struct OpenCommand: SharedLegacyFacadeCommand {
 
 struct DiffCommand: SharedLegacyFacadeCommand {
     @Option(name: .customLong("source"), completion: .list(["unstaged", "staged", "branch", "last-turn"])) var source: String?
+    // The four source selectors are also spelled as bare flags. The legacy
+    // parser rejects two different sources itself, so they stay independent
+    // declarations here rather than a mutually exclusive group that would
+    // fail before `run()` delegates.
+    @Flag(name: .customLong("unstaged")) var unstaged = false
+    @Flag(name: .customLong("staged")) var staged = false
+    @Flag(name: .customLong("branch")) var branch = false
+    @Flag(name: .customLong("last-turn")) var lastTurn = false
     @Option(name: .customLong("workspace"), completion: workspaceCompletion) var workspaceID: String?
     @Option(name: .customLong("surface"), completion: surfaceCompletion) var surfaceID: String?
     @Option(name: .customLong("window"), completion: windowCompletion) var windowID: String?
-    @Option(name: .customLong("cwd"), completion: .directory) var cwd: String?
-    @Option(name: .customLong("base")) var base: String?
+    @Option(name: [.customLong("session"), .customLong("agent-session")]) var sessionID: String?
+    @Option(name: [.customLong("cwd"), .customLong("repo"), .customLong("path")], completion: .directory) var cwd: String?
+    @Option(name: [.customLong("base"), .customLong("branch-base")]) var base: String?
+    @Option(name: .customLong("focus")) var focus: String?
+    @Flag(name: .customLong("no-focus")) var noFocus = false
     @Option(name: .customLong("title")) var title: String?
     @Option(name: .customLong("layout"), completion: .list(["split", "unified"])) var layout: String?
     @Option(name: .customLong("font-size")) var fontSize: String?
@@ -76,7 +87,12 @@ struct TriggerFlashCommand: SharedLegacyFacadeCommand {
 }
 
 struct RestoreCommand: SharedLegacyFacadeCommand {
-    @Option(name: .customLong("surface"), completion: surfaceCompletion) var surfaceID: String?
+    @Option(
+        name: .customLong("surface"),
+        defaultAsFlag: continuationCurrentSurfaceSentinel,
+        parsing: .next,
+        completion: surfaceCompletion
+    ) var surfaceID: String?
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
 
     static let configuration = CommandConfiguration(
@@ -92,7 +108,12 @@ struct RestoreCommand: SharedLegacyFacadeCommand {
 /// Shares `restore`'s legacy dispatch arm and selector shape; the verb picks
 /// between resuming the saved session and forking it.
 struct ForkCommand: SharedLegacyFacadeCommand {
-    @Option(name: .customLong("surface"), completion: surfaceCompletion) var surfaceID: String?
+    @Option(
+        name: .customLong("surface"),
+        defaultAsFlag: continuationCurrentSurfaceSentinel,
+        parsing: .next,
+        completion: surfaceCompletion
+    ) var surfaceID: String?
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
 
     static let configuration = CommandConfiguration(
@@ -240,11 +261,16 @@ struct LocalTmuxCommand: SharedLegacyFacadeCommand {
 /// would offer completions for `tmux start`, `tmux list`, and the rest, all of
 /// which the legacy parser rejects. A separate command declaring only `attach`
 /// keeps completion honest and still puts `tmux` in the derived command names.
+///
+/// No `defaultSubcommand` either: it would hoist `attach`'s own options onto
+/// bare `cmux tmux`, so completion would offer `cmux tmux --name ...` while
+/// `LocalTmuxInvocation.parse` still requires an action token first and rejects
+/// every such line. Bare `cmux tmux` parses as this command and delegates, which
+/// is what produces the legacy usage error.
 struct TmuxAliasCommand: SharedLegacyFacadeCommand {
     static let configuration = CommandConfiguration(
         commandName: "tmux",
         subcommands: [LocalTmuxAttachCommand.self],
-        defaultSubcommand: LocalTmuxAttachCommand.self,
         helpNames: []
     )
 }
@@ -322,7 +348,9 @@ struct SSHSessionAttachCommand: SharedLegacyFacadeCommand {
     @Option(name: .customLong("session-id")) var sessionID: String?
     @Option(name: .customLong("workspace"), completion: workspaceCompletion) var workspaceID: String?
     @Option(name: .customLong("pane"), completion: paneCompletion) var paneID: String?
+    @Option(name: .customLong("surface"), completion: surfaceCompletion) var surfaceID: String?
     @Option(name: .customLong("split"), completion: .list(["left", "right", "up", "down"])) var split: String?
+    @Option(name: .customLong("focus")) var focus: String?
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "ssh-session-attach", helpNames: [])
 }
