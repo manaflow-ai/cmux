@@ -106,24 +106,13 @@ export function canDevelopmentIOSUseMac(
   const constraint = DEVELOPMENT_BUILD_CONSTRAINTS[caller.tag as keyof typeof DEVELOPMENT_BUILD_CONSTRAINTS];
   if (constraint === undefined) return true;
   if (target.tag !== caller.tag) return false;
-  const raw = target.appVersion?.trim() ?? "";
-  if (raw.length === 0) return !constraint.requireReportedVersion;
-  const marketing = raw.split("+", 1)[0]?.trim() ?? "";
-  const match = /^(\d+)\.(\d+)\.(\d+)(?:-nightly\.(\d+))?$/.exec(marketing);
-  if (!match) return false;
-  if (match[4] === undefined) return constraint.stableMinVersion !== null;
-  const base = [Number(match[1]), Number(match[2]), Number(match[3])];
-  if (base.some((part) => !Number.isSafeInteger(part) || part < 0)) return false;
-  for (let index = 0; index < constraint.nightly.minBaseVersion.length; index += 1) {
-    const difference = (base[index] ?? 0) - (constraint.nightly.minBaseVersion[index] ?? 0);
-    if (difference > 0) return true;
-    if (difference < 0) return false;
-  }
-  try {
-    return BigInt(match[4]) >= constraint.nightly.minBuild;
-  } catch {
-    return false;
-  }
+  return developmentVersionMeetsConstraint(
+    target.appVersion,
+    constraint.requireReportedVersion,
+    constraint.stableMinVersion !== null,
+    constraint.nightly.minBaseVersion,
+    constraint.nightly.minBuild,
+  );
 }
 
 /** App Store iOS has a clean compatibility lane. A Mac must identify itself
@@ -135,22 +124,64 @@ export function canAppStoreIOSUseMac(target: BuildBinding): boolean {
   const isNightly = namespace === OFFICIAL_NIGHTLY_MAC_NAMESPACE
     || namespace.startsWith(`${OFFICIAL_NIGHTLY_MAC_NAMESPACE}.`);
   if (namespace === OFFICIAL_STABLE_MAC_NAMESPACE || !isNightly) return false;
-  const raw = target.appVersion?.trim() ?? "";
-  const marketing = raw.split("+", 1)[0]?.trim() ?? "";
-  const match = /^(\d+)\.(\d+)\.(\d+)-nightly\.(\d+)$/.exec(marketing);
-  if (!match) return false;
+  return nightlyVersionMeetsMinimum(
+    target.appVersion,
+    APP_STORE_MIN_NIGHTLY_BASE,
+    APP_STORE_MIN_NIGHTLY_BUILD,
+  );
+}
+
+function developmentVersionMeetsConstraint(
+  raw: string | null | undefined,
+  requireReportedVersion: boolean,
+  stableAllowed: boolean,
+  minBaseVersion: readonly number[],
+  minBuild: bigint,
+): boolean {
+  const value = raw?.trim() ?? "";
+  if (value.length === 0) return !requireReportedVersion;
+  const match = parseNightlyVersion(value);
+  if (match === null) return false;
+  if (match.build === null) return stableAllowed;
+  return compareVersionBase(match.base, minBaseVersion) >= 0
+    && (compareVersionBase(match.base, minBaseVersion) > 0 || match.build >= minBuild);
+}
+
+function nightlyVersionMeetsMinimum(
+  raw: string | null | undefined,
+  minBaseVersion: readonly number[],
+  minBuild: bigint,
+): boolean {
+  const match = parseNightlyVersion(raw ?? "");
+  return match?.build !== null
+    && match !== null
+    && compareVersionBase(match.base, minBaseVersion) >= 0
+    && (compareVersionBase(match.base, minBaseVersion) > 0 || match.build >= minBuild);
+}
+
+function parseNightlyVersion(value: string): {
+  base: number[];
+  build: bigint | null;
+} | null {
+  const marketing = value.trim().split("+", 1)[0]?.trim() ?? "";
+  const match = /^(\d+)\.(\d+)\.(\d+)(?:-nightly\.(\d+))?$/.exec(marketing);
+  if (match === null) return null;
   const base = [Number(match[1]), Number(match[2]), Number(match[3])];
-  if (base.some((part) => !Number.isSafeInteger(part) || part < 0)) return false;
-  for (let index = 0; index < APP_STORE_MIN_NIGHTLY_BASE.length; index += 1) {
-    const difference = (base[index] ?? 0) - (APP_STORE_MIN_NIGHTLY_BASE[index] ?? 0);
-    if (difference > 0) return true;
-    if (difference < 0) return false;
-  }
+  if (base.some((part) => !Number.isSafeInteger(part) || part < 0)) return null;
+  if (match[4] === undefined) return { base, build: null };
   try {
-    return BigInt(match[4]) >= APP_STORE_MIN_NIGHTLY_BUILD;
+    return { base, build: BigInt(match[4]) };
   } catch {
-    return false;
+    return null;
   }
+}
+
+function compareVersionBase(left: readonly number[], right: readonly number[]): number {
+  for (let index = 0; index < 3; index += 1) {
+    const difference = (left[index] ?? 0) - (right[index] ?? 0);
+    if (difference !== 0) return difference;
+  }
+  return 0;
 }
 
 function isDevelopmentMacNamespace(clientNamespace: string): boolean {
