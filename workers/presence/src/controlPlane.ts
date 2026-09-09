@@ -40,6 +40,28 @@ import { DEFAULT_RETRY_AFTER_SECONDS } from "./retryAfterResponse";
 
 export const CONTROL_PROTOCOL_VERSION = 1;
 
+/**
+ * Return only namespaces issued by a cmux application lane. The control
+ * socket is partitioned before its first protocol frame, so accepting an
+ * arbitrary header value would let a caller allocate an unbounded set of
+ * Durable Objects or opt into the legacy, unfiltered audience.
+ */
+export function canonicalControlPlaneNamespace(value: string | undefined): string | null {
+  const namespace = value?.trim();
+  if (!namespace || namespace === "legacy") return null;
+  if (namespace === "com.cmux.app" || namespace.startsWith("com.cmux.app.")) {
+    return namespace;
+  }
+  if (namespace === "mac:com.cmuxterm.app"
+    || namespace === "mac:com.cmuxterm.app.nightly"
+    || namespace.startsWith("mac:com.cmuxterm.app.nightly.")
+    || namespace.startsWith("mac:com.cmuxterm.app.debug.")) {
+    return namespace;
+  }
+  if (/^dev\.cmux\.ios\.[A-Za-z0-9._-]+$/.test(namespace)) return namespace;
+  return null;
+}
+
 /** Mirrors MAX_CONNECTIVITY_SUBSCRIBERS_PER_ACCOUNT: one account's devices are
  * few; a runaway client must not pin unbounded sockets on the account DO. */
 export const MAX_CONTROL_SUBSCRIBERS_PER_ACCOUNT = 32;

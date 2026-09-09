@@ -36,7 +36,11 @@ import {
 } from "./auth";
 import { MAX_SUBSCRIBE_AGE_MS, TeamPresence } from "./do";
 import { AccountControlPlane, type ControlPlaneEnv } from "./controlPlaneDo";
-import { controlPlaneScope, parseRevocationRequest } from "./controlPlane";
+import {
+  canonicalControlPlaneNamespace,
+  controlPlaneScope,
+  parseRevocationRequest,
+} from "./controlPlane";
 import {
   isConnectivityPublisherAuthorized,
   parseConnectivityInvalidation,
@@ -142,10 +146,10 @@ const worker = {
       if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
         return json({ error: "websocket_required" }, 400);
       }
-      const namespace = request.headers.get("x-cmux-app-namespace")?.trim();
-      if (namespace && !/^[A-Za-z0-9._:-]{1,255}$/.test(namespace)) {
-        return json({ error: "invalid_client_namespace" }, 400);
-      }
+      const namespace = canonicalControlPlaneNamespace(
+        request.headers.get("x-cmux-app-namespace") ?? undefined,
+      );
+      if (!namespace) return json({ error: "invalid_client_namespace" }, 400);
       const user = await verifyRequest(request, env);
       if (!user) return unauthorized();
       const headers = new Headers(request.headers);
@@ -170,11 +174,11 @@ const worker = {
       const headers = new Headers();
       headers.set("x-control-account-id", user.id);
       headers.set("content-type", "application/json");
-      const namespace = request.headers.get("x-cmux-app-namespace")?.trim();
-      if (namespace && !/^[A-Za-z0-9._:-]{1,255}$/.test(namespace)) {
-        return json({ error: "invalid_client_namespace" }, 400);
-      }
-      if (namespace) headers.set("x-cmux-app-namespace", namespace);
+      const namespace = canonicalControlPlaneNamespace(
+        request.headers.get("x-cmux-app-namespace") ?? undefined,
+      );
+      if (!namespace) return json({ error: "invalid_client_namespace" }, 400);
+      headers.set("x-cmux-app-namespace", namespace);
       const stub = controlPlaneStub(env, user.id, namespace);
       return stub.fetch(new Request(request.url, {
         method: "POST",
