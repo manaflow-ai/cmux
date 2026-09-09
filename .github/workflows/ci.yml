@@ -15,9 +15,6 @@ on:
       - Resources/bin/cmux-hermes-agent-wrapper
       - tests/test_hermes_wrapper_hooks.py
       - tests/test_ci_change_areas.py
-      # Test-target wiring and Swift test changes must run the full CI gate.
-      - cmux.xcodeproj/project.pbxproj
-      - cmuxTests/**
       - .github/workflows/ci.yml
   workflow_dispatch:
 
