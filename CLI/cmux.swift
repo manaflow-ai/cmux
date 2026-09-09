@@ -36998,16 +36998,6 @@ export default CMUXSessionRestore;
             }
             if def.sessionEndIsTurnBoundary {
                 if let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId)) {
-                    // These providers use session-end as their per-turn
-                    // boundary (the cmux-tui mapping table's antigravity /
-                    // hermes special case), so it journals as a completed
-                    // turn, not a session teardown.
-                    emitJournal(
-                        .turnCompleted,
-                        workspaceId: mapped.workspaceId,
-                        surfaceId: mapped.surfaceId
-                    )
-                    sendAgentFeedTelemetry(workspaceId: mapped.workspaceId, surfaceId: mapped.surfaceId)
 #if DEBUG
                     agentHookDebugWaitForTestBarrier(event: "session-end", env: env)
 #endif
@@ -37023,7 +37013,7 @@ export default CMUXSessionRestore;
                     let sessionEndRuntimeStatus = def.promptDepthPolicy.closesActivePrompt && hasAbandonedPrompt
                         ? AgentHookRuntimeStatus.idle
                         : mapped.runtimeStatus
-                    _ = try? store.recordPromptStop(
+                    let sessionEndResult = try? store.recordPromptStop(
                         sessionId: sessionId,
                         workspaceId: mapped.workspaceId,
                         surfaceId: mapped.surfaceId,
@@ -37050,6 +37040,18 @@ export default CMUXSessionRestore;
                             workspaceId: mapped.workspaceId
                         )
                     )
+                    // Publish the per-turn boundary only after the locked store
+                    // accepts its generation. A delayed SessionEnd rejected for
+                    // a newer prompt must not complete that prompt in the journal
+                    // or Feed while the durable state correctly remains running.
+                    if let sessionEndResult, !sessionEndResult.wasRejectedByLifecycleFence {
+                        emitJournal(
+                            .turnCompleted,
+                            workspaceId: mapped.workspaceId,
+                            surfaceId: mapped.surfaceId
+                        )
+                        sendAgentFeedTelemetry(workspaceId: mapped.workspaceId, surfaceId: mapped.surfaceId)
+                    }
                 }
 #if DEBUG
                 agentHookDebugLog(
