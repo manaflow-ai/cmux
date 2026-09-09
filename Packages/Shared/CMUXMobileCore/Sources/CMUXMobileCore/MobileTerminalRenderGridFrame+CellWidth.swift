@@ -13,7 +13,9 @@ extension String {
         return clipped
     }
 
-    var renderGridEstimatedCellWidth: Int {
+    /// The estimated total grid-cell width of the string (wide glyphs count 2,
+    /// combining marks 0), matching the host's span-width accounting.
+    public var renderGridEstimatedCellWidth: Int {
         reduce(0) { width, character in
             width + character.renderGridEstimatedCellWidth
         }
@@ -25,13 +27,18 @@ extension MobileTerminalRenderGridFrame.RowSpan {
         text.unicodeScalars.contains { $0.isRenderGridWidthSensitiveScalar }
     }
 
-    var gridCellWidth: Int {
+    /// The span's total width in grid cells: the wire `cell_width` when the
+    /// host sent one, else the text's estimated width. This is the column
+    /// advance to the next span, not a per-glyph width.
+    public var gridCellWidth: Int {
         cellWidth ?? max(1, text.renderGridEstimatedCellWidth)
     }
 }
 
 extension Character {
-    var renderGridEstimatedCellWidth: Int {
+    /// The grid-cell width of one character (0 combining, 2 wide, else 1),
+    /// matching the host's span-width accounting.
+    public var renderGridEstimatedCellWidth: Int {
         let scalars = unicodeScalars
         guard scalars.contains(where: { !$0.isRenderGridZeroWidthScalar }) else {
             return 0

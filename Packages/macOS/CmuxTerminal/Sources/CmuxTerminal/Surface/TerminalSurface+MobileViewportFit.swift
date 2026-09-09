@@ -65,9 +65,11 @@ extension TerminalSurface {
             paneHost.setMobileViewportBorder(size: nil, drawRight: false, drawBottom: false)
             return nil
         }
-        if ioMode.usesManualIO {
+        if ioMode.usesManualIO, !manualIOFontFitEnabled {
             // Remote/tmux mirrors keep legacy capping; their remote grid is
-            // authoritative and font fitting is intentionally out of v1 scope.
+            // authoritative and font fitting is intentionally out of v1
+            // scope unless the owner explicitly opts in (Hive computer
+            // mirrors do so when their renderer can safely fit the grid).
             return legacyApplyMobileViewportLimit(surface: surface, columns: columns, rows: rows, reason: reason)
         }
         mobileViewportCellLimit = (columns: max(1, columns), rows: max(1, rows))
@@ -235,7 +237,7 @@ extension TerminalSurface {
     ) -> MobileViewportFitResult {
         guard width > 0, height > 0 else { return .passthrough(width: width, height: height) }
         guard let mobileViewportCellLimit else { return .passthrough(width: width, height: height) }
-        if ioMode.usesManualIO {
+        if ioMode.usesManualIO, !manualIOFontFitEnabled {
             guard let limit = mobileViewportPixelLimit(for: surface) else { return .passthrough(width: width, height: height) }
             return .passthrough(width: min(width, limit.width), height: min(height, limit.height), grantWidth: limit.width, grantHeight: limit.height)
         }

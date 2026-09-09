@@ -21,7 +21,7 @@
  * Devices cache the last fetched list per origin and fall back to a
  * compiled-in default when they have never fetched. That fallback
  * (`MobileMacCompatPolicy.baked` in
- * Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileMacCompatPolicy.swift)
+ * Packages/Shared/CmuxMobileShell/Sources/CmuxMobileShell/MobileMacCompatPolicy.swift)
  * mirrors the initial entries here; keep the two in sync when editing.
  * Edits to this file are code-reviewed; the route validates it at module
  * load so a malformed entry fails the build, never the client.

@@ -5,7 +5,7 @@ Standalone cmux-owned windows must have one close-shortcut owner so Cmd+W closes
 Report a failure when the diff introduces or materially changes:
 
 - A user-visible `NSWindow`, `NSPanel`, `NSWindowController`, SwiftUI `Window`, or SwiftUI `WindowGroup` without a stable `cmux.*` window identifier.
-- A `cmux.*` window identifier assignment that is missing from `cmuxAuxiliaryWindowIdentifiers` in `Sources/cmuxApp.swift`.
+- A `cmux.*` window identifier assignment that is missing from `cmuxAuxiliaryWindowIdentifiers` in `Sources/CmuxAuxiliaryWindows.swift`.
 - A new standalone debug, settings, preview, task, editor, browser, file, import, config, or inspector window that can become key but is not covered by `cmuxWindowShouldOwnCloseShortcut`.
 - A custom Cmd+W, `performKeyEquivalent`, or close-menu workaround that bypasses the shared `cmuxWindowShouldOwnCloseShortcut` routing instead of registering the window identifier.
 

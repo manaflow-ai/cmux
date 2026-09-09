@@ -1,5 +1,4 @@
-import Foundation
-
+/// Carries CLI failure metadata independently of executable startup.
 struct CLIError: Error, CustomStringConvertible {
     enum SocketFailureKind: Equatable {
         case pathMissing

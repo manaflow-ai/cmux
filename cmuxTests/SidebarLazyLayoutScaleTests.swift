@@ -155,6 +155,7 @@ final class SidebarLazyLayoutScaleTests {
             onNewTab: {},
             observedWindowReference: WeakWindowReference(),
             chromeBackgroundColor: .black,
+            hiveScope: tabManager.hiveSidebarScopeModel,
             selection: .constant(.tabs),
             selectedTabIds: .constant([]),
             lastSidebarSelectionIndex: .constant(nil),
@@ -236,7 +237,6 @@ final class SidebarLazyLayoutScaleTests {
             await Task.yield()
         }
     }
-
 
     /// Mounting the sidebar with 300 workspaces must realize only the rows a
     /// single viewport needs. Realizing all of them is the #5323/#6210 defeat:

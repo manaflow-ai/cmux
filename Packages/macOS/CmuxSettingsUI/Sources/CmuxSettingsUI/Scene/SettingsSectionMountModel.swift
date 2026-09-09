@@ -46,7 +46,7 @@ public final class SettingsSectionMountModel {
     /// is an anchor inside the Browser section rather than a section of
     /// its own, so it never appears here.
     public static let displayOrder: [SettingsSectionID] = [
-        .account, .app, .terminal, .textBox, .sleepyMode, .mobile, .cloudMachines,
+        .account, .app, .terminal, .textBox, .sleepyMode, .mobile, .computers, .cloudMachines,
         .networking, .sidebarAppearance, .customSidebars, .betaFeatures, .automation,
         .computerUse, .browser, .globalHotkey, .keyboardShortcuts, .workspaceColors,
         .settingsJSON, .reset,

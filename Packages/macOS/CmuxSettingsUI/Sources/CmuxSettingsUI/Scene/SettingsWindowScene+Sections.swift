@@ -59,6 +59,15 @@ extension SettingsWindowRoot {
             MobileSection(defaultsStore: defaultsStore, catalog: catalog, hostActions: hostActions)
         }
 
+        slot(.computers, proxy: proxy) {
+            ComputersSection(
+                hostActions: hostActions,
+                jsonStore: jsonStore,
+                catalog: catalog,
+                errorLog: runtime.errorLog
+            )
+        }
+
         slot(.cloudMachines, proxy: proxy) {
             // `DisableCloud` (MDM) and the rollout gate: no Cloud pane at all
             // while unavailable, not just no placeholder.

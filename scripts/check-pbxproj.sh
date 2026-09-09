@@ -3,6 +3,7 @@
 # Fails when:
 #   - objectVersion drifts from the pinned value (Xcode major leak)
 #   - the file is not normalized (someone bypassed the pre-commit hook)
+#   - the native macOS property-list parser rejects the project syntax
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -29,3 +30,9 @@ if [[ "$actual" != "$EXPECTED_OBJECT_VERSION" ]]; then
 fi
 
 python3 "$SCRIPT_DIR/normalize-pbxproj.py" --check "$PBXPROJ"
+
+# Normalization does not parse OpenStep syntax. Use the native parser on Macs
+# to catch malformed groups and unquoted file names before invoking Xcode.
+if [[ "$(uname -s)" == "Darwin" ]]; then
+    plutil -lint "$PBXPROJ"
+fi

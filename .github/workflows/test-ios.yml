@@ -162,7 +162,7 @@ jobs:
 
       - name: Run CmuxMobilePairedMac package tests
         run: |
-          swift test --package-path Packages/iOS/CmuxMobilePairedMac
+          swift test --package-path Packages/Shared/CmuxMobilePairedMac
 
       - name: Run CmuxMobileChanges package tests
         run: |
@@ -173,13 +173,13 @@ jobs:
           # iOS shell replay/liveness regressions live in this package target.
           # Keep them under the iOS package gate so PR CI enforces the mobile
           # terminal mirror behavior without relying on local-only SwiftPM runs.
-          swift test --package-path Packages/iOS/CmuxMobileShell
+          swift test --package-path Packages/Shared/CmuxMobileShell
 
       - name: Run CmuxMobileShellModel package tests
         run: |
           # Pure shell-model queue and ordering regressions live in this package.
           # Keep them beside the shell package gate so input framing stays covered.
-          swift test --package-path Packages/iOS/CmuxMobileShellModel
+          swift test --package-path Packages/Shared/CmuxMobileShellModel
 
   ios-simulator:
     needs: detect-ios-changes

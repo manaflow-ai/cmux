@@ -1758,6 +1758,8 @@ jobs:
             CmuxControlSocket
             CmuxFoundation
             CmuxGit
+            CmuxHive
+            CmuxHiveUI
             CmuxMobileTerminalKit
             CmuxMobileWorkspace
             CmuxNotifications

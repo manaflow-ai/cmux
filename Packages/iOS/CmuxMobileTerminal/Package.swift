@@ -16,9 +16,9 @@ let package = Package(
     dependencies: [
         .package(path: "../../Shared/CMUXMobileCore"),
         .package(path: "../../Shared/CmuxAgentChat"),
-        .package(path: "../CmuxMobileDiagnostics"),
-        .package(path: "../CmuxMobileSupport"),
-        .package(path: "../CmuxMobileTerminalKit"),
+        .package(path: "../../Shared/CmuxMobileDiagnostics"),
+        .package(path: "../../Shared/CmuxMobileSupport"),
+        .package(path: "../../Shared/CmuxMobileTerminalKit"),
     ],
     targets: [
         // The same libghostty the Mac links; iOS feeds raw PTY bytes straight

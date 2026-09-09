@@ -1569,6 +1569,7 @@ class TerminalController {
             let semaphore = DispatchSemaphore(value: 0)
             Task { @MainActor [weak self] in
                 await self?.accountFlow?.signOut(timeout: 5)
+                await HiveComputersService.shared.disconnectAll()
                 semaphore.signal()
             }
             semaphore.wait()

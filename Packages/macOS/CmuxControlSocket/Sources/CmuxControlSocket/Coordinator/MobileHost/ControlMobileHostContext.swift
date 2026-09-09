@@ -141,6 +141,30 @@ public protocol ControlMobileHostContext: AnyObject {
     ///
     /// - Returns: The fully-built command result.
     func controlMobileChatSessionsDump() -> ControlCallResult
+
+    /// `hive.open` (local control socket) — open a paired computer's viewer
+    /// through the same shared action path as the Settings "Open" button and
+    /// the sidebar scope picker. Kicks the (async) presentation off and
+    /// returns immediately.
+    ///
+    /// - Parameter params: The decoded request params (`device_id`).
+    /// - Returns: The fully-built command result.
+    func controlHiveOpen(params: [String: JSONValue]) -> ControlCallResult
+
+    /// `hive.render_probe` (local debug socket) — per-terminal renderer-state
+    /// summaries across every main window, for diagnosing panes whose terminal
+    /// state is live but whose renderer never draws.
+    ///
+    /// - Returns: The fully-built command result.
+    func controlHiveRenderProbe() -> ControlCallResult
+
+    /// `hive.sidebar_probe` (local debug socket) — per-window sidebar scope,
+    /// tab counts, and the resolved connection-status text for any
+    /// device-scoped window with zero visible tabs, for diagnosing a blank
+    /// sidebar without needing Screen Recording permission.
+    ///
+    /// - Returns: The fully-built command result.
+    func controlHiveSidebarProbe() -> ControlCallResult
 }
 
 public extension ControlMobileHostContext {

@@ -722,7 +722,7 @@ extension MobileHostAuthorizationTests {
     @Test func testIrohApplicationLaneQuotasReserveArtifactCapacity() {
         #expect(MobileHostIrohApplicationLaneRouter.maximumConcurrentTerminalLaneCount == 4)
         #expect(MobileHostIrohApplicationLaneRouter.maximumConcurrentArtifactLaneCount == 1)
-        #expect(MobileHostIrohApplicationLaneRouter.maximumConcurrentLaneCount == 5)
+        #expect(MobileHostIrohApplicationLaneRouter.maximumConcurrentLaneCount == 7)
 
         var quota = MobileHostIrohApplicationLaneQuota()
         let terminalIDs = (0..<5).map { _ in UUID() }

@@ -71,9 +71,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         let fakeTmux = """
         #!/bin/sh
-        printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' \
-          "$TMUX" "$CMUX_LOCAL_TMUX" "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$8" \
-          > "$CMUX_TEST_OUTPUT"
+        printf '%s|%s|%s|' "$TMUX" "$CMUX_LOCAL_TMUX" "$1" > "$CMUX_TEST_OUTPUT"
+        eval "set -- $6"
+        printf '%s|%s|%s\n' "$1" "$2" "$3" >> "$CMUX_TEST_OUTPUT"
         """
         try Data(fakeTmux.utf8).write(to: fakeTmuxURL)
         XCTAssertEqual(chmod(fakeTmuxURL.path, 0o755), 0)
@@ -102,7 +102,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(result.status, 0, result.stderr)
         let invocation = try String(contentsOf: outputURL, encoding: .utf8)
         XCTAssertTrue(invocation.hasPrefix("|1|-S|"), invocation)
-        XCTAssertTrue(invocation.contains("attach-session -t $7"), invocation)
+        XCTAssertEqual(invocation, "|1|-S|attach-session|-t|$7\n")
     }
 
     func testLocalTmuxClientListingUsesPopulatedTTYTarget() throws {

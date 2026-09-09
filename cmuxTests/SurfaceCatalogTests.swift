@@ -1175,4 +1175,106 @@ struct SurfaceCatalogTests {
         #expect(provider.closedTerminals.isEmpty)
         #expect(provider.closedRemoteWorkspaces == ["ws_empty"])
     }
+
+    @Test func cloudRenameReceiptMetadataDoesNotReplaceCanonicalProjections() throws {
+        let machine = CmuxTuiSurfaceProviderTests.machine
+        let catalog = SurfaceCatalog()
+        let provider = FakeProvider(machine: machine)
+        catalog.register(provider)
+        let before = try cloudRenameState(name: "main", revision: 10)
+        catalog.replaceCloudState(before, resources: CmuxTuiSnapshotParser.resources(from: before), info: provider.info)
+        let receipt = CloudVMCursor(generation: "rename-generation", revision: 11)
+        let write = CloudVMPendingMutation(
+            kind: .workspaceRename, remoteWorkspaceID: "ws_main", name: "Renamed", receipt: receipt
+        )
+        catalog.updateCloudPendingWrites(on: machine, writes: [write], from: provider)
+
+        // A receipt is pending-write metadata, never an optimistic daemon graph.
+        #expect(catalog.cloudStates[machine] == before)
+        #expect(catalog.cloudStateObservations[machine]?.pendingWrites == [write])
+        #expect(catalog.snapshot.resources.first { $0.id.key == "term_build" }?.remoteWorkspace?.name == "main")
+
+        let after = try cloudRenameState(name: "Renamed", revision: 11)
+        catalog.replaceCloudState(after, resources: CmuxTuiSnapshotParser.resources(from: after), info: provider.info)
+        let build = try #require(catalog.snapshot.resources.first { $0.id.key == "term_build" })
+        #expect(catalog.cloudStates[machine] == after)
+        #expect(catalog.cloudStateObservations[machine]?.pendingWrites == nil)
+        #expect(catalog.snapshot.machines.first?.remoteWorkspaces?.first { $0.id == "ws_main" }?.name == "Renamed")
+        #expect(build.remoteWorkspace?.name == "Renamed")
+        #expect(build.remoteViews?.first { $0.workspace.id == "ws_main" }?.workspace.name == "Renamed")
+        #expect(build.remoteViews?.first { $0.workspace.id == "ws_api" }?.workspace.name == "api")
+        #expect(catalog.snapshot.resources.first { $0.id.key == "term_shell" }?.remoteWorkspace?.name == "api")
+    }
+
+    @Test func cursorlessMachineUpdatePreservesConfirmedCloudWorkspaceName() throws {
+        let machine = CmuxTuiSurfaceProviderTests.machine
+        let catalog = SurfaceCatalog()
+        let provider = FakeProvider(machine: machine)
+        catalog.register(provider)
+        let before = try cloudRenameState(name: "before", revision: 1)
+        catalog.replaceCloudState(before, resources: CmuxTuiSnapshotParser.resources(from: before), info: provider.info)
+        let beforeInfo = try #require(catalog.snapshot.machines.first)
+        let after = try cloudRenameState(name: "after", revision: 2)
+        catalog.replaceCloudState(after, resources: CmuxTuiSnapshotParser.resources(from: after), info: provider.info)
+
+        // Status refreshes have no cursor and may still carry cached workspace names.
+        catalog.updateMachine(beforeInfo, from: provider)
+        #expect(catalog.cloudStates[machine] == after)
+        #expect(catalog.snapshot.machines.first?.remoteWorkspaces?.first { $0.id == "ws_main" }?.name == "after")
+        #expect(catalog.snapshot.resources.first { $0.id.key == "term_build" }?.remoteWorkspace?.name == "after")
+    }
+
+    @Test func cloudRenameReceiptRejectsStaleReadsWithoutPoisoningEqualCursorRecovery() {
+        let receipt = CloudVMCursor(generation: "rename-generation", revision: 11)
+        // The provider owns admission; the catalog only installs accepted canonical state.
+        for revision in [UInt64(9), 10] {
+            #expect(CloudVMRemoteMutationReceiptDecision.resolve(
+                receipt: receipt,
+                incoming: CloudVMCursor(generation: receipt.generation, revision: revision),
+                targetMatches: false
+            ) == .rejectStale)
+        }
+        #expect(CloudVMRemoteMutationReceiptDecision.resolve(
+            receipt: receipt, incoming: receipt, targetMatches: false
+        ) == .rejectConflict)
+        #expect(CloudVMRemoteMutationReceiptDecision.resolve(
+            receipt: receipt, incoming: receipt, targetMatches: true
+        ) == .accept)
+        #expect(CloudVMRemoteMutationReceiptDecision.resolve(
+            receipt: receipt,
+            incoming: CloudVMCursor(generation: receipt.generation, revision: 12),
+            targetMatches: false
+        ) == .accept)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func olderCloudRenameFailureCannotClearNewerIntent() async throws {
+        let coordinator = CloudRenameCoordinator()
+        let key = CloudRenameCoordinator.Key.workspace(machine: .cloud("vivid-newt"), id: "ws_main")
+        let gate = AsyncStream<Void>.makeStream()
+        defer { gate.continuation.finish() }
+        let first = coordinator.enqueue(key: key, pendingName: "first") { throw CancellationError() }
+        let second = coordinator.enqueue(key: key, pendingName: "second") {
+            for await _ in gate.stream { break }
+        }
+        defer { first.cancel(); second.cancel() }
+
+        await #expect(throws: CancellationError.self) { try await first.value }
+        #expect(coordinator.pendingName(for: key) == "second")
+        gate.continuation.yield(())
+        try await second.value
+        #expect(coordinator.pendingName(for: key) == nil)
+    }
+
+    private func cloudRenameState(name: String, revision: UInt64) throws -> CloudVMState {
+        var snapshot = CmuxTuiSurfaceProviderTests.sessionSnapshot
+        snapshot["cursor"] = ["generation": "rename-generation", "revision": String(revision)]
+        snapshot["workspaces"] = [
+            ["id": "ws_main", "name": name, "focused": true],
+            ["id": "ws_api", "name": "api", "focused": false],
+        ]
+        return try #require(CmuxTuiSnapshotParser.state(
+            fromSnapshot: snapshot, machine: CmuxTuiSurfaceProviderTests.machine
+        ))
+    }
 }

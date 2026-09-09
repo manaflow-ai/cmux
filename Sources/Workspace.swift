@@ -4479,6 +4479,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// tmux pane ids (multi-pane mirror ✕) with a close-time activity query or
     /// confirmation in flight, so click spam can't double-kill or stack dialogs.
     private var pendingRemoteTmuxPaneCloseIds: Set<Int> = []
+    /// Immediate cleanup hooks for display panes owned by a live mirror.
+    private var remoteTmuxDisplayPaneCloseHandlers: [UUID: @MainActor @Sendable () -> Void] = [:]
 
     /// User-initiated close attempts, distinct from internal close/move flows.
     private var explicitUserCloseTabIds: Set<TabID> = []
@@ -9347,7 +9349,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         allowTextBoxFocusDefault: Bool = true,
         onInput: @escaping @Sendable (TerminalManualInput) -> Void,
         keyNameResolver: (@MainActor @Sendable (ghostty_input_key_s) -> String?)? = nil,
-        onResize: (@MainActor @Sendable (_ columns: Int, _ rows: Int) -> Void)? = nil
+        onResize: (@MainActor @Sendable (_ columns: Int, _ rows: Int) -> Void)? = nil,
+        onClose: (@MainActor @Sendable () -> Void)? = nil
     ) -> TerminalPanel? {
         guard !isRetiredFromOwningTabManager else { return nil }
         let newPanel = performRemoteTmuxMirrorMutation { () -> TerminalPanel? in
@@ -9371,6 +9374,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             )
             panels[newPanel.id] = newPanel
             panelTitles[newPanel.id] = title
+            if let onClose {
+                remoteTmuxDisplayPaneCloseHandlers[newPanel.id] = onClose
+            }
 
             guard let newTabId = bonsplitController.createTab(
                 title: title,
@@ -9380,6 +9386,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             ) else {
                 panels.removeValue(forKey: newPanel.id)
                 panelTitles.removeValue(forKey: newPanel.id)
+                remoteTmuxDisplayPaneCloseHandlers.removeValue(forKey: newPanel.id)
                 return nil
             }
             bindSurface(newTabId, toPanelId: newPanel.id)
@@ -14094,6 +14101,10 @@ extension Workspace: BonsplitDelegate {
         #endif
 
         let panel = panels[panelId]
+        let remoteTmuxDisplayPaneCloseHandler = isDetaching
+            ? nil
+            : remoteTmuxDisplayPaneCloseHandlers.removeValue(forKey: panelId)
+        remoteTmuxDisplayPaneCloseHandler?()
         _ = consumeCloseHistoryEligibility(tabId: tabId, panelId: panelId)
         let transferredRemoteCleanupConfiguration = transferredRemoteCleanupConfigurationsByPanelId[panelId]
         let preservesSurfaceForDetach = isDetaching && panel != nil
