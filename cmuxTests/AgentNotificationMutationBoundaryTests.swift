@@ -37,14 +37,8 @@ extension AgentNotificationRegressionTests {
         touch '\(readyMarker.path)'
         while :; do sleep 1; done
         """.write(to: initialScript, atomically: true, encoding: .utf8)
-        // The marker comes from the final scoped process image. Do not exec
-        // again after it: delivery-time scope reads must not race another exec.
-        //
-        // That image must not be a platform binary: since macOS 26 the kernel
-        // returns no environment for `/bin/sh` or `/bin/sleep` even to the
-        // same user, so a scope read could never see CMUX_SURFACE_ID. Real
-        // agents are node or bun processes, which stay readable, and so does
-        // the Xcode toolchain's python used here.
+        // The marker comes from the final image; never exec again after it. macOS 26
+        // hides a platform binary's environment, so that image is Xcode's python, not sh.
         try """
         export CMUX_SURFACE_ID='\(fixture.panelId.uuidString)'
         exec "$(xcrun --find python3)" -c 'import pathlib, time; pathlib.Path("\(execMarker.path)").touch(); time.sleep(600)'
