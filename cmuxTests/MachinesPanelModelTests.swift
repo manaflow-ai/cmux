@@ -819,7 +819,7 @@ final class MachinesPanelModelTests: XCTestCase {
         // machine can still explain how to discover its ports (see emptyPorts(info:)).
         XCTAssertEqual(
             CloudTreeNodeBuilder.flattened(asleep).map(\.id),
-            ["machine:quiet-owl", "machine:quiet-owl/placeholder", "machine:quiet-owl/ports", "machine:quiet-owl/ports/status"]
+            ["machine:quiet-owl", "machine:quiet-owl/placeholder", "machine:quiet-owl/ports", "machine:quiet-owl/ports/status", "machine:quiet-owl/displays", "machine:quiet-owl/displays/placeholder"]
         )
         if case .placeholder(_, let placeholder) = asleep[0].children[0].kind { XCTAssertEqual(placeholder.style, .dimmed) } else { XCTFail() }
         if case .placeholder(_, let ports) = asleep[0].children[1].children[0].kind { XCTAssertEqual(ports.style, .dimmed) } else { XCTFail() }
