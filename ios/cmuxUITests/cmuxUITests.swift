@@ -394,7 +394,7 @@ final class cmuxUITests: XCTestCase {
 
         scannerCancel.tap()
         XCTAssertTrue(app.descendants(matching: .any)["MobilePairingView"].waitForExistence(timeout: 4))
-        XCTAssertFalse(connectScene.exists)
+        XCTAssertFalse(scanPairingCodeButton.isHittable)
         XCTAssertTrue(scannerPreview.waitForNonExistence(timeout: 2))
         capture("onboarding-06-scanner-cancelled")
         app.buttons["MobilePairingCancelButton"].tap()
