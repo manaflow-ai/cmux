@@ -958,17 +958,18 @@ def test_determinism_workflow_runs_self_test_before_strict_scan() -> None:
     assert script.index("--self-test") < script.index("--strict")
 
 
-def test_app_host_assertion_failures_fail_the_first_batch() -> None:
+def test_app_host_assertion_failures_fail_the_shard_but_every_batch_still_runs() -> None:
     # XCTest reports plain assertion failures as "(0 unexpected)". The old
-    # classifier accepted that as "expected" and moved on to the next batch;
-    # the strict classifier must stop at the first failing batch.
+    # classifier accepted that as "expected"; the strict classifier fails the
+    # shard, and the remaining batches still run so one run reports the whole
+    # failing set.
     result, runner_invoked = run_app_host_unit_test_step()
 
     assert runner_invoked
     assert result.returncode != 0, result.stdout
     assert "XCTest reported 2 failure(s) (0 unexpected)" in result.stdout + result.stderr
     assert "`testOne`" in result.stdout + result.stderr
-    assert "simulated app-host crash before test summary" not in result.stdout
+    assert "simulated app-host crash before test summary" in result.stdout
 
 
 def test_app_host_crash_after_clean_batch_stays_red() -> None:

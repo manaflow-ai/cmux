@@ -1433,13 +1433,18 @@ jobs:
           }
 
           run_unit_tests() {
-            local logical_shard
+            # Run every batch even after one fails so a single run reports the
+            # complete failing set for the shard (one triage cycle per run, not
+            # one per failing batch); the first failure status is returned.
+            local logical_shard batch_status first_failure=0
             for logical_shard in "${LOGICAL_SHARDS[@]}"; do
-              run_unit_test_batch "$logical_shard" || {
-                local batch_status=$?
-                return "$batch_status"
-              }
+              batch_status=0
+              run_unit_test_batch "$logical_shard" || batch_status=$?
+              if [ "$batch_status" -ne 0 ] && [ "$first_failure" -eq 0 ]; then
+                first_failure="$batch_status"
+              fi
             done
+            return "$first_failure"
           }
 
           # Stream output via tee so CI logs are visible in real time, while still
