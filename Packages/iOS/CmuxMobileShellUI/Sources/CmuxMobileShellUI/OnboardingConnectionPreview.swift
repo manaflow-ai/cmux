@@ -63,7 +63,9 @@ struct OnboardingConnectionPreview: View {
                     .fill(.thinMaterial)
                     .frame(width: density.previewAccountSize, height: density.previewAccountSize)
 
-                Image(systemName: phase == .ready ? "checkmark" : "link")
+                Image(systemName: phase == .ready
+                    ? "person.crop.circle.badge.checkmark"
+                    : "person.crop.circle")
                     .font(density.previewAccountFont.weight(.semibold))
                     .foregroundStyle(phase == .ready ? Color.green : Color.accentColor)
             }
