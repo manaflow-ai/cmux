@@ -132,7 +132,7 @@ public actor CmxConnectivityInvalidationSubscriber {
         let path = components.path.hasSuffix("/")
             ? String(components.path.dropLast())
             : components.path
-        components.path = path + "/v1/connectivity/subscribe"
+        components.path = path + "/v2/connectivity/subscribe"
         components.query = nil
         components.fragment = nil
         return components.url

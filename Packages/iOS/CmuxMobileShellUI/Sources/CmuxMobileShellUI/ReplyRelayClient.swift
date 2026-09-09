@@ -61,7 +61,7 @@ public struct NoopReplyRelay: ReplyRelaying {
     public func relay(_ reply: RelayedReply) async -> Bool { false }
 }
 
-/// Production ``ReplyRelaying`` backed by `POST /v1/replies` on the presence
+/// Production ``ReplyRelaying`` backed by `POST /v2/replies` on the presence
 /// worker, authenticated with the caller's Stack access token.
 public struct SystemReplyRelayClient: ReplyRelaying {
     private let serviceBaseURL: URL?
@@ -90,7 +90,7 @@ public struct SystemReplyRelayClient: ReplyRelaying {
               ) else { return false }
         guard let token = await accessToken(), !token.isEmpty else { return false }
         comps.path = (comps.path.hasSuffix("/") ? String(comps.path.dropLast()) : comps.path)
-            + "/v1/replies"
+            + "/v2/replies"
         guard let url = comps.url else { return false }
         var body: [String: Any] = [
             "replyId": reply.replyId,

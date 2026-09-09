@@ -109,7 +109,7 @@ extension MobileHostIrohRuntime {
             let requestClientNamespace = preparation.bindingAuthorization?
                 .clientNamespace ?? clientNamespace.rawValue
             let rawBroker = try CmxIrohTrustBrokerClient(
-                baseURL: brokerBaseURL,
+                baseURL: brokerBaseURL.appendingPathComponent("v2"),
                 tokenSource: CmxIrohBrokerTokenSource(
                     // The pair was captured together up front, so it is coherent
                     // by construction.

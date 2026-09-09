@@ -56,13 +56,13 @@ private let backupRouteDisclosureDate = Date(timeIntervalSince1970: 2_000_000_00
     @Test func backupClientEndpointURLJoinsBasePath() {
         #expect(PairedMacBackupClient.endpointURL(
             serviceBaseURL: "https://presence.example"
-        )?.absoluteString == "https://presence.example/v1/sync/paired-macs")
+        )?.absoluteString == "https://presence.example/v2/sync/paired-macs")
         #expect(PairedMacBackupClient.endpointURL(
             serviceBaseURL: "https://presence.example/"
-        )?.absoluteString == "https://presence.example/v1/sync/paired-macs")
+        )?.absoluteString == "https://presence.example/v2/sync/paired-macs")
         #expect(PairedMacBackupClient.endpointURL(
             serviceBaseURL: "http://127.0.0.1:8799/base/"
-        )?.absoluteString == "http://127.0.0.1:8799/base/v1/sync/paired-macs")
+        )?.absoluteString == "http://127.0.0.1:8799/base/v2/sync/paired-macs")
         #expect(PairedMacBackupClient.endpointURL(serviceBaseURL: "ftp://presence.example") == nil)
     }
 

@@ -116,11 +116,11 @@ import Testing
     @Test func subscribeURLSwitchesToWebSocketScheme() {
         #expect(
             PresenceClient.subscribeURL(serviceBaseURL: "https://presence.example")?.absoluteString
-                == "wss://presence.example/v1/presence/subscribe"
+                == "wss://presence.example/v2/presence/subscribe"
         )
         #expect(
             PresenceClient.subscribeURL(serviceBaseURL: "http://127.0.0.1:8799/")?.absoluteString
-                == "ws://127.0.0.1:8799/v1/presence/subscribe"
+                == "ws://127.0.0.1:8799/v2/presence/subscribe"
         )
         #expect(PresenceClient.subscribeURL(serviceBaseURL: "ftp://nope") == nil)
     }

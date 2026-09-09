@@ -210,7 +210,7 @@ final class MobileHostIrxRuntime {
             )
             let broker = try IrxBrokerService(
                 configuration: .init(
-                    baseURL: brokerBaseURL,
+                    baseURL: brokerBaseURL.appendingPathComponent("v2"),
                     clientNamespace: namespace.rawValue,
                     tag: tag,
                     platform: .mac,
@@ -285,7 +285,7 @@ final class MobileHostIrxRuntime {
                 let client = IrxControlPlaneClient(
                     configuration: .init(
                         socketURL: controlURL
-                            .appendingPathComponent("v1/control/socket"),
+                            .appendingPathComponent("v2/control/socket"),
                         endpointIDHex: identity.endpointIDHex,
                         // Phase A: passes stay on the HTTPS autopilot (with
                         // the stale-connection retry). The broker mint

@@ -114,7 +114,7 @@ struct CmxConnectivityInvalidationSubscriberTests {
         #expect(
             CmxConnectivityInvalidationSubscriber.subscribeURL(serviceBaseURL: base)?
                 .absoluteString
-                == "wss://presence.example.test/dev/v1/connectivity/subscribe"
+                == "wss://presence.example.test/dev/v2/connectivity/subscribe"
         )
         #expect(
             CmxConnectivityInvalidationSubscriber.subscribeURL(

@@ -6,7 +6,7 @@ import os
 private let macPairedMacPublishLog = Logger(subsystem: "com.cmuxterm.app", category: "MacPairedMacPublish")
 
 /// DEV convenience: publishes THIS Mac's own attach route into the signed-in
-/// user's per-user `pairedMacs` Durable Object backup (`POST /v1/sync/paired-macs`
+/// user's per-user `pairedMacs` Durable Object backup (`POST /v2/sync/paired-macs`
 /// on the presence worker), so a fresh dev iOS build restores it on sign-in and
 /// the Mac shows up as a saved host with the real host/port — no manual entry
 /// every time a dev build is installed.
@@ -96,7 +96,7 @@ final class MacPairedMacBackupPublisher {
 
         guard var comps = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else { return }
         comps.path = (comps.path.hasSuffix("/") ? String(comps.path.dropLast()) : comps.path)
-            + "/v1/sync/paired-macs"
+            + "/v2/sync/paired-macs"
         guard let url = comps.url else { return }
 
         let disclosureDate = Date()

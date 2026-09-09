@@ -1,6 +1,7 @@
 // cmux device presence service — worker entry.
 //
-// Routes (all JSON unless noted):
+// Routes (all JSON unless noted; /v2 is the canonical public namespace and
+// /v1 remains as a compatibility alias):
 //   GET  /healthz                         liveness, no auth
 //   POST /v1/presence/heartbeat           announce an app instance (15s cadence)
 //   GET  /v1/presence/snapshot            one-shot presence map
@@ -61,6 +62,7 @@ import {
   verifyIrohSessionTicket,
   type IrohSessionVerification,
 } from "./irohSession";
+import { normalizePublicPath } from "./routeVersion";
 export { TeamPresence, AccountControlPlane };
 
 export interface Env extends AuthEnv, ControlPlaneEnv {
@@ -68,6 +70,7 @@ export interface Env extends AuthEnv, ControlPlaneEnv {
   ACCOUNT_CONTROL_PLANE: DurableObjectNamespace<AccountControlPlane>;
   CONNECTIVITY_INVALIDATION_SECRET?: string;
   IROH_SESSION_SIGNING_KEY?: string;
+  CMUX_ENVIRONMENT?: "development" | "production";
 }
 
 function json(body: unknown, status = 200): Response {
@@ -92,6 +95,11 @@ function sessionVerificationError(
     : json({ error: `session_${error}` }, 401);
 }
 
+/** Resolve the clean-slate public API namespace to the stable internal route
+ * handlers. The rewrite happens only at the Worker edge, so Durable Objects
+ * and the compatibility broker never need to know which public version a
+ * client selected. Legacy /v1 and /api routes remain available for older
+ * builds during the migration window. */
 const IROH_CONTROL_PATHS = new Map<string, ReadonlySet<string>>([
   ["/api/devices/iroh", new Set(["GET", "DELETE"])],
   ["/api/devices/iroh/challenge", new Set(["POST"])],
@@ -209,15 +217,27 @@ async function resolveTeamOr403(
 const worker = {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+    const pathname = normalizePublicPath(url.pathname);
+    const routedURL = new URL(url);
+    routedURL.pathname = pathname;
+    const routedRequestURL = routedURL.toString();
 
-    if (url.pathname === "/healthz") {
+    // A development deployment must never proxy to the production web
+    // origin. This protects isolated DEV workers even if a copied secret or
+    // dashboard variable is wrong; the request fails closed at the edge.
+    if (env.CMUX_ENVIRONMENT === "development"
+      && env.CMUX_WEB_BASE_URL?.replace(/\/$/, "") === "https://cmux.com") {
+      return json({ error: "development_backend_misconfigured" }, 503);
+    }
+
+    if (pathname === "/healthz") {
       return json({ ok: true, service: "cmux-presence" });
     }
 
     // Iroh session bootstrap is the one control-plane request that carries a
     // Stack bearer. Identity-only verification deliberately does not resolve
     // team membership: Iroh state is scoped to the personal Stack user.
-    if (url.pathname === "/v1/iroh/session") {
+    if (pathname === "/v1/iroh/session") {
       if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
       const user = await verifyIdentityRequest(request, env);
       if (!user) return unauthorized();
@@ -233,7 +253,7 @@ const worker = {
       ));
     }
 
-    if (url.pathname === "/v1/iroh/session/renew") {
+    if (pathname === "/v1/iroh/session/renew") {
       if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
       const ticket = sessionTicketFromRequest(request);
       if (!ticket) return json({ error: "session_required" }, 401);
@@ -261,7 +281,7 @@ const worker = {
       ));
     }
 
-    if (url.pathname === "/v1/iroh/session/revoke-all") {
+    if (pathname === "/v1/iroh/session/revoke-all") {
       if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
       const user = await verifyIdentityRequest(request, env);
       if (!user) return unauthorized();
@@ -277,7 +297,7 @@ const worker = {
     // All Iroh HTTP control operations share the same account DO. The edge
     // verifies only the ticket signature and derives the object id from its
     // claims, so ordinary challenge/discovery/mint traffic never calls Stack.
-    const irohMethods = IROH_CONTROL_PATHS.get(url.pathname);
+    const irohMethods = IROH_CONTROL_PATHS.get(pathname);
     if (irohMethods) {
       if (!irohMethods.has(request.method)) return json({ error: "method_not_allowed" }, 405);
       let ticket = sessionTicketFromRequest(request);
@@ -320,11 +340,11 @@ const worker = {
         init.body = body;
       }
       return accountControlStub(env, accountId).fetch(
-        new Request(request.url, init),
+        new Request(routedRequestURL, init),
       );
     }
 
-    if (url.pathname === "/v1/connectivity/subscribe") {
+    if (pathname === "/v1/connectivity/subscribe") {
       if (request.method !== "GET") return json({ error: "method_not_allowed" }, 405);
       const user = await verifyRequest(request, env);
       if (!user) return unauthorized();
@@ -338,10 +358,10 @@ const worker = {
       headers.set("x-connectivity-account-id", user.id);
       headers.set("x-presence-expires-at", String(Math.floor(expiresAt)));
       const stub = connectivityStub(env, user.id);
-      return stub.fetch(new Request(request.url, { method: "GET", headers }));
+      return stub.fetch(new Request(routedRequestURL, { method: "GET", headers }));
     }
 
-    if (url.pathname === "/v1/control/socket") {
+    if (pathname === "/v1/control/socket") {
       // Account control plane: one WebSocket carrying revisioned facts
       // (directory, hint updates, relay passes). Auth is checked on the
       // WebSocket upgrade here, and the DO is derived from the VERIFIED user
@@ -385,10 +405,10 @@ const worker = {
       }
       headers.set("x-control-account-id", accountId);
       const stub = accountControlStub(env, accountId);
-      return stub.fetch(new Request(request.url, { method: "GET", headers }));
+      return stub.fetch(new Request(routedRequestURL, { method: "GET", headers }));
     }
 
-    if (url.pathname === "/v1/control/devices/revoke") {
+    if (pathname === "/v1/control/devices/revoke") {
       // Account-owner device revocation. Same Stack bearer verification as the
       // control-plane socket route; the target DO is derived from the VERIFIED
       // user id, the forwarded headers are rebuilt from scratch, and only the
@@ -407,14 +427,14 @@ const worker = {
       const stub = env.ACCOUNT_CONTROL_PLANE.get(
         env.ACCOUNT_CONTROL_PLANE.idFromName(`control:user:${user.id}`),
       );
-      return stub.fetch(new Request(request.url, {
+      return stub.fetch(new Request(routedRequestURL, {
         method: "POST",
         headers,
         body: JSON.stringify(parsed),
       }));
     }
 
-    if (url.pathname === "/v1/connectivity/invalidate") {
+    if (pathname === "/v1/connectivity/invalidate") {
       if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
       if (!await isConnectivityPublisherAuthorized(
         request,
@@ -438,7 +458,7 @@ const worker = {
     // All three routes use the account's connectivity DO instance — the one
     // already holding the account's live WebSockets — so the enqueue nudge and
     // the sockets can never disagree about which object owns them.
-    if (url.pathname === "/v1/replies") {
+    if (pathname === "/v1/replies") {
       const user = await verifyRequest(request, env);
       if (!user) return unauthorized();
       const stub = connectivityStub(env, user.id);
@@ -461,7 +481,7 @@ const worker = {
       return json({ error: "method_not_allowed" }, 405);
     }
 
-    if (url.pathname === "/v1/replies/ack") {
+    if (pathname === "/v1/replies/ack") {
       if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
       const user = await verifyRequest(request, env);
       if (!user) return unauthorized();
@@ -473,7 +493,7 @@ const worker = {
       return json(await stub.ackPhoneReplies(parsed.replyIds));
     }
 
-    if (url.pathname === "/v1/presence/heartbeat") {
+    if (pathname === "/v1/presence/heartbeat") {
       if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
       const team = await resolveTeamOr403(request, env);
       if (!team.ok) return team.response;
@@ -488,7 +508,7 @@ const worker = {
       return json(result);
     }
 
-    if (url.pathname === "/v1/sync/paired-macs") {
+    if (pathname === "/v1/sync/paired-macs") {
       // The per-user saved-host backup. Both directions are scoped to the
       // verified user (passed to the DO, never client input):
       //   POST  back up the caller's saved-host list (upsert/delete ops)
@@ -528,7 +548,7 @@ const worker = {
       return json(result);
     }
 
-    if (url.pathname === "/v1/presence/snapshot") {
+    if (pathname === "/v1/presence/snapshot") {
       if (request.method !== "GET") return json({ error: "method_not_allowed" }, 405);
       const team = await resolveTeamOr403(request, env);
       if (!team.ok) return team.response;
@@ -537,7 +557,7 @@ const worker = {
       });
     }
 
-    if (url.pathname === "/v1/presence/subscribe") {
+    if (pathname === "/v1/presence/subscribe") {
       if (request.method !== "GET") return json({ error: "method_not_allowed" }, 405);
       const team = await resolveTeamOr403(request, env);
       if (!team.ok) return team.response;
@@ -558,7 +578,7 @@ const worker = {
       // `pairedMacs` backup collection to its owner. Set from the verified value
       // only, never passed through from the client.
       headers.set("x-presence-user-id", team.user.id);
-      return team.stub.fetch(new Request(request.url, { method: "GET", headers }));
+      return team.stub.fetch(new Request(routedRequestURL, { method: "GET", headers }));
     }
 
     return json({ error: "not_found" }, 404);

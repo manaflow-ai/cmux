@@ -208,7 +208,7 @@ public actor MobileIrxRuntimeComposition {
             apiBaseURL: apiBaseURL,
             infoDictionary: infoDictionary,
             bundleIdentifier: bundleIdentifier
-        )
+        )?.appendingPathComponent("v2")
         let rawTag = MobileIOSBuildScope.current(
             infoDictionary: infoDictionary,
             bundleIdentifier: bundleIdentifier
@@ -381,7 +381,7 @@ public actor MobileIrxRuntimeComposition {
         let client = IrxControlPlaneClient(
             configuration: .init(
                 socketURL: controlPlaneBaseURL
-                    .appendingPathComponent("v1/control/socket"),
+                    .appendingPathComponent("v2/control/socket"),
                 endpointIDHex: identity.endpointIDHex,
                 // Phase A: passes stay on the HTTPS autopilot (now hardened
                 // with stale-connection retry). The broker's mint endpoint

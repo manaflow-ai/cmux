@@ -32,6 +32,7 @@ enabled = true
 # Iroh control requests return a backend-unavailable response rather than
 # silently sending traffic back to Vercel.
 [vars]
+CMUX_ENVIRONMENT = "production"
 CMUX_IROH_BACKEND_MODE = "direct"
 
 [alias]

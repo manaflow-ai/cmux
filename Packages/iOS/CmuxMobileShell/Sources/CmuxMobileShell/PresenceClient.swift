@@ -54,7 +54,7 @@ public actor PresenceClient {
         default: return nil
         }
         let basePath = comps.path.hasSuffix("/") ? String(comps.path.dropLast()) : comps.path
-        comps.path = basePath + "/v1/presence/subscribe"
+        comps.path = basePath + "/v2/presence/subscribe"
         return comps.url
     }
 

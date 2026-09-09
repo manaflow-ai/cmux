@@ -3,7 +3,7 @@ import CmuxAuthRuntime
 import Foundation
 
 /// Announces this Mac's running cmux app instance to the team-scoped presence
-/// service (`POST /v1/presence/heartbeat` on `workers/presence`), so phones and
+/// service (`POST /v2/presence/heartbeat` on `workers/presence`), so phones and
 /// other team devices can see it flip online/offline live.
 ///
 /// Follows the ``DeviceRegistryClient`` registry-refresh pattern: same device
@@ -191,7 +191,7 @@ final class PresenceHeartbeatClient {
 
         guard var comps = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else { return }
         comps.path = (comps.path.hasSuffix("/") ? String(comps.path.dropLast()) : comps.path)
-            + "/v1/presence/heartbeat"
+            + "/v2/presence/heartbeat"
         guard let url = comps.url else { return }
 
         let bodyDict = Self.heartbeatBody(

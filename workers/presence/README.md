@@ -11,7 +11,7 @@ traffic.
 | Route | Auth at the edge | Owner after the edge |
 | --- | --- | --- |
 | `/healthz` | none | Worker |
-| `/v1/iroh/session` | one Stack identity lookup (`/users/me`) | account DO, which mints a ticket |
+| `/v2/iroh/session` (canonical, `/v1` retained for migration) | one Stack identity lookup (`/users/me`) | account DO, which mints a ticket |
 | `/v1/iroh/session/renew` | existing signed ticket only | account DO |
 | `/v1/iroh/session/revoke-all` | one Stack identity lookup | account DO epoch fence |
 | `/api/devices/iroh*` | ticket signature and account epoch | account DO, then direct Iroh adapter or compatibility origin |
@@ -27,7 +27,7 @@ identity and forwards to that object.
 ## Session authentication and Stack call budget
 
 Current clients send the Stack access and refresh pair once to
-`POST /v1/iroh/session`. The Worker verifies only identity, caches that result
+`POST /v2/iroh/session`. The Worker verifies only identity, caches that result
 briefly, and the account DO returns a signed 15-minute HMAC ticket. The ticket
 contains the account, session id, epoch, expiry, renewal time, and the exact
 client metadata (device, app instance, namespace, tag, and platform).
@@ -38,7 +38,7 @@ preference, connectivity, and control-socket requests carry only
 check the account and namespace, and check the stored session plus revocation
 epoch. They do not call Stack for each request or WebSocket message.
 
-The client renews before expiry through `POST /v1/iroh/session/renew`, which is
+The client renews before expiry through `POST /v2/iroh/session/renew`, which is
 ticket-only and single-flighted. A temporary Worker/DO outage keeps the current
 ticket in memory and retries renewal later. A 401, expired ticket, account
 switch, or explicit revocation clears it and requires a fresh bootstrap. Old

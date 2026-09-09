@@ -5,7 +5,7 @@ import os
 private let pairedMacBackupLog = Logger(subsystem: "com.cmuxterm.app", category: "PairedMacBackup")
 
 /// HTTP client for the per-user paired-Mac backup on the presence worker
-/// (`/v1/sync/paired-macs`). Auth mirrors ``PresenceClient`` /
+/// (`/v2/sync/paired-macs`). Auth mirrors ``PresenceClient`` /
 /// ``DeviceRegistryService``: `Authorization: Bearer <access>` plus optional
 /// `X-Cmux-Team-Id`, with tokens supplied through ``PresenceTokenSource``.
 public actor PairedMacBackupClient: PairedMacBackingUp {
@@ -42,7 +42,7 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
         self.migrationClock = migrationClock
     }
 
-    private static let path = "/v1/sync/paired-macs"
+    private static let path = "/v2/sync/paired-macs"
     private static let maximumMigrationUploadOperations = 200
     // A fetch performs at most one conditional write. If more legacy state
     // remains, the next fetch resumes from the current snapshot.

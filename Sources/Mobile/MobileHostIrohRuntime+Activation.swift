@@ -109,7 +109,7 @@ extension MobileHostIrohRuntime {
             throw CmxIrohTrustBrokerClientError.invalidBaseURL
         }
         let rawBroker = try CmxIrohTrustBrokerClient(
-            baseURL: brokerBaseURL,
+            baseURL: brokerBaseURL.appendingPathComponent("v2"),
             tokenSource: .accountPinned(
                 to: accountID,
                 // An ATOMIC authenticated snapshot per fetch, validated
