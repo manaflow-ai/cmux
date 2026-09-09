@@ -1006,87 +1006,12 @@ function makeLiveRepository(): IrohRepositoryShape {
           await advanceRouteRevision(tx, input.userId, input.now);
         }
 
-        const challengeRetentionCutoff = new Date(input.now.getTime() - IROH_EXPIRED_CHALLENGE_RETENTION_MS);
-        const auditRetentionCutoff = new Date(input.now.getTime() - 30 * 24 * 60 * 60 * 1_000);
-        await tx.execute(sql`
-          with candidates as materialized (
-            select id
-            from iroh_registration_challenges
-            where user_id = ${input.userId}
-              and expires_at < ${challengeRetentionCutoff.toISOString()}::timestamptz
-            order by expires_at, id
-            limit ${IROH_RETENTION_BATCH_SIZE}
-            for update skip locked
-          )
-          delete from iroh_registration_challenges as challenge
-          using candidates
-          where challenge.id = candidates.id
-        `);
-        await tx.execute(sql`
-          with candidates as materialized (
-            select id
-            from iroh_registration_challenges
-            where user_id = ${input.userId}
-              and consumed_at is not null
-            order by consumed_at, id
-            limit ${IROH_RETENTION_BATCH_SIZE}
-            for update skip locked
-          )
-          delete from iroh_registration_challenges as challenge
-          using candidates
-          where challenge.id = candidates.id
-        `);
-        await tx.execute(sql`
-          with candidates as materialized (
-            select id
-            from iroh_relay_token_issuances
-            where user_id = ${input.userId}
-              and requested_at < ${auditRetentionCutoff.toISOString()}::timestamptz
-            order by requested_at, id
-            limit ${IROH_RETENTION_BATCH_SIZE}
-            for update skip locked
-          )
-          delete from iroh_relay_token_issuances as issuance
-          using candidates
-          where issuance.id = candidates.id
-        `);
-        await tx.execute(sql`
-          with candidates as materialized (
-            select id
-            from iroh_pair_grant_issuances
-            where user_id = ${input.userId}
-              and expires_at < ${auditRetentionCutoff.toISOString()}::timestamptz
-            order by expires_at, id
-            limit ${IROH_RETENTION_BATCH_SIZE}
-            for update skip locked
-          )
-          delete from iroh_pair_grant_issuances as issuance
-          using candidates
-          where issuance.id = candidates.id
-        `);
-        await tx.execute(sql`
-          with candidates as materialized (
-            select binding.id
-            from iroh_endpoint_bindings as binding
-            where binding.user_id = ${input.userId}
-              and binding.revoked_at < ${auditRetentionCutoff.toISOString()}::timestamptz
-            and not exists (
-              select 1 from iroh_pair_grant_issuances as pair_grant
-              where pair_grant.initiator_binding_id = binding.id
-                or pair_grant.acceptor_binding_id = binding.id
-            )
-            and not exists (
-              select 1 from iroh_relay_token_issuances as issuance
-              where issuance.binding_id = binding.id
-            )
-            order by binding.revoked_at, binding.id
-            limit ${IROH_RETENTION_BATCH_SIZE}
-            for update skip locked
-          )
-          delete from iroh_endpoint_bindings as binding
-          using candidates
-          where binding.id = candidates.id
-        `);
+        // Retention deletes for challenges, relay and pair-grant audit rows,
+        // and old revoked bindings run in the scheduled global drain
+        // (`pruneExpiredStateGlobally`). They used to run here on every
+        // discovery call as well, which cost three to five statements per
+        // heartbeat fleet-wide for rows that the drain removes within minutes.
+        // This path keeps only the route-affecting work: expiring path hints.
       });
     }),
 

@@ -2243,6 +2243,8 @@ describe("Iroh trust broker database behavior", () => {
         ${new Date(NOW.getTime() - 2 * 24 * 60 * 60 * 1_000)}
       from generate_series(1, ${IROH_RETENTION_BATCH_SIZE + 1}) as values(value)
     `;
+    // The per-user prune on the request path no longer deletes retention
+    // rows; the scheduled global drain owns that work.
     await Effect.runPromise(requiredRepository().pruneExpiredState({
       userId: "user-retention-scoped",
       now: NOW,
@@ -2252,7 +2254,14 @@ describe("Iroh trust broker database behavior", () => {
       from iroh_registration_challenges
       where user_id = 'user-retention-scoped'
     `;
-    expect(scopedRemaining).toBe("1");
+    expect(scopedRemaining).toBe(String(IROH_RETENTION_BATCH_SIZE + 1));
+    await Effect.runPromise(requiredRepository().pruneExpiredStateGlobally({ now: NOW }));
+    const [{ scopedAfterDrain }] = await requiredSql()<Array<{ scopedAfterDrain: string }>>`
+      select count(*)::text as "scopedAfterDrain"
+      from iroh_registration_challenges
+      where user_id = 'user-retention-scoped'
+    `;
+    expect(scopedAfterDrain).toBe("0");
   });
 
   dbTest("global retention reports backlog when its row budget is exhausted", async () => {
