@@ -30,7 +30,7 @@ import {
   type IrohPathHint,
   type IrohRegistrationPayload,
   IROH_MIN_REGISTRATION_SPACING_MS,
-  IROH_REGISTRATION_SPACING_NAMESPACES,
+  IROH_IRX_CAPABILITY,
 } from "./model";
 import {
   canIOSBindingForgetMac,
@@ -244,7 +244,11 @@ function makeLiveRepository(): IrohRepositoryShape {
         // the per-user challenge advisory lock above, so this read cannot race
         // another mint for the same slot.
         const [priorChallenge] = await tx
-          .select({ createdAt: irohRegistrationChallenges.createdAt })
+          .select({
+            createdAt: irohRegistrationChallenges.createdAt,
+            endpointId: irohRegistrationChallenges.endpointId,
+            identityGeneration: irohRegistrationChallenges.identityGeneration,
+          })
           .from(irohRegistrationChallenges)
           .where(and(
             eq(irohRegistrationChallenges.userId, input.userId),
@@ -265,6 +269,7 @@ function makeLiveRepository(): IrohRepositoryShape {
             registeredAt: irohEndpointBindings.registeredAt,
             endpointId: irohEndpointBindings.endpointId,
             identityGeneration: irohEndpointBindings.identityGeneration,
+            capabilities: irohEndpointBindings.capabilities,
           })
           .from(irohEndpointBindings)
           .where(and(
@@ -279,24 +284,7 @@ function makeLiveRepository(): IrohRepositoryShape {
         // wait. Nothing has been written yet, and the client's rate-limit
         // path sleeps for Retry-After and then publishes once, so the fleet
         // write rate is capped per slot however fast observed addresses churn.
-        if (
-          slot
-          && IROH_REGISTRATION_SPACING_NAMESPACES.has(input.clientNamespace ?? "legacy")
-          && slot.endpointId === input.endpointId
-          && slot.identityGeneration === input.identityGeneration
-        ) {
-          const minimumSpacingMs = input.minimumSpacingMs ?? IROH_MIN_REGISTRATION_SPACING_MS;
-          const elapsedMs = input.now.getTime() - slot.registeredAt.getTime();
-          if (elapsedMs < minimumSpacingMs) {
-            throw new IrohQuotaExceededError({
-              code: "registration_spacing",
-              retryAfterSeconds: Math.max(
-                1,
-                Math.ceil((minimumSpacingMs - elapsedMs) / 1_000),
-              ),
-            });
-          }
-        }
+        enforceRegistrationSpacing(input, slot, priorChallenge);
         const floor = Math.max(
           priorChallenge?.createdAt.getTime() ?? 0,
           slot?.registeredAt?.getTime() ?? 0,
@@ -1319,6 +1307,55 @@ async function revokeActiveBindings(
       },
     });
   return revokedIds;
+}
+
+type SpacingSlot = {
+  readonly registeredAt: Date;
+  readonly endpointId: string;
+  readonly identityGeneration: number;
+  readonly capabilities: unknown;
+};
+
+type SpacingMint = {
+  readonly createdAt: Date;
+  readonly endpointId: string;
+  readonly identityGeneration: number;
+};
+
+/**
+ * Refuse a same-identity mint inside the spacing floor. The floor is measured
+ * from the newest mint of that identity on the slot, accepted or still
+ * outstanding, so several challenges minted inside one window cannot be
+ * banked and consumed later. A new endpoint id or generation is never
+ * delayed, and an irx slot is exempt until that runtime honors Retry-After.
+ */
+function enforceRegistrationSpacing(
+  input: {
+    readonly endpointId: string;
+    readonly identityGeneration: number;
+    readonly now: Date;
+    readonly minimumSpacingMs?: number;
+  },
+  slot: SpacingSlot | undefined,
+  priorChallenge: SpacingMint | undefined,
+): void {
+  if (!slot) return;
+  const sameIdentity = (candidate: { endpointId: string; identityGeneration: number }) =>
+    candidate.endpointId === input.endpointId
+    && candidate.identityGeneration === input.identityGeneration;
+  if (!sameIdentity(slot)) return;
+  if (Array.isArray(slot.capabilities) && slot.capabilities.includes(IROH_IRX_CAPABILITY)) return;
+  const minimumSpacingMs = input.minimumSpacingMs ?? IROH_MIN_REGISTRATION_SPACING_MS;
+  const newestMintMs = Math.max(
+    slot.registeredAt.getTime(),
+    priorChallenge && sameIdentity(priorChallenge) ? priorChallenge.createdAt.getTime() : 0,
+  );
+  const elapsedMs = input.now.getTime() - newestMintMs;
+  if (elapsedMs >= minimumSpacingMs) return;
+  throw new IrohQuotaExceededError({
+    code: "registration_spacing",
+    retryAfterSeconds: Math.max(1, Math.ceil((minimumSpacingMs - elapsedMs) / 1_000)),
+  });
 }
 
 /** Keep the account revision for a no-op heartbeat; advance it for real news. */

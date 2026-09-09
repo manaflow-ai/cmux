@@ -22,15 +22,16 @@ export const IROH_CHALLENGE_LIFETIME_MS = 5 * 60 * 1_000;
  */
 export const IROH_MIN_REGISTRATION_SPACING_MS = 60 * 1_000;
 /**
- * Client namespaces whose host runtime honors Retry-After on a refused mint.
- * The legacy namespace is the stable MobileHostIrohRuntime, whose
- * registrationRetrySchedule sleeps for Retry-After and then publishes once.
- * Bundle namespaces are the irx runtime, whose activation loop retries every
- * five seconds regardless of the header; spacing them would trade one
- * registration a minute for twelve refused mints a minute. Extend this set
- * once irx honors Retry-After.
+ * Capability advertised by the irx host runtime (DEBUG and nightly builds).
+ * Its activation loop retries a refused mint every five seconds regardless of
+ * Retry-After, so spacing an irx slot would trade one registration a minute
+ * for twelve refused mints a minute. The legacy MobileHostIrohRuntime, which
+ * advertises mobile-rpc-v1 and multistream-v1, sleeps for Retry-After and
+ * then publishes once. Spacing is keyed on the stored slot's capabilities,
+ * not on the client namespace, because current stable builds also register
+ * under a bundle namespace. Remove this exemption once irx honors the header.
  */
-export const IROH_REGISTRATION_SPACING_NAMESPACES: ReadonlySet<string> = new Set(["legacy"]);
+export const IROH_IRX_CAPABILITY = "cmux.irx.v1";
 export const IROH_PAIR_GRANT_LIFETIME_SECONDS = 7 * 24 * 60 * 60;
 export const IROH_ENDPOINT_ATTESTATION_LIFETIME_SECONDS = 24 * 60 * 60;
 export const IROH_OFFLINE_PAIR_SESSION_LIFETIME_SECONDS = 5 * 60;
