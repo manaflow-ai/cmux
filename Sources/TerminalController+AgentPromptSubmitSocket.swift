@@ -263,9 +263,20 @@ extension TerminalController {
                 surfaceID: surfaceID
             )
         }
+        let hadInFlight = agentPromptSubmissionService.hasInFlight(
+            workspaceID: workspaceID
+        )
         let receipts = agentPromptSubmissionService.remove(surfaceID: surfaceID)
-        if !agentPromptSubmissionService.hasInFlight(workspaceID: workspaceID) {
+        let didReleaseWorkspaceBarrier =
+            hadInFlight
+                && !agentPromptSubmissionService.hasInFlight(workspaceID: workspaceID)
+        if didReleaseWorkspaceBarrier {
             cancelAgentPromptConfirmationFallback(workspaceID: workspaceID)
+            // Removing one surface can release the workspace's in-flight
+            // barrier while FIFO requests for another or auto-resolved surface
+            // remain. Re-enter the normal resolver so those requests either
+            // advance in order or publish their terminal failure immediately.
+            drainAgentPromptQueue(workspaceID: workspaceID)
         }
         for receipt in receipts {
             CmuxEventBus.shared.publishAgentPromptDelivery(

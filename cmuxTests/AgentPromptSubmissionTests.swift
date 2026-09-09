@@ -536,6 +536,152 @@ struct AgentPromptSubmissionTests {
     }
 
     @MainActor
+    @Test func confirmingPromptRearmsDeadlineForTheTurnItStarts() throws {
+        let environment = TemporaryAppEnvironment()
+        let tabManager = environment.tabManager
+        let workspace = tabManager.addWorkspace(select: true)
+        let panelID = try #require(workspace.focusedPanelId)
+        let panel = try #require(
+            workspace.terminalInputTarget(forPanelID: panelID)?.panel
+        )
+        let controller = TerminalController.shared
+        let service = controller.agentPromptSubmissionService
+        let workspaceID = workspace.id
+        defer {
+            controller.cancelAgentPromptConfirmationFallback(
+                workspaceID: workspaceID
+            )
+            _ = service.remove(workspaceID: workspaceID)
+            panel.surface.releaseSurfaceForTesting()
+            if tabManager.tabs.contains(where: { $0.id == workspace.id }) {
+                tabManager.closeWorkspace(workspace)
+            }
+            environment.restore()
+        }
+
+        panel.surface.synchronizePromptInputAgentScope(
+            "agentPIDKey:codex.confirmation"
+        )
+        let accepted = service.submit(
+            workspaceID: workspaceID,
+            requestedSurfaceID: panelID,
+            text: "accepted prompt",
+            delivery: { messageID in
+                panel.surface.promptInputLedger.recordProgrammaticSubmission(
+                    message: "accepted prompt",
+                    source: "workspace.agent_submit",
+                    messageID: messageID
+                )
+                return .submitted(
+                    workspaceID: workspaceID,
+                    surfaceID: panelID,
+                    queued: false
+                )
+            }
+        )
+        let queued = service.submit(
+            workspaceID: workspaceID,
+            requestedSurfaceID: panelID,
+            text: "queued behind the confirmed prompt",
+            delivery: { _ in
+                .submitted(
+                    workspaceID: workspaceID,
+                    surfaceID: panelID,
+                    queued: false
+                )
+            }
+        )
+        guard case .queued(_, _, let reason) = queued.result else {
+            Issue.record("Expected the second prompt to queue behind the first")
+            return
+        }
+        #expect(reason == "prior_prompt_in_flight")
+
+        // This is the prompt deadline that confirmation must replace. The new
+        // turn is recorded before the hook confirms the accepted prompt.
+        controller.scheduleAgentPromptConfirmationFallback(
+            workspaceID: workspaceID,
+            delay: 60
+        )
+        workspace.recordAgentTurnStart(
+            panelId: panelID,
+            sessionID: "confirmation-session"
+        )
+
+        let confirmation = controller.confirmAgentPromptSubmission(
+            workspaceID: workspaceID,
+            panel: panel,
+            message: "accepted prompt"
+        )
+
+        #expect(confirmation?.messageID == accepted.messageID)
+        #expect(
+            controller.agentPromptConfirmationFallbackSchedulers[workspaceID]?
+                .isScheduled == true
+        )
+    }
+
+    @MainActor
+    @Test func closingBarrierSurfaceDrainsRemainingWorkspaceFIFO() {
+        let controller = TerminalController.shared
+        let service = controller.agentPromptSubmissionService
+        let workspaceID = UUID()
+        let closedSurfaceID = UUID()
+        let remainingSurfaceID = UUID()
+        var remainingDeliveryAttempts = 0
+        defer {
+            controller.cancelAgentPromptConfirmationFallback(
+                workspaceID: workspaceID
+            )
+            _ = service.remove(workspaceID: workspaceID)
+        }
+
+        let accepted = service.submit(
+            workspaceID: workspaceID,
+            requestedSurfaceID: closedSurfaceID,
+            text: "owned by the closing surface",
+            delivery: { _ in
+                .submitted(
+                    workspaceID: workspaceID,
+                    surfaceID: closedSurfaceID,
+                    queued: false
+                )
+            }
+        )
+        let queued = service.submit(
+            workspaceID: workspaceID,
+            requestedSurfaceID: remainingSurfaceID,
+            text: "survive surface close",
+            delivery: { _ in
+                remainingDeliveryAttempts += 1
+                return .submitted(
+                    workspaceID: workspaceID,
+                    surfaceID: remainingSurfaceID,
+                    queued: false
+                )
+            }
+        )
+        #expect(accepted.result == .submitted(
+            workspaceID: workspaceID,
+            surfaceID: closedSurfaceID,
+            queued: false
+        ))
+        #expect(queued.result == .queued(
+            workspaceID: workspaceID,
+            surfaceID: remainingSurfaceID,
+            reason: "prior_prompt_in_flight"
+        ))
+
+        controller.discardAgentPromptQueue(
+            surfaceID: closedSurfaceID,
+            workspaceID: workspaceID
+        )
+
+        #expect(remainingDeliveryAttempts == 1)
+        #expect(service.remove(workspaceID: workspaceID).isEmpty)
+    }
+
+    @MainActor
     @Test func expiredActiveTurnReleasesTheGuardedQueue() async throws {
         let environment = TemporaryAppEnvironment()
         let tabManager = environment.tabManager

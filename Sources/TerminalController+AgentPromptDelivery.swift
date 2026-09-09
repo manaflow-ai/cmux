@@ -28,6 +28,19 @@ extension TerminalController {
         )
         if didReleaseBarrier {
             cancelAgentPromptConfirmationFallback(workspaceID: workspaceID)
+            if let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceID),
+               let workspace = tabManager.tabs.first(where: { $0.id == workspaceID }),
+               workspace.hasActiveAgentTurn(panelId: panel.id) {
+                // The confirmation belongs to the prompt that just started a
+                // new hook-observed turn. Releasing its prior delivery barrier
+                // must not remove the only deadline that can recover the FIFO
+                // if the matching stop hook is missed.
+                scheduleAgentPromptTurnExpiryFallback(
+                    workspaceID: workspaceID,
+                    workspace: workspace,
+                    panelID: panel.id
+                )
+            }
         }
         return (source, messageID)
     }
