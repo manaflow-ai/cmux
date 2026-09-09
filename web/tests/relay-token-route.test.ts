@@ -149,6 +149,44 @@ describe("POST /api/relay/token", () => {
     expect(policyReads).toBe(0);
   });
 
+  test("skips relay-token limits for an authorized development team", async () => {
+    let checks = 0;
+    const response = await handleRelayTokenRequest(
+      request({ endpointId: ENDPOINT_ID }, "dev.cmux.ios.grid", true),
+      deps({
+        isVercel: () => true,
+        rateLimitRuleId: () => "relay-token",
+        checkRateLimit: async () => {
+          checks += 1;
+          return { rateLimited: true };
+        },
+        // This seam is added by the implementation. Keeping the test cast here
+        // makes this first commit the intentionally failing regression proof.
+        isDevRateLimitBypassAllowed: async () => true,
+      } as Partial<RelayTokenDeps>),
+    );
+    expect(response.status).toBe(200);
+    expect(checks).toBe(0);
+  });
+
+  test("keeps the relay-token limit for callers that are not authorized", async () => {
+    let checks = 0;
+    const response = await handleRelayTokenRequest(
+      request({ endpointId: ENDPOINT_ID }, "dev.cmux.ios.grid", true),
+      deps({
+        isVercel: () => true,
+        rateLimitRuleId: () => "relay-token",
+        checkRateLimit: async () => {
+          checks += 1;
+          return { rateLimited: true };
+        },
+        isDevRateLimitBypassAllowed: async () => false,
+      } as Partial<RelayTokenDeps>),
+    );
+    expect(response.status).toBe(429);
+    expect(checks).toBe(1);
+  });
+
   test("keeps legacy token fields and adds policy plus separate preference metadata", async () => {
     const response = await handleRelayTokenRequest(
       request({ endpointId: ENDPOINT_ID }),
