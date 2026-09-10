@@ -17,7 +17,11 @@ const start = async (stage = "base") => {
     log: new Log(LogLevel.NONE), bindings: { MIGRATION_STAGE: stage },
     name: "account-storage-sandbox", modules: true, script: outputFiles[0].text,
     compatibilityDate: "2026-05-01", host: "127.0.0.1", port: 0,
-    durableObjects: { ACCOUNT: { className: "SandboxAccount", useSQLite: true }, SCHEMA: { className: "SandboxSchema", useSQLite: true } },
+    durableObjects: {
+      ACCOUNT: { className: "SandboxAccount", useSQLite: true },
+      SCHEMA: { className: "SandboxSchema", useSQLite: true },
+      DRIZZLE: { className: "SandboxDrizzle", useSQLite: true },
+    },
     durableObjectsPersist: directory,
     outboundService: () => { outboundCalls++; throw new Error("External network is blocked in this sandbox"); },
   });
@@ -33,6 +37,7 @@ const request = async (path, body) => {
 };
 try {
   await start();
+  assert.deepEqual(await request("/drizzle/probe"), { rows: [] }, "Drizzle transaction must roll back atomically in workerd");
   const first = await request("/inspect");
   assert.deepEqual(first.schema, [{ version: 1, name: "account_state_tables" }]);
   assert.deepEqual(first.rows, []);
@@ -98,7 +103,7 @@ try {
   await start("good");
   assert.deepEqual(await request("/schema/inspect"), upgraded, "Forward recovery must preserve upgraded data");
   assert.equal(outboundCalls, 0);
-  console.log(JSON.stringify({ result: "pass", checks: ["fresh schema", "persisted restart", "migration idempotence", "account isolation", "alarm preservation", "idle cleanup", "alarm rearm", "real alarm delivery", "drained alarm stop", "populated schema upgrade", "failed upgrade rollback", "unsupported downgrade rejection", "forward recovery", "external network blocked"] }));
+  console.log(JSON.stringify({ result: "pass", checks: ["drizzle transaction rollback", "fresh schema", "persisted restart", "migration idempotence", "account isolation", "alarm preservation", "idle cleanup", "alarm rearm", "real alarm delivery", "drained alarm stop", "populated schema upgrade", "failed upgrade rollback", "unsupported downgrade rejection", "forward recovery", "external network blocked"] }));
 } finally {
   await runtime?.dispose();
   await rm(directory, { recursive: true, force: true });

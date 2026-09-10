@@ -1,5 +1,7 @@
 // Test-only entrypoint. Production never imports this module.
 import { DurableObject } from "cloudflare:workers";
+import { accountDrizzleDatabase } from "../src/accountDrizzleDatabase";
+import { drizzleTransactionProbe } from "../src/accountDrizzleSchema";
 import { ACCOUNT_SQLITE_MIGRATIONS, runAccountSqliteMigrations } from "../src/accountSqliteStorage";
 import { AccountControlPlane, type ControlPlaneEnv } from "../src/controlPlaneDo";
 
@@ -52,6 +54,7 @@ export class SandboxAccount extends AccountControlPlane {
 interface Env extends ControlPlaneEnv {
   ACCOUNT: DurableObjectNamespace<SandboxAccount>;
   SCHEMA: DurableObjectNamespace<SandboxSchema>;
+  DRIZZLE: DurableObjectNamespace<SandboxDrizzle>;
   MIGRATION_STAGE: string;
 }
 
@@ -86,10 +89,43 @@ export class SandboxSchema extends DurableObject<Env> {
     });
   }
 }
+
+export class SandboxDrizzle extends DurableObject<Env> {
+  private readonly db = accountDrizzleDatabase(this.ctx.storage);
+
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+    this.ctx.blockConcurrencyWhile(async () => {
+      this.ctx.storage.sql.exec(
+        "CREATE TABLE IF NOT EXISTS drizzle_transaction_probe (id INTEGER PRIMARY KEY, value TEXT NOT NULL)",
+      );
+    });
+  }
+
+  override async fetch(request: Request): Promise<Response> {
+    if (new URL(request.url).pathname !== "/probe") return new Response("not_found", { status: 404 });
+    try {
+      this.db.transaction((tx) => {
+        tx.insert(drizzleTransactionProbe).values({ id: 1, value: "first" }).run();
+        tx.insert(drizzleTransactionProbe).values({ id: 2, value: "second" }).run();
+        throw new Error("intentional rollback");
+      });
+    } catch (error) {
+      if (!(error instanceof Error) || error.message !== "intentional rollback") throw error;
+    }
+    return Response.json({ rows: this.db.select().from(drizzleTransactionProbe).all() });
+  }
+}
+
 export default {
   fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname.startsWith("/schema/")) return env.SCHEMA.get(env.SCHEMA.idFromName("upgrade")).fetch(request);
+    if (url.pathname.startsWith("/drizzle/")) {
+      return env.DRIZZLE.get(env.DRIZZLE.idFromName("probe")).fetch(
+        new Request(new URL(request.url).toString().replace("/drizzle", ""), request),
+      );
+    }
     const account = url.searchParams.get("account") ?? "a";
     return env.ACCOUNT.get(env.ACCOUNT.idFromName(account)).fetch(request);
   },
