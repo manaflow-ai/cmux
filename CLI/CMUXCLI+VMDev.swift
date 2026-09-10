@@ -728,11 +728,26 @@ extension CMUXCLI {
             machine: machine,
             workspaceID: remoteWorkspace
         )
-        let hasPanes = try Self.vmDevWorkspaceHasPlacedTerminals(
+        let hasPanes: Bool
+        switch VMRemoteWorkspaceResolver().resolveVMRemoteWorkspaceTerminal(
             resources,
             machine: machine,
             workspaceID: remoteWorkspace
-        )
+        ) {
+        case .resolved, .ambiguous:
+            hasPanes = true
+        case .unavailable(let selector):
+            throw CLIError(message: "vm dev: terminal placement for workspace \(remoteWorkspace) on \(machine) is unavailable (resource \(selector)); reconnect and retry")
+        case .none:
+            // Exited panes are omitted by the live resolver, but still occupy
+            // the daemon workspace. The shared helper checks them and fails
+            // closed when their placement is unknown.
+            hasPanes = try Self.vmDevWorkspaceHasPlacedTerminals(
+                resources,
+                machine: machine,
+                workspaceID: remoteWorkspace
+            )
+        }
         return (hasPanes: hasPanes, terminalIDs: terminalIDs)
     }
 
