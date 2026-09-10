@@ -43,30 +43,41 @@ final class NewMachineSheetKindUITests: XCTestCase {
         XCTAssertTrue(row.waitForExistence(timeout: 5.0), "Expected the New Cloud Machine… palette row")
         row.click()
 
-        let kind = app.descendants(matching: .any)["NewMachineSheet.kind"].firstMatch
-        XCTAssertTrue(kind.waitForExistence(timeout: 8.0), "Expected the Kind picker in the New Machine sheet")
-        XCTAssertEqual(kind.value as? String, "Desktop", "A plain Create must make a machine with a screen")
-        let summary = app.descendants(matching: .any)["NewMachineSheet.kindSummary"].firstMatch
-        XCTAssertTrue(summary.waitForExistence(timeout: 3.0), "Expected the kind summary under the picker")
-        XCTAssertTrue(summary.label.localizedCaseInsensitiveContains("screen"), "Desktop summary: \(summary.label)")
+        // SwiftUI's segmented Picker exposes its segments as radio buttons and
+        // drops the picker's own identifier, so the segments are the handle.
+        let desktop = app.radioButtons["Desktop"]
+        let base = app.radioButtons["Base"]
+        if !desktop.waitForExistence(timeout: 8.0) {
+            print("NewMachineSheetKindUITests hierarchy:\n\(app.debugDescription.prefix(6000))")
+        }
+        XCTAssertTrue(desktop.exists, "Expected the Desktop segment of the Kind picker in the New Machine sheet")
+        XCTAssertTrue(base.exists, "Expected the Base segment of the Kind picker")
+        XCTAssertTrue(desktop.isSelected, "A plain Create must make a machine with a screen: Desktop is preselected")
+        XCTAssertFalse(base.isSelected)
+        let desktopSummary = app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS[c] %@", "screen you can watch")
+        ).firstMatch
+        XCTAssertTrue(desktopSummary.waitForExistence(timeout: 3.0), "Expected the Desktop summary under the picker")
         attachScreenshot(of: app, named: "new-machine-sheet-desktop-preselected")
 
         // Base is one click away, never the default.
-        let baseSegment = kind.descendants(matching: .any)["Base"].firstMatch
-        XCTAssertTrue(baseSegment.waitForExistence(timeout: 3.0), "Expected a Base segment in the Kind picker")
-        baseSegment.click()
+        base.click()
         XCTAssertTrue(
-            pollUntil(timeout: 3.0) { (kind.value as? String) == "Base" },
-            "Expected the picker to select Base, got \(String(describing: kind.value))"
+            pollUntil(timeout: 3.0) { base.isSelected && !desktop.isSelected },
+            "Expected the picker to select Base"
         )
-        XCTAssertTrue(
-            pollUntil(timeout: 3.0) { summary.label.localizedCaseInsensitiveContains("terminal only") },
-            "Base summary: \(summary.label)"
-        )
+        let baseSummary = app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS[c] %@", "terminal only")
+        ).firstMatch
+        XCTAssertTrue(baseSummary.waitForExistence(timeout: 3.0), "Expected the Base summary under the picker")
         attachScreenshot(of: app, named: "new-machine-sheet-base-explicit")
 
-        app.descendants(matching: .any)["NewMachineSheet.cancel"].firstMatch.click()
-        XCTAssertTrue(pollUntil(timeout: 5.0) { !kind.exists }, "Cancel should close the sheet")
+        let cancel = app.buttons["NewMachineSheet.cancel"].exists
+            ? app.buttons["NewMachineSheet.cancel"]
+            : app.buttons["Cancel"]
+        XCTAssertTrue(cancel.waitForExistence(timeout: 3.0), "Expected the sheet's Cancel button")
+        cancel.click()
+        XCTAssertTrue(pollUntil(timeout: 5.0) { !desktop.exists }, "Cancel should close the sheet")
     }
 
     private func attachScreenshot(of app: XCUIApplication, named name: String) {
