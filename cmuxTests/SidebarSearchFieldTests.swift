@@ -10,6 +10,63 @@ import Testing
 
 @MainActor
 @Suite struct SidebarSearchFieldTests {
+    @Test func hoveringAnUnfocusedSearchFieldUsesTheTextCursor() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 100), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let previousCursor = NSCursor.current
+        defer { previousCursor.set(); window.close() }
+        let field = SidebarSearchField(frame: NSRect(x: 20, y: 20, width: 240, height: SidebarSearchField.visibleHeight))
+        window.contentView?.addSubview(field)
+        #expect(field.currentEditor() == nil)
+        NSCursor.arrow.set()
+        field.mouseMoved(with: try hoverEvent(in: field.searchTextBounds, field: field, window: window))
+        #expect(NSCursor.current == NSCursor.iBeam)
+        #expect(field.currentEditor() == nil)
+    }
+
+    @Test func hoveringSearchButtonsKeepsTheArrowCursor() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 100), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let previousCursor = NSCursor.current
+        defer { previousCursor.set(); window.close() }
+        let field = SidebarSearchField(frame: NSRect(x: 20, y: 20, width: 240, height: SidebarSearchField.visibleHeight))
+        field.stringValue = "query"
+        window.contentView?.addSubview(field)
+        for bounds in [field.searchButtonBounds, field.cancelButtonBounds] {
+            #expect(!bounds.isEmpty)
+            NSCursor.iBeam.set()
+            field.mouseMoved(with: try hoverEvent(in: bounds, field: field, window: window))
+            #expect(NSCursor.current == NSCursor.arrow)
+        }
+    }
+
+    private func hoverEvent(in bounds: NSRect, field: SidebarSearchField, window: NSWindow) throws -> NSEvent {
+        try #require(NSEvent.mouseEvent(
+            with: .mouseMoved,
+            location: field.convert(NSPoint(x: bounds.midX, y: bounds.midY), to: nil),
+            modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber,
+            context: nil, eventNumber: 0, clickCount: 0, pressure: 0
+        ))
+    }
+
+    @Test func searchTextAlignsWithSidebarLabelsBeforeAndDuringEditing() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 100), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let field = SidebarSearchField(frame: NSRect(x: 4, y: 20, width: 240, height: SidebarSearchField.visibleHeight))
+        field.placeholderString = "Search"
+        window.contentView?.addSubview(field)
+        let expectedLeading: CGFloat = 30
+        let placeholderRect = field.cell!.titleRect(forBounds: field.bounds)
+        #expect(field.frame.minX + placeholderRect.minX + 2 == expectedLeading)
+        field.stringValue = "alpha beta"
+        #expect(window.makeFirstResponder(field))
+        let editor = try #require(field.currentEditor() as? NSTextView)
+        let insertionRect = editor.firstRect(forCharacterRange: NSRange(location: 0, length: 0), actualRange: nil)
+        let textRect = field.convert(window.convertFromScreen(insertionRect), from: nil)
+        #expect(abs(field.frame.minX + textRect.minX - expectedLeading) <= 1)
+    }
+
     @Test func focusedEditorDoesNotOverlapSearchIcon() throws {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 100), styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false

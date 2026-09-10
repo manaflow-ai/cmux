@@ -1,4 +1,5 @@
 import Foundation
+import Security
 
 /// Where the app's headless cmux-tui links keep their client identity, and where the
 /// bundled client lives. Mirrors the CLI's `vmTuiClientStateDir` / `vmTuiDevicesStoreURL`
@@ -51,6 +52,34 @@ struct CloudTuiClientPaths: Sendable {
             return [:]
         }
         return store
+    }
+
+    /// This Mac's durable notification client id (`notification.ack` `client_id`),
+    /// one per install: `mac-` plus 32 hex digits, minted on first use and kept in
+    /// the client state dir beside the device key. Every machine sees the same id,
+    /// so per-client read state follows the install, not the machine.
+    var notificationClientIDURL: URL {
+        stateDir.appendingPathComponent("notification-client-id", isDirectory: false)
+    }
+
+    func notificationClientID() -> String {
+        if let existing = try? String(contentsOf: notificationClientIDURL, encoding: .utf8) {
+            let trimmed = existing.trimmingCharacters(in: .whitespacesAndNewlines)
+            if Self.isValidNotificationClientID(trimmed) { return trimmed }
+        }
+        var bytes = [UInt8](repeating: 0, count: 16)
+        _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+        let minted = "mac-" + bytes.map { String(format: "%02x", $0) }.joined()
+        try? ensureStateDir()
+        try? minted.write(to: notificationClientIDURL, atomically: true, encoding: .utf8)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: notificationClientIDURL.path)
+        return minted
+    }
+
+    /// The daemon's rule: 1 to 128 printable ASCII bytes, no spaces.
+    static func isValidNotificationClientID(_ value: String) -> Bool {
+        !value.isEmpty && value.utf8.count <= 128
+            && value.utf8.allSatisfy { $0 > 0x20 && $0 < 0x7f }
     }
 
     func deviceFingerprint(for machineID: String) -> String? {

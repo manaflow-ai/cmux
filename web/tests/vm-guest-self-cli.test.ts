@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { createServer } from "node:net";
 import path from "node:path";
 import {
   GUEST_CMUX_SELF_SHIM,
@@ -122,10 +123,36 @@ describe("guest cmux self-discovery shim", () => {
 
   test("host-only verbs are refused with a pointer to the Mac CLI", () => {
     withCurl(JSON.stringify(SELF_BODY), "200");
-    for (const args of [["vm", "new"], ["notify", "--title", "x"], ["vm", "exec", "fs-self", "--", "ls"]]) {
+    for (const args of [["vm", "new"], ["vm", "exec", "fs-self", "--", "ls"]]) {
       const result = run(args);
       expect(result.status).toBe(2);
       expect(result.stderr).toContain("runs on the Mac cmux CLI");
+    }
+    // notify belongs to the machine's daemon; without one installed the shim
+    // says so instead of pointing at the Mac.
+    const notify = run(["notify", "--title", "x"]);
+    expect(notify.status).toBe(2);
+    expect(notify.stderr).toContain("needs the cmux-tui daemon");
+  });
+
+  test("notify delegates to the daemon CLI with the machine's session socket", async () => {
+    const fakeTui = path.join(root, "fake-cmux-tui");
+    writeFileSync(fakeTui, "#!/bin/sh\nprintf '%s\\n' \"$@\"\n", { mode: 0o755 });
+    const runDir = path.join(root, "run");
+    mkdirSync(runDir, { recursive: true });
+    const sock = path.join(runDir, "cloud.sock");
+    const server = createServer().listen(sock);
+    await new Promise((resolve) => server.once("listening", resolve));
+    try {
+      // Outside a daemon terminal the shim points the CLI at the daemon's session socket.
+      const outside = run(["notify", "--title", "x", "--subtitle", "y"], { CMUX_TUI_BIN: fakeTui, CMUX_TUI_RUN_DIR: runDir });
+      expect(outside.status).toBe(0);
+      expect(outside.stdout.split("\n").filter(Boolean)).toEqual(["--socket", sock, "notify", "--title", "x", "--subtitle", "y"]);
+      // Inside a daemon terminal the injected socket already applies.
+      const inside = run(["notification", "list"], { CMUX_TUI_BIN: fakeTui, CMUX_TUI_RUN_DIR: runDir, CMUX_TUI_SOCKET: "/tmp/injected.sock" });
+      expect(inside.stdout.split("\n").filter(Boolean)).toEqual(["notification", "list"]);
+    } finally {
+      server.close();
     }
     expect(spawnSync("cat", [requestLog], { encoding: "utf8" }).stdout).toBe("");
     const help = run(["--help"]);

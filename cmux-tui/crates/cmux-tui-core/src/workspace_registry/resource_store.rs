@@ -203,6 +203,10 @@ pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
            attempt INTEGER NOT NULL CHECK(attempt >= 0),
            PRIMARY KEY(producer_id, origin, idempotency_key)
          );
+         CREATE TABLE IF NOT EXISTS resource_notification_clears (
+           notification_id TEXT PRIMARY KEY NOT NULL,
+           committed_revision INTEGER NOT NULL CHECK(committed_revision >= 0)
+         );
          CREATE TABLE IF NOT EXISTS resource_notification_reads (
            notification_id TEXT NOT NULL,
            client_id TEXT NOT NULL,
@@ -1045,6 +1049,111 @@ impl WorkspaceRegistry {
                  ) VALUES(?1, ?2, ?3, ?4)
                  ON CONFLICT(notification_id, client_id) DO NOTHING",
                 params![notification_id.as_str(), client_id, sqlite_read_at, sqlite_revision],
+            )?;
+        }
+        tx.execute(
+            "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
+            [revision.to_string()],
+        )?;
+        tx.execute(
+            "INSERT INTO resource_mutations(
+               origin, idempotency_key, operation, fingerprint, result_json, committed_revision
+             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                mutation.origin,
+                mutation.id,
+                OPERATION,
+                fingerprint,
+                result_json,
+                sqlite_revision,
+            ],
+        )?;
+        append_resource_journal_record(
+            &tx,
+            revision,
+            previous_revision,
+            &mutation.origin,
+            &mutation.id,
+            OPERATION,
+            None,
+            result,
+            deltas,
+        )?;
+        prune_resource_mutations(&tx)?;
+        tx.commit()?;
+        Ok(ResourcePatchCommit { revision, result: result.clone(), replayed: false })
+    }
+
+    /// Notification ids among `candidates` whose `notification.create` receipt
+    /// is committed. A row can sit in the live ledger before its receipt
+    /// commits; clearing such a row would mask a receipt that lands later, so
+    /// a clear names only what is durable.
+    pub(crate) fn committed_notification_ids(
+        &self,
+        candidates: &[NotificationPublicId],
+    ) -> anyhow::Result<Vec<NotificationPublicId>> {
+        let mut committed = Vec::with_capacity(candidates.len());
+        for candidate in candidates {
+            let exists: bool = self.connection.query_row(
+                "SELECT EXISTS(
+                   SELECT 1 FROM resource_effect_receipts
+                   WHERE operation = 'notification.create'
+                     AND state = 'committed'
+                     AND json_extract(outcome_json, '$.kind') = 'success'
+                     AND json_extract(outcome_json, '$.value.id') = ?1
+                 )",
+                [candidate.as_str()],
+                |row| row.get(0),
+            )?;
+            if exists {
+                committed.push(candidate.clone());
+            }
+        }
+        Ok(committed)
+    }
+
+    /// Mask cleared notifications from every later rebuild and drop their read
+    /// marks, publishing the delete deltas as one revision.
+    pub(crate) fn commit_notification_clear(
+        &mut self,
+        mutation: &WorkspaceMutation,
+        fingerprint: &Value,
+        expected_revision: Option<u64>,
+        cleared: &[NotificationPublicId],
+        result: &Value,
+        deltas: &Value,
+    ) -> anyhow::Result<ResourcePatchCommit> {
+        const OPERATION: &str = "notification.clear";
+        validate_identifier("mutation id", &mutation.id)?;
+        validate_identifier("mutation origin", &mutation.origin)?;
+        let fingerprint = canonical_json(fingerprint)?;
+        let result_json = canonical_json(result)?;
+        let tx = self.connection.transaction()?;
+        if let Some(replayed) = resource_patch_replay(&tx, mutation, OPERATION, &fingerprint)? {
+            return Ok(replayed);
+        }
+        let previous_revision = transaction_resource_revision(&tx)?;
+        if let Some(expected) = expected_revision
+            && expected != previous_revision
+        {
+            anyhow::bail!(
+                "resource revision conflict: expected {expected}, current {previous_revision}"
+            );
+        }
+        let revision = previous_revision
+            .checked_add(1)
+            .ok_or_else(|| anyhow::anyhow!("resource revision exhausted"))?;
+        let sqlite_revision =
+            i64::try_from(revision).context("resource revision exceeds SQLite range")?;
+        for id in cleared {
+            tx.execute(
+                "INSERT INTO resource_notification_clears(notification_id, committed_revision)
+                 VALUES(?1, ?2) ON CONFLICT(notification_id) DO NOTHING",
+                params![id.as_str(), sqlite_revision],
+            )?;
+            tx.execute(
+                "DELETE FROM resource_notification_reads WHERE notification_id = ?1",
+                [id.as_str()],
             )?;
         }
         tx.execute(

@@ -1,7 +1,8 @@
 import Foundation
 
-/// Controls the browser Network Extension tunnel. Terminal and metadata links
-/// use the separate user-space WireGuard hub and do not need this command.
+/// Controls the system-wide Network Extension tunnel. cmux's own terminals,
+/// Ports, and Desktop use the separate user-space WireGuard hub and do not
+/// need this command; it exists for other apps on this Mac.
 extension CMUXCLI {
     func runVPNCommand(commandArgs: [String], client: SocketClient, jsonOutput: Bool) throws {
         let subcommand = commandArgs.first?.lowercased() ?? "status"
@@ -22,7 +23,7 @@ extension CMUXCLI {
     private func runVPNUp(client: SocketClient, jsonOutput: Bool) throws {
         let status = try client.sendV2(method: "vm.tunnel_status", responseTimeout: 30)
         guard Self.tunnelBackendIsAppManaged(status) else {
-            throw CLIError(message: "This cmux build has no signed Network Extension. Browser VPN access is unavailable.")
+            throw CLIError(message: "This cmux build has no signed Network Extension, so it cannot give other apps a route to your Cloud VM network. cmux's own terminals, Ports, and Desktop do not need it.")
         }
         try runAppManagedVPNUp(client: client, jsonOutput: jsonOutput, status: status)
     }
@@ -30,7 +31,7 @@ extension CMUXCLI {
     private func runVPNDown(client: SocketClient, jsonOutput: Bool) throws {
         let status = try client.sendV2(method: "vm.tunnel_status", responseTimeout: 30)
         guard Self.tunnelBackendIsAppManaged(status) else {
-            throw CLIError(message: "This cmux build has no signed Network Extension. No browser VPN is running.")
+            throw CLIError(message: "This cmux build has no signed Network Extension. No system-wide VPN is running.")
         }
         try runAppManagedVPNDown(client: client, jsonOutput: jsonOutput, status: status)
     }
@@ -46,10 +47,10 @@ extension CMUXCLI {
         print("Terminal tunnel: \(terminalRunning ? "up" : "idle") (user-space WireGuard)")
         if Self.tunnelBackendIsAppManaged(response) {
             printAppManagedVPNState(response)
-            print("Browser backend: Network Extension")
+            print("System-wide backend: Network Extension")
         } else {
-            print("Browser tunnel: unavailable in this build")
-            print("Browser backend: unavailable")
+            print("System-wide tunnel: unavailable in this build (cmux's own terminals, Ports, and Desktop do not need it)")
+            print("System-wide backend: unavailable")
         }
     }
 

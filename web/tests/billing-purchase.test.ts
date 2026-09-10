@@ -345,43 +345,38 @@ describe("billing email matching", () => {
     });
   });
 
-  test("finds a dotted Gmail account through the paginated canonical fallback", async () => {
+  test("finds a dotted Gmail account through the identity snapshot, never a list scan", async () => {
     const dotted = {
       id: "dotted-only",
       primaryEmail: "billing.fixture@gmail.com",
       primaryEmailVerified: true,
       update: mock(async () => undefined),
     };
-    const listUsers = mock(async (...args: unknown[]) => {
-      const options = (args[0] ?? {}) as { query?: string };
-      return options.query ? [] : [dotted];
-    });
+    const listUsers = mock(async () => []);
 
     const user = await findBillingUserByEmail(
       { listUsers, getUser: async () => dotted } as never,
       "billingfixture@gmail.com",
+      { snapshotUserIds: async () => ["dotted-only"] },
     );
 
     expect(user?.id).toBe("dotted-only");
-    expect(listUsers).toHaveBeenCalledWith({
+    expect(listUsers).not.toHaveBeenCalledWith({
       limit: 100,
       includeAnonymous: true,
       includeRestricted: true,
     });
   });
 
-  test("uses the same canonical fallback when checking email ownership", async () => {
-    const listUsers = mock(async (...args: unknown[]) => {
-      const options = (args[0] ?? {}) as { query?: string };
-      return options.query
-        ? []
-        : [{ id: "dotted-owner", primaryEmail: "billing.fixture@gmail.com" }];
-    });
+  test("uses the same snapshot fallback when checking email ownership", async () => {
+    const listUsers = mock(async () => []);
+    const getUser = async () => ({ id: "dotted-owner", primaryEmail: "billing.fixture@gmail.com" });
 
     await expect(
       findUserIdByEmail(
-        { listUsers } as never,
+        { listUsers, getUser } as never,
         "billingfixture@gmail.com",
+        { snapshotUserIds: async () => ["dotted-owner"] },
       ),
     ).resolves.toBe("dotted-owner");
   });
@@ -3262,3 +3257,149 @@ function userSubscriptionUpdate({ status }: { status: string }) {
     },
   };
 }
+
+describe("billing user lookup without a user-list scan", () => {
+  const dotted = {
+    id: "dotted-owner",
+    primaryEmail: "billing.fixture@gmail.com",
+    primaryEmailVerified: true,
+    isAnonymous: false,
+    isRestricted: false,
+    update: mock(async () => undefined),
+  };
+
+  test("a dotted Gmail alias is found through the identity snapshot, not by scanning every user", async () => {
+    const listUsers = mock(async () => []);
+    const getUser = mock(async (...args: unknown[]) => ((args[0] as string) === dotted.id ? dotted : null));
+    const snapshotUserIds = mock(async () => [dotted.id]);
+    const user = await findBillingUserByEmail(
+      { listUsers, getUser } as never,
+      "billingfixture@gmail.com",
+      { snapshotUserIds },
+    );
+    expect(user?.id).toBe(dotted.id);
+    expect(snapshotUserIds).toHaveBeenCalledWith("billingfixture@gmail.com");
+    const scanned = listUsers.mock.calls.some((call) => (call[0] as { query?: string }).query === undefined);
+    expect(scanned).toBe(false);
+  });
+
+  test("an unknown Gmail purchaser resolves to no user instead of failing the purchase", async () => {
+    const listUsers = mock(async () => []);
+    const user = await findBillingUserByEmail(
+      { listUsers, getUser: mock(async () => null) } as never,
+      "nobody.yet@gmail.com",
+      { snapshotUserIds: async () => [] },
+    );
+    expect(user).toBeNull();
+    expect(
+      await findUserIdByEmail(
+        { listUsers, getUser: mock(async () => null) } as never,
+        "nobody.yet@gmail.com",
+        { snapshotUserIds: async () => [] },
+      ),
+    ).toBeNull();
+  });
+
+  test("a query whose pages never end still returns the exact match it found", async () => {
+    let cursor = 0;
+    const listUsers = mock(async () => Object.assign([dotted], { nextCursor: `page-${(cursor += 1)}` }));
+    const user = await findBillingUserByEmail(
+      { listUsers, getUser: mock(async () => dotted) } as never,
+      "billing.fixture@gmail.com",
+      { snapshotUserIds: async () => [] },
+    );
+    expect(user?.id).toBe(dotted.id);
+    expect(listUsers.mock.calls.length).toBeLessThanOrEqual(400);
+  });
+});
+
+describe("purchase sign-in email delivery", () => {
+  test("sends the magic link when Stack accepts it", async () => {
+    const { deliverPurchaseSignInEmail } = await import("../services/billing/purchase");
+    const sendMagicLinkEmail = mock(async () => undefined);
+    const kind = await deliverPurchaseSignInEmail(
+      { sendMagicLinkEmail, getUser: mock(async () => null) } as never,
+      { email: "buyer@example.com", stackUserId: "u1" },
+    );
+    expect(kind).toBe("magic_link");
+    expect(sendMagicLinkEmail).toHaveBeenCalledWith("buyer@example.com", {
+      callbackUrl: "https://cmux.com/handler/after-sign-in",
+    });
+  });
+
+  test("falls back to the mailbox verification link when Stack refuses a sign-in link for an unverified shell", async () => {
+    const { deliverPurchaseSignInEmail } = await import("../services/billing/purchase");
+    const sendVerificationEmail = mock(async () => undefined);
+    const channel = {
+      id: "ch1",
+      type: "email",
+      value: "Buyer@Example.com",
+      isPrimary: true,
+      isVerified: false,
+      usedForAuth: true,
+      sendVerificationEmail,
+    };
+    const stackApp = {
+      sendMagicLinkEmail: mock(async () => ({ status: "error", error: { code: "USER_EMAIL_ALREADY_EXISTS" } })),
+      getUser: mock(async () => ({ id: "u1", primaryEmail: "buyer@example.com", listContactChannels: async () => [channel] })),
+    };
+    const kind = await deliverPurchaseSignInEmail(stackApp as never, { email: "buyer@example.com", stackUserId: "u1" });
+    expect(kind).toBe("verification");
+    expect(sendVerificationEmail).toHaveBeenCalledWith({
+      callbackUrl: "https://cmux.com/handler/email-verification",
+    });
+  });
+
+  test("a refused sign-in link with no unverified channel is a provider rejection", async () => {
+    const { deliverPurchaseSignInEmail } = await import("../services/billing/purchase");
+    const { PurchaseMagicLinkProviderRejectedError } = await import("../services/billing/emailVerificationDelivery");
+    const stackApp = {
+      sendMagicLinkEmail: mock(async () => ({ status: "error" })),
+      getUser: mock(async () => ({ id: "u1", primaryEmail: "buyer@example.com", listContactChannels: async () => [] })),
+    };
+    await expect(
+      deliverPurchaseSignInEmail(stackApp as never, { email: "buyer@example.com", stackUserId: "u1" }),
+    ).rejects.toBeInstanceOf(PurchaseMagicLinkProviderRejectedError);
+  });
+});
+
+describe("purchase sign-in email delivery when Stack throws", () => {
+  const channel = {
+    id: "ch1",
+    type: "email",
+    value: "buyer@example.com",
+    isPrimary: true,
+    isVerified: false,
+    usedForAuth: true,
+    sendVerificationEmail: mock(async () => undefined),
+  };
+  const user = { id: "u1", primaryEmail: "buyer@example.com", listContactChannels: async () => [channel] };
+
+  test("a thrown unverified-mailbox refusal falls back to the verification link", async () => {
+    const { deliverPurchaseSignInEmail } = await import("../services/billing/purchase");
+    const stackApp = {
+      sendMagicLinkEmail: mock(async () => {
+        throw new Error('A user with email "buyer@example.com" already exists but the email is not verified.');
+      }),
+      getUser: mock(async () => user),
+    };
+    channel.sendVerificationEmail.mockClear();
+    const kind = await deliverPurchaseSignInEmail(stackApp as never, { email: "buyer@example.com", stackUserId: "u1" });
+    expect(kind).toBe("verification");
+    expect(channel.sendVerificationEmail).toHaveBeenCalledTimes(1);
+  });
+
+  test("any other thrown error is surfaced unchanged so the delivery marker stays", async () => {
+    const { deliverPurchaseSignInEmail } = await import("../services/billing/purchase");
+    const boom = new Error("socket hang up");
+    const stackApp = {
+      sendMagicLinkEmail: mock(async () => { throw boom; }),
+      getUser: mock(async () => user),
+    };
+    channel.sendVerificationEmail.mockClear();
+    await expect(
+      deliverPurchaseSignInEmail(stackApp as never, { email: "buyer@example.com", stackUserId: "u1" }),
+    ).rejects.toBe(boom);
+    expect(channel.sendVerificationEmail).not.toHaveBeenCalled();
+  });
+});

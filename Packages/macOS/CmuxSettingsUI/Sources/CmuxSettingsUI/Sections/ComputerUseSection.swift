@@ -12,6 +12,9 @@ public struct ComputerUseSection: View {
     @State private var permissionStatusIsKnown: Bool
     @State private var permissionCheckArmed = false
     @State private var permissionRefreshRequest = 0
+    /// `DisableComputerUse` (MDM): the toggle locks and says so; re-read on
+    /// ``ManagedDevicePolicy/changeSignals(notificationCenter:)``.
+    @State private var managedByPolicy = ManagedDevicePolicy().isEnforced(.disableComputerUse)
 
     private let hostActions: SettingsHostActions
 
@@ -56,19 +59,27 @@ public struct ComputerUseSection: View {
                 SettingsCardRow(
                     configurationReview: .json("computerUse.enabled"),
                     String(localized: "settings.computerUse.enabled", defaultValue: "Enable Computer Use"),
-                    subtitle: enabled.current
-                        ? String(localized: "settings.computerUse.enabled.subtitleOn", defaultValue: "Supported agent sessions can see and drive apps on this Mac.")
-                        : String(localized: "settings.computerUse.enabled.subtitleOff", defaultValue: "New agent launches start without the computer-use tools, including in terminals that are already open.")
+                    subtitle: managedByPolicy
+                        ? String(localized: "settings.managedByOrganization", defaultValue: "Managed by your organization")
+                        : enabled.current
+                            ? String(localized: "settings.computerUse.enabled.subtitleOn", defaultValue: "Supported agent sessions can see and drive apps on this Mac.")
+                            : String(localized: "settings.computerUse.enabled.subtitleOff", defaultValue: "New agent launches start without the computer-use tools, including in terminals that are already open.")
                 ) {
-                    Toggle("", isOn: Binding(get: { enabled.current }, set: { enabled.set($0) }))
+                    Toggle("", isOn: Binding(get: { enabled.current && !managedByPolicy }, set: { enabled.set($0) }))
                         .labelsHidden()
                         .controlSize(.small)
+                        .disabled(managedByPolicy)
                         .accessibilityIdentifier("SettingsComputerUseEnabledToggle")
                 }
                 SettingsCardDivider()
                 SettingsCardNote(
                     String(localized: "settings.computerUse.enabled.note", defaultValue: "Computer Use runs locally in the bundled cmux Computer Use app. Its permissions and restart lifecycle are independent from cmux. Telemetry and update checks are disabled.")
                 )
+            }
+            .task {
+                for await _ in ManagedDevicePolicy.changeSignals() {
+                    managedByPolicy = ManagedDevicePolicy().isEnforced(.disableComputerUse)
+                }
             }
 
             SettingsCard {

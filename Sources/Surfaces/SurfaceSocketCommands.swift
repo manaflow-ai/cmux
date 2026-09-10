@@ -310,9 +310,20 @@ extension TerminalController {
                 reuseExisting: false
             )
             var payload = Self.surfaceProjectPayload(opened.projection, reused: opened.reused)
-            let url = await catalog.resources[resource]?.url ?? ""
+            // `url` is what the pane loads and what works from any app on this
+            // Mac: the loopback forward over the user-space hub, or, for a
+            // machine without a private address, the control plane's preview
+            // URL. A route that cannot be made is an error for the caller,
+            // never a silent fall-back to an address only `cmux vpn up` can
+            // reach; that address stays available as `private_url`.
+            let privateURL = await catalog.resources[resource]?.url
+            guard let provider = await catalog.provider(for: resource.machine) as? CmuxTuiSurfaceProvider else {
+                throw SurfaceCatalogError.unsupported(SurfaceCatalog.portPreviewUnavailableMessage(machineID: resource.machine.rawValue))
+            }
+            let url = try await provider.portLinkURL(port: port)
             payload["url"] = url
             payload["open_url"] = url
+            payload["private_url"] = privateURL ?? NSNull()
             return payload
         }
     }
@@ -978,6 +989,8 @@ extension TerminalController {
                     "name": view.name ?? NSNull(),
                     "index": view.index ?? NSNull(),
                     "focused": view.focused ?? NSNull(),
+                    "screen_index": view.screenIndex ?? NSNull(),
+                    "pane_index": view.paneIndex ?? NSNull(),
                 ] as [String: Any]
             }
         } else {

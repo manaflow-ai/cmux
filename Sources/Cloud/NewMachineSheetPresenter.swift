@@ -71,7 +71,7 @@ final class NewMachineSheetPresenter {
     ) {
         let coordinator = coordinator ?? .shared
         if let plan, plan.isAtLimit, !plan.isPaidPlan {
-            ProUpgradePresenter.present()
+            ProUpgradePresenter.present(source: .newMachineAtLimit)
             return
         }
         let model = NewMachineModel(
@@ -97,7 +97,7 @@ final class NewMachineSheetPresenter {
     }
 
     /// Entrypoints with no panel state on hand (command palette) read the
-    /// fleet page first for the plan meter and image kinds. A nil page (signed
+    /// fleet page first for the plan meter and sizes. A nil page (signed
     /// out, unreachable) still opens the sheet; the CLI reports the real error
     /// through the Machines panel when the person creates.
     func presentNewMachineFetchingPlan(preferredWindow: NSWindow?) {

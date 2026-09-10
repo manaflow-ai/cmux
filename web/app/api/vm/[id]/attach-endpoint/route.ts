@@ -2,11 +2,11 @@ import { preconnectFreestyle } from "../../../../../services/vms/drivers/freesty
 import {
   jsonResponse,
   resolveVmRouteAccountScope,
-  vmResourceErrorResponse,
   withAuthedVmApiRoute,
 } from "../../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../../services/telemetry";
-import { openAttachEndpoint, openVmCmuxRemote, runVmWorkflow } from "../../../../../services/vms/workflows";
+import { runVmRoute } from "../../../../../services/vms/routeWorkflow";
+import { openAttachEndpoint, openVmCmuxRemote } from "../../../../../services/vms/workflows";
 import {
   capabilityList,
   optionalClientIdentifier,
@@ -61,23 +61,18 @@ export async function POST(
         }
         const clientCapabilities = capabilityList(body.clientCapabilities ?? body.client_capabilities);
         setSpanAttributes(span, { "cmux.vm.attach.transport": "cmux-remote" });
-        try {
-          const endpoint = await runVmWorkflow(openVmCmuxRemote({
-            userId: user.id,
-            billingTeamId: account.entitlements.billingTeamId,
-            maxActiveVms: account.entitlements.maxActiveVms,
-            teamIds: user.teamIds,
-            providerVmId: id,
-            deviceFingerprint,
-            clientCapabilities,
-            callerPlanId: account.entitlements.planId,
-          }));
-          return jsonResponse(endpoint);
-        } catch (err) {
-          const response = vmResourceErrorResponse(err, id);
-          if (response) return response;
-          throw err;
-        }
+        const run = await runVmRoute(openVmCmuxRemote({
+          userId: user.id,
+          billingTeamId: account.entitlements.billingTeamId,
+          maxActiveVms: account.entitlements.maxActiveVms,
+          teamIds: user.teamIds,
+          providerVmId: id,
+          deviceFingerprint,
+          clientCapabilities,
+          callerPlanId: account.entitlements.planId,
+        }), { request });
+        if (!run.ok) return run.response;
+        return jsonResponse(run.value);
       }
       if (transport && transport !== "websocket") {
         return jsonResponse({
@@ -87,24 +82,20 @@ export async function POST(
       }
       setSpanAttributes(span, { "cmux.vm.attach.require_daemon": requireDaemon });
       if (sessionId) setSpanAttributes(span, { "cmux.vm.attach.session_id": sessionId });
-      try {
-        const endpoint = await runVmWorkflow(openAttachEndpoint({
-          userId: user.id,
-          billingTeamId: account.entitlements.billingTeamId,
-          maxActiveVms: account.entitlements.maxActiveVms,
-          callerPlanId: account.entitlements.planId,
-          teamIds: user.teamIds,
-          providerVmId: id,
-          sessionTitle,
-          options: { requireDaemon, sessionId, attachmentId },
-        }));
-        setSpanAttributes(span, { "cmux.vm.attach.transport": endpoint.transport });
-        return jsonResponse(endpoint);
-      } catch (err) {
-        const response = vmResourceErrorResponse(err, id);
-        if (response) return response;
-        throw err;
-      }
+      const run = await runVmRoute(openAttachEndpoint({
+        userId: user.id,
+        billingTeamId: account.entitlements.billingTeamId,
+        maxActiveVms: account.entitlements.maxActiveVms,
+        callerPlanId: account.entitlements.planId,
+        teamIds: user.teamIds,
+        providerVmId: id,
+        sessionTitle,
+        options: { requireDaemon, sessionId, attachmentId },
+      }), { request });
+      if (!run.ok) return run.response;
+      const endpoint = run.value;
+      setSpanAttributes(span, { "cmux.vm.attach.transport": endpoint.transport });
+      return jsonResponse(endpoint);
     },
   );
 }

@@ -274,6 +274,34 @@ export const CmuxNotificationPlugin = async ({ $, }) => {
 };
 ```
 
+## Cloud machines
+
+Notifications from a cmux Cloud machine are owned by the machine. The
+cmux-tui daemon inside it posts a durable notification when an agent finishes
+a turn, needs approval, asks a question, requests plan review, or reports an
+error, and for `cmux-tui notify`. Every attached Mac receives those rows on the
+same state feed the Cloud tree uses, so a notification posted while the link
+was down arrives on reconnect, and a daemon restart does not lose it.
+
+Inside a machine, `cmux notify` takes the same flags as the local command
+(`--title`, `--subtitle`, `--body`, `--clear`, `--surface`, `--workspace`,
+`--json`) and posts to the machine's own ledger, so scripts and hooks written
+for a local terminal work unchanged. `--reply` is not available there.
+
+Read state is per client. Each row carries `read_by`, the client ids that
+acknowledged it. Reading the notification on this Mac (focusing the pane,
+marking it read, dismissing it) sends `notification.ack` under this Mac's
+client id. A second Mac attached to the same machine keeps its own unread
+state, and the machine's own TUI keeps its shared console marker.
+
+Locally these notifications behave like any other: they light the workspace
+and tab, appear in the notifications list and `cmux list-notifications`, post
+a system notification when cmux is in the background, and the Cloud tree
+shows a dot on the terminal until this Mac reads it. When no pane on this Mac
+shows the terminal, the notification lands on the local workspace bound to
+the machine; when no local workspace is bound, only the Cloud tree dot shows
+and delivery waits for a placement.
+
 ## Environment Variables
 
 cmux sets these in child shells:

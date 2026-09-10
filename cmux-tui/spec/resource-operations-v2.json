@@ -2418,6 +2418,15 @@
             "name": "string"
           }
         },
+        "subtitle": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 512
+          },
+          "description": "Second line under the title, as the local cmux notify --subtitle. Absent when the producer gave none."
+        },
         "body": {
           "required": true,
           "type": {
@@ -2519,6 +2528,25 @@
             }
           },
           "description": "Requested ids the session no longer retains. They are not an error: a bounded ledger may have evicted them."
+        }
+      },
+      "extra": false
+    },
+    "NotificationClearResult": {
+      "kind": "object",
+      "fields": {
+        "cleared": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "min_items": 0,
+            "max_items": 256,
+            "items": {
+              "kind": "resource_id",
+              "resource": "notification"
+            }
+          },
+          "description": "Notification ids removed from the session. Each is also a delete delta on the events feed."
         }
       },
       "extra": false
@@ -7363,6 +7391,59 @@
         "validation.invalid"
       ]
     },
+    "notification.clear": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "notification",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "terminal_id": {
+            "required": false,
+            "type": {
+              "kind": "resource_id",
+              "resource": "terminal"
+            },
+            "description": "Clear only this terminal's notifications. Omit to clear every retained notification in the session."
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "NotificationClearResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
     "notification.create": {
       "class": "mutation",
       "idempotency": "required",
@@ -7382,15 +7463,26 @@
             "type": {
               "kind": "primitive",
               "name": "string",
-              "min_length": 1
+              "min_length": 1,
+              "max_length": 512
+            }
+          },
+          "subtitle": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 512
             }
           },
           "body": {
             "required": true,
             "type": {
               "kind": "primitive",
-              "name": "string"
-            }
+              "name": "string",
+              "max_length": 4096
+            },
+            "description": "Bounded: every retained row is pushed to every attached client."
           },
           "level": {
             "required": false,
@@ -7459,9 +7551,10 @@
               "kind": "primitive",
               "name": "uint32",
               "minimum": 1,
-              "maximum": 1000
+              "maximum": 256
             },
-            "default": 100
+            "default": 100,
+            "description": "The session retains at most 256 notifications; older rows are evicted, so a full clear names at most 256 ids."
           }
         },
         "extra": false
