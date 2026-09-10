@@ -8,8 +8,9 @@ import Foundation
 /// routes but never authorizes one. A Stack bearer token leaves this Mac over a
 /// Tailscale peer address only with the device-bound grant the pairing store
 /// recorded when the person paired that Mac, checked against the exact peer
-/// address and device id (``CmxLegacyTailscaleAuthorizationEvidence``), or over
-/// DEBUG loopback for two tagged builds on one Mac. The iroh and websocket route
+/// address and device id (``CmxLegacyTailscaleAuthorizationEvidence``). Loopback
+/// is an explicit test-rig opt-in: another Mac's advertised 127.0.0.1 endpoint
+/// would dial this Mac instead. The iroh and websocket route
 /// kinds are listed by the registry but not dialed here (the iroh client
 /// transport is milestone M4); they are skipped, never downgraded.
 struct DeviceRouteSelector: Sendable {
@@ -28,16 +29,8 @@ struct DeviceRouteSelector: Sendable {
 
     let allowsDebugLoopback: Bool
 
-    init(allowsDebugLoopback: Bool = DeviceRouteSelector.debugLoopbackAllowedByBuild) {
+    init(allowsDebugLoopback: Bool = false) {
         self.allowsDebugLoopback = allowsDebugLoopback
-    }
-
-    nonisolated static var debugLoopbackAllowedByBuild: Bool {
-        #if DEBUG
-        true
-        #else
-        false
-        #endif
     }
 
     var supportedKinds: [CmxAttachTransportKind] {
