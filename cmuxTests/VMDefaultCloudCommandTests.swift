@@ -69,7 +69,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
-    func testVMNewDefaultCreatesPinnedWorkspaceOverPrivateCmuxRemote() throws {
+    func testVMNewDefaultCreatesUnpinnedWorkspaceOverPrivateCmuxRemote() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("vm-new-sshd")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -137,15 +137,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 let params = payload["params"] as? [String: Any] ?? [:]
                 XCTAssertEqual(params["workspace_id"] as? String, workspaceID)
                 XCTAssertEqual(params["vm_id"] as? String, vmID)
-                XCTAssertEqual(params["base"] as? Bool, true)
+                XCTAssertEqual(params["base"] as? Bool, false)
                 return self.v2Response(id: id, ok: true, result: ["workspace_id": workspaceID])
-            case "workspace.action":
-                let params = payload["params"] as? [String: Any] ?? [:]
-                XCTAssertEqual(params["workspace_id"] as? String, workspaceID)
-                XCTAssertEqual(params["window_id"] as? String, windowID)
-                let action = params["action"] as? String
-                XCTAssertTrue(action == "pin" || action == "move_top")
-                return self.v2Response(id: id, ok: true, result: ["workspace_id": workspaceID, "action": action ?? ""])
             case "surface.new_terminal":
                 let params = payload["params"] as? [String: Any] ?? [:]
                 XCTAssertEqual(params["workspace_id"] as? String, workspaceID)
@@ -196,9 +189,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "vm.cmux_remote_info",
                 "workspace.create",
                 "workspace.cloud_vm_bind",
-                "workspace.action",
-                "workspace.action",
                 "surface.new_terminal",
+                "workspace.cloud_vm_bind",
                 "workspace.select",
             ]
         )
@@ -266,7 +258,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         wait(for: [serverHandled], timeout: 5)
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertTrue(result.stdout.contains("OK vm-explicit-freestyle"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("cmux vm shell vm-explicit-freestyle"), result.stdout)
         XCTAssertTrue(result.stderr.isEmpty, result.stderr)
         XCTAssertEqual(
             state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
@@ -511,15 +503,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 let params = payload["params"] as? [String: Any] ?? [:]
                 XCTAssertEqual(params["workspace_id"] as? String, createdWorkspaceID)
                 XCTAssertEqual(params["vm_id"] as? String, vmID)
-                XCTAssertEqual(params["base"] as? Bool, true)
+                XCTAssertEqual(params["base"] as? Bool, false)
                 return self.v2Response(id: id, ok: true, result: ["workspace_id": createdWorkspaceID])
-            case "workspace.action":
-                let params = payload["params"] as? [String: Any] ?? [:]
-                XCTAssertEqual(params["workspace_id"] as? String, createdWorkspaceID)
-                XCTAssertEqual(params["window_id"] as? String, windowID)
-                let action = params["action"] as? String
-                XCTAssertTrue(action == "pin" || action == "move_top")
-                return self.v2Response(id: id, ok: true, result: ["workspace_id": createdWorkspaceID, "action": action ?? ""])
             case "surface.new_terminal":
                 let params = payload["params"] as? [String: Any] ?? [:]
                 XCTAssertEqual(params["workspace_id"] as? String, createdWorkspaceID)
@@ -568,9 +553,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "vm.cmux_remote_info",
                 "workspace.create",
                 "workspace.cloud_vm_bind",
-                "workspace.action",
-                "workspace.action",
                 "surface.new_terminal",
+                "workspace.cloud_vm_bind",
                 "workspace.select",
             ]
         )
@@ -644,15 +628,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 let params = payload["params"] as? [String: Any] ?? [:]
                 XCTAssertEqual(params["workspace_id"] as? String, createdWorkspaceID)
                 XCTAssertEqual(params["vm_id"] as? String, vmID)
-                XCTAssertEqual(params["base"] as? Bool, true)
+                XCTAssertEqual(params["base"] as? Bool, false)
                 return self.v2Response(id: id, ok: true, result: ["workspace_id": createdWorkspaceID])
-            case "workspace.action":
-                let params = payload["params"] as? [String: Any] ?? [:]
-                XCTAssertEqual(params["workspace_id"] as? String, createdWorkspaceID)
-                XCTAssertEqual(params["window_id"] as? String, windowID)
-                let action = params["action"] as? String
-                XCTAssertTrue(action == "pin" || action == "move_top")
-                return self.v2Response(id: id, ok: true, result: ["workspace_id": createdWorkspaceID, "action": action ?? ""])
             case "surface.new_terminal":
                 let params = payload["params"] as? [String: Any] ?? [:]
                 XCTAssertEqual(params["workspace_id"] as? String, createdWorkspaceID)
@@ -701,9 +678,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "vm.cmux_remote_info",
                 "workspace.create",
                 "workspace.cloud_vm_bind",
-                "workspace.action",
-                "workspace.action",
                 "surface.new_terminal",
+                "workspace.cloud_vm_bind",
                 "workspace.select",
             ]
         )
