@@ -1352,16 +1352,19 @@ export class FreestyleProvider implements VMProvider {
     // Every attach re-installs the guest `cmux` self-discovery shim, so a
     // machine from any snapshot has it before its first terminal opens.
     // Best-effort: a missing shim degrades `cmux self`, never the attach.
-    const shim = await this.execResult(vm, guestSelfCliInstallCommand());
-    if (shim?.exitCode !== 0) {
-      console.warn(`[freestyle] guest cmux shim install in ${vmId} failed: ${(shim?.stderr || shim?.stdout || "no exec result").slice(0, 200)}`);
-    }
     // Every attach also announces the machine on its private network: the VPC
     // fabric forwards to a machine only after a frame from it, and a clone
     // sends none on its own, so the Mac's first dial after this call would
     // otherwise vanish for the whole connect timeout (images/network.ts).
-    // Best-effort: the boot supervisor on a current image announces anyway.
-    const announce = await this.execResult(vm, devboxNetworkAnnounceCommand());
+    // Best-effort like the shim, and concurrent with it: the announce runs to
+    // its two-second deadline, so in series it would be the attach's slowest step.
+    const [shim, announce] = await Promise.all([
+      this.execResult(vm, guestSelfCliInstallCommand()),
+      this.execResult(vm, devboxNetworkAnnounceCommand()),
+    ]);
+    if (shim?.exitCode !== 0) {
+      console.warn(`[freestyle] guest cmux shim install in ${vmId} failed: ${(shim?.stderr || shim?.stdout || "no exec result").slice(0, 200)}`);
+    }
     if (announce?.exitCode !== 0) {
       console.warn(`[freestyle] private-network announce in ${vmId} failed: ${(announce?.stderr || announce?.stdout || "no exec result").slice(0, 200)}`);
     }

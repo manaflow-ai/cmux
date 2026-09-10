@@ -182,18 +182,19 @@ describe("devbox private-network announce (services/vms/images/network.ts)", () 
     }
   };
 
-  test("announces every global IPv4 on a real interface, three unsolicited probes each, and skips container bridges", () => {
+  test("announces every global IPv4 on a real interface, two unsolicited probes each, and skips container bridges and the provider's link-local leg", () => {
     withFakeNet(
       "2: eth0    inet 169.254.77.2/30 scope global eth0\\       valid_lft forever\n" +
         "3: docker0    inet 172.17.0.1/16 brd 172.17.255.255 scope global docker0\\       valid_lft forever\n" +
         "4: veth1a2b    inet 172.18.0.2/16 scope global veth1a2b\\       valid_lft forever\n" +
-        "5: eth0.164    inet 10.16.162.53/24 brd 10.16.162.255 scope global eth0.164\\       valid_lft forever\n",
+        "5: eth0.164    inet 10.16.162.53/24 brd 10.16.162.255 scope global eth0.164\\       valid_lft forever\n" +
+        "6: eth1    inet 10.16.163.7/24 scope global eth1\\       valid_lft forever\n",
       (env, log) => {
         const result = spawnSync("sh", ["-c", devboxNetworkAnnounceCommand()], { env, encoding: "utf8" });
         expect(result.status).toBe(0);
-        expect(readFileSync(log, "utf8").trim().split("\n")).toEqual([
-          "-U -c 3 -w 3 -I eth0 169.254.77.2",
-          "-U -c 3 -w 3 -I eth0.164 10.16.162.53",
+        expect(readFileSync(log, "utf8").trim().split("\n").sort()).toEqual([
+          "-U -c 2 -w 2 -I eth0.164 10.16.162.53",
+          "-U -c 2 -w 2 -I eth1 10.16.163.7",
         ]);
       },
     );
@@ -235,7 +236,7 @@ describe("devbox private-network announce (services/vms/images/network.ts)", () 
 
   test("the attach path announces before the daemon bundle, the image installs arping, and verify proves both on a booted machine", () => {
     const driver = readFileSync(path.join(import.meta.dirname, "../services/vms/drivers/freestyle.ts"), "utf8");
-    const announce = driver.indexOf("this.execResult(vm, devboxNetworkAnnounceCommand())");
+    const announce = driver.indexOf("this.execResult(vm, devboxNetworkAnnounceCommand()),");
     const bundle = driver.indexOf("cmuxTuiAttachBundleCommand({ readyGate: freestyleDaemonSettledCommand()");
     expect(announce).toBeGreaterThan(-1);
     expect(bundle).toBeGreaterThan(announce);

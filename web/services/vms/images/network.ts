@@ -23,14 +23,19 @@
  * The command is POSIX sh, runs as root (arping needs CAP_NET_RAW), never
  * fails (a missing arping or a machine with no global address is a no-op),
  * and skips container and bridge interfaces, whose addresses are not on the
- * VPC. Three probes one second apart cover a lost broadcast.
+ * VPC, and the provider's link-local 169.254 leg, which is not a fabric port.
+ * Two unsolicited probes a second apart cover a lost broadcast; every
+ * interface announces concurrently, so the whole command takes about two
+ * seconds however many addresses the machine holds (unsolicited probes get
+ * no reply, so arping always runs to its deadline).
  */
 export function devboxNetworkAnnounceCommand(): string {
   return (
     "command -v arping >/dev/null 2>&1 && ip -o -4 addr show scope global 2>/dev/null" +
     " | while read -r _ dev _ cidr _; do" +
     ' case "$dev" in lo|docker*|veth*|br-*|virbr*) continue;; esac;' +
-    ' arping -U -c 3 -w 3 -I "$dev" "${cidr%/*}" >/dev/null 2>&1;' +
-    " done; true"
+    ' case "$cidr" in 169.254.*) continue;; esac;' +
+    ' arping -U -c 2 -w 2 -I "$dev" "${cidr%/*}" >/dev/null 2>&1 &' +
+    " done; wait; true"
   );
 }
