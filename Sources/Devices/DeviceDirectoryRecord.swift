@@ -28,6 +28,9 @@ struct DeviceDirectoryRecord: Equatable, Sendable, Identifiable {
     /// presence says: saved routes must work when presence and the registry are
     /// unavailable.
     let isPaired: Bool
+    /// Discovery history may retain an offline Mac after its live sources
+    /// expire. A pairing-only entry has no such reason to survive unpairing.
+    var wasDiscovered: Bool = false
     let lastSeenAt: Date?
     /// Dial candidates in the host's priority order: the pairing's saved routes
     /// first, then live presence routes while online, then the registry's.

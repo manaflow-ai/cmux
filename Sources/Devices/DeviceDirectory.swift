@@ -158,18 +158,20 @@ final class DeviceDirectory {
     private func runPresenceLoop() async {
         var failures = 0
         while !Task.isCancelled {
-            guard let url = serviceURL() else {
-                presenceState = .retrying(attempt: failures, error: "presence service unavailable")
-                return
-            }
-            presenceState = .connecting
-            let tokens = self.tokens
-            let teamID = self.teamID
-            let subscriber = makeSubscriber(url) {
-                let session = try await tokens.session()
-                return DevicePresenceSubscriber.Credentials(accessToken: session.accessToken, teamID: teamID)
-            }
             do {
+                // Configuration can arrive after startup. A missing endpoint
+                // follows the same cancellable recovery as a failed connection.
+                guard let url = serviceURL() else {
+                    throw DevicePresenceSubscriber.SubscribeError.invalidServiceURL
+                }
+                presenceState = .connecting
+                notifyChanged()
+                let tokens = self.tokens
+                let teamID = self.teamID
+                let subscriber = makeSubscriber(url) {
+                    let session = try await tokens.session()
+                    return DevicePresenceSubscriber.Credentials(accessToken: session.accessToken, teamID: teamID)
+                }
                 let frames = try await subscriber.subscribe()
                 for try await frame in frames {
                     if Task.isCancelled { return }
@@ -185,8 +187,9 @@ final class DeviceDirectory {
                 deviceDirectoryLog.error("presence subscribe failed: \(String(describing: error), privacy: .public)")
             }
             guard !Task.isCancelled else { return }
-            let delay = Self.reconnectDelays[min(failures, Self.reconnectDelays.count - 1)]
+            let delay = Self.reconnectDelays[min(max(failures - 1, 0), Self.reconnectDelays.count - 1)]
             presenceState = .retrying(attempt: failures, error: presenceState == .live ? "stream ended" : "presence unreachable")
+            notifyChanged()
             // Bounded, cancellable backoff between subscribe attempts; the
             // cancellation is wired to stop() through the owning task.
             guard (try? await clock.sleep(for: failures == 0 ? .zero : delay)) != nil else { return }

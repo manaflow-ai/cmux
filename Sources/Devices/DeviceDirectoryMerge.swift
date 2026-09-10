@@ -42,7 +42,10 @@ struct DeviceDirectoryMerge {
         }
         let presenceMacs = input.presence.filter { $0.value.platform.lowercased() == "mac" }
         let pairedByID = Dictionary(input.paired.map { ($0.instance, $0) }, uniquingKeysWith: { first, _ in first })
-        let previousByID = Dictionary(input.previous.map { ($0.instance, $0) }, uniquingKeysWith: { first, _ in first })
+        let retainedPrevious = input.previous.filter {
+            $0.wasDiscovered || pairedByID[$0.instance] != nil
+        }
+        let previousByID = Dictionary(retainedPrevious.map { ($0.instance, $0) }, uniquingKeysWith: { first, _ in first })
 
         var ids = Set(registryInstances.keys)
         ids.formUnion(presenceMacs.keys)
@@ -80,7 +83,11 @@ struct DeviceDirectoryMerge {
             if isOnline { append(presence?.routes ?? []) }
             append(registry?.instance.routes ?? [])
             if !isOnline { append(presence?.routes ?? []) }
-            if routes.isEmpty { routes = previous?.routes ?? [] }
+            // An unpair also revokes routes retained from the old grant. A
+            // discovered row can remain, but only with its discovery routes.
+            if routes.isEmpty, previous?.isPaired != true || paired != nil {
+                routes = previous?.routes ?? []
+            }
 
             let presenceSeen = presence.map { Date(timeIntervalSince1970: $0.lastSeenAt / 1000) }
             let lastSeenAt = [presenceSeen, registry?.instance.lastSeenAt, registry?.device.lastSeenAt, paired?.lastSeenAt, previous?.lastSeenAt]
@@ -114,6 +121,7 @@ struct DeviceDirectoryMerge {
                 bundleID: presence?.bundleId ?? previous?.bundleID,
                 presenceState: presenceState,
                 isPaired: paired != nil,
+                wasDiscovered: registry != nil || presence != nil || previous?.wasDiscovered == true,
                 lastSeenAt: lastSeenAt,
                 routes: routes,
                 ownerUserID: ownerUserID,

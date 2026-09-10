@@ -68,7 +68,7 @@ struct DeviceDirectoryMergeTests {
     ) -> DeviceDirectoryRecord {
         DeviceDirectoryRecord(
             instance: instance, deviceName: name, platform: "mac", bundleID: nil,
-            presenceState: online ? .online : .offline, isPaired: paired,
+            presenceState: online ? .online : .offline, isPaired: paired, wasDiscovered: true,
             lastSeenAt: lastSeenAt, routes: routes, ownerUserID: owner, accountTrust: trust
         )
     }
