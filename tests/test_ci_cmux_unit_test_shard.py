@@ -174,9 +174,11 @@ final class LegacyTests: XCTestCase {
     func testLegacy() {}
 }
 
+@Test func freeStandingTest() {}
+
 @Suite
 struct ModernTests {
-    @Test func testModern() {}
+    @MainActor @Test func testModern() {}
 }
 """.lstrip(),
             encoding="utf-8",
@@ -190,7 +192,7 @@ struct ExtensionOnlyTests {}
         (test_root / "ExtensionOnlyTests+Swift.swift").write_text(
             """
 extension ExtensionOnlyTests {
-    @Test func testModernExtension() {}
+    @available(macOS 14, *) @Test func testModernExtension() {}
 }
 """.lstrip(),
             encoding="utf-8",

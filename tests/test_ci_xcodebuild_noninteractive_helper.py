@@ -357,6 +357,37 @@ def main() -> int:
         print("FAIL: noisy post-test timeout was rearmed")
         return 1
 
+    for marker in (
+        "application message: Test run started. (not a framework event)",
+        "2026-09-10 14:03:49.521479+0000 cmux DEV[13904:67193] Test run started.",
+    ):
+        incidental_marker_child = textwrap.dedent(
+            f"""
+            import time
+
+            print({marker!r}, flush=True)
+            print("Test Suite 'Selected tests' passed at now", flush=True)
+            print({marker!r}, flush=True)
+            for _ in range(20):
+                print("post-summary-noise", flush=True)
+                time.sleep(0.1)
+            """
+        )
+        result = subprocess.run(
+            [sys.executable, str(HELPER), sys.executable, "-c", incidental_marker_child],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=HELPER_TEST_TIMEOUT_SECONDS,
+            env=post_test_env,
+        )
+        if result.returncode != 0 or "Post-test timed out" not in result.stderr:
+            print(result.stdout, end="")
+            print(result.stderr, end="", file=sys.stderr)
+            print("FAIL: incidental app-host marker canceled the post-test deadline")
+            return 1
+
     delayed_swift_testing_child = textwrap.dedent(
         """
         import time
