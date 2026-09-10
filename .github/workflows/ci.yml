@@ -642,6 +642,10 @@ jobs:
       # selectors. Six-way packing keeps each broad shard near 13 minutes of
       # measured work; allow focused gates and one app-host restart headroom.
       CMUX_UNIT_TEST_TIMEOUT_SECONDS: "1800"
+      # The broad shard can spend several minutes in XCTest's post-suite
+      # teardown while native UI processes drain. Allow that quiet period
+      # within the job's 75-minute cap instead of restarting a healthy batch.
+      CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS: "1200"
       # XCTest app-host crashes can leave xcodebuild waiting in Swift's crash
       # backtracer until the job timeout. Keep crash handling non-interactive
       # and cheap so xcodebuild can restart/finish the suite.
@@ -1913,6 +1917,8 @@ jobs:
             CmuxNotifications
             CmuxSettings
             CmuxSettingsUI
+            CmuxSudoBroker
+            CmuxSudoBrokerUI
             CmuxTerminal
             CmuxTerminalCore
             CmuxUpdater

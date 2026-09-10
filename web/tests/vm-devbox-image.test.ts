@@ -5,6 +5,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   CMUX_TUI_PORT,
   CMUX_TUI_SESSION,
@@ -592,11 +593,11 @@ describe("devbox image template", () => {
   });
 
   test("agent PTY readiness handles output, gates, exit, timeout and cancellation", () => {
-    const result = spawnSync("python3", [path.join(import.meta.dirname, "devbox-agent-launch-test.py")], {
+    const result = spawnSync("python3", [fileURLToPath(new URL("./devbox-agent-launch-test.py", import.meta.url))], {
       encoding: "utf8", timeout: 30_000,
     });
     expect({ status: result.status, output: result.stderr }).toEqual({ status: 0, output: expect.stringContaining("OK") });
-  });
+  }, 35_000);
 
   test("one public-platform SDK serves the bake, the verifier, and the driver", () => {
     // There is a single Freestyle arm now: the public platform on freestyle@0.2.x.
