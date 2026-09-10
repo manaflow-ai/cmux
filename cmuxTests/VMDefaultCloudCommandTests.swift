@@ -112,6 +112,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                         "id": vmID,
                         "provider": "freestyle",
                         "image": "snapshot-default",
+                        "kind": "desktop",
                     ]
                 )
             case "vm.cmux_remote_info":
@@ -174,6 +175,18 @@ extension CLINotifyProcessIntegrationRegressionTests {
                         "remote_workspace_id": "ws_cloud",
                     ]
                 )
+            case "vm.status":
+                return self.v2Response(id: id, ok: true, result: ["id": vmID, "kind": "desktop"])
+            case "vm.desktop_open":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["id"] as? String, vmID)
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceID)
+                XCTAssertEqual(params["focus"] as? Bool, false)
+                return self.v2Response(id: id, ok: true, result: [
+                    "surface_id": "surface-cloud-desktop", "url": "http://127.0.0.1:6901/vnc.html",
+                ])
+            case "surface.focus":
+                return self.v2Response(id: id, ok: true, result: [:])
             case "workspace.select":
                 return self.v2Response(id: id, ok: true, result: ["workspace_id": workspaceID])
             default:
@@ -222,6 +235,29 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let bindings = requests.filter { $0["method"] as? String == "workspace.cloud_vm_bind" }
         let lastBinding = bindings.last?["params"] as? [String: Any]
         XCTAssertEqual(lastBinding?["remote_workspace_id"] as? String, "ws_cloud")
+        XCTAssertEqual(methods.filter { $0 == "vm.desktop_open" }.count, 1)
+
+        // Exercise consumption of the saved identity in a new CLI process,
+        // not just persistence. The mock rejects any unhandled enrollment path.
+        let firstRequestCount = state.commands.count
+        let reopened = runProcess(
+            executablePath: cliPath,
+            arguments: ["vm", "shell", vmID],
+            environment: environment,
+            timeout: 5
+        )
+        XCTAssertFalse(reopened.timedOut, reopened.stdout + reopened.stderr)
+        XCTAssertEqual(reopened.status, 0, reopened.stdout + reopened.stderr)
+        let secondRequests = state.commands.dropFirst(firstRequestCount).compactMap { self.jsonObject($0) }
+        let infos = secondRequests.filter { $0["method"] as? String == "vm.cmux_remote_info" }
+        XCTAssertEqual(infos.count, 1)
+        let infoParams = infos.first?["params"] as? [String: Any]
+        XCTAssertEqual(infoParams?["device_fingerprint"] as? String, "carrier")
+        let secondMethods = secondRequests.compactMap { $0["method"] as? String }
+        XCTAssertFalse(secondMethods.contains("vm.create"))
+        XCTAssertFalse(secondMethods.contains("surface.new_terminal"))
+        XCTAssertEqual(secondMethods.filter { $0 == "surface.project" }.count, 1)
+        XCTAssertEqual(secondMethods.filter { $0 == "vm.desktop_open" }.count, 1)
     }
 
     func testVMNewExplicitFreestyleProviderCreatesSeparateDetachedVM() throws {
