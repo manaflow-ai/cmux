@@ -6,7 +6,7 @@ extension MobileHostService {
     /// authenticated Iroh private-path candidates.
     nonisolated static let irohPrivatePathsCapability = "iroh.private_paths.v1"
 #if DEBUG
-    /// Complete method inventory returned only to the authenticated Iroh release
+    /// Sorted method inventory returned only to the authenticated Iroh release
     /// gate. The phone compares this independently maintained host inventory with
     /// its own required-method inventory before exercising representative RPCs.
     nonisolated static let irohReleaseGateRPCMethods: [String] = [
@@ -102,7 +102,7 @@ extension MobileHostService {
         "workspace.group.expand",
         "workspace.list",
         "workspace.move",
-    ]
+    ].sorted()
 #endif
     /// Mobile RPC methods that move file bytes between the phone and this
     /// Mac (attachment upload, artifact and changed-file fetch, image paste).
