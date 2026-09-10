@@ -244,7 +244,15 @@ struct CmuxCommand: AsyncParsableCommand {
             CMUXCLIOutput.writeStandardError("\(usageString(for: error.command))\n")
             Darwin.exit(error.exitCode)
         } catch let error as CLIError {
-            CMUXCLIOutput.writeStandardError("Error: \(error)\n")
+            // The same suppression legacy `main()` applies, through the same
+            // predicate. A persistent attach wrapper exports
+            // CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY and owns the retry notice;
+            // `ssh-pty-attach` is facade-declared, so printing a retryable
+            // bridge failure here makes a healthy bounded reconnect look like a
+            // fatal SSH failure.
+            if !GlobalOptions().makeCLI().shouldSuppressSSHPTYAttachRetryError(error) {
+                CMUXCLIOutput.writeStandardError("Error: \(error)\n")
+            }
             Darwin.exit(error.exitCode)
         } catch {
             exit(withError: error)
