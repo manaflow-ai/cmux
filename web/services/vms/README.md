@@ -135,15 +135,19 @@ Image policy:
   `expectNoCloudVmImplementationLeaks` in `tests/vm-route-auth.test.ts`).
 - Local development and every deployed runtime serve the same `defaultForKind` entry; there is no
   separate local default and nothing to copy into `.env`.
-- Today's default (both kinds, every size) is the `freestyle-cmux-devbox-11761b` ladder, baked and
-  verified on cmux's Freestyle account from https://github.com/manaflow-ai/cmux/pull/11776
-  (`090e3daddd`, epoch `2026-09-02-r4`: the desktop session with owner-signalled readiness
-  (`Type=notify`), the accessibility bus, clipboard helper and published `DISPLAY`, baked cmux-tui
-  daemon, `freestyle/ubuntu-sm` base): `sm` `sh-60effaffd5404e5ab8dbdb08bd5f5eed`, `md`
-  `sh-1ce6c11f5d6e4f8e98c19454e9a38751`, `lg` `sh-bda89603f1ab41a2902ac5d781e2c6ce`, `xl`
-  `sh-95b526e17c234593a45edfb572e49396`, `2xl` `sh-236a1866dd244082ba0f06829df2358d`. The retired
-  beta entry stays listed for the record and is never a default; earlier public entries (the
-  `11761a`, `20260903b` and `edge1` ladders before it) stay for rollback.
+- Today's defaults are the `freestyle-cmux-devbox-agents0909` ladders, baked and verified on cmux's
+  Freestyle account from https://github.com/manaflow-ai/cmux/issues/12244 (branch commit
+  `d3b2da01be`, epoch `2026-09-09-r1`: Claude Code 2.1.267, Codex 0.154.0, opencode 1.18.30, pi
+  0.85.1, agent-browser 0.37.1, bubblewrap for codex's sandbox, the cmux-tui daemon `65ac4c2fe7`,
+  `freestyle/ubuntu-sm` base). Desktop (`kind: desktop`): `sm` `sh-69841eb8073046df92d2cca9cc8b4ba2`,
+  `md` `sh-fb1dba56f4b24616adfba52e6c935317`, `lg` `sh-68da64518f6c49a1923788f503d3492a`, `lgx`
+  `sh-eec416ba245544a494d3be4ebe6022a2`, `xl` `sh-6d635b1cd223434aa9e1ad1a8aea1c45`, `2xl`
+  `sh-869c2c63c2cb4f399d19b5fdb1fee50f`. Base (`kind: base`, shell-only): `sm`
+  `sh-0d4c81c5188140dba93a17eaac1608e0`, `md` `sh-7e6e24521b4f4b00b7478313fddedd7e`, `lg`
+  `sh-e152ff6d015e45289a27104557374403`, `lgx` `sh-edb83b4aa34a4d79946b5d80fedf8921`, `xl`
+  `sh-e27f9d8a81cc491080f6dd186d6f4808`, `2xl` `sh-a370d08c8f934d9aa1935613c3b28cd8`. Earlier
+  ladders (`termid`, `trust4`, `11761b`, and the rest) stay listed, demoted, for rollback; the
+  retired beta entry stays listed for the record and is never a default.
 - Snapshots are account-scoped: a manifest id is only bootable by the Freestyle account whose
   `FREESTYLE_API_KEY` the deployment uses; promote under cmux's key.
 - Promotion is `bun run devbox:promote -- freestyle` (bake → verify → manifest write), then a PR
