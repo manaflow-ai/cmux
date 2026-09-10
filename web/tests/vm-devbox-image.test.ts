@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -254,8 +254,12 @@ describe("devbox image template", () => {
     // Bound to THIS machine, not merely present: a clone resumes the source
     // machine's daemon, which answers with the source's identity until the
     // supervisor re-keys it.
-    expect(wait).toContain('[ "$(cat /etc/cmux/daemon-instance-id 2>/dev/null)" = "$(');
+    expect(wait).toContain('[ "$(cat /etc/cmux/daemon-instance-id 2>/dev/null)" = "$cmux_instance" ]');
     expect(wait).toContain("latest/meta-data/instance-id");
+    // Both sides non-empty: an unreachable metadata service yields an empty id
+    // and an unwritten marker reads empty, so a bare comparison would call
+    // "" = "" a bound identity and report ready on the first poll.
+    expect(wait).toContain('[ -n "$cmux_instance" ]');
     // Bounded and fails closed.
     expect(wait).toContain("seq 1 240");
     expect(wait).toContain("exit 1");
@@ -271,6 +275,16 @@ describe("devbox image template", () => {
     expect(derive).toContain("CMUX_DEVBOX_DERIVE_CONCURRENCY");
     expect(derive).toContain("async function deriveSize(");
     expect(derive).toContain("if (name === smokeSize) {");
+  });
+
+  test("the readiness wait fails closed when it cannot identify the machine", () => {
+    // Runs the generated shell for real on a host with no metadata service and
+    // no marker file: the honest answer is "not ready", not an instant pass.
+    const script = path.join(mkdtempSync(path.join(tmpdir(), "cmux-ready-")), "wait.sh");
+    writeFileSync(script, devboxWaitForDaemonCommand(1));
+    const result = spawnSync("/bin/sh", [script], { encoding: "utf8", timeout: 20_000 });
+    expect(result.status).toBe(1);
+    expect(`${result.stderr}`).toContain("not ready");
   });
 
   test("ble.sh integration stays minimal: no token highlighting, ghost text only", () => {

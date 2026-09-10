@@ -535,7 +535,14 @@ export function devboxDaemonReadyCondition(): string {
     // identity until cmux-devbox-boot notices the instance id changed and
     // re-keys it. A ready check that accepted the stale marker would hand the
     // next phase a daemon that is about to be stopped and rebuilt.
-    `[ "$(cat /etc/cmux/daemon-instance-id 2>/dev/null)" = "$(${DEVBOX_INSTANCE_ID_COMMAND})" ]`
+    //
+    // Both sides must be non-empty. An unreachable metadata service yields an
+    // empty id, and an unwritten marker reads empty too, so a bare comparison
+    // would call "" = "" a bound identity and report ready immediately. This
+    // command only ever runs on a Freestyle VM, which always has MMDS, so
+    // failing closed here surfaces a broken machine instead of hiding it.
+    `cmux_instance="$(${DEVBOX_INSTANCE_ID_COMMAND})" && [ -n "$cmux_instance" ] && ` +
+    `[ "$(cat /etc/cmux/daemon-instance-id 2>/dev/null)" = "$cmux_instance" ]`
   );
 }
 
