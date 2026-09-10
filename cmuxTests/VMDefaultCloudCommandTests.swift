@@ -227,7 +227,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
             case "vm.create":
                 let params = payload["params"] as? [String: Any] ?? [:]
                 XCTAssertEqual(params["provider"] as? String, "freestyle")
-                XCTAssertEqual(params["image"] as? String, "sandbox/cmux-devbox:latest")
+                XCTAssertEqual(params["kind"] as? String, "desktop")
+                XCTAssertNil(params["image"])
                 XCTAssertNotEqual(params["idempotency_key"] as? String, "cmux-default-freestyle-sshd-v1")
                 return self.v2Response(
                     id: id,
@@ -466,7 +467,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             switch method {
             case "vm.create":
                 let params = payload["params"] as? [String: Any] ?? [:]
-                // A fresh machine is distinct from the legacy Base slot: the backend picks the provider, the CLI asks for a desktop.
+                // Distinct from the legacy Base slot: backend-picked provider, a desktop by kind.
                 XCTAssertNil(params["provider"])
                 XCTAssertNotEqual(params["idempotency_key"] as? String, "cmux-default-freestyle-sshd-v1")
                 XCTAssertEqual(params["kind"] as? String, "desktop")
@@ -596,8 +597,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             switch method {
             case "vm.create":
                 let params = payload["params"] as? [String: Any] ?? [:]
-                // A fresh bare machine: backend-chosen provider, a desktop by kind, and a
-                // per-create key rather than the legacy shared Base-slot idempotency key.
+                // Backend-chosen provider, a desktop by kind, a per-create key (not the legacy Base-slot key).
                 XCTAssertNil(params["provider"])
                 XCTAssertNotEqual(params["idempotency_key"] as? String, "cmux-default-freestyle-sshd-v1")
                 XCTAssertEqual(params["kind"] as? String, "desktop")

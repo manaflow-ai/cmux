@@ -137,15 +137,10 @@ Image policy:
   `expectNoCloudVmImplementationLeaks` in `tests/vm-route-auth.test.ts`).
 - Local development and every deployed runtime serve the same `defaultForKind` entry; there is no
   separate local default and nothing to copy into `.env`.
-- Today's default (both kinds, every size) is the `freestyle-cmux-devbox-11761b` ladder, baked and
-  verified on cmux's Freestyle account from https://github.com/manaflow-ai/cmux/pull/11776
-  (`090e3daddd`, epoch `2026-09-02-r4`: the desktop session with owner-signalled readiness
-  (`Type=notify`), the accessibility bus, clipboard helper and published `DISPLAY`, baked cmux-tui
-  daemon, `freestyle/ubuntu-sm` base): `sm` `sh-60effaffd5404e5ab8dbdb08bd5f5eed`, `md`
-  `sh-1ce6c11f5d6e4f8e98c19454e9a38751`, `lg` `sh-bda89603f1ab41a2902ac5d781e2c6ce`, `xl`
-  `sh-95b526e17c234593a45edfb572e49396`, `2xl` `sh-236a1866dd244082ba0f06829df2358d`. The retired
-  beta entry stays listed for the record and is never a default; earlier public entries (the
-  `11761a`, `20260903b` and `edge1` ladders before it) stay for rollback.
+- The current default ladders and their validation metadata are recorded in the authoritative
+  [`images/manifest.json`](./images/manifest.json). Retired and rollback entries remain in that
+  manifest for auditability; this README intentionally does not duplicate time-sensitive snapshot
+  ids.
 - Snapshots are account-scoped: a manifest id is only bootable by the Freestyle account whose
   `FREESTYLE_API_KEY` the deployment uses; promote under cmux's key.
 - Promotion is `bun run devbox:promote -- freestyle` (bake → verify → manifest write), then a PR
