@@ -2,6 +2,7 @@ import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxIrohTransport
 import CmuxIrxTransport
+import CmuxSettings
 import Foundation
 import OSLog
 
@@ -12,7 +13,7 @@ import OSLog
 /// dormant, so the two stacks can never fight over the broker binding.
 @MainActor
 final class MobileHostIrxRuntime {
-    static let shared = MobileHostIrxRuntime()
+    static let shared = MobileHostIrxRuntime(publishesPublicHostStatus: true)
 
     nonisolated static let enabledDefaultsKey = "cmux.irx.enabled"
     nonisolated static let forceRelayDefaultsKey = "cmux.irx.force-relay"
@@ -29,6 +30,31 @@ final class MobileHostIrxRuntime {
             return UserDefaults.standard.bool(forKey: enabledDefaultsKey)
         }
         return true
+    }
+
+    /// Longest wait between two activation attempts on the doubling ladder.
+    nonisolated static let maximumActivationRetryDelay: TimeInterval = 5 * 60
+
+    /// Delay before the next activation attempt after `error`.
+    ///
+    /// The ladder starts at 5 s and doubles per consecutive failure up to
+    /// `maximumActivationRetryDelay`. A broker `Retry-After` is a floor that
+    /// wins over the ladder, and `jitterUnitInterval` (0...1) adds up to a
+    /// quarter of the resulting delay so a fleet told to wait the same window
+    /// does not re-mint in lockstep.
+    nonisolated static func activationRetryDelay(
+        after error: any Error,
+        failureCount: Int,
+        jitterUnitInterval: Double
+    ) -> TimeInterval {
+        let exponent = min(max(failureCount, 0), 16)
+        let ladder = min(5 * pow(2, Double(exponent)), maximumActivationRetryDelay)
+        let serverFloor = TimeInterval(
+            max(0, (error as? any CmxRetryAfterProviding)?.retryAfterSeconds ?? 0)
+        )
+        let base = max(ladder, serverFloor)
+        let jitter = min(max(jitterUnitInterval, 0), 1) * base * 0.25
+        return base + jitter
     }
 
     nonisolated static var forceRelayOnly: Bool {
@@ -51,12 +77,102 @@ final class MobileHostIrxRuntime {
         )
     }()
 
+    private let managedDevicePolicy: ManagedDevicePolicy
+    /// Only the process-wide host publishes into ``MobileHostPublicStatusCache``.
+    /// Test-constructed runtimes leave that cache alone so parallel suites
+    /// cannot clobber the live identity, and so comparing against ``shared``
+    /// cannot lazily create it.
+    private let publishesPublicHostStatus: Bool
+
+    init(
+        managedDevicePolicy: ManagedDevicePolicy = ManagedDevicePolicy(),
+        publishesPublicHostStatus: Bool = false
+    ) {
+        self.managedDevicePolicy = managedDevicePolicy
+        self.publishesPublicHostStatus = publishesPublicHostStatus
+    }
+
+    var isNetworkingAllowed: Bool {
+        !managedDevicePolicy.isEnforced(.disableIrohNetworking)
+            && !managedDevicePolicy.isEnforced(.disableRemoteControl)
+    }
+
+    /// Tears the host down without treating the transition as a sign-out:
+    /// persisted device-list leases stay so a later policy lift can re-arm
+    /// the same account. Idempotent when already idle.
+    func stopHost() async {
+        await enqueueManagedNetworking(.stop)
+    }
+
+    /// Applies `DisableIrohNetworking` / `DisableRemoteControl` and the
+    /// current signed-in account to the live IRX host. Policy activation
+    /// stops the endpoint immediately; lifting it re-arms without a relaunch.
+    func applyManagedNetworkingPolicy() async {
+        await enqueueManagedNetworking(.reconcile)
+    }
+
+    private enum ManagedNetworkingWork {
+        case stop
+        case reconcile
+    }
+
+    /// Serializes policy and account transitions. `MobileHostService.stop()`
+    /// and `syncToSettings()` both fire these from unstructured tasks, so
+    /// without a chain a lift could run against a half-drained teardown and
+    /// no-op on a still-set `activeAccountID`, or a late stop could clear the
+    /// account after a re-arm and tear the new activation down. Each unit of
+    /// work re-reads the policy and the account after the queue drains, so
+    /// the last transition to be requested is the one that decides the state.
+    private func enqueueManagedNetworking(_ work: ManagedNetworkingWork) async {
+        let previous = managedNetworkingTask
+        let task = Task { @MainActor [weak self] in
+            await previous?.value
+            guard let self else { return }
+            switch work {
+            case .stop:
+                await self.performStopHost()
+            case .reconcile:
+                await self.performManagedNetworkingReconcile()
+            }
+        }
+        managedNetworkingTask = task
+        await task.value
+    }
+
+    private func performStopHost() async {
+        guard activeAccountID != nil
+            || activationTask != nil
+            || settingsPhase != .idle
+            || brokerService != nil
+        else {
+            return
+        }
+        await deactivate()
+        activeAccountID = nil
+    }
+
+    private func performManagedNetworkingReconcile() async {
+        guard isNetworkingAllowed else {
+            await performStopHost()
+            return
+        }
+        let accountID = auth?.currentUser?.id
+        if accountID != activeAccountID {
+            await transition(to: accountID)
+        }
+    }
+
     private weak var auth: AuthCoordinator?
     private var authObservationTask: Task<Void, Never>?
     private var activeAccountID: String?
     private var activationTask: Task<Void, Never>?
+    /// Chain head for ``enqueueManagedNetworking(_:)``.
+    private var managedNetworkingTask: Task<Void, Never>?
     /// Changes on every (de)activation; per-connection supervisors compare it.
     private var generationToken = UUID()
+    /// Consecutive activation failures since the last successful activation.
+    /// Drives the doubling retry ladder; reset on success and on transition.
+    private var activationFailureCount = 0
 
     /// Coarse lifecycle mirror for the Settings Networking section (see
     /// `MobileHostIrxRuntime+SettingsControl`). `failed` means the last
@@ -113,10 +229,11 @@ final class MobileHostIrxRuntime {
             await auth.awaitBootstrapped()
             guard !Task.isCancelled else { return }
             while !Task.isCancelled {
-                let accountID = auth.currentUser?.id
-                if accountID != self?.activeAccountID {
-                    await self?.transition(to: accountID)
-                }
+                // Account changes and MDM policy share this cadence so a
+                // profile that never posts UserDefaults notifications still
+                // lands. `syncToSettings()` also calls the same reconcile
+                // immediately on an observed policy transition.
+                await self?.applyManagedNetworkingPolicy()
                 try? await Task.sleep(for: .seconds(2))
             }
         }
@@ -149,6 +266,7 @@ final class MobileHostIrxRuntime {
         }
         await deactivate()
         activeAccountID = accountID
+        activationFailureCount = 0
         guard let accountID else { return }
         Self.journal.record("host-runtime", "activating", ["account": accountID])
         setSettingsPhase(.activating)
@@ -158,7 +276,7 @@ final class MobileHostIrxRuntime {
     }
 
     private func activate(accountID: String) async {
-        guard let auth else { return }
+        guard isNetworkingAllowed, !Task.isCancelled, let auth else { return }
         generationToken = UUID()
         let token = generationToken
         // The control-plane client now starts EARLY in activation (before the
@@ -201,6 +319,7 @@ final class MobileHostIrxRuntime {
                 accountID: accountID, tag: tag)
             let material = try await legacy.identities.identity(
                 accountID: accountID, appInstanceID: appInstanceID)
+            try Task.checkCancellation()
             let deviceID = cmxCanonicalDeviceID(MobileHostIdentity.deviceID())
             let identity = IrxIdentity(
                 privateKeyData: material.secretKey.bytes,
@@ -273,7 +392,8 @@ final class MobileHostIrxRuntime {
             if let persisted = await listStore.loadPersisted() {
                 listBox.replace(persisted)
             }
-            guard generationToken == token else { return }
+            try Task.checkCancellation()
+            guard generationToken == token, isNetworkingAllowed else { return }
 
             // Control-plane socket: hint announcements out (instant phone
             // propagation, the signed HTTPS registration stays authoritative),
@@ -348,32 +468,40 @@ final class MobileHostIrxRuntime {
             // namespaces need the binding authorization it establishes
             // before any other broker call (relay minting, discovery) is
             // accepted.
+            try Task.checkCancellation()
             let binding = try await broker.register(
                 pairingEnabled: true,
                 relayURLHint: nil
             )
+            try Task.checkCancellation()
             localBinding = binding
             let credentials = try await pilot.usableCredentials()
+            try Task.checkCancellation()
             let initialDiscovery = try await broker.discover()
             noteLiveDiscoverySucceeded()
 
-            guard generationToken == token else { return }
+            try Task.checkCancellation()
+            guard generationToken == token, isNetworkingAllowed else { return }
             _ = try await supervisor.readyEndpoint(credentials: credentials)
+            try Task.checkCancellation()
             // Advertise the relay the endpoint ACTUALLY homes on, then
             // refresh the binding so registry consumers see it too.
             let homeRelay = await supervisor.homeRelayURL() ?? credentials.first?.relayURL
             let directAddresses = await supervisor.localDirectAddresses()
             let directPorts = CmxIrohDirectPorts(localDirectAddresses: directAddresses)
+            try Task.checkCancellation()
             _ = try? await broker.register(
                 pairingEnabled: true,
                 relayURLHint: homeRelay,
                 directAddresses: directAddresses,
                 directPorts: directPorts
             )
+            try Task.checkCancellation()
             if let control, let homeRelay {
                 await control.publishHint(homeRelayURL: homeRelay)
             }
             let liveDiscovery = (try? await broker.discover(maximumAge: 0)) ?? initialDiscovery
+            try Task.checkCancellation()
             if !Self.forceRelayOnly,
                MobileHostService.isListeningEnabled,
                let discoveredBinding = liveDiscovery.bindings.first(where: {
@@ -401,8 +529,10 @@ final class MobileHostIrxRuntime {
             // every credential rotation so the advertised hint never expires,
             // and announce it over the socket so phones hear about relay
             // moves in milliseconds instead of at the next registry read.
+            try Task.checkCancellation()
             await pilot.setOnRotation { [weak self, weak broker, weak supervisor] in
-                guard let broker, let supervisor else { return }
+                guard await self?.isNetworkingAllowed == true,
+                      let broker, let supervisor else { return }
                 let relay = await supervisor.homeRelayURL()
                 let directAddresses = await supervisor.localDirectAddresses()
                 let directPorts = CmxIrohDirectPorts(localDirectAddresses: directAddresses)
@@ -428,6 +558,7 @@ final class MobileHostIrxRuntime {
             }
             await pilot.start()
 
+            try Task.checkCancellation()
             publishRoute(
                 identity: identity,
                 relayURL: homeRelay,
@@ -444,7 +575,9 @@ final class MobileHostIrxRuntime {
                 ]
             )
             setSettingsPhase(.active)
+            activationFailureCount = 0
         } catch {
+            guard !Task.isCancelled, generationToken == token else { return }
             Self.journal.record(
                 "host-runtime", "activation-failed",
                 ["reason": String(describing: error)]
@@ -454,10 +587,29 @@ final class MobileHostIrxRuntime {
                 // flicker in Settings); success or an account change clears it.
                 setSettingsPhase(.failed)
             }
-            // One bounded retry ladder, reset by the auth observation loop on
-            // account change: retry activation after 5s while still desired.
-            try? await Task.sleep(for: .seconds(5))
-            if generationToken == token, activeAccountID == accountID {
+            // One bounded retry ladder, reset on success and by the auth
+            // observation loop on account change. The broker's Retry-After
+            // (429 on challenge/register under mint spacing) is a floor, so a
+            // rejected Mac never re-mints inside the window it was told to
+            // wait out; the doubling ladder covers every other failure.
+            let delay = Self.activationRetryDelay(
+                after: error,
+                failureCount: activationFailureCount,
+                jitterUnitInterval: Double.random(in: 0 ... 1)
+            )
+            activationFailureCount = min(activationFailureCount + 1, 20)
+            Self.journal.record(
+                "host-runtime", "activation-retry-scheduled",
+                [
+                    "delay_s": String(Int(delay)),
+                    "server_floor_s": (error as? any CmxRetryAfterProviding)?
+                        .retryAfterSeconds.map(String.init) ?? "-",
+                    "failure_count": String(activationFailureCount),
+                ]
+            )
+            try? await Task.sleep(for: .seconds(delay))
+            if !Task.isCancelled, isNetworkingAllowed,
+               generationToken == token, activeAccountID == accountID {
                 await activate(accountID: accountID)
             }
         }
@@ -467,8 +619,13 @@ final class MobileHostIrxRuntime {
         generationToken = UUID()
         acceptLoop?.cancel()
         acceptLoop = nil
-        activationTask?.cancel()
+        let retiringActivation = activationTask
         activationTask = nil
+        retiringActivation?.cancel()
+        // Drain the canceled activation before releasing its resources: a
+        // late endpoint bind or broker response cannot repopulate them after
+        // this policy/account transition has torn them down.
+        await retiringActivation?.value
         if let autopilot {
             await autopilot.stop()
         }
@@ -497,7 +654,7 @@ final class MobileHostIrxRuntime {
         localBinding = nil
         hadLiveDiscoveryThisRun = false
         setSettingsPhase(.idle)
-        if Self.isEnabled {
+        if publishesPublicHostStatus, Self.isEnabled {
             MobileHostPublicStatusCache.update(irohIdentity: nil)
         }
         Self.journal.record("host-runtime", "deactivated")
@@ -627,7 +784,9 @@ final class MobileHostIrxRuntime {
                 if !hints.contains(hint) { hints.append(hint) }
             }
         }
-        MobileHostPublicStatusCache.update(irohIdentity: peerIdentity, pathHints: hints)
+        if publishesPublicHostStatus {
+            MobileHostPublicStatusCache.update(irohIdentity: peerIdentity, pathHints: hints)
+        }
         Self.journal.record(
             "host-runtime", "route-published",
             [

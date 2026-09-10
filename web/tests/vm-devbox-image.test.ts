@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -9,8 +9,31 @@ import {
   CMUX_TUI_PORT,
   CMUX_TUI_SESSION,
   cmuxTuiDaemonCommand,
+  cmuxTuiLayoutSelector,
 } from "../services/vms/drivers/cmuxTuiDaemon";
-import { DEVBOX_TEMPLATE_FILES, devboxAgentPins, devboxCuaDriverVersion, devboxGhosttyVersion, devboxParkDaemonCommand } from "../scripts/devbox-image-common";
+import {
+  AGENT_PIN_ARGS,
+  DEVBOX_SOURCE_SCHEMA,
+  DEVBOX_TEMPLATE_FILES,
+  agentPinDrift,
+  devboxAgentPins,
+  devboxCuaDriverVersion,
+  devboxGhosttyVersion,
+  devboxWaitForDaemonCommand,
+  devboxParkDaemonCommand,
+  devboxSourceDigest,
+  devboxSourceManifest,
+  normalizedBakeScript,
+  normalizedDockerfileInstructions,
+  rewriteDevboxAgentPins,
+} from "../scripts/devbox-image-common";
+import { DEVBOX_DESKTOP_USER } from "../services/vms/images/desktop";
+import {
+  DEVBOX_WORK_HOME,
+  DEVBOX_WORK_UID,
+  DEVBOX_WORK_USER,
+  devboxWorkUserSetupCommand,
+} from "../services/vms/images/workUser";
 
 // Contract tests for the shared cmux Cloud devbox image template
 // (services/vms/images/devbox), consumed by build-devbox-freestyle.ts,
@@ -165,7 +188,7 @@ describe("devbox image template", () => {
     expect(freestyleScript).toContain('nvm_bin="$(dirname "$(readlink -f /usr/local/bin/node)")"');
     expect(freestyleScript).toContain('ln -sfn "$nvm_bin/${pin.binary}" /usr/local/bin/${pin.binary}');
     // The pins are proven from a clean login shell AS the work user during the
-    // bake itself (probing as root with HOME=/home/ubuntu leaves root-owned
+    // bake itself (probing as root with the work user's HOME leaves root-owned
     // state dirs that break ble.sh for every later login).
     expect(freestyleScript).toContain("sudo -n -u ${WORK_USER} env -i HOME=${WORK_HOME} USER=${WORK_USER} TERM=xterm bash -lc '${pin.binary} --version' | grep -F '${pin.version}'");
     // Home hygiene: single devshell source, ble.sh state dir, legal notice
@@ -179,14 +202,97 @@ describe("devbox image template", () => {
     expect(freestyleScript).toContain("interactiveShellProbe(1)");
     expect(freestyleScript).toContain("interactiveShellProbe(2)");
     expect(freestyleScript).toContain('grep -q "λ"');
-    expect(readScript("verify-devbox-image.ts")).toContain("ubuntu-login-silent-");
-    expect(readScript("verify-devbox-image.ts")).toContain("home-owned-by-ubuntu");
+    expect(readScript("verify-devbox-image.ts")).toContain("work-user-login-silent-");
+    expect(readScript("verify-devbox-image.ts")).toContain("home-owned-by-work-user");
     expect(readScript("verify-devbox-image.ts")).toContain("devshell-sourced-once");
     // The verifier checks both shell families without PATH help of its own.
     const verify = readScript("verify-devbox-image.ts");
     expect(verify).toContain("-login-pin-ok");
     expect(verify).toContain("-nonlogin-pin-ok");
     expect(verify).toContain("test ! -e /opt/mise");
+  });
+
+  test("one non-root work user named cmux, on a machine named cmux", () => {
+    // Half the complaint this answers: a cmux Cloud terminal opened as
+    // `root@freestyle-vm`, and `claude --dangerously-skip-permissions` refuses
+    // to start as root. The machine's own name is the other half, and its own
+    // contract (services/vms/images/identity.ts, vm-devbox-identity.test.ts).
+    expect(DEVBOX_WORK_USER).toBe("cmux");
+    expect(DEVBOX_WORK_HOME).toBe("/home/cmux");
+    // Renamed, not added: the provider's exec default is the uid-1000 account,
+    // so a second account would split the machine between two homes.
+    expect(DEVBOX_WORK_UID).toBe(1000);
+    const setup = devboxWorkUserSetupCommand();
+    expect(setup).toContain("usermod -l cmux -d /home/cmux -m \"$old\"");
+    expect(setup).toContain("groupmod -n cmux \"$old\"");
+    // Idempotent: a re-bake over an already-renamed machine must not fail.
+    expect(setup).toContain("if ! id -u cmux >/dev/null 2>&1; then");
+    // The base's NOPASSWD policy names the account being renamed away.
+    expect(setup).toContain("grep -q '^cmux[[:space:]]' \"$f\" || rm -f \"$f\"");
+    expect(setup).toContain("sudo -n -u cmux sudo -n true");
+    // Ubuntu's user-private-group umask leaves the daemon's state dir
+    // group-writable, and cmux-tui refuses to store its identity under one.
+    expect(setup).toContain("USERGROUPS_ENAB no");
+    expect(setup).toContain('[ "$(sudo -n -u cmux sh -c umask)" = 0022 ]');
+    // The bake sets this up before any layer writes into the home or names
+    // the account, and the desktop session runs as the same user.
+    const freestyleScript = readScript("build-devbox-freestyle.ts");
+    const workUserStep = freestyleScript.indexOf('await step("work-user"');
+    expect(workUserStep).toBeGreaterThan(0);
+    expect(workUserStep).toBeLessThan(freestyleScript.indexOf('"apt-devtools",'));
+    expect(DEVBOX_DESKTOP_USER).toBe(DEVBOX_WORK_USER);
+    // The verifier proves the whole chain on a real machine.
+    const verify = readScript("verify-devbox-image.ts");
+    expect(verify).toContain("one-work-user");
+    expect(verify).toContain("hostname-ok");
+    expect(verify).toContain("prompt-says-cmux-at-cmux");
+    expect(verify).toContain("claude-reaches-the-prompt");
+    expect(verify).toContain("daemon-runs-as-work-user");
+  });
+
+  test("the image pipeline waits on readiness signals, never on the clock", () => {
+    // 30 fixed `sleep 30`s were 15 of the ~26 minutes a full two-ladder
+    // refresh took, while the verifier's own log showed the daemon answering
+    // in under a second. Every one of them now waits on the daemon's actual
+    // readiness, bounded so a daemon that never comes up fails instead of
+    // hanging. This is the same rule the repo already applies to runtime code.
+    const wait = devboxWaitForDaemonCommand(120);
+    expect(wait).toContain("server status --session cloud");
+    expect(wait).toContain("grep -qi ':0539 ' /proc/net/tcp6");
+    // Bound to THIS machine, not merely present: a clone resumes the source
+    // machine's daemon, which answers with the source's identity until the
+    // supervisor re-keys it.
+    expect(wait).toContain('[ "$(cat /etc/cmux/daemon-instance-id 2>/dev/null)" = "$cmux_instance" ]');
+    expect(wait).toContain("latest/meta-data/instance-id");
+    // Both sides non-empty: an unreachable metadata service yields an empty id
+    // and an unwritten marker reads empty, so a bare comparison would call
+    // "" = "" a bound identity and report ready on the first poll.
+    expect(wait).toContain('[ -n "$cmux_instance" ]');
+    // Bounded and fails closed.
+    expect(wait).toContain("seq 1 240");
+    expect(wait).toContain("exit 1");
+    for (const name of ["build-devbox-freestyle.ts", "verify-devbox-image.ts", "derive-devbox-sizes.ts"]) {
+      const script = readScript(name);
+      expect({ name, sleeps: /sleep 30\b|setTimeout\(resolve, 30_000\)|sleep\(30_000\)/.test(script) })
+        .toEqual({ name, sleeps: false });
+      expect({ name, waits: script.includes("devboxWaitForDaemonCommand") }).toEqual({ name, waits: true });
+    }
+    // The ladder rows are independent, so they run concurrently, and the full
+    // Noise/RPC/PTY round trip runs once per ladder instead of on all six.
+    const derive = readScript("derive-devbox-sizes.ts");
+    expect(derive).toContain("CMUX_DEVBOX_DERIVE_CONCURRENCY");
+    expect(derive).toContain("async function deriveSize(");
+    expect(derive).toContain("if (name === smokeSize) {");
+  });
+
+  test("the readiness wait fails closed when it cannot identify the machine", () => {
+    // Runs the generated shell for real on a host with no metadata service and
+    // no marker file: the honest answer is "not ready", not an instant pass.
+    const script = path.join(mkdtempSync(path.join(tmpdir(), "cmux-ready-")), "wait.sh");
+    writeFileSync(script, devboxWaitForDaemonCommand(1));
+    const result = spawnSync("/bin/sh", [script], { encoding: "utf8", timeout: 20_000 });
+    expect(result.status).toBe(1);
+    expect(`${result.stderr}`).toContain("not ready");
   });
 
   test("ble.sh integration stays minimal: no token highlighting, ghost text only", () => {
@@ -231,10 +337,12 @@ describe("devbox image template", () => {
     expect(dockerfile).toMatch(/^FROM ubuntu:24\.04$/m);
     expect(dockerfile).toContain("ARG CMUX_IMAGE_DESKTOP_PACKAGES=");
     expect(dockerfile).toContain("ARG CMUX_IMAGE_GHOSTTY_DEB_URL=");
-    // The work user is the uid-1000 account (ubuntu on both), with the
-    // passwordless sudo Freestyle's base already grants it.
-    expect(dockerfile).toContain('work_user="$(getent passwd 1000 | cut -d: -f1)"');
-    expect(dockerfile).toContain('echo "$work_user ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/91-work-user-nopasswd');
+    // The work user is the base's uid-1000 account renamed to cmux, with
+    // passwordless sudo, on both recipes (services/vms/images/workUser.ts).
+    expect(dockerfile).toContain('usermod -l cmux -d /home/cmux -m "$old" && groupmod -n cmux "$old"');
+    expect(dockerfile).toContain('echo "cmux ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/91-cmux-work-user');
+    expect(dockerfile).toContain('[ "$(id -u cmux)" = 1000 ]');
+    expect(readScript("build-devbox-freestyle.ts")).toContain('await step("work-user", devboxWorkUserSetupCommand());');
     // ss for the desktop's port probes (start-vnc.sh) on both recipes.
     expect(dockerfile).toContain("iproute2");
     expect(readScript("build-devbox-freestyle.ts")).toContain("iproute2");
@@ -268,16 +376,19 @@ describe("devbox image template", () => {
     // command byte for byte, so passing the shell expansion as the bind
     // reconstructs the script's exact line.
     expect(devboxBoot).toContain(
-      cmuxTuiDaemonCommand('"${CMUX_TUI_REMOTE_WS_BIND:-0.0.0.0:1337}"').replace("cd /root && ", ""),
+      cmuxTuiDaemonCommand('"${CMUX_TUI_REMOTE_WS_BIND:-0.0.0.0:1337}"'),
     );
     expect(cmuxTuiDaemonCommand()).toContain("--remote-ws 0.0.0.0:1337");
-    expect(devboxBoot).toContain("BIN=/root/.cmux/bin/cmux-tui");
+    // The supervisor reads the daemon layout the same way the command does, so
+    // the state it wipes on a clone is the state the daemon actually writes.
+    expect(devboxBoot).toContain(cmuxTuiLayoutSelector());
+    expect(devboxBoot).toContain('BIN="$CMUX_TUI_BIN"');
     expect(devboxBoot).toContain('if [ -x "$BIN" ]');
     expect(dockerfile).toContain("COPY cmux-devbox-boot /usr/local/bin/cmux-devbox-boot");
     // A Freestyle snapshot is a memory image: the supervisor keys the daemon
     // identity on the platform instance id, wiping cmux-remote's default root
     // state dir on a clone, and holds the daemon on the builder itself.
-    expect(devboxBoot).toContain("REMOTE_STATE_DIR=/root/.local/state/cmux/remote");
+    expect(devboxBoot).toContain('REMOTE_STATE_DIR="$CMUX_TUI_HOME/.local/state/cmux/remote"');
     expect(devboxBoot).toContain("/latest/meta-data/instance-id");
     expect(devboxBoot).toContain("BOUND_INSTANCE_FILE=/etc/cmux/daemon-instance-id");
     expect(devboxBoot).toContain("BAKE_INSTANCE_FILE=/etc/cmux/bake-instance-id");
@@ -366,6 +477,125 @@ describe("devbox image template", () => {
     // The Freestyle replay reads the pin through the helper, never a second copy.
     expect(readScript("build-devbox-freestyle.ts")).toContain("CUA_DRIVER_RS_VERSION=${cuaVersion}");
     expect(readScript("build-devbox-freestyle.ts")).toContain("devboxCuaDriverVersion()");
+  });
+
+  test("agent pins are bumped through the rewrite helper, exactly and only for baked packages", () => {
+    // `bun run devbox:pins:check --write` is the one sanctioned way to bump a
+    // pin: it rewrites the ARG line and nothing else, refuses ranges, tags and
+    // packages the image does not bake, and fails on a Dockerfile whose ARG
+    // table no longer matches.
+    const pins = devboxAgentPins(dockerfile);
+    const bumped = Object.fromEntries(pins.map((pin) => [pin.pkg, `${pin.version}9`]));
+    const rewritten = rewriteDevboxAgentPins(dockerfile, bumped);
+    expect(devboxAgentPins(rewritten).map((pin) => [pin.pkg, pin.version])).toEqual(Object.entries(bumped));
+    // Every other byte survives: revert the pins and the file is byte-identical.
+    expect(rewriteDevboxAgentPins(rewritten, Object.fromEntries(pins.map((pin) => [pin.pkg, pin.version])))).toBe(dockerfile);
+    expect(rewriteDevboxAgentPins(dockerfile, {})).toBe(dockerfile);
+    for (const bad of ["^2.1.0", "latest", "2.1", "2.1.0-beta.1"]) {
+      expect(() => rewriteDevboxAgentPins(dockerfile, { "@openai/codex": bad })).toThrow(/not an exact x\.y\.z release/);
+    }
+    expect(() => rewriteDevboxAgentPins(dockerfile, { "left-pad": "1.0.0" })).toThrow(/not a devbox agent pin/);
+    expect(() => rewriteDevboxAgentPins("FROM ubuntu:24.04\n", { "@openai/codex": "1.0.0" })).toThrow(/missing ARG CMUX_IMAGE_CODEX_VERSION/);
+    // The drift report keys by package and flags any pin that is not the registry's latest.
+    const latest = Object.fromEntries(pins.map((pin) => [pin.pkg, pin.version]));
+    expect(agentPinDrift(pins, latest).every((row) => !row.behind)).toBe(true);
+    const codex = pins.find((pin) => pin.pkg === "@openai/codex")!;
+    const drift = agentPinDrift(pins, { ...latest, "@openai/codex": `${codex.version}9` });
+    expect(drift.filter((row) => row.behind).map((row) => row.pkg)).toEqual(["@openai/codex"]);
+    expect(() => agentPinDrift(pins, {})).toThrow(/no registry version/);
+    expect(AGENT_PIN_ARGS.map((row) => row.binary)).toEqual(["claude", "codex", "opencode", "pi", "agent-browser"]);
+  });
+
+  test("the source digest covers what the Freestyle bake takes from this checkout, per layer set", () => {
+    const base = devboxSourceManifest("base", dockerfile);
+    const desktop = devboxSourceManifest("desktop", dockerfile);
+    // Pins, epoch and the verbatim files: a pin bump, an epoch bump, or a
+    // template edit each changes the digest; Dockerfile prose does not.
+    expect(DEVBOX_SOURCE_SCHEMA).toBe(2);
+    expect(base).toMatchObject({ schema: 2, layers: "base", agentPins: Object.fromEntries(devboxAgentPins(dockerfile).map((pin) => [pin.pkg, pin.version])) });
+    expect(typeof base.dockerfileInstructions).toBe("string");
+    expect(typeof base.bakeScript).toBe("string");
+    expect(Object.keys(base.files as Record<string, string>).sort()).toEqual([...DEVBOX_TEMPLATE_FILES].filter((name) => name !== "Dockerfile").sort());
+    expect(base).not.toHaveProperty("desktopFiles");
+    expect(desktop).toHaveProperty("desktopFiles");
+    expect(desktop).toHaveProperty("desktopPackages");
+    expect(devboxSourceDigest("base", dockerfile)).not.toBe(devboxSourceDigest("desktop", dockerfile));
+    expect(devboxSourceDigest("base", dockerfile)).toBe(devboxSourceDigest("base", `${dockerfile}\n# a comment changes no machine\n`));
+    const codex = devboxAgentPins(dockerfile).find((pin) => pin.pkg === "@openai/codex")!;
+    expect(devboxSourceDigest("base", rewriteDevboxAgentPins(dockerfile, { "@openai/codex": `${codex.version}9` }))).not.toBe(devboxSourceDigest("base", dockerfile));
+    expect(devboxSourceDigest("base", dockerfile.replace(/^ENV CMUX_IMAGE_EPOCH=.*$/m, "ENV CMUX_IMAGE_EPOCH=1999-01-01-r1"))).not.toBe(devboxSourceDigest("base", dockerfile));
+    // Schema 2 also sees a Dockerfile instruction change (a package added to a
+    // RUN, no ARG moved) and any non-blank line change in the bake script; a
+    // Dockerfile comment moves nothing. Schema 1, the formula the first
+    // promoted ladders were recorded with, ignores both.
+    const withStep = dockerfile.replace(/^    bubblewrap \\$/m, "    bubblewrap \\\n    cowsay \\");
+    expect(withStep).not.toBe(dockerfile);
+    expect(devboxSourceDigest("base", withStep)).not.toBe(devboxSourceDigest("base", dockerfile));
+    expect(devboxSourceDigest("base", withStep, 1)).toBe(devboxSourceDigest("base", dockerfile, 1));
+    expect(devboxSourceDigest("base", `${dockerfile}\n# a comment changes no machine\n`)).toBe(devboxSourceDigest("base", dockerfile));
+    const bake = readScript("build-devbox-freestyle.ts");
+    const withCode = () => `${bake}\nconsole.log("one more step");\n`;
+    // A `*`-prefixed code line (a continued multiplication, a generator
+    // method) is code, not a doc block: a change limited to it must move the
+    // digest, so no line heuristic drops it.
+    const withStar = () => bake.replace(/\nconst STEP_TIMEOUT_MS = 300_000;\n/, "\nconst STEP_TIMEOUT_MS = 300\n  * 1_000;\n");
+    const withStarChanged = () => bake.replace(/\nconst STEP_TIMEOUT_MS = 300_000;\n/, "\nconst STEP_TIMEOUT_MS = 300\n  * 2_000;\n");
+    expect(withStar()).not.toBe(bake);
+    expect(devboxSourceDigest("base", dockerfile, 2, withCode)).not.toBe(devboxSourceDigest("base", dockerfile, 2, () => bake));
+    expect(devboxSourceDigest("base", dockerfile, 2, withStarChanged)).not.toBe(devboxSourceDigest("base", dockerfile, 2, withStar));
+    // A comment edit to the bake script moves it too (stated trade-off: no lexer).
+    expect(devboxSourceDigest("base", dockerfile, 2, () => `${bake}\n// one more comment\n`)).not.toBe(devboxSourceDigest("base", dockerfile, 2, () => bake));
+    expect(devboxSourceDigest("base", dockerfile, 1, withCode)).toBe(devboxSourceDigest("base", dockerfile, 1, () => bake));
+    expect(() => devboxSourceDigest("base", dockerfile, 3)).toThrow(/unknown devbox source schema/);
+    // The normalizers themselves: Dockerfile comments gone by the grammar
+    // (a parser directive before the first instruction is kept, a `#` line
+    // inside a continued RUN is a comment), bake-script lines kept verbatim
+    // but for blank lines and trailing whitespace.
+    expect(normalizedDockerfileInstructions("# syntax=docker/dockerfile:1\n# c\n\nFROM ubuntu:24.04  \nRUN apt-get install \\\n  # inside a continuation\n  cowsay\nRUN echo hi # keep\n# escape=`\n")).toBe("# syntax=docker/dockerfile:1\nFROM ubuntu:24.04\nRUN apt-get install \\\n  cowsay\nRUN echo hi # keep");
+    expect(normalizedBakeScript("// c\n/**\n * doc\n */\nconst a = 1  \n\n  * 2;\n")).toBe("// c\n/**\n * doc\n */\nconst a = 1\n  * 2;");
+    // Both bake entry points record the digest for the layers they baked.
+    expect(readScript("build-devbox-freestyle.ts")).toContain('bakeMetadata(preflight, fileURLToPath(import.meta.url), withDesktop ? "desktop" : "base")');
+    expect(readScript("promote-devbox-image.ts")).toContain("devboxSourceDriftProblems({ ...next, images: added })");
+    expect(readScript("validate-devbox-ladder.ts")).toContain("devboxSourceDriftProblems(manifest)");
+    // A promotion records the rows it appended and can replay them onto a
+    // manifest that changed underneath it (two ladders in flight), through the
+    // same append + demotion rule, never by hand.
+    const promote = readScript("promote-devbox-image.ts");
+    expect(promote).toContain('argValue("--replay")');
+    expect(promote).toContain("appendImageManifestEntries(manifest, rows)");
+    expect(promote).toContain("entries: added,");
+  });
+
+  test("codex's Linux sandbox prerequisite is installed and the first agent launch is verified", () => {
+    // bubblewrap: without the distro bwrap, codex 0.151+ warns on every
+    // launch that it is falling back to its bundled copy (seen live on the
+    // termid ladder, 2026-09-09). Both recipes install it and prove it.
+    expect(dockerfile).toContain("    bubblewrap \\");
+    expect(dockerfile).toContain("bwrap --version");
+    const bake = readScript("build-devbox-freestyle.ts");
+    expect(bake).toContain("util-linux bubblewrap");
+    expect(bake).toContain("bwrap --version");
+    // The verifier launches the real claude (root) and codex (root and the
+    // work user) TUIs and requires the ready composer with no first-run gate text.
+    const verify = readScript("verify-devbox-image.ts");
+    expect(verify).toContain("bubblewrap-ok");
+    // The work user's claude launch is the verifier's own
+    // `claude-reaches-the-prompt`; these add root (the provider's exec API
+    // runs as root) and codex for both accounts.
+    for (const label of ["claude-root-launch", "codex-root-launch", "codex-work-user-launch"]) {
+      expect(verify).toContain(`"${label}"`);
+    }
+    expect(verify).toContain("claude-reaches-the-prompt");
+    expect(verify).toContain('const CLAUDE_LAUNCH_MARKER = "bypass permissions on"');
+    expect(verify).toContain('const CODEX_LAUNCH_MARKER = "Ask Codex to do anything"');
+    expect(verify).toContain("...AGENT_LAUNCH_CHECKS,");
+  });
+
+  test("agent PTY readiness handles output, gates, exit, timeout and cancellation", () => {
+    const result = spawnSync("python3", [path.join(import.meta.dirname, "devbox-agent-launch-test.py")], {
+      encoding: "utf8", timeout: 30_000,
+    });
+    expect({ status: result.status, output: result.stderr }).toEqual({ status: 0, output: expect.stringContaining("OK") });
   });
 
   test("one public-platform SDK serves the bake, the verifier, and the driver", () => {

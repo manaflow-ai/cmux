@@ -82,7 +82,7 @@ public final class JSONValueModel<Value: SettingCodable> {
         self.key = key
         self.errorLog = errorLog
         self.makeStream = makeStream
-        self.current = key.defaultValue
+        self.current = store.snapshotValue(for: key)
     }
 
     /// Starts the JSON change stream for the retained model.

@@ -8,6 +8,21 @@ import Testing
 @MainActor
 @Suite
 struct JSONValueModelPersistenceTests {
+    @Test func initializationSeedsCurrentFromPersistedValue() async throws {
+        let (store, fileURL) = makeStore()
+        defer { try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent()) }
+        let key = JSONKey<String>(id: "automation.socketPassword", defaultValue: "")
+        try await store.set("persisted", for: key)
+
+        let model = JSONValueModel(
+            store: store,
+            key: key,
+            errorLog: SettingsErrorLog()
+        )
+
+        #expect(model.current == "persisted")
+    }
+
     @Test func updateReturnsCompletionHandleAndPersistsValue() async {
         let (store, fileURL) = makeStore()
         defer { try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent()) }
