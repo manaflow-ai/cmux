@@ -131,6 +131,23 @@ describe("localized pricing page", () => {
     }
   });
 
+  test("shows the Founder's Edition recovery link once, after every card and before comparison", async () => {
+    const element = await PricingPage({ params: Promise.resolve({ locale: "en" }) });
+    const html = renderToStaticMarkup(element);
+    const recoveryIndex = html.indexOf('href="/billing/recover"');
+    expect(html.match(/href="\/billing\/recover"/g)).toHaveLength(1);
+    for (const plan of ["free", "pro", "team", "enterprise"] as const) {
+      const lastFeature = enMessages.pricing[plan].features.at(-1)!;
+      const featureIndex = html.indexOf(lastFeature);
+      expect(featureIndex).toBeGreaterThan(-1);
+      expect(recoveryIndex).toBeGreaterThan(featureIndex);
+    }
+    const comparisonIndex = html.indexOf("<table");
+    expect(comparisonIndex).toBeGreaterThan(-1);
+    expect(recoveryIndex).toBeLessThan(comparisonIndex);
+    expect(html).toContain("Already paid? Connect Founder&#x27;s Edition");
+  });
+
   beforeEach(() => {
     process.env.CMUX_VAULT_ENABLED = "0";
     stackConfigured = false;
@@ -158,16 +175,16 @@ describe("localized pricing page", () => {
     expect(html).not.toContain("/mo.");
     expect(html).toContain("$48/user/mo");
     expect(html).toContain(
-      "/api/billing/checkout?plan=team&amp;cmux_external_browser=1&amp;interval=year",
+      "/api/billing/checkout?plan=team&amp;cmux_external_browser=1&amp;cmux_source=pricing_page&amp;interval=year&amp;cmux_placement=pricing_page",
     );
     expect(html).toContain(
-      "/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;interval=year",
+      "/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;cmux_source=pricing_page&amp;interval=year&amp;cmux_placement=pricing_page",
     );
     expect(html).toMatch(
-      /href="\/api\/billing\/checkout\?plan=pro[^"]*interval=year"[^>]*class="[^"]*min-h-12 px-5 py-3 text-\[15px\][^"]*"[^>]*><span>Get Pro/,
+      /href="\/api\/billing\/checkout\?plan=pro[^"]*interval=year[^"]*"[^>]*class="[^"]*min-h-12 px-5 py-3 text-\[15px\][^"]*"[^>]*><span>Get Pro/,
     );
     expect(html).toMatch(
-      /href="\/api\/billing\/checkout\?plan=team[^"]*interval=year"[^>]*class="[^"]*min-h-12 px-5 py-3 text-\[15px\][^"]*"[^>]*><span>Get Teams/,
+      /href="\/api\/billing\/checkout\?plan=team[^"]*interval=year[^"]*"[^>]*class="[^"]*min-h-12 px-5 py-3 text-\[15px\][^"]*"[^>]*><span>Get Teams/,
     );
     expect(html).toContain('<p class="mt-5 text-sm font-medium">Includes:</p>');
     expect(html).not.toContain('style="min-height:4rem"');
@@ -232,15 +249,34 @@ describe("localized pricing page", () => {
     expect(html).not.toContain("$24");
     expect(html).not.toContain("$28");
     expect(html).toContain(
-      "/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;interval=year",
+      "/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;cmux_source=pricing_page&amp;interval=year&amp;cmux_placement=pricing_page",
     );
     expect(html).toContain(
-      "/api/billing/checkout?plan=team&amp;cmux_external_browser=1&amp;interval=year",
+      "/api/billing/checkout?plan=team&amp;cmux_external_browser=1&amp;cmux_source=pricing_page&amp;interval=year&amp;cmux_placement=pricing_page",
     );
     expect(html).toContain('role="radiogroup"');
     expect(html).toContain('<button type="button" role="radio" aria-checked="true"');
     expect(html).not.toContain('href="?interval=');
     expect(html).toContain("mx-auto mt-6 flex w-fit");
+  });
+
+  test("forwards an inbound source and campaign tags to checkout", async () => {
+    const element = await PricingPage({
+      params: Promise.resolve({ locale: "en" }),
+      searchParams: Promise.resolve({
+        interval: "month",
+        cmux_source: "cli_free_access_expiry",
+        cmux_client: "cli",
+        utm_source: "newsletter",
+        utm_campaign: "sept",
+      }),
+    });
+    const html = renderToStaticMarkup(element);
+
+    expect(html).toContain(
+      "/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;cmux_source=cli_free_access_expiry&amp;cmux_client=cli&amp;utm_source=newsletter&amp;utm_campaign=sept&amp;interval=month&amp;cmux_placement=pricing_page",
+    );
+    expect(html).not.toContain("cmux_source=pricing_page");
   });
 
   test("honors an explicit monthly billing interval", async () => {
@@ -253,15 +289,15 @@ describe("localized pricing page", () => {
     expect(html).toContain("$50");
     expect(html).toContain("$60");
     expect(html).toContain(
-      "Up to 50 Cloud VMs, each with its own resources; default size 8 GB RAM and 32 GB disk, with 4 to 64 GB RAM available",
+      "Up to 50 Cloud VMs, with 24 GB RAM and 6 vCPUs shared across all VMs",
     );
     expect(html).toContain("Unlimited workspaces");
     expect(html).not.toContain("Unlimited active Cloud VMs");
     expect(html).toContain(
-      "/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;interval=month",
+      "/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;cmux_source=pricing_page&amp;interval=month&amp;cmux_placement=pricing_page",
     );
     expect(html).toContain(
-      "/api/billing/checkout?plan=team&amp;cmux_external_browser=1&amp;interval=month",
+      "/api/billing/checkout?plan=team&amp;cmux_external_browser=1&amp;cmux_source=pricing_page&amp;interval=month&amp;cmux_placement=pricing_page",
     );
     expect(html).toContain(
       '<button type="button" role="radio" aria-checked="true" tabindex="0" class="bg-foreground px-3 py-1.5 font-medium text-background">Monthly</button>',

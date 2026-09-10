@@ -76,6 +76,9 @@ public struct AppSection: View {
     // Sticky: a picker change can rewrite the OS AppleLanguages override even when the selection returns to its starting value (clearing a preserved foreign override via an explicit pick, then System), so the restart hint must not rely on the value comparison alone.
     @State private var languageOverrideTouched = false
     @State private var telemetryAtAppear: Bool?
+    /// `DisableTelemetry` (MDM): the opt-in is moot while a profile forces
+    /// telemetry off, so the row says so and locks; re-read on change signals.
+    @State private var telemetryManagedByPolicy = ManagedDevicePolicy().isEnforced(.disableTelemetry)
 
     public init(
         defaultsStore: UserDefaultsSettingsStore,
@@ -160,6 +163,11 @@ public struct AppSection: View {
                 soundAgents = await hostActions.notificationSoundAgentOptions()
             }
             if languageAtAppear == nil { languageAtAppear = language.current }; if telemetryAtAppear == nil { telemetryAtAppear = telemetry.current }
+        }
+        .task {
+            for await _ in ManagedDevicePolicy.changeSignals() {
+                telemetryManagedByPolicy = ManagedDevicePolicy().isEnforced(.disableTelemetry)
+            }
         }
         .onChange(of: soundOverrides.current) { _, newValue in
             soundOverridesModel.accept(newValue)
@@ -804,13 +812,16 @@ public struct AppSection: View {
             SettingsCardRow(
                 configurationReview: .json("app.sendAnonymousTelemetry"),
                 String(localized: "settings.app.telemetry", defaultValue: "Send anonymous telemetry"),
-                subtitle: (telemetryAtAppear != nil && telemetry.current != telemetryAtAppear)
-                    ? String(localized: "settings.app.telemetry.subtitleChanged", defaultValue: "Change takes effect on next launch.")
-                    : String(localized: "settings.app.telemetry.subtitle", defaultValue: "Share anonymized crash and usage data to help improve cmux.")
+                subtitle: telemetryManagedByPolicy
+                    ? String(localized: "settings.managedByOrganization", defaultValue: "Managed by your organization")
+                    : (telemetryAtAppear != nil && telemetry.current != telemetryAtAppear)
+                        ? String(localized: "settings.app.telemetry.subtitleChanged", defaultValue: "Change takes effect on next launch.")
+                        : String(localized: "settings.app.telemetry.subtitle", defaultValue: "Share anonymized crash and usage data to help improve cmux.")
             ) {
-                Toggle("", isOn: Binding(get: { telemetry.current }, set: { telemetry.set($0) }))
+                Toggle("", isOn: Binding(get: { telemetry.current && !telemetryManagedByPolicy }, set: { telemetry.set($0) }))
                     .labelsHidden()
                     .controlSize(.small)
+                    .disabled(telemetryManagedByPolicy)
             }
             SettingsCardDivider()
 

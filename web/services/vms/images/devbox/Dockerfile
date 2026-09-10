@@ -32,14 +32,17 @@ FROM ubuntu:24.04
 # Cache-buster: bump the date to force remote builders past stale layer
 # caches (a remote builder served stale layers for chatmux on 2026-08-21 and
 # 2026-08-25). Also the image version /etc/cmux/image-stamp carries.
-ENV CMUX_IMAGE_EPOCH=2026-09-07-r1
+ENV CMUX_IMAGE_EPOCH=2026-09-10-r1
 
 ENV LANG=C.UTF-8 \
     DEBIAN_FRONTEND=noninteractive
 
 # Devtools (chatmux devbox apt list) plus vim, sudo for non-root provider
-# exec users, procps for the driver's daemon process discovery (pgrep), and
-# iproute2 for the desktop's port probes (ss).
+# exec users, procps for the driver's daemon process discovery (pgrep),
+# iproute2 for the desktop's port probes (ss), and bubblewrap: codex's Linux
+# sandbox prerequisite (developers.openai.com/codex/concepts/sandboxing), so
+# codex uses the distro's bwrap instead of warning on every launch that it is
+# falling back to its bundled copy.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     ripgrep \
@@ -67,10 +70,37 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     vim \
     sudo \
     util-linux \
+    bubblewrap \
   && rm -rf /var/lib/apt/lists/* \
   && ln -s "$(command -v fdfind)" /usr/local/bin/fd \
   && echo 'LANG=C.UTF-8' > /etc/default/locale \
-  && fd --version && jq --version && fzf --version && sqlite3 --version && tmux -V && ss -V
+  && fd --version && jq --version && fzf --version && sqlite3 --version && tmux -V && ss -V && bwrap --version
+
+# The work user: the base's uid-1000 account renamed to `cmux`
+# (web/services/vms/images/workUser.ts). ONE account owns the desktop session,
+# the terminals the cmux-tui daemon opens, the provider's default exec user
+# and anything an agent writes; it is not root, because coding agents refuse
+# root (`claude --dangerously-skip-permissions` exits before it starts), and
+# it holds passwordless sudo so root stays one word away. Renamed rather than
+# added: a provider whose exec default is "the account holding uid 1000" then
+# lands in the same home as cmux's terminals.
+# Ubuntu's user-private-group rule would give the account a 002 umask, so
+# every directory it creates is group-writable and cmux-tui refuses to store
+# its Noise identity under one. Kept byte-for-byte in step with
+# devboxWorkUserSetupCommand, which does the same on the VM bake.
+# (A container's hostname belongs to whoever runs it; the VM bake sets `cmux`.)
+RUN if ! id -u cmux >/dev/null 2>&1; then \
+      old="$(getent passwd 1000 | cut -d: -f1)" && test -n "$old" \
+      && usermod -l cmux -d /home/cmux -m "$old" && groupmod -n cmux "$old"; \
+    fi \
+  && for f in /etc/sudoers.d/*; do [ -f "$f" ] || continue; grep -q '^cmux[[:space:]]' "$f" || rm -f "$f"; done \
+  && echo "cmux ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/91-cmux-work-user && chmod 0440 /etc/sudoers.d/91-cmux-work-user \
+  && sed -i 's/^USERGROUPS_ENAB.*/USERGROUPS_ENAB no/' /etc/login.defs \
+  && find /home/cmux -type d -exec chmod g-w,o-w {} + \
+  && [ "$(id -u cmux)" = 1000 ] && [ "$(getent passwd cmux | cut -d: -f6)" = /home/cmux ] \
+  && [ "$(find /home/cmux -type d \( -perm -g+w -o -perm -o+w \) | wc -l)" = 0 ] \
+  && [ "$(sudo -n -u cmux sh -c umask)" = 0022 ] \
+  && sudo -n -u cmux sudo -n true
 
 # GitHub CLI from the official apt repo (not in the Ubuntu archive).
 RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /usr/share/keyrings/githubcli-archive-keyring.gpg \
@@ -194,12 +224,14 @@ RUN chmod 0755 /usr/local/bin/start-vnc.sh /usr/local/bin/cmux-desktop-boot \
 
 # Coding agents, pinned at bake time (bump with the image epoch; keep in
 # lockstep with the chatmux devbox). Installed on the mise node so they
-# ride the same toolchain users get.
-ARG CMUX_IMAGE_CLAUDE_CODE_VERSION=2.1.252
-ARG CMUX_IMAGE_CODEX_VERSION=0.151.0
-ARG CMUX_IMAGE_OPENCODE_VERSION=1.18.25
-ARG CMUX_IMAGE_PI_VERSION=0.84.4
-ARG CMUX_IMAGE_AGENT_BROWSER_VERSION=0.35.2
+# ride the same toolchain users get. `bun run devbox:pins:check` (web/)
+# compares these with the npm registry and `--write` rewrites them; a pin is
+# always an exact release, never a range or a tag.
+ARG CMUX_IMAGE_CLAUDE_CODE_VERSION=2.1.267
+ARG CMUX_IMAGE_CODEX_VERSION=0.154.0
+ARG CMUX_IMAGE_OPENCODE_VERSION=1.18.30
+ARG CMUX_IMAGE_PI_VERSION=0.85.1
+ARG CMUX_IMAGE_AGENT_BROWSER_VERSION=0.37.1
 RUN npm install -g --foreground-scripts \
     "@anthropic-ai/claude-code@${CMUX_IMAGE_CLAUDE_CODE_VERSION}" \
     "@openai/codex@${CMUX_IMAGE_CODEX_VERSION}" \
@@ -209,10 +241,17 @@ RUN npm install -g --foreground-scripts \
   && mise reshim \
   && claude --version && codex --version && opencode --version && pi --version && agent-browser --version
 
-# Keep Claude Code session transcripts effectively forever (chatmux parity).
+# Keep Claude Code session transcripts effectively forever (chatmux parity)
+# and pre-accept the --dangerously-skip-permissions confirmation: the VM is
+# the isolation boundary, so the seeded launch must reach the prompt.
 RUN mkdir -p /etc/claude-code \
-  && echo '{ "cleanupPeriodDays": 99999 }' > /etc/claude-code/managed-settings.json \
+  && echo '{ "cleanupPeriodDays": 99999, "skipDangerousModePermissionPrompt": true }' > /etc/claude-code/managed-settings.json \
   && node -e 'JSON.parse(require("fs").readFileSync("/etc/claude-code/managed-settings.json","utf8"))'
+
+# codex managed defaults: folder trust for the HOMEs (see codex-managed.toml).
+COPY codex-managed.toml /etc/codex/managed_config.toml
+RUN python3 -c 'import tomllib; d = tomllib.load(open("/etc/codex/managed_config.toml", "rb")); assert d["projects"]["/root"]["trust_level"] == "trusted"' \
+  && chmod 0644 /etc/codex/managed_config.toml
 
 # Identity (web/services/vms/images/identity.ts): a cmux Cloud machine is
 # `cmux`, never the provider's base name. The Freestyle bake owns that step
@@ -221,15 +260,6 @@ RUN mkdir -p /etc/claude-code \
 # /etc/hostname and /etc/hosts from the daemon and discards writes to them, and
 # the runtime names every container it starts. cmux-devbox-boot regenerates the
 # host keys on a clone for both recipes.
-#
-# The work user is the uid-1000 account (`ubuntu` on the Ubuntu base, as on
-# Freestyle): the desktop session runs as it, and it gets passwordless sudo
-# so a person shelling in through the provider's own surfaces can still
-# administer the machine and coding agents' root-refusing modes work
-# (cmux sessions run as root via the cmux-tui daemon).
-RUN work_user="$(getent passwd 1000 | cut -d: -f1)" && test -n "$work_user" \
-  && echo "$work_user ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/91-work-user-nopasswd && chmod 0440 /etc/sudoers.d/91-work-user-nopasswd \
-  && sudo -n -u "$work_user" sudo -n true
 
 # Interactive shell polish: bash IS the shell (chatmux parity); it
 # borrows the oh-my-zsh half-life theme colors and ble.sh supplies
@@ -306,7 +336,7 @@ RUN bash -n /etc/cmux/agent-config.sh \
   && echo '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' >> /etc/bash.bashrc \
   && echo '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' >> /etc/skel/.bashrc \
   && echo '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' >> /root/.bashrc \
-  && mkdir -p /tmp/agent-config-check \
+  && rm -rf /tmp/agent-config-check && mkdir -p /tmp/agent-config-check \
   && env HOME=/tmp/agent-config-check OPENAI_BASE_URL=https://example.invalid/v1 OPENAI_API_KEY=cmux-vm-edge-placeholder CMUX_CODEROUTER_URL=https://example.invalid ANTHROPIC_BASE_URL=https://example.invalid ANTHROPIC_API_KEY=cmux-vm-edge-placeholder CMUX_VM_ID=vm-check bash -lc 'true' \
   && grep -q 'model_provider = "cmux"' /tmp/agent-config-check/.codex/config.toml \
   && grep -q 'base_url = "https://example.invalid/v1"' /tmp/agent-config-check/.codex/config.toml \
@@ -323,6 +353,9 @@ RUN bash -n /etc/cmux/agent-config.sh \
   && ! grep -q 'x-coderouter-route-token' /tmp/agent-config-check/.pi/agent/models.json \
   && ! grep -q 'crt_' /tmp/agent-config-check/.pi/agent/models.json \
   && test ! -e /tmp/agent-config-check/.config/opencode/opencode.json \
+  && node -e 'const j = JSON.parse(require("fs").readFileSync("/tmp/agent-config-check/.claude.json","utf8")); if (!(j.hasCompletedOnboarding === true && j.bypassPermissionsModeAccepted === true && j.projects["/"].hasTrustDialogAccepted === true && Array.isArray(j.customApiKeyResponses.approved) && j.customApiKeyResponses.approved.includes("-vm-edge-placeholder"))) process.exit(1)' \
+  && [ "$(stat -c %a /tmp/agent-config-check/.claude.json)" = "600" ] \
+  && [ "$(bash -lc 'echo $CLAUDE_CODE_SANDBOXED:$IS_SANDBOX:$DISABLE_AUTOUPDATER')" = "1:1:1" ] \
   && rm -rf /tmp/agent-config-check \
   && mkdir -p /tmp/agent-config-resurrect/.config/cmux \
   && echo "export OPENAI_BASE_URL='https://resurrect.invalid/v1'" > /tmp/agent-config-resurrect/.config/cmux/model-plane.env \
@@ -330,6 +363,8 @@ RUN bash -n /etc/cmux/agent-config.sh \
   && env HOME=/tmp/agent-config-resurrect bash -lc 'grep -q "https://resurrect.invalid/v1" "$HOME/.codex/config.toml"' \
   && rm -rf /tmp/agent-config-resurrect \
   && bash -lc 'true' \
+  && rm -f /root/.claude.json \
+  && test ! -e /root/.claude.json \
   && test ! -e /root/.codex/config.toml \
   && test ! -e /root/.pi/agent/models.json \
   && test ! -e /root/.config/opencode/opencode.json \
@@ -339,8 +374,14 @@ RUN bash -n /etc/cmux/agent-config.sh \
 # by the driver at create time, never baked). Without systemd it also runs the
 # desktop supervisor as the work user.
 COPY cmux-devbox-boot /usr/local/bin/cmux-devbox-boot
+# The Ghostty generation panes announce as TERM_PROGRAM_VERSION next to
+# TERM_PROGRAM=ghostty (the supervisor reads it; base images without the .deb
+# still record the pin). The Freestyle bake writes the same file.
 RUN chmod 0755 /usr/local/bin/cmux-devbox-boot \
-  && sh -n /usr/local/bin/cmux-devbox-boot
+  && sh -n /usr/local/bin/cmux-devbox-boot \
+  && mkdir -p /etc/cmux \
+  && echo "$CMUX_IMAGE_GHOSTTY_DEB_URL" | sed -n 's|.*/ghostty_\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)[-_].*|\1|p' > /etc/cmux/ghostty-version \
+  && grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' /etc/cmux/ghostty-version
 
 # Desktop self-check, the way a container boots it: the supervisor starts the
 # session as the work user, both contract ports answer, noVNC serves its
@@ -389,3 +430,10 @@ RUN chmod 0755 /etc/update-motd.d/00-cmux \
 # layers the image carries (verify-devbox-image.ts keys the desktop checks on
 # the word "desktop").
 RUN echo "cmux-devbox ${CMUX_IMAGE_EPOCH} desktop" > /etc/cmux/image-stamp && cat /etc/cmux/image-stamp
+
+# The login-shell probes above seeded ~/.claude.json before any model-plane
+# env existed. Ship no seed: each machine's first shell writes its own, with
+# the placeholder key approval derived from the env (Freestyle bake parity).
+RUN work_home="$(getent passwd 1000 | cut -d: -f6)" \
+  && rm -f /root/.claude.json "$work_home/.claude.json" \
+  && test ! -e /root/.claude.json && test ! -e "$work_home/.claude.json"

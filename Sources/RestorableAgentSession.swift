@@ -28,7 +28,9 @@ enum TerminalStartupShellQuoting {
         let octalBytes = value.utf8
             .map { String(format: #"\%03o"#, Int($0)) }
             .joined()
-        return #""$(printf '"# + octalBytes + #"')""#
+        // Keep the command substitution inside one double-quoted shell word;
+        // otherwise spaces in localized notices are field-split by the shell.
+        return "\"$(printf '" + octalBytes + "')\""
     }
 }
 
@@ -981,10 +983,16 @@ struct RestorableAgentSessionIndex: Sendable {
     }
 
     private let entriesByPanel: [PanelKey: Entry]
+    let liveSessionOwners: LiveAgentSessionOwnerIndex
     /// Whether every present hook-store file was read and decoded successfully.
     /// Missing files are complete (the agent kind may not be installed); a
     /// present but unreadable/invalid file is incomplete and unsafe for auto-resume.
     let isComplete: Bool
+    /// Agent kinds whose present hook-store file was unreadable or invalid.
+    /// Owners are recorded per kind and process-detected owners come from no
+    /// store, so a corrupt store for one kind cannot hide a live owner of
+    /// another kind; kind-scoped completeness consults this set (#12158).
+    private let incompleteHookStoreKinds: Set<RestorableAgentKind>
     /// Panel owners whose Codex hook records were outside the bounded
     /// verification pass or had inconclusive durable evidence.
     private let incompleteCodexPanelKeys: Set<PanelKey>
@@ -1042,7 +1050,7 @@ struct RestorableAgentSessionIndex: Sendable {
         panelId: UUID,
         kind: String? = nil
     ) -> Bool {
-        guard isComplete else { return false }
+        guard hookStoreIsComplete(forKind: kind) else { return false }
         guard kind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "codex"
                 || kind == nil else {
             return true
@@ -1060,7 +1068,7 @@ struct RestorableAgentSessionIndex: Sendable {
     /// the pre-restart workspace UUID, so this form intentionally ignores the
     /// workspace component.
     func isComplete(forPanelId panelId: UUID, kind: String? = nil) -> Bool {
-        guard isComplete else { return false }
+        guard hookStoreIsComplete(forKind: kind) else { return false }
         guard kind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "codex"
                 || kind == nil else {
             return true
@@ -1069,6 +1077,22 @@ struct RestorableAgentSessionIndex: Sendable {
             return false
         }
         return !hasUnboundedCodexIncompleteness || verifiedCodexPanelIds.contains(panelId)
+    }
+
+    /// Whether the hook store that owns `kind` was read and decoded.
+    ///
+    /// Callers without a kind, and fixtures that mark the whole index
+    /// incomplete without naming a store, keep the global answer. Stores are
+    /// matched by kind id: registry-owned kinds (pi, grok, antigravity, kimi,
+    /// ollama) load as `.custom(id)` while their raw value parses to the
+    /// native case, and both name the same store file.
+    private func hookStoreIsComplete(forKind kind: String?) -> Bool {
+        if isComplete { return true }
+        guard !incompleteHookStoreKinds.isEmpty,
+              let kindID = kind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(), !kindID.isEmpty else {
+            return false
+        }
+        return !incompleteHookStoreKinds.contains { $0.rawValue.lowercased() == kindID }
     }
 
     /// Fingerprint used by the shared index cache to publish scoped completion
@@ -1080,6 +1104,9 @@ struct RestorableAgentSessionIndex: Sendable {
         if !isComplete {
             values.append("global")
         }
+        values.append(contentsOf: incompleteHookStoreKinds.map {
+            "incomplete-store|" + $0.rawValue
+        })
         if hasUnboundedCodexIncompleteness {
             values.append("codex-omitted")
         }
@@ -1511,7 +1538,12 @@ struct RestorableAgentSessionIndex: Sendable {
 
         return RestorableAgentSessionIndex(
             entriesByPanel: revalidatedEntries,
+            liveSessionOwners: self.liveSessionOwners.revalidated(
+                processArgumentsProvider: processArgumentsProvider,
+                processIdentityProvider: processIdentityProvider
+            ),
             isComplete: self.isComplete,
+            incompleteHookStoreKinds: self.incompleteHookStoreKinds,
             incompleteCodexPanelKeys: self.incompleteCodexPanelKeys,
             verifiedCodexPanelKeys: self.verifiedCodexPanelKeys,
             hasUnboundedCodexIncompleteness: self.hasUnboundedCodexIncompleteness
@@ -1586,21 +1618,21 @@ struct RestorableAgentSessionIndex: Sendable {
         detectedSnapshots: [PanelKey: ProcessDetectedSnapshotEntry],
         hibernationProcessScopes: [PanelKey: HibernationProcessScope] = [:],
         environment: [String: String] = ProcessInfo.processInfo.environment,
-        processArgumentsProvider: (Int) -> CmuxTopProcessArguments? = {
+        processArgumentsProvider: @escaping (Int) -> CmuxTopProcessArguments? = {
             CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
         },
-        processPresenceProvider: (Int) -> PIDPresence = {
+        processPresenceProvider: @escaping (Int) -> PIDPresence = {
             guard $0 > 0, $0 <= Int(Int32.max) else { return .absent }
             return PIDPresence.current(pid: pid_t($0))
         },
-        processIdentityProvider: (Int) -> AgentPIDProcessIdentity? = {
+        processIdentityProvider: @escaping (Int) -> AgentPIDProcessIdentity? = {
             guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
             return AgentPIDProcessIdentity(pid: pid_t($0))
         }
     ) -> RestorableAgentSessionIndex {
         let decoder = JSONDecoder()
         var resolved: [PanelKey: Entry] = [:]
-        var isComplete = true
+        var incompleteHookStoreKinds = Set<RestorableAgentKind>()
         let claudeTranscriptLookup = ClaudeTranscriptLookupCache(
             homeDirectory: homeDirectory,
             fileManager: fileManager
@@ -1619,6 +1651,7 @@ struct RestorableAgentSessionIndex: Sendable {
         var hookCandidatesBySession: [SessionKey: Entry] = [:]
         var hookCandidatesByPanelAndKind: [PanelKindKey: Entry] = [:]
         var hookCandidatesByPanelIdAndKind: [PanelIDKindKey: PanelIDKindCandidate] = [:]
+        var liveSessionOwnerObservations: [LiveAgentSessionOwnerObservation] = []
 
         var codexVerificationByKey: [String: CodexSessionResumeVerification] = [:]
         var codexRequestsByHome: [String: [CodexSessionResumeVerificationRequest]] = [:]
@@ -1887,7 +1920,7 @@ struct RestorableAgentSessionIndex: Sendable {
                 }
                 guard let data = try? Data(contentsOf: fileURL),
                       let state = try? decoder.decode(RestorableAgentHookSessionStoreFile.self, from: data) else {
-                    isComplete = false
+                    incompleteHookStoreKinds.insert(kind)
                     continue
                 }
                 if kind == .hermesAgent {
@@ -1918,7 +1951,7 @@ struct RestorableAgentSessionIndex: Sendable {
                 guard !normalizedSessionId.isEmpty,
                       let workspaceId = UUID(uuidString: effectiveRecord.workspaceId),
                       let panelId = UUID(uuidString: effectiveRecord.surfaceId) else {
-                    isComplete = false
+                    incompleteHookStoreKinds.insert(kind)
                     continue
                 }
                 let panelKey = PanelKey(workspaceId: workspaceId, panelId: panelId)
@@ -1995,7 +2028,36 @@ struct RestorableAgentSessionIndex: Sendable {
                         startMicroseconds: startMicroseconds
                     )
                 }()
-                let currentProcessIdentity = effectiveRecord.pid.flatMap(processIdentityProvider)
+                // Capture one coherent process snapshot for this hook record.
+                // Both owner admission and panel-scoped liveness must reason
+                // about the same PID generation and argv, rather than racing
+                // two sysctl reads against an exec or PID reuse.
+                let recordedProcessID = effectiveRecord.pid
+                let currentProcessArguments = recordedProcessID.flatMap(processArgumentsProvider)
+                let currentProcessIdentity = recordedProcessID.flatMap(processIdentityProvider)
+                let processArgumentsForRecord: (Int) -> CmuxTopProcessArguments? = { candidatePID in
+                    guard candidatePID == recordedProcessID else {
+                        return processArgumentsProvider(candidatePID)
+                    }
+                    return currentProcessArguments
+                }
+                let processIdentityForRecord: (Int) -> AgentPIDProcessIdentity? = { candidatePID in
+                    guard candidatePID == recordedProcessID else {
+                        return processIdentityProvider(candidatePID)
+                    }
+                    return currentProcessIdentity
+                }
+                if let liveOwner = LiveAgentSessionOwnerObservation.validatingHookRecord(
+                    snapshot: snapshot,
+                    record: effectiveRecord,
+                    workspaceID: workspaceId,
+                    surfaceID: panelId,
+                    processArgumentsProvider: processArgumentsForRecord,
+                    processIdentityProvider: processIdentityForRecord,
+                    validator: cachedAgentProcessValidator
+                ) {
+                    liveSessionOwnerObservations.append(liveOwner)
+                }
                 let processObservation = RestorableAgentProcessObservation(
                     recordedProcessID: effectiveRecord.pid
                 ) { pid in
@@ -2006,7 +2068,7 @@ struct RestorableAgentSessionIndex: Sendable {
                         processID: pid,
                         recordedProcessIdentity: recordedProcessIdentity,
                         currentProcessIdentity: currentProcessIdentity,
-                        processArgumentsProvider: processArgumentsProvider,
+                        processArgumentsProvider: processArgumentsForRecord,
                         processPresenceProvider: processPresenceProvider,
                         validator: cachedAgentProcessValidator,
                         hermesSessionValidation: .currentHookRecord
@@ -2133,6 +2195,20 @@ struct RestorableAgentSessionIndex: Sendable {
         }
 
         for (key, detected) in detectedSnapshots {
+            if case .explicit = detected.sessionIDSource {
+                liveSessionOwnerObservations.append(contentsOf:
+                    LiveAgentSessionOwnerObservation.processDetected(
+                        snapshot: detected.snapshot,
+                        workspaceID: key.workspaceId,
+                        surfaceID: key.panelId,
+                        processIDs: detected.agentProcessIDs,
+                        observedAt: detected.updatedAt,
+                        processArgumentsProvider: processArgumentsProvider,
+                        processIdentityProvider: processIdentityProvider,
+                        validator: cachedAgentProcessValidator
+                    )
+                )
+            }
             let sameKindPanelCandidate = hookCandidatesByPanelAndKind[
                 PanelKindKey(panelKey: key, kind: detected.snapshot.kind)
             ]
@@ -2203,7 +2279,11 @@ struct RestorableAgentSessionIndex: Sendable {
 
         return RestorableAgentSessionIndex(
             entriesByPanel: resolved,
-            isComplete: isComplete,
+            liveSessionOwners: LiveAgentSessionOwnerIndex(
+                observations: liveSessionOwnerObservations
+            ),
+            isComplete: incompleteHookStoreKinds.isEmpty,
+            incompleteHookStoreKinds: incompleteHookStoreKinds,
             incompleteCodexPanelKeys: incompleteCodexPanelKeys,
             verifiedCodexPanelKeys: verifiedCodexPanelKeys,
             hasUnboundedCodexIncompleteness: hasUnboundedCodexIncompleteness
@@ -3415,13 +3495,17 @@ struct RestorableAgentSessionIndex: Sendable {
 
     private init(
         entriesByPanel: [PanelKey: Entry],
+        liveSessionOwners: LiveAgentSessionOwnerIndex = .empty,
         isComplete: Bool = true,
+        incompleteHookStoreKinds: Set<RestorableAgentKind> = [],
         incompleteCodexPanelKeys: Set<PanelKey> = [],
         verifiedCodexPanelKeys: Set<PanelKey> = [],
         hasUnboundedCodexIncompleteness: Bool = false
     ) {
         self.entriesByPanel = entriesByPanel
+        self.liveSessionOwners = liveSessionOwners
         self.isComplete = isComplete
+        self.incompleteHookStoreKinds = incompleteHookStoreKinds
         self.incompleteCodexPanelKeys = incompleteCodexPanelKeys
         self.incompleteCodexPanelIds = Set(incompleteCodexPanelKeys.map(\.panelId))
         self.verifiedCodexPanelKeys = verifiedCodexPanelKeys
@@ -3500,6 +3584,11 @@ struct DeferredAgentResumeRestore: Sendable {
     let remoteResumeCommandEmbedded: Bool
     let workingDirectory: String?
     let resumeWorkingDirectory: String?
+
+    /// The shell dialect used for notices typed into this deferred restore.
+    var noticeDialect: TerminalStartupShellDialect {
+        restoresRemoteWorkspaceTerminalSnapshot ? .remoteHost : .loginShell
+    }
 
     init(
         stablePanelID: UUID,

@@ -65,7 +65,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             unlink(socketPath)
         }
 
-        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+        let serverHandler: @Sendable (String) -> String = { [self] line in
             guard let payload = self.jsonObject(line),
                   let id = payload["id"] as? String,
                   let method = payload["method"] as? String else {
@@ -80,6 +80,25 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 ok: false,
                 error: ["code": "unexpected", "message": "Unexpected method \(method)"]
             )
+        }
+        // A test that expects the CLI to stay off the socket must not hold a
+        // case-bound expectation it never waits on: the detached accept loop
+        // records any unexpected request without turning cleanup into a test
+        // failure.
+        let serverHandled: XCTestExpectation?
+        if waitForSocket {
+            serverHandled = startMockServer(
+                listenerFD: listenerFD,
+                state: state,
+                handler: serverHandler
+            )
+        } else {
+            startDetachedMockServer(
+                listenerFD: listenerFD,
+                state: state,
+                handler: serverHandler
+            )
+            serverHandled = nil
         }
 
         var environment = ProcessInfo.processInfo.environment
@@ -98,7 +117,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             standardInput: standardInput,
             timeout: 5
         )
-        if waitForSocket {
+        if let serverHandled {
             wait(for: [serverHandled], timeout: 5)
         }
         return (result, state)
@@ -438,8 +457,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
     }
 
     func testCoderouterUnknownVerbStillPassesThroughToTheInstalledCLI() throws {
-        // With an empty PATH the passthrough cannot find `coderouter`/`cr`; the
-        // point is that the socket is never consulted for a non-cmux verb.
+        // With an empty PATH and an empty HOME (the passthrough also looks in
+        // the installer's ~/.coderouter/bin) there is no `coderouter`/`cr` to
+        // run; the point is that the socket is never consulted for a non-cmux
+        // verb.
         let emptyPath = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-empty-path-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: emptyPath, withIntermediateDirectories: true)
@@ -448,7 +469,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let (result, state) = try runCoderouterCLI(
             ["coderouter", "accounts"],
             socketName: "coderouter-passthrough",
-            extraEnvironment: ["PATH": emptyPath.path],
+            extraEnvironment: [
+                "PATH": emptyPath.path,
+                "HOME": emptyPath.path,
+                "CFFIXED_USER_HOME": emptyPath.path,
+            ],
             waitForSocket: false
         ) { _, _ in nil }
 

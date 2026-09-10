@@ -1411,7 +1411,7 @@ private struct MacComputerCompatibilitySection: View {
     }
 
     private var warningMessage: String {
-        guard let required = entry.minimumSupportedVersion else { return "" }
+        guard let required = entry.requiredVersionDisplay else { return "" }
         let requirement = "cmux \(required) or later"
         return String(format: L10n.string(
             "mobile.macUpdate.requiredOnMacFormat",

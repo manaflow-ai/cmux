@@ -27,13 +27,15 @@ struct MainWindowPresentationFrameTests {
             visibleFrame: CGRect(x: -2_560, y: -200, width: 2_560, height: 1_415)
         ) : Self.display
 
-        #expect(core.repairedFrame(
-            for: frame,
-            displays: [currentDisplay],
-            minimumWidth: 300,
-            minimumHeight: 200,
-            mode: .nativeFullscreen
-        ) == nil)
+        for mode in [MainWindowFrameFitMode.nativeFullscreen, .nativeFullscreenTopologyChange] {
+            #expect(core.repairedFrame(
+                for: frame,
+                displays: [currentDisplay],
+                minimumWidth: 300,
+                minimumHeight: 200,
+                mode: mode
+            ) == nil)
+        }
     }
 
     @Test func exclusiveFullscreenRemainsSystemOwnedDuringReconnect() {
@@ -44,6 +46,43 @@ struct MainWindowPresentationFrameTests {
             minimumHeight: 200,
             mode: .nativeFullscreen
         ) == nil)
+    }
+
+    @Test(arguments: [MainWindowFrameFitMode.nativeFullscreen, .nativeFullscreenTopologyChange])
+    func staleFullWidthFullscreenOnlyRepairsForTopologyChange(mode: MainWindowFrameFitMode) {
+        let external = SessionDisplayGeometry(
+            displayID: 77,
+            stableID: "external",
+            frame: CGRect(x: 1_512, y: -112, width: 2_560, height: 1_440),
+            visibleFrame: CGRect(x: 1_512, y: -112, width: 2_560, height: 1_416)
+        )
+        let stale = CGRect(x: 1_512, y: -497, width: 2_560, height: 1_403)
+        let expected: CGRect? = switch mode {
+        case .nativeFullscreenTopologyChange:
+            external.visibleFrame
+        default:
+            nil
+        }
+
+        #expect(core.repairedFrame(
+            for: stale,
+            displays: [Self.display, external],
+            minimumWidth: 300,
+            minimumHeight: 200,
+            mode: mode
+        ) == expected)
+    }
+
+    @Test func topologyChangePreservesStableFullscreenFrame() {
+        for frame in [Self.display.frame, Self.display.visibleFrame] {
+            #expect(core.repairedFrame(
+                for: frame,
+                displays: [Self.display],
+                minimumWidth: 300,
+                minimumHeight: 200,
+                mode: .nativeFullscreenTopologyChange
+            ) == nil)
+        }
     }
 
     @Test func zoomedWindowStillRecoversVisibleFrame() {
