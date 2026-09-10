@@ -35,6 +35,7 @@ import { migrate } from "drizzle-orm/durable-sqlite/migrator";
 import { LocalIrohBroker } from "./iroh/localBroker";
 import { sha256 } from "./iroh/model";
 import type { IrohBindingRequestProof } from "./iroh/crypto";
+import { irohExpectedError } from "./iroh/errors";
 import { emitAxiomEvent, traceId, type AxiomEnv } from "./axiom";
 
 export interface ControlPlaneEnv extends SentryEnv, AxiomEnv {
@@ -278,7 +279,8 @@ export class AccountControlPlane extends DurableObject<ControlPlaneEnv> {
                       : await this.localIroh.issueRelayToken(accountId, body, Date.now(), namespace, proof ?? undefined);
       return json(result, operation === "discover" || operation === "revoke" || operation === "relay_preferences" || operation === "connectivity_sync" ? 200 : 201);
     } catch (error) {
-      const code = error && typeof error === "object" && "code" in error ? String((error as { code: unknown }).code) : "iroh_internal_error";
+      const expected = irohExpectedError(error);
+      const code = expected?.code ?? (error && typeof error === "object" && "code" in error ? String((error as { code: unknown }).code) : "iroh_internal_error");
       this.ctx.waitUntil(emitAxiomEvent(this.env, {
         event: "iroh_operation",
         do_class: "AccountControlPlane",
