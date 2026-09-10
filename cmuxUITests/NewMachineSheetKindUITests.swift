@@ -48,8 +48,13 @@ final class NewMachineSheetKindUITests: XCTestCase {
         // A segment's selection shows as its accessibility value (1 = on);
         // the summary under the picker is the user-visible witness of the
         // selection, so it is what the assertions rest on.
-        let desktop = app.radioButtons["Desktop"]
-        let base = app.radioButtons["Base"]
+        // Scope every query to the sheet: the main window behind it holds a
+        // terminal whose accessibility tree is large, and whole-app text
+        // predicates against it time out.
+        let sheet = app.sheets.firstMatch
+        let scope: XCUIElement = sheet.waitForExistence(timeout: 8.0) ? sheet : app
+        let desktop = scope.radioButtons["Desktop"]
+        let base = scope.radioButtons["Base"]
         if !desktop.waitForExistence(timeout: 8.0) {
             print("NewMachineSheetKindUITests hierarchy:\n\(app.debugDescription.prefix(6000))")
         }
@@ -57,10 +62,10 @@ final class NewMachineSheetKindUITests: XCTestCase {
         XCTAssertTrue(base.exists, "Expected the Base segment of the Kind picker")
         attachScreenshot(of: app, named: "new-machine-sheet-opened")
         print("NewMachineSheetKindUITests segments: desktop=\(String(describing: desktop.value)) selected=\(desktop.isSelected) base=\(String(describing: base.value)) selected=\(base.isSelected)")
-        let desktopSummary = app.staticTexts.matching(
+        let desktopSummary = scope.staticTexts.matching(
             NSPredicate(format: "label CONTAINS[c] %@", "screen you can watch")
         ).firstMatch
-        let baseSummary = app.staticTexts.matching(
+        let baseSummary = scope.staticTexts.matching(
             NSPredicate(format: "label CONTAINS[c] %@", "terminal only")
         ).firstMatch
         XCTAssertTrue(
@@ -84,9 +89,9 @@ final class NewMachineSheetKindUITests: XCTestCase {
         }
         attachScreenshot(of: app, named: "new-machine-sheet-base-explicit")
 
-        let cancel = app.buttons["NewMachineSheet.cancel"].exists
-            ? app.buttons["NewMachineSheet.cancel"]
-            : app.buttons["Cancel"]
+        let cancel = scope.buttons["NewMachineSheet.cancel"].exists
+            ? scope.buttons["NewMachineSheet.cancel"]
+            : scope.buttons["Cancel"]
         XCTAssertTrue(cancel.waitForExistence(timeout: 3.0), "Expected the sheet's Cancel button")
         cancel.click()
         XCTAssertTrue(pollUntil(timeout: 5.0) { !desktop.exists }, "Cancel should close the sheet")
