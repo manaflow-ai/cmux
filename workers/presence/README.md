@@ -209,6 +209,25 @@ The account control plane uses one SQLite-backed Durable Object per account. The
 database is private to that object. It is not a replacement for global Cloud VM
 billing or usage storage.
 
+## Drizzle and the no-Vercel invariant
+
+AccountControlPlane uses `drizzle-orm/durable-sqlite` with the generated files in
+`drizzle/`. The constructor runs `migrate()` inside
+`blockConcurrencyWhile`, so no request can observe a partial schema. Drizzle's
+DO session uses the runtime's synchronous storage transaction API; it must not
+emit SQL `BEGIN`, `COMMIT`, or `ROLLBACK` statements.
+
+The final iOS connection path has a hard no-Vercel invariant. The Durable
+Object must not use `CMUX_WEB_BASE_URL`, Hyperdrive, or a Vercel repository
+proxy. Iroh and relay operations must execute against the account object's
+SQLite repository. A stateless relay credential minter may be called only from
+the approved non-Vercel service. CI must fail if the Worker bundle imports
+`web/services/iroh`, `web/services/relay`, `cloudDb`, or Hyperdrive.
+
+When adding a migration, update the Drizzle schema, run `bun run db:generate`,
+inspect the SQL for Cloudflare-supported SQLite syntax, run `bun run db:check`,
+then run the real workerd E2E migration suite. Never edit an applied migration.
+
 ## Schema changes
 
 1. Add a new entry to `ACCOUNT_SQLITE_MIGRATIONS` in
