@@ -79,6 +79,8 @@ public struct SudoExecutionRunner {
 
     /// Executes one approved request and persists exactly one terminal result.
     ///
+    /// A caller outside the enclosing app is rejected without accessing the spool.
+    ///
     /// - Parameter requestID: The approved request identifier supplied by the app.
     /// - Returns: Zero after a terminal result is persisted, or a runner setup error code.
     public func run(requestID: String) -> Int32 {
@@ -90,21 +92,20 @@ public struct SudoExecutionRunner {
     /// When ``expectedManifestData`` is provided, it must decode to the exact manifest currently
     /// stored for ``requestID``. The runner rejects malformed, stale, or raced manifests before
     /// claiming execution, preserving the cross-process capability binding.
+    /// Parent authorization precedes all spool access, including failure settlement.
     ///
     /// - Parameters:
     ///   - requestID: The approved request identifier supplied by the app.
     ///   - expectedManifestData: An ISO 8601 JSON encoding of the expected execution manifest.
     /// - Returns: Zero after a terminal result is persisted, or a runner setup error code.
     public func run(requestID: String, expectedManifestData: Data?) -> Int32 {
+        // Only the app-launched runner may mutate requests. The broker monitors
+        // its own child and settles an early exit if this authorization fails.
+        guard parentValidator.validate(expectedExecutableURL: expectedParentExecutableURL) else {
+            return 126
+        }
         do {
             try store.ensureDirectories()
-            guard parentValidator.validate(expectedExecutableURL: expectedParentExecutableURL) else {
-                try settleRunnerLaunchFailureIfApproved(
-                    requestID: requestID,
-                    auditStatus: "failed runner-parent-validation"
-                )
-                return 126
-            }
             let startedAt = now()
             guard let runnerIdentity = inspector.identity(for: getpid()) else {
                 try settleRunnerLaunchFailureIfApproved(
