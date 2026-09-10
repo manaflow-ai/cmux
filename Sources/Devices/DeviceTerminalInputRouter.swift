@@ -23,11 +23,12 @@ final class DeviceTerminalInputRouter: @unchecked Sendable {
         }
     }
 
-    // @unchecked Sendable: `pending` and `draining` are only touched under
+    // @unchecked Sendable: mutable input and task state are only touched under
     // `queue`; callers cross the boundary with immutable Data values.
     private let queue = DispatchQueue(label: "dev.cmux.devices.terminal-input", qos: .userInitiated)
     private var pending = Data()
     private var draining = false
+    private var drainTask: Task<Void, Never>?
     private var invalidated = false
     private let pendingByteLimit = 256 * 1024
     private let send: @Sendable (Data) async throws -> Void
@@ -54,7 +55,7 @@ final class DeviceTerminalInputRouter: @unchecked Sendable {
             pending.append(data)
             guard !draining else { return }
             draining = true
-            Task { await self.drain() }
+            drainTask = Task { await self.drain() }
         }
     }
 
@@ -62,6 +63,8 @@ final class DeviceTerminalInputRouter: @unchecked Sendable {
         queue.async { [self] in
             invalidated = true
             pending.removeAll()
+            drainTask?.cancel()
+            drainTask = nil
         }
     }
 
@@ -69,6 +72,7 @@ final class DeviceTerminalInputRouter: @unchecked Sendable {
         queue.sync {
             guard !invalidated, !pending.isEmpty else {
                 draining = false
+                drainTask = nil
                 return nil
             }
             let batch = pending
@@ -80,12 +84,14 @@ final class DeviceTerminalInputRouter: @unchecked Sendable {
     private func drain() async {
         while let batch = takePending() {
             do {
+                try Task.checkCancellation()
                 try await send(batch)
             } catch {
-                onFailure(error)
+                if !Task.isCancelled { onFailure(error) }
                 queue.sync {
                     pending.removeAll()
                     draining = false
+                    drainTask = nil
                 }
                 return
             }

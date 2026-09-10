@@ -1,6 +1,57 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "devices.registry.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not refresh your Macs. Check your connection and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac の一覧を更新できませんでした。接続を確認して再試行してください。"
+          }
+        }
+      }
+    },
+    "devices.link.error.connectionFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not connect to this Mac. Check that it is online and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac に接続できませんでした。オンラインであることを確認して再試行してください。"
+          }
+        }
+      }
+    },
+    "devices.link.error.hostRejected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The other Mac could not complete this action. Check its connection and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "相手の Mac でこの操作を完了できませんでした。接続を確認して再試行してください。"
+          }
+        }
+      }
+    },
     "devices.open.noWorkspace": {
       "extractionState": "manual",
       "localizations": {
@@ -415,13 +466,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The paired-computer store could not be opened. Check available disk space and restart cmux."
+            "value": "Your paired Macs could not be loaded. Check available disk space and restart cmux."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ペアリング済みコンピュータのデータを開けませんでした。ディスクの空き容量を確認し、cmux を再起動してください。"
+            "value": "ペアリング済みの Mac を読み込めませんでした。ディスクの空き容量を確認して cmux を再起動してください。"
           }
         }
       }
@@ -534,13 +585,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Use the other Mac’s Tailscale pairing code. Iroh, MagicDNS names, and local network addresses are not supported here."
+            "value": "Use the other Mac’s pairing code with a numeric Tailscale IP address and port."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ほかのMacのTailscaleペアリングコードを使用してください。ここではIroh、MagicDNS名、ローカルネットワークアドレスはサポートされていません。"
+            "value": "相手の Mac の、数値の Tailscale IP アドレスとポートを含むペアリングコードを使用してください。"
           }
         }
       }
@@ -1095,13 +1146,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The Mac sent an unexpected reply for %@."
+            "value": "The Mac sent an unexpected reply. Update cmux on both Macs and try again."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac から %@ に対して予期しない応答が返されました。"
+            "value": "Mac から予期しない応答がありました。両方の Mac の cmux を更新して再試行してください。"
           }
         }
       }

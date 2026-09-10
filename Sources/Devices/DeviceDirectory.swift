@@ -4,7 +4,7 @@ import Foundation
 import Observation
 import OSLog
 
-private let deviceDirectoryLog = Logger(subsystem: "dev.cmux", category: "device-directory")
+nonisolated private let deviceDirectoryLog = Logger(subsystem: "dev.cmux", category: "device-directory")
 
 /// The account's other Macs, merged from the pairing store (local-first), the
 /// durable device registry, and the live presence stream, excluding this exact
@@ -152,13 +152,16 @@ final class DeviceDirectory {
             guard let self else { return }
             do {
                 let devices = try await self.registryClient.list()
+                guard !Task.isCancelled else { return }
                 self.registryDevices = devices
                 self.registryError = nil
             } catch DeviceRegistryDirectoryClient.ListError.notSignedIn {
+                guard !Task.isCancelled else { return }
                 self.registryError = nil
             } catch {
-                self.registryError = String(describing: error)
-                deviceDirectoryLog.error("device registry list failed: \(String(describing: error), privacy: .public)")
+                guard !Task.isCancelled else { return }
+                self.registryError = String(localized: "devices.registry.failed", defaultValue: "Could not refresh your Macs. Check your connection and try again.")
+                deviceDirectoryLog.error("device registry list failed: \(String(describing: error), privacy: .private)")
             }
             self.hasLoadedRegistry = true
             self.isRefreshingRegistry = false
@@ -200,7 +203,7 @@ final class DeviceDirectory {
                 return
             } catch {
                 failures += 1
-                deviceDirectoryLog.error("presence subscribe failed: \(String(describing: error), privacy: .public)")
+                deviceDirectoryLog.error("presence subscribe failed: \(String(describing: error), privacy: .private)")
             }
             guard !Task.isCancelled else { return }
             let delay = Self.reconnectDelays[min(max(failures - 1, 0), Self.reconnectDelays.count - 1)]

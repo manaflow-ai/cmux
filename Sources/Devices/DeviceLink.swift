@@ -3,7 +3,7 @@ import CmuxMobileRPC
 import Foundation
 import OSLog
 
-private let deviceLinkLog = Logger(subsystem: "dev.cmux", category: "device-link")
+nonisolated private let deviceLinkLog = Logger(subsystem: "dev.cmux", category: "device-link")
 
 /// Errors a device link raises to its provider and mirror sessions.
 enum DeviceLinkError: Error, LocalizedError, Equatable {
@@ -22,10 +22,10 @@ enum DeviceLinkError: Error, LocalizedError, Equatable {
             return String(localized: "devices.link.error.notConnected", defaultValue: "This Mac is not connected right now.")
         case .blocked(let reason):
             return reason
-        case .hostRejected(_, let message):
-            return message
-        case .malformedResponse(let what):
-            return String(format: String(localized: "devices.link.error.malformed", defaultValue: "The Mac sent an unexpected reply for %@."), what)
+        case .hostRejected:
+            return String(localized: "devices.link.error.hostRejected", defaultValue: "The other Mac could not complete this action. Check its connection and try again.")
+        case .malformedResponse:
+            return String(localized: "devices.link.error.malformed", defaultValue: "The Mac sent an unexpected reply. Update cmux on both Macs and try again.")
         case .identityUnproven:
             return String(localized: "devices.link.error.identityUnproven", defaultValue: "This Mac did not confirm it is signed into your account.")
         case .identityMismatch:
@@ -125,8 +125,8 @@ final class DeviceLink {
 
     /// A session or mutation saw the transport fail; reconnect from a fresh dial.
     func reportTransportLost(_ error: any Error) {
-        deviceLinkLog.error("device link lost \(self.instance.wireValue, privacy: .public): \(String(describing: error), privacy: .public)")
-        lastFailure = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+        deviceLinkLog.error("device link lost \(self.instance.wireValue, privacy: .private(mask: .hash)): \(String(describing: error), privacy: .private)")
+        lastFailure = Self.classify(error).reason
         transition(applyPolicy(.transportLost))
         onChange?()
     }
@@ -166,14 +166,17 @@ final class DeviceLink {
     /// ``DeviceLinkError/hostRejected``; a closed transport reconnects the link.
     func request(_ method: String, params: [String: Any] = [:], timeoutNanoseconds: UInt64? = nil) async throws -> [String: Any] {
         guard let client, phase == .connected else { throw DeviceLinkError.notConnected }
+        let requestGeneration = generation
         let requestData = try MobileCoreRPCClient.requestData(method: method, params: params)
         do {
             let data = try await client.sendRequest(requestData, timeoutNanoseconds: timeoutNanoseconds)
+            guard !Task.isCancelled, requestGeneration == generation else { throw CancellationError() }
             guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                 throw DeviceLinkError.malformedResponse(method)
             }
             return object
         } catch let error as MobileShellConnectionError {
+            guard !Task.isCancelled, requestGeneration == generation else { throw CancellationError() }
             switch error {
             case .rpcError(let code, let message):
                 throw DeviceLinkError.hostRejected(code: code, message: message)
@@ -192,7 +195,7 @@ final class DeviceLink {
         guard next != phase else { return }
         let previous = phase
         phase = next
-        deviceLinkLog.info("device link \(self.instance.wireValue, privacy: .public): \(String(describing: previous), privacy: .public) -> \(String(describing: next), privacy: .public)")
+        deviceLinkLog.info("device link \(self.instance.wireValue, privacy: .private(mask: .hash)): \(String(describing: previous), privacy: .private) -> \(String(describing: next), privacy: .private)")
         switch next {
         case .connecting(let attempt):
             tearDownClient(notify: previous == .connected)
@@ -247,6 +250,7 @@ final class DeviceLink {
                 self.transition(self.applyPolicy(.connectSucceeded))
                 self.startEventConsumer(events, generation: generation)
                 await self.performFetch(generation: generation)
+                guard !Task.isCancelled, generation == self.generation, self.phase == .connected else { return }
                 self.terminalEvents.broadcast(.linkReconnected)
                 self.onChange?()
             } catch is CancellationError {
@@ -255,7 +259,7 @@ final class DeviceLink {
                 guard !Task.isCancelled, generation == self.generation else { return }
                 let classified = Self.classify(error)
                 self.lastFailure = classified.reason
-                deviceLinkLog.error("device link connect failed \(self.instance.wireValue, privacy: .public) attempt=\(attempt): \(classified.reason, privacy: .public)")
+                deviceLinkLog.error("device link connect failed \(self.instance.wireValue, privacy: .private(mask: .hash)) attempt=\(attempt): \(classified.reason, privacy: .private)")
                 self.transition(self.applyPolicy(.connectFailed(retryable: classified.retryable, reason: classified.reason)))
                 self.onChange?()
             }
@@ -345,15 +349,15 @@ final class DeviceLink {
         }
         if let error = error as? MobileShellConnectionError {
             switch error {
-            case .accountMismatch(let message), .authorizationFailed(let message):
-                return (false, message)
+            case .accountMismatch, .authorizationFailed:
+                return (false, DeviceLinkError.identityUnproven.localizedDescription)
             case .insecureManualRoute:
-                return (false, error.localizedDescription)
+                return (false, String(localized: "devices.link.error.needsAuthorization", defaultValue: "Pair this Mac in Settings \u{203A} Computers to connect."))
             default:
-                return (true, error.localizedDescription)
+                break
             }
         }
-        return (true, (error as? LocalizedError)?.errorDescription ?? String(describing: error))
+        return (true, String(localized: "devices.link.error.connectionFailed", defaultValue: "Could not connect to this Mac. Check that it is online and try again."))
     }
 
     // MARK: - Sync and events
@@ -370,6 +374,7 @@ final class DeviceLink {
         let generation = self.generation
         fetchTask = Task { [weak self] in
             await self?.performFetch(generation: generation)
+            guard self?.generation == generation else { return }
             self?.fetchTask = nil
         }
     }
@@ -393,7 +398,7 @@ final class DeviceLink {
             onChange?()
         } catch {
             guard generation == self.generation else { return }
-            deviceLinkLog.error("device sync fetch failed \(self.instance.wireValue, privacy: .public): \(String(describing: error), privacy: .public)")
+            deviceLinkLog.error("device sync fetch failed \(self.instance.wireValue, privacy: .private(mask: .hash)): \(String(describing: error), privacy: .private)")
         }
     }
 

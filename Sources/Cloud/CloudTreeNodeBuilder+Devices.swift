@@ -28,8 +28,12 @@ extension CloudTreeNodeBuilder {
         grouped: Bool
     ) -> [CloudTreeNode] {
         let infos = orderedDeviceInfos(snapshot.machines)
+        let resourcesByMachine = Dictionary(grouping: snapshot.resources, by: \.machine)
         let rows = infos.map { info in
-            deviceNode(info: info, snapshot: snapshot, projectionIndex: projectionIndex)
+            deviceNode(
+                info: info, resources: resourcesByMachine[info.id] ?? [],
+                snapshot: snapshot, projectionIndex: projectionIndex
+            )
         }
         guard grouped else { return rows }
         return [CloudTreeNode(
@@ -49,13 +53,13 @@ extension CloudTreeNodeBuilder {
 
     static func deviceNode(
         info: SurfaceMachineInfo,
+        resources: [SurfaceResource],
         snapshot: SurfaceCatalogSnapshot,
         projectionIndex: LocalProjectionIndex
     ) -> CloudTreeNode {
         guard let instance = info.id.deviceInstance else {
             preconditionFailure("deviceNode requires a device machine, got \(info.id)")
         }
-        let resources = snapshot.resources(on: info.id)
         let row = CloudTreeDeviceRow(
             instance: instance,
             name: info.name,
@@ -69,7 +73,8 @@ extension CloudTreeNodeBuilder {
             machine: info.id,
             info: info,
             snapshot: snapshot,
-            projectionIndex: projectionIndex
+            projectionIndex: projectionIndex,
+            machineResources: resources
         )
         return CloudTreeNode(
             id: nodeID(machine: info.id),

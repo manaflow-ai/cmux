@@ -819,14 +819,15 @@ enum CloudTreeNodeBuilder {
         machine: SurfaceMachineID,
         info: SurfaceMachineInfo?,
         snapshot: SurfaceCatalogSnapshot,
-        projectionIndex: LocalProjectionIndex
+        projectionIndex: LocalProjectionIndex,
+        machineResources: [SurfaceResource]? = nil
     ) -> [CloudTreeNode] {
         // The catalog has not registered this machine yet: nothing to expand.
         guard let info else {
             return [placeholder(machine, text: String(localized: "cloudTree.placeholder.connecting", defaultValue: "Connecting…"), style: .connecting)]
         }
         var children: [CloudTreeNode] = []
-        let resources = snapshot.resources(on: machine)
+        let resources = machineResources ?? snapshot.resources(on: machine)
         let terminals = resources.filter { $0.kind == .terminal }
         let displays = CloudMachineSurfacePresentation.displays(resources: resources, info: info)
 

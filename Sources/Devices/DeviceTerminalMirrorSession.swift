@@ -3,7 +3,7 @@ import CmuxTerminal
 import Foundation
 import OSLog
 
-private let deviceMirrorLog = Logger(subsystem: "dev.cmux", category: "device-terminal-mirror")
+nonisolated private let deviceMirrorLog = Logger(subsystem: "dev.cmux", category: "device-terminal-mirror")
 
 /// Owns one local projection of a terminal running on another Mac.
 ///
@@ -59,7 +59,7 @@ final class DeviceTerminalMirrorSession {
                 _ = try await link.request("mobile.terminal.input", params: input)
             },
             onFailure: { error in
-                deviceMirrorLog.error("device terminal input failed: \(String(describing: error), privacy: .public)")
+                deviceMirrorLog.error("device terminal input failed: \(String(describing: error), privacy: .private)")
             }
         )
     }
@@ -199,7 +199,7 @@ final class DeviceTerminalMirrorSession {
         } catch DeviceLinkError.notConnected {
             phase = .detached
         } catch {
-            deviceMirrorLog.error("device terminal replay failed: \(String(describing: error), privacy: .public)")
+            deviceMirrorLog.error("device terminal replay failed: \(String(describing: error), privacy: .private)")
             phase = .detached
         }
     }
@@ -308,7 +308,7 @@ final class DeviceTerminalMirrorSession {
                 pin(columns: columns, rows: rows)
             }
         } catch {
-            deviceMirrorLog.error("device viewport report failed: \(String(describing: error), privacy: .public)")
+            deviceMirrorLog.error("device viewport report failed: \(String(describing: error), privacy: .private)")
         }
     }
 

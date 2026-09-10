@@ -181,17 +181,21 @@ final class HiveComputersService {
 
     private func snapshot() -> ComputersSettingsSnapshot {
         let directory = DeviceSurfaceProviderRegistry.shared.directory
+        let paired = pairedComputers
+        let pairedInstances = Set(paired.map {
+            SurfaceDeviceInstanceID(deviceID: $0.deviceID, tag: $0.instanceTag)
+        })
         var computers = (directory?.records ?? []).map { record in
             ComputersSettingsSnapshot.Computer(
                 id: record.instance.wireValue, title: record.deviceName,
                 tag: record.instance.isDefaultTag ? nil : record.instance.tag,
-                isPaired: isPaired(record.instance),
+                isPaired: pairedInstances.contains(record.instance),
                 isOnline: DeviceSurfaceProviderRegistry.shared.provider(for: record.instance)?.link.isConnected == true
                     ? true : (directory?.presenceState == .live ? record.isOnline : nil)
             )
         }
         let existing = Set(computers.map(\.id))
-        for paired in pairedComputers {
+        for paired in paired {
             let instance = SurfaceDeviceInstanceID(deviceID: paired.deviceID, tag: paired.instanceTag)
             guard !existing.contains(instance.wireValue) else { continue }
             computers.append(.init(
@@ -235,7 +239,7 @@ final class HiveComputersService {
         case .accountMismatch:
             signInMessage
         case .tailscaleRequired:
-            String(localized: "settings.computers.tailscaleRequired", defaultValue: "Use the other Mac’s Tailscale pairing code. Iroh, MagicDNS names, and local network addresses are not supported here.")
+            String(localized: "settings.computers.tailscaleRequired", defaultValue: "Use the other Mac’s pairing code with a numeric Tailscale IP address and port.")
         case .thisMac:
             String(localized: "settings.computers.selfPairing", defaultValue: "This code belongs to this Mac. Enter the other Mac’s pairing code.")
         case .missingIdentity, .identityMismatch:
@@ -245,7 +249,7 @@ final class HiveComputersService {
         case .stopped:
             signInMessage
         case .storageFailed:
-            String(localized: "settings.computers.storageFailed", defaultValue: "The paired-computer store could not be opened. Check available disk space and restart cmux.")
+            String(localized: "settings.computers.storageFailed", defaultValue: "Your paired Macs could not be loaded. Check available disk space and restart cmux.")
         case nil:
             String(localized: "settings.computers.operationFailed", defaultValue: "The computer operation failed. Check that both Macs are signed in and connected to Tailscale, then try again.")
         }
