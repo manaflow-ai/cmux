@@ -16,6 +16,7 @@ final class CloudPlacementTestProvider: SurfaceProvider, SurfacePlacementSyncing
     var events: [String] = []
     var beforeMutation: (() async throws -> Void)?
     var refreshCount = 0
+    var moveCursor: CloudVMCursor?
 
     init(machine: SurfaceMachineID) {
         self.machine = machine
@@ -35,7 +36,7 @@ final class CloudPlacementTestProvider: SurfaceProvider, SurfacePlacementSyncing
         try await beforeMutation?()
         moved.append((id, remoteWorkspaceID))
         events.append("move-end:" + remoteWorkspaceID)
-        return SurfaceRemotePlacement(workspaceID: remoteWorkspaceID, tabID: id)
+        return SurfaceRemotePlacement(workspaceID: remoteWorkspaceID, tabID: id, cursor: moveCursor)
     }
     func projectTerminal(_ id: SurfaceResourceID, intoRemoteWorkspace remoteWorkspaceID: String) async throws -> SurfaceRemotePlacement {
         try await beforeMutation?()

@@ -292,4 +292,39 @@ struct CloudPlacementCoordinatorTests {
         #expect(await CmuxTuiSnapshotParser.placedTab(from: data, at: target, terminalID: "wrong") == nil)
         #expect(await CmuxTuiSnapshotParser.placedTab(from: data, at: target, tabID: "wrong") == nil)
     }
+
+    @Test func staleSnapshotsCannotUndoAMoveButNewRemoteEditsAreReconciled() async throws {
+        let viewer = UUID(), bound = UUID(), panel = UUID()
+        let (catalog, provider) = Self.harness(bound: bound)
+        let term = Self.terminal("term_1", views: [SurfaceRemoteView(tabID: "tab_1", workspace: Self.main)])
+        catalog.replaceResources([term], on: Self.machine)
+        catalog.record(SurfaceProjection(resource: term.id, workspaceID: viewer, panelID: panel, remoteWorkspaceID: "ws_main", remoteTabID: "tab_1"))
+        provider.moveCursor = CloudVMCursor(generation: "g", revision: 13)
+        catalog.moveProjections(panelID: panel, to: bound)
+        await catalog.cloudPlacementCoordinator.waitForPendingMutations()
+
+        func state(revision: String) throws -> CloudVMState {
+            try #require(CmuxTuiSnapshotParser.state(fromSnapshot: [
+                "cursor": ["generation": "g", "revision": revision],
+                "workspaces": [["id": "ws_main"], ["id": "ws_api"]],
+                "screens": [["id": "screen", "workspace_id": "ws_main"]],
+                "panes": [["id": "pane", "screen_id": "screen"]],
+                "tabs": [["id": "tab_1", "pane_id": "pane", "content_kind": "terminal", "content_id": "term_1"]],
+                "terminals": [["id": "term_1", "tab_ids": ["tab_1"]]],
+                "browsers": [], "agents": []
+            ], machine: Self.machine))
+        }
+        catalog.reconcileCloudRemoteState(machine: Self.machine, state: try state(revision: "12"))
+        #expect(catalog.projection(forPanel: panel)?.remoteWorkspaceID == "ws_api")
+        catalog.reconcileCloudRemoteState(machine: Self.machine, state: try state(revision: "14"))
+        #expect(catalog.projection(forPanel: panel)?.remoteWorkspaceID == "ws_main")
+        #expect(catalog.projection(forPanel: panel)?.workspaceID == bound)
+    }
+
+    @Test func malformedCloseSnapshotsAreDistinctFromAnAlreadyMissingTab() async throws {
+        #expect(await CmuxTuiSnapshotParser.tabPlacement(from: Data("{}".utf8), tabID: "tab_1") == nil)
+        let empty = Data(#"{"cursor":{"generation":"g","revision":"4"},"workspaces":[],"screens":[],"panes":[],"tabs":[],"terminals":[],"browsers":[],"agents":[]}"#.utf8)
+        let missing = try #require(await CmuxTuiSnapshotParser.tabPlacement(from: empty, tabID: "tab_1"))
+        #expect(missing.workspaceID == nil && missing.revision == "4")
+    }
 }

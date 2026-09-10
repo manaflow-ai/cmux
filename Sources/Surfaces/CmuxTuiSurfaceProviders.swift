@@ -1043,9 +1043,10 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
 
     /// The resource CLI exposes optimistic-concurrency failures as either the
     /// structured code or its human-readable text, depending on client version.
-    static func isRevisionConflict(_ error: Error) -> Bool {
+    nonisolated static func isRevisionConflict(_ error: Error) -> Bool {
         let text = CloudMachineLink.errorText(error).lowercased()
         return text.contains("revision conflict") || text.contains("revision.conflict")
+            || text.contains("revision_conflict") || text.contains("stale revision")
     }
 
     func materialize(_ resource: SurfaceResource, at destination: SurfaceDestination, focus: Bool) async throws -> SurfaceProjection {

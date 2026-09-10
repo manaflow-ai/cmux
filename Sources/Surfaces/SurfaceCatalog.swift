@@ -179,7 +179,7 @@ final class SurfaceCatalog {
         maximumTrackedMaterializations: Int = SurfaceCatalog.defaultMaximumTrackedMaterializations,
         materializationClock: any Clock<Duration> = ContinuousClock(),
         cloudWorkspaceRenameService: CloudWorkspaceRenameService = CloudWorkspaceRenameService(),
-        cloudPlacementCoordinator: CloudPlacementCoordinator = CloudPlacementCoordinator()
+        cloudPlacementCoordinator: CloudPlacementCoordinator? = nil
     ) {
         precondition(abandonedMaterializationTimeout > .zero)
         precondition(retiredMaterializationRetention > .zero)
@@ -191,7 +191,7 @@ final class SurfaceCatalog {
         self.maximumTrackedMaterializations = maximumTrackedMaterializations
         self.materializationClock = materializationClock
         self.cloudWorkspaceRenameService = cloudWorkspaceRenameService
-        self.cloudPlacementCoordinator = cloudPlacementCoordinator
+        self.cloudPlacementCoordinator = cloudPlacementCoordinator ?? CloudPlacementCoordinator()
     }
 
     /// Installs the app-owned cloud rename service once the composition root can provide

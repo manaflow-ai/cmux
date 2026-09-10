@@ -224,13 +224,6 @@ extension CmuxTuiSurfaceProvider {
         }
     }
 
-    nonisolated private static func isRevisionConflict(_ error: Error) -> Bool {
-        let text = CloudMachineLink.errorText(error).lowercased()
-        return text.contains("revision conflict")
-            || text.contains("revision_conflict")
-            || text.contains("stale revision")
-    }
-
     /// Refreshes attachment identities and repairs a backing placement that
     /// disappeared while a local pane stayed alive. A numeric surface id is
     /// never reused after a failed resolution; the session is first fenced,
