@@ -8827,7 +8827,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     mode: .base(workspaceID: workspace.id),
                     plan: MachineSnapshotBuilder.planSnapshot(activeCount: page?.vms.count ?? 0, limits: page?.limits),
                     memoryOptionsMb: page?.limits?.memoryOptionsMb ?? [],
-                    imageKinds: page?.limits?.imageKinds ?? [],
                     submit: { [weak self] request in
                         guard let self else { return false }
                         return MachineCreateCoordinator.shared.start(request, cancellableLaunch: { [weak self] arguments, progress, completion in

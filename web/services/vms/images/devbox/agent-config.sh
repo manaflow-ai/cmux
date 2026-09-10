@@ -117,7 +117,8 @@ cmux_write_agent_configs() {
   # skipDangerousModePermissionPrompt, rides
   # /etc/claude-code/managed-settings.json (written at image build).
   # A fourth gate is the custom-API-key consent ("Detected a custom API key
-  # in your environment ... use this API key?", seen live on 2.1.252): claude
+  # in your environment ... use this API key?", seen live on 2.1.252 and
+  # still gated the same way on 2.1.267): claude
   # records answers under customApiKeyResponses as the key's LAST 20
   # characters, so the placeholder key from the env is pre-approved the same
   # way. Derived from the env so a placeholder change cannot desync it.
@@ -195,7 +196,8 @@ export IS_SANDBOX=1
 # on the first interactive launch (2.1.252 -> latest within 20 s, verified
 # live on the trust3 bake), reinstalling the package under nvm. That defeats
 # the image pin and leaves `claude` briefly unresolvable while npm relinks
-# the bin. The binary is image-baked; new versions ship by rebake.
+# the bin. The binary is image-baked; new versions ship by rebake
+# (`bun run devbox:pins:check --write` in web/, then promote).
 export DISABLE_AUTOUPDATER=1
 
 # codex folder-trust gate: codex has no sandbox env short-circuit and its
