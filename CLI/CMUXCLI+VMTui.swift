@@ -42,9 +42,8 @@ extension CMUXCLI {
         /// bound as base so the sidebar cloud button reuses it.
         var pinAsBase: Bool = false
         /// `vm tui` only: the pane execs the full cmux-tui client (its own workspaces and
-        /// panes). Every other open lands a plain terminal on the machine — the app
-        /// creates one in the machine's session and attaches just that terminal, like an
-        /// ssh session — so nothing here needs a local client.
+        /// panes). Every other open reattaches a plain terminal in the machine's
+        /// active workspace, creating one only for an authoritative empty graph.
         var fullClient: Bool = false
         /// Whether the open may take over what the person is looking at: select the
         /// workspace and put keyboard focus in the new pane. `false` (`--focus false`,
@@ -455,17 +454,27 @@ extension CMUXCLI {
         var terminalId: String?
         var remoteWorkspaceId: String?
         if !options.fullClient {
-            // The pane is a plain terminal on the machine: the app creates one in the
-            // machine's cmux-tui session over its headless link and attaches just that
-            // terminal (`attach --terminal`) beside the placeholder, which is then closed.
-            // Same path the Cloud tree uses, so the terminal shows up there as open.
+            // Open the machine's existing terminal. Explicit New Terminal actions
+            // create sessions; opening or reconnecting the machine does not.
             let terminalStartedAt = Date()
             do {
-                let opened = try client.sendV2(
-                    method: "surface.new_terminal",
-                    params: ["machine": vmId, "open": true, "workspace_id": workspaceId, "focus": paneFocus, "name": "shell"],
-                    responseTimeout: 180
-                )
+                let catalog = try client.sendV2(method: "surface.catalog", params: ["machine": vmId, "refresh": true], responseTimeout: 180)
+                let opened: [String: Any]
+                switch VMRemoteWorkspaceResolver().resolveVMMachineTerminal(machine: vmId, catalog: catalog) {
+                case .resolved(let remoteWorkspaceID, let terminalID, let tabID):
+                    var params: [String: Any] = ["resource": "\(vmId)/terminal/\(terminalID)", "workspace_id": workspaceId, "remote_workspace_id": remoteWorkspaceID, "focus": paneFocus, "reuse": false]
+                    if let tabID { params["remote_tab_id"] = tabID }
+                    var projected = try client.sendV2(method: "surface.project", params: params, responseTimeout: 180)
+                    projected["terminal_id"] = terminalID
+                    projected["remote_workspace_id"] = remoteWorkspaceID
+                    opened = projected
+                case .empty(let remoteWorkspaceID):
+                    var params: [String: Any] = ["machine": vmId, "open": true, "workspace_id": workspaceId, "focus": paneFocus]
+                    if let remoteWorkspaceID { params["remote_workspace_id"] = remoteWorkspaceID }
+                    opened = try client.sendV2(method: "surface.new_terminal", params: params, responseTimeout: 180)
+                case .unavailable:
+                    throw CLIError(message: String(localized: "cli.vm.open.sessionsUnavailable", defaultValue: "The machine’s sessions are unavailable. Refresh and retry."))
+                }
                 terminalId = opened["terminal_id"] as? String
                 remoteWorkspaceId = opened["remote_workspace_id"] as? String
                 let newSurface = (opened["surface_id"] as? String).flatMap { $0.isEmpty ? nil : $0 }
@@ -1417,21 +1426,10 @@ extension CMUXCLI {
             let workspaceId = workspace.id
             let name = workspace.name.isEmpty ? workspaceId : workspace.name
             lines.append("    \(name)  \(workspaceId)\(workspace.focused ? "  *" : "")  (cmux vm open \(id)/\(workspaceId))")
-            // Rows follow the layout, as in the sidebar: one per pane (the tab it shows),
-            // the pane's other tabs indented beneath it.
-            for row in vmTreeLayoutRows(workspace.placements) {
-                var cell = "      " + vmTreeWorkspaceCell(row.placement, machineID: id, workspaceID: workspaceId)
-                if !row.hiddenTabs.isEmpty {
-                    cell += "  " + String(
-                        format: String(localized: "cli.vm.tree.hiddenTabs", defaultValue: "(+%d hidden)"),
-                        row.hiddenTabs.count
-                    )
-                }
-                lines.append(cell)
-                for hidden in row.hiddenTabs {
-                    lines.append("        " + String(localized: "cli.vm.tree.hiddenTab", defaultValue: "↳ tab") + "  "
-                        + vmTreeWorkspaceCell(hidden, machineID: id, workspaceID: workspaceId))
-                }
+            // Rows follow the layout, as in the sidebar, with every tab as a
+            // sibling leaf. Pane grouping is retained only for ordering.
+            for placement in vmTreeLayoutRows(workspace.placements) {
+                lines.append("      " + vmTreeWorkspaceCell(placement, machineID: id, workspaceID: workspaceId))
             }
         }
         // Ports come before displays, matching the Cloud sidebar's group order.
@@ -1459,10 +1457,12 @@ extension CMUXCLI {
             }
         }
 
-        // VNC Displays are catalog resources, so emit one addressable row per
+        // Displays are catalog resources, so emit one addressable row per
         // screen instead of collapsing several screens into one synthetic desktop.
-        if !displays.isEmpty {
-            lines.append("  " + String(localized: "cli.vm.tree.displays", defaultValue: "VNC Displays/"))
+        lines.append("  " + String(localized: "cli.vm.tree.displays", defaultValue: "Displays/"))
+        if displays.isEmpty {
+            lines.append("    " + String(localized: "cli.vm.tree.noDisplays", defaultValue: "(none available)"))
+        } else {
             for display in displays {
                 lines.append("    " + vmTreeResourceCell(display, openHint: "cmux surface open", showFullKey: true))
             }
@@ -1528,16 +1528,9 @@ extension CMUXCLI {
         let view: [String: Any]?
     }
 
-    /// One row of a workspace listing: the placement it shows and, for a pane holding
-    /// several tabs, the tabs behind the shown one.
-    struct VMTreeLayoutRow {
-        let placement: VMTreePlacement
-        let hiddenTabs: [VMTreePlacement]
-    }
-
     /// Maps wire placements through the same ``RemoteWorkspaceLayout`` used by the sidebar.
     /// Formatting stays in the CLI; pane grouping, ordering, and active-tab selection do not.
-    static func vmTreeLayoutRows(_ placements: [VMTreePlacement]) -> [VMTreeLayoutRow] {
+    static func vmTreeLayoutRows(_ placements: [VMTreePlacement]) -> [VMTreePlacement] {
         func position(_ view: [String: Any]?, _ key: String) -> Int? {
             vmTreeNumber(view?[key]).flatMap { Int(exactly: $0) }
         }
@@ -1553,12 +1546,7 @@ extension CMUXCLI {
                 kindOrder: kindRank[placement.resource["kind"] as? String ?? ""] ?? 3
             )
         })
-        return layout.rows.map { row in
-            VMTreeLayoutRow(
-                placement: placements[row.shownIndex],
-                hiddenTabs: row.hiddenIndices.map { placements[$0] }
-            )
-        }
+        return layout.flatPlacementIndices.map { placements[$0] }
     }
 
     /// A workspace pointer cell: terminals address through the workspace (`cmux vm open <m>/<ws>/<term>`),

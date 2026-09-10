@@ -332,6 +332,21 @@ jobs:
       - name: Validate release-build timeout guard
         run: ./tests/test_ci_release_build_timeout.sh
 
+      - name: Validate reusable workflow permission grants
+        run: python3 tests/test_ci_reusable_workflow_permissions.py
+
+      - name: Validate release does not gate on iOS screenshot capture
+        run: ./tests/test_ci_release_ios_screenshots_decoupled.sh
+
+      - name: Validate Sparkle monotonic guard modes
+        run: ./tests/test_sparkle_build_monotonic_modes.sh
+
+      - name: Validate release tunnel extension identifiers
+        run: ./tests/test_ci_release_tunnel_identifiers.sh
+
+      - name: Validate Sparkle appcast generation without previous archives
+        run: ./tests/test_sparkle_generate_appcast_no_deltas.sh
+
       - name: Validate markdown viewer asset compression
         run: ./tests/test_compress_markdown_viewer_assets.sh
 
@@ -791,6 +806,34 @@ jobs:
               test
           done
 
+      - name: Run agent resume binding regressions
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: |
+          # Swift Testing assertion failures are tolerated in the full sharded
+          # app-host suite. Keep the resume-binding ownership rules on a
+          # non-tolerant focused invocation so a same-session agent-hook write
+          # or a TUI prompt mark cannot regain the ability to demote a live
+          # agent's automatic resume (#12084).
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          for suite in \
+            SurfaceResumeAgentHookDowngradeTests \
+            RestoredAgentShellActivityLivenessTests \
+            RestoreAdmissionRetryPolicyTests \
+            LiveAgentIndexRelevantChurnTests
+          do
+            scripts/ci/run-in-console-session.sh \
+              scripts/ci/run-app-host-xcodebuild.sh \
+              -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+              -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+              -disableAutomaticPackageResolution \
+              -destination "platform=macOS" \
+              CMUX_SKIP_ZIG_BUILD=1 \
+              -only-testing:"cmuxTests/$suite" \
+              test
+          done
+
       - name: Run browser runtime viewport regression
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |
@@ -916,22 +959,45 @@ jobs:
           # Ghostty-backed panels. Run the close and placement suites in separate
           # app-host processes so renderer teardown from one topology workload
           # cannot crash the next before its assertions execute.
+          #
+          # The app host still crashes intermittently mid-suite here
+          # (https://github.com/manaflow-ai/cmux/issues/9348): the crash point
+          # moves between tests and the relaunched host passes every remaining
+          # test. Rerun a suite once, and only when xcodebuild reports that the
+          # host exited, crashed, or timed out. An assertion failure never earns
+          # a rerun, and a second crash still fails the shard.
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           for suite in \
             RemoteTmuxMirrorCloseDetachTests \
             RemoteTmuxMirrorDedicatedPlacementTests
           do
-            scripts/ci/run-in-console-session.sh \
-              scripts/ci/run-app-host-xcodebuild.sh \
-              -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
-              -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
-              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-              -disableAutomaticPackageResolution \
-              -destination "platform=macOS" \
-              CMUX_SKIP_ZIG_BUILD=1 \
-              -only-testing:"cmuxTests/$suite" \
-              test
+            for attempt in 1 2; do
+              suite_output="$RUNNER_TEMP/cmux-remote-tmux-mirror-${suite}-attempt-${attempt}.txt"
+              set +e
+              scripts/ci/run-in-console-session.sh \
+                scripts/ci/run-app-host-xcodebuild.sh \
+                -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+                -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+                -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+                -disableAutomaticPackageResolution \
+                -destination "platform=macOS" \
+                CMUX_SKIP_ZIG_BUILD=1 \
+                -only-testing:"cmuxTests/$suite" \
+                test 2>&1 | tee "$suite_output"
+              suite_status="${PIPESTATUS[0]}"
+              set -e
+              if [ "$suite_status" -eq 0 ]; then
+                break
+              fi
+              if [ "$attempt" -eq 1 ] \
+                && grep -Fq 'Restarting after unexpected exit, crash, or test timeout' "$suite_output"; then
+                echo "::warning::app host crashed while running cmuxTests/${suite} (https://github.com/manaflow-ai/cmux/issues/9348); rerunning the suite once"
+                continue
+              fi
+              echo "cmuxTests/${suite} failed with status ${suite_status} on attempt ${attempt}"
+              exit "$suite_status"
+            done
           done
 
       - name: Run browser system proxy mirror regression
@@ -1194,6 +1260,25 @@ jobs:
             -destination "platform=macOS" \
             CMUX_SKIP_ZIG_BUILD=1 \
             -only-testing:cmuxTests/GhosttyTerminalViewVisibilityPolicyTests \
+            test
+
+      - name: Run Ghostty numeric locale tests
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: |
+          # LC_NUMERIC is process-global. Keep these tests in their own app-host
+          # invocation and disable Xcode's parallel test execution for it.
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -project cmux.xcodeproj -scheme cmux-numeric-locale -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            -only-testing:cmuxTests/GhosttyNumericLocaleTests \
+            -parallel-testing-enabled NO \
+            CMUX_SKIP_ZIG_BUILD=1 \
             test
 
       - name: Run unit tests

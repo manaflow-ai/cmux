@@ -212,6 +212,7 @@ describe("Iroh trust broker registration", () => {
     const result = await Effect.runPromise(fixture.broker.register(USER_A, request, NOW)) as {
       revision: number;
       binding: { endpoint_id: string };
+      minimum_publication_spacing_seconds: number;
       relay: { status: string; token: string };
       discovery_complete: boolean;
       discovery: {
@@ -220,6 +221,8 @@ describe("Iroh trust broker registration", () => {
       };
     };
     expect(result.binding.endpoint_id).toBe(fixture.endpointId);
+    // Server-owned publication policy travels with every registration.
+    expect(result.minimum_publication_spacing_seconds).toBe(60);
     expect(result.relay.status).toBe("issued");
     expect(result.discovery.revision).toBe(result.revision);
     expect(result.discovery_complete).toBe(true);
