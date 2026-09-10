@@ -139,6 +139,7 @@ export class AccountControlPlane extends DurableObject<ControlPlaneEnv> {
       }));
       return response;
     } catch (error) {
+      console.error("local iroh operation failed", error instanceof Error ? error.name : typeof error, error && typeof error === "object" && "_tag" in error ? String((error as { _tag: unknown })._tag) : "unknown");
       this.ctx.waitUntil(emitAxiomEvent(this.env, {
         event: "do_request",
         do_class: "AccountControlPlane",
