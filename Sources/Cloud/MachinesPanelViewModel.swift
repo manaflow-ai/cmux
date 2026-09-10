@@ -668,6 +668,7 @@ final class MachinesPanelViewModel: ObservableObject {
     /// create that lands mid-poll must still replace its pending row with the
     /// real machine now, not on the next 45 s sweep.
     private var refreshRequestedWhileLoading = false
+    private var refreshGeneration = 0
 
     func refresh() {
         guard refreshTask == nil else {
@@ -675,14 +676,19 @@ final class MachinesPanelViewModel: ObservableObject {
             return
         }
         isLoading = true
+        refreshGeneration += 1
+        let generation = refreshGeneration
         refreshTask = Task { [weak self] in
-            await self?.performRefresh()
-            guard let self else { return }
-            self.refreshTask = nil
-            if self.refreshRequestedWhileLoading {
-                self.refreshRequestedWhileLoading = false
-                self.refresh()
+            defer {
+                if let self, self.refreshGeneration == generation {
+                    self.refreshTask = nil
+                    if !Task.isCancelled, self.refreshRequestedWhileLoading {
+                        self.refreshRequestedWhileLoading = false
+                        self.refresh()
+                    }
+                }
             }
+            await self?.performRefresh()
         }
     }
 
@@ -742,6 +748,7 @@ final class MachinesPanelViewModel: ObservableObject {
     /// notification observer so a signed-out panel can never render a stale
     /// fleet while SwiftUI is catching up with the auth projection.
     func resetForAuthTransition() {
+        refreshGeneration += 1
         refreshTask?.cancel()
         refreshTask = nil
         refreshRequestedWhileLoading = false
@@ -770,12 +777,20 @@ final class MachinesPanelViewModel: ObservableObject {
     }
 
     private func performRefresh() async {
+        guard !Task.isCancelled else { return }
         guard let client = VMClient.shared else {
+            lastErrorDescription = String(
+                localized: "machines.unavailable.title",
+                defaultValue: "Cloud is unreachable"
+            )
+            listProblem = .unreachable
             isLoading = false
+            hasLoadedOnce = true
             return
         }
         do {
             let page = try await client.listPage()
+            guard !Task.isCancelled else { return }
             let previous = Dictionary(uniqueKeysWithValues: machines.map { ($0.id, $0.stats) })
             let freeAccessWindowDays = page.limits?.freeAccessWindowDays ?? 0
             self.freeAccessWindowDays = freeAccessWindowDays
@@ -797,6 +812,7 @@ final class MachinesPanelViewModel: ObservableObject {
             lastErrorDescription = nil
             listProblem = nil
         } catch let error as VMClientError {
+            guard !Task.isCancelled else { return }
             if case .notSignedIn = error {
                 // A request can race sign-out before the auth observation or
                 // notification arrives. Clear the authoritative-looking
@@ -814,9 +830,11 @@ final class MachinesPanelViewModel: ObservableObject {
             lastErrorDescription = String(describing: error)
             listProblem = Self.classifyListFailure(error)
         } catch {
+            guard !Task.isCancelled else { return }
             lastErrorDescription = String(describing: error)
             listProblem = .unreachable
         }
+        guard !Task.isCancelled else { return }
         isLoading = false
         hasLoadedOnce = true
     }
