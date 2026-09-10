@@ -159,6 +159,9 @@ jobs:
       - name: Validate Python test harness syntax
         run: git ls-files 'tests/*.py' 'tests_v2/*.py' 'scripts/*.py' | xargs python3 -m py_compile
 
+      - name: Validate cmux-cloud-vm skill covers the vm CLI
+        run: python3 tests/test_cloud_vm_skill_coverage.py
+
       - name: Test XCStrings catalog lint
         run: python3 tests/test_lint_xcstrings.py
 
@@ -1557,6 +1560,7 @@ jobs:
 
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_version_memory_guard.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_contract_help.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_vm_transfer_progress.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_layout_focus_contract.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_socket_operation_deadline.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_simulator_contract.py
