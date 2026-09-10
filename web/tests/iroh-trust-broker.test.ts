@@ -1955,7 +1955,12 @@ class MemoryRepository implements IrohRepositoryShape {
       expiresAt: input.expiresAt,
       consumedAt: null,
     };
-    this.challenges.push(challenge);
+    const otherSlots = this.challenges.filter((row) =>
+      row.userId !== challenge.userId
+      || row.clientNamespace !== challenge.clientNamespace
+      || row.deviceUuid !== challenge.deviceUuid
+      || row.tag !== challenge.tag);
+    this.challenges.splice(0, this.challenges.length, ...otherSlots, challenge);
     return Effect.succeed(challenge);
   }
 
