@@ -1,10 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 import {
   DEVBOX_SOURCE_SCHEMA,
   appendImageManifestEntries,
   bakeMetadata,
   bakeScriptPath,
+  devboxDockerfileAtCommit,
   sha256File,
   upgradeDevboxSourceRecords,
   devboxImageEpoch,
@@ -319,8 +321,20 @@ describe("upgradeDevboxSourceRecords (promote --upgrade-source-schema)", () => {
     const unavailable = upgradeDevboxSourceRecords(manifestOf(recorded("base")), { dockerfileAt: () => null });
     expect(unavailable.upgraded).toEqual([]);
     expect(unavailable.skipped[0]?.reason).toContain("is not available here");
-    // The real reader: the Dockerfile at this PR's bake commit is what the promoted defaults were checked against.
+    // The real reader: an unknown but well-formed object id is not available;
+    // anything that is not a full 40-hex object id is refused before git runs
+    // (a manifest entry may come from a branch this checkout did not author,
+    // so `repoCommit` is an argument to git, never shell text).
     expect(upgradeDevboxSourceRecords(manifestOf(recorded("base", { repoCommit: "0000000000000000000000000000000000000000" }))).skipped[0]?.reason).toContain("is not available here");
+    for (const hostile of ["HEAD", "main", "d3b2da01be", "$(touch /tmp/pwned)", "x; echo pwned", "0".repeat(39) + ":../../etc/passwd"]) {
+      expect(devboxDockerfileAtCommit(hostile)).toBeNull();
+      expect(upgradeDevboxSourceRecords(manifestOf(recorded("base", { repoCommit: hostile }))).upgraded).toEqual([]);
+    }
+    // A real full object id that carries the file resolves through git.
+    const bakeCommit = spawnSync("git", ["rev-parse", "d3b2da01be"], { cwd: path.join(import.meta.dirname, "../.."), encoding: "utf8" }).stdout.trim();
+    if (/^[0-9a-f]{40}$/.test(bakeCommit)) {
+      expect(devboxDockerfileAtCommit(bakeCommit)).toContain("CMUX_IMAGE_EPOCH=");
+    }
   });
 });
 

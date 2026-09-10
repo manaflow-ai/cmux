@@ -13,7 +13,7 @@
  * (web/services/vms/drivers/cmuxTuiDaemon.ts); the image only ships the
  * cmux-devbox-boot supervisor.
  */
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { Buffer } from "node:buffer";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -1076,10 +1076,21 @@ export function devboxImageLadderProblems(
 }
 
 
-/** The devbox Dockerfile as committed at `commit`, or null when the commit or the file is not available here. */
+/**
+ * The devbox Dockerfile as committed at `commit`, or null when the commit or
+ * the file is not available here. `commit` comes from a manifest entry, which
+ * may have been written on a branch this checkout did not author, so it is
+ * accepted only as a full 40-hex object id and passed to git as an argument,
+ * never through a shell.
+ */
 export function devboxDockerfileAtCommit(commit: string): string | null {
+  if (!/^[0-9a-f]{40}$/i.test(commit)) return null;
   try {
-    return execSync(`git show ${commit}:web/services/vms/images/devbox/Dockerfile`, { cwd: repoRoot, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+    return execFileSync("git", ["show", `${commit}:web/services/vms/images/devbox/Dockerfile`], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
   } catch {
     return null;
   }
