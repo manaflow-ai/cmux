@@ -29,6 +29,10 @@ struct AppWindowChromeComposition {
         let resolvedFullscreenAuxiliaryWindows: @MainActor @Sendable () -> [NSWindow] =
             fullscreenAuxiliaryWindows ?? { NSApp.windows }
         nativeTitlebarBackdropCoordinator = NativeTitlebarBackdropCoordinator(
+            titlebarControlsIdentifiers: [
+                UpdateTitlebarAccessoryController.controlsIdentifier,
+                RightSidebarTitlebarAccessoryViewController.identifier
+            ],
             fullscreenAuxiliaryWindows: resolvedFullscreenAuxiliaryWindows
         )
     }

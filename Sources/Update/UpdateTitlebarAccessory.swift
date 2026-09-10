@@ -2730,7 +2730,7 @@ final class UpdateTitlebarAccessoryController {
     private var observers: [NSObjectProtocol] = []
     private var pendingAttachRetries: [ObjectIdentifier: Int] = [:]
     private var startupScanWorkItems: [DispatchWorkItem] = []
-    private let controlsIdentifier = NSUserInterfaceItemIdentifier("cmux.titlebarControls")
+    static let controlsIdentifier = NSUserInterfaceItemIdentifier("cmux.titlebarControls")
     private let controlsControllers = NSHashTable<TitlebarControlsAccessoryViewController>.weakObjects()
     var lastShowsRightSidebarTitlebarToggle = RightSidebarChromeSettings.defaultShowTitlebarToggle
     private var lastKnownPresentationMode: WorkspacePresentationModeSettings.Mode = WorkspacePresentationModeSettings.mode()
@@ -2941,14 +2941,14 @@ final class UpdateTitlebarAccessoryController {
             return
         }
 
-        if !window.titlebarAccessoryViewControllers.contains(where: { $0.view.identifier == controlsIdentifier }) {
+        if !window.titlebarAccessoryViewControllers.contains(where: { $0.view.identifier == Self.controlsIdentifier }) {
             let controls = TitlebarControlsAccessoryViewController(
                 notificationStore: TerminalNotificationStore.shared,
                 settingsRuntime: settingsRuntime,
                 layoutModel: layoutModel
             )
             controls.layoutAttribute = .left
-            controls.view.identifier = controlsIdentifier
+            controls.view.identifier = Self.controlsIdentifier
             window.addTitlebarAccessoryViewController(controls)
             controlsControllers.add(controls)
         }
@@ -2976,7 +2976,7 @@ final class UpdateTitlebarAccessoryController {
             || window.styleMask.contains(.fullScreen)
         applyRightSidebarTitlebarAccessoryVisibility(for: window, shouldHide: shouldHide)
         for accessory in window.titlebarAccessoryViewControllers
-            where accessory.view.identifier == controlsIdentifier {
+            where accessory.view.identifier == Self.controlsIdentifier {
             accessory.isHidden = shouldHide
             accessory.view.isHidden = shouldHide
             accessory.view.alphaValue = shouldHide ? 0 : 1
@@ -2991,7 +2991,7 @@ final class UpdateTitlebarAccessoryController {
         }
         let matchingIndices = window.titlebarAccessoryViewControllers.indices.reversed().filter { index in
             let id = window.titlebarAccessoryViewControllers[index].view.identifier
-            return id == controlsIdentifier || id == RightSidebarTitlebarAccessoryViewController.identifier
+            return id == Self.controlsIdentifier || id == RightSidebarTitlebarAccessoryViewController.identifier
         }
         guard !matchingIndices.isEmpty || attachedWindows.contains(window) else { return }
 
