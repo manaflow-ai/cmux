@@ -132,6 +132,7 @@ enum AgentHibernationLifecycleStatusKeys {
         "pi",
         "qoder",
         "rovodev",
+        "vibe",
     ]
 
     static func isAllowed(_ key: String) -> Bool {
