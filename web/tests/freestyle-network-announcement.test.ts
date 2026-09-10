@@ -8,7 +8,7 @@ import { spawnSync } from "node:child_process";
 import { FreestyleProvider } from "../services/vms/drivers/freestyle";
 import { announceFreestyleNetwork, freestyleNetworkAnnouncementCommand } from "../services/vms/drivers/freestyleNetworkAnnouncement";
 
-function captureAnnouncements(addresses: string[]) {
+function captureAnnouncements(addresses: string[], failingFamily = "") {
   const directory = mkdtempSync(join(tmpdir(), "cmux-network-test-"));
   const capture = join(directory, "packets.json");
   // Execute the shipped guest command with only its OS boundary substituted.
@@ -21,8 +21,12 @@ class Socket:
     def __exit__(self,*args): pass
     def bind(self,value): self.bound=value
     def setsockopt(self,*args): self.options.append(args)
-    def send(self,packet): packets.append(dict(bound=self.bound,packet=packet.hex(),options=self.options))
-    def sendto(self,packet,target): packets.append(dict(bound=self.bound,packet=packet.hex(),target=target,options=self.options))
+    def send(self,packet):
+        if os.environ['FAILING_FAMILY'] in ['ipv4','both']: raise OSError('IPv4 unavailable')
+        packets.append(dict(bound=self.bound,packet=packet.hex(),options=self.options))
+    def sendto(self,packet,target):
+        if os.environ['FAILING_FAMILY'] in ['ipv6','both']: raise OSError('IPv6 unavailable')
+        packets.append(dict(bound=self.bound,packet=packet.hex(),target=target,options=self.options))
 socket.socket=Socket
 socket.AF_PACKET=17
 links=[dict(ifname='eth0.181',ifindex=8,link_type='ether',flags=['UP'],address='02:00:0a:10:00:02',addr_info=[dict(local='10.16.0.2'),dict(local='fd00::2'),dict(local='fe80::2')])]
@@ -31,7 +35,7 @@ atexit.register(lambda: open(os.environ['CAPTURE_PATH'],'w').write(json.dumps(pa
 `);
   try {
     const result = spawnSync("/bin/sh", ["-c", freestyleNetworkAnnouncementCommand(addresses)], {
-      env: { ...process.env, PYTHONPATH: directory, CAPTURE_PATH: capture }, encoding: "utf8",
+      env: { ...process.env, PYTHONPATH: directory, CAPTURE_PATH: capture, FAILING_FAMILY: failingFamily }, encoding: "utf8",
     });
     return { status: result.status, packets: JSON.parse(readFileSync(capture, "utf8")) as Array<{
       bound: Array<string | number>; packet: string; target?: Array<string | number>; options: number[][];
@@ -97,6 +101,19 @@ describe("Freestyle private network readiness", () => {
     expect(status).toBe(0);
     expect(packets).toHaveLength(1);
     expect(Buffer.from(packets[0].packet, "hex").readUInt16BE(12)).toBe(0x0806);
+  });
+
+  test.each(["ipv4", "ipv6"])("an unavailable %s socket preserves the working family", (family) => {
+    const { status, packets } = captureAnnouncements(["10.16.0.2", "fd00::2"], family);
+    expect(status).toBe(0);
+    expect(packets).toHaveLength(1);
+    expect(packets[0].target !== undefined).toBe(family === "ipv4");
+  });
+
+  test("failure of both families still rejects network readiness", () => {
+    const { status, packets } = captureAnnouncements(["10.16.0.2", "fd00::2"], "both");
+    expect(status).not.toBe(0);
+    expect(packets).toEqual([]);
   });
 
   test("a guest failure prevents reporting that its network is ready", async () => {
