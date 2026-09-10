@@ -163,13 +163,13 @@ struct CloudLoopbackPortForwardTests {
         }
     }
 
-    private static func client(port: UInt16) async throws -> NWConnection {
+    static func client(port: UInt16) async throws -> NWConnection {
         let connection = NWConnection(host: "127.0.0.1", port: NWEndpoint.Port(rawValue: port)!, using: .tcp)
         try await connection.startAndWaitUntilReady(queue: DispatchQueue(label: "cmux.tests.forward-client"))
         return connection
     }
 
-    private static func waitUntil(timeout: Duration = .seconds(10), _ predicate: @Sendable () async -> Bool) async -> Bool {
+    static func waitUntil(timeout: Duration = .seconds(10), _ predicate: @Sendable () async -> Bool) async -> Bool {
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: timeout)
         while clock.now < deadline {
@@ -224,40 +224,6 @@ struct CloudLoopbackPortForwardTests {
         #expect(hub.connectTargets.first?.host.hasPrefix("fd60:1e5e:6720") == true)
         client.cancel()
         await forward.stop()
-    }
-
-    @Test("Successive browser connections reuse the working family and recover if it fails")
-    func browserConnectionsReuseWorkingFamily() async throws {
-        let hub = try FakeSocksHub()
-        try await hub.start()
-        defer { hub.stop() }
-        let ipv4 = "10.0.0.7"
-        let ipv6 = "fd00::1"
-        hub.refusedHosts = [ipv4]
-        let dialer = FakeHubDialer(endpoint: hub.endpoint)
-        let target = CloudPortForwardTarget(host: ipv4, port: 6901, fallbackHosts: [ipv6])
-        let forward = try CloudLoopbackPortForward(target: target, dialer: dialer)
-        let localPort = try await forward.start()
-
-        for _ in 0..<3 {
-            let client = try await Self.client(port: localPort)
-            try await client.sendAll(Data("ping".utf8))
-            #expect(try await client.receiveExactly(4) == Array("ping".utf8))
-            client.cancel()
-        }
-        let attempts = hub.connectTargets
-        #expect(attempts.filter { $0.host == ipv4 }.count == 1,
-                "A desktop asset burst must not dial the failed family for every connection")
-        #expect(attempts.filter { $0.host == ipv6 }.count == 3)
-
-        hub.refusedHosts = [ipv6]
-        let recovered = try await Self.client(port: localPort)
-        try await recovered.sendAll(Data("back".utf8))
-        #expect(try await recovered.receiveExactly(4) == Array("back".utf8),
-                "Remembering a family must preserve fallback when reachability changes")
-        recovered.cancel()
-        await forward.stop()
-        #expect(await Self.waitUntil { dialer.claims == dialer.releases })
     }
 
     @Test("the hub is dialed over its unix socket, the way the real cmux-tui hub listens")
