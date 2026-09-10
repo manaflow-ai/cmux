@@ -139,7 +139,6 @@ export class AccountControlPlane extends DurableObject<ControlPlaneEnv> {
       }));
       return response;
     } catch (error) {
-      console.error("local iroh operation failed", error instanceof Error ? error.name : typeof error, error && typeof error === "object" && "_tag" in error ? String((error as { _tag: unknown })._tag) : "unknown");
       this.ctx.waitUntil(emitAxiomEvent(this.env, {
         event: "do_request",
         do_class: "AccountControlPlane",
@@ -290,7 +289,7 @@ export class AccountControlPlane extends DurableObject<ControlPlaneEnv> {
         error_code: code,
       }));
       const status = code.includes("not_found") ? 404 : code.includes("conflict") ? 409 : code.includes("forbidden") || code.includes("not_configured") || code.includes("expired") ? 403 : code.includes("invalid") ? 400 : 500;
-      return json({ error: code, debug: String(error).slice(0, 160) }, status);
+      return json({ error: code }, status);
     }
   }
 
