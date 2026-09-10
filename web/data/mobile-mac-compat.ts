@@ -80,6 +80,9 @@ export const mobileMacCompatList: MobileMacCompatList = {
   entries: [
     {
       minIOSVersion: "1.0.0",
+      // Keep these mirrored to prod while older iOS clients are still deployed.
+      stableMinVersion: "0.64.23",
+      nightly: { minBaseVersion: "0.64.22", minBuild: "3345650013202" },
       buildKinds: {
         dev: { stableMinVersion: "0.64.0" },
         beta: { stableMinVersion: "0.64.22" },

@@ -8,8 +8,3 @@ struct MobileMacCompatRemoteEntry: Decodable {
     let stableMinVersion: String?
     let nightly: MobileMacCompatRemoteNightly?
 }
-
-struct MobileMacCompatRemoteRequirement: Decodable {
-    let stableMinVersion: String
-    let nightly: MobileMacCompatRemoteNightly?
-}
