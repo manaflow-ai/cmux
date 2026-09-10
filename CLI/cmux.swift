@@ -4,6 +4,7 @@ import CmuxAgentJournal
 import CmuxFoundation
 import CmuxSettings
 import CmuxSimulator
+import CmuxSudoBroker
 import CoreFoundation
 import CryptoKit
 import Darwin
@@ -5047,6 +5048,17 @@ struct CMUXCLI {
         // model plane through the app socket (CMUXCLI+Coderouter.swift).
         if command == "cr" || (command == "coderouter" && !Self.isCmuxOwnedCoderouterInvocation(rawCommandArgs)) {
             try runCoderouterAlias(commandArgs: rawCommandArgs)
+            return
+        }
+        if command == SudoPrivilegedExecutor.hiddenCommand {
+            Darwin.exit(runHiddenSudoPrivilegedExecutor(commandArgs: rawCommandArgs))
+        }
+        if command == SudoExecutionRunner.hiddenCommand {
+            Darwin.exit(runHiddenSudoRunner(commandArgs: rawCommandArgs))
+        }
+        if command == "sudo" {
+            let exitCode = try runSudoCommand(commandArgs: rawCommandArgs)
+            if exitCode != 0 { Darwin.exit(exitCode) }
             return
         }
         let passesThroughProviderArguments = managedProviderArgumentsPassThrough(command: command)
@@ -40962,6 +40974,9 @@ export default CMUXSessionRestore;
           ping
           iroh-diag
           version
+          \(String(localized: "sudo.cli.global_usage.run", defaultValue: "sudo run [-r reason] [-t timeout] (-c 'command' | script.sh | -)"))
+          \(String(localized: "sudo.cli.global_usage.pending", defaultValue: "sudo pending"))
+          \(String(localized: "sudo.cli.global_usage.setup_touch_id", defaultValue: "sudo setup-touch-id"))
           capabilities
           events [--after <seq>] [--cursor-file <path>] [--name <event>] [--category <category>] [--reconnect] [--limit <n>] [--no-ack] [--no-heartbeat]
           automation <list|show|test|enable|disable|logs|reload> [args]
