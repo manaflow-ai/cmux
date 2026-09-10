@@ -7,6 +7,7 @@ import Network
 /// every loser before returning, so terminal and browser callers share the policy.
 struct CloudHubConnector: Sendable {
     var timeout: Duration = .seconds(15)
+    var fallbackDelay: Duration = .milliseconds(250)
     var clock: any Clock<Duration> = ContinuousClock()
 
     func connect(
@@ -19,9 +20,11 @@ struct CloudHubConnector: Sendable {
         }
         return try await withTaskCancellationHandler {
             try await withThrowingTaskGroup(of: Result<CloudHubConnection, any Error>.self) { group in
-                for candidate in candidates {
+                for (index, candidate) in candidates.enumerated() {
                     group.addTask {
                         do {
+                            if index > 0 { try await clock.sleep(for: fallbackDelay) }
+                            try Task.checkCancellation()
                             try await handshake(candidate.connection, host: candidate.host, port: target.port, queue: queue)
                             try Task.checkCancellation()
                             return .success(candidate)
