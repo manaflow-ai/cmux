@@ -864,12 +864,12 @@ describe("in-VM cmux shim: agent primitives", () => {
         // slot 0: the root pane is the first leaf's first terminal itself (exact argv, no placeholder).
         ["--json", "workspace", "ws_new1", "run", "--on-exit", "keep", "--cwd", base, "--name", "agent", "--", "env", "NODE_ENV=development", "bash", "-l"],
         // split before either half is filled; the new pane starts in the second child's first cwd.
-        ["--json", "pane", "pane_2", "split", "--right", "--ratio", "0.6", "--cwd", base],
+        ["--json", "pane", "pane_2", "split", "--right", "--ratio", "0.4", "--cwd", base],
         ["--json", "terminal", "term_2", ...PROMPT_WAIT],
         ["--json", "terminal", "term_2", "write", "--text", "claude"],
         ["--json", "terminal", "term_2", "keys", "enter"],
         ["--json", "pane", "pane_2", "tab", "create", "browser", "--url", "http://localhost:3000", "--name", "app"],
-        ["--json", "pane", "pane_3", "split", "--down", "--ratio", "0.3", "--cwd", "/var/log"],
+        ["--json", "pane", "pane_3", "split", "--down", "--ratio", "0.7", "--cwd", "/var/log"],
         // a split-created pane: real terminal first (workspace env + surface env), then its placeholder dies.
         ["--json", "pane", "pane_3", "run", "--on-exit", "keep", "--cwd", base, "--name", "tests", "--", "env", "NODE_ENV=development", "CI=1", "bash", "-l"],
         ["--json", "terminal", "term_3", "close"],

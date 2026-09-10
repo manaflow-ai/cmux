@@ -493,7 +493,7 @@ describe("VM REST auth", () => {
         exec: true,
         stats: true,
         ports: true,
-        desktop: false,
+        desktop: true,
         sizing: true,
         persistentHome: false,
         attachTransports: ["cmux-remote"],
