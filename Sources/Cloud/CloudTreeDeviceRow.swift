@@ -17,7 +17,11 @@ struct CloudTreeDeviceRow: Equatable {
 
     /// Online means presence says so or the link is live (a Mac that answers
     /// is online whatever presence knows).
-    var isOnline: Bool { linkState == .connected || presence?.isOnline == true }
+    var isOnline: Bool { Self.isOnline(presence: presence, linkState: linkState) }
+
+    static func isOnline(presence: SurfaceDevicePresence?, linkState: SurfaceLinkState) -> Bool {
+        linkState == .connected || presence?.isOnline == true
+    }
 
     /// Creation requires an authenticated live link; discovery alone only
     /// makes a device visible. Shared by hover controls, menus, and children.

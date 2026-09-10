@@ -11,8 +11,8 @@ extension CloudTreeNodeBuilder {
         machines
             .filter { $0.id.isDevice }
             .sorted { lhs, rhs in
-                let lhsOnline = lhs.presence?.isOnline ?? false
-                let rhsOnline = rhs.presence?.isOnline ?? false
+                let lhsOnline = CloudTreeDeviceRow.isOnline(presence: lhs.presence, linkState: lhs.linkState)
+                let rhsOnline = CloudTreeDeviceRow.isOnline(presence: rhs.presence, linkState: rhs.linkState)
                 if lhsOnline != rhsOnline { return lhsOnline }
                 let byName = lhs.name.localizedCaseInsensitiveCompare(rhs.name)
                 if byName != .orderedSame { return byName == .orderedAscending }
