@@ -8,6 +8,7 @@ import hmac
 import json
 import os
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -104,6 +105,44 @@ def _build_signed_request(
     return urllib.request.Request(url, data=request_body, headers=request_headers, method=method)
 
 
+# R2 answers a healthy request with an occasional 5xx (an instant InternalError
+# took two nightly publishes down on 2026-09-06). Those and dropped connections
+# are retried with backoff; every other HTTP error is final.
+RETRYABLE_HTTP_STATUSES = frozenset({429, 500, 502, 503, 504})
+
+
+def _retry_settings() -> tuple[int, float]:
+    attempts = int(os.environ.get("CMUX_R2_UPLOAD_MAX_ATTEMPTS", "5"))
+    delay = float(os.environ.get("CMUX_R2_UPLOAD_RETRY_DELAY_SECONDS", "1"))
+    return max(1, attempts), max(0.0, delay)
+
+
+def _open_with_retries(request: urllib.request.Request, *, timeout: float, what: str):
+    """urlopen that retries R2's transient answers; the last failure propagates."""
+
+    attempts, delay = _retry_settings()
+    for attempt in range(1, attempts + 1):
+        try:
+            return urllib.request.urlopen(request, timeout=timeout)
+        except urllib.error.HTTPError as error:
+            if error.code not in RETRYABLE_HTTP_STATUSES or attempt == attempts:
+                raise
+            error.close()
+            reason = f"HTTP {error.code} {error.reason}"
+        except urllib.error.URLError as error:
+            if attempt == attempts:
+                raise
+            reason = str(error.reason)
+        except (TimeoutError, OSError) as error:
+            if attempt == attempts:
+                raise
+            reason = str(error)
+        sys.stderr.write(f"R2 {what} attempt {attempt}/{attempts} failed: {reason}; retrying in {delay:g}s\n")
+        time.sleep(delay)
+        delay = min(delay * 2, 16.0)
+    raise AssertionError("unreachable: every attempt either returned or raised")
+
+
 def _read_existing_object(
     args: argparse.Namespace,
     *,
@@ -114,7 +153,7 @@ def _read_existing_object(
 
     head = _build_signed_request(args, b"", amz_date, method="HEAD")
     try:
-        with urllib.request.urlopen(head, timeout=30) as response:
+        with _open_with_retries(head, timeout=30, what="HEAD") as response:
             response.read()
     except urllib.error.HTTPError as error:
         if error.code == 404:
@@ -122,7 +161,7 @@ def _read_existing_object(
         raise
 
     get = _build_signed_request(args, b"", amz_date, method="GET")
-    with urllib.request.urlopen(get, timeout=120) as response:
+    with _open_with_retries(get, timeout=120, what="GET") as response:
         existing = response.read()
     actual_digest = hashlib.sha256(existing).hexdigest()
     if actual_digest != expected_digest:
@@ -192,7 +231,7 @@ def main() -> int:
             amz_date,
             extra_headers={"if-none-match": "*"} if args.write_once else None,
         )
-        with urllib.request.urlopen(request, timeout=30) as response:
+        with _open_with_retries(request, timeout=30, what="upload") as response:
             response.read()
             print(f"Uploaded {args.file} to s3://{args.bucket}/{args.key} ({response.status})")
             return 0
