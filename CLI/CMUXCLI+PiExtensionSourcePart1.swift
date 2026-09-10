@@ -6,7 +6,7 @@ extension CMUXCLI {
 // DO NOT EDIT MANUALLY. cmux upgrades this file in place.
 
 import { Buffer } from "node:buffer";
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -545,43 +545,6 @@ async function warn(
 
 function cmuxExecutable(): string {
   return process.env.CMUX_PI_CMUX_BIN || "cmux";
-}
-
-function runCmux(args: string[], cwd: string, input?: string): CommandResult {
-  const startedAt = Date.now();
-  try {
-    const env = hookEnvironment(cwd, true);
-    if (args[0] === "hooks" && args[1] === "enqueue") {
-      env.CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC = "1";
-    }
-    const result = spawnSync(cmuxExecutable(), args, {
-      input,
-      encoding: "utf8",
-      env,
-      stdio: ["pipe", "pipe", "pipe"],
-      timeout: 5000,
-    });
-    const status = typeof result.status === "number" ? result.status : null;
-    return {
-      ok: status === 0 && !result.error,
-      status,
-      stdout: typeof result.stdout === "string" ? result.stdout : "",
-      stderr: typeof result.stderr === "string" ? result.stderr : "",
-      error: result.error,
-      timeoutMs: 5000,
-      elapsedMs: Date.now() - startedAt,
-    };
-  } catch (error) {
-    return {
-      ok: false,
-      status: null,
-      stdout: "",
-      stderr: "",
-      error,
-      timeoutMs: 5000,
-      elapsedMs: Date.now() - startedAt,
-    };
-  }
 }
 """#
 }

@@ -25,6 +25,18 @@ public struct CodexHookInjectionSchema: Equatable, Sendable {
             timeoutMs: 120000,
             delivery: .direct
         ),
+        .init(
+            agentEvent: "SubagentStart",
+            cmuxSubcommand: "subagent-start",
+            timeoutMs: AgentHookDeliveryPolicy.declaredTimeoutMilliseconds,
+            delivery: .direct
+        ),
+        .init(
+            agentEvent: "SubagentStop",
+            cmuxSubcommand: "subagent-stop",
+            timeoutMs: AgentHookDeliveryPolicy.declaredTimeoutMilliseconds,
+            delivery: .direct
+        ),
     ])
 
     /// Exact older shapes accepted by saved-layout and replay sanitization.

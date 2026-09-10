@@ -136,9 +136,15 @@ struct CLICodexHookTimeoutRegressionTests {
             "PreToolUse",
             "PostToolUse",
             "PermissionRequest",
+            "SubagentStart",
+            "SubagentStop",
         ]
         #expect(Set(emittedEvents) == expectedInjectedEvents)
         #expect(emittedEvents.count == expectedInjectedEvents.count)
+        for event in ["SubagentStart", "SubagentStop"] {
+            #expect(emit.stdout.contains("hooks.\(event)="))
+            #expect(emit.stdout.contains("timeout=10000"))
+        }
 
         let hooksAfterLaunch = try Data(contentsOf: hooksURL)
         let configAfterLaunch = try Data(contentsOf: configURL)
