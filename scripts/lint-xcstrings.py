@@ -14,6 +14,7 @@ ALLOWED_TOP_LEVEL_KEYS = frozenset(("sourceLanguage", "strings", "version"))
 
 
 def _tracked_catalogs() -> list[Path]:
+    """List tracked catalogs relative to the current repository directory."""
     result = subprocess.run(
         ["git", "ls-files", "-z", "*.xcstrings"],
         check=True,
@@ -23,9 +24,10 @@ def _tracked_catalogs() -> list[Path]:
 
 
 def check_catalog(path: Path) -> list[str]:
+    """Return diagnostics for an unreadable or structurally invalid catalog."""
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         return [f"{path}: invalid JSON: {exc}"]
 
     if not isinstance(data, dict):
@@ -44,6 +46,7 @@ def check_catalog(path: Path) -> list[str]:
 
 
 def main() -> int:
+    """Validate selected or tracked catalogs and report all catalog errors."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--catalog", action="append", type=Path)
     args = parser.parse_args()
