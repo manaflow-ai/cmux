@@ -258,7 +258,7 @@ export function devboxGhosttyDebSha256(dockerfile = readDevboxDockerfile()): str
   return sha;
 }
 
-const AGENT_PIN_ARGS: readonly { arg: string; pkg: string; binary: string }[] = [
+export const AGENT_PIN_ARGS: readonly { arg: string; pkg: string; binary: string }[] = [
   { arg: "CMUX_IMAGE_CLAUDE_CODE_VERSION", pkg: "@anthropic-ai/claude-code", binary: "claude" },
   { arg: "CMUX_IMAGE_CODEX_VERSION", pkg: "@openai/codex", binary: "codex" },
   { arg: "CMUX_IMAGE_OPENCODE_VERSION", pkg: "opencode-ai", binary: "opencode" },
@@ -281,6 +281,47 @@ export function readDevboxDockerfile(): string {
   return readFileSync(devboxDockerfilePath, "utf8");
 }
 
+/** An exact npm release: `x.y.z`, never a range, a tag, or a prerelease. */
+export const EXACT_AGENT_PIN = /^\d+\.\d+\.\d+$/;
+
+/**
+ * Rewrites the Dockerfile's `ARG CMUX_IMAGE_<TOOL>_VERSION=` lines to
+ * `versions` (keyed by npm package), leaving every other byte alone. The one
+ * sanctioned way to bump a pin (`bun run devbox:pins:check --write`): a pin is
+ * an exact release, a package the Dockerfile does not bake is a mistake, and
+ * a missing ARG line means the recipe no longer matches this table.
+ */
+export function rewriteDevboxAgentPins(dockerfile: string, versions: Record<string, string>): string {
+  let next = dockerfile;
+  for (const [pkg, version] of Object.entries(versions)) {
+    const pin = AGENT_PIN_ARGS.find((candidate) => candidate.pkg === pkg);
+    if (!pin) throw new Error(`${pkg} is not a devbox agent pin (${AGENT_PIN_ARGS.map((row) => row.pkg).join(", ")})`);
+    if (!EXACT_AGENT_PIN.test(version)) throw new Error(`${pkg}: ${version} is not an exact x.y.z release`);
+    const line = new RegExp(`^ARG ${pin.arg}=\\S+$`, "m");
+    if (!line.test(next)) throw new Error(`devbox Dockerfile is missing ARG ${pin.arg}`);
+    next = next.replace(line, `ARG ${pin.arg}=${version}`);
+  }
+  return next;
+}
+
+export type AgentPinDrift = {
+  readonly pkg: string;
+  readonly binary: string;
+  readonly pinned: string;
+  readonly latest: string;
+  /** The registry's latest is not the pin (a newer release, or a pin ahead of a yanked latest). */
+  readonly behind: boolean;
+};
+
+/** Pins next to the registry's current release; `latest` is keyed by npm package. */
+export function agentPinDrift(pins: readonly AgentPin[], latest: Readonly<Record<string, string>>): AgentPinDrift[] {
+  return pins.map((pin) => {
+    const current = latest[pin.pkg];
+    if (!current) throw new Error(`no registry version for ${pin.pkg}`);
+    return { pkg: pin.pkg, binary: pin.binary, pinned: pin.version, latest: current, behind: current !== pin.version };
+  });
+}
+
 /** The cua computer-use driver pin, from the Dockerfile (never a second copy). */
 export function devboxCuaDriverVersion(dockerfile = readDevboxDockerfile()): string {
   const version = /CUA_DRIVER_RS_VERSION=(\S+)/.exec(dockerfile)?.[1];
@@ -291,6 +332,51 @@ export function devboxCuaDriverVersion(dockerfile = readDevboxDockerfile()): str
 export function devboxImageEpoch(dockerfile = readDevboxDockerfile()): string {
   return /CMUX_IMAGE_EPOCH=([^\s"]+)/.exec(dockerfile)?.[1] ?? "none";
 }
+
+/**
+ * Everything the Freestyle bake takes from this checkout for an image with
+ * `layers` (the shell layer for `base`, plus the desktop layer for
+ * `desktop`): the files shipped verbatim (sha256 each, the desktop files by
+ * their DEVBOX_DESKTOP_INSTALLS path), the pins the Dockerfile ARGs carry
+ * (agents, cua-driver, the Ghostty .deb, the desktop apt list) and the
+ * epoch. Dockerfile prose is deliberately not part of it: a comment cannot
+ * change a machine. `devboxSourceDigest` is its sha256, recorded on every
+ * manifest entry at bake time so `devboxSourceDriftProblems` can tell when
+ * main describes a machine the promoted default no longer is.
+ */
+export function devboxSourceManifest(layers: DevboxImageKind, dockerfile = readDevboxDockerfile()): Record<string, unknown> {
+  const files = Object.fromEntries(
+    DEVBOX_TEMPLATE_FILES.filter((name) => name !== "Dockerfile").map((name) => [name, sha256File(path.join(devboxDir, name))]),
+  );
+  const shell = {
+    schema: 1,
+    layers,
+    epoch: devboxImageEpoch(dockerfile),
+    agentPins: Object.fromEntries(devboxAgentPins(dockerfile).map((pin) => [pin.pkg, pin.version])),
+    cuaDriver: devboxCuaDriverVersion(dockerfile),
+    ghosttyVersion: devboxGhosttyVersion(dockerfile),
+    files,
+  };
+  if (layers === "base") return shell;
+  return {
+    ...shell,
+    ghosttyDeb: { url: devboxGhosttyDebUrl(dockerfile), sha256: devboxGhosttyDebSha256(dockerfile) },
+    desktopPackages: devboxDesktopPackages(dockerfile),
+    desktopFiles: Object.fromEntries(
+      DEVBOX_DESKTOP_INSTALLS.map((install) => [install.source, sha256File(path.join(devboxDir, install.source))]),
+    ),
+  };
+}
+
+export function devboxSourceDigest(layers: DevboxImageKind, dockerfile = readDevboxDockerfile()): string {
+  return createHash("sha256").update(JSON.stringify(devboxSourceManifest(layers, dockerfile))).digest("hex");
+}
+
+/** Which layers an image carries and the digest of the sources they were baked from. */
+export type DevboxSourceRecord = {
+  readonly layers: DevboxImageKind;
+  readonly digest: string;
+};
 
 export function devboxTemplateFile(name: string): string {
   return readFileSync(path.join(devboxDir, name), "utf8");
@@ -516,11 +602,13 @@ export type DevboxBakeMetadata = {
   readonly repoCommit: string;
   readonly builderScriptVersion: string;
   readonly agentToolResolvedVersions: Record<string, string>;
+  readonly devboxSource: DevboxSourceRecord;
 };
 
 export function bakeMetadata(
   preflight: { sha: string; epoch: string },
   builderScriptPath: string,
+  layers: DevboxImageKind,
 ): DevboxBakeMetadata {
   return {
     builtAt: new Date().toISOString(),
@@ -530,6 +618,7 @@ export function bakeMetadata(
     agentToolResolvedVersions: Object.fromEntries(
       devboxAgentPins().map((pin) => [pin.pkg, pin.version]),
     ),
+    devboxSource: { layers, digest: devboxSourceDigest(layers) },
   };
 }
 
@@ -561,6 +650,10 @@ export type DevboxManifestEntry = {
   cmuxTuiSha256?: string;
   /** The cmux commit whose devbox definition produced this image. */
   repoCommit?: string;
+  /** The Dockerfile's CMUX_IMAGE_EPOCH at bake time; older entries carry it in `notes` only (see manifestEntryEpoch). */
+  epoch?: string;
+  /** The layers the image carries and the digest of the sources they were baked from (devboxSourceDigest). Absent on older entries. */
+  devboxSource?: DevboxSourceRecord;
   builtAt: string;
   builderScriptVersion: string;
   agentToolResolvedVersions: Record<string, string>;
@@ -587,6 +680,8 @@ export function manifestEntrySkeleton(
     // artifacts manifest; no cmuxd-remote build is baked.
     cmuxdRemoteCommit: "none-cmux-tui",
     repoCommit: metadata.repoCommit,
+    epoch: metadata.epoch,
+    devboxSource: metadata.devboxSource,
     builtAt: metadata.builtAt,
     builderScriptVersion: metadata.builderScriptVersion,
     agentToolResolvedVersions: metadata.agentToolResolvedVersions,
@@ -858,6 +953,52 @@ export function devboxImageLadderProblems(
     const local = localDefaults[0];
     if ((local.kind ?? "base") !== "base" || local.size?.name !== "sm" || !local.defaultForKind) {
       problems.push(`${local.version}: defaultForLocalDev must be the base sm default`);
+    }
+  }
+  return problems;
+}
+
+
+/** The epoch an entry was baked at: the field, or the `cmux devbox epoch <x>` prefix every bake writes into `notes`. */
+export function manifestEntryEpoch(entry: Pick<DevboxManifestEntry, "epoch" | "notes">): string | undefined {
+  return entry.epoch ?? /cmux devbox epoch (\S+)/.exec(entry.notes ?? "")?.[1];
+}
+
+/**
+ * The invariant that makes the checked-in manifest describe the machine
+ * users get: every default of `provider` was baked at the Dockerfile's
+ * current CMUX_IMAGE_EPOCH (a bumped epoch without a promotion, or a
+ * rollback to an older ladder without reverting the sources, fails), and an
+ * entry that recorded its source digest was baked from exactly the files and
+ * pins in this checkout (a template or pin change without a re-promotion
+ * fails). Rollback therefore reverts the promotion commit as a whole, sources
+ * included, never the manifest flags alone. Entries without a digest predate
+ * the record and are held to the epoch only.
+ */
+export function devboxSourceDriftProblems(
+  manifest: DevboxImageManifest,
+  provider: DevboxProvider = "freestyle",
+  dockerfile = readDevboxDockerfile(),
+): string[] {
+  const problems: string[] = [];
+  const epoch = devboxImageEpoch(dockerfile);
+  const digests = new Map<DevboxImageKind, string>();
+  for (const entry of manifest.images) {
+    if (entry.provider !== provider || !entry.defaultForKind) continue;
+    const bakedEpoch = manifestEntryEpoch(entry);
+    if (bakedEpoch !== epoch) {
+      problems.push(`${entry.version}: baked at devbox epoch ${bakedEpoch ?? "(unknown)"}, the Dockerfile is at ${epoch}; promote a new bake or revert the sources with the manifest`);
+    }
+    const source = entry.devboxSource;
+    if (!source) continue;
+    if (source.layers !== "desktop" && source.layers !== "base") {
+      problems.push(`${entry.version}: devboxSource.layers ${String(source.layers)} is not desktop|base`);
+      continue;
+    }
+    const current = digests.get(source.layers) ?? devboxSourceDigest(source.layers, dockerfile);
+    digests.set(source.layers, current);
+    if (source.digest !== current) {
+      problems.push(`${entry.version}: baked from devbox sources ${source.digest.slice(0, 12)}…, this checkout's ${source.layers} sources are ${current.slice(0, 12)}…; promote a new bake or revert the sources with the manifest`);
     }
   }
   return problems;

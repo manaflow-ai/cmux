@@ -82,6 +82,9 @@ const CHECKS: readonly string[] = [
   "grep -q AGENT_BROWSER_EXECUTABLE_PATH /etc/profile.d/cmux-media.sh && echo media-profile-ok",
   "cua-driver --version",
   "ffmpeg -version | head -1 && command -v Xvfb && command -v xdpyinfo && command -v xdotool",
+  // codex's Linux sandbox prerequisite: without the distro bwrap, codex warns
+  // on every launch that it is falling back to its bundled copy.
+  "bwrap --version && echo bubblewrap-ok",
   // Baked files are byte-identical to this checkout.
   ...FILE_PIN_CHECKS,
   // Devshell: ble.sh installed, bashrc chained, tmux pinned to bash, seed
@@ -187,6 +190,42 @@ const desktopChecks = (): readonly string[] => [
   "test -s /etc/cmux/icons/google-chrome.png && test -s /etc/cmux/icons/thunar.png && test -s /etc/cmux/icons/ghostty.png && echo dock-icons-ok",
   `test -x ${DEVBOX_DESKTOP_START_SCRIPT} && grep -q '/etc/cmux/desktop-env.sh' /etc/profile.d/cmux-desktop.sh && grep -q '/etc/cmux/desktop-env.sh' ${DEVBOX_DESKTOP_HOME}/.bashrc && grep -q '/etc/cmux/desktop-env.sh' /root/.bashrc && echo desktop-env-chained`,
   ...desktopFilePinChecks(),
+];
+
+/**
+ * The first interactive launch of a coding agent reaches its prompt: every
+ * first-run gate the image seeds (claude: onboarding, folder trust, the
+ * bypass-permissions confirmation, the custom-API-key consent, the root gate;
+ * codex: folder trust, the startup update picker, the bubblewrap warning) is
+ * proven closed by launching the real TUI in a tmux pty as `user` and waiting
+ * for `marker`, the text only the ready composer shows. The pane must then
+ * carry none of the `forbidden` gate texts. Readiness is the marker itself,
+ * polled, never a fixed delay; the wait is bounded at 90 s. Runs in a login
+ * shell so the agent-config exports (CLAUDE_CODE_SANDBOXED, IS_SANDBOX,
+ * DISABLE_AUTOUPDATER, the codex() trust wrapper) apply, exactly as a pane
+ * or SSH login gets them; the launch itself is the seeded history command.
+ */
+const agentLaunchCheck = (
+  user: string,
+  home: string,
+  label: string,
+  command: string,
+  marker: string,
+  forbidden: string,
+): string =>
+  `sudo -n -u ${user} env -i HOME=${home} USER=${user} TERM=xterm-256color PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -lc 'cd "$HOME" && tmux -L ${label} new-session -d -s g -x 140 -y 40 "${command}" && for i in $(seq 1 90); do pane="$(tmux -L ${label} capture-pane -pt g)"; printf "%s\\n" "$pane" | grep -q "${marker}" && break; sleep 1; done; tmux -L ${label} kill-server 2>/dev/null; printf "%s\\n" "$pane" | grep -q "${marker}" || { printf "%s\\n" "$pane"; echo "no ${marker} within 90 s"; exit 1; }; printf "%s\\n" "$pane" | grep -Eiq "${forbidden}" && { printf "%s\\n" "$pane"; echo "first-run gate still up"; exit 1; }; echo ${label}-ok'`;
+const CLAUDE_LAUNCH_MARKER = "bypass permissions on";
+const CLAUDE_GATE_TEXTS = "Do you trust|Detected a custom API key|text style that looks best|Yes, I accept|cannot be used with root|Select login method";
+const CODEX_LAUNCH_MARKER = "Ask Codex to do anything";
+const CODEX_GATE_TEXTS = "Do you trust|new version|bubblewrap|sandbox prerequisites|Sign in with ChatGPT";
+const AGENT_LAUNCH_CHECKS: readonly string[] = [
+  agentLaunchCheck("root", "/root", "claude-root-launch", "claude --dangerously-skip-permissions", CLAUDE_LAUNCH_MARKER, CLAUDE_GATE_TEXTS),
+  agentLaunchCheck(DEVBOX_DESKTOP_USER, DEVBOX_DESKTOP_HOME, "claude-ubuntu-launch", "claude --dangerously-skip-permissions", CLAUDE_LAUNCH_MARKER, CLAUDE_GATE_TEXTS),
+  agentLaunchCheck("root", "/root", "codex-root-launch", "codex", CODEX_LAUNCH_MARKER, CODEX_GATE_TEXTS),
+  agentLaunchCheck(DEVBOX_DESKTOP_USER, DEVBOX_DESKTOP_HOME, "codex-ubuntu-launch", "codex", CODEX_LAUNCH_MARKER, CODEX_GATE_TEXTS),
+  // Nothing a launch wrote in the work user's home may be root-owned (the
+  // root probes ran with HOME=/root, never the work user's home).
+  `[ "$(find ${DEVBOX_DESKTOP_HOME} -not -user ${DEVBOX_DESKTOP_USER} | wc -l)" = 0 ] && echo home-still-owned-by-${DEVBOX_DESKTOP_USER}`,
 ];
 
 // Freestyle: the work user is the base's `ubuntu` (uid 1000, passwordless
@@ -401,6 +440,7 @@ if (provider === "freestyle") {
       ...CHECKS,
       ...DAEMON_CHECKS,
       ...FREESTYLE_BASE_CHECKS,
+      ...AGENT_LAUNCH_CHECKS,
       ...IDENTITY_CHECKS,
       ...(desktop
         ? desktopChecks()

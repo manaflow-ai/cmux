@@ -1,8 +1,16 @@
 import { describe, expect, test } from "bun:test";
+import path from "node:path";
 import {
+  bakeMetadata,
+  devboxImageEpoch,
   devboxImageLadderProblems,
+  devboxSourceDigest,
+  devboxSourceDriftProblems,
   imageManifestProblems,
+  manifestEntryEpoch,
+  manifestEntrySkeleton,
   promoteImageManifestEntry,
+  readDevboxDockerfile,
   readImageManifest,
   type DevboxImageManifest,
   type DevboxManifestEntry,
@@ -24,7 +32,7 @@ const passedEntry = (overrides: Partial<DevboxManifestEntry> = {}): DevboxManife
   repoCommit: "abc123",
   builtAt: "2026-09-02T00:00:00.000Z",
   builderScriptVersion: "deadbeef",
-  agentToolResolvedVersions: { "@anthropic-ai/claude-code": "2.1.252" },
+  agentToolResolvedVersions: { "@anthropic-ai/claude-code": "2.1.267" },
   validationStatus: "passed",
   notes: "cmux devbox epoch test",
   ...overrides,
@@ -46,6 +54,92 @@ describe("checked-in image manifest", () => {
 
   test("has a complete, shape-correct base and desktop ladder", () => {
     expect(devboxImageLadderProblems(readImageManifest())).toEqual([]);
+  });
+
+  test("every default was baked from this checkout's devbox sources", () => {
+    // The manifest is the only source of truth for the image users get, so
+    // main must not describe a machine the promoted default is not: every
+    // default carries the Dockerfile's CMUX_IMAGE_EPOCH and, once recorded,
+    // the digest of the files and pins the bake took from this checkout. A
+    // pin or template change lands together with its promotion, and a
+    // rollback reverts the promotion commit whole (sources included).
+    expect(devboxSourceDriftProblems(readImageManifest())).toEqual([]);
+  });
+});
+
+describe("devboxSourceDriftProblems", () => {
+  const dockerfile = readDevboxDockerfile();
+  const epoch = devboxImageEpoch(dockerfile);
+  const current = (layers: "desktop" | "base", overrides: Partial<DevboxManifestEntry> = {}): DevboxManifestEntry =>
+    passedEntry({
+      kind: layers,
+      defaultForKind: true,
+      epoch,
+      devboxSource: { layers, digest: devboxSourceDigest(layers, dockerfile) },
+      notes: `cmux devbox epoch ${epoch}`,
+      ...overrides,
+    });
+  const manifestOf = (...images: DevboxManifestEntry[]): DevboxImageManifest => ({ schemaVersion: 1, images });
+
+  test("accepts defaults at the current epoch and digest, and ignores non-defaults and other providers", () => {
+    expect(devboxSourceDriftProblems(manifestOf(current("desktop"), current("base", { version: "b" })))).toEqual([]);
+    expect(
+      devboxSourceDriftProblems(
+        manifestOf(
+          current("desktop"),
+          passedEntry({ version: "old", imageId: "sh-old", defaultForKind: false, epoch: "1999-01-01-r1" }),
+          passedEntry({ version: "e2b", provider: "e2b" as unknown as DevboxManifestEntry["provider"], defaultForKind: true, epoch: "1999-01-01-r1" }),
+        ),
+      ),
+    ).toEqual([]);
+  });
+
+  test("flags a default baked at another epoch, read from the field or from the notes", () => {
+    const stale = devboxSourceDriftProblems(manifestOf(current("desktop", { epoch: "1999-01-01-r1" })));
+    expect(stale).toHaveLength(1);
+    expect(stale[0]).toContain("baked at devbox epoch 1999-01-01-r1");
+    expect(stale[0]).toContain(`the Dockerfile is at ${epoch}`);
+    // Older entries carry the epoch only in `notes`; a promoted ladder from before
+    // an epoch bump is the exact case this catches.
+    const legacy = passedEntry({ kind: "base", defaultForKind: true, notes: "cmux devbox epoch 1999-01-01-r1 Devbox on Freestyle." });
+    expect(manifestEntryEpoch(legacy)).toBe("1999-01-01-r1");
+    expect(devboxSourceDriftProblems(manifestOf(legacy))).toHaveLength(1);
+    expect(devboxSourceDriftProblems(manifestOf(passedEntry({ kind: "base", defaultForKind: true, notes: `cmux devbox epoch ${epoch}` })))).toEqual([]);
+    expect(manifestEntryEpoch(passedEntry({ notes: "no epoch here" }))).toBeUndefined();
+  });
+
+  test("flags a default whose recorded source digest is not this checkout's, per layer set", () => {
+    const drifted = devboxSourceDriftProblems(manifestOf(current("desktop", { devboxSource: { layers: "desktop", digest: "0".repeat(64) } })));
+    expect(drifted).toHaveLength(1);
+    expect(drifted[0]).toContain("baked from devbox sources 000000000000");
+    // A desktop image promoted as the base kind is held to the desktop sources it was baked from.
+    expect(devboxSourceDriftProblems(manifestOf(current("base", { devboxSource: { layers: "desktop", digest: devboxSourceDigest("desktop", dockerfile) } })))).toEqual([]);
+    expect(devboxSourceDriftProblems(manifestOf(current("base", { devboxSource: { layers: "desktop", digest: devboxSourceDigest("base", dockerfile) } })))).toHaveLength(1);
+    expect(devboxSourceDriftProblems(manifestOf(current("base", { devboxSource: { layers: "vnc" as "base", digest: "x" } })))[0]).toContain("is not desktop|base");
+    // A Dockerfile change is what makes the checkout drift from the default.
+    const bumped = dockerfile.replace(/^ENV CMUX_IMAGE_EPOCH=.*$/m, "ENV CMUX_IMAGE_EPOCH=2099-01-01-r1");
+    const problems = devboxSourceDriftProblems(manifestOf(current("desktop")), "freestyle", bumped);
+    expect(problems.some((problem) => problem.includes("baked at devbox epoch"))).toBe(true);
+    expect(problems.some((problem) => problem.includes("baked from devbox sources"))).toBe(true);
+  });
+
+  test("the bake records the epoch and the source digest, and promotion carries them onto every variant", () => {
+    const metadata = bakeMetadata({ sha: "abc123", epoch }, path.join(import.meta.dirname, "../scripts/build-devbox-freestyle.ts"), "desktop");
+    expect(metadata.devboxSource).toEqual({ layers: "desktop", digest: devboxSourceDigest("desktop", dockerfile) });
+    const entry = manifestEntrySkeleton("freestyle", "freestyle-x", "sh-x", "FREESTYLE_SANDBOX_SNAPSHOT", metadata, "", "desktop");
+    expect(entry).toMatchObject({ epoch, devboxSource: metadata.devboxSource, validationStatus: "unknown" });
+    const promoted = promoteImageManifestEntry(manifestOf(), { ...entry, validationStatus: "passed" }, {
+      kinds: ["desktop", "base"],
+      sizes: [
+        { imageId: "sh-x-sm", size: { name: "sm", cpu: 2, memoryMb: 4096, storageMb: 16384 } },
+        { imageId: "sh-x-md", size: { name: "md", cpu: 4, memoryMb: 8192, storageMb: 32768 } },
+      ],
+    });
+    expect(promoted.images).toHaveLength(4);
+    for (const row of promoted.images) {
+      expect(row).toMatchObject({ epoch, devboxSource: metadata.devboxSource, defaultForKind: true });
+    }
+    expect(devboxSourceDriftProblems(promoted)).toEqual([]);
   });
 });
 

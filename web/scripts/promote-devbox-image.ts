@@ -56,6 +56,7 @@ import {
   bakeMetadata,
   bakePreflight,
   defaultBakeTag,
+  devboxSourceDriftProblems,
   hasFlag,
   imageManifestPath,
   imageManifestProblems,
@@ -126,7 +127,7 @@ if (bakeResultPath) {
   console.log(`adopting bake result ${bakeResultPath}: ${imageId}`);
 } else if (existingImage) {
   const preflight = bakePreflight({ desktop: withDesktop });
-  const metadata = bakeMetadata(preflight, path.join(scriptsDir, `build-devbox-${provider}.ts`));
+  const metadata = bakeMetadata(preflight, path.join(scriptsDir, `build-devbox-${provider}.ts`), withDesktop ? "desktop" : "base");
   imageId = existingImage;
   entry = manifestEntrySkeleton(
     provider,
@@ -209,7 +210,11 @@ const manifest = readImageManifest();
 const next = skipVerify
   ? { ...manifest, images: [...manifest.images, { ...entry, kind: kinds[0], notes: [entry.notes, validationNotes].filter(Boolean).join(" ") }] }
   : promoteImageManifestEntry(manifest, entry, { kinds, sizes, validationNotes });
-const problems = imageManifestProblems(next);
+// The manifest must keep describing the machine users get: the new defaults
+// carry this checkout's epoch and source digest, so a stale bake (an --image
+// baked before a Dockerfile change, an epoch bumped after the bake) is refused
+// here rather than caught by CI after the PR is open.
+const problems = [...imageManifestProblems(next), ...(skipVerify ? [] : devboxSourceDriftProblems(next))];
 if (problems.length > 0) {
   throw new Error(`refusing to write an inconsistent manifest:\n  ${problems.join("\n  ")}`);
 }

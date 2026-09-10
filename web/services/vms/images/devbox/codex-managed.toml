@@ -13,7 +13,8 @@
 #
 # check_for_update_on_startup: the binary is image-baked, so the startup
 # update prompt (a blocking picker before the composer, seen live on 0.151.0)
-# can only advertise versions the image cannot install.
+# can only advertise versions the image cannot install. New codex releases
+# ship by rebake (`bun run devbox:pins:check --write` in web/, then promote).
 check_for_update_on_startup = false
 
 [projects."/root"]

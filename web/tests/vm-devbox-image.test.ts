@@ -10,7 +10,18 @@ import {
   CMUX_TUI_SESSION,
   cmuxTuiDaemonCommand,
 } from "../services/vms/drivers/cmuxTuiDaemon";
-import { DEVBOX_TEMPLATE_FILES, devboxAgentPins, devboxCuaDriverVersion, devboxGhosttyVersion, devboxParkDaemonCommand } from "../scripts/devbox-image-common";
+import {
+  AGENT_PIN_ARGS,
+  DEVBOX_TEMPLATE_FILES,
+  agentPinDrift,
+  devboxAgentPins,
+  devboxCuaDriverVersion,
+  devboxGhosttyVersion,
+  devboxParkDaemonCommand,
+  devboxSourceDigest,
+  devboxSourceManifest,
+  rewriteDevboxAgentPins,
+} from "../scripts/devbox-image-common";
 
 // Contract tests for the shared cmux Cloud devbox image template
 // (services/vms/images/devbox), consumed by build-devbox-freestyle.ts,
@@ -366,6 +377,77 @@ describe("devbox image template", () => {
     // The Freestyle replay reads the pin through the helper, never a second copy.
     expect(readScript("build-devbox-freestyle.ts")).toContain("CUA_DRIVER_RS_VERSION=${cuaVersion}");
     expect(readScript("build-devbox-freestyle.ts")).toContain("devboxCuaDriverVersion()");
+  });
+
+  test("agent pins are bumped through the rewrite helper, exactly and only for baked packages", () => {
+    // `bun run devbox:pins:check --write` is the one sanctioned way to bump a
+    // pin: it rewrites the ARG line and nothing else, refuses ranges, tags and
+    // packages the image does not bake, and fails on a Dockerfile whose ARG
+    // table no longer matches.
+    const pins = devboxAgentPins(dockerfile);
+    const bumped = Object.fromEntries(pins.map((pin) => [pin.pkg, `${pin.version}9`]));
+    const rewritten = rewriteDevboxAgentPins(dockerfile, bumped);
+    expect(devboxAgentPins(rewritten).map((pin) => [pin.pkg, pin.version])).toEqual(Object.entries(bumped));
+    // Every other byte survives: revert the pins and the file is byte-identical.
+    expect(rewriteDevboxAgentPins(rewritten, Object.fromEntries(pins.map((pin) => [pin.pkg, pin.version])))).toBe(dockerfile);
+    expect(rewriteDevboxAgentPins(dockerfile, {})).toBe(dockerfile);
+    for (const bad of ["^2.1.0", "latest", "2.1", "2.1.0-beta.1"]) {
+      expect(() => rewriteDevboxAgentPins(dockerfile, { "@openai/codex": bad })).toThrow(/not an exact x\.y\.z release/);
+    }
+    expect(() => rewriteDevboxAgentPins(dockerfile, { "left-pad": "1.0.0" })).toThrow(/not a devbox agent pin/);
+    expect(() => rewriteDevboxAgentPins("FROM ubuntu:24.04\n", { "@openai/codex": "1.0.0" })).toThrow(/missing ARG CMUX_IMAGE_CODEX_VERSION/);
+    // The drift report keys by package and flags any pin that is not the registry's latest.
+    const latest = Object.fromEntries(pins.map((pin) => [pin.pkg, pin.version]));
+    expect(agentPinDrift(pins, latest).every((row) => !row.behind)).toBe(true);
+    const codex = pins.find((pin) => pin.pkg === "@openai/codex")!;
+    const drift = agentPinDrift(pins, { ...latest, "@openai/codex": `${codex.version}9` });
+    expect(drift.filter((row) => row.behind).map((row) => row.pkg)).toEqual(["@openai/codex"]);
+    expect(() => agentPinDrift(pins, {})).toThrow(/no registry version/);
+    expect(AGENT_PIN_ARGS.map((row) => row.binary)).toEqual(["claude", "codex", "opencode", "pi", "agent-browser"]);
+  });
+
+  test("the source digest covers what the Freestyle bake takes from this checkout, per layer set", () => {
+    const base = devboxSourceManifest("base", dockerfile);
+    const desktop = devboxSourceManifest("desktop", dockerfile);
+    // Pins, epoch and the verbatim files: a pin bump, an epoch bump, or a
+    // template edit each changes the digest; Dockerfile prose does not.
+    expect(base).toMatchObject({ schema: 1, layers: "base", agentPins: Object.fromEntries(devboxAgentPins(dockerfile).map((pin) => [pin.pkg, pin.version])) });
+    expect(Object.keys(base.files as Record<string, string>).sort()).toEqual([...DEVBOX_TEMPLATE_FILES].filter((name) => name !== "Dockerfile").sort());
+    expect(base).not.toHaveProperty("desktopFiles");
+    expect(desktop).toHaveProperty("desktopFiles");
+    expect(desktop).toHaveProperty("desktopPackages");
+    expect(devboxSourceDigest("base", dockerfile)).not.toBe(devboxSourceDigest("desktop", dockerfile));
+    expect(devboxSourceDigest("base", dockerfile)).toBe(devboxSourceDigest("base", `${dockerfile}\n# a comment changes no machine\n`));
+    const codex = devboxAgentPins(dockerfile).find((pin) => pin.pkg === "@openai/codex")!;
+    expect(devboxSourceDigest("base", rewriteDevboxAgentPins(dockerfile, { "@openai/codex": `${codex.version}9` }))).not.toBe(devboxSourceDigest("base", dockerfile));
+    expect(devboxSourceDigest("base", dockerfile.replace(/^ENV CMUX_IMAGE_EPOCH=.*$/m, "ENV CMUX_IMAGE_EPOCH=1999-01-01-r1"))).not.toBe(devboxSourceDigest("base", dockerfile));
+    // Both bake entry points record the digest for the layers they baked.
+    expect(readScript("build-devbox-freestyle.ts")).toContain('bakeMetadata(preflight, fileURLToPath(import.meta.url), withDesktop ? "desktop" : "base")');
+    expect(readScript("promote-devbox-image.ts")).toContain("devboxSourceDriftProblems(next)");
+    expect(readScript("validate-devbox-ladder.ts")).toContain("devboxSourceDriftProblems(manifest)");
+  });
+
+  test("codex's Linux sandbox prerequisite is installed and the first agent launch is verified", () => {
+    // bubblewrap: without the distro bwrap, codex 0.151+ warns on every
+    // launch that it is falling back to its bundled copy (seen live on the
+    // termid ladder, 2026-09-09). Both recipes install it and prove it.
+    expect(dockerfile).toContain("    bubblewrap \\");
+    expect(dockerfile).toContain("bwrap --version");
+    const bake = readScript("build-devbox-freestyle.ts");
+    expect(bake).toContain("util-linux bubblewrap");
+    expect(bake).toContain("bwrap --version");
+    // The verifier launches the real claude and codex TUIs as root and as the
+    // work user and requires the ready composer with no first-run gate text.
+    const verify = readScript("verify-devbox-image.ts");
+    expect(verify).toContain("bubblewrap-ok");
+    for (const label of ["claude-root-launch", "claude-ubuntu-launch", "codex-root-launch", "codex-ubuntu-launch"]) {
+      expect(verify).toContain(`"${label}"`);
+    }
+    expect(verify).toContain('const CLAUDE_LAUNCH_MARKER = "bypass permissions on"');
+    expect(verify).toContain('const CODEX_LAUNCH_MARKER = "Ask Codex to do anything"');
+    expect(verify).toContain("...AGENT_LAUNCH_CHECKS,");
+    // Readiness is polled on the marker, never a fixed sleep-then-read.
+    expect(verify).toContain("for i in $(seq 1 90); do pane=");
   });
 
   test("one public-platform SDK serves the bake, the verifier, and the driver", () => {
