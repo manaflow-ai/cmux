@@ -48,11 +48,13 @@ final class NewMachineSheetKindUITests: XCTestCase {
         // A segment's selection shows as its accessibility value (1 = on);
         // the summary under the picker is the user-visible witness of the
         // selection, so it is what the assertions rest on.
-        // Scope every query to the sheet: the main window behind it holds a
-        // terminal whose accessibility tree is large, and whole-app text
-        // predicates against it time out.
-        let sheet = app.sheets.firstMatch
-        let scope: XCUIElement = sheet.waitForExistence(timeout: 8.0) ? sheet : app
+        // The sheet is attached to the main window (`NSWindow.beginSheet`), and
+        // every query is scoped to it: the window behind it holds a terminal
+        // whose accessibility tree is large, and whole-app text predicates
+        // against it time out. No fallback to the whole app: a picker found
+        // anywhere else would not be this sheet.
+        let scope = app.sheets.firstMatch
+        XCTAssertTrue(scope.waitForExistence(timeout: 8.0), "Expected the New Machine sheet on the main window")
         let desktop = scope.radioButtons["Desktop"]
         let base = scope.radioButtons["Base"]
         if !desktop.waitForExistence(timeout: 8.0) {
