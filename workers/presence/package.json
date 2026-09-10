@@ -8,7 +8,8 @@
     "test": "bun test",
     "typecheck": "tsgo --noEmit && tsgo --noEmit -p tsconfig.test.json && tsgo --noEmit -p tsconfig.e2e.json",
     "relay-catalog:check": "bun ../../web/tools/generate-managed-iroh-relay-catalog.ts --check",
-    "check": "bun run relay-catalog:check && bun run db:check && bun run typecheck && bun test && bun run test:e2e && wrangler deploy --dry-run --outdir dist",
+    "boundary:check": "bash ../../scripts/check-presence-boundary.sh",
+    "check": "bun run relay-catalog:check && bun run boundary:check && bun run db:check && bun run typecheck && bun test && bun run test:e2e && wrangler deploy --dry-run --outdir dist",
     "test:e2e": "node e2e/account.test.mjs",
     "db:check": "drizzle-kit check --config drizzle.config.ts",
     "db:generate": "drizzle-kit generate --config drizzle.config.ts"
