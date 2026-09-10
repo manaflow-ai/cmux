@@ -1,6 +1,8 @@
 import * as Effect from "effect/Effect";
+import * as Cause from "effect/Cause";
+import * as Option from "effect/Option";
 import { createAuroraOperatorPool } from "./aurora-operator.mjs";
-import { cleanupIrohChallenges } from "./iroh-challenge-cleanup";
+import { cleanupIrohChallenges, IrohChallengeCleanupError } from "./iroh-challenge-cleanup";
 import { loadTargetEnv, parseWebDirAndTarget } from "./projects.mjs";
 
 const usage = "Usage: cleanup-iroh-challenges.ts [web-dir] <staging|production> [--apply]";
@@ -19,6 +21,9 @@ const program = Effect.acquireUseRelease(
 const result = await Effect.runPromiseExit(program);
 if (result._tag === "Failure") {
   // Do not render nested SDK/SQL errors: they can contain credentials or rows.
-  console.error("Iroh challenge cleanup did not complete. Check operator AWS authentication and database access; committed batches are safe to rerun.");
+  const error = Cause.failureOption(result.cause);
+  console.error(Option.isSome(error) && error.value instanceof IrohChallengeCleanupError
+    ? error.value.message
+    : "Iroh challenge cleanup did not complete. Check operator AWS authentication and database access; committed batches are safe to rerun.");
   process.exitCode = 1;
 }

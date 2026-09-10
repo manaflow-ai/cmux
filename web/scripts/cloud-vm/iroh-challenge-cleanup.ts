@@ -8,13 +8,19 @@ type CleanupOptions = {
   readonly maxDurationMs?: number;
 };
 
+export class IrohChallengeCleanupError extends Error {
+  constructor(error: unknown) {
+    super(`Iroh challenge cleanup failed (${errorCode(error)}); committed batches can be safely rerun`);
+  }
+}
+
 // Operator-only data migration. Never import this from a route or app startup.
 // The deployed issuer owns the ongoing one-challenge-per-tuple invariant.
 export function cleanupIrohChallenges(pool: Pool, options: CleanupOptions = {}) {
   return Effect.tryPromise({
     try: () => runCleanup(pool, options),
     // PostgreSQL errors may contain row data. Report only the operation/code.
-    catch: (error) => new Error(`Iroh challenge cleanup failed (${errorCode(error)}); committed batches can be safely rerun`),
+    catch: (error) => new IrohChallengeCleanupError(error),
   });
 }
 

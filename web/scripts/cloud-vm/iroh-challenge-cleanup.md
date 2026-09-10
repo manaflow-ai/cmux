@@ -24,7 +24,9 @@ has a two-second lock timeout and five-second statement timeout; a run has a
 
 Output contains aggregate counts and allocated table/index bytes, never
 account IDs, challenge payloads, or credentials. Success requires zero
-expired, consumed, or duplicate pending rows as of the run's start time.
+expired or duplicate pending rows using the run's start time for expiry,
+and zero consumed rows at final verification, including rows consumed during
+the run.
 Registrations can continue throughout. If locked rows remain or old servers
 still create duplicates, the command fails verification and must be rerun.
 Ongoing bounded storage depends on keeping the replacement issuer deployed.

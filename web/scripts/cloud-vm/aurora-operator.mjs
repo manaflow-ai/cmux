@@ -16,6 +16,9 @@ export function createAuroraOperatorPool(webDir, env, label) {
   if (!Number.isInteger(pgPort) || pgPort <= 0 || pgPort > 65535) {
     throw new Error(`invalid PGPORT for ${label} maintenance: ${env.PGPORT}`);
   }
+  if (!parseBoolean(env.CMUX_DB_SSL_REJECT_UNAUTHORIZED, true)) {
+    throw new Error("Operator database connections require certificate validation");
+  }
 
   const authToken = execFileSync(process.env.AWS_CLI ?? "aws", [
     "rds",
@@ -36,7 +39,7 @@ export function createAuroraOperatorPool(webDir, env, label) {
     user: env.PGUSER,
     database: env.PGDATABASE,
     password: authToken,
-    ssl: { rejectUnauthorized: parseBoolean(env.CMUX_DB_SSL_REJECT_UNAUTHORIZED, true) },
+    ssl: { rejectUnauthorized: true },
     max: 1,
     connectionTimeoutMillis: 15_000,
   });

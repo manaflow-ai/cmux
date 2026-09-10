@@ -51,6 +51,8 @@ jobs:
 
       - name: Rehearse Iroh cleanup on isolated Postgres
         if: ${{ inputs.cleanup_iroh_challenges }}
+        # db:test discovers every CMUX_DB_TEST suite, including
+        # iroh-challenge-cleanup-db.test.ts (audit, apply, and rerun).
         run: bun run cloud-vm:preflight -- .
 
   migrate-staging:
