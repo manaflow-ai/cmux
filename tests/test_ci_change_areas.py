@@ -929,13 +929,15 @@ esac
 
 
 def test_remote_tmux_mirror_gate_reruns_a_suite_once_after_an_app_host_crash() -> None:
-    # The close suite crashes once and passes on its rerun; the placement
-    # suite then runs and passes, so the step is green with three invocations.
-    result, invocations = run_remote_tmux_mirror_step(["crash", "pass", "pass"])
+    # The close suite crashes once and passes on its rerun; the isolated focus
+    # and placement suites then pass, for four invocations in total.
+    result, invocations = run_remote_tmux_mirror_step(["crash", "pass", "pass", "pass"])
 
     assert result.returncode == 0, result.stdout + result.stderr
-    assert invocations == 3, result.stdout
+    assert invocations == 4, result.stdout
     assert "rerunning the suite once" in result.stdout
+    assert result.stdout.count("-only-testing:cmuxTests/RemoteTmuxMirrorCloseDetachTests") == 2
+    assert result.stdout.count("-only-testing:cmuxTests/RemoteTmuxMirrorFocusPolicyTests") == 1
     assert "cmuxTests/RemoteTmuxMirrorDedicatedPlacementTests" in result.stdout
 
 
