@@ -186,6 +186,7 @@ struct CLICodexHookTimeoutRegressionTests {
                 "CMUX_AGENT_HOOK_STATE_DIR": root.path,
                 "CMUX_CLI_SENTRY_DISABLED": "1",
                 "CMUX_CODEX_PID": "4242",
+                "CMUX_CODEX_HOOK_PID": "4242",
             ],
             standardInput: #"{"session_id":"codex-permission-session","cwd":"\#(root.path)","hook_event_name":"PermissionRequest","message":"approval required"}"#,
             timeout: 5
@@ -336,31 +337,24 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(waitForFile(capturedPID, containing: "4242", timeout: 1))
     }
 
-    @Test func codexFireAndForgetWatchdogReapsItsTimerProcess() throws {
+    @Test func codexInstalledPreToolUseUsesQueueAdmission() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-codex-watchdog-reap-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("cmux-codex-pre-tool-use-queue-\(UUID().uuidString)", isDirectory: true)
         let codexHome = root.appendingPathComponent(".codex", isDirectory: true)
-        let binDirectory = root.appendingPathComponent("bin", isDirectory: true)
-        let fakeCLI = binDirectory.appendingPathComponent("cmux", isDirectory: false)
-        let fakeSleep = binDirectory.appendingPathComponent("sleep", isDirectory: false)
-        let sleepPIDFile = root.appendingPathComponent("watchdog-sleep-pid.txt", isDirectory: false)
-        let childDoneFile = root.appendingPathComponent("hook-child-done.txt", isDirectory: false)
+        let fakeCLI = root.appendingPathComponent("cmux", isDirectory: false)
+        let capturedStdin = root.appendingPathComponent("hook-stdin.json", isDirectory: false)
+        let capturedArgs = root.appendingPathComponent("hook-args.txt", isDirectory: false)
+        let capturedPID = root.appendingPathComponent("hook-pid.txt", isDirectory: false)
         try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: binDirectory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
 
         try makeCodexHookExecutableShellFile(at: fakeCLI, lines: [
             "#!/bin/sh",
-            "cat >/dev/null",
-            "attempt=0",
-            "while [ ! -s \"$CMUX_TEST_SLEEP_PID\" ] && [ \"$attempt\" -lt 100 ]; do /bin/sleep 0.01; attempt=$((attempt + 1)); done",
-            "printf done > \"$CMUX_TEST_CHILD_DONE\"",
-        ])
-        try makeCodexHookExecutableShellFile(at: fakeSleep, lines: [
-            "#!/bin/sh",
-            "printf '%s\\n' \"$$\" > \"$CMUX_TEST_SLEEP_PID\"",
-            "exec /usr/bin/tail -f /dev/null",
+            "printf '%s\\n' \"$*\" > \"$CMUX_TEST_ARGS\"",
+            "printf '%s\\n' \"$CMUX_CODEX_PID\" > \"$CMUX_TEST_PID\"",
+            "cat > \"$CMUX_TEST_STDIN\"",
+            "printf '{}\\n'",
         ])
 
         let install = runCodexHookProcess(
@@ -375,39 +369,31 @@ struct CLICodexHookTimeoutRegressionTests {
         let command = try #require(
             codexHookEntries(in: codexHome).first { $0.eventName == "PreToolUse" }?.command
         )
+        let payload = #"{"session_id":"codex-session","hook_event_name":"PreToolUse","tool_name":"Bash"}"#
         let run = runCodexHookProcess(
             executablePath: "/bin/sh",
             arguments: ["-c", command],
             environment: [
                 "HOME": root.path,
-                "PATH": "\(binDirectory.path):/usr/bin:/bin:/usr/sbin:/sbin",
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
                 "TMPDIR": root.path,
                 "CMUX_SURFACE_ID": "surface-123",
                 "CMUX_BUNDLED_CLI_PATH": fakeCLI.path,
                 "CMUX_CODEX_PID": "4242",
-                "CMUX_TEST_SLEEP_PID": sleepPIDFile.path,
-                "CMUX_TEST_CHILD_DONE": childDoneFile.path,
+                "CMUX_TEST_STDIN": capturedStdin.path,
+                "CMUX_TEST_ARGS": capturedArgs.path,
+                "CMUX_TEST_PID": capturedPID.path,
             ],
-            standardInput: #"{"session_id":"codex-session","hook_event_name":"PreToolUse"}"#,
+            standardInput: payload,
             timeout: 2
         )
 
         #expect(!run.timedOut, Comment(rawValue: run.stderr))
         #expect(run.status == 0, Comment(rawValue: run.stderr))
         #expect(run.stdout == "{}\n")
-        #expect(waitForFile(sleepPIDFile, containing: "\n", timeout: 1))
-        #expect(waitForFile(childDoneFile, containing: "done", timeout: 1))
-
-        let sleepPIDText = try String(contentsOf: sleepPIDFile, encoding: .utf8)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let sleepPID = try #require(Int32(sleepPIDText))
-        defer { _ = Darwin.kill(sleepPID, SIGKILL) }
-        #expect(
-            waitForConditionBlocking(timeout: 1) {
-                Darwin.kill(sleepPID, 0) == -1 && errno == ESRCH
-            },
-            "The watchdog timer process \(sleepPID) outlived its completed hook invocation"
-        )
+        #expect(waitForFile(capturedStdin, containing: payload, timeout: 1))
+        #expect(waitForFile(capturedArgs, containing: "--socket /tmp/cmux-test.sock hooks enqueue codex pre-tool-use", timeout: 1))
+        #expect(waitForFile(capturedPID, containing: "4242", timeout: 1))
     }
 
     @Test func codexDisabledInstalledStopConsumesPayloadBeforeReturning() throws {

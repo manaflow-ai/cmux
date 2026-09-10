@@ -33954,8 +33954,13 @@ export default CMUXSessionRestore;
                     socketPassword: socketPassword
                 )
             } catch {
-                guard subcommand == "session-finalize" else { throw error }
-                telemetry.breadcrumb("\(def.name)-hook.session-finalize.barrier-failed")
+                if subcommand == "session-finalize" {
+                    telemetry.breadcrumb("\(def.name)-hook.session-finalize.barrier-failed")
+                } else if def.name == "codex" {
+                    telemetry.breadcrumb("codex-hook.notification.barrier-failed")
+                } else {
+                    throw error
+                }
             }
         }
 
