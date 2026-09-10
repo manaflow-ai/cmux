@@ -4364,9 +4364,8 @@ struct CMUXCLI {
         guard let gib = Int(number), (4...256).contains(gib), gib % 4 == 0 else { return nil }
         return gib * 1024
     }
-    /// Return only a kind that the caller explicitly requested. A missing flag
-    /// lets the control plane choose the provider's active image-manifest
-    /// default, so this client does not guess provider capabilities.
+    /// The kind the caller explicitly requested, or nil when no kind flag was
+    /// given (the create verbs then send `VMMachineKind.defaultKind`, a desktop).
     static func parseExplicitCloudVMKindFlag(_ args: [String], command: String) throws -> VMMachineKind? {
         let requestsBase = args.contains("--base") || args.contains("--no-desktop")
         let requestsDesktop = args.contains("--desktop")
@@ -5960,15 +5959,9 @@ struct CMUXCLI {
                 // away from (the New Machine sheet) does not yank them back when it lands.
                 let focus = try parseCloudVMFocusOption(focusOpt, command: "vm new")
                 let detach = hasFlag(rem2, name: "--detach") || hasFlag(rem2, name: "-d")
-                // No provider ships a desktop image right now, so a bare `vm new`
-                // asks for a shell-only machine; requesting `--desktop` anyway fails
-                // closed with a server-side image config error rather than silently
-                // handing back a screenless box. Flip this back to desktop-by-default
-                // once a desktop image lands in the manifest.
-                // `--base`/`--no-desktop` stay accepted for scripts written against
-                // the old desktop default.
-                _ = hasFlag(rem2, name: "--base") || hasFlag(rem2, name: "--no-desktop")
-                let desktop = hasFlag(rem2, name: "--desktop")
+                // A bare `vm new` asks for a machine with a screen; `--base` (alias
+                // `--no-desktop`) is the explicit shell-only choice (#12239).
+                let requestedKind = try Self.parseExplicitCloudVMKindFlag(rem2, command: "vm new")
                 let (sizeOpt, rem3) = parseOption(rem2, name: "--size")
                 let memoryMb: Int?
                 if let sizeOpt {
@@ -5987,15 +5980,15 @@ struct CMUXCLI {
                 let remaining = rem3.filter { !["--detach", "-d", "--desktop", "--base", "--no-desktop"].contains($0) }
                 // The kind is what the CLI asks for; the backend picks the image. A desktop
                 // machine gets its screen streamed into a browser split beside the shell.
-                let machineKind: VMMachineKind = desktop ? .desktop : .base
+                let machineKind = requestedKind ?? VMMachineKind.defaultKind
                 let machineName = nameOpt?.trimmingCharacters(in: .whitespacesAndNewlines)
                 if let unknown = remaining.first(where: { Self.isUnknownFlagToken($0, allowedShortFlags: ["-d"]) }) {
                     throw CLIError(message: """
                         vm new: unknown flag '\(unknown)'.
 
                         Known flags:
-                          --base            shell-only machine (no desktop, the default)
-                          --desktop         machine with a screen (no image available yet)
+                          --desktop         machine with a VNC screen (the default)
+                          --base            shell-only machine, no screen (alias --no-desktop)
                           --size <4g|8g|16g|24g|32g|64g>
                           --name <label>    display label (the id stays the address)
                           --image <image-id>  explicit image override (normally omit)
@@ -13177,7 +13170,7 @@ struct CMUXCLI {
         let (focusOpt, rem1) = parseOption(rem0a, name: "--focus")
         let focus = try parseCloudVMFocusOption(focusOpt, command: "vm base open")
         let detach = hasFlag(rem1, name: "--detach") || hasFlag(rem1, name: "-d")
-        let baseKind = try Self.parseExplicitCloudVMKindFlag(rem1, command: "vm base open")
+        let baseKind = try Self.parseExplicitCloudVMKindFlag(rem1, command: "vm base open") ?? VMMachineKind.defaultKind
         let remaining = rem1.filter { !["--detach", "-d", "--desktop", "--base", "--no-desktop"].contains($0) }
         if let unknown = remaining.first(where: { Self.isUnknownFlagToken($0, allowedShortFlags: ["-d"]) }) {
             throw CLIError(message: """
@@ -13186,10 +13179,8 @@ struct CMUXCLI {
                 Known flags:
                   --workspace <workspace-id>
                   --window <id|ref|index>
-                  --base            shell-only Base (first open only)
-                  --desktop         request a Base image with a desktop
-                  --no-desktop       alias for --base
-                  (no kind flag uses the server's active Base image default)
+                  --desktop         Base with a VNC screen (the default; first open only)
+                  --base            shell-only Base, no screen (alias --no-desktop)
                   --focus <true|false>  false opens Base without selecting its workspace
                   --detach, -d
                 """)
@@ -13207,8 +13198,7 @@ struct CMUXCLI {
         let vmCreateStartedAt = Date()
         // The kind only matters when Base does not exist yet; an existing Base keeps
         // its image, so a bare open never changes a machine.
-        var params: [String: Any] = [:]
-        if let baseKind { params["kind"] = baseKind.rawValue }
+        let params: [String: Any] = ["kind": baseKind.rawValue]
         let response = try client.sendV2(
             method: "vm.base_open",
             params: params,
@@ -13282,7 +13272,7 @@ struct CMUXCLI {
         let (targetWorkspaceOpt, rem1) = parseOption(rem0, name: "--workspace")
         let (windowOpt, rem2) = parseOption(rem1, name: "--window")
         let detach = hasFlag(rem2, name: "--detach") || hasFlag(rem2, name: "-d")
-        let baseKind = try Self.parseExplicitCloudVMKindFlag(rem2, command: "vm base reset")
+        let baseKind = try Self.parseExplicitCloudVMKindFlag(rem2, command: "vm base reset") ?? VMMachineKind.defaultKind
         let remaining = rem2.filter { !["--detach", "-d", "--desktop", "--base", "--no-desktop"].contains($0) }
         if let unknown = remaining.first(where: { Self.isUnknownFlagToken($0, allowedShortFlags: ["-d"]) }) {
             throw CLIError(message: """
@@ -13292,10 +13282,8 @@ struct CMUXCLI {
                   --reason <text>
                   --workspace <workspace-id>
                   --window <id|ref|index>
-                  --base            shell-only Base
-                  --desktop         request a Base image with a desktop
-                  --no-desktop       alias for --base
-                  (no kind flag uses the server's active Base image default)
+                  --desktop         Base with a VNC screen (the default)
+                  --base            shell-only Base, no screen (alias --no-desktop)
                   --detach, -d
                 """)
         }
@@ -13308,8 +13296,7 @@ struct CMUXCLI {
         }
 
         let targetWindow = try validatedWindowHandle(windowOpt ?? windowId, client: client)
-        var params: [String: Any] = [:]
-        if let baseKind { params["kind"] = baseKind.rawValue }
+        var params: [String: Any] = ["kind": baseKind.rawValue]
         if let reasonOpt, !reasonOpt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             params["reason"] = reasonOpt
         }
@@ -18519,17 +18506,17 @@ struct CMUXCLI {
               base open [--desktop|--base|--no-desktop] [--workspace <id>] [--window <id|ref|index>] [--focus <true|false>] [--detach|-d]
                                         Open Base, your persistent cloud workspace.
                                         Reuses the same VM every time. The first
-                                        open uses the server's active Base image
-                                        default unless you pass --base or --desktop.
+                                        open creates a desktop (a VNC screen) unless
+                                        you pass --base for a shell-only Base.
                                         --focus false opens it without switching
                                         to its workspace.
               base reset [--desktop|--base|--no-desktop] [--reason <text>] [--workspace <id>] [--window <id|ref|index>] [--detach|-d]
                                         Create a new Base generation. The previous
                                         VM is retained so accidental resets are
                                         recoverable.
-              new [--desktop|--base] [--size <2g|4g|8g|16g|24g|32g>] [--name <label>] [--provider <provider>] [--window <id|ref|index>] [--focus <true|false>] [--detach|-d]
-                                        Create a new machine by kind (desktop by
-                                        default; --base for shell-only). The server
+              new [--desktop|--base] [--size <4g|8g|16g|24g|32g|64g>] [--name <label>] [--provider <provider>] [--window <id|ref|index>] [--focus <true|false>] [--detach|-d]
+                                        Create a new machine by kind (a desktop with a
+                                        VNC screen by default; --base for shell-only). The server
                                         picks the image for the kind; --image <id>
                                         is an explicit override you normally omit.
                                         --focus false opens the machine without

@@ -8820,14 +8820,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     )
                     return
                 }
-                // Create hands the request to the shared create coordinator and
-                // the sheet closes at once: the placeholder workspace's loading
-                // pane and the Machines panel's pending row show Base coming up,
-                // and the person keeps working meanwhile (#11397).
+                // Create hands the request to the shared create coordinator and the sheet
+                // closes at once: the placeholder workspace's loading pane and the Machines
+                // panel's pending row show Base coming up while the person keeps working (#11397).
                 let model = NewMachineModel(
                     mode: .base(workspaceID: workspace.id),
                     plan: MachineSnapshotBuilder.planSnapshot(activeCount: page?.vms.count ?? 0, limits: page?.limits),
                     memoryOptionsMb: page?.limits?.memoryOptionsMb ?? [],
+                    imageKinds: page?.limits?.imageKinds ?? [],
                     submit: { [weak self] request in
                         guard let self else { return false }
                         return MachineCreateCoordinator.shared.start(request, cancellableLaunch: { [weak self] arguments, progress, completion in

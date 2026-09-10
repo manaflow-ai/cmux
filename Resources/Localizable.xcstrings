@@ -289212,6 +289212,23 @@
         }
       }
     },
+    "machines.new.kind.desktopUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No desktop image is available in this environment, so this machine is terminal only."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この環境にはデスクトップイメージがないため、このマシンはターミナルのみになります。"
+          }
+        }
+      }
+    },
     "machines.new.kind.label": {
       "extractionState": "manual",
       "localizations": {
