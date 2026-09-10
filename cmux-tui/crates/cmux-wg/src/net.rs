@@ -1096,6 +1096,30 @@ fn packet_source(packet: &[u8]) -> Option<IpAddr> {
 mod tests {
     use super::*;
 
+    #[tokio::test]
+    async fn cancelled_hub_dial_releases_the_pending_tcp_socket() {
+        let pair = crate::testing::loopback_pair().await.unwrap();
+        let (_commands, receiver) = mpsc::channel(COMMAND_DEPTH);
+        let mut driver = Driver::new(
+            pair.client,
+            pair.client_socket,
+            Some(pair.server_socket.local_addr().unwrap()),
+            receiver,
+            Arc::new(Notify::new()),
+        )
+        .unwrap();
+        let (reply, pending) = oneshot::channel();
+        driver.begin_connect(SocketAddr::new(pair.server_v6.into(), 1337), reply);
+        assert_eq!(driver.conns.len(), 1);
+        assert_eq!(driver.sockets.iter().count(), 1);
+
+        drop(pending);
+        driver.process_conns();
+
+        assert!(driver.conns.is_empty(), "a cancelled dial must not wait for TCP_TIMEOUT");
+        assert_eq!(driver.sockets.iter().count(), 0);
+    }
+
     #[test]
     fn packet_source_reads_both_families() {
         let mut v4 = vec![0u8; 20];

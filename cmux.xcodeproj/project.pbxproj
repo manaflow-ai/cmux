@@ -1120,6 +1120,7 @@
 		C11323210000000000000001 /* CmuxTuiSurfaceProvider+ManualMirror.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11323220000000000000001 /* CmuxTuiSurfaceProvider+ManualMirror.swift */; };
 		7A0CE1000000000000000728 /* CmuxTuiSurfaceProvider+PortForward.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000727 /* CmuxTuiSurfaceProvider+PortForward.swift */; };
 		A1B2C3D4E5F6071827364961 /* CmuxTuiSurfaceProviderRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6071827364960 /* CmuxTuiSurfaceProviderRegistry.swift */; };
+		D01100800000000000000008 /* CmuxTuiSurfaceProviderRegistryDiscoveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D01100800000000000000007 /* CmuxTuiSurfaceProviderRegistryDiscoveryTests.swift */; };
 		7A1D4C000000000000000106 /* CmuxTuiSurfaceProviderRegistryPollingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A1D4C000000000000000105 /* CmuxTuiSurfaceProviderRegistryPollingTests.swift */; };
 		036359ABDB1F58B489D378A4 /* CmuxTuiSurfaceProviders.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63F5BDFB110A8A96C9CA0A75 /* CmuxTuiSurfaceProviders.swift */; };
 		2C636EB7DCD3184EE9E94E31 /* CmuxTuiSurfaceProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC427A4C642EBC36E600FA7F /* CmuxTuiSurfaceProviderTests.swift */; };
@@ -4543,6 +4544,7 @@
 		C11323220000000000000001 /* CmuxTuiSurfaceProvider+ManualMirror.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxTuiSurfaceProvider+ManualMirror.swift"; sourceTree = "<group>"; };
 		7A0CE1000000000000000727 /* CmuxTuiSurfaceProvider+PortForward.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "CmuxTuiSurfaceProvider+PortForward.swift"; sourceTree = "<group>"; };
 		A1B2C3D4E5F6071827364960 /* CmuxTuiSurfaceProviderRegistry.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CmuxTuiSurfaceProviderRegistry.swift; sourceTree = "<group>"; };
+		D01100800000000000000007 /* CmuxTuiSurfaceProviderRegistryDiscoveryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTuiSurfaceProviderRegistryDiscoveryTests.swift; sourceTree = "<group>"; };
 		7A1D4C000000000000000105 /* CmuxTuiSurfaceProviderRegistryPollingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTuiSurfaceProviderRegistryPollingTests.swift; sourceTree = "<group>"; };
 		63F5BDFB110A8A96C9CA0A75 /* CmuxTuiSurfaceProviders.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CmuxTuiSurfaceProviders.swift; sourceTree = "<group>"; };
 		BC427A4C642EBC36E600FA7F /* CmuxTuiSurfaceProviderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CmuxTuiSurfaceProviderTests.swift; sourceTree = "<group>"; };
@@ -9621,6 +9623,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				74A47FAD328D6669A5B40CE3 /* VMTunnelManagerTests.swift */,
 				7A0CE1000000000000000105 /* CloudTunnelBackendSelectorTests.swift */,
 				7A0CE1000000000000000103 /* CloudTunnelCoordinatorTests.swift */,
+				D01100800000000000000007 /* CmuxTuiSurfaceProviderRegistryDiscoveryTests.swift */,
 				7A1D4C000000000000000105 /* CmuxTuiSurfaceProviderRegistryPollingTests.swift */,
 				7A1D4C000000000000000103 /* CloudTunnelLaunchGateTests.swift */,
 				7A1D4C000000000000000101 /* CloudActivationPolicyTests.swift */,
@@ -13696,6 +13699,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 					C7A50C000000000000000002 /* CmuxTopProcessCPUTests.swift in Sources */,
 					C7A5090000000000000005A2 /* CmuxTopSnapshotScopeCacheTests.swift in Sources */,
 					C7A509000000000000000002 /* CmuxTopSnapshotScopeTests.swift in Sources */,
+				D01100800000000000000008 /* CmuxTuiSurfaceProviderRegistryDiscoveryTests.swift in Sources */,
 				7A1D4C000000000000000106 /* CmuxTuiSurfaceProviderRegistryPollingTests.swift in Sources */,
 				2C636EB7DCD3184EE9E94E31 /* CmuxTuiSurfaceProviderTests.swift in Sources */,
 				D7C0DE00000000000000A103 /* CmuxWebViewContextMenuLinkCaptureTests.swift in Sources */,
