@@ -79,6 +79,7 @@ import {
   promoteImageManifestEntry,
   readImageManifest,
   webRoot,
+  withImageManifestLock,
   writeImageManifest,
   type DevboxBakeResult,
   type DevboxImageKind,
@@ -156,22 +157,24 @@ function commitManifest(label: string, manifest: DevboxImageManifest, next: Devb
 // 0a. Source-schema upgrade (see the header): a manifest edit that adds no
 // row; every change is proven from what the entries already recorded.
 if (hasFlag("--upgrade-source-schema")) {
-  const manifest = readImageManifest();
-  const result = upgradeDevboxSourceRecords(manifest, { provider });
-  for (const row of result.skipped) console.log(`kept: ${row.version} (${row.reason})`);
-  if (result.upgraded.length === 0) {
-    console.log("no default entry to upgrade");
-    process.exit(0);
-  }
-  const problems = [...imageManifestProblems(result.manifest), ...devboxSourceDriftProblems(result.manifest)];
-  if (problems.length > 0) throw new Error(`refusing to write an inconsistent manifest:\n  ${problems.join("\n  ")}`);
-  console.log(`upgraded to source schema ${result.upgraded.length} entries:\n  ${result.upgraded.join("\n  ")}`);
-  if (dryRun) {
-    console.log(`--dry-run: not writing ${imageManifestPath}`);
-  } else {
-    writeImageManifest(result.manifest);
-    console.log(`wrote ${imageManifestPath}`);
-  }
+  await withImageManifestLock(() => {
+    const manifest = readImageManifest();
+    const result = upgradeDevboxSourceRecords(manifest, { provider });
+    for (const row of result.skipped) console.log(`kept: ${row.version} (${row.reason})`);
+    if (result.upgraded.length === 0) {
+      console.log("no default entry to upgrade");
+      return;
+    }
+    const problems = [...imageManifestProblems(result.manifest), ...devboxSourceDriftProblems(result.manifest)];
+    if (problems.length > 0) throw new Error(`refusing to write an inconsistent manifest:\n  ${problems.join("\n  ")}`);
+    console.log(`upgraded to source schema ${result.upgraded.length} entries:\n  ${result.upgraded.join("\n  ")}`);
+    if (dryRun) {
+      console.log(`--dry-run: not writing ${imageManifestPath}`);
+    } else {
+      writeImageManifest(result.manifest);
+      console.log(`wrote ${imageManifestPath}`);
+    }
+  });
   process.exit(0);
 }
 
@@ -185,8 +188,10 @@ if (replayPath) {
   for (const row of rows) {
     if (row.provider !== provider) throw new Error(`--replay ${replayPath}: ${row.version} is a ${row.provider} row, not ${provider}`);
   }
-  const manifest = readImageManifest();
-  const added = commitManifest(`manifest (replay of ${replayPath})`, manifest, appendImageManifestEntries(manifest, rows), true);
+  const added = await withImageManifestLock(() => {
+    const manifest = readImageManifest();
+    return commitManifest(`manifest (replay of ${replayPath})`, manifest, appendImageManifestEntries(manifest, rows), true);
+  });
   const replayResult = { provider, replayedFrom: replayPath, versions: added.map((row) => row.version), entries: added, manifest: dryRun ? null : imageManifestPath };
   console.log(JSON.stringify(replayResult, null, 2));
   const replayOut = argValue("--out");
@@ -300,11 +305,16 @@ if (!skipVerify && sizesResultPath) {
 }
 
 // 3. Manifest: append and flip defaults (pure edit), then re-check invariants.
-const manifest = readImageManifest();
-const next = skipVerify
-  ? { ...manifest, images: [...manifest.images, { ...entry, kind: kinds[0], notes: [entry.notes, validationNotes].filter(Boolean).join(" ") }] }
-  : promoteImageManifestEntry(manifest, entry, { kinds, sizes, validationNotes });
-const added = commitManifest("manifest", manifest, next, !skipVerify);
+// Under the manifest lock (withImageManifestLock), so two promotions cannot
+// lose each other's rows; commitManifest re-checks the invariants and the
+// source drift of the rows being written.
+const added = await withImageManifestLock(() => {
+  const manifest = readImageManifest();
+  const next = skipVerify
+    ? { ...manifest, images: [...manifest.images, { ...entry, kind: kinds[0], notes: [entry.notes, validationNotes].filter(Boolean).join(" ") }] }
+    : promoteImageManifestEntry(manifest, entry, { kinds, sizes, validationNotes });
+  return commitManifest("manifest", manifest, next, !skipVerify);
+});
 
 // 4. Pointer slug: a readable "current" handle on the platform. With sizes,
 // derive-devbox-sizes.ts already named each snapshot `<pointer>[-<size>]`.
