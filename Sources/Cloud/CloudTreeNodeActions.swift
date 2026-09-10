@@ -264,11 +264,19 @@ struct CloudTreeNodeActions {
                 } else {
                     run(openingLabel(machine)) { catalog in
                         let routedGroup = group.withRemoteWorkspaceID(remoteWorkspaceID)
+                        // Clicking a workspace row opens its layout: the machine screen's
+                        // splits, ratios and tabs, when the daemon reports them (nil → grid).
+                        let layout: SurfaceProjectionLayout? = if let remoteWorkspaceID = routedGroup.remoteWorkspaceID {
+                            await CloudWorkspaceLayoutTranslator.fetch(machine: machine, workspaceID: remoteWorkspaceID, catalog: catalog)
+                        } else {
+                            nil
+                        }
                         let opened = try await catalog.projectGroupAsNewLocalWorkspace(
                             routedGroup,
                             title: Self.localWorkspaceTitle(hostName: machineName(machine), group: group),
                             focus: true,
-                            host: .app
+                            host: .app,
+                            layout: layout
                         )
                         catalog.bindCloudWorkspace(
                             localWorkspaceID: opened.workspaceID,
@@ -388,13 +396,17 @@ struct CloudTreeNodeActions {
         provider: any SurfaceProvider,
         catalog: SurfaceCatalog,
         name: String?,
-        focus: Bool
+        focus: Bool,
+        openLocally: Bool = true,
+        existingWorkspace: SurfaceRemoteWorkspace? = nil
     ) async throws -> (
         workspace: SurfaceRemoteWorkspace,
         terminal: SurfaceResource,
-        opened: (workspaceID: UUID, projections: [SurfaceProjection])
+        opened: (workspaceID: UUID, projections: [SurfaceProjection])?
     ) {
-        let workspace = try await provider.createRemoteWorkspace(name: name)
+        let workspace: SurfaceRemoteWorkspace
+        if let existingWorkspace { workspace = existingWorkspace }
+        else { workspace = try await provider.createRemoteWorkspace(name: name) }
         await provider.refresh()
         let existing = catalog.snapshot.resources(on: machine).first { resource in
             resource.id.kind == .terminal && resource.remoteWorkspaces.contains { $0.id == workspace.id }
@@ -405,6 +417,10 @@ struct CloudTreeNodeActions {
         } else {
             terminal = try await provider.createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: workspace.id)
         }
+        // Headless staging (`cmux vm workspace new --no-open`): the machine workspace and
+        // its starter terminal are created, but nothing local is created or focused. A
+        // later layout apply may target this workspace only when it is still empty.
+        guard openLocally else { return (workspace, terminal, nil) }
         let placement = SurfaceResourcePlacement(
             resource: terminal.id,
             remoteView: terminal.remoteViews?.first { $0.workspace.id == workspace.id },

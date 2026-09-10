@@ -437,6 +437,67 @@ session protocol, but the managed API does not mint or expose its scoped identit
 workspace, tab, terminal, and revision state on one authoritative cmux-tui path. Therefore
 `cmux vm ssh-info <id>` and `POST /api/vm/:id/ssh-endpoint` stay unsupported.
 
+## Capabilities: the client-visible provider contract
+
+Every VM API response (`GET /api/vm` entries, `GET /api/vm/:id`, create, restore, fork, base
+open/reset) carries a `capabilities` object — `{snapshot, restore, fork, exec, stats, ports,
+desktop, sizing, persistentHome, attachTransports}` — derived in
+`services/vms/drivers/index.ts` (`vmCapabilitiesOf`) from driver method presence, with the
+driver's declared `capabilities` overriding. Flags with no structural signal (`desktop`,
+`sizing`, `persistentHome`) default to false: a driver opts in to what it honors, and
+`POST /api/vm` rejects `memoryMb`/`persistentHome` requests the resolved provider would
+silently drop. Clients (the Mac app and CLI) gate verbs on this object and never on a
+provider name, so a new provider registered in `drivers/index.ts` works end to end with no
+client update. `openAttach`/`openSSH`/`revokeSSHIdentity` are optional interface members;
+the gateway maps an absent method to `VmOperationUnsupportedError` (an honest 501).
+`MockVMProvider` (`drivers/mock.ts`) is the interface's second implementer and the test
+double for provider-contract tests.
+
+## TLS edge: port previews and credential injection
+
+The current port-preview and model-plane paths have different trust boundaries:
+
+- **Port previews (`openPort`, capability `ports: true`)** use the machine's private
+  network address over the owner's WireGuard tunnel. Opening a port does not mint
+  a public bearer URL or TLS rule. `revokeEndpointLeases` only cleans up legacy,
+  driver-owned preview rules; separately published services have their own lifecycle.
+  Revoking network access is not a promise to erase content already cached by a browser.
+- **Model-plane edge injection** — an egress rule `{ vmId } → { public }` on the
+  CodeRouter origin with a headers transform. The edge overwrites the guest's
+  placeholder `authorization` and injects the explicit `x-coderouter-route-token`
+  plus `x-cmux-vm-id` binding header in flight. The persisted env file carries only
+  placeholder keys, and a compromised guest has no credential to exfiltrate. Header
+  values are write-only at the provider (read back as `***`); provisioning fails
+  closed if the rule cannot be installed.
+
+## In-VM cmux CLI and machine-to-machine links
+
+The driver installs `/usr/local/bin/cmux` (`services/vms/guestCli.ts`) atomically at
+create/attach heal (a devbox bake may later ship it preinstalled; that lands with its
+promotion): a POSIX shim over the machine's own cmux-tui
+binary. Local verbs use cmux-tui's grammar against
+the machine's daemon session; `cmux vm …` verbs talk to peer machines through cmux-remote
+existing grants in `~/.cmux/peers/<dst>.json`. Main replaced the enrollment-based Mac
+attach flow with a trusted private-network listener; this branch no longer provides the
+old Mac `vm link` broker. New peer-grant creation is not shipped here and must not be
+advertised as verified. No control-plane credential enters a VM.
+
+The guest consumes connection-ready events through private FIFOs and keeps a cancellable
+30-second readiness deadline using Bash's blocking `read -t` (Bash is installed in the
+machine image). It no longer rescans output files or sleeps between probes. Messages and
+help come from `guestCLI` in both web catalogs and select `LC_ALL`, `LC_MESSAGES`, then
+`LANG`; unknown locales use English.
+
+日本語: この PR で追加した契約の説明は [README.ja.md](README.ja.md) を参照してください。
+
+The shim keeps the shared CLI contract for the operations that are safe to run from inside a
+machine: `cmux auth status [--json]` reports the local daemon, TLS reachability, and whether
+the VM-bound CodeRouter route was accepted; `cmux coderouter status|usage|models` reads the
+machine's own model plane; and `cmux coderouter agent <claude|codex|opencode|pi> …` (or the
+short `cmux agent …`) launches a preinstalled agent through that plane. A bare prompt is
+converted to the provider's one-shot form. `cmux auth login/logout` and account/upstream
+management remain host-owned, so the VM never needs a Stack session token.
+
 Freestyle machines boot the shared devbox snapshot (definition in
 `services/vms/images/devbox/`, baked with `web/scripts/build-devbox-freestyle.ts` against
 the public platform `api.freestyle.sh`): chatmux-devbox tool parity (mise node/python/bun,
@@ -528,7 +589,8 @@ provisioner (`services/vms/modelPlaneGateway.ts` adapting
 provider call, it mints one route token bound to the row id (`coderouter_route_tokens.vm_id`)
 and returns one edge rule: domain `coderouter.cmux.internal` (the alias every guest dials;
 `CMUX_VM_EDGE_ALIAS_DOMAIN` overrides it per deployment, never per machine), destination host
-this deployment's API host, and headers `x-coderouter-route-token` and `x-cmux-vm-id`. The
+this deployment's API host, and headers `authorization`, `x-coderouter-route-token`, and
+`x-cmux-vm-id`. The
 Freestyle driver passes the rule inline as `tls.rules` on the create; the platform resolves the
 alias to its edge, installs its CA in the guest at boot, terminates TLS for the alias, forwards
 to the destination host, and injects (and overwrites) those headers on every request.
@@ -558,7 +620,7 @@ machine (no env, no rule, still no secret) and must never be set in production.
 
 The usage ledger is in Postgres. VM create pricing gates can use Stack Auth payment items, but free-plan create credits are opt-in. Configure `CMUX_VM_PLAN_FREE_CREATE_CREDIT_ITEM_ID` only when the free plan should consume a prepaid create-credit bucket. When enabled, the create workflow records a one-time local grant row, seeds the configured Stack Auth item credits once per billing team, reserves one create credit only for a newly inserted row, calls the provider, and refunds the credit if provisioning fails before a usable VM exists.
 
-Plan limits are team-based. Stack Auth personal teams should stay enabled for both dev/staging and production projects (`createTeamOnSignUp` / `teams.createPersonalTeamOnSignUp`). New VM rows store `billing_team_id` and `billing_plan_id`; the free plan allows zero active VMs by default and remains at zero regardless of stale free-limit env values while the paid-plan gate is on. A deliberate `CMUX_VM_ALLOW_FREE_PROVISIONING=1` escape hatch re-enables the configured free allowance for local demos or a controlled rollback; paid plans get the allowance sold on /pricing, 50 active machines per billing team, multiplied by the Team subscription's paid seats (`cmuxSeats` in the team's Stack metadata, written from the Stripe quantity) so "50 per user" holds for the whole team (`PAID_MAX_ACTIVE_VMS_DEFAULT`; `maxActiveVms` in entitlements and the list response). New machines use validated Freestyle base snapshots from 4 GiB RAM / 16 GB disk through 64 GiB RAM / 128 GB disk, including the 24 GiB / 96 GB intermediate size. The default is 8 GiB RAM and 32 GB disk. Each machine has its own CPU, memory, and disk. The repository enforces only the machine-count allowance under the billing-team lock; resource metadata supports per-machine fork, snapshot, and resize recovery. Disk growth is independent, grow-only, and capped at 256 GiB in 4 GiB steps. The Freestyle driver applies the default at create (`CMUX_VM_DISK_MB` overrides it), and the resize API reads provider stats before and after the provider confirms the change. Destroyed VMs do not count against a limit; pausing does not free quota on the production provider. Paid plan activation should write a readable plan id such as `pro` into Stack Auth team read-only metadata (`cmuxVmPlan`) or equivalent billing sync metadata. Paid-plan `CMUX_VM_PLAN_<PLAN>_MAX_ACTIVE_VMS`, `CMUX_VM_PAID_MAX_ACTIVE_VMS`, and `CMUX_VM_SHARED_CPU_LIMIT_ENABLED` are retired and ignored. The paid allowance lives in code; `CMUX_VM_CREATE_ENABLED=0` remains the provisioning incident control. Paid plans only consume Stack Auth create credits when `CMUX_VM_PLAN_<PLAN>_CREATE_CREDIT_ITEM_ID` or the global `CMUX_VM_CREATE_CREDIT_ITEM_ID` is configured.
+Plan limits are team-based. Stack Auth personal teams should stay enabled for both dev/staging and production projects (`createTeamOnSignUp` / `teams.createPersonalTeamOnSignUp`). New VM rows store `billing_team_id` and `billing_plan_id`; the free plan allows zero active VMs by default and remains at zero regardless of stale free-limit env values while the paid-plan gate is on. A deliberate `CMUX_VM_ALLOW_FREE_PROVISIONING=1` escape hatch re-enables the configured free allowance for local demos or a controlled rollback; paid plans get the allowance sold on /pricing, 50 active machines per billing team, multiplied by the Team subscription's paid seats (`cmuxSeats` in the team's Stack metadata, written from the Stripe quantity) so "50 per paid seat" holds for the whole team (`PAID_MAX_ACTIVE_VMS_DEFAULT`; `maxActiveVms` in entitlements and the list response). New machines use validated Freestyle base snapshots from 4 GiB RAM / 16 GB disk through 64 GiB RAM / 128 GB disk, including the 24 GiB / 96 GB intermediate size. The default is 8 GiB RAM and 32 GB disk. Each machine has its own CPU, memory, and disk. The repository enforces only the machine-count allowance under the billing-team lock; resource metadata supports per-machine fork, snapshot, and resize recovery. Disk growth is independent, grow-only, and capped at 256 GiB in 4 GiB steps. The Freestyle driver applies the default at create (`CMUX_VM_DISK_MB` overrides it), and the resize API reads provider stats before and after the provider confirms the change. Destroyed VMs do not count against a limit; pausing does not free quota on the production provider. Paid plan activation should write a readable plan id such as `pro` into Stack Auth team read-only metadata (`cmuxVmPlan`) or equivalent billing sync metadata. Paid-plan `CMUX_VM_PLAN_<PLAN>_MAX_ACTIVE_VMS`, `CMUX_VM_PAID_MAX_ACTIVE_VMS`, and `CMUX_VM_SHARED_CPU_LIMIT_ENABLED` are retired and ignored. The paid allowance lives in code; `CMUX_VM_CREATE_ENABLED=0` remains the provisioning incident control. Paid plans only consume Stack Auth create credits when `CMUX_VM_PLAN_<PLAN>_CREATE_CREDIT_ITEM_ID` or the global `CMUX_VM_CREATE_CREDIT_ITEM_ID` is configured.
 
 ### The free limit is the paywall moment
 
