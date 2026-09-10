@@ -12,6 +12,17 @@ import Foundation
 public struct TerminalLetterboxGeometry {
     private init() {}
 
+    /// Content measurements are sampled from the live terminal while the
+    /// keyboard is visible. They may change on every wrapped input character.
+    /// The host uses this policy to decide whether a measurement may animate.
+    public static func keyboardAbsorptionAnimationDuration(
+        contentMeasurementChanged: Bool,
+        scrollInteractionActive: Bool
+    ) -> TimeInterval {
+        guard contentMeasurementChanged, !scrollInteractionActive else { return 0 }
+        return 0.2
+    }
+
     /// The bottom occupancy reserved for the keyboard (when up) or the bottom
     /// safe area (when the keyboard is down so the always-visible toolbar clears
     /// the home indicator).

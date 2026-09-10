@@ -311,6 +311,16 @@ struct TerminalLetterboxGeometryTests {
         ) == 0)
     }
 
+    @Test("keyboard absorption does not retarget while content is sampled")
+    func keyboardAbsorptionMeasurementIsImmediate() {
+        #expect(
+            TerminalLetterboxGeometry.keyboardAbsorptionAnimationDuration(
+                contentMeasurementChanged: true,
+                scrollInteractionActive: false
+            ) == 0
+        )
+    }
+
     @Test("clampPinnedSize bounds refined pixels by the container")
     func clampPinned() {
         // refined 540x540 px at scale 3 = 180x180 points, within container.
