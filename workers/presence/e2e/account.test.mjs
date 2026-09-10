@@ -9,6 +9,7 @@ const directory = await mkdtemp(join(tmpdir(), "cmux-account-e2e-"));
 const { outputFiles } = await build({
   entryPoints: [new URL("./account.worker.ts", import.meta.url).pathname],
   bundle: true, write: false, format: "esm", target: "es2022", external: ["cloudflare:workers"],
+  loader: { ".sql": "text" },
 });
 let runtime;
 let outboundCalls = 0;
@@ -39,7 +40,10 @@ try {
   await start();
   assert.deepEqual(await request("/drizzle/probe"), { rows: [] }, "Drizzle transaction must roll back atomically in workerd");
   const first = await request("/inspect");
-  assert.deepEqual(first.schema, [{ version: 1, name: "account_state_tables" }]);
+  assert.equal(first.schema.length, 3);
+  assert.equal(first.schema[0].name, "20260910012737_redundant_ironclad");
+  assert.equal(first.schema[1].name, "20260910040534_nostalgic_white_tiger");
+  assert.equal(first.schema[2].name, "20260910050000_usage_guards");
   assert.deepEqual(first.rows, []);
   assert.equal(first.alarm, null, "Empty SQL state must not start a permanent daily alarm");
   const expiry = Date.now() + 120_000;

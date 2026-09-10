@@ -53,3 +53,9 @@ new_sqlite_classes = ["AccountControlPlane"]
 [[routes]]
 pattern = "presence.cmux.dev"
 custom_domain = true
+
+# Drizzle migrations are bundled as text strings for the Durable Object runtime.
+[[rules]]
+type = "Text"
+globs = ["**/*.sql"]
+fallthrough = true

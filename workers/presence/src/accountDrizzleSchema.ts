@@ -43,7 +43,7 @@ export const accountBindings = sqliteTable(
     index("account_bindings_revoked_expiry").on(table.tombstoneExpiresAt).where(sql`${table.revokedAt} is not null`),
     check("account_bindings_endpoint_check", sql`length(${table.endpointId}) = 64`),
     check("account_bindings_platform_check", sql`${table.platform} in ('mac', 'ios')`),
-    check("account_bindings_payload_size_check", sql`${table.payloadBytes} between 0 and 65536`),
+    check("account_bindings_payload_size_check", sql`${table.payloadBytes} = length(cast(${table.payload} as blob)) and ${table.payloadBytes} between 0 and 65536`),
     check("account_bindings_revocation_check", sql`(
       (${table.revokedAt} is null and ${table.tombstoneExpiresAt} is null) or
       (${table.revokedAt} is not null and ${table.tombstoneExpiresAt} is not null and
@@ -59,7 +59,7 @@ function temporaryTable(name: string, keyName: string) {
     expiresAt: integer("expires_at").notNull(),
   }, (table) => [
     index(`${name}_expiry`).on(table.expiresAt),
-    check(`${name}_payload_size_check`, sql`${table.payloadBytes} between 0 and 65536`),
+    check(`${name}_payload_size_check`, sql`${table.payloadBytes} = length(cast(${table.payload} as blob)) and ${table.payloadBytes} between 0 and 65536`),
   ]);
 }
 
@@ -76,7 +76,7 @@ export const accountPreferences = sqliteTable(
   },
   (table) => [
     check("account_preferences_key_check", sql`${table.preferenceKey} = 'relay'`),
-    check("account_preferences_payload_size_check", sql`${table.payloadBytes} between 0 and 65536`),
+    check("account_preferences_payload_size_check", sql`${table.payloadBytes} = length(cast(${table.payload} as blob)) and ${table.payloadBytes} between 0 and 65536`),
   ],
 );
 
@@ -92,11 +92,6 @@ export const accountMeta = sqliteTable(
   ],
 );
 
-export const drizzleTransactionProbe = sqliteTable("drizzle_transaction_probe", {
-  id: integer("id").primaryKey(),
-  value: text("value").notNull(),
-});
-
 export const accountDrizzleSchema = {
   accountStorageUsage,
   accountBindings,
@@ -105,7 +100,6 @@ export const accountDrizzleSchema = {
   accountRelayIssuances,
   accountPreferences,
   accountMeta,
-  drizzleTransactionProbe,
 };
 
 export type AccountBindingInsert = typeof accountBindings.$inferInsert;

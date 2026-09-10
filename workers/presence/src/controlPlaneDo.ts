@@ -27,8 +27,10 @@ import { parseRetryAfterSeconds, rateLimitedJson } from "./retryAfterResponse";
 import {
   pruneExpiredAccountState,
   nextAccountRetentionAt,
-  runAccountSqliteMigrations,
 } from "./accountSqliteStorage";
+import { accountDrizzleDatabase } from "./accountDrizzleDatabase";
+import { accountDrizzleMigrations } from "./accountDrizzleMigrations";
+import { migrate } from "drizzle-orm/durable-sqlite/migrator";
 
 export interface ControlPlaneEnv extends SentryEnv {
   /** Vercel web API origin the DO proxies (dev/prod), e.g. https://cmux.com.
@@ -78,15 +80,13 @@ function wrapSocket(ws: WebSocket): CtlSocket {
 
 export class AccountControlPlane extends DurableObject<ControlPlaneEnv> {
   private readonly sqlite = this.ctx.storage.sql;
+  private readonly db = accountDrizzleDatabase(this.ctx.storage);
 
   constructor(ctx: DurableObjectState, env: ControlPlaneEnv) {
     super(ctx, env);
     this.ctx.blockConcurrencyWhile(async () => {
       const now = Date.now();
-      runAccountSqliteMigrations({
-        sql: this.sqlite,
-        transactionSync: <T>(callback: () => T): T => this.ctx.storage.transactionSync(callback),
-      }, now);
+      migrate(this.db, { migrations: accountDrizzleMigrations });
       pruneExpiredAccountState(this.sqlite, now);
       await this.scheduleRetention(now);
     });

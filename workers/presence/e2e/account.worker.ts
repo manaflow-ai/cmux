@@ -1,7 +1,9 @@
 // Test-only entrypoint. Production never imports this module.
 import { DurableObject } from "cloudflare:workers";
 import { accountDrizzleDatabase } from "../src/accountDrizzleDatabase";
-import { drizzleTransactionProbe } from "../src/accountDrizzleSchema";
+import { migrate } from "drizzle-orm/durable-sqlite/migrator";
+import { accountDrizzleMigrations } from "../src/accountDrizzleMigrations";
+import { accountMeta } from "../src/accountDrizzleSchema";
 import { ACCOUNT_SQLITE_MIGRATIONS, runAccountSqliteMigrations } from "../src/accountSqliteStorage";
 import { AccountControlPlane, type ControlPlaneEnv } from "../src/controlPlaneDo";
 
@@ -14,7 +16,7 @@ export class SandboxAccount extends AccountControlPlane {
     const path = new URL(request.url).pathname;
     if (path === "/inspect") {
       return Response.json({
-        schema: Array.from(this.ctx.storage.sql.exec("SELECT version, name FROM account_schema_migrations")),
+        schema: Array.from(this.ctx.storage.sql.exec("SELECT id, hash, name FROM __drizzle_migrations")),
         rows: Array.from(this.ctx.storage.sql.exec("SELECT challenge_id, expires_at FROM account_challenges")),
         alarm: await this.ctx.storage.getAlarm(),
         alarmInvocations: await this.ctx.storage.get<number>("sandbox:alarms") ?? 0,
@@ -24,15 +26,15 @@ export class SandboxAccount extends AccountControlPlane {
     if (path === "/seed") {
       const { id, expiresAt, payload = "{}" } = await request.json() as { id: string; expiresAt: number; payload?: string };
       this.ctx.storage.sql.exec(
-        "INSERT INTO account_challenges (challenge_id, payload, expires_at) VALUES (?, ?, ?)", id, payload, expiresAt,
+        "INSERT INTO account_challenges (challenge_id, payload, payload_bytes, expires_at) VALUES (?, ?, ?, ?)", id, payload, new TextEncoder().encode(payload).byteLength, expiresAt,
       );
       return Response.json({ ok: true });
     }
     if (path === "/fill-and-expire") {
       this.ctx.storage.transactionSync(() => {
         for (let i = 0; i < 128; i++) this.ctx.storage.sql.exec(
-          "INSERT INTO account_challenges (challenge_id, payload, expires_at) VALUES (?, ?, ?)",
-          `churn-${Date.now()}-${i}`, "x".repeat(65_536), Date.now() - 1,
+          "INSERT INTO account_challenges (challenge_id, payload, payload_bytes, expires_at) VALUES (?, ?, ?, ?)",
+          `churn-${Date.now()}-${i}`, "x".repeat(65_536), 65_536, Date.now() - 1,
         );
       });
       return Response.json({ databaseSize: this.ctx.storage.sql.databaseSize });
@@ -96,9 +98,7 @@ export class SandboxDrizzle extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     this.ctx.blockConcurrencyWhile(async () => {
-      this.ctx.storage.sql.exec(
-        "CREATE TABLE IF NOT EXISTS drizzle_transaction_probe (id INTEGER PRIMARY KEY, value TEXT NOT NULL)",
-      );
+      migrate(accountDrizzleDatabase(this.ctx.storage), { migrations: accountDrizzleMigrations });
     });
   }
 
@@ -106,14 +106,14 @@ export class SandboxDrizzle extends DurableObject<Env> {
     if (new URL(request.url).pathname !== "/probe") return new Response("not_found", { status: 404 });
     try {
       this.db.transaction((tx) => {
-        tx.insert(drizzleTransactionProbe).values({ id: 1, value: "first" }).run();
-        tx.insert(drizzleTransactionProbe).values({ id: 2, value: "second" }).run();
+        tx.insert(accountMeta).values({ key: "route_revision", value: "first" }).run();
+        tx.insert(accountMeta).values({ key: "lan_generation", value: "second" }).run();
         throw new Error("intentional rollback");
       });
     } catch (error) {
       if (!(error instanceof Error) || error.message !== "intentional rollback") throw error;
     }
-    return Response.json({ rows: this.db.select().from(drizzleTransactionProbe).all() });
+    return Response.json({ rows: this.db.select().from(accountMeta).all() });
   }
 }
 
