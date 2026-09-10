@@ -116,6 +116,35 @@ struct CmuxTuiSurfaceProviderRegistryDiscoveryTests {
         VMSummary(id: id, provider: "freestyle", status: "running", image: "fixture", createdAt: 0, base: nil)
     }
 
+    @Test("A list that finishes after sign-out cannot register its machines")
+    func signOutInvalidatesPendingDiscovery() async {
+        let catalog = SurfaceCatalog()
+        let requested = CloudLinkFirstValue<Bool>()
+        let release = CloudLinkFirstValue<Bool>()
+        let registry = CmuxTuiSurfaceProviderRegistry(
+            links: CloudMachineLinkManager(clientURL: nil, hub: nil, hostThemeColors: { nil }),
+            wireGuardHub: nil,
+            allowsBackgroundWork: { false },
+            listPage: {
+                requested.resolve(true)
+                _ = await release.result
+                return VMListPage(vms: [machine("vm-late")], limits: nil)
+            },
+            refreshProvider: { _, _ in Issue.record("Retired discovery must not refresh a provider") }
+        )
+        registry.start(catalog: catalog)
+        let discovery = Task { await registry.providerRefreshingIfMissing(machineID: "vm-late") }
+        let started = await boundedResult(requested)
+
+        await registry.accessDidEnd()
+        release.resolve(true)
+        let result = await discovery.value
+
+        #expect(started)
+        #expect(result == nil)
+        #expect(catalog.snapshot == .empty)
+    }
+
     /// Wait on a signal with a failure deadline, never a settling delay.
     private func boundedResult(_ signal: CloudLinkFirstValue<Bool>) async -> Bool {
         await withTaskGroup(of: Bool.self) { group in

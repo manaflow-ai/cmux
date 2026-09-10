@@ -20,7 +20,7 @@ extension CloudMachineLinkManager {
             CloudWireGuardHub.routesHost($0, enrolledRoutes: hub.routes)
         }
         guard addresses.count > 1, let primary = addresses.first else { return primaryRoute }
-        let connected: CloudHubConnector.Connected
+        let connected: CloudHubConnection
         do {
             connected = try await CloudHubConnector().connect(
                 endpoint: .unix(path: hub.socketPath),

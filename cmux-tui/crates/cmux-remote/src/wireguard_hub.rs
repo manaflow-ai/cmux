@@ -21,6 +21,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use cmux_wg::{IpNetwork, WgError, WgNet};
+use tokio::io::AsyncReadExt;
 use tokio::net::UnixStream;
 use tokio::sync::{Semaphore, oneshot};
 use tokio::task::JoinSet;
@@ -228,7 +229,20 @@ async fn serve_connection(
         socks::server_reply(&mut stream, REPLY_NOT_ALLOWED, None).await?;
         return Ok(());
     }
-    let mut tunneled = match net.connect(target).await {
+    // SOCKS clients wait for CONNECT to succeed before sending application
+    // bytes. A client that leaves during the dial no longer owns a tunnel or
+    // a hub slot; cancel here instead of waiting out the TCP SYN timeout.
+    let mut premature = [0; 1];
+    let connected = tokio::select! {
+        result = net.connect(target) => result,
+        read = stream.read(&mut premature) => {
+            if read? != 0 {
+                return Err(socks::SocksError::Protocol("data before CONNECT succeeded".into()));
+            }
+            return Ok(());
+        }
+    };
+    let mut tunneled = match connected {
         Ok(tunneled) => tunneled,
         Err(error) => {
             socks::server_reply(&mut stream, reply_for(&error), None).await?;

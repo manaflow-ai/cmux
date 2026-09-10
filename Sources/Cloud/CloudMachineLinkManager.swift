@@ -295,11 +295,9 @@ actor CloudMachineLinkManager {
         lastFailure.removeAll()
     }
 
-    /// Drops links for machines that no longer exist.
-    func retain(machineIDs: Set<String>) async {
-        for id in links.keys where !machineIDs.contains(id) {
-            await disconnect(machineID: id)
-        }
+    /// Drops stale routing facts immediately. The registry owns and awaits
+    /// each removed machine's asynchronous link/forward teardown separately.
+    func retainAddresses(machineIDs: Set<String>) {
         privateRoutes = privateRoutes.filter { machineIDs.contains($0.key) }
         privateAddressCandidates = privateAddressCandidates.filter { machineIDs.contains($0.key) }
     }

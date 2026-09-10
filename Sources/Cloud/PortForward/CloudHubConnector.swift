@@ -6,11 +6,6 @@ import Network
 /// Race actual SOCKS CONNECT handshakes, retaining the winning stream and closing
 /// every loser before returning, so terminal and browser callers share the policy.
 struct CloudHubConnector: Sendable {
-    struct Connected: Sendable {
-        let connection: NWConnection
-        let host: String
-    }
-
     var timeout: Duration = .seconds(15)
     var clock: any Clock<Duration> = ContinuousClock()
 
@@ -18,12 +13,12 @@ struct CloudHubConnector: Sendable {
         endpoint: NWEndpoint,
         target: CloudPortForwardTarget,
         queue: DispatchQueue
-    ) async throws -> Connected {
+    ) async throws -> CloudHubConnection {
         let candidates = target.hosts.map { host in
-            Connected(connection: NWConnection(to: endpoint, using: .tcp), host: host)
+            CloudHubConnection(connection: NWConnection(to: endpoint, using: .tcp), host: host)
         }
         return try await withTaskCancellationHandler {
-            try await withThrowingTaskGroup(of: Result<Connected, any Error>.self) { group in
+            try await withThrowingTaskGroup(of: Result<CloudHubConnection, any Error>.self) { group in
                 for candidate in candidates {
                     group.addTask {
                         do {

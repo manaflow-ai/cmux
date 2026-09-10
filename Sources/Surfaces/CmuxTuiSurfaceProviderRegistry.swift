@@ -35,6 +35,7 @@ final class CmuxTuiSurfaceProviderRegistry {
     private let listPage: @MainActor () async -> VMListPage?
     private let refreshProvider: @MainActor (CmuxTuiSurfaceProvider, Bool) async -> Void
     private var refreshInFlight: Task<Bool, Never>?
+    private var discoveryInFlight: Task<[CmuxTuiSurfaceProvider]?, Never>?
     /// A forced refresh waits for an existing pass instead of starting a second
     /// fleet read. This prevents an older page from unregistering a machine that
     /// a newer page just added.
@@ -157,35 +158,57 @@ final class CmuxTuiSurfaceProviderRegistry {
         }
     }
 
-    /// Re-reads the machine list and refreshes every provider (links, snapshots, ports).
+    /// Re-reads the machine list and refreshes the providers discovered by that pass.
+    /// Discovery has its own in-flight operation so opening a new machine never
+    /// waits for this pass's unrelated link, snapshot, or stats requests.
     @discardableResult
     func refresh(force: Bool) async -> Bool {
         guard !ManagedDevicePolicy().isEnforced(.disableCloud) else { return false }
         while true {
             if let inFlight = refreshInFlight {
                 let listed = await inFlight.value
-                if refreshInFlight == inFlight {
-                    refreshInFlight = nil
-                }
+                if refreshInFlight == inFlight { refreshInFlight = nil }
                 if !force { return listed }
                 continue
             }
-
-            refreshGeneration &+= 1
-            let generation = refreshGeneration
             let task = Task<Bool, Never> { [weak self] in
-                guard let self else { return false }
-                return await self.performRefresh(force: force, generation: generation)
+                guard let self, let discovered = await self.discoverMachines(force: force) else { return false }
+                await withTaskGroup(of: Void.self) { group in
+                    for provider in discovered {
+                        group.addTask { @MainActor in await self.refreshProvider(provider, force) }
+                    }
+                }
+                return true
             }
             refreshInFlight = task
             let listed = await task.value
-            // Clear by identity: a delete can bump the generation under this
-            // refresh, and a finished (even aborted) task must never stay
-            // cached for the next poll to wait on.
-            if refreshInFlight == task {
-                refreshInFlight = nil
-            }
+            if refreshInFlight == task { refreshInFlight = nil }
             return listed
+        }
+    }
+
+    /// Serializes only fleet listing and registration. The returned provider
+    /// snapshot belongs to this pass; a later discovery must not add more work
+    /// to an older background refresh that is already serving its own callers.
+    private func discoverMachines(force: Bool) async -> [CmuxTuiSurfaceProvider]? {
+        guard !ManagedDevicePolicy().isEnforced(.disableCloud) else { return nil }
+        while true {
+            if let inFlight = discoveryInFlight {
+                let discovered = await inFlight.value
+                if discoveryInFlight == inFlight { discoveryInFlight = nil }
+                if !force { return discovered }
+                continue
+            }
+            refreshGeneration &+= 1
+            let generation = refreshGeneration
+            let task = Task<[CmuxTuiSurfaceProvider]?, Never> { [weak self] in
+                guard let self else { return nil }
+                return await self.performDiscovery(generation: generation)
+            }
+            discoveryInFlight = task
+            let discovered = await task.value
+            if discoveryInFlight == task { discoveryInFlight = nil }
+            return discovered
         }
     }
 
@@ -199,7 +222,7 @@ final class CmuxTuiSurfaceProviderRegistry {
     func providerRefreshingIfMissing(machineID: String) async -> CmuxTuiSurfaceProvider? {
         guard !ManagedDevicePolicy().isEnforced(.disableCloud) else { return nil }
         if let provider = providers[machineID] { return provider }
-        await refresh(force: true)
+        _ = await discoverMachines(force: true)
         return providers[machineID]
     }
 
@@ -207,6 +230,15 @@ final class CmuxTuiSurfaceProviderRegistry {
     /// down its forwards and link on a task the registry owns (awaited by
     /// ``accessDidEnd()``), so no caller has to hold an unstructured task.
     func machineWasDeleted(_ rawID: String) {
+        // A fleet page fetched before the delete must not re-register the
+        // machine on top of this teardown.
+        refreshGeneration &+= 1
+        unregisterMachine(rawID)
+    }
+
+    /// Both an explicit delete and fleet reconciliation use the same owned
+    /// teardown. Discovery must not await cleanup of an unrelated machine.
+    private func unregisterMachine(_ rawID: String) {
         // Callers may hand over a canonicalized (lowercased) id while the
         // registry keys everything by the control plane's own `summary.id`;
         // resolve to the registered key so no table is left behind.
@@ -214,9 +246,6 @@ final class CmuxTuiSurfaceProviderRegistry {
         providers[id]?.stop()
         providers[id] = nil
         catalog?.unregister(machine: .cloud(id))
-        // A fleet page fetched before the delete must not re-register the
-        // machine on top of this teardown.
-        refreshGeneration &+= 1
         // Teardowns for one machine run in order: a repeated delete waits for
         // the earlier pass instead of racing it (cancellation would not stop
         // a pass already inside the managers), so a refresh that re-lists the
@@ -253,9 +282,9 @@ final class CmuxTuiSurfaceProviderRegistry {
 
     // MARK: - internals
 
-    private func performRefresh(force: Bool, generation: UInt64) async -> Bool {
-        guard let catalog, let page = await listPage() else { return false }
-        guard generation == refreshGeneration else { return false }
+    private func performDiscovery(generation: UInt64) async -> [CmuxTuiSurfaceProvider]? {
+        guard let catalog, let page = await listPage() else { return nil }
+        guard generation == refreshGeneration else { return nil }
         let seen = Set(page.vms.map(\.id))
         // Reconcile both stores. A restored catalog can contain a machine for
         // which this process has not created a provider yet.
@@ -265,15 +294,10 @@ final class CmuxTuiSurfaceProviderRegistry {
             .union(catalog.pendingRestoredMachineIDs)
             .subtracting(seen)
         for id in staleIDs {
-            providers[id]?.stop()
-            providers[id] = nil
-            catalog.unregister(machine: .cloud(id))
+            unregisterMachine(id)
         }
-        if !staleIDs.isEmpty {
-            await portForwards?.close(machineIDs: staleIDs)
-        }
-        await links.retain(machineIDs: seen)
-        guard generation == refreshGeneration else { return false }
+        await links.retainAddresses(machineIDs: seen)
+        guard generation == refreshGeneration else { return nil }
         for summary in page.vms {
             // A machine listed again after a delete waits for that delete's
             // teardown, so the teardown cannot close the new provider's
@@ -283,13 +307,13 @@ final class CmuxTuiSurfaceProviderRegistry {
             let registeredID = registeredMachineID(matching: summary.id)
             if let teardown = machineTeardowns.removeValue(forKey: registeredID) {
                 await teardown.value
-                guard generation == refreshGeneration else { return false }
+                guard generation == refreshGeneration else { return nil }
             }
             await links.setPrivateAddresses([summary.addressIPv4, summary.addressIPv6].compactMap { $0 }, for: summary.id)
             // A delete that ran while that await was suspended bumped the
             // generation; creating a provider now would hand its link and
             // forwards to the teardown that delete scheduled.
-            guard generation == refreshGeneration else { return false }
+            guard generation == refreshGeneration else { return nil }
             if let provider = providers[summary.id] {
                 provider.update(summary: summary)
             } else {
@@ -298,12 +322,7 @@ final class CmuxTuiSurfaceProviderRegistry {
                 catalog.register(provider)
             }
         }
-        await withTaskGroup(of: Void.self) { group in
-            for provider in providers.values {
-                group.addTask { @MainActor in await self.refreshProvider(provider, force) }
-            }
-        }
-        return true
+        return page.vms.compactMap { providers[$0.id] }
     }
 
     /// Notification-driven teardown. Ignored when it belongs to a registry
@@ -314,6 +333,11 @@ final class CmuxTuiSurfaceProviderRegistry {
     }
 
     func accessDidEnd() async {
+        refreshGeneration &+= 1
+        discoveryInFlight?.cancel()
+        discoveryInFlight = nil
+        refreshInFlight?.cancel()
+        refreshInFlight = nil
         for provider in providers.values { provider.stop() }
         for id in providers.keys { catalog?.unregister(machine: .cloud(id)) }
         providers.removeAll()
