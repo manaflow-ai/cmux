@@ -150,15 +150,16 @@ on 6901. The contract (`web/services/vms/images/desktop.ts`;
   `ARG CMUX_IMAGE_GHOSTTY_DEB_SHA256` before dpkg runs); the apt list is
   `ARG CMUX_IMAGE_DESKTOP_PACKAGES`. `devbox-image-common.ts` reads all three.
 
-Desktop and base defaults use separate snapshots, and desktop is the kind
-every default create path asks for (`VM_IMAGE_DEFAULT_KIND` in
-`services/vms/images/resolver.ts`; the app sheet and the CLI send `--desktop`
-unless the person picks Base). `--kinds desktop` promotes the desktop ladder
-and `--no-desktop --kinds base` builds and promotes the shell-only base
-ladder; the verifier reads `/etc/cmux/image-stamp` and rejects a desktop
-snapshot passed as a base image. A daemon change (the cmux-tui pin) reaches
-machines only through a rebake of both ladders: the driver's attach-time heal
-never upgrades a healthy baked daemon.
+One snapshot serves both kinds: the desktop bake is promoted as the default
+for `desktop` and for `base` alike (`--kinds desktop,base`, the default for a
+desktop bake), so every machine cmux Cloud creates is this devbox with its
+screen, whatever kind a client names (`VM_IMAGE_DEFAULT_KIND` in
+`services/vms/images/resolver.ts` is desktop for a request that names none).
+`devbox:bake:freestyle --no-desktop` can still bake a shell-only image for
+experiments; it is not promoted, and the verifier reads `/etc/cmux/image-stamp`
+and rejects a desktop snapshot passed as a base image. A daemon change (the
+cmux-tui pin) reaches machines only through a rebake: the driver's
+attach-time heal never upgrades a healthy baked daemon.
 
 The Freestyle base slug is only the input to the cmux bake. The ids recorded in
 `manifest.json` are cmux-derived snapshots, created by baking cmux-tui and its
@@ -343,18 +344,20 @@ rollback is a manifest revert. The last stdout line is `IMAGE_ID <id>` (the
 bake); `--out <json>` writes the summary with every derived id. Commit the
 manifest diff in a PR; merging it is the promotion.
 
-The desktop and base ladders are two bakes. They can bake, verify and
-derive in parallel, but only one promotion may write the manifest at a time
-(two concurrent writes would lose one ladder), so run the second with
-`--dry-run --out <summary>` and land its rows with `--replay` once the first
-has written:
+One bake, both kinds: the desktop bake promoted with `--kinds desktop,base`
+(the default) appends one `desktop` row and one `base` row per size, both at
+the same snapshot id, so the manifest serves the one devbox for every kind.
+A promotion is idempotent per kind: promoting an image again with more kinds
+appends only the rows it does not have yet (how a desktop-only promotion
+gains the base rows without a rebake), and a promotion that would add
+nothing is refused.
+
+Promote both compatibility kinds together so the defaults keep sharing the
+same snapshot at every size:
 
 ```bash
 bun run devbox:bake:freestyle cmux-devbox-<tag> --out /tmp/desktop.json
-bun run devbox:bake:freestyle cmux-devbox-<tag>-base --no-desktop --out /tmp/base.json
-bun run devbox:promote -- freestyle --bake-result /tmp/base.json --no-desktop --kinds base --pointer-slug cmux-devbox-<tag>-base
-bun run devbox:promote -- freestyle --bake-result /tmp/desktop.json --kinds desktop --pointer-slug cmux-devbox-<tag> --dry-run --out /tmp/desktop-summary.json
-bun run devbox:promote -- freestyle --replay /tmp/desktop-summary.json
+bun run devbox:promote -- freestyle --bake-result /tmp/desktop.json --kinds desktop,base --pointer-slug cmux-devbox-<tag>
 ```
 
 A promotion that verified and derived but did not write (a refused write, a

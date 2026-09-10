@@ -2577,7 +2577,7 @@ describe("VM REST auth", () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ id: "provider-vm-manifest", kind: "desktop" });
-    expect(MANIFEST_DESKTOP_DEFAULT.imageId).not.toBe(MANIFEST_BASE_DEFAULT.imageId);
+    expect(MANIFEST_DESKTOP_DEFAULT.imageId).toBe(MANIFEST_BASE_DEFAULT.imageId);
     expect(createVm).toHaveBeenCalledWith(expect.objectContaining({
       image: MANIFEST_DESKTOP_DEFAULT.imageId,
       imageVersion: MANIFEST_DESKTOP_DEFAULT.version,

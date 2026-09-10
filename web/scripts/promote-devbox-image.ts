@@ -26,8 +26,8 @@
  *               freestyle/ubuntu-sm).
  *   --kinds     machine kinds the image serves; each gets a manifest entry
  *               flagged defaultForKind (default: desktop,base for a desktop
- *               bake, base for --no-desktop). Desktop and base defaults are
- *               promoted separately; a base promotion must use --no-desktop.
+ *               bake, base for --no-desktop). Product defaults use one desktop
+ *               bake serving both kinds; --no-desktop is for experiments.
  *   --pointer-slug  After promotion, move this account-local
  *               snapshot slug onto the new id (default cmux-devbox; "none"
  *               disables). A human/dashboard convenience: production boots
@@ -137,9 +137,8 @@ function commitManifest(label: string, manifest: DevboxImageManifest, next: Devb
   // describes: they carry its epoch and source digest, so a stale bake (an
   // --image baked before a Dockerfile change, an epoch bumped after the bake)
   // is refused here rather than caught by CI after the PR is open. Only the
-  // new rows are judged: the other kind's ladder is promoted by its own run
-  // (desktop and base are two bakes), and CI holds the whole manifest to the
-  // invariant once both have landed.
+  // new rows are judged so historical entries remain available for rollback;
+  // CI checks every active default against the current sources.
   const problems = [...imageManifestProblems(next), ...(drift ? devboxSourceDriftProblems({ ...next, images: added }) : [])];
   if (problems.length > 0) {
     throw new Error(`refusing to write an inconsistent manifest:\n  ${problems.join("\n  ")}`);

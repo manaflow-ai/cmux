@@ -909,7 +909,12 @@ export function appendImageManifestEntries(
 /**
  * Appends a verified image to the manifest as the default for every kind in
  * `kinds` (and every size in `sizes`), demoting the provider's previous
- * defaults for those kind+size pairs (appendImageManifestEntries). Pure.
+ * defaults for those kind+size pairs (appendImageManifestEntries). A row the
+ * manifest already lists for the same image, kind and size is left as it is:
+ * a promotion is idempotent per kind, so a kind can be added to an image
+ * promoted earlier (one snapshot serving both kinds) without re-listing the
+ * rows it already has; only a promotion that would add nothing is refused.
+ * Pure.
  */
 export function promoteImageManifestEntry(
   manifest: DevboxImageManifest,
@@ -950,7 +955,21 @@ export function promoteImageManifestEntry(
       });
     }
   }
-  return appendImageManifestEntries(manifest, promoted);
+  const listed = (row: DevboxManifestEntry) =>
+    manifest.images.find((candidate) =>
+      candidate.provider === row.provider &&
+      candidate.imageId === row.imageId &&
+      (candidate.kind ?? "base") === (row.kind ?? "base") &&
+      sizeKey(candidate) === sizeKey(row)
+    );
+  const fresh = promoted.filter((row) => !listed(row));
+  if (fresh.length === 0) {
+    const clash = listed(promoted[0])!;
+    throw new Error(
+      `refusing to promote ${entry.provider} ${promoted[0].imageId}: already listed as ${clash.version} (${promoted[0].kind}${promoted[0].size ? `, ${promoted[0].size.name}` : ""})`,
+    );
+  }
+  return appendImageManifestEntries(manifest, fresh);
 }
 
 /**
@@ -1015,7 +1034,7 @@ export function devboxImageLadderProblems(
   manifest: DevboxImageManifest,
   provider: DevboxProvider = "freestyle",
 ): string[] {
-  const problems: string[] = [];
+  const problems: string[] = devboxUnifiedSnapshotProblems(manifest, provider);
   for (const kind of ["base", "desktop"] as const) {
     const defaults = manifest.images.filter(
       (entry) => entry.provider === provider && (entry.kind ?? "base") === kind && entry.defaultForKind,
@@ -1071,6 +1090,27 @@ export function devboxImageLadderProblems(
     if ((local.kind ?? "base") !== "base" || local.size?.name !== "sm" || !local.defaultForKind) {
       problems.push(`${local.version}: defaultForLocalDev must be the base sm default`);
     }
+  }
+  return problems;
+}
+
+/** Product defaults share one desktop-capable snapshot at each size across legacy kinds. */
+export function devboxUnifiedSnapshotProblems(
+  manifest: DevboxImageManifest,
+  provider: DevboxProvider = "freestyle",
+): string[] {
+  const problems: string[] = [];
+  const snapshots = new Map<string, string>();
+  for (const entry of manifest.images) {
+    if (entry.provider !== provider || !entry.defaultForKind || !entry.size) continue;
+    if (entry.devboxSource?.layers !== "desktop") {
+      problems.push(`${entry.version}: default devbox must include the desktop layer`);
+    }
+    const previous = snapshots.get(entry.size.name);
+    if (previous && previous !== entry.imageId) {
+      problems.push(`${provider}/${entry.size.name}: all kinds must share one snapshot`);
+    }
+    snapshots.set(entry.size.name, entry.imageId);
   }
   return problems;
 }

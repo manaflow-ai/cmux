@@ -11,6 +11,7 @@ import {
   upgradeDevboxSourceRecords,
   devboxImageEpoch,
   devboxImageLadderProblems,
+  devboxUnifiedSnapshotProblems,
   devboxSourceDigest,
   devboxSourceDriftProblems,
   imageManifestProblems,
@@ -157,6 +158,20 @@ describe("devboxSourceDriftProblems", () => {
 });
 
 describe("devboxImageLadderProblems", () => {
+  test("rejects splitting a shared snapshot or dropping its desktop layer", () => {
+    const manifest = readImageManifest();
+    const split = {
+      ...manifest,
+      images: manifest.images.map((entry) => entry.kind === "base" && entry.defaultForKind
+        ? { ...entry, imageId: `${entry.imageId}-shell`, devboxSource: undefined }
+        : entry),
+    };
+    expect(devboxUnifiedSnapshotProblems(manifest)).toEqual([]);
+    const problems = devboxUnifiedSnapshotProblems(split);
+    expect(problems.some((problem) => problem.includes("share one snapshot"))).toBe(true);
+    expect(problems.some((problem) => problem.includes("include the desktop layer"))).toBe(true);
+  });
+
   test("rejects a missing size and a wrong shape", () => {
     const manifest = readImageManifest();
     const base = manifest.images.filter((entry) => {

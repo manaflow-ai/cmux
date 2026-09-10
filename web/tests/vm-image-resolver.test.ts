@@ -45,7 +45,7 @@ const baseLadder = Object.fromEntries(
   VM_IMAGE_SIZE_NAMES.map((size) => [size, ladderDefaults.base[size]!.imageId]),
 ) as Record<(typeof VM_IMAGE_SIZE_NAMES)[number], string>;
 const ladderVersion = ladderDefaults.desktop.sm!.version.replace(/-sm$/, "");
-const baseLadderVersion = ladderDefaults.base.sm!.version.replace(/-base-sm$/, "");
+const baseLadderVersion = ladderDefaults.base.sm!.version.replace(/-sm-base$/, "");
 
 test("the promoted Freestyle ladder is complete and internally consistent", () => {
   for (const size of VM_IMAGE_SIZE_NAMES) {
@@ -54,7 +54,7 @@ test("the promoted Freestyle ladder is complete and internally consistent", () =
     expect(desktop).toBeDefined();
     expect(base).toBeDefined();
     expect(desktop!.version).toBe(`${ladderVersion}-${size}`);
-    expect(base!.version).toBe(`${baseLadderVersion}-base-${size}`);
+    expect(base!.version).toBe(`${baseLadderVersion}-${size}-base`);
   }
 });
 // cmux's validated pre-ladder public-platform devbox: still listed (base only,
@@ -90,7 +90,7 @@ describe("VM image resolver: request by kind", () => {
     for (const stale of [retiredBetaSnapshot, legacySnapshot, "sh-ops-override", ""]) {
       expect(
         resolveVmImage("freestyle", undefined, { ...deployed, FREESTYLE_SANDBOX_SNAPSHOT: stale }, { kind: "base" }),
-      ).toMatchObject({ image: baseLadder.sm, imageVersion: `${baseLadderVersion}-base-sm`, kind: "base" });
+      ).toMatchObject({ image: baseLadder.sm, imageVersion: `${baseLadderVersion}-sm-base`, kind: "base" });
       expect(
         resolveVmImage("freestyle", undefined, { ...deployed, FREESTYLE_SANDBOX_SNAPSHOT: stale }, { kind: "desktop" }),
       ).toMatchObject({ image: ladder.sm, imageVersion: `${ladderVersion}-sm`, kind: "desktop" });
@@ -117,7 +117,7 @@ describe("VM image resolver: request by kind", () => {
     expect(resolveVmImage("freestyle", undefined, deployed, { kind: "base" })).toMatchObject({
       provider: "freestyle",
       image: baseLadder.sm,
-      imageVersion: `${baseLadderVersion}-base-sm`,
+      imageVersion: `${baseLadderVersion}-sm-base`,
       kind: "base",
       size: vmImageSize("sm"),
     });
@@ -146,7 +146,7 @@ describe("VM image resolver: request by kind", () => {
 
   test("the plan's memory picks the smallest ladder size that fits, for both kinds", () => {
     // Each kind has one snapshot per size: the machine boots at its shape with
-    // nothing to resize. Desktop and base ladders may use different snapshots.
+    // nothing to resize. Both kinds use the same snapshot at each size.
     const expectations: Array<[number, keyof typeof ladder]> = [
       [512, "sm"],
       [4096, "sm"],
@@ -165,7 +165,7 @@ describe("VM image resolver: request by kind", () => {
       expect(pickVmImageSizeForMemory(memoryMb)?.name).toBe(sizeName);
       expect(resolveVmImage("freestyle", undefined, deployed, { kind: "base", memoryMb })).toMatchObject({
         image: baseLadder[sizeName],
-        imageVersion: `${baseLadderVersion}-base-${sizeName}`,
+        imageVersion: `${baseLadderVersion}-${sizeName}-base`,
         kind: "base",
         size: vmImageSize(sizeName),
       });
@@ -224,7 +224,7 @@ describe("VM image resolver: request by kind", () => {
     // A client-requested image pins its declared kind and size.
     for (const [sizeName, snapshot] of Object.entries(ladder) as Array<[keyof typeof ladder, string]>) {
       expect(resolveVmImage("freestyle", baseLadder[sizeName], deployed, { kind: "base" })).toMatchObject({
-        imageVersion: `${baseLadderVersion}-base-${sizeName}`,
+        imageVersion: `${baseLadderVersion}-${sizeName}-base`,
         kind: "base",
         size: vmImageSize(sizeName),
       });
@@ -255,7 +255,7 @@ describe("VM image resolver: request by kind", () => {
     });
     // Without a kind the first listing wins, and a stored image id reads as desktop.
     expect(vmImageKindFor("freestyle", ladder.sm)).toBe("desktop");
-    expect(vmImageKindFor("freestyle", baseLadder.sm)).toBe("base");
+    expect(vmImageKindFor("freestyle", baseLadder.sm)).toBe("desktop");
     expect(vmImageKindFor("freestyle", legacyDesktopSnapshot)).toBe("desktop");
   });
 

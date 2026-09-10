@@ -3,6 +3,125 @@
   "strings": {
   "cloudTree.error.invalidPreviewURL": {
     "extractionState": "manual",
+    "cli.vm.help.baseCreate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "open creates it: the devbox with a VNC screen."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "初回にVNC画面付きのdevboxを作成します。"
+          }
+        }
+      }
+    },
+    "cli.vm.help.legacyBaseKindFlags": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "accepted for older scripts; Base always has a screen"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "旧スクリプトとの互換性のため受け付けます。Baseには常に画面があります"
+          }
+        }
+      }
+    },
+    "cli.vm.help.legacyKindFlags": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "accepted for older scripts; every machine has a screen"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "旧スクリプトとの互換性のため受け付けます。すべてのマシンに画面があります"
+          }
+        }
+      }
+    },
+    "cli.vm.help.newDevbox": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create a new machine: the devbox with devtools,"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開発ツール、コーディングエージェント、VNC画面付きの"
+          }
+        }
+      }
+    },
+    "cli.vm.help.newDevboxImage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the image for the size; --image <id> is an"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "イメージを選択します。--image <id>で明示的に"
+          }
+        }
+      }
+    },
+    "cli.vm.help.newDevboxOverride": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "explicit override you normally omit."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "指定できますが、通常は省略してください。"
+          }
+        }
+      }
+    },
+    "cli.vm.help.newDevboxScreen": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "coding agents and a VNC screen. The server picks"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいdevboxを作成します。サーバーがサイズに応じて"
+          }
+        }
+      }
+    },
     "localizations": {
       "en": {
         "stringUnit": {
@@ -288889,40 +289008,6 @@
         }
       }
     },
-    "machines.new.kind.desktop.summary": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Terminal plus a screen you can watch and control. Best for browsers and GUI apps."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ターミナルに加えて、見たり操作したりできる画面。ブラウザや GUI アプリに最適です。"
-          }
-        }
-      }
-    },
-    "machines.new.kind.base.summary": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Terminal only. Boots faster and uses less memory."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ターミナルのみ。起動が速く、メモリ消費が少なくなります。"
-          }
-        }
-      }
-    },
     "machines.new.plan.single": {
       "extractionState": "manual",
       "localizations": {
@@ -289208,40 +289293,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "ラベル(任意)"
-          }
-        }
-      }
-    },
-    "machines.new.kind.desktopUnavailable": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No desktop image is available in this environment, so this machine is terminal only."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "この環境にはデスクトップイメージがないため、このマシンはターミナルのみになります。"
-          }
-        }
-      }
-    },
-    "machines.new.kind.label": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kind"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "種類"
           }
         }
       }
