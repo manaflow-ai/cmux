@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 
 import {
+  type AdminGrantablePlanId,
   AdminInvalidEmailError,
   createPendingEmailGrant,
   isAdminGrantablePlanId,
@@ -9,6 +10,7 @@ import {
   searchAdminUsers,
   setManualPlanGrant,
 } from "../../../../services/admin/proGrants";
+import { auditRequestId, withAdminAudit } from "../../../../services/admin/auditLog";
 import {
   adminJsonResponse,
   readJsonBody,
@@ -39,6 +41,25 @@ export async function POST(request: NextRequest) {
     return adminJsonResponse({ error: "invalid_body" }, 400);
   }
 
+  return withAdminAudit(
+    {
+      actor: gate.admin,
+      action: "email_grant_create",
+      targetKind: "email",
+      targetId: canonicalizeEmailForMatching(email),
+      targetLabel: email.trim(),
+      details: { plan },
+      requestId: auditRequestId(request),
+    },
+    () => createEmailGrant(email, plan, gate.admin),
+  );
+}
+
+async function createEmailGrant(
+  email: string,
+  plan: AdminGrantablePlanId,
+  admin: { id: string; primaryEmail: string | null },
+): Promise<Response> {
   // Only a VERIFIED owner of the address is granted directly. An unverified
   // account can be registered by anyone with someone else's email, so those
   // wait in the pending table until a verified sign-in claims the grant.
@@ -50,11 +71,7 @@ export async function POST(request: NextRequest) {
       canonicalizeEmailForMatching(user.email) === canonical,
   );
   if (matches.length === 1) {
-    const user = await setManualPlanGrant({
-      targetUserId: matches[0]!.id,
-      plan,
-      admin: gate.admin,
-    });
+    const user = await setManualPlanGrant({ targetUserId: matches[0]!.id, plan, admin });
     return adminJsonResponse({ user });
   }
   if (matches.length > 1) {
@@ -62,11 +79,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const { unclearedUserIds, ...pendingGrant } = await createPendingEmailGrant({
-      email,
-      plan,
-      admin: gate.admin,
-    });
+    const { unclearedUserIds, ...pendingGrant } = await createPendingEmailGrant({ email, plan, admin });
     // Recorded, but a superseded grant is still active on these accounts
     // until their next sign-in or a manual "Remove grant". Say so.
     return adminJsonResponse({ pendingGrant, unclearedUserIds });
@@ -96,14 +109,25 @@ export async function DELETE(request: NextRequest) {
   if (typeof grantId !== "string" || !/^[0-9a-f-]{36}$/i.test(grantId)) {
     return adminJsonResponse({ error: "invalid_body" }, 400);
   }
-  try {
-    const result = await revokePendingEmailGrant({ grantId, admin: gate.admin });
-    return adminJsonResponse({ ok: true, ...result });
-  } catch (error) {
-    if (isMissingGrantsTableError(error)) {
-      console.error("admin.pending_grants.table_missing", { hint: "run the admin_plan_grants migration" });
-      return adminJsonResponse({ error: "grants_unavailable" }, 503);
-    }
-    throw error;
-  }
+  return withAdminAudit(
+    {
+      actor: gate.admin,
+      action: "email_grant_revoke",
+      targetKind: "email_grant",
+      targetId: grantId,
+      requestId: auditRequestId(request),
+    },
+    async () => {
+      try {
+        const result = await revokePendingEmailGrant({ grantId, admin: gate.admin });
+        return adminJsonResponse({ ok: true, ...result });
+      } catch (error) {
+        if (isMissingGrantsTableError(error)) {
+          console.error("admin.pending_grants.table_missing", { hint: "run the admin_plan_grants migration" });
+          return adminJsonResponse({ error: "grants_unavailable" }, 503);
+        }
+        throw error;
+      }
+    },
+  );
 }

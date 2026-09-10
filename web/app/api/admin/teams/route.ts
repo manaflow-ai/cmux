@@ -5,6 +5,7 @@ import {
   AdminTeamNotFoundError,
   setTeamManualPlanGrant,
 } from "../../../../services/admin/proGrants";
+import { auditRequestId, withAdminAudit } from "../../../../services/admin/auditLog";
 import {
   adminJsonResponse,
   readJsonBody,
@@ -32,12 +33,27 @@ export async function POST(request: NextRequest) {
     return adminJsonResponse({ error: "invalid_body" }, 400);
   }
 
+  const resolvedPlan = plan === null ? null : TEAM_PLAN_ID;
+  return withAdminAudit(
+    {
+      actor: gate.admin,
+      action: "team_grant_set",
+      targetKind: "team",
+      targetId: teamId.trim(),
+      details: { plan: resolvedPlan },
+      requestId: auditRequestId(request),
+    },
+    () => applyTeamGrant(teamId.trim(), resolvedPlan, gate.admin),
+  );
+}
+
+async function applyTeamGrant(
+  teamId: string,
+  plan: typeof TEAM_PLAN_ID | null,
+  admin: { id: string; primaryEmail: string | null },
+): Promise<Response> {
   try {
-    const team = await setTeamManualPlanGrant({
-      teamId: teamId.trim(),
-      plan: plan === null ? null : TEAM_PLAN_ID,
-      admin: gate.admin,
-    });
+    const team = await setTeamManualPlanGrant({ teamId, plan, admin });
     return adminJsonResponse({ team });
   } catch (error) {
     if (error instanceof AdminTeamNotFoundError) {

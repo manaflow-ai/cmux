@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 
+import { auditRequestId, withAdminAudit } from "../../../../services/admin/auditLog";
 import {
   adminJsonResponse,
   readJsonBody,
@@ -43,17 +44,29 @@ export async function POST(request: NextRequest) {
     return adminJsonResponse({ error: "billing_unavailable" }, 503);
   }
 
-  try {
-    const applied = await applySubscriptionAction({ scope, ownerId: ownerId.trim(), action });
-    if (!applied) return adminJsonResponse({ error: "no_subscription" }, 404);
-    return adminJsonResponse({ ok: true, action });
-  } catch (error) {
-    captureBillingError(error, {
-      route: "/api/admin/subscriptions",
-      stackUserId: gate.admin.id,
-      action,
-      scope,
-    });
-    return adminJsonResponse({ error: "billing_error" }, 502);
-  }
+  return withAdminAudit(
+    {
+      actor: gate.admin,
+      action: action === "cancel" ? "subscription_cancel" : "subscription_resume",
+      targetKind: scope,
+      targetId: ownerId.trim(),
+      details: { action, scope },
+      requestId: auditRequestId(request),
+    },
+    async () => {
+      try {
+        const applied = await applySubscriptionAction({ scope, ownerId: ownerId.trim(), action });
+        if (!applied) return adminJsonResponse({ error: "no_subscription" }, 404);
+        return adminJsonResponse({ ok: true, action });
+      } catch (error) {
+        captureBillingError(error, {
+          route: "/api/admin/subscriptions",
+          stackUserId: gate.admin.id,
+          action,
+          scope,
+        });
+        return adminJsonResponse({ error: "billing_error" }, 502);
+      }
+    },
+  );
 }
