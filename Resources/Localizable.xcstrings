@@ -67302,13 +67302,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "VNC Displays/"
+            "value": "Displays/"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "VNC ディスプレイ/"
+            "value": "ディスプレイ/"
           }
         }
       }
@@ -67376,7 +67376,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用法: cmux vm tree [<machine>|local] [--refresh] [--json]\n       cmux surface ls [<machine>|local] [--refresh] [--json]\n\nすべてのサーフェスを Finder 風に表示します。最初にこの Mac（ワークスペース別の\nターミナルとブラウザ）、続いて各クラウドマシンの Workspaces、Ports、VNC Displays\n（画面ごとに 1 行）、最後にマシンが所有するすべてのターミナルを含む Terminals\nセクションを表示します。各行には `cmux vm open` または `cmux surface open` が\n受け付けるアドレスが含まれます。\n\nオプション:\n  <machine>   このマシンだけを表示します（この Mac は `local`）。\n  --refresh   最初に全プロバイダ（マシン一覧、リンク、ローカルペイン）を再読み込みします。\n  --json      カタログのペイロード（{machines, resources, projections}）を表示します。"
+            "value": "使用法: cmux vm tree [<machine>|local] [--refresh] [--json]\n       cmux surface ls [<machine>|local] [--refresh] [--json]\n\nすべてのサーフェスを Finder 風に表示します。最初にこの Mac（ワークスペース別の\nターミナルとブラウザ）、続いて各クラウドマシンの Workspaces、Ports、Displays\n（画面ごとに 1 行）、最後にマシンが所有するすべてのターミナルを含む Terminals\nセクションを表示します。各行には `cmux vm open` または `cmux surface open` が\n受け付けるアドレスが含まれます。\n\nオプション:\n  <machine>   このマシンだけを表示します（この Mac は `local`）。\n  --refresh   最初に全プロバイダ（マシン一覧、リンク、ローカルペイン）を再読み込みします。\n  --json      カタログのペイロード（{machines, resources, projections}）を表示します。"
           }
         }
       }
@@ -68545,13 +68545,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "VNC Displays"
+            "value": "Displays"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "VNC ディスプレイ"
+            "value": "ディスプレイ"
           }
         }
       }
@@ -298747,6 +298747,62 @@
           "value": "ポートを検出中…"
         }
       }
+    }
+  },
+  "cloudTree.displays.loading": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Discovering displays…" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "ディスプレイを検出中…" } }
+    }
+  },
+  "cloudTree.displays.failed": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Couldn’t discover displays. Refresh to retry." } },
+      "ja": { "stringUnit": { "state": "translated", "value": "ディスプレイを検出できませんでした。更新して再試行してください。" } }
+    }
+  },
+  "cloudTree.displays.asleep": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Displays unavailable while the machine sleeps" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "マシンがスリープ中はディスプレイを利用できません" } }
+    }
+  },
+  "cloudTree.displays.unavailable": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Display discovery unavailable. Refresh to retry." } },
+      "ja": { "stringUnit": { "state": "translated", "value": "ディスプレイ検出を利用できません。更新して再試行してください。" } }
+    }
+  },
+  "cloudTree.displays.empty": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "No displays available" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "利用可能なディスプレイはありません" } }
+    }
+  },
+  "cloudTree.workspace.pending": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "New workspace" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "新しいワークスペース" } }
+    }
+  },
+  "cli.vm.open.sessionsUnavailable": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "The machine’s sessions are unavailable. Refresh and retry." } },
+      "ja": { "stringUnit": { "state": "translated", "value": "マシンのセッションを利用できません。更新して再試行してください。" } }
+    }
+  },
+  "cli.vm.tree.noDisplays": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "(none available)" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "（利用可能なものはありません）" } }
     }
   },
   "cloudTree.ports.failed": {

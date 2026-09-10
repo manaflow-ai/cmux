@@ -47,13 +47,17 @@ DITTO_TOOL="${CMUX_DITTO_TOOL:-/usr/bin/ditto}"
 XCRUN_TOOL="${CMUX_XCRUN_TOOL:-xcrun}"
 CODESIGN_TOOL="${CMUX_CODESIGN_TOOL:-/usr/bin/codesign}"
 SPCTL_TOOL="${CMUX_SPCTL_TOOL:-spctl}"
-# Gatekeeper keeps negative assessments in a cache keyed by the helper's code
-# directory hash. The helper has the same CDHash before and after stapling, so
-# an assessment made before the ticket is attached can otherwise be replayed
-# after stapling and reported as "Unnotarized Developer ID". Force every poll
-# to assess the copied helper without consulting or populating that cache;
-# retries still cover propagation of the fresh ticket to Apple's service.
-GATEKEEPER_ASSESS_ATTEMPTS="${CMUX_GATEKEEPER_ASSESS_ATTEMPTS:-20}"
+# Gatekeeper learns about a fresh notarization ticket from Apple's CDN, which
+# lags the notarytool "Accepted" status: usually by a minute or two, but
+# nightly run 34208928547 (2026-09-08) was still rejected 4m50s after
+# "Accepted" and failed on the previous five-minute budget. A stapled, valid
+# helper can therefore assess as "Unnotarized Developer ID" for a while. Poll
+# until it is accepted or the budget runs out. The default budget is twenty
+# minutes (80 x 15s): a good ticket leaves the loop on its first acceptance,
+# so a larger budget only lengthens how long a genuinely rejected helper takes
+# to fail, whereas a short budget fails good releases whenever the CDN lags.
+# Both knobs stay env-configurable; the calling job's timeout must cover them.
+GATEKEEPER_ASSESS_ATTEMPTS="${CMUX_GATEKEEPER_ASSESS_ATTEMPTS:-80}"
 GATEKEEPER_ASSESS_DELAY_SECONDS="${CMUX_GATEKEEPER_ASSESS_DELAY_SECONDS:-15}"
 
 assess_with_gatekeeper() {
@@ -61,6 +65,9 @@ assess_with_gatekeeper() {
   while :; do
     if "$SPCTL_TOOL" -a -vv --ignore-cache --no-cache --type execute "$target"; then
       return 0
+    fi
+    if [ "$attempt" -eq 1 ]; then
+      echo "Gatekeeper propagation budget: $GATEKEEPER_ASSESS_ATTEMPTS attempts x ${GATEKEEPER_ASSESS_DELAY_SECONDS}s (about $((GATEKEEPER_ASSESS_ATTEMPTS * GATEKEEPER_ASSESS_DELAY_SECONDS / 60)) minutes)"
     fi
     if [ "$attempt" -ge "$GATEKEEPER_ASSESS_ATTEMPTS" ]; then
       echo "Gatekeeper still rejects $target after $attempt attempts" >&2
