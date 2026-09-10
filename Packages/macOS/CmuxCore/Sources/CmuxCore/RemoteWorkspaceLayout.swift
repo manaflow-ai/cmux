@@ -10,6 +10,14 @@ public struct RemoteWorkspaceLayout: Sendable {
     /// Pane rows followed by pane-less resources, expressed as source-array indices.
     public let rows: [RemoteWorkspaceLayoutRow]
 
+    /// Source-array indices in the same visual order as the workspace rows,
+    /// with every tab emitted as a sibling after its pane's focused tab.
+    /// Consumers that render a flat resource list should use this projection;
+    /// ``rows`` remains available to callers that need pane grouping metadata.
+    public var flatPlacementIndices: [Int] {
+        rows.flatMap { [$0.shownIndex] + $0.hiddenIndices }
+    }
+
     private enum ScreenIdentity: Hashable {
         case id(String)
         case index(Int)

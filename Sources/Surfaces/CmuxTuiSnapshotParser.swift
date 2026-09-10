@@ -1,7 +1,6 @@
 import CmuxCore
 import CoreFoundation
 import Foundation
-
 /// Maps a cmux-tui public session snapshot (`session current snapshot --json`) onto
 /// ``SurfaceResource`` values for one cloud machine. Pure and total: unknown keys are
 /// ignored, a malformed entry drops that entry, never the machine.
@@ -21,7 +20,6 @@ struct CloudVMStateDeltaImpact: Hashable, Sendable {
     /// rebuild path instead of risking a partial placement update.
     var requiresFullResourceRebuild = false
 }
-
 struct CloudVMStateDeltaApplication: Sendable {
     let state: CloudVMState
     let impact: CloudVMStateDeltaImpact
@@ -1728,7 +1726,9 @@ struct CmuxTuiSnapshotParser: Sendable {
     /// The workspace a `workspace create` mutation created.
     static func createdWorkspace(fromResult result: [String: Any]) -> String? {
         let path = (result["value"] as? [String: Any]) ?? result
-        let id = (path["workspace_id"] as? String) ?? (path["id"] as? String)
+        let id = (path["workspace_id"] as? String)
+            ?? (path["workspace"] as? String)
+            ?? (path["id"] as? String)
         return id.flatMap { $0.isEmpty ? nil : $0 }
     }
 

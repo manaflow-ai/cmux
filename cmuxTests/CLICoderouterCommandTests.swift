@@ -81,6 +81,18 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 error: ["code": "unexpected", "message": "Unexpected method \(method)"]
             )
         }
+        // A test that expects the CLI to stay off the socket must not hold a
+        // case-bound expectation it never waits on: the shared accept loop
+        // fulfills it when the listener closes below, and XCTest reports a
+        // fulfilled-but-unwaited expectation as an unexpected failure, which
+        // the app-host batch classifier turns into a red shard.
+        let serverHandled: XCTestExpectation?
+        if waitForSocket {
+            serverHandled = startMockServer(listenerFD: listenerFD, state: state, handler: respond)
+        } else {
+            serverHandled = nil
+            startDetachedMockServer(listenerFD: listenerFD, state: state, handler: respond)
+        }
 
         let serverHandled: XCTestExpectation?
         if waitForSocket {
