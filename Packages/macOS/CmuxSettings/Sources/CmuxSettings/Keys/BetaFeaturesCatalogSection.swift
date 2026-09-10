@@ -76,11 +76,10 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
         userDefaultsKey: "cloud.beta.machines.enabled"
     )
 
-    /// Devices: the Devices tab in the right sidebar, which lists the account's
-    /// other Macs with presence and projects their live workspaces the way the
-    /// Cloud tab projects cloud machines. Turning it on also makes this Mac
-    /// publish itself (register, heartbeat presence, serve its workspace tree)
-    /// even when iOS pairing was never set up. Defaults off: it is an explicit
+    /// My Devices in the Cloud right sidebar lists the account's other Macs
+    /// with presence and projects their live workspaces alongside cloud machines.
+    /// Enabling it also publishes this Mac's presence and workspace tree even
+    /// when iOS pairing was never set up. Defaults off: it is an explicit
     /// opt-in to being visible and controllable from the account's other Macs.
     public let devices = DefaultsKey<Bool>(
         id: "devices.beta.enabled",

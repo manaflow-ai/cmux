@@ -755,13 +755,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Enables viewing your paired Macs and makes this Mac available to other devices signed in to your account."
+            "value": "Shows your paired Macs under My Devices in the Cloud right sidebar and makes this Mac available to other devices signed in to your account."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ペアリング済みのMacを表示し、同じアカウントでサインインしたほかのデバイスからこのMacに接続できるようにします。"
+            "value": "ペアリング済みの Mac を Cloud の右サイドバーのマイデバイスに表示し、この Mac を同じアカウントでサインインしているほかのデバイスから利用できるようにします。"
           }
         }
       }
@@ -1503,13 +1503,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hides My Devices from Cloud and stops publishing this Mac to your other Macs unless iOS pairing is on."
+            "value": "Hides My Devices from the Cloud right sidebar. This Mac stays unavailable to your other Macs unless iOS pairing is on."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud のマイデバイスを非表示にします。iOS ペアリングがオンでない限り、この Mac をほかの Mac に公開しなくなります。"
+            "value": "Cloud の右サイドバーのマイデバイスを非表示にします。iOS ペアリングがオンでない限り、ほかの Mac からこの Mac を利用できなくなります。"
           }
         }
       }
@@ -1520,13 +1520,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shows My Devices below your Cloud machines, with your other Macs and their live workspaces. This Mac also becomes available to your other Macs."
+            "value": "Shows your other Macs and their live workspaces under My Devices in the Cloud right sidebar. This Mac also becomes available to your other Macs."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud マシンの下のマイデバイスに、ほかの Mac とライブワークスペースを表示します。この Mac もほかの Mac から利用できるようになります。"
+            "value": "Cloud の右サイドバーにあるマイデバイスに、ほかの Mac とライブワークスペースを表示します。この Mac もほかの Mac から利用できるようになります。"
           }
         }
       }

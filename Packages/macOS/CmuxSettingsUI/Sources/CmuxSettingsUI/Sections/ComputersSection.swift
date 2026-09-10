@@ -32,7 +32,7 @@ public struct ComputersSection: View {
                 ))
                 .disabled(devicesManagedByPolicy)
                 .accessibilityIdentifier("SettingsComputersEnabled")
-                Text(String(localized: "settings.computers.optIn", defaultValue: "Enables viewing your paired Macs and makes this Mac available to other devices signed in to your account."))
+                Text(String(localized: "settings.computers.optIn", defaultValue: "Shows your paired Macs under My Devices in the Cloud right sidebar and makes this Mac available to other devices signed in to your account."))
                     .font(.callout)
                     .foregroundStyle(.secondary)
                 HStack {

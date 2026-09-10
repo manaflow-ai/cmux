@@ -349,10 +349,10 @@ extension Array where Element == CuratedSettingEntry {
             .init(
                 section: .betaFeatures,
                 id: "devices",
-                title: String(localized: "settings.betaFeatures.devices", defaultValue: "Devices"),
+                title: String(localized: "settings.betaFeatures.devices", defaultValue: "My Devices"),
                 detailText: [
-                    String(localized: "settings.betaFeatures.devices.subtitleOn", defaultValue: "Shows Devices in the right sidebar: your account\u{2019}s other Macs and their live workspaces. This Mac also publishes itself so your other Macs can see it."),
-                    String(localized: "settings.betaFeatures.devices.subtitleOff", defaultValue: "Hides the Devices tab and stops publishing this Mac to your other Macs unless iOS pairing is on."),
+                    String(localized: "settings.betaFeatures.devices.subtitleOn", defaultValue: "Shows your other Macs and their live workspaces under My Devices in the Cloud right sidebar. This Mac also becomes available to your other Macs."),
+                    String(localized: "settings.betaFeatures.devices.subtitleOff", defaultValue: "Hides My Devices from the Cloud right sidebar. This Mac stays unavailable to your other Macs unless iOS pairing is on."),
                 ].joined(separator: " "),
                 paths: ["devices.beta.enabled"],
                 synonyms: "devices macs other mac computers presence hive right sidebar remote beta unstable"

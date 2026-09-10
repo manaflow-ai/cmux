@@ -197,8 +197,8 @@ public struct BetaFeaturesSection: View {
             subtitle: devicesManagedByPolicy
                 ? String(localized: "settings.managedByOrganization", defaultValue: "Managed by your organization")
                 : devices.current
-                ? String(localized: "settings.betaFeatures.devices.subtitleOn", defaultValue: "Shows My Devices below your Cloud machines, with your other Macs and their live workspaces. This Mac also becomes available to your other Macs.")
-                : String(localized: "settings.betaFeatures.devices.subtitleOff", defaultValue: "Hides My Devices from Cloud and stops publishing this Mac to your other Macs unless iOS pairing is on.")
+                ? String(localized: "settings.betaFeatures.devices.subtitleOn", defaultValue: "Shows your other Macs and their live workspaces under My Devices in the Cloud right sidebar. This Mac also becomes available to your other Macs.")
+                : String(localized: "settings.betaFeatures.devices.subtitleOff", defaultValue: "Hides My Devices from the Cloud right sidebar. This Mac stays unavailable to your other Macs unless iOS pairing is on.")
         ) {
             Toggle("", isOn: Binding(get: { devices.current && !devicesManagedByPolicy }, set: {
                 guard !devicesManagedByPolicy else { return }
