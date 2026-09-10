@@ -278,9 +278,17 @@ export async function pingCloudDb(
       prepare: false,
       connect_timeout: Math.max(1, Math.ceil(timeoutMs / 1_000)),
       idle_timeout: 1,
-      connection: { statement_timeout: Math.max(1, Math.floor(timeoutMs)) },
     });
-    const query = sql.unsafe("select 1");
+    // The deadline is set with `set local` inside an explicit transaction
+    // rather than as a startup parameter: PgBouncer in transaction pooling
+    // mode (the production pooled URL) rejects `statement_timeout` in the
+    // startup options with "unsupported startup parameter", and a plain
+    // session-level `set` would leak onto the shared server connection.
+    // One simple-protocol query keeps `query.cancel()` available for aborts.
+    const statementTimeoutMs = Math.max(1, Math.floor(timeoutMs));
+    const query = sql.unsafe(
+      `begin; set local statement_timeout = ${statementTimeoutMs}; select 1; commit`,
+    );
     const cancel = () => {
       try {
         query.cancel();
