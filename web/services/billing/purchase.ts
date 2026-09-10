@@ -1,3 +1,4 @@
+import { findIdentitySnapshotUserIdsByEmail } from "../auth/identitySnapshot";
 import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import type Stripe from "stripe";
 
@@ -64,7 +65,6 @@ export const ACTIVE_STRIPE_SUBSCRIPTION_STATUSES = new Set([
 ]);
 const DELETED_ACCOUNT_ACTOR_ID = "deleted-account";
 const PURCHASE_MAGIC_LINK_CALLBACK = "https://cmux.com/handler/after-sign-in";
-const STACK_USER_LOOKUP_PAGE_SIZE = 100;
 const MAX_STACK_USER_LOOKUP_PAGES = 100;
 
 type BillingDb = ReturnType<typeof cloudDb>;
@@ -1171,6 +1171,7 @@ export async function findOrCreateBillingUser(
 export async function findBillingUserByEmail(
   stackApp: StackBillingApp,
   email: string,
+  options: BillingUserLookupOptions = {},
 ): Promise<StackBillingUser | null> {
   const listUsers = stackApp.listUsers;
   if (!listUsers) {
@@ -1193,16 +1194,11 @@ export async function findBillingUserByEmail(
     );
   }
   if (candidateByID.size === 0 && isGmailAddress(literalEmail)) {
-    // Stack's free-text query is literal and does not understand Gmail's
-    // dot-insensitive namespace. Scan the provider's paginated user list as a
-    // bounded fallback, then apply the canonical comparison locally. An
-    // incomplete scan fails closed instead of creating the wrong account.
-    await collectBillingUserLookupCandidates(
-      boundListUsers,
-      undefined,
+    await collectSnapshotLookupCandidates(
+      stackApp,
       matchingEmail,
       candidateByID,
-      STACK_USER_LOOKUP_PAGE_SIZE,
+      options.snapshotUserIds ?? findIdentitySnapshotUserIdsByEmail,
     );
   }
   const candidates = [...candidateByID.values()].sort(compareStackUserLookup);
@@ -2826,6 +2822,7 @@ async function attachPurchaseEmailOrRecordClaim(
 export async function findUserIdByEmail(
   stackApp: StackBillingApp | null | undefined,
   email: string,
+  options: BillingUserLookupOptions = {},
 ): Promise<string | null> {
   const listUsers = stackApp?.listUsers;
   if (!listUsers) {
@@ -2845,13 +2842,12 @@ export async function findUserIdByEmail(
       20,
     );
   }
-  if (ownersByID.size === 0 && isGmailAddress(literalEmail)) {
-    await collectBillingUserLookupCandidates(
-      boundListUsers,
-      undefined,
+  if (ownersByID.size === 0 && isGmailAddress(literalEmail) && stackApp) {
+    await collectSnapshotLookupCandidates(
+      stackApp,
       normalizedEmail,
       ownersByID,
-      STACK_USER_LOOKUP_PAGE_SIZE,
+      options.snapshotUserIds ?? findIdentitySnapshotUserIdsByEmail,
     );
   }
   return [...ownersByID.values()].sort(compareStackUserLookup)[0]?.id ?? null;
@@ -2892,7 +2888,39 @@ async function collectBillingUserLookupCandidates(
     seenCursors.add(nextCursor);
     cursor = nextCursor;
   }
-  throw new Error("Stack Auth user lookup exceeded its bounded page budget");
+  // The budget bounds latency inside a webhook. Exact canonical matches found
+  // so far are kept; a match beyond the budget would only ever be a dotted
+  // Gmail alias, which the identity-snapshot lookup covers and the purchase
+  // claim path can remap later. Failing the purchase here lost the sale.
+  console.warn("billing.user_lookup.page_budget_exhausted", { query: query ? "email" : "list" });
+  return foundCanonicalMatch;
+}
+
+export type BillingUserLookupOptions = {
+  /** Snapshot user ids for a canonical email; defaults to the identity snapshot table. */
+  readonly snapshotUserIds?: (canonicalEmail: string) => Promise<readonly string[]>;
+};
+
+async function collectSnapshotLookupCandidates(
+  stackApp: Pick<StackBillingApp, "getUser">,
+  matchingEmail: string,
+  candidates: Map<string, StackBillingUserLookup>,
+  snapshotUserIds: NonNullable<BillingUserLookupOptions["snapshotUserIds"]>,
+): Promise<void> {
+  // Stack's query is a literal substring match and cannot express Gmail's
+  // dot-insensitive namespace; scanning the whole user list no longer fits a
+  // webhook (80k users, including anonymous ones). Our identity snapshot holds
+  // every user who has signed in, so it answers the dotted-alias case exactly.
+  for (const id of await snapshotUserIds(matchingEmail)) {
+    if (candidates.has(id)) continue;
+    const user = await stackApp.getUser(id);
+    if (
+      user?.primaryEmail &&
+      canonicalizeEmailForMatching(user.primaryEmail) === matchingEmail
+    ) {
+      candidates.set(id, user as StackBillingUserLookup);
+    }
+  }
 }
 
 function compareStackUserLookup(
