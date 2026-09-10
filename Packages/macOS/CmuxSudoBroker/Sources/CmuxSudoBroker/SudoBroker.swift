@@ -331,9 +331,7 @@ public actor SudoBroker {
                 phase: .pendingApproval
             )
             records[id] = pending
-            if !wasKnown {
-                discovered.append(pending)
-            }
+            discovered.append(pending)
             if expiryTasks[id] == nil {
                 scheduleExpiry(for: pending)
             }
