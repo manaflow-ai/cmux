@@ -162,6 +162,20 @@ public struct SSHConnectionSharingOptions: Sendable {
         ]
     }
 
+    /// Parses resolved host control settings with the explicit caller options
+    /// that were included in the `ssh -G` invocation.
+    ///
+    /// - Parameters:
+    ///   - output: Effective configuration reported by OpenSSH.
+    ///   - explicitOptions: Caller-provided `-o` values included in that output.
+    /// - Returns: Effective custom host control settings, or `nil` for defaults.
+    public func userConfiguredControlOptions(
+        fromSSHConfigOutput output: String,
+        explicitOptions: [String]
+    ) -> [String]? {
+        userConfiguredControlOptions(fromSSHConfigOutput: output)
+    }
+
     /// Returns the configured `ControlPath` when it is one of cmux's native
     /// SSH templates, including the older relay-port-scoped template so an
     /// upgraded app can still clean up a socket it created.
