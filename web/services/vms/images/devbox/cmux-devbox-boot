@@ -146,7 +146,7 @@ rekey_ssh_host() {
 }
 
 announce_network() {
-  command -v arping >/dev/null 2>&1 && ip -o -4 addr show scope global 2>/dev/null | while read -r _ dev _ cidr _; do case "$dev" in lo|docker*|veth*|br-*|virbr*) continue;; esac; case "$cidr" in 169.254.*) continue;; esac; arping -U -c 2 -w 2 -I "$dev" "${cidr%/*}" >/dev/null 2>&1 & done; wait; true
+  command -v arping >/dev/null 2>&1 && ip -o -4 addr show scope global 2>/dev/null | { while read -r _ dev _ cidr _; do case "$dev" in lo|docker*|veth*|br-*|virbr*) continue;; esac; case "$cidr" in 169.254.*) continue;; esac; arping -U -c 2 -w 2 -I "$dev" "${cidr%/*}" >/dev/null 2>&1 & done; wait; }; true
 }
 
 announce_loop() {

@@ -32,10 +32,13 @@
 export function devboxNetworkAnnounceCommand(): string {
   return (
     "command -v arping >/dev/null 2>&1 && ip -o -4 addr show scope global 2>/dev/null" +
-    " | while read -r _ dev _ cidr _; do" +
+    // The loop body runs in the pipeline's subshell, so the wait must too:
+    // outside the braces it would return at once and leave the probes to a
+    // process tree the caller may already be tearing down.
+    " | { while read -r _ dev _ cidr _; do" +
     ' case "$dev" in lo|docker*|veth*|br-*|virbr*) continue;; esac;' +
     ' case "$cidr" in 169.254.*) continue;; esac;' +
     ' arping -U -c 2 -w 2 -I "$dev" "${cidr%/*}" >/dev/null 2>&1 &' +
-    " done; wait; true"
+    " done; wait; }; true"
   );
 }
