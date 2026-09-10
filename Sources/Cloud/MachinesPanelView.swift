@@ -458,6 +458,7 @@ struct MachinesPanelView: View {
             onSelectionChange: { selection in selectedCreateSelection = selection.map { (accountID, $0) } }
         )
         .accessibilityIdentifier("CloudMachinesTree")
+        .onDisappear { selectedCreateSelection = nil }
     }
 
     @ViewBuilder
