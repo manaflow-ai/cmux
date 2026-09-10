@@ -108,6 +108,6 @@ struct CloudTreeDeviceRow: Equatable {
         let base = trimmed.isEmpty ? String(instance.deviceID.prefix(8)) : trimmed
         guard !instance.isDefaultTag else { return base }
         let suffix = " (\(instance.tag))"
-        return base.hasSuffix(suffix) ? base : base + suffix
+        return base + suffix
     }
 }

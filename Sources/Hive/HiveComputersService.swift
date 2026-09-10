@@ -7,8 +7,15 @@ import Observation
 
 @MainActor
 final class HiveComputersService {
-    static let shared = HiveComputersService()
     static let didChangeNotification = Notification.Name("cmux.computers.pairingsDidChange")
+
+    private let registry: DeviceSurfaceProviderRegistry
+    private let openSidebar: @MainActor () -> RightSidebarRemoteApplyResult?
+
+    init(registry: DeviceSurfaceProviderRegistry, openSidebar: @escaping @MainActor () -> RightSidebarRemoteApplyResult?) {
+        self.registry = registry
+        self.openSidebar = openSidebar
+    }
 
     private var controller: HivePairingController?
     private var auth: AuthCoordinator?
@@ -21,7 +28,11 @@ final class HiveComputersService {
     private var error: String?
     private var continuations: [UUID: AsyncStream<ComputersSettingsSnapshot>.Continuation] = [:]
 
-    var pairedComputers: [HivePairedComputer] { controller?.computers ?? [] }
+    var pairedComputers: [HivePairedComputer] {
+        guard let auth, let identity, identity == auth.authenticatedSessionIdentity,
+              teamID == auth.resolvedTeamID else { return [] }
+        return controller?.computers ?? []
+    }
 
     func configure(auth: AuthCoordinator) {
         self.auth = auth
@@ -29,13 +40,13 @@ final class HiveComputersService {
         directoryObserver = NotificationCenter.default.addObserver(
             forName: DeviceDirectory.didChangeNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.publish() }
+            Task { @MainActor [weak self] in self?.publish() }
         }
         if let catalogObserver { NotificationCenter.default.removeObserver(catalogObserver) }
         catalogObserver = NotificationCenter.default.addObserver(
             forName: SurfaceCatalog.didChangeNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.publish() }
+            Task { @MainActor [weak self] in self?.publish() }
         }
         observeAccount()
     }
@@ -66,8 +77,17 @@ final class HiveComputersService {
 
     func refresh() async {
         await loadTask?.value
-        do { try await controller?.load() } catch { self.error = Self.message(for: error) }
-        await DeviceSurfaceProviderRegistry.shared.refresh(force: true)
+        if let controller {
+            do {
+                try await controller.load()
+                guard self.controller === controller else { return }
+                error = nil
+            } catch {
+                guard self.controller === controller else { return }
+                self.error = Self.message(for: error)
+            }
+        }
+        await registry.refresh(force: true)
         publish()
     }
 
@@ -108,16 +128,16 @@ final class HiveComputersService {
             publish()
             return
         }
-        if let provider = DeviceSurfaceProviderRegistry.shared.provider(for: instance) {
+        if let provider = registry.provider(for: instance) {
             await provider.refresh(force: true)
         }
         guard identity == scope, isPaired(instance) else { return }
-        guard let result = AppDelegate.shared?.applyRightSidebarRemoteCommand(.setMode(.machines, focus: true)) else { return }
+        guard let result = openSidebar() else { return }
         switch result {
         case .failure(let message):
             error = message
         case .ok, .state:
-            DeviceSurfaceProviderRegistry.shared.reveal(instance: instance)
+            registry.reveal(instance: instance)
             error = nil
         }
         publish()
@@ -180,7 +200,7 @@ final class HiveComputersService {
     }
 
     private func snapshot() -> ComputersSettingsSnapshot {
-        let directory = DeviceSurfaceProviderRegistry.shared.directory
+        let directory = registry.directory
         let paired = pairedComputers
         let pairedInstances = Set(paired.map {
             SurfaceDeviceInstanceID(deviceID: $0.deviceID, tag: $0.instanceTag)
@@ -190,7 +210,7 @@ final class HiveComputersService {
                 id: record.instance.wireValue, title: record.deviceName,
                 tag: record.instance.isDefaultTag ? nil : record.instance.tag,
                 isPaired: pairedInstances.contains(record.instance),
-                isOnline: DeviceSurfaceProviderRegistry.shared.provider(for: record.instance)?.link.isConnected == true
+                isOnline: registry.provider(for: record.instance)?.link.isConnected == true
                     ? true : (directory?.presenceState == .live ? record.isOnline : nil)
             )
         }

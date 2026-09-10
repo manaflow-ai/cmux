@@ -66,6 +66,7 @@ struct DeviceDirectoryRecord: Equatable, Sendable, Identifiable {
     /// rejects any other account, and dialing it would hand our bearer token to
     /// a peer we cannot attribute.
     var isDialable: Bool {
-        !routes.isEmpty && accountTrust == .sameAccount && (isPaired || isOnline)
+        routes.contains { DeviceRouteSelector().supportedKinds.contains($0.kind) }
+            && accountTrust == .sameAccount && (isPaired || isOnline)
     }
 }

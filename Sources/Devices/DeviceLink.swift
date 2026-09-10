@@ -165,16 +165,22 @@ final class DeviceLink {
     /// One request on the live link. Host-reported failures come back as
     /// ``DeviceLinkError/hostRejected``; a closed transport reconnects the link.
     func request(_ method: String, params: [String: Any] = [:], timeoutNanoseconds: UInt64? = nil) async throws -> [String: Any] {
+        let data = try await requestData(method, params: params, timeoutNanoseconds: timeoutNanoseconds)
+        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw DeviceLinkError.malformedResponse(method)
+        }
+        return object
+    }
+
+    /// Keeps large replay replies encoded until their decoder leaves the UI actor.
+    func requestData(_ method: String, params: [String: Any] = [:], timeoutNanoseconds: UInt64? = nil) async throws -> Data {
         guard let client, phase == .connected else { throw DeviceLinkError.notConnected }
         let requestGeneration = generation
         let requestData = try MobileCoreRPCClient.requestData(method: method, params: params)
         do {
             let data = try await client.sendRequest(requestData, timeoutNanoseconds: timeoutNanoseconds)
             guard !Task.isCancelled, requestGeneration == generation else { throw CancellationError() }
-            guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                throw DeviceLinkError.malformedResponse(method)
-            }
-            return object
+            return data
         } catch let error as MobileShellConnectionError {
             guard !Task.isCancelled, requestGeneration == generation else { throw CancellationError() }
             switch error {

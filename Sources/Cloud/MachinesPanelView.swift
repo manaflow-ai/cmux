@@ -30,7 +30,7 @@ enum CloudVMPanelAuthState: Equatable {
 /// routes through the shared Cloud VM action path or the Cloud tree service.
 struct MachinesPanelView: View {
     @StateObject private var viewModel = MachinesPanelViewModel()
-    @State private var devicesModel = DevicesPanelViewModel()
+    @State private var devicesModel: DevicesPanelViewModel
     @AppStorage(RightSidebarBetaFeatureSettings.devicesEnabledKey)
     private var devicesBetaEnabled = RightSidebarBetaFeatureSettings.defaultDevicesEnabled
     @AppStorage(RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
@@ -43,6 +43,11 @@ struct MachinesPanelView: View {
     /// and @AppStorage re-renders the live panel the moment it changes.
     @AppStorage(CloudTreeStyleStore.defaultsKey) private var cloudTreeStyleID: String = CloudTreeStyle.defaultStyle.id
     let chromeBackgroundColor: NSColor
+
+    init(chromeBackgroundColor: NSColor, devicesModel: DevicesPanelViewModel? = nil) {
+        self.chromeBackgroundColor = chromeBackgroundColor
+        _devicesModel = State(initialValue: devicesModel ?? DevicesPanelViewModel())
+    }
 
     private var accountFlow: HostAccountFlow? {
         AppDelegate.shared?.auth?.accountFlow
@@ -503,7 +508,7 @@ struct MachinesPanelView: View {
             onDidMutate: { [weak viewModel] in viewModel?.endOperation() }
         )
         machineActions.create = MachineCreateRowActions.bound(coordinator: viewModel.createCoordinator)
-        let nodeActions = CloudTreeNodeActions.bound(
+        var nodeActions = CloudTreeNodeActions.bound(
             catalog: { SurfaceCatalog.shared },
             selectedWorkspaceID: { AppDelegate.shared?.tabManager?.selectedTabId },
             selectLocalWorkspace: { workspaceID in
@@ -514,6 +519,9 @@ struct MachinesPanelView: View {
             onFailure: { [weak viewModel] description in viewModel?.noteTreeFailure(description) },
             refresh: { refreshMachines() }
         )
+        nodeActions.needsDevicePairing = { [weak devicesModel] machine in
+            devicesModel?.needsPairing(machine) ?? false
+        }
         return CloudTreeOutlineView(
             machines: includesCloud ? viewModel.machines : [],
             pendingCreates: includesCloud ? viewModel.pendingCreates : [],

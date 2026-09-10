@@ -32,9 +32,7 @@ extension CloudTreeOutlineView.Coordinator {
         var items: [NSMenuItem] = []
         // An unpaired Mac never gets a credentialed dial from the tree: the one
         // verb it offers routes to the pairing flow in Settings › Computers.
-        let needsPairing = machine.deviceInstance.flatMap {
-            DeviceSurfaceProviderRegistry.shared.provider(for: $0)?.link.needsAuthorization
-        } ?? false
+        let needsPairing = nodeActions.needsDevicePairing(machine)
         if needsPairing {
             items.append(item(String(localized: "cloudTree.menu.pairInSettings", defaultValue: "Pair in Settings \u{203A} Computers\u{2026}")) {
                 SettingsWindowPresenter.show(navigationTarget: .computers)

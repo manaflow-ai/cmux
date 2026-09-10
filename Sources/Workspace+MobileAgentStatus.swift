@@ -14,7 +14,8 @@ extension Workspace {
                   let entry = statusEntries[statusKey] else { continue }
             if let current = winner {
                 if current.timestamp < entry.timestamp
-                    || (current.timestamp == entry.timestamp && current.priority < entry.priority) {
+                    || (current.timestamp == entry.timestamp && current.priority < entry.priority)
+                    || (current.timestamp == entry.timestamp && current.priority == entry.priority && entry.key < current.key) {
                     winner = entry
                 }
             } else {

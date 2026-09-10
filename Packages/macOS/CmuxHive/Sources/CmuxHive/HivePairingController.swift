@@ -21,6 +21,7 @@ public final class HivePairingController {
     private let allowsLoopback: Bool
     private var client: MobileCoreRPCClient?
     private var disconnectTask: Task<Void, Never>?
+    private var persistenceTask: Task<Void, any Error>?
     private var isPairing = false
     private var isStopped = false
     private var loadGeneration: UInt64 = 0
@@ -99,11 +100,23 @@ public final class HivePairingController {
                 status: status, ownDeviceID: ownDeviceID, ownInstanceTag: ownInstanceTag
             )
             do {
-                try await store.upsertWithUserTailscaleAuthorization(
-                    macDeviceID: identity.macDeviceID, displayName: status.macDisplayName,
-                    routes: [request.route], instanceTag: identity.instanceTag,
-                    markActive: false, stackUserID: userID, teamID: teamID, now: runtime.now()
-                )
+                let store = store
+                let userID = userID
+                let teamID = teamID
+                let task = Task {
+                    try await store.upsertWithUserTailscaleAuthorization(
+                        macDeviceID: identity.macDeviceID, displayName: status.macDisplayName,
+                        routes: [request.route], instanceTag: identity.instanceTag,
+                        markActive: false, stackUserID: userID, teamID: teamID, now: runtime.now()
+                    )
+                }
+                persistenceTask = task
+                defer { persistenceTask = nil }
+                try await withTaskCancellationHandler {
+                    try await task.value
+                } onCancel: {
+                    task.cancel()
+                }
             } catch { throw HivePairingError.storageFailed }
             try checkCurrent()
             let loaded = try await load()
@@ -145,6 +158,7 @@ public final class HivePairingController {
         isStopped = true
         loadGeneration &+= 1
         computers = []
+        persistenceTask?.cancel()
         let client = client
         self.client = nil
         client?.retire()
@@ -152,7 +166,10 @@ public final class HivePairingController {
         onChange?()
     }
 
-    deinit { disconnectTask?.cancel() }
+    deinit {
+        disconnectTask?.cancel()
+        persistenceTask?.cancel()
+    }
 
     private func checkCurrent() throws {
         try Task.checkCancellation()

@@ -7,7 +7,7 @@ struct HiveAccountTokenSource {
     let identity: AuthenticatedSessionIdentity
     let teamID: String?
 
-    private enum Failure: Error { case accountChanged }
+    enum Failure: Error { case accountChanged }
 
     func session() async throws -> AuthenticatedSessionSnapshot {
         try validate()

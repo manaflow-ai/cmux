@@ -61,9 +61,9 @@ struct DeviceLinkReconnectPolicy: Equatable, Sendable {
                 shortLivedLosses = 0
             } else {
                 switch phase {
-                case .idle, .blocked:
+                case .idle:
                     phase = .connecting(attempt: 1)
-                case .connecting, .connected, .waiting:
+                case .connecting, .connected, .waiting, .blocked:
                     break
                 }
             }

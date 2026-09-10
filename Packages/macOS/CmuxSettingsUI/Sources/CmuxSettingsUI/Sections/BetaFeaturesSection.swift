@@ -20,6 +20,7 @@ public struct BetaFeaturesSection: View {
     /// forces Cloud off, so the row says so and locks the toggle; re-read on
     /// ``ManagedDevicePolicy/changeSignals(notificationCenter:)``.
     @State private var cloudMachinesManagedByPolicy = ManagedDevicePolicy().isEnforced(.disableCloud)
+    @State private var devicesManagedByPolicy = ManagedDevicePolicy().isEnforced(.disableRemoteControl)
     /// `DisableCustomSidebars` (MDM): same treatment for the interpreted
     /// custom sidebars opt-in.
     @State private var customSidebarsManagedByPolicy = ManagedDevicePolicy().isEnforced(.disableCustomSidebars)
@@ -68,6 +69,7 @@ public struct BetaFeaturesSection: View {
             for await _ in ManagedDevicePolicy.changeSignals() {
                 let policy = ManagedDevicePolicy()
                 cloudMachinesManagedByPolicy = policy.isEnforced(.disableCloud)
+                devicesManagedByPolicy = policy.isEnforced(.disableRemoteControl)
                 customSidebarsManagedByPolicy = policy.isEnforced(.disableCustomSidebars)
             }
         }
@@ -192,17 +194,21 @@ public struct BetaFeaturesSection: View {
             configurationReview: .json("devices.beta.enabled"),
             searchAnchorID: "setting:betaFeatures:devices",
             String(localized: "settings.betaFeatures.devices", defaultValue: "My Devices"),
-            subtitle: devices.current
+            subtitle: devicesManagedByPolicy
+                ? String(localized: "settings.managedByOrganization", defaultValue: "Managed by your organization")
+                : devices.current
                 ? String(localized: "settings.betaFeatures.devices.subtitleOn", defaultValue: "Shows My Devices below your Cloud machines, with your other Macs and their live workspaces. This Mac also becomes available to your other Macs.")
                 : String(localized: "settings.betaFeatures.devices.subtitleOff", defaultValue: "Hides My Devices from Cloud and stops publishing this Mac to your other Macs unless iOS pairing is on.")
         ) {
-            Toggle("", isOn: Binding(get: { devices.current }, set: {
+            Toggle("", isOn: Binding(get: { devices.current && !devicesManagedByPolicy }, set: {
+                guard !devicesManagedByPolicy else { return }
                 devices.set($0)
                 NotificationCenter.default.post(name: Notification.Name("rightSidebarBetaFeatureDidChange"), object: nil)
             }))
                 .labelsHidden()
                 .controlSize(.small)
                 .accessibilityIdentifier("SettingsBetaDevicesToggle")
+                .disabled(devicesManagedByPolicy)
         }
     }
 

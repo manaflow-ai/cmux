@@ -1,4 +1,5 @@
 import CmuxMobileRPC
+import CoreFoundation
 import Foundation
 
 /// A terminal-scoped event from a device link's host: raw PTY output for a
@@ -28,13 +29,24 @@ enum DeviceTerminalEvent: Equatable, Sendable {
             guard let object = try? JSONSerialization.jsonObject(with: payload) as? [String: Any],
                   let raw = object["surface_id"] as? String,
                   let surfaceID = UUID(uuidString: raw) else { return nil }
+            let columns = dimension(object["columns"])
+            let rows = dimension(object["rows"])
+            guard object["columns"] == nil || columns != nil,
+                  object["rows"] == nil || rows != nil else { return nil }
             return (surfaceID, .updated(
-                columns: (object["columns"] as? NSNumber)?.intValue,
-                rows: (object["rows"] as? NSNumber)?.intValue
+                columns: columns,
+                rows: rows
             ))
         default:
             return nil
         }
+    }
+
+    private static func dimension(_ value: Any?) -> Int? {
+        guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
+        let value = number.doubleValue
+        guard value.isFinite, value >= 1, value <= Double(UInt16.max), value.rounded(.towardZero) == value else { return nil }
+        return number.intValue
     }
 }
 

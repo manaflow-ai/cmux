@@ -12,6 +12,9 @@ extension DeviceSurfaceProvider {
     }
 
     func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?) async throws -> SurfaceResource {
+        guard command?.isEmpty != false, cwd == nil, name == nil else {
+            throw SurfaceCatalogError.unsupported(String(localized: "devices.create.customCommandUnsupported", defaultValue: "Custom terminal options are not supported when creating a terminal on another Mac."))
+        }
         guard link.isConnected else { throw DeviceLinkError.notConnected }
         let trimmed = remoteWorkspaceID?.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let workspaceID = (trimmed?.isEmpty == false ? trimmed : nil) ?? currentWorkspaceID() else {
@@ -52,7 +55,7 @@ extension DeviceSurfaceProvider {
             params["title"] = name
         }
         let response = try await link.request("workspace.create", params: params)
-        guard let workspaceID = response["workspace_id"] as? String else {
+        guard let workspaceID = (response["created_workspace_id"] as? String) ?? (response["workspace_id"] as? String) else {
             throw DeviceLinkError.malformedResponse("workspace.create")
         }
         await link.fetchNow()

@@ -17,6 +17,7 @@ private let hostSettingsLogger = Logger(subsystem: "com.cmuxterm.app", category:
 /// depend on them directly.
 @MainActor
 final class HostSettingsActions: SettingsHostActions {
+    let computersActions: ComputersSettingsActions
     private let configFileURL: URL
     private let computerUseRuntimeService: ComputerUseRuntimeService
     private var runComputerUseOnboardingAction:
@@ -53,8 +54,10 @@ final class HostSettingsActions: SettingsHostActions {
 
     init(
         configFileURL: URL,
-        computerUseRuntimeService: ComputerUseRuntimeService
+        computerUseRuntimeService: ComputerUseRuntimeService,
+        computersActions: ComputersSettingsActions = ComputersSettingsActions()
     ) {
+        self.computersActions = computersActions
         self.configFileURL = configFileURL
         self.computerUseRuntimeService = computerUseRuntimeService
         startObservingAppIconMode()

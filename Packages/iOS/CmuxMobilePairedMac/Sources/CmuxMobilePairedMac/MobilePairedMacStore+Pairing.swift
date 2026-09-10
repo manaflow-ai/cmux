@@ -30,6 +30,8 @@ extension MobilePairedMacStore {
                 macDeviceID: macDeviceID, instanceTag: instanceTag,
                 stackUserID: stackUserID, teamID: teamID, routes: routes
             )
+            // Cancellation before the commit boundary rolls back both writes.
+            try Task.checkCancellation()
         }
     }
 }

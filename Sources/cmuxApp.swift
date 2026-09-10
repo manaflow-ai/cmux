@@ -212,6 +212,10 @@ struct cmuxApp: App {
         // Reconcile saved language preference before any UI loads
         LanguageSettingsStore(defaults: .standard).reconcileLanguageOverrideAtLaunch()
         StartupBreadcrumbLog.append("app.init.language.applied")
+        let devicesRegistry = DeviceSurfaceProviderRegistry()
+        let computersService = HiveComputersService(registry: devicesRegistry, openSidebar: {
+            AppDelegate.shared?.applyRightSidebarRemoteCommand(.setMode(.machines, focus: true))
+        })
         self.settingsRuntime = SettingsRuntime(
             catalog: settingsCatalog,
             userDefaultsStore: UserDefaultsSettingsStore(
@@ -224,7 +228,15 @@ struct cmuxApp: App {
             accountFlow: authComposition.accountFlow,
             hostActions: HostSettingsActions(
                 configFileURL: configFileURL,
-                computerUseRuntimeService: computerUseRuntimeService
+                computerUseRuntimeService: computerUseRuntimeService,
+                computersActions: ComputersSettingsActions(
+                    updates: { computersService.updates() },
+                    refresh: { await computersService.refresh() },
+                    pair: { await computersService.pair($0) },
+                    open: { await computersService.open($0) },
+                    unpair: { await computersService.unpair($0) },
+                    showPairing: { MobilePairingWindowController.shared.show() }
+                )
             ),
             shortcutDefaultResolver: Self.makeShortcutDefaultResolver()
         )
@@ -326,7 +338,9 @@ struct cmuxApp: App {
             settingsRuntime: settingsRuntime,
             auth: authComposition,
             automationEngine: automationEngine,
-            computerUseRuntimeService: computerUseRuntimeService
+            computerUseRuntimeService: computerUseRuntimeService,
+            devicesRegistry: devicesRegistry,
+            computersService: computersService
         )
         historyMenuCoordinator.refreshIfNeeded()
         StartupBreadcrumbLog.append("app.init.delegate.configured")

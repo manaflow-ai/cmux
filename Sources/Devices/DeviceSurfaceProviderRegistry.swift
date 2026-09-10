@@ -11,8 +11,6 @@ import Observation
 /// signing out or turning the beta off tears everything down.
 @MainActor
 final class DeviceSurfaceProviderRegistry {
-    static let shared = DeviceSurfaceProviderRegistry()
-
     /// Posted by ``reveal(instance:)``; the mounted Devices panel consumes the
     /// pending request on it (userInfo `instance`: the wire value).
     static let revealDeviceNotification = Notification.Name("cmux.devices.revealDevice")
@@ -73,19 +71,19 @@ final class DeviceSurfaceProviderRegistry {
         let center = NotificationCenter.default
         if let authorizationObserver { center.removeObserver(authorizationObserver) }
         authorizationObserver = center.addObserver(forName: authorization.authorizationDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.authorizationDidChange() }
+            Task { @MainActor [weak self] in self?.authorizationDidChange() }
         }
         if let defaultsObserver { center.removeObserver(defaultsObserver) }
         defaultsObserver = center.addObserver(forName: UserDefaults.didChangeNotification, object: UserDefaults.standard, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.evaluate() }
+            Task { @MainActor [weak self] in self?.evaluate() }
         }
         if let policyObserver { center.removeObserver(policyObserver) }
         policyObserver = center.addObserver(forName: ManagedDevicePolicy.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.evaluate() }
+            Task { @MainActor [weak self] in self?.evaluate() }
         }
         if let accessObserver { center.removeObserver(accessObserver) }
         accessObserver = center.addObserver(forName: .cmuxCloudVMAccessDidEnd, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.evaluate() }
+            Task { @MainActor [weak self] in self?.evaluate() }
         }
         observeAuth()
         evaluate()
@@ -144,7 +142,7 @@ final class DeviceSurfaceProviderRegistry {
             object: directory,
             queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.reconcile() }
+            Task { @MainActor [weak self] in self?.reconcile() }
         }
         directory.start()
         reconcile()

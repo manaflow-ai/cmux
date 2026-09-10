@@ -19,6 +19,7 @@ actor DevicePresenceSubscriber {
         /// The bounded buffer dropped a frame; the protocol is snapshot+delta,
         /// so the consumer must resubscribe rather than render past a gap.
         case framesDropped
+        case keepaliveTimedOut
     }
 
     struct Credentials: Sendable {
@@ -29,14 +30,17 @@ actor DevicePresenceSubscriber {
     private let serviceBaseURL: URL
     private let credentials: @Sendable () async throws -> Credentials?
     private let session: URLSession
+    private let clock: any Clock<Duration>
 
     init(
         serviceBaseURL: URL,
         session: URLSession = .shared,
+        clock: any Clock<Duration> = ContinuousClock(),
         credentials: @escaping @Sendable () async throws -> Credentials?
     ) {
         self.serviceBaseURL = serviceBaseURL
         self.session = session
+        self.clock = clock
         self.credentials = credentials
     }
 
@@ -81,7 +85,30 @@ actor DevicePresenceSubscriber {
         let hello = String(decoding: DevicePresenceFrame.syncHello(), as: UTF8.self)
         try await task.send(.string(hello))
 
+        let clock = clock
         return AsyncThrowingStream(bufferingPolicy: .bufferingNewest(256)) { continuation in
+            // A dead network path may never complete receive(). Ping on a
+            // cancellable cadence and close the socket if a pong misses its deadline.
+            let keepalive = Task {
+                do {
+                    while !Task.isCancelled {
+                        try await clock.sleep(for: .seconds(30))
+                        try await withThrowingTaskGroup(of: Void.self) { group in
+                            group.addTask { try await task.sendPing() }
+                            group.addTask {
+                                try await clock.sleep(for: .seconds(10))
+                                task.cancel(with: .goingAway, reason: nil)
+                                throw SubscribeError.keepaliveTimedOut
+                            }
+                            defer { group.cancelAll() }
+                            _ = try await group.next()
+                        }
+                    }
+                } catch {
+                    continuation.finish(throwing: error)
+                    task.cancel(with: .goingAway, reason: nil)
+                }
+            }
             let receiveLoop = Task {
                 do {
                     while !Task.isCancelled {
@@ -119,6 +146,7 @@ actor DevicePresenceSubscriber {
                 }
             }
             continuation.onTermination = { _ in
+                keepalive.cancel()
                 receiveLoop.cancel()
                 task.cancel(with: .goingAway, reason: nil)
             }

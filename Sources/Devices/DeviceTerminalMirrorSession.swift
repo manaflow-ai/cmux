@@ -42,6 +42,8 @@ final class DeviceTerminalMirrorSession {
     private var pendingGrid: (columns: Int, rows: Int)?
     private var isVisible = true
     private var replayNeeded = false
+    private var attachingBytes: [(sequence: UInt64?, data: Data)] = []
+    private var attachingByteCount = 0
 
     init(link: DeviceLink, remoteWorkspaceID: String, remoteSurfaceID: UUID) {
         self.link = link
@@ -88,8 +90,10 @@ final class DeviceTerminalMirrorSession {
 
     func stop() {
         guard phase != .stopped else { return }
-        let hadReport = reportedGrid != nil
+        let hadReport = viewportGeneration > 0
         phase = .stopped
+        attachingBytes.removeAll()
+        attachingByteCount = 0
         attachTask?.cancel()
         attachTask = nil
         eventTask?.cancel()
@@ -126,6 +130,17 @@ final class DeviceTerminalMirrorSession {
     private func handle(_ event: DeviceTerminalEvent) {
         switch event {
         case .bytes(let sequence, let data):
+            if phase == .attaching {
+                guard sequence != nil, attachingBytes.count < 512, attachingByteCount + data.count <= 256 * 1_024 else {
+                    replayNeeded = true
+                    attachingBytes.removeAll()
+                    attachingByteCount = 0
+                    return
+                }
+                attachingBytes.append((sequence, data))
+                attachingByteCount += data.count
+                return
+            }
             guard phase == .attached, let surface else { return }
             guard let sequence, let expected = expectedSequence else {
                 surface.processRemoteOutput(data)
@@ -188,47 +203,77 @@ final class DeviceTerminalMirrorSession {
             return
         }
         phase = .attaching
+        attachingBytes.removeAll(keepingCapacity: true)
+        attachingByteCount = 0
         if let grid = pendingGrid ?? reportedGrid ?? currentDesiredGrid() {
             await reportViewport(grid)
         }
+        guard !Task.isCancelled, phase != .stopped else { return }
         do {
-            let response = try await link.request("mobile.terminal.replay", params: surfaceParams)
-            guard phase != .stopped else { return }
-            try applyReplay(response)
+            let response = try await link.requestData("mobile.terminal.replay", params: surfaceParams)
+            let replay = try await Self.decodeReplay(response)
+            guard !Task.isCancelled, phase == .attaching, link.isConnected else { return }
+            if let columns = replay.columns, let rows = replay.rows { pin(columns: columns, rows: rows) }
+            surface?.processRemoteOutput(replay.bytes)
+            expectedSequence = replay.sequence
             phase = .attached
+            let buffered = attachingBytes
+            attachingBytes.removeAll(keepingCapacity: true)
+            attachingByteCount = 0
+            // Discard bytes already covered by the replay, then apply the
+            // remaining contiguous tail through the normal sequence check.
+            for chunk in buffered { handle(.bytes(sequence: chunk.sequence, data: chunk.data)) }
         } catch DeviceLinkError.notConnected {
+            guard phase != .stopped else { return }
             phase = .detached
         } catch {
+            guard !Task.isCancelled, phase != .stopped else { return }
             deviceMirrorLog.error("device terminal replay failed: \(String(describing: error), privacy: .private)")
             phase = .detached
         }
     }
 
-    private func applyReplay(_ response: [String: Any]) throws {
-        guard let surface else { return }
+    private struct Replay: Sendable {
+        let bytes: Data
+        let columns: Int?
+        let rows: Int?
+        let sequence: UInt64?
+    }
+
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
+    nonisolated private static func decodeReplay(_ data: Data) async throws -> Replay {
+        guard let response = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw DeviceLinkError.malformedResponse("mobile.terminal.replay")
+        }
         let sequence = (response["seq"] as? NSNumber)?.uint64Value
         if let raw = response["render_grid"] {
             let frame = try MobileTerminalRenderGridFrame.decodeJSONObject(raw)
-            if frame.columns > 0, frame.rows > 0 { pin(columns: frame.columns, rows: frame.rows) }
-            surface.processRemoteOutput(MobileTerminalRenderGridReplay(frame).patchBytes())
+            return Replay(
+                bytes: MobileTerminalRenderGridReplay(frame).patchBytes(),
+                columns: frame.columns > 0 ? frame.columns : nil,
+                rows: frame.rows > 0 ? frame.rows : nil,
+                sequence: sequence
+            )
         } else {
-            if let columns = (response["columns"] as? NSNumber)?.intValue,
-               let rows = (response["rows"] as? NSNumber)?.intValue, columns > 0, rows > 0 {
-                pin(columns: columns, rows: rows)
-            }
-            surface.processRemoteOutput(Self.replayReset)
+            let columns = (response["columns"] as? NSNumber)?.intValue
+            let rows = (response["rows"] as? NSNumber)?.intValue
+            var bytes = replayReset
             if let encoded = response["snapshot_data_b64"] as? String, let data = Data(base64Encoded: encoded) {
-                surface.processRemoteOutput(data)
+                bytes.append(data)
             } else if let encoded = response["data_b64"] as? String, let data = Data(base64Encoded: encoded) {
-                surface.processRemoteOutput(data)
+                bytes.append(data)
             }
+            return Replay(bytes: bytes, columns: columns.flatMap { $0 > 0 ? $0 : nil }, rows: rows.flatMap { $0 > 0 ? $0 : nil }, sequence: sequence)
         }
-        expectedSequence = sequence
     }
 
     /// `ESC c` (full reset) then `CSI 3 J` (drop scrollback): the replay is a
     /// replacement, so nothing from before it may survive.
-    private static let replayReset = Data([0x1B, 0x63, 0x1B, 0x5B, 0x33, 0x4A])
+    nonisolated private static let replayReset = Data([0x1B, 0x63, 0x1B, 0x5B, 0x33, 0x4A])
 
     // MARK: - Geometry
 
@@ -243,9 +288,10 @@ final class DeviceTerminalMirrorSession {
         isVisible = visible
         if visible {
             runtimeReady()
-        } else if reportedGrid != nil, link.isConnected {
+        } else if viewportGeneration > 0, link.isConnected {
             // A hidden pane must not keep capping the remote terminal.
             reportedGrid = nil
+            pendingGrid = nil
             let params = clearViewportParams()
             viewportTask?.cancel()
             viewportTask = Task { [weak self] in
@@ -283,7 +329,7 @@ final class DeviceTerminalMirrorSession {
         guard viewportTask == nil, phase == .attached || phase == .attaching else { return }
         viewportTask = Task { [weak self] in
             guard let self else { return }
-            while let next = self.pendingGrid, self.phase != .stopped {
+            while let next = self.pendingGrid, self.phase != .stopped, self.isVisible, !Task.isCancelled {
                 self.pendingGrid = nil
                 await self.reportViewport(next)
             }
@@ -292,8 +338,9 @@ final class DeviceTerminalMirrorSession {
     }
 
     private func reportViewport(_ grid: (columns: Int, rows: Int)) async {
-        guard link.isConnected else { return }
+        guard link.isConnected, isVisible, phase != .stopped else { return }
         viewportGeneration &+= 1
+        let generation = viewportGeneration
         var params = surfaceParams
         params["client_id"] = link.clientID
         params["viewport_columns"] = grid.columns
@@ -301,7 +348,7 @@ final class DeviceTerminalMirrorSession {
         params["viewport_generation"] = viewportGeneration
         do {
             let response = try await link.request("mobile.terminal.viewport", params: params)
-            guard phase != .stopped else { return }
+            guard !Task.isCancelled, phase != .stopped, isVisible, viewportGeneration == generation else { return }
             reportedGrid = grid
             if let columns = (response["columns"] as? NSNumber)?.intValue,
                let rows = (response["rows"] as? NSNumber)?.intValue, columns > 0, rows > 0 {

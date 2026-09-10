@@ -115,7 +115,8 @@ enum DevicePresenceFrame: Equatable, Sendable {
         }
         switch type {
         case "snapshot":
-            let devices = ((object["devices"] as? [Any]) ?? []).compactMap { raw -> DevicePresenceDevice? in
+            guard let rawDevices = object["devices"] as? [Any] else { return .ignored }
+            let devices = rawDevices.compactMap { raw -> DevicePresenceDevice? in
                 guard let data = try? JSONSerialization.data(withJSONObject: raw) else { return nil }
                 return try? JSONDecoder().decode(DevicePresenceDevice.self, from: data)
             }

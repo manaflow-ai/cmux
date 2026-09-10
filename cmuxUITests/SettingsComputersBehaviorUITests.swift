@@ -1,7 +1,7 @@
 import XCTest
 
 final class SettingsComputersBehaviorUITests: SettingsUITestCase {
-    func testComputersSectionOffersMacPairing() {
+    func testComputersSectionShowsPairingPreconditions() {
         let app = makeLaunchedApp()
         let window = openSettings(app)
         defer { closeSettings(app, window) }
@@ -15,6 +15,7 @@ final class SettingsComputersBehaviorUITests: SettingsUITestCase {
 
         XCTAssertTrue(window.textFields["SettingsComputersPairingInput"].waitForExistence(timeout: 5))
         XCTAssertTrue(window.buttons["SettingsComputersPair"].exists)
+        XCTAssertFalse(window.buttons["SettingsComputersPair"].isEnabled, "An empty pairing input must not start a pairing request")
         XCTAssertTrue(window.buttons["SettingsComputersShowPairing"].exists)
 
         let after = XCTAttachment(screenshot: window.screenshot())

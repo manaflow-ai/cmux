@@ -1,4 +1,5 @@
 import Foundation
+import CmuxControlSocket
 
 /// The two terminal-lifecycle verbs another Mac's Devices sidebar needs that
 /// the mobile plane did not have: close one terminal surface, and rename (or
@@ -18,21 +19,26 @@ extension TerminalController {
             return error
         }
         guard let resolved = mobileCanonicalTerminalTarget(params: params) else {
-            return .err(code: "not_found", message: "Terminal surface not found", data: nil)
+            return .err(code: "not_found", message: String(localized: "devices.host.surfaceNotFound", defaultValue: "Terminal surface not found"), data: nil)
         }
         let workspace = resolved.workspace
         let surfaceID = resolved.surfaceID
-        guard workspace.panels.count > 1 else {
-            return .err(code: "invalid_state", message: "Cannot close the last surface", data: [
-                "surface_id": surfaceID.uuidString,
-            ])
-        }
-        var closed = false
+        var resolution: ControlSurfaceCloseResolution = .closeFailed(surfaceID)
         v2MainSync {
-            closed = workspace.closePanel(surfaceID)
+            resolution = controlSurfaceClose(
+                routing: ControlRoutingSelectors(
+                    hasWindowIDParam: false, windowID: nil, groupID: nil,
+                    workspaceID: workspace.id, surfaceID: surfaceID, paneID: nil
+                ),
+                surfaceID: surfaceID,
+                hasSurfaceIDParam: true
+            )
         }
-        guard closed else {
-            return .err(code: "internal_error", message: "Failed to close surface", data: [
+        if case .lastSurface = resolution {
+            return .err(code: "invalid_state", message: String(localized: "devices.host.lastSurface", defaultValue: "Cannot close the last surface"), data: nil)
+        }
+        guard case .closed = resolution else {
+            return .err(code: "internal_error", message: String(localized: "devices.host.closeFailed", defaultValue: "Failed to close surface"), data: [
                 "surface_id": surfaceID.uuidString,
             ])
         }
@@ -47,8 +53,8 @@ extension TerminalController {
     /// terminal's custom title; an empty title clears it so the shell's own
     /// title shows again.
     func v2MobileTerminalRename(params: [String: Any]) -> V2CallResult {
-        guard params["title"] != nil else {
-            return .err(code: "invalid_params", message: "Missing title", data: nil)
+        guard let rawTitle = params["title"] as? String else {
+            return .err(code: "invalid_params", message: String(localized: "devices.host.invalidTitle", defaultValue: "Missing or invalid title"), data: nil)
         }
         if let error = mobileWorkspaceIDValidationError(params: params) {
             return error
@@ -57,13 +63,14 @@ extension TerminalController {
             return error
         }
         guard let resolved = mobileCanonicalTerminalTarget(params: params) else {
-            return .err(code: "not_found", message: "Terminal surface not found", data: nil)
+            return .err(code: "not_found", message: String(localized: "devices.host.surfaceNotFound", defaultValue: "Terminal surface not found"), data: nil)
         }
         let workspace = resolved.workspace
         let surfaceID = resolved.surfaceID
-        let title = v2RawString(params, "title")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let title = rawTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         v2MainSync {
-            _ = workspace.setPanelCustomTitle(panelId: surfaceID, title: title.isEmpty ? nil : title)
+            let panelID = workspace.controlTabTarget(for: surfaceID)?.panelID ?? surfaceID
+            _ = workspace.setPanelCustomTitle(panelId: panelID, title: title.isEmpty ? nil : title)
         }
         return .ok([
             "workspace_id": workspace.id.uuidString,
