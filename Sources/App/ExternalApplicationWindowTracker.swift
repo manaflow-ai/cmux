@@ -1,76 +1,36 @@
 import AppKit
 import CoreGraphics
 
-/// Reports the active window geometry for one external macOS application.
-///
-/// The tracker observes application activation on the main actor. After it finds
-/// the target window, public global mouse-drag events request immediate samples.
-/// A bounded 120 Hz poll covers non-mouse moves and missed events.
+/// Tracks one external window throughout a permission flow, including while
+/// another application is active. Mouse events deliver synchronous drag updates;
+/// bounded metadata sampling covers window creation, keyboard moves and closure
+/// without requiring Accessibility permission from the host app.
 @MainActor
 final class ExternalApplicationWindowTracker {
-    struct Snapshot: Equatable, Sendable {
-        let windowID: CGWindowID
-        let ownerProcessIdentifier: pid_t
-        let frame: CGRect
-    }
-
-    enum Event: Equatable, Sendable {
-        case visible(Snapshot)
-        case hidden
-        case unavailable
-    }
-
-    struct Dependencies: Sendable {
-        let frontWindow: @Sendable (
-            _ processIdentifier: pid_t,
-            _ primaryScreenMaxY: CGFloat
-        ) -> Snapshot?
-        let window: @Sendable (
-            _ windowID: CGWindowID,
-            _ processIdentifier: pid_t,
-            _ primaryScreenMaxY: CGFloat
-        ) -> Snapshot?
-        let sleep: @Sendable (_ duration: Duration) async throws -> Void
-
-        static let live = Dependencies(
-            frontWindow: { processIdentifier, primaryScreenMaxY in
-                ExternalApplicationWindowTracker.frontWindowSnapshot(
-                    processIdentifier: processIdentifier,
-                    primaryScreenMaxY: primaryScreenMaxY
-                )
-            },
-            window: { windowID, processIdentifier, primaryScreenMaxY in
-                ExternalApplicationWindowTracker.windowSnapshot(
-                    windowID: windowID,
-                    processIdentifier: processIdentifier,
-                    primaryScreenMaxY: primaryScreenMaxY
-                )
-            },
-            sleep: { duration in
-                try await ContinuousClock().sleep(for: duration)
-            }
-        )
-    }
+    typealias Snapshot = ExternalApplicationWindowSnapshot
+    typealias Event = ExternalApplicationWindowEvent
+    typealias Dependencies = ExternalApplicationWindowDependencies
 
     private let bundleIdentifier: String
     private let primaryScreenMaxY: CGFloat
     private let workspace: NSWorkspace
     private let dependencies: Dependencies
-    private let acquisitionInterval: Duration
     private let acquisitionAttemptLimit: Int
     private let missingSampleLimit: Int
     private let automaticUpdatesEnabled: Bool
+    private let sampler = ExternalWindowSamplingService()
 
     private var activationTask: Task<Void, Never>?
     private var terminationTask: Task<Void, Never>?
-    private var acquisitionTask: Task<Void, Never>?
     private var mouseDragMonitor: Any?
-    private var pollingDriver: ExternalWindowPollingDriver?
     private var eventHandler: (@MainActor (Event) -> Void)?
-    private var activeProcessIdentifier: pid_t?
+    private var targetProcessIdentifier: pid_t?
+    private var targetIsActive = false
     private var trackedWindowID: CGWindowID?
     private var lastSnapshot: Snapshot?
+    private var acquisitionAttemptCount = 0
     private var missingSampleCount = 0
+    private var lastSampleStartedAt: UInt64 = 0
     private var generation = UUID()
 
     init(
@@ -78,7 +38,6 @@ final class ExternalApplicationWindowTracker {
         primaryScreenMaxY: CGFloat,
         workspace: NSWorkspace = .shared,
         dependencies: Dependencies = .live,
-        acquisitionInterval: Duration = .milliseconds(50),
         acquisitionAttemptLimit: Int = 100,
         missingSampleLimit: Int = 12,
         automaticUpdatesEnabled: Bool = true
@@ -87,28 +46,25 @@ final class ExternalApplicationWindowTracker {
         self.primaryScreenMaxY = primaryScreenMaxY
         self.workspace = workspace
         self.dependencies = dependencies
-        self.acquisitionInterval = acquisitionInterval
         self.acquisitionAttemptLimit = acquisitionAttemptLimit
         self.missingSampleLimit = missingSampleLimit
         self.automaticUpdatesEnabled = automaticUpdatesEnabled
     }
 
-    /// Starts tracking and calls `eventHandler` directly on the main actor.
-    ///
-    /// A callback is used instead of an AsyncStream because another main-actor
-    /// hop adds visible delay while the target window is being dragged.
+    /// Direct main-actor delivery avoids an extra scheduling hop during a drag.
     func start(eventHandler: @escaping @MainActor (Event) -> Void) {
         stop()
         self.eventHandler = eventHandler
-
         activationTask = Task { @MainActor [weak self, workspace] in
             for await notification in workspace.notificationCenter.notifications(
                 named: NSWorkspace.didActivateApplicationNotification
             ) {
                 guard !Task.isCancelled else { return }
-                self?.applicationDidActivate(
-                    notification.userInfo?[NSWorkspace.applicationUserInfoKey]
-                        as? NSRunningApplication
+                let application = notification.userInfo?[NSWorkspace.applicationUserInfoKey]
+                    as? NSRunningApplication
+                self?.handleApplicationActivation(
+                    bundleIdentifier: application?.bundleIdentifier,
+                    processIdentifier: application?.processIdentifier
                 )
             }
         }
@@ -117,44 +73,54 @@ final class ExternalApplicationWindowTracker {
                 named: NSWorkspace.didTerminateApplicationNotification
             ) {
                 guard !Task.isCancelled else { return }
-                self?.applicationDidTerminate(
-                    notification.userInfo?[NSWorkspace.applicationUserInfoKey]
-                        as? NSRunningApplication
-                )
+                let application = notification.userInfo?[NSWorkspace.applicationUserInfoKey]
+                    as? NSRunningApplication
+                guard application?.bundleIdentifier == self?.bundleIdentifier else { continue }
+                self?.stopTrackingWindow()
+                self?.eventHandler?(.unavailable)
             }
         }
         refreshFrontmostApplication()
     }
 
     func refreshFrontmostApplication() {
-        applicationDidActivate(workspace.frontmostApplication)
+        let application = workspace.frontmostApplication
+        handleApplicationActivation(
+            bundleIdentifier: application?.bundleIdentifier,
+            processIdentifier: application?.processIdentifier
+        )
     }
 
-    /// Applies an activation event without coupling callers to NSWorkspace.
     func handleApplicationActivation(
         bundleIdentifier activatedBundleIdentifier: String?,
         processIdentifier: pid_t?
     ) {
-        guard activatedBundleIdentifier == bundleIdentifier,
-              let processIdentifier
-        else {
-            guard activeProcessIdentifier != nil || acquisitionTask != nil
-                    || trackedWindowID != nil
-            else {
-                emit(.hidden)
-                return
+        guard activatedBundleIdentifier == bundleIdentifier, let processIdentifier else {
+            targetIsActive = false
+            if trackedWindowID == nil {
+                stopTrackingWindow()
+            } else {
+                // Keep observing the acquired window: the retained companion
+                // must not outlive it. Background reads drop to four per second.
+                startSampling()
             }
-            stopTrackingWindow()
-            emit(.hidden)
+            eventHandler?(.hidden)
             return
         }
-
-        guard activeProcessIdentifier != processIdentifier
-                || (acquisitionTask == nil && trackedWindowID == nil)
-        else {
+        let wasActive = targetIsActive
+        targetIsActive = true
+        if targetProcessIdentifier == processIdentifier {
+            if !wasActive { startSampling() }
+            refreshTrackedWindow()
             return
         }
-        startTrackingWindow(processIdentifier: processIdentifier)
+        stopTrackingWindow()
+        targetProcessIdentifier = processIdentifier
+        targetIsActive = true
+        refreshTrackedWindow()
+        if trackedWindowID == nil, targetProcessIdentifier != nil {
+            startSampling()
+        }
     }
 
     func stop() {
@@ -166,211 +132,106 @@ final class ExternalApplicationWindowTracker {
         eventHandler = nil
     }
 
-    private func applicationDidActivate(_ application: NSRunningApplication?) {
-        handleApplicationActivation(
-            bundleIdentifier: application?.bundleIdentifier,
-            processIdentifier: application?.processIdentifier
-        )
-    }
-
-    private func applicationDidTerminate(_ application: NSRunningApplication?) {
-        guard application?.bundleIdentifier == bundleIdentifier else { return }
-        stopTrackingWindow()
-        emit(.unavailable)
-    }
-
-    private func startTrackingWindow(processIdentifier: pid_t) {
-        stopTrackingWindow()
-        activeProcessIdentifier = processIdentifier
-        let currentGeneration = generation
-        let dependencies = dependencies
-        let primaryScreenMaxY = primaryScreenMaxY
-        let acquisitionInterval = acquisitionInterval
-        let acquisitionAttemptLimit = acquisitionAttemptLimit
-
-        acquisitionTask = Task.detached(priority: .userInitiated) { [weak self] in
-            var initialSnapshot: Snapshot?
-            for _ in 0..<acquisitionAttemptLimit {
-                guard !Task.isCancelled else { return }
-                if let snapshot = dependencies.frontWindow(
-                    processIdentifier,
-                    primaryScreenMaxY
-                ) {
-                    initialSnapshot = snapshot
-                    break
-                }
-                do {
-                    try await dependencies.sleep(acquisitionInterval)
-                } catch {
-                    return
-                }
-            }
-
-            guard let initialSnapshot else {
-                await self?.trackingBecameUnavailable(
-                    generation: currentGeneration,
-                    processIdentifier: processIdentifier
-                )
-                return
-            }
-            await self?.finishWindowAcquisition(
-                initialSnapshot,
-                generation: currentGeneration,
-                processIdentifier: processIdentifier
-            )
-        }
-    }
-
     private func stopTrackingWindow() {
-        acquisitionTask?.cancel()
-        acquisitionTask = nil
-        stopWindowUpdates()
-        activeProcessIdentifier = nil
+        sampler.stop()
+        if let mouseDragMonitor { NSEvent.removeMonitor(mouseDragMonitor) }
+        mouseDragMonitor = nil
+        targetProcessIdentifier = nil
+        targetIsActive = false
         trackedWindowID = nil
         lastSnapshot = nil
+        acquisitionAttemptCount = 0
         missingSampleCount = 0
+        lastSampleStartedAt = 0
         generation = UUID()
     }
 
-    private func finishWindowAcquisition(
-        _ initialSnapshot: Snapshot,
-        generation expectedGeneration: UUID,
-        processIdentifier: pid_t
-    ) {
-        guard generation == expectedGeneration,
-              activeProcessIdentifier == processIdentifier,
-              eventHandler != nil
-        else {
-            return
-        }
-        acquisitionTask = nil
-        trackedWindowID = initialSnapshot.windowID
-        lastSnapshot = initialSnapshot
-        missingSampleCount = 0
-        emit(.visible(initialSnapshot))
-        if automaticUpdatesEnabled {
-            startWindowUpdates(
-                windowID: initialSnapshot.windowID,
-                processIdentifier: processIdentifier,
-                generation: expectedGeneration
-            )
-        }
-    }
-
-    /// Samples immediately. It is internal so focused tests can prove
-    /// synchronous delivery without starting the automatic polling loop.
+    /// Refreshes the acquired window directly for a public mouse event, or
+    /// attempts initial acquisition after the target application activates.
     func refreshTrackedWindow() {
-        guard let processIdentifier = activeProcessIdentifier,
-              let windowID = trackedWindowID
-        else {
-            return
+        guard let processIdentifier = targetProcessIdentifier else { return }
+        let startedAt = DispatchTime.now().uptimeNanoseconds
+        let snapshot: Snapshot?
+        if let windowID = trackedWindowID {
+            snapshot = dependencies.window(windowID, processIdentifier, primaryScreenMaxY)
+        } else {
+            snapshot = dependencies.frontWindow(processIdentifier, primaryScreenMaxY)
         }
-        acceptWindowSample(
-            dependencies.window(
-                windowID,
-                processIdentifier,
-                primaryScreenMaxY
-            ),
-            generation: generation,
-            processIdentifier: processIdentifier,
-            windowID: windowID
-        )
+        acceptWindowSample(.init(startedAt: startedAt, snapshot: snapshot))
     }
 
-    private func acceptWindowSample(
-        _ snapshot: Snapshot?,
-        generation expectedGeneration: UUID,
-        processIdentifier: pid_t,
-        windowID: CGWindowID
-    ) {
-        guard generation == expectedGeneration,
-              activeProcessIdentifier == processIdentifier,
-              trackedWindowID == windowID
-        else {
-            return
-        }
-        guard let snapshot else {
-            missingSampleCount += 1
-            if missingSampleCount >= missingSampleLimit {
-                trackingBecameUnavailable(
-                    generation: expectedGeneration,
-                    processIdentifier: processIdentifier
-                )
+    private func acceptWindowSample(_ sample: ExternalWindowSample) {
+        // A delayed background read must never move the panel back over a more
+        // recent synchronous drag update.
+        guard sample.startedAt >= lastSampleStartedAt else { return }
+        lastSampleStartedAt = sample.startedAt
+        guard let snapshot = sample.snapshot else {
+            if trackedWindowID == nil {
+                acquisitionAttemptCount += 1
+                if acquisitionAttemptCount < acquisitionAttemptLimit { return }
+            } else {
+                missingSampleCount += 1
+                if missingSampleCount < missingSampleLimit { return }
             }
+            stopTrackingWindow()
+            eventHandler?(.unavailable)
             return
         }
-
+        guard snapshot.ownerProcessIdentifier == targetProcessIdentifier else { return }
         missingSampleCount = 0
+        if let windowID = trackedWindowID {
+            guard snapshot.windowID == windowID else { return }
+        } else {
+            trackedWindowID = snapshot.windowID
+            if automaticUpdatesEnabled {
+                mouseDragMonitor = NSEvent.addGlobalMonitorForEvents(
+                    matching: [.leftMouseDragged, .leftMouseUp]
+                ) { [weak self] _ in
+                    // AppKit guarantees global event monitors run on main.
+                    MainActor.assumeIsolated {
+                        guard self?.targetIsActive == true else { return }
+                        self?.refreshTrackedWindow()
+                    }
+                }
+            }
+            startSampling()
+        }
         guard snapshot != lastSnapshot else { return }
         lastSnapshot = snapshot
-        emit(.visible(snapshot))
+        eventHandler?(.visible(snapshot))
     }
 
-    private func startWindowUpdates(
-        windowID: CGWindowID,
-        processIdentifier: pid_t,
-        generation expectedGeneration: UUID
-    ) {
-        stopWindowUpdates()
-
-        mouseDragMonitor = NSEvent.addGlobalMonitorForEvents(
-            matching: [.leftMouseDragged, .leftMouseUp]
-        ) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.refreshTrackedWindow()
-            }
-        }
-
+    private func startSampling() {
+        guard automaticUpdatesEnabled, let processIdentifier = targetProcessIdentifier else { return }
+        let expectedGeneration = generation
+        let windowID = trackedWindowID
         let dependencies = dependencies
         let primaryScreenMaxY = primaryScreenMaxY
-        let driver = ExternalWindowPollingDriver(
+        let interval: DispatchTimeInterval
+        if windowID == nil {
+            interval = .milliseconds(50)
+        } else {
+            interval = targetIsActive ? .nanoseconds(8_333_333) : .milliseconds(250)
+        }
+        sampler.start(
+            interval: interval,
             sample: {
-                dependencies.window(
-                    windowID,
-                    processIdentifier,
-                    primaryScreenMaxY
-                )
+                if let windowID {
+                    return dependencies.window(windowID, processIdentifier, primaryScreenMaxY)
+                }
+                return dependencies.frontWindow(processIdentifier, primaryScreenMaxY)
             },
-            deliver: { [weak self] snapshot in
-                self?.acceptWindowSample(
-                    snapshot,
-                    generation: expectedGeneration,
-                    processIdentifier: processIdentifier,
-                    windowID: windowID
-                )
+            deliver: { [weak self] sample in
+                guard let self,
+                      self.generation == expectedGeneration,
+                      self.trackedWindowID == windowID
+                else { return }
+                self.acceptWindowSample(sample)
             }
         )
-        pollingDriver = driver
-        driver.start()
     }
 
-    private func stopWindowUpdates() {
-        if let mouseDragMonitor {
-            NSEvent.removeMonitor(mouseDragMonitor)
-        }
-        mouseDragMonitor = nil
-        pollingDriver?.stop()
-        pollingDriver = nil
-    }
-
-    private func emit(_ event: Event) {
-        eventHandler?(event)
-    }
-
-    private func trackingBecameUnavailable(
-        generation expectedGeneration: UUID,
-        processIdentifier: pid_t
-    ) {
-        guard generation == expectedGeneration,
-              activeProcessIdentifier == processIdentifier
-        else {
-            return
-        }
-        stopTrackingWindow()
-        emit(.unavailable)
-    }
-
-    private nonisolated static func frontWindowSnapshot(
+    nonisolated static func frontWindowSnapshot(
         processIdentifier: pid_t,
         primaryScreenMaxY: CGFloat
     ) -> Snapshot? {
@@ -393,7 +254,7 @@ final class ExternalApplicationWindowTracker {
         }
     }
 
-    private nonisolated static func windowSnapshot(
+    nonisolated static func windowSnapshot(
         windowID: CGWindowID,
         processIdentifier: pid_t,
         primaryScreenMaxY: CGFloat
@@ -451,118 +312,5 @@ final class ExternalApplicationWindowTracker {
                 height: quartzFrame.height
             )
         )
-    }
-}
-
-/// Keeps one 120 Hz WindowServer read and one main-thread delivery pending.
-/// A delayed main thread receives only the newest sampled frame.
-private final class ExternalWindowPollingDriver: @unchecked Sendable {
-    typealias Snapshot = ExternalApplicationWindowTracker.Snapshot
-
-    private static let interval = DispatchTimeInterval.nanoseconds(8_333_333)
-    private let lock = NSLock()
-    private let queue = DispatchQueue(
-        label: "com.cmuxterm.external-window-tracker",
-        qos: .userInteractive
-    )
-    private let sample: @Sendable () -> Snapshot?
-    private let deliver: @MainActor @Sendable (Snapshot?) -> Void
-    private var timer: DispatchSourceTimer?
-    private var isActive = false
-    private var latestSample: Sample?
-    private var deliveryIsPending = false
-
-    private enum Sample: Sendable {
-        case visible(Snapshot)
-        case missing
-
-        var snapshot: Snapshot? {
-            switch self {
-            case .visible(let snapshot): snapshot
-            case .missing: nil
-            }
-        }
-    }
-
-    init(
-        sample: @escaping @Sendable () -> Snapshot?,
-        deliver: @escaping @MainActor @Sendable (Snapshot?) -> Void
-    ) {
-        self.sample = sample
-        self.deliver = deliver
-    }
-
-    func start() {
-        lock.lock()
-        guard !isActive else {
-            lock.unlock()
-            return
-        }
-        isActive = true
-        let timer = DispatchSource.makeTimerSource(queue: queue)
-        self.timer = timer
-        lock.unlock()
-
-        timer.setEventHandler { [weak self] in
-            self?.sampleWindow()
-        }
-        timer.schedule(
-            deadline: .now(),
-            repeating: Self.interval,
-            leeway: .microseconds(250)
-        )
-        timer.resume()
-    }
-
-    func stop() {
-        lock.lock()
-        let timer = timer
-        self.timer = nil
-        isActive = false
-        latestSample = nil
-        lock.unlock()
-        timer?.setEventHandler {}
-        timer?.cancel()
-    }
-
-    private func sampleWindow() {
-        let nextSample = sample().map(Sample.visible) ?? .missing
-
-        lock.lock()
-        guard isActive else {
-            lock.unlock()
-            return
-        }
-        latestSample = nextSample
-        let shouldDeliver = !deliveryIsPending
-        deliveryIsPending = true
-        lock.unlock()
-
-        if shouldDeliver {
-            DispatchQueue.main.async { [weak self] in
-                self?.deliverLatestSample()
-            }
-        }
-    }
-
-    private func deliverLatestSample() {
-        dispatchPrecondition(condition: .onQueue(.main))
-
-        lock.lock()
-        guard isActive else {
-            latestSample = nil
-            deliveryIsPending = false
-            lock.unlock()
-            return
-        }
-        let nextSample = latestSample
-        latestSample = nil
-        deliveryIsPending = false
-        lock.unlock()
-
-        guard let nextSample else { return }
-        MainActor.assumeIsolated {
-            deliver(nextSample.snapshot)
-        }
     }
 }

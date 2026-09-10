@@ -175,7 +175,6 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         let window = makeWindow(startingAt: startingPoint)
         self.window = window
         window.delegate = self
-        observeSystemSettingsWindow()
         window.level = .normal
         window.collectionBehavior = [.managed]
         window.hidesOnDeactivate = false
@@ -228,6 +227,10 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
 
     private func permissionSetupStarted(for permissionStep: ComputerUseOnboardingStep) {
         guard let window else { return }
+        // The retained overview can start a different permission while a
+        // companion is already visible. Replace that step's content and tracker.
+        stopSystemSettingsObservation()
+        dismissPermissionCompanion()
         pendingPermissionStep = permissionStep
         permissionSettingsWillOpen()
         window.orderFrontRegardless()
@@ -271,14 +274,15 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
     }
 
     private func permissionSettingsWillOpen() {
+        permissionCompanionRequested = true
         if systemSettingsWindowTracker == nil {
             observeSystemSettingsWindow()
+        } else {
+            systemSettingsWindowTracker?.refreshFrontmostApplication()
         }
-        permissionCompanionRequested = true
-        systemSettingsWindowTracker?.refreshFrontmostApplication()
     }
 
-    private func handleSystemSettingsWindowEvent(
+    func handleSystemSettingsWindowEvent(
         _ event: ExternalApplicationWindowTracker.Event
     ) {
         switch event {
@@ -292,7 +296,11 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
             else {
                 return
             }
-            showExpandedOnboarding()
+            // Window disappearance is not a request to activate cmux. The
+            // overview is already visible at its original position.
+            stopSystemSettingsObservation()
+            dismissPermissionCompanion()
+            presentationState?.requestExpandedPresentation(resetToOverview: false)
         case .visible(let snapshot):
             showPermissionCompanion(for: snapshot)
         }
@@ -310,13 +318,12 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
             return
         }
 
-        if let companionWindow = permissionCompanionWindow {
+        if permissionCompanionWindow != nil {
             permissionCompanionRequested = false
             positionPermissionCompanion(
                 at: destinationFrame,
                 animate: false
             )
-            externalWindowCompanionPresenter.present(companionWindow)
             return
         }
 
@@ -383,8 +390,7 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         completion: (@MainActor () -> Void)? = nil
     ) {
         guard let window else { return }
-        permissionCompanionRequested = false
-        pendingPermissionStep = nil
+        stopSystemSettingsObservation()
         revealExpandedOnboarding(
             window,
             resetStep: resetStep,
@@ -427,8 +433,7 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         guard presentationState?.screenCaptureConsentPending != true else { return }
         completionDismissTask?.cancel()
         completionDismissTask = nil
-        permissionCompanionRequested = false
-        pendingPermissionStep = nil
+        stopSystemSettingsObservation()
         userDefaults.set(true, forKey: Self.directCaptureReadyDefaultsKey)
         runtimeService.onboardingWasCompleted()
         guard let window else { return }
