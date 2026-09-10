@@ -21,6 +21,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
     let expansionStore: CloudTreeExpansionStore
     var organizationStore: CloudSidebarOrganizationStore? = nil
     var organizationState = CloudSidebarOrganizationState()
+    var selectedRemoteWorkspaceID: String? = nil
+    var onSelectionChange: @MainActor (CloudTreeCreateSelection?) -> Void = { _ in }
     /// The visual preset the rows render in (the debug gallery pins one per
     /// column; the live panel passes the stored choice).
     var style: CloudTreeStyle = CloudTreeStyleStore.current
@@ -43,6 +45,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             machineActions: machineActions,
             nodeActions: nodeActions,
             expansionStore: expansionStore, organization: organizationStore,
+            onSelectionChange: onSelectionChange,
             tabDragTransferRegistry: { [tabDragTransferRegistry] in
                 tabDragTransferRegistry ?? AppDelegate.shared?.tabDragTransferRegistry
             }
@@ -58,13 +61,15 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         context.coordinator.machineActions = machineActions
         context.coordinator.nodeActions = nodeActions
         context.coordinator.onDragStateChange = onDragStateChange
+        context.coordinator.onSelectionChange = onSelectionChange
         context.coordinator.apply(style: style)
         context.coordinator.apply(nodes: CloudTreeNodeBuilder.nodes(
             machines: machines,
             pendingCreates: pendingCreates, adoptedOperationIDs: adoptedOperationIDs,
             snapshot: snapshot,
             localWorkspaces: localWorkspaces,
-            unreadTerminalIDs: unreadTerminalIDs
+            unreadTerminalIDs: unreadTerminalIDs,
+            selectedRemoteWorkspaceID: selectedRemoteWorkspaceID
         ))
     }
     // MARK: - Coordinator
@@ -100,17 +105,20 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         var deferredNodes: [CloudTreeNode]?
         private var deferredReload = false
         var onDragStateChange: @MainActor (Bool) -> Void = { _ in }
+        var onSelectionChange: @MainActor (CloudTreeCreateSelection?) -> Void = { _ in }
         init(
             machineActions: MachineRowActions,
             nodeActions: CloudTreeNodeActions,
             expansionStore: CloudTreeExpansionStore,
             organization: CloudSidebarOrganizationStore? = nil,
+            onSelectionChange: @escaping @MainActor (CloudTreeCreateSelection?) -> Void = { _ in },
             tabDragTransferRegistry: @escaping @MainActor () -> TabDragTransferRegistry?
         ) {
             self.machineActions = machineActions
             self.nodeActions = nodeActions
             self.expansionStore = expansionStore
             self.organization = organization ?? CloudSidebarOrganizationStore()
+            self.onSelectionChange = onSelectionChange
             self.tabDragTransferRegistry = tabDragTransferRegistry
         }
         private func discardPendingDrag(_ pending: PendingDrag) {
@@ -316,6 +324,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             for row in 0..<outlineView.numberOfRows {
                 if (outlineView.item(atRow: row) as? CloudTreeNode)?.id == selectedNodeID {
                     outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+                    if let node = outlineView.item(atRow: row) as? CloudTreeNode {
+                        onSelectionChange(selectionContext(for: node))
+                    }
                     return
                 }
             }
@@ -368,6 +379,10 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             selectedNodeID = outlineView.selectedRow >= 0
                 ? (outlineView.item(atRow: outlineView.selectedRow) as? CloudTreeNode)?.id
                 : nil
+            let node = outlineView.selectedRow >= 0
+                ? outlineView.item(atRow: outlineView.selectedRow) as? CloudTreeNode
+                : nil
+            onSelectionChange(node.flatMap(selectionContext))
         }
 
         func outlineViewItemDidExpand(_ notification: Notification) {
@@ -486,6 +501,10 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 }
             case .resource:
                 break
+            case .createWorkspace(let machine, _):
+                nodeActions.newWorkspace(machine)
+            case .createTerminal(let machine, let workspaceID, _):
+                nodeActions.newTerminal(machine, workspaceID)
             case .placeholder(let machineID, let placeholder):
                 // "Asleep — open to wake": a fresh terminal on the machine is what wakes it.
                 if placeholder.opensMachine, let machine = machine(id: machineID) {
@@ -706,6 +725,10 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 return [item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() }]
             case .resourcesPool, .resource:
                 return []
+            case .createWorkspace(let machine, _):
+                return [item(String(localized: "cloudTree.menu.newWorkspace", defaultValue: "New Workspace")) { [nodeActions] in nodeActions.newWorkspace(machine) }]
+            case .createTerminal(let machine, let workspaceID, _):
+                return [item(String(localized: "cloudTree.menu.newTerminalHere", defaultValue: "New Terminal Here")) { [nodeActions] in nodeActions.newTerminal(machine, workspaceID) }]
             case .placeholder(let machineID, _):
                 guard let machine = machine(id: machineID) else { return [] }
                 return machineMenuItems(machine)

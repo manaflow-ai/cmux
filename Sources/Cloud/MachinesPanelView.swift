@@ -21,8 +21,9 @@ enum CloudVMPanelAuthState: Equatable {
 }
 
 struct MachinesPanelView: View {
-    @StateObject private var viewModel: MachinesPanelViewModel
+    @StateObject var viewModel: MachinesPanelViewModel
     @State private var expansionStore = CloudTreeExpansionStore()
+    @State private var selectedCreateSelection: CloudTreeCreateSelection?
     @State private var tunnelStatus = CloudTunnelStatusModel()
     @State private var devBackend = DevBackendStartup()
     @AppStorage(CloudTreeStyleStore.defaultsKey) private var cloudTreeStyleID: String = CloudTreeStyle.defaultStyle.id
@@ -183,13 +184,13 @@ struct MachinesPanelView: View {
             ) {
                 viewModel.refresh(tree: true)
             }
-            MachinesChromeIconButton(
-                symbolName: "plus",
-                accessibilityLabel: String(localized: "machines.new", defaultValue: "New Machine"),
-                isBusy: false
-            ) {
-                requestNewMachine()
-            }
+            CloudTreeCreateMenu(
+                selection: selectedCreateSelection,
+                machineName: machineDisplayName,
+                requestNewMachine: requestNewMachine,
+                newWorkspace: { cloudTreeNodeActions.newWorkspace($0) },
+                newTerminal: { machine, workspaceID in cloudTreeNodeActions.newTerminal(machine, workspaceID) }
+            )
         }
         .rightSidebarChromeBar()
         .rightSidebarChromeBottomBorder(backgroundColor: chromeBackgroundColor)
@@ -465,17 +466,6 @@ struct MachinesPanelView: View {
             viewModel?.setDefaultMachine(id: id)
         }
         machineActions.create = MachineCreateRowActions.bound(coordinator: viewModel.createCoordinator)
-        let nodeActions = CloudTreeNodeActions.bound(
-            catalog: { SurfaceCatalog.shared },
-            selectedWorkspaceID: { AppDelegate.shared?.tabManager?.selectedTabId },
-            selectLocalWorkspace: { workspaceID in
-                AppDelegate.shared?.tabManager?.selectedTabId = workspaceID
-            },
-            onWillMutate: { [weak viewModel] label in viewModel?.beginOperation(label) },
-            onDidMutate: { [weak viewModel] in viewModel?.endOperation() },
-            onFailure: { [weak viewModel] description in viewModel?.noteTreeFailure(description) },
-            refresh: { [weak viewModel] in viewModel?.refresh(tree: true) }, refreshMachine: { [weak viewModel] in viewModel?.refreshMachine($0) }
-        )
         return CloudTreeOutlineView(
             machines: viewModel.machines,
             pendingCreates: viewModel.pendingCreates, adoptedOperationIDs: viewModel.adoptedOperationIDs,
@@ -483,10 +473,12 @@ struct MachinesPanelView: View {
             localWorkspaces: viewModel.localWorkspaces,
             unreadTerminalIDs: viewModel.unreadTerminalIDs,
             machineActions: machineActions,
-            nodeActions: nodeActions,
+            nodeActions: cloudTreeNodeActions,
             expansionStore: expansionStore, organizationStore: SurfaceCatalog.shared.sidebarOrganization, organizationState: SurfaceCatalog.shared.sidebarOrganization.state,
+            selectedRemoteWorkspaceID: selectedCreateSelection?.workspaceID,
             style: CloudTreeStyle.preset(id: cloudTreeStyleID) ?? .defaultStyle,
-            onDragStateChange: { [weak viewModel] dragging in viewModel?.setTreeDragging(dragging) }
+            onDragStateChange: { [weak viewModel] dragging in viewModel?.setTreeDragging(dragging) },
+            onSelectionChange: { selection in selectedCreateSelection = selection }
         )
         .accessibilityIdentifier("CloudMachinesTree")
     }
