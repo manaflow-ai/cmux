@@ -67,8 +67,11 @@ if grep -Eq \
   exit 1
 fi
 
-summaries="$(grep -E "Executed.*tests?.*with.*failures?" "$output_path" || true)"
-if [ -n "$summaries" ] && ! grep -Fvq "(0 unexpected)" <<<"$summaries"; then
+# Keep XCTest summary parsing shared with the output-classification guard.
+# The wrapper owns exit-status and mixed-framework policy above; the parser
+# rejects unexpected failures in any summary, not only the final one.
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if python3 "$script_dir/classify-app-host-test-output.py" "$output_path"; then
   echo "All failures are expected, treating as pass"
   exit 0
 fi

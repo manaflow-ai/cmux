@@ -57,6 +57,14 @@ cat > "$FAKE_BIN/spctl" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 printf 'spctl %s\n' "$*" >> "$CMUX_TEST_CALL_LOG"
+# Gatekeeper keeps negative assessments in a code-directory cache. A fresh
+# stapled ticket must be assessed without consulting or populating that cache.
+if [ "${CMUX_TEST_SPCTL_REQUIRE_FRESH:-0}" = "1" ]; then
+  if [[ " $* " != *" --ignore-cache "* || " $* " != *" --no-cache "* ]]; then
+    echo "assessment cache was reused" >&2
+    exit 2
+  fi
+fi
 # Simulate Gatekeeper not yet seeing the notarization ticket: reject the first
 # CMUX_TEST_SPCTL_REJECTS assessments, then accept.
 count_file="${CMUX_TEST_SPCTL_COUNT_FILE:-}"
@@ -129,7 +137,7 @@ if ! [ "$helper_sign_line" -lt "$submit_line" ] \
   echo "FAIL: helper notarization, stapling, and outer resealing ran out of order" >&2
   exit 1
 fi
-if ! grep -Eq '^spctl -a -vv --type execute .*/standalone/cmux Computer Use\.app$' "$LOG"; then
+if ! grep -Eq '^spctl -a -vv --ignore-cache --no-cache --type execute .*/standalone/cmux Computer Use\.app$' "$LOG"; then
   echo "FAIL: independently copied helper did not pass the Gatekeeper check" >&2
   exit 1
 fi
@@ -205,12 +213,39 @@ fi
 # accepted assessment must be the one that ends the poll.
 : > "$LOG"
 rm -f "$TMP_DIR/spctl-count"
-if ! CMUX_TEST_SPCTL_COUNT_FILE="$TMP_DIR/spctl-count" CMUX_TEST_SPCTL_REJECTS=2 run_helper >/dev/null 2>&1; then
+if ! CMUX_TEST_SPCTL_COUNT_FILE="$TMP_DIR/spctl-count" CMUX_TEST_SPCTL_REJECTS=2 run_helper >"$TMP_DIR/poll.out" 2>&1; then
   echo "FAIL: helper notarization gave up while the Gatekeeper ticket was still propagating" >&2
   exit 1
 fi
-if [ "$(grep -c '^spctl -a -vv --type execute .*/standalone/cmux Computer Use\.app$' "$LOG")" -ne 3 ]; then
+if [ "$(grep -c '^spctl -a -vv --ignore-cache --no-cache --type execute .*/standalone/cmux Computer Use\.app$' "$LOG")" -ne 3 ]; then
   echo "FAIL: expected three Gatekeeper assessments (two rejected, one accepted)" >&2
+  exit 1
+fi
+
+# The first rejection announces the whole budget so a log reader can tell a
+# propagation wait from a hang.
+if ! grep -Eq '^Gatekeeper propagation budget: [0-9]+ attempts x [0-9]+s \(about [0-9]+ minutes\)$' "$TMP_DIR/poll.out"; then
+  echo "FAIL: Gatekeeper polling must announce its attempt budget on the first rejection" >&2
+  exit 1
+fi
+
+# The default budget must cover Apple's CDN propagation tail for a stable
+# release: nightly run 34208928547 (2026-09-08) was still rejected 4m50s
+# after notarytool reported Accepted and failed on a 20 x 15s budget. Keep the
+# default at twenty minutes or more, polled often enough that a landed ticket
+# is noticed within half a minute, and keep both knobs env-configurable.
+default_attempts="$(sed -n 's/^GATEKEEPER_ASSESS_ATTEMPTS="\${CMUX_GATEKEEPER_ASSESS_ATTEMPTS:-\([0-9][0-9]*\)}"$/\1/p' "$SCRIPT")"
+default_delay="$(sed -n 's/^GATEKEEPER_ASSESS_DELAY_SECONDS="\${CMUX_GATEKEEPER_ASSESS_DELAY_SECONDS:-\([0-9][0-9]*\)}"$/\1/p' "$SCRIPT")"
+if ! [[ "$default_attempts" =~ ^[0-9]+$ && "$default_delay" =~ ^[0-9]+$ ]]; then
+  echo "FAIL: Gatekeeper attempt and delay defaults must be env-configurable numeric literals (got '$default_attempts' x '$default_delay')" >&2
+  exit 1
+fi
+if (( default_attempts * default_delay < 1200 )); then
+  echo "FAIL: default Gatekeeper propagation budget is $((default_attempts * default_delay))s; a stable release needs at least 1200s" >&2
+  exit 1
+fi
+if (( default_delay > 30 )); then
+  echo "FAIL: Gatekeeper poll interval ${default_delay}s is too coarse; poll at least every 30s" >&2
   exit 1
 fi
 
@@ -221,8 +256,22 @@ if CMUX_TEST_SPCTL_COUNT_FILE="$TMP_DIR/spctl-count" CMUX_TEST_SPCTL_REJECTS=5 C
   echo "FAIL: helper notarization passed although Gatekeeper never accepted the helper" >&2
   exit 1
 fi
-if [ "$(grep -c '^spctl -a -vv --type execute .*/standalone/cmux Computer Use\.app$' "$LOG")" -ne 3 ]; then
+if [ "$(grep -c '^spctl -a -vv --ignore-cache --no-cache --type execute .*/standalone/cmux Computer Use\.app$' "$LOG")" -ne 3 ]; then
   echo "FAIL: Gatekeeper assessment must stop after the attempt budget" >&2
+  exit 1
+fi
+
+# Regression: a stale negative assessment must not make a valid stapled helper
+# fail just because the same CDHash was assessed before stapling. The fake
+# Gatekeeper rejects any assessment that does not opt out of its cache.
+: > "$LOG"
+if ! CMUX_TEST_SPCTL_REQUIRE_FRESH=1 CMUX_GATEKEEPER_ASSESS_ATTEMPTS=1 run_helper >"$TMP_DIR/fresh-assessment.out" 2>&1; then
+  echo "FAIL: Gatekeeper assessment reused a stale negative cache entry" >&2
+  cat "$TMP_DIR/fresh-assessment.out" >&2
+  exit 1
+fi
+if ! grep -Eq '^spctl -a -vv --ignore-cache --no-cache --type execute .*/standalone/cmux Computer Use\.app$' "$LOG"; then
+  echo "FAIL: Gatekeeper assessment did not bypass its cache" >&2
   exit 1
 fi
 

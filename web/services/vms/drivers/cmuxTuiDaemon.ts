@@ -1,4 +1,5 @@
 import { dirname } from "node:path";
+import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER } from "../images/workUser";
 import {
   ProviderError,
   type CmuxRemoteEndpoint,
@@ -20,7 +21,6 @@ export function shellQuote(value: string): string {
 
 export const CMUX_TUI_PORT = 1337;
 export const CMUX_TUI_SESSION = "cloud";
-export const CMUX_TUI_BINARY_PATH = "/root/.cmux/bin/cmux-tui";
 /**
  * The daemon's cloud listener is reachable only inside the owner's private
  * network (every member is the owner's Mac or another of the owner's machines),
@@ -31,113 +31,87 @@ export const CMUX_TUI_BINARY_PATH = "/root/.cmux/bin/cmux-tui";
 export const CMUX_TUI_TRUSTED_CARRIER_ENV = "CMUX_TUI_REMOTE_WS_TRUSTED_CARRIER";
 export const CMUX_TUI_TRUSTED_CARRIER_FLAG = "--remote-ws-trusted-carrier";
 export const CMUX_TUI_INSTALL_TIMEOUT_MS = 5 * 60 * 1000;
-// A provider can attach the volume after the process starts, but a permanently
-// missing volume must fail through the provider's restart/reconciliation path.
-export const CMUX_TUI_PERSISTENT_MOUNT_WAIT_TIMEOUT_MS = 30_000;
-
-// The non-root work user on cmux Cloud machines. Terminals must not run as root
-// (coding agents refuse root, e.g. `claude --dangerously-skip-permissions`); root
-// stays one passwordless `sudo` away. An image that bakes this user is driven
-// through CMUX_CLOUD_LAYOUT; images without it keep the root daemon.
-export const CMUX_CLOUD_USER = "cmux";
-export const CMUX_CLOUD_HOME = "/home/cmux";
-
-// Where the driver mounts the persistent home volume; a bindfs identity view
-// presents it at CMUX_CLOUD_HOME (the volume's virtiofs squashes guest identity
-// to root, so a plain mount cannot be a non-root home).
-export const CMUX_CLOUD_HOME_VOLUME_BACKING_PATH = "/cmux/home";
-const CMUX_TUI_HOME_VIEW_LOST_EXIT_CODE = 75;
 
 /**
- * Home layout the daemon runs under: which Unix user owns sessions, where its
- * home is, and (when the machine has a persistent volume) the backing mount the
- * home view maps. The backing path is the fail-over home: if the view is absent
- * while the backing is mounted, sessions must run as root on the backing path —
- * never on the writable-but-disposable rootfs dir at `home`, where user data
- * would die with the sandbox and be swept by the next bootstrap's junk clean.
+ * Terminals on a cmux Cloud machine run as the image's work user, never root:
+ * coding agents refuse root outright (`claude --dangerously-skip-permissions`
+ * exits before it starts), and root is one passwordless `sudo` away anyway.
+ * The user, its home and the machine name are the image contract
+ * (services/vms/images/workUser.ts); everything here is the runtime half.
+ *
+ * Machines created from an image baked before that contract have no such user
+ * and carry their daemon, binary and state under /root. Every command below
+ * therefore picks the layout ON the machine (cmuxTuiLayoutSelector) instead of
+ * assuming one, so one driver serves both until the last legacy machine is
+ * recreated.
  */
-export type CmuxTuiHomeLayout = {
-  readonly user: string;
-  readonly home: string;
-  readonly volumeBackingPath: string;
-};
-
-/** Runtime selection flags for a layout-aware daemon. */
-export type CmuxTuiDaemonOptions = {
-  /** The provider attached a persistent volume and must never use rootfs home. */
-  readonly persistentVolumeExpected?: boolean;
-};
-
-export const CMUX_CLOUD_LAYOUT: CmuxTuiHomeLayout = {
-  user: CMUX_CLOUD_USER,
-  home: CMUX_CLOUD_HOME,
-  volumeBackingPath: CMUX_CLOUD_HOME_VOLUME_BACKING_PATH,
-};
+export const CMUX_CLOUD_USER = DEVBOX_WORK_USER;
+export const CMUX_CLOUD_HOME = DEVBOX_WORK_HOME;
+/** The home, and so the daemon user, of a machine from a pre-work-user image. */
+export const CMUX_TUI_LEGACY_HOME = "/root";
+export const CMUX_TUI_BINARY_PATH = `${CMUX_CLOUD_HOME}/.cmux/bin/cmux-tui`;
+export const CMUX_TUI_LEGACY_BINARY_PATH = `${CMUX_TUI_LEGACY_HOME}/.cmux/bin/cmux-tui`;
+/** Which layout the running daemon chose; a breadcrumb for operators, not an input. */
+export const CMUX_TUI_LAYOUT_MARKER_PATH = "/etc/cmux/daemon-layout";
 
 /** Returns the durable cmux-tui binary path for a daemon home. */
 export function cmuxTuiBinaryPath(home: string): string {
   return `${home}/.cmux/bin/cmux-tui`;
 }
 
-/** Waits for a provider-declared persistent home before touching its path. */
-export function cmuxTuiPersistentMountWait(
-  layout: CmuxTuiHomeLayout,
-  persistentVolumeExpected: boolean,
-): string {
-  if (!persistentVolumeExpected) return "";
-  const backing = layout.volumeBackingPath;
-  return [
-    // A pre-layout volume is valid at /root. New-layout volumes must be present
-    // before any install or daemon path can touch the home directory.
-    `if ! mountpoint -q /root 2>/dev/null && ! mountpoint -q ${backing} 2>/dev/null; then`,
-    `mkdir -p ${backing} 2>/dev/null || true;`,
-    // Re-check after creating the directory so a mount that arrives in the
-    // handoff window is accepted without waiting for a future event.
-    `if ! mountpoint -q /root 2>/dev/null && ! mountpoint -q ${backing} 2>/dev/null; then ` +
-      // util-linux's timeout bounds the handoff wait. If the tool is too old
-      // to expose it, fail closed instead of introducing an unbounded wait.
-      // A mount can complete after the second check but before findmnt starts;
-      // accept that race when the post-poll mountpoint check proves it is ready.
-      `if command -v findmnt >/dev/null 2>&1 && findmnt --help 2>&1 | grep -q -- '--poll' && findmnt --help 2>&1 | grep -q -- '--timeout'; then if findmnt --poll=mount --timeout=${CMUX_TUI_PERSISTENT_MOUNT_WAIT_TIMEOUT_MS} --first-only --mountpoint ${backing} >/dev/null 2>&1; then :; elif mountpoint -q /root 2>/dev/null || mountpoint -q ${backing} 2>/dev/null; then :; else exit ${CMUX_TUI_HOME_VIEW_LOST_EXIT_CODE}; fi; else exit ${CMUX_TUI_HOME_VIEW_LOST_EXIT_CODE}; fi; ` +
-      `fi;`,
-    `if ! mountpoint -q /root 2>/dev/null && ! mountpoint -q ${backing} 2>/dev/null; then exit ${CMUX_TUI_HOME_VIEW_LOST_EXIT_CODE}; fi;`,
-    `fi;`,
-  ].join(" ");
-}
-
-function cmuxTuiInstallHomeSelector(
-  layout: CmuxTuiHomeLayout,
-  persistentVolumeExpected = false,
-): string {
-  const root = shellQuote("/root");
-  const backing = shellQuote(layout.volumeBackingPath);
-  const home = shellQuote(layout.home);
+/**
+ * Shell that sets CMUX_TUI_USER, CMUX_TUI_HOME, CMUX_TUI_BIN and
+ * CMUX_TUI_LAYOUT to the layout this machine can actually serve. The work user
+ * is used only when it can do the job it promises: it exists, its home is
+ * writable by it, and it really has passwordless sudo. Anything else (a legacy
+ * image, a broken sudoers) is the root layout — a degraded but working machine
+ * beats a crash-looping daemon or a session trapped unprivileged.
+ *
+ * Install, pin check, daemon launch and every driver-side `cmux-tui` call run
+ * this same selector, so they can never disagree about where the binary and
+ * the daemon's state live.
+ */
+export function cmuxTuiLayoutSelector(): string {
+  const user = CMUX_CLOUD_USER;
+  const home = CMUX_CLOUD_HOME;
   return (
-    cmuxTuiPersistentMountWait(layout, persistentVolumeExpected) +
-    `if mountpoint -q ${root} 2>/dev/null; then CMUX_TUI_HOME=${root}; ` +
-    `elif mountpoint -q ${backing} 2>/dev/null; then CMUX_TUI_HOME=${backing}; ` +
-    `else CMUX_TUI_HOME=${home}; fi`
+    `if id -u ${user} >/dev/null 2>&1 && command -v setpriv >/dev/null 2>&1 && ` +
+    `setpriv --reuid=${user} --regid=${user} --init-groups test -w ${home} 2>/dev/null && ` +
+    `setpriv --reuid=${user} --regid=${user} --init-groups sudo -n true >/dev/null 2>&1; then ` +
+    `CMUX_TUI_USER=${user}; CMUX_TUI_HOME=${home}; CMUX_TUI_LAYOUT=user; ` +
+    `else CMUX_TUI_USER=root; CMUX_TUI_HOME=${CMUX_TUI_LEGACY_HOME}; CMUX_TUI_LAYOUT=root; fi; ` +
+    `CMUX_TUI_BIN="$CMUX_TUI_HOME/.cmux/bin/cmux-tui"`
   );
 }
 
-/** Selects the durable home used by a layout-aware install or pin check. */
-export function cmuxTuiUserUsableCondition(layout: CmuxTuiHomeLayout): string {
-  const { user, home, volumeBackingPath: backing } = layout;
-  return (
-    `command -v mountpoint >/dev/null 2>&1 && ` +
-    // The layout daemon has to watch the FUSE view for a later unmount. Require
-    // util-linux's event monitor here; without it the safe root fallback is used.
-    `command -v findmnt >/dev/null 2>&1 && findmnt --help 2>&1 | grep -q -- '--poll' && ` +
-    `(! mountpoint -q ${backing} 2>/dev/null || mountpoint -q ${home} 2>/dev/null) && ` +
-    `[ "$(id -u ${user} 2>/dev/null || echo -1)" = "1001" ] && command -v bash >/dev/null 2>&1 && command -v runuser >/dev/null 2>&1 && ` +
-    `command -v sudo >/dev/null 2>&1 && ` +
-    `runuser -u ${user} -- test -w ${home} 2>/dev/null`
-  );
+/**
+ * Runs `cmux-tui <args>` as the daemon's own user, home and state dir. Every
+ * driver-side call (status, enrollment, snapshots) goes through this: reading
+ * the daemon's state as root when the daemon runs as the work user would find
+ * an empty state dir and report a healthy machine as broken.
+ */
+export function cmuxTuiRunCommand(args: string): string {
+  return `${cmuxTuiLayoutSelector()} && ${cmuxTuiAsDaemonUser(`"$CMUX_TUI_BIN" ${args}`)}`;
 }
 
-/** Detects a mounted persistent volume whose identity view needs recovery. */
-export function cmuxTuiHomeViewMissingCondition(layout: CmuxTuiHomeLayout): string {
-  return `mountpoint -q ${layout.volumeBackingPath} 2>/dev/null && ! mountpoint -q ${layout.home} 2>/dev/null`;
+/**
+ * Runs `command` as the daemon's user, via setpriv rather than runuser or su.
+ * setpriv EXECs in place, so the daemon is the direct child of its supervisor:
+ * signals reach it (runuser does not forward SIGTERM, so stopping the unit
+ * SIGKILLed the daemon and left a shutdown record its next start rejected with
+ * "shutdown outcome belongs to a different daemon lifecycle"), `pgrep -f`
+ * matches one process instead of a wrapper with a lower pid, and no PAM
+ * session is opened and closed for every probe.
+ */
+export function cmuxTuiAsDaemonUser(command: string, options?: { readonly exec?: boolean }): string {
+  // `exec` has to prefix the whole chain, not sit inside it: as an argument to
+  // env it would name a program called "exec".
+  const run = options?.exec === true ? "exec " : "";
+  return (
+    `if [ "$CMUX_TUI_USER" = root ]; then ${run}env HOME="$CMUX_TUI_HOME" ${CMUX_TUI_DAEMON_TERMINAL_ENV} ${command}; ` +
+    `else ${run}setpriv --reuid="$CMUX_TUI_USER" --regid="$CMUX_TUI_USER" --init-groups ` +
+    `env HOME="$CMUX_TUI_HOME" USER="$CMUX_TUI_USER" LOGNAME="$CMUX_TUI_USER" SHELL=/bin/bash ${CMUX_TUI_DAEMON_TERMINAL_ENV} ${command}; fi`
+  );
 }
 
 export type CmuxTuiSource = { url: string; sha256: string; commit: string; builtAt: string | null };
@@ -226,271 +200,39 @@ export function resetCmuxTuiSourceCache(): void {
  * the installed copy already matches the pin. The VM fetches the ~50 MB static musl
  * binary itself (in-region, seconds) instead of the driver pushing a base64 payload
  * through the provider API on every cold create.
+ *
+ * Runs as root and installs into the daemon's own home, so a work-user machine
+ * gets a binary its sessions can execute (/root is 0700) and a legacy machine
+ * keeps the one it already has.
  */
-export function cmuxTuiInstallCommand(
-  source: CmuxTuiSource,
-  layout?: CmuxTuiHomeLayout,
-  options?: CmuxTuiDaemonOptions,
-): string {
-  if (layout) {
-    const selector = cmuxTuiInstallHomeSelector(layout, options?.persistentVolumeExpected === true);
-    const bin = '"$CMUX_TUI_BIN"';
-    const tmp = '"$CMUX_TUI_TMP"';
-    const pinned = (path: string) => `printf '%s  %s\n' ${shellQuote(source.sha256)} ${path} | sha256sum -c >/dev/null 2>&1`;
-    const fetch =
-      `if command -v curl >/dev/null 2>&1; then curl -fsSL --retry 3 --retry-delay 2 -o ${tmp} ${shellQuote(source.url)}; ` +
-      `elif command -v wget >/dev/null 2>&1; then wget -q -O ${tmp} ${shellQuote(source.url)}; ` +
-      `else false; fi`;
-    return [
-      selector,
-      `CMUX_TUI_BIN="$CMUX_TUI_HOME/.cmux/bin/cmux-tui"`,
-      `CMUX_TUI_TMP="$CMUX_TUI_BIN.tmp"`,
-      `mkdir -p "$(dirname "$CMUX_TUI_BIN")"`,
-      `if [ -x ${bin} ] && ${pinned(bin)}; then :; else ${fetch} && ${pinned(tmp)} && chmod 755 ${tmp} && mv -f ${tmp} ${bin}; fi`,
-      `ln -sfn ${bin} /usr/local/bin/cmux-tui`,
-      // The volume is already identity-mapped by bindfs. Chown only the nodes this
-      // install created, never the potentially large persistent state tree.
-      `if [ "$CMUX_TUI_HOME" != '/root' ]; then chown ${layout.user}:${layout.user} "$CMUX_TUI_HOME/.cmux" "$CMUX_TUI_HOME/.cmux/bin" "$CMUX_TUI_BIN" 2>/dev/null || true; fi`,
-      `${bin} --version`,
-    ].join(" && ");
-  }
-  const binaryPath = CMUX_TUI_BINARY_PATH;
-  const bin = shellQuote(binaryPath);
-  const tmp = shellQuote(`${binaryPath}.tmp`);
+export function cmuxTuiInstallCommand(source: CmuxTuiSource): string {
+  const bin = '"$CMUX_TUI_BIN"';
+  const tmp = '"$CMUX_TUI_TMP"';
   const pinned = (path: string) => `printf '%s  %s\n' ${shellQuote(source.sha256)} ${path} | sha256sum -c >/dev/null 2>&1`;
-  // A stock minimal base image may have no curl until background provisioning adds
-  // it, so the fetch installs curl itself (apk, Alpine) and falls back to busybox wget.
   const fetch =
-    `(command -v curl >/dev/null 2>&1 || apk add --no-cache curl >/dev/null 2>&1 || true); ` +
     `if command -v curl >/dev/null 2>&1; then curl -fsSL --retry 3 --retry-delay 2 -o ${tmp} ${shellQuote(source.url)}; ` +
-    `else wget -q -O ${tmp} ${shellQuote(source.url)}; fi`;
+    `elif command -v wget >/dev/null 2>&1; then wget -q -O ${tmp} ${shellQuote(source.url)}; ` +
+    `else false; fi`;
   return [
-    `mkdir -p ${shellQuote(dirname(binaryPath))}`,
-    `if [ -x ${bin} ] && ${pinned(bin)}; then :; else ` +
-      `${fetch} && ${pinned(tmp)} && chmod 755 ${tmp} && mv -f ${tmp} ${bin}; fi`,
+    cmuxTuiLayoutSelector(),
+    `CMUX_TUI_TMP="$CMUX_TUI_BIN.tmp"`,
+    `mkdir -p "$(dirname "$CMUX_TUI_BIN")"`,
+    `if [ -x ${bin} ] && ${pinned(bin)}; then :; else ${fetch} && ${pinned(tmp)} && chmod 755 ${tmp} && mv -f ${tmp} ${bin}; fi`,
     `ln -sfn ${bin} /usr/local/bin/cmux-tui`,
+    // Only the nodes this install created, never the daemon's state tree.
+    `if [ "$CMUX_TUI_USER" != root ]; then chown "$CMUX_TUI_USER:$CMUX_TUI_USER" "$CMUX_TUI_HOME/.cmux" "$CMUX_TUI_HOME/.cmux/bin" ${bin} 2>/dev/null || true; fi`,
     `${bin} --version`,
   ].join(" && ");
 }
 
 /** True when the installed binary matches the manifest pin (exit 0 from this command). */
-export function cmuxTuiPinCheckCommand(
-  source: CmuxTuiSource,
-  layout?: CmuxTuiHomeLayout,
-  options?: CmuxTuiDaemonOptions,
-): string {
-  if (layout) {
-    return (
-      `${cmuxTuiInstallHomeSelector(layout, options?.persistentVolumeExpected === true)} && ` +
-      `CMUX_TUI_BIN="$CMUX_TUI_HOME/.cmux/bin/cmux-tui" && ` +
-      `test -x "$CMUX_TUI_BIN" && printf '%s  %s\n' ${shellQuote(source.sha256)} "$CMUX_TUI_BIN" | sha256sum -c >/dev/null 2>&1`
-    );
-  }
-  return `test -x ${shellQuote(CMUX_TUI_BINARY_PATH)} && printf '%s  %s\n' ${shellQuote(source.sha256)} ${shellQuote(CMUX_TUI_BINARY_PATH)} | sha256sum -c >/dev/null 2>&1`;
-}
-
-/** The listener bind every container provider uses; cmux-devbox-boot's CMUX_TUI_REMOTE_WS_BIND default. */
-export const CMUX_TUI_DEFAULT_REMOTE_WS_BIND = `0.0.0.0:${CMUX_TUI_PORT}`;
-// Rootfs state lets a driver distinguish an intentional root fallback from a
-// still-running non-root daemon and reconcile it on attach.
-export const CMUX_TUI_LAYOUT_MARKER_PATH = "/etc/cmux/daemon-layout";
-
-const CMUX_TUI_BACKING_EXPECTED_VAR = "cmux_tui_backing_expected";
-// Old/custom images may have mountpoint but not util-linux's findmnt poller.
-// A one-second direct check keeps the durable root fallback alive without a
-// busy loop and still notices a lost backing mount promptly.
-const CMUX_TUI_MOUNT_WATCH_INTERVAL_SECONDS = 1;
-// A daemon can be blocked in FUSE I/O and ignore TERM while its home disappears.
-// Keep the restart path bounded, then force the child down so the provider can
-// start the durable fallback.
-const CMUX_TUI_CHILD_SHUTDOWN_GRACE_SECONDS = 2;
-const CMUX_TUI_CHILD_SHUTDOWN_POLL_SECONDS = 0.02;
-const CMUX_TUI_CHILD_SHUTDOWN_GRACE_POLLS = Math.round(
-  CMUX_TUI_CHILD_SHUTDOWN_GRACE_SECONDS / CMUX_TUI_CHILD_SHUTDOWN_POLL_SECONDS,
-);
-
-/**
- * Runs a layout daemon with an event-driven mount watcher. A persistent mount
- * can disappear while the daemon remains alive; the watcher signals the
- * supervisor, stops the child, and returns a restartable failure code. The
- * provider then reevaluates the layout instead of allowing writes through a
- * disposable directory below a lost mountpoint.
- */
-function cmuxTuiSupervisedDaemonInvocation(
-  daemon: string,
-  watchedMounts: readonly string[],
-  watchCondition: string,
-  unwatchableCondition?: string,
-  layoutMarker: "user" | "root" = "user",
-): string {
-  const parentPid = "cmux_tui_supervisor_pid";
-  const daemonPid = "cmux_tui_daemon_pid";
-  const watcherPid = "cmux_tui_mount_watcher_pid";
-  const pollPids = watchedMounts.map((_, index) => `cmux_tui_mount_poll_${index}`);
-  const viewLost = "cmux_tui_view_lost";
-  const daemonStatus = "cmux_tui_daemon_status";
-  // The watcher runs in a background subshell, so its local assignments cannot
-  // update the supervisor. The supervisor trap owns the state; repeated signals
-  // are harmless and avoiding the assignment keeps the generated POSIX shell
-  // honest about the cross-process handoff.
-  const signalViewLost = `kill -USR1 "$${parentPid}" 2>/dev/null || true`;
-  const anyMissing = watchedMounts
-    .map((mount) => `! mountpoint -q ${mount} 2>/dev/null`)
-    .join(" || ");
-  const pollLoops = watchedMounts.map((mount, index) => [
-    // A poll error is not a mount event. Fail closed and let the provider restart
-    // the named process instead of retrying in a tight loop at full CPU.
-    `( trap 'exit 143' TERM INT HUP; while :; do if findmnt --poll=umount,move,remount --first-only --mountpoint ${mount} >/dev/null 2>&1; then :; else ${signalViewLost}; break; fi;`,
-    `if ${anyMissing}; then ${signalViewLost}; break; fi; done ) & ${pollPids[index]}=$!;`,
-  ].join(" ")).join(" ");
-  const pollCleanup = pollPids.length > 0
-    ? `kill -TERM ${pollPids.map((pid) => `"$${pid}"`).join(" ")} 2>/dev/null || true;`
-    : "";
-  const pollWait = pollPids
-    .map((pid) => `wait "$${pid}" 2>/dev/null || true;`)
-    .join(" ");
-  const mountWatcher = [
-    `${pollPids.map((pid) => `${pid}=''`).join(" ")};`,
-    `trap '${pollCleanup} exit 143' TERM INT HUP;`,
-    // The expected-state snapshot closes the race between the outer branch and
-    // watcher startup. Every selected persistent mount must still be present.
-    `if ${watchCondition}; then`,
-    `if ${anyMissing}; then ${signalViewLost};`,
-    `elif command -v findmnt >/dev/null 2>&1 && findmnt --help 2>&1 | grep -q -- '--poll'; then`,
-    // findmnt --poll blocks in the kernel until a mount event. Scope each poll
-    // to one relevant mount so unrelated container mounts do not wake this loop.
-    pollLoops,
-    pollWait,
-    `else`,
-    // A mounted backing path is still a valid durable fallback when an old image
-    // lacks findmnt. Poll mountpoint at a bounded interval instead of exiting the
-    // daemon before it can serve the user's persistent home.
-    `while :; do if ${anyMissing}; then ${signalViewLost}; break; fi; sleep ${CMUX_TUI_MOUNT_WATCH_INTERVAL_SECONDS}; done;`,
-    `fi;`,
-    unwatchableCondition
-      ? `elif ${unwatchableCondition}; then ${signalViewLost}; fi`
-      : `fi`,
-  ].join(" ");
-  const terminateChild = [
-    `cmux_tui_terminate_child() {`,
-    `cmux_tui_terminate_pid="$1";`,
-    `if [ -z "$cmux_tui_terminate_pid" ]; then return 0; fi;`,
-    `kill -TERM "$cmux_tui_terminate_pid" 2>/dev/null || true;`,
-    // The grace-period helper polls the child instead of sleeping for the whole
-    // period and being signalled: once the supervisor's wait reaps the child,
-    // kill -0 fails and the helper exits on its own within one poll interval.
-    // Nothing is signalled, so there is no race with dash's trap reset (a TERM
-    // that lands while a forked subshell still carries the parent's trap is
-    // dropped) and no orphaned sleep. A child that ignores TERM is KILLed at
-    // the end of the grace period as before.
-    `( cmux_tui_killer_polls=0;`,
-    `while [ "$cmux_tui_killer_polls" -lt ${CMUX_TUI_CHILD_SHUTDOWN_GRACE_POLLS} ] && kill -0 "$cmux_tui_terminate_pid" 2>/dev/null; do`,
-    `sleep ${CMUX_TUI_CHILD_SHUTDOWN_POLL_SECONDS}; cmux_tui_killer_polls=$((cmux_tui_killer_polls + 1)); done;`,
-    // Only a child that outlived the whole grace period is KILLed, and its
-    // liveness is rechecked right before the signal so the window in which a
-    // reaped pid could be reused is the check-to-kill gap, not a poll interval.
-    `if [ "$cmux_tui_killer_polls" -ge ${CMUX_TUI_CHILD_SHUTDOWN_GRACE_POLLS} ] && kill -0 "$cmux_tui_terminate_pid" 2>/dev/null; then kill -KILL "$cmux_tui_terminate_pid" 2>/dev/null || true; fi ) &`,
-    `cmux_tui_killer_pid=$!;`,
-    `wait "$cmux_tui_terminate_pid" 2>/dev/null || true;`,
-    // Cancel the helper as soon as the child is reaped so it can never act on
-    // a reused pid. KILL rather than TERM: dash forks the helper with the
-    // parent's TERM trap still inherited and resets it afterwards, so a TERM
-    // that lands in that window is dropped. The helper holds at most one
-    // 20 ms sleep, so a KILL orphans nothing that matters.
-    `kill -KILL "$cmux_tui_killer_pid" 2>/dev/null || true;`,
-    `wait "$cmux_tui_killer_pid" 2>/dev/null || true;`,
-    `}`,
-  ].join(" ");
-  return [
-    `${viewLost}=0`,
-    `${parentPid}=$$`,
-    `${daemonPid}=''`,
-    `${watcherPid}=''`,
-    terminateChild,
-    // USR1 is private to this supervisor. TERM/INT/HUP still stop both children
-    // cleanly when a provider stops the named process during lease revocation.
-    `trap '${viewLost}=1; cmux_tui_terminate_child "$${daemonPid}"' USR1`,
-    `trap 'cmux_tui_terminate_child "$${daemonPid}"; cmux_tui_terminate_child "$${watcherPid}"; exit 143' TERM INT HUP`,
-    `{ mkdir -p /etc/cmux 2>/dev/null; printf '${layoutMarker}\\n' > ${CMUX_TUI_LAYOUT_MARKER_PATH}; } 2>/dev/null`,
-    // Group the complete selection and `cd` in the child. Without the group,
-    // shell precedence backgrounds only the final command after a leading
-    // guard, leaving a mount check and directory change in the supervisor before
-    // the watcher can start.
-    `( ${daemon} ) & ${daemonPid}=$!`,
-    `( ${mountWatcher} ) & ${watcherPid}=$!`,
-    `wait "$${daemonPid}"; ${daemonStatus}=$?`,
-    // A signal trap can interrupt the first wait before the daemon has handled
-    // TERM. Reap it before returning so the provider never restarts alongside
-    // a still-running process that still points at the lost view.
-    `if [ "$${viewLost}" -eq 1 ]; then cmux_tui_terminate_child "$${daemonPid}"; fi`,
-    `cmux_tui_terminate_child "$${watcherPid}"`,
-    `if [ "$${viewLost}" -eq 1 ]; then exit ${CMUX_TUI_HOME_VIEW_LOST_EXIT_CODE}; fi`,
-    `exit "$${daemonStatus}"`,
-  ].join("; ");
-}
-
-/** Runs the non-root daemon while watching both the bindfs view and its backing mount. */
-function cmuxTuiUserDaemonInvocation(
-  layout: CmuxTuiHomeLayout,
-  binary: string,
-  args: string,
-): string {
-  const { user, home, volumeBackingPath: backing } = layout;
-  const daemon =
-    `if [ "$${CMUX_TUI_BACKING_EXPECTED_VAR}" -eq 1 ]; then ` +
-    `if ! mountpoint -q ${home} 2>/dev/null || ! mountpoint -q ${backing} 2>/dev/null; then exit ${CMUX_TUI_HOME_VIEW_LOST_EXIT_CODE}; fi; ` +
-    `elif mountpoint -q ${home} 2>/dev/null; then exit ${CMUX_TUI_HOME_VIEW_LOST_EXIT_CODE}; fi; ` +
-    `cd ${home} 2>/dev/null || exit ${CMUX_TUI_HOME_VIEW_LOST_EXIT_CODE}; ` +
-    `exec runuser -u ${user} -- env HOME=${home} USER=${user} LOGNAME=${user} SHELL=/bin/bash ${CMUX_TUI_DAEMON_TERMINAL_ENV} ${binary} ${args}`;
-  return cmuxTuiSupervisedDaemonInvocation(
-    daemon,
-    [home, backing],
-    `[ "$${CMUX_TUI_BACKING_EXPECTED_VAR}" -eq 1 ]`,
-    `mountpoint -q ${home} 2>/dev/null`,
+export function cmuxTuiPinCheckCommand(source: CmuxTuiSource): string {
+  return (
+    `${cmuxTuiLayoutSelector()} && ` +
+    `test -x "$CMUX_TUI_BIN" && printf '%s  %s\n' ${shellQuote(source.sha256)} "$CMUX_TUI_BIN" | sha256sum -c >/dev/null 2>&1`
   );
 }
 
-/** Runs a root fallback on persistent storage while watching that backing mount. */
-function cmuxTuiBackingDaemonInvocation(
-  layout: CmuxTuiHomeLayout,
-  daemon: string,
-): string {
-  const backing = layout.volumeBackingPath;
-  return cmuxTuiSupervisedDaemonInvocation(
-    `if ! mountpoint -q ${backing} 2>/dev/null; then exit ${CMUX_TUI_HOME_VIEW_LOST_EXIT_CODE}; fi; cd ${backing} 2>/dev/null || exit ${CMUX_TUI_HOME_VIEW_LOST_EXIT_CODE}; ${daemon}`,
-    [backing],
-    ":",
-    undefined,
-    "root",
-  );
-}
-
-/**
- * The daemon command every provider's supervisor runs. Launch cwd = the persistent
- * home so new terminals open there. `remoteWsBind` defaults to the IPv4 wildcard
- * the container providers' proxies dial; Freestyle machines are reached at
- * their private VPC address and pass a dual-stack `[::]` bind instead (a container with
- * IPv6 disabled cannot bind `[::]` at all, so dual-stack is per-provider, not the
- * default).
- *
- * Without a layout the daemon (and so every terminal pane it spawns) runs as root
- * with HOME=/root — the model the Freestyle driver uses. With a layout the
- * daemon drops to the layout user via runuser, so panes are non-root shells
- * with passwordless sudo. Two guards keep
- * old machines working:
- *  - A sandbox from before the layout change mounts its persistent volume at
- *    /root (mountpoint -q /root); its data and daemon state live there, so it
- *    keeps the root daemon until it is resurrected onto the new mount path.
- *  - A machine where the user cannot actually use the home — no user or no
- *    runuser (stock Alpine base), or the bindfs identity view over the
- *    root-squashing volume failed to mount (the mount guard) — falls back
- *    to a root daemon rather than crash-looping or serving broken shells.
- * The layout branch also supervises the user daemon with a kernel mount-event
- * watcher. If the bindfs view disappears, it stops the user daemon and exits
- * with a restartable failure code; the provider then evaluates the layout again
- * and starts the root daemon on the persistent backing mount until the view is
- * repaired.
- */
 /**
  * Terminal identity every daemon-spawned pane inherits. The Mac app renders
  * each pane in its embedded Ghostty and exports the same identity to local and
@@ -504,80 +246,31 @@ function cmuxTuiBackingDaemonInvocation(
 export const CMUX_TUI_DAEMON_TERMINAL_ENV =
   'TERM=xterm-256color TERM_PROGRAM=ghostty TERM_PROGRAM_VERSION="$(cat /etc/cmux/ghostty-version 2>/dev/null)"';
 
+/** The listener bind every container provider uses; cmux-devbox-boot's CMUX_TUI_REMOTE_WS_BIND default. */
+export const CMUX_TUI_DEFAULT_REMOTE_WS_BIND = `0.0.0.0:${CMUX_TUI_PORT}`;
+
+/**
+ * The daemon command every supervisor runs: cmux-tui as the machine's daemon
+ * user, cwd and HOME its home, so every terminal pane it opens is a shell of
+ * that user in that home. `remoteWsBind` defaults to the IPv4 wildcard;
+ * Freestyle machines are reached at a private VPC address and pass a
+ * dual-stack `[::]` bind instead.
+ *
+ * The layout is chosen on the machine (cmuxTuiLayoutSelector), so a work-user
+ * image serves non-root sessions and a machine from a pre-work-user image
+ * keeps its root daemon and its /root state until it is recreated. The choice
+ * is written to CMUX_TUI_LAYOUT_MARKER_PATH so a machine can be asked which
+ * one it took.
+ */
 export function cmuxTuiDaemonCommand(
   remoteWsBind: string = CMUX_TUI_DEFAULT_REMOTE_WS_BIND,
-  layout?: CmuxTuiHomeLayout,
-  options?: CmuxTuiDaemonOptions,
 ): string {
   const args = `server start --session ${CMUX_TUI_SESSION} --remote-ws ${remoteWsBind} --remote-ws-insecure-bind ${CMUX_TUI_TRUSTED_CARRIER_FLAG}`;
-  if (!layout) {
-    return `cd /root && env HOME=/root ${CMUX_TUI_DAEMON_TERMINAL_ENV} ${CMUX_TUI_BINARY_PATH} ${args}`;
-  }
-  const { home, volumeBackingPath: backing } = layout;
-  const persistentVolumeExpected = options?.persistentVolumeExpected === true;
-  const bin = cmuxTuiBinaryPath(home);
-  const backingBin = cmuxTuiBinaryPath(backing);
-  const legacyBin = cmuxTuiBinaryPath("/root");
-  const usableBase = cmuxTuiUserUsableCondition(layout);
-  // A no-volume machine legitimately uses its disposable rootfs home.
-  // A volume-backed machine must never silently switch to that path while its
-  // mount is late or lost, because all writes there disappear on resurrection.
-  const usable = persistentVolumeExpected
-    ? `${usableBase} && mountpoint -q ${backing} 2>/dev/null`
-    : usableBase;
-  const backingDaemon =
-    `if [ -x ${backingBin} ]; then exec env HOME=${backing} ${CMUX_TUI_DAEMON_TERMINAL_ENV} ${backingBin} ${args}; ` +
-    `elif [ -x ${legacyBin} ]; then exec env HOME=${backing} ${CMUX_TUI_DAEMON_TERMINAL_ENV} ${legacyBin} ${args}; ` +
-    `else exec env HOME=${backing} ${CMUX_TUI_DAEMON_TERMINAL_ENV} ${backingBin} ${args}; fi`;
-  const backingInvocation = cmuxTuiBackingDaemonInvocation(layout, backingDaemon);
-  const legacyDaemon =
-    `if [ -x ${legacyBin} ]; then exec env HOME=/root ${CMUX_TUI_DAEMON_TERMINAL_ENV} ${legacyBin} ${args}; ` +
-    `elif [ -x ${bin} ]; then exec env HOME=/root ${CMUX_TUI_DAEMON_TERMINAL_ENV} ${bin} ${args}; ` +
-    `else exec env HOME=/root ${CMUX_TUI_DAEMON_TERMINAL_ENV} ${legacyBin} ${args}; fi`;
-  const legacyInvocation = persistentVolumeExpected
-    ? cmuxTuiSupervisedDaemonInvocation(
-      `if ! mountpoint -q /root 2>/dev/null; then exit ${CMUX_TUI_HOME_VIEW_LOST_EXIT_CODE}; fi; cd /root 2>/dev/null || exit ${CMUX_TUI_HOME_VIEW_LOST_EXIT_CODE}; ${legacyDaemon}`,
-      ["/root"],
-      ":",
-      undefined,
-      "root",
-    )
-    : `cd /root && ${legacyDaemon}`;
-  const rootFallbackInvocation =
-    persistentVolumeExpected
-      ? `if mountpoint -q ${backing} 2>/dev/null; then ${backingInvocation}; else exit ${CMUX_TUI_HOME_VIEW_LOST_EXIT_CODE}; fi`
-      : `if mountpoint -q ${backing} 2>/dev/null; then ${backingInvocation}; ` +
-        `else cd ${home} && exec env HOME=${home} ${CMUX_TUI_DAEMON_TERMINAL_ENV} ${bin} ${args}; fi`;
-  const persistentVolumeGuard = cmuxTuiPersistentMountWait(layout, persistentVolumeExpected);
   return (
-    // Snapshot the backing mount before selecting a branch. The watcher uses
-    // this value to catch a backing unmount that happens between this branch
-    // check and its first mountpoint probe.
-    persistentVolumeGuard +
-    `${CMUX_TUI_BACKING_EXPECTED_VAR}=${persistentVolumeExpected ? "1" : "0"}; ` +
-    `if mountpoint -q ${backing} 2>/dev/null; then ${CMUX_TUI_BACKING_EXPECTED_VAR}=1; fi; ` +
-    `if mountpoint -q /root 2>/dev/null; then ` +
-    `{ mkdir -p /etc/cmux 2>/dev/null; printf 'root\\n' > ${CMUX_TUI_LAYOUT_MARKER_PATH}; } 2>/dev/null; ` +
-    `${legacyInvocation}; ` +
-    // The volume is mounted but the identity view over it is not: home on the
-    // backing path as root, so sessions and daemon state stay on persistent
-    // storage. The rootfs dir at ${home} is writable yet disposable — never it.
-    `elif mountpoint -q ${backing} 2>/dev/null && ! mountpoint -q ${home} 2>/dev/null; then ` +
-    // Degraded but recoverable: every bootstrap and daemon restart re-runs the
-    // user setup, which retries the view mount; the breadcrumb makes the state
-    // findable on the machine instead of silent.
-    // Overwrite-latest, not append: a crash-looping daemon must not grow this file.
-    `{ mkdir -p /etc/cmux 2>/dev/null; printf '%s view-missing\\n' "$(date -u +%FT%TZ)" > /etc/cmux/root-session-fallback; printf 'root\\n' > ${CMUX_TUI_LAYOUT_MARKER_PATH}; } 2>/dev/null; ` +
-    backingInvocation +
-    "; " +
-    // A cmux session is promised passwordless sudo; without the binary it would be
-    // trapped unprivileged, so fall back to a (breadcrumbed) root session until
-    // the driver's sudo heal lands and the next daemon start re-evaluates.
-    `elif ${usable}; then ` +
-    `${cmuxTuiUserDaemonInvocation(layout, bin, args)}; ` +
-    `else ` +
-    `{ mkdir -p /etc/cmux 2>/dev/null; printf '%s user-unusable\\n' "$(date -u +%FT%TZ)" > /etc/cmux/root-session-fallback; printf 'root\\n' > ${CMUX_TUI_LAYOUT_MARKER_PATH}; } 2>/dev/null; ` +
-    `${rootFallbackInvocation}; fi`
+    `${cmuxTuiLayoutSelector()}; ` +
+    `{ mkdir -p /etc/cmux 2>/dev/null; printf '%s\\n' "$CMUX_TUI_LAYOUT" > ${CMUX_TUI_LAYOUT_MARKER_PATH}; } 2>/dev/null; ` +
+    `cd "$CMUX_TUI_HOME" && ` +
+    cmuxTuiAsDaemonUser(`"$CMUX_TUI_BIN" ${args}`, { exec: true })
   );
 }
 
@@ -658,9 +351,22 @@ const BUNDLE_MARKERS = { probe: "__CMUX_PROBE__", devices: "__CMUX_DEVICES__", t
  * honest while the pinned manifest and the machine's install disagree.
  * Anything else prints `0`.
  */
+export function cmuxTuiDaemonPidSelector(): string {
+  // NOT `pgrep ... | head -n1`: when the daemon runs as the work user its
+  // launcher is `runuser -u cmux -- … cmux-tui server start …`, whose cmdline
+  // matches the same pattern and whose pid is LOWER. Picking that wrapper made
+  // the trusted-listener probe exec `runuser --remote-ws-trusted-carrier
+  // --version`, which fails, so attach refused a perfectly healthy machine.
+  // Select the process that IS the binary; comm is `cmux-tui` on both layouts.
+  return (
+    "p=''; for cmux_tui_pid in $(pgrep -f 'cmux-tui server [s]tart' 2>/dev/null); do " +
+    `if [ "$(cat /proc/$cmux_tui_pid/comm 2>/dev/null)" = cmux-tui ]; then p=$cmux_tui_pid; break; fi; done`
+  );
+}
+
 export function cmuxTuiTrustedListenerProbe(): string {
   return (
-    "p=$(pgrep -f 'cmux-tui server [s]tart' | head -n1); " +
+    `${cmuxTuiDaemonPidSelector()}; ` +
     `if [ -n "$p" ] && { tr '\\0' '\\n' < "/proc/$p/environ" 2>/dev/null | grep -qx ${shellQuote(`${CMUX_TUI_TRUSTED_CARRIER_ENV}=1`)} || tr '\\0' '\\n' < "/proc/$p/cmdline" 2>/dev/null | grep -qx -- ${shellQuote(CMUX_TUI_TRUSTED_CARRIER_FLAG)}; }` +
     ` && "/proc/$p/exe" ${CMUX_TUI_TRUSTED_CARRIER_FLAG} --version >/dev/null 2>&1; then echo 1; else echo 0; fi`
   );
@@ -671,8 +377,14 @@ export function cmuxTuiAttachBundleCommand(options: {
   readonly deviceFingerprint?: string;
   readonly binary?: string;
 }): string {
-  const bin = options.binary ?? CMUX_TUI_BINARY_PATH;
-  const run = `env HOME=/root ${bin}`;
+  // The enrolled-device list lives in the DAEMON's state dir, so every call
+  // here has to be the daemon's user and HOME. Reading it as root on a
+  // work-user machine would find an empty state dir and report a healthy
+  // machine as un-enrolled.
+  const bin = options.binary ? shellQuote(options.binary) : '"$CMUX_TUI_BIN"';
+  // The arguments go INSIDE the drop-to-user block: it is an `if … fi`
+  // compound statement, so anything appended after it is a separate command.
+  const run = (args: string) => cmuxTuiAsDaemonUser(`${bin} ${args}`);
   const fingerprint = options.deviceFingerprint?.trim();
   if (fingerprint !== undefined && fingerprint !== "" && !/^[A-Za-z0-9._:=+/-]+$/.test(fingerprint)) {
     throw new Error("device fingerprint has an unexpected shape");
@@ -682,10 +394,11 @@ export function cmuxTuiAttachBundleCommand(options: {
     // its success and failure branches; without a subshell those exits terminate
     // the entire attach bundle before the probe, device, and invitation sections.
     ...(options.readyGate ? [`( ${options.readyGate}; ) || exit ${CMUX_TUI_ATTACH_BUNDLE_NOT_READY_EXIT}`] : []),
+    cmuxTuiLayoutSelector(),
     `echo ${BUNDLE_MARKERS.probe}`,
-    `${run} remote-probe --json; echo`,
+    `${run("remote-probe --json")}; echo`,
     `echo ${BUNDLE_MARKERS.devices}`,
-    `${run} remote enroll devices --session ${CMUX_TUI_SESSION} --json; echo`,
+    `${run(`remote enroll devices --session ${CMUX_TUI_SESSION} --json`)}; echo`,
     `echo ${BUNDLE_MARKERS.trusted}`,
     cmuxTuiTrustedListenerProbe(),
     `echo ${BUNDLE_MARKERS.end}`,
