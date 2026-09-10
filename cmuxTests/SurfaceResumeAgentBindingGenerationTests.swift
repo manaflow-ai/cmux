@@ -194,7 +194,7 @@ struct SurfaceResumeAgentBindingGenerationTests {
         defer { defaults.removePersistentDomain(forName: defaultsName) }
         defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
 
-        let source = Workspace(agentSessionAutoResumeDefaults: defaults)
+        let source = Workspace(agentSessionAutoResumeDefaults: defaults, restorableAgentIndexProvider: { .empty })
         defer { source.teardownAllPanels() }
         let sourcePanelID = try #require(source.focusedPanelId)
         let sessionID = "019fbf20-689d-76f3-8e7f-1220929e8140"
@@ -221,7 +221,7 @@ struct SurfaceResumeAgentBindingGenerationTests {
         )
         #expect(sourceSnapshot.panels.first?.terminal?.wasAgentRunning == true)
 
-        let firstRestore = Workspace(agentSessionAutoResumeDefaults: defaults)
+        let firstRestore = Workspace(agentSessionAutoResumeDefaults: defaults, restorableAgentIndexProvider: { .empty })
         defer { firstRestore.teardownAllPanels() }
         firstRestore.restoreSessionSnapshot(sourceSnapshot)
         let firstPanelID = try #require(firstRestore.focusedPanelId)
@@ -246,7 +246,7 @@ struct SurfaceResumeAgentBindingGenerationTests {
         #expect(secondGenerationTerminal.wasAgentRunning == true)
         #expect(secondGenerationTerminal.resumeBinding?.restoreStartupInput() == expectedRestoreInput)
 
-        let secondRestore = Workspace(agentSessionAutoResumeDefaults: defaults)
+        let secondRestore = Workspace(agentSessionAutoResumeDefaults: defaults, restorableAgentIndexProvider: { .empty })
         defer { secondRestore.teardownAllPanels() }
         secondRestore.restoreSessionSnapshot(secondGenerationSnapshot)
         let secondPanelID = try #require(secondRestore.focusedPanelId)
@@ -299,7 +299,8 @@ struct SurfaceResumeAgentBindingGenerationTests {
             panelId: panelID
         ))
         #expect(workspace.restoredAgentResumeStatesByPanelId[panelID] == nil)
-        #expect(workspace.restoredAgentSnapshotsByPanelId[panelID] == nil)
+        #expect(workspace.restoredAgentSnapshotsByPanelId[panelID]?.sessionId == replacementSessionID)
+        #expect(!workspace.restoredAgentLifecycleOwns(restoredBinding, panelId: panelID))
     }
 
     private func withFixture(

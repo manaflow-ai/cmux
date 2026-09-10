@@ -307,7 +307,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let environment = vmDevEnvironment(socketPath: makeSocketPath("vm-dev-dry-human"), home: fixture.home)
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["vm", "dev", "brave-otter", fixture.project.path, "--name", "frontend", "--remote", "/srv/web", "--dry-run"],
+            arguments: ["--password", "dry-run-fixture-password", "vm", "dev", "brave-otter", fixture.project.path, "--name", "frontend", "--remote", "/srv/web", "--dry-run"],
             environment: environment,
             timeout: 30
         )
@@ -351,12 +351,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
             log.methods.description
         )
 
-        // New workspaces are created by the layout shim with --name; vm.workspace_new is not
-        // used because its --no-open contract intentionally creates a starter shell.
+        // The layout shim creates by name with atomic reuse, so simultaneous
+        // dev invocations cannot create duplicate workspaces or starter shells.
         let commands = log.execCommands()
         XCTAssertEqual(commands.count, 1, commands.description)
         let apply = commands[0]
-        XCTAssertTrue(apply.hasSuffix("| base64 -d | cmux layout apply --json --name app -"), apply)
+        XCTAssertTrue(apply.hasSuffix("| base64 -d | cmux layout apply --json --reuse --name app -"), apply)
         let document = try XCTUnwrap(Self.vmDevBase64Payload(inCommand: apply).flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any])
         XCTAssertEqual(document["name"] as? String, "app")
         XCTAssertEqual(document["cwd"] as? String, "work/app")

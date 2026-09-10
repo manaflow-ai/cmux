@@ -722,7 +722,8 @@ extension MobileHostAuthorizationTests {
     @Test func testIrohApplicationLaneQuotasReserveArtifactCapacity() {
         #expect(MobileHostIrohApplicationLaneRouter.maximumConcurrentTerminalLaneCount == 4)
         #expect(MobileHostIrohApplicationLaneRouter.maximumConcurrentArtifactLaneCount == 1)
-        #expect(MobileHostIrohApplicationLaneRouter.maximumConcurrentLaneCount == 5)
+        #expect(MobileHostIrohApplicationLaneRouter.maximumConcurrentSimulatorStreamLaneCount == 2)
+        #expect(MobileHostIrohApplicationLaneRouter.maximumConcurrentLaneCount == 7)
 
         var quota = MobileHostIrohApplicationLaneQuota()
         let terminalIDs = (0..<5).map { _ in UUID() }
@@ -739,6 +740,17 @@ extension MobileHostAuthorizationTests {
         #expect(!didReserveSecondArtifact)
         #expect(quota.terminalCount == 4)
         #expect(quota.artifactCount == 1)
+        let simulatorIDs = [UUID(), UUID()]
+        for id in simulatorIDs {
+            let didReserveSimulator = quota.reserve(id, laneClass: .simulatorStream)
+            #expect(didReserveSimulator)
+        }
+        let didReserveThirdSimulator = quota.reserve(UUID(), laneClass: .simulatorStream)
+        #expect(!didReserveThirdSimulator)
+        #expect(quota.simulatorStreamCount == 2)
+        quota.release(simulatorIDs[0])
+        let didReuseSimulatorCredit = quota.reserve(UUID(), laneClass: .simulatorStream)
+        #expect(didReuseSimulatorCredit)
 
         quota.release(terminalIDs[0])
         let didReuseTerminalCredit = quota.reserve(terminalIDs[4], laneClass: .terminal)

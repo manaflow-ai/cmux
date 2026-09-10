@@ -150,6 +150,7 @@ struct FileExplorerNativeDragOwnershipTests {
                 pasteboardWriterForRow: 0
             ) as? FilePreviewDragPasteboardWriter
         )
+        sharedPasteboard.clearContents()
         #expect(sharedPasteboard.writeObjects([secondWriter]))
         let secondSession = SearchResultsDragTestSession(
             sequence: 2,
@@ -276,7 +277,7 @@ struct FileExplorerNativeDragOwnershipTests {
     }
 
     @Test("A pointer boundary reclaims a search drag that lost endedAt")
-    func pointerBoundaryReclaimsSearchDragAfterDismantle() throws {
+    func pointerBoundaryReclaimsSearchDragAfterDismantle() async throws {
         let searchController = SearchResultsDragTestSearchController()
         let coordinator = FileExplorerPanelView.Coordinator(
             store: FileExplorerStore(),
@@ -343,6 +344,7 @@ struct FileExplorerNativeDragOwnershipTests {
         }
         container = nil
         writer = nil
+        _ = await AppKitTestEventPump().waitUntil { weakContainer == nil }
         #expect(weakContainer == nil)
     }
 

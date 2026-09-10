@@ -51,6 +51,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     result: [
                         "workspace_id": workspaceID,
                         "window_id": windowID,
+                        "surface_id": "33333333-3333-3333-3333-333333333333",
                     ]
                 )
             case "workspace.rename":
@@ -312,10 +313,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let listenerFD = try bindUnixSocket(at: socketPath)
         let state = MockSocketServerState()
         let vmID = "vm-freestyle-remote"
+        let homeURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-vm-ssh-alias-home-\(UUID().uuidString)", isDirectory: true)
 
         defer {
             Darwin.close(listenerFD)
             unlink(socketPath)
+            try? FileManager.default.removeItem(at: homeURL)
         }
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
@@ -330,8 +334,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     id: id,
                     ok: false,
                     error: [
-                        "code": "vm_attach_transport_unsupported",
+                        "code": "vm_error",
                         "message": "Freestyle provider SSH is unmanaged; use cmux-remote for a managed session.",
+                        "data": [
+                            "backend_code": "vm_attach_transport_unsupported",
+                            "http_status": 409,
+                        ],
                     ]
                 )
             case "vm.cmux_remote_info":
@@ -340,8 +348,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     ok: true,
                     result: [
                         "route": "ws://10.0.0.8:1337/v1/link",
-                        "token": "route-token",
                         "session": "cloud",
+                        "trusted_carrier": true,
+                        "wireguard_hub_socket": "/tmp/cmux-wg-test.sock",
                     ]
                 )
             case "workspace.create":
@@ -359,6 +368,16 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     "remote_workspace_id": (payload["params"] as? [String: Any])?["remote_workspace_id"] ?? NSNull(),
                 ]
                 return self.v2Response(id: id, ok: true, result: result)
+            case "surface.catalog":
+                // New-terminal creation is valid only for an authoritative empty graph.
+                return self.v2Response(id: id, ok: true, result: [
+                    "machines": [[
+                        "id": vmID,
+                        "link_state": "connected",
+                        "remote_workspaces": [],
+                    ]],
+                    "resources": [],
+                ])
             case "surface.new_terminal":
                 return self.v2Response(
                     id: id,
@@ -384,6 +403,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+        environment["HOME"] = homeURL.path
+        environment["CFFIXED_USER_HOME"] = homeURL.path
 
         let result = runProcess(
             executablePath: cliPath,
@@ -399,15 +420,19 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(result.stdout.contains("terminal=term_cloud"), result.stdout)
         XCTAssertEqual(
             state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
-            ["vm.ssh_info", "vm.cmux_remote_info", "workspace.create", "workspace.cloud_vm_bind", "surface.new_terminal", "workspace.cloud_vm_bind", "workspace.select"]
+            ["vm.ssh_info", "vm.cmux_remote_info", "workspace.create", "workspace.cloud_vm_bind", "surface.catalog", "surface.new_terminal", "workspace.cloud_vm_bind", "workspace.select"]
         )
         let bindCommands = state.commands
             .compactMap { self.jsonObject($0) }
             .filter { $0["method"] as? String == "workspace.cloud_vm_bind" }
         XCTAssertEqual(bindCommands.count, 2)
-        XCTAssertNil((bindCommands[0]["params"] as? [String: Any])?["remote_workspace_id"])
+        let initialBind = try XCTUnwrap(bindCommands.first, "Expected initial Cloud VM binding")
+        let finalBind = try XCTUnwrap(bindCommands.dropFirst().first, "Expected binding to the created remote workspace")
+        let initialParams = try XCTUnwrap(initialBind["params"] as? [String: Any])
+        let finalParams = try XCTUnwrap(finalBind["params"] as? [String: Any])
+        XCTAssertNil(initialParams["remote_workspace_id"])
         XCTAssertEqual(
-            (bindCommands[1]["params"] as? [String: Any])?["remote_workspace_id"] as? String,
+            finalParams["remote_workspace_id"] as? String,
             "remote-workspace"
         )
     }

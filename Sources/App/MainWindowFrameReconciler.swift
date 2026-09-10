@@ -11,7 +11,8 @@ final class MainWindowFrameReconciler {
 
     /// Describes the lifecycle event that requested a frame repair.
     enum Trigger {
-        /// A changed topology permits ordinary and full-width fullscreen repair.
+        /// Trusted snapshots permit zoom repair; a changed topology also permits
+        /// ordinary and full-width fullscreen repair.
         case displayTopology(changed: Bool)
         case applicationActivation
         case restorationCheckpoint
@@ -50,6 +51,15 @@ final class MainWindowFrameReconciler {
 
         let mainWindows = windows.compactMap { $0 as? CmuxMainWindow }
         guard !mainWindows.isEmpty else { return true }
+
+        // A ramping display set may expose one usable screen before the others
+        // are trustworthy. Fitting it would change which monitor owns the window
+        // even after the final snapshot arrives. Activation and restoration can
+        // still recover geometry without requiring stable display identities.
+        if case .displayTopology = trigger,
+           fitCore.trustedTopologySignature(of: displays) == nil {
+            return false
+        }
 
         var fitCompleted = true
         for window in mainWindows {

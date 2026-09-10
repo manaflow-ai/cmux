@@ -2984,6 +2984,9 @@ final class FilePreviewDragPasteboardWriterTests: XCTestCase {
                 displayTitle: "old-preview.txt",
                 tabDragTransferRegistry: appDelegate.tabDragTransferRegistry
             )
+            // AppKit promotes the selected writer before the native session
+            // owns live registry entries and a Bonsplit capability.
+            _ = try XCTUnwrap(oldWriter.nativeDragOwnership())
             let oldData = try XCTUnwrap(
                 oldWriter.pasteboardPropertyList(
                     forType: DragOverlayRoutingPolicy.filePreviewTransferType
@@ -3040,6 +3043,7 @@ final class FilePreviewDragPasteboardWriterTests: XCTestCase {
             displayTitle: "preview-only.txt",
             tabDragTransferRegistry: isolatedRegistry
         )
+        _ = try XCTUnwrap(writer.nativeDragOwnership())
         let data = try XCTUnwrap(
             writer.pasteboardPropertyList(
                 forType: DragOverlayRoutingPolicy.filePreviewTransferType

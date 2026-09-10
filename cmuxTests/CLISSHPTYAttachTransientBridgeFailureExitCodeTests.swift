@@ -124,6 +124,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 XCTAssertEqual(params["attachment_id"] as? String, surfaceId)
                 XCTAssertEqual(params["require_existing"] as? Bool, true)
                 return self.v2Response(id: id, ok: false, error: error)
+            case "workspace.remote.pty_sessions":
+                return self.v2Response(id: id, ok: true, result: [
+                    "requested_session_lifecycle": "active",
+                    "sessions": [["session_id": sessionId]],
+                ])
             case "workspace.remote.pty_detach":
                 return self.v2Response(id: id, ok: true, result: ["detached": true])
             case "workspace.remote.pty_attach_end":
@@ -408,6 +413,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
                         "attachment_id": surfaceId,
                     ]
                 )
+            case "workspace.remote.pty_sessions":
+                return self.v2Response(id: id, ok: true, result: [
+                    "requested_session_lifecycle": "active",
+                    "sessions": [["session_id": sessionId]],
+                ])
             case "workspace.remote.pty_detach":
                 return self.v2Response(id: id, ok: true, result: ["detached": true])
             case "workspace.remote.pty_attach_end":

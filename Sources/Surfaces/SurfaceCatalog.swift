@@ -140,6 +140,9 @@ final class SurfaceCatalog {
     /// from `CloudVMState` because freshness is local observation metadata, not
     /// part of the daemon document or its cursor.
     private(set) var cloudStateObservations: [SurfaceMachineID: CloudVMStateObservation] = [:]
+    /// Only a committed create response may add a workspace ahead of its graph.
+    /// Its receipt expires when a graph first contains that workspace.
+    private var pendingCloudWorkspaceIDs: [SurfaceMachineID: Set<String>] = [:]
     private var providers: [SurfaceMachineID: any SurfaceProvider] = [:]
     /// The process-wide ordering owner for remote rename intents. A remote identity can
     /// have projections in several local windows, so this cannot live in a TabManager.
@@ -276,6 +279,7 @@ final class SurfaceCatalog {
 
     func register(_ provider: any SurfaceProvider) {
         if let previous = providers[provider.machine], previous !== provider {
+            pendingCloudWorkspaceIDs[provider.machine] = nil
             let inFlightKeys = inFlightProjects.keys.filter { $0.machine == provider.machine }
             for key in inFlightKeys {
                 cancelInFlightProject(key, error: SurfaceCatalogError.unknownResource(key.resource))
@@ -319,6 +323,7 @@ final class SurfaceCatalog {
         for record in pending { pendingRestoredProjections[record] = nil }
         cloudStates[machine] = nil
         cloudStateObservations[machine] = nil
+        pendingCloudWorkspaceIDs[machine] = nil
         projections = projections.filter { $0.resource.machine != machine }
         notifyChange()
     }
@@ -451,8 +456,21 @@ final class SurfaceCatalog {
     }
 
     /// Update machine metadata, optionally validating the provider registration that supplied it.
-    func updateMachine(_ info: SurfaceMachineInfo, from source: (any SurfaceProvider)? = nil) {
+    func updateMachine(
+        _ info: SurfaceMachineInfo,
+        from source: (any SurfaceProvider)? = nil,
+        createdRemoteWorkspaceID: String? = nil
+    ) {
         guard accepts(writeFor: info.id, from: source) else { return }
+        if let createdRemoteWorkspaceID,
+           info.remoteWorkspaces?.contains(where: { $0.id == createdRemoteWorkspaceID }) == true {
+            pendingCloudWorkspaceIDs[info.id, default: []].insert(createdRemoteWorkspaceID)
+        }
+        if let pendingIDs = pendingCloudWorkspaceIDs[info.id] {
+            pendingCloudWorkspaceIDs[info.id] = pendingIDs.intersection(
+                Set((info.remoteWorkspaces ?? []).map(\.id))
+            )
+        }
         machines[info.id] = machineInfoPreservingCanonicalCloudState(info)
         notifyChange()
     }
@@ -630,7 +648,8 @@ final class SurfaceCatalog {
     func clearCloudState(on machine: SurfaceMachineID) {
         let removedState = cloudStates.removeValue(forKey: machine) != nil
         let removedObservation = cloudStateObservations.removeValue(forKey: machine) != nil
-        guard removedState || removedObservation else { return }
+        let removedPending = pendingCloudWorkspaceIDs.removeValue(forKey: machine) != nil
+        guard removedState || removedObservation || removedPending else { return }
         notifyChange()
     }
 
@@ -693,10 +712,14 @@ final class SurfaceCatalog {
             SurfaceRemoteWorkspace(id: $0.id, name: $0.name, index: $0.index, focused: $0.focused)
         }
         var seen = Set(canonical.map(\.id))
+        let pendingIDs = (pendingCloudWorkspaceIDs[info.id] ?? []).subtracting(seen)
+        pendingCloudWorkspaceIDs[info.id] = pendingIDs.isEmpty ? nil : pendingIDs
         // A create response can expose a new empty workspace before the next
         // journal snapshot. Keep such genuinely new rows, but never retain an
         // incoming row whose id the accepted graph removed.
-        let pending = (info.remoteWorkspaces ?? []).filter { seen.insert($0.id).inserted }
+        let pending = (info.remoteWorkspaces ?? []).filter {
+            pendingIDs.contains($0.id) && seen.insert($0.id).inserted
+        }
         adjusted.remoteWorkspaces = canonical + pending
         return adjusted
     }

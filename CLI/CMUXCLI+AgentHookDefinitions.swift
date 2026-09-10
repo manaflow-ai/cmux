@@ -383,8 +383,20 @@ extension CMUXCLI {
         // environments, and for a stale socket node left by an exited app: the
         // ambient invocation must succeed, otherwise the pinned chain runs.
         // https://github.com/manaflow-ai/cmux/issues/5473
-        let ambientGuard = pinnedHookAmbientDispatchGuard
-        let ambientInvocation = pinnedHookAmbientInvocation(routedArguments: routedArguments)
+        let ambientGuard: String
+        let ambientInvocation: String
+        if def.name == "grok" {
+            // Grok validates interpolated CMUX variables as required hook
+            // environment. Optional lookups preserve ambient-first routing
+            // when present and allow the pinned fallback when Grok strips them.
+            let socket = "\"$(printenv CMUX_SOCKET_PATH || true)\""
+            let executable = "\"$(printenv CMUX_BUNDLED_CLI_PATH || true)\""
+            ambientGuard = "[ -n \(socket) ] && [ -S \(socket) ] && [ -f \(executable) ] && [ -x \(executable) ]"
+            ambientInvocation = "\(executable) --socket \(socket) \(routedArguments)"
+        } else {
+            ambientGuard = pinnedHookAmbientDispatchGuard
+            ambientInvocation = pinnedHookAmbientInvocation(routedArguments: routedArguments)
+        }
         let dispatch: String
         if let cliPath = pinnedAgentHookCLIPath() {
             let quotedCLIPath = shellSingleQuote(cliPath)

@@ -1555,10 +1555,29 @@ struct DockSessionPersistenceTests {
             at: directory,
             withIntermediateDirectories: true
         )
+        // Hook identity becomes restorable only after its durable Codex rollout exists.
+        let rolloutDirectory = directory.deletingLastPathComponent()
+            .appendingPathComponent(".codex/sessions", isDirectory: true)
+        try FileManager.default.createDirectory(at: rolloutDirectory, withIntermediateDirectories: true)
+        var verifiedSessions = sessions
+        for (sessionID, record) in sessions {
+            let transcriptURL = rolloutDirectory.appendingPathComponent("rollout-\(sessionID).jsonl")
+            let metadata: [String: Any] = [
+                "type": "session_meta",
+                "payload": [
+                    "id": sessionID,
+                    "cwd": record["cwd"] as? String ?? "/tmp",
+                    "source": "cli",
+                    "originator": "codex-tui",
+                ],
+            ]
+            try JSONSerialization.data(withJSONObject: metadata).write(to: transcriptURL)
+            verifiedSessions[sessionID]?["transcriptPath"] = transcriptURL.path
+        }
         let data = try JSONSerialization.data(
             withJSONObject: [
                 "version": 1,
-                "sessions": sessions,
+                "sessions": verifiedSessions,
             ],
             options: [.prettyPrinted, .sortedKeys]
         )

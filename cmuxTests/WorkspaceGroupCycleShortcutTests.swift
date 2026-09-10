@@ -29,7 +29,7 @@ struct WorkspaceGroupCycleShortcutTests {
         }
     }
 
-    @Test func configuredActionsCycleMembersWithoutSelectingAnchor() throws {
+    @Test func configuredActionsCycleMembersWithoutSelectingAnchor() async throws {
         let appDelegate = try #require(AppDelegate.shared)
         let originalSettingsFileStore = KeyboardShortcutSettings.installIsolatedTestFileStore(
             prefix: "cmux-workspace-group-cycle"
@@ -86,6 +86,7 @@ struct WorkspaceGroupCycleShortcutTests {
         ))
 
         manager.selectWorkspace(firstMember)
+        await AppKitTestEventPump().drain()
         #expect(appDelegate.debugHandleCustomShortcut(event: nextEvent))
         #expect(manager.selectedTabId == secondMember.id)
         #expect(appDelegate.debugHandleCustomShortcut(event: nextEvent))
@@ -94,13 +95,16 @@ struct WorkspaceGroupCycleShortcutTests {
         #expect(manager.selectedTabId == secondMember.id)
 
         manager.selectWorkspace(anchor)
+        await AppKitTestEventPump().drain()
         #expect(appDelegate.debugHandleCustomShortcut(event: nextEvent))
         #expect(manager.selectedTabId == firstMember.id)
         manager.selectWorkspace(anchor)
+        await AppKitTestEventPump().drain()
         #expect(appDelegate.debugHandleCustomShortcut(event: previousEvent))
         #expect(manager.selectedTabId == secondMember.id)
 
         manager.selectWorkspace(ungroupedWorkspace)
+        await AppKitTestEventPump().drain()
         #expect(appDelegate.debugHandleCustomShortcut(event: nextEvent))
         #expect(manager.selectedTabId == group.anchorWorkspaceId)
     }

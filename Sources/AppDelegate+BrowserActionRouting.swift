@@ -140,15 +140,12 @@ extension AppDelegate {
 
         case .windowDock(let windowID):
             guard let dock = dock(resolving: target),
-                  dock.browserPanel(for: panel.id) === panel else {
+                  dock.browserPanel(for: panel.id) === panel,
+                  let preferredWindow = mainWindow(for: windowID),
+                  let manager = tabManagerFor(windowId: windowID) else {
                 return false
             }
-            let preferredWindow = mainWindow(for: windowID)
-            if let manager = tabManagerFor(windowId: windowID) {
-                activateBrowserHostWindow(for: manager)
-            } else {
-                _ = focusMainWindow(windowId: windowID)
-            }
+            activateBrowserHostWindow(for: manager)
             _ = focusRightSidebarInActiveMainWindow(
                 mode: .dock,
                 focusFirstItem: false,

@@ -68,6 +68,12 @@ actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
     /// still in flight. A newer start waits for it before enrolling, so the
     /// cleanup can never delete the newer start's enrollment or configuration.
     private var pendingDiscard: Task<Void, Never>?
+    /// Revocation owns both the immediate removal and any approval-held start
+    /// that can still save a configuration later. Replacement starts wait for
+    /// those owners to finish before installing their own configuration.
+    private var revocationTask: Task<Void, any Error>?
+    private var revokedStarts: [Int: Task<Void, any Error>] = [:]
+    private var lastRevokedStartGeneration = -1
     /// What a superseded start left behind because a newer start was in
     /// flight when it ended: an enrollment written to disk, and a VPN
     /// configuration saved in NetworkExtension. The newer start takes the
@@ -231,9 +237,24 @@ actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
     /// Stop and delete the VPN configuration; the caller unenrolls server-side.
     func revoke() async throws {
         isPinned = false
-        await tearDown()
-        guard backend.isNetworkExtension else { return }
-        try await controller.remove()
+        if let revocationTask {
+            try await revocationTask.value
+            return
+        }
+        lastRevokedStartGeneration = startGeneration
+        if let startTask {
+            revokedStarts[startGeneration] = startTask
+        }
+        let task = Task {
+            await self.tearDown()
+            guard self.backend.isNetworkExtension else { return }
+            try await self.controller.remove()
+        }
+        revocationTask = task
+        defer {
+            if revocationTask == task { revocationTask = nil }
+        }
+        try await task.value
     }
 
     /// Best-effort synchronous stop from `applicationWillTerminate`.
@@ -338,6 +359,7 @@ actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
         // "one start at a time" true. A superseded start owns nothing.
         defer {
             if startGeneration == generation { startTask = nil }
+            revokedStarts[generation] = nil
         }
         // What this start has written so far: an enrollment on disk, then a
         // VPN configuration in NetworkExtension. Neither may outlive a policy
@@ -345,6 +367,13 @@ actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
         var enrolled = false
         var installed = false
         do {
+            if let revocationTask {
+                try await revocationTask.value
+            }
+            for (revokedGeneration, revokedStart) in revokedStarts
+                where revokedGeneration < generation {
+                _ = try? await revokedStart.value
+            }
             // A stop may still be draining (idle timer, `vpn down`, sign-out);
             // starting on top of it would race NetworkExtension and fail into
             // the failure backoff. Let it finish first.
@@ -455,6 +484,15 @@ actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
         let owesEnrollment = enrolled || orphanedEnrollment
         let owesInstall = installed || orphanedInstall
         guard owesEnrollment || owesInstall else { return }
+        if generation <= lastRevokedStartGeneration {
+            // Explicit revocation removes even an otherwise-admitted account's
+            // late install. A replacement cannot pass this start's task until
+            // this cleanup has completed.
+            orphanedEnrollment = false
+            orphanedInstall = false
+            await discard(install: owesInstall)
+            return
+        }
         let newerStartInFlight = startTask != nil && startGeneration != generation
         if newerStartInFlight {
             orphanedEnrollment = owesEnrollment

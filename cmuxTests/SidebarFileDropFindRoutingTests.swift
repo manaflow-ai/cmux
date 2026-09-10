@@ -18,7 +18,7 @@ import WebKit
 @MainActor
 @Suite(.serialized)
 struct SidebarFileDropFindRoutingTests {
-    @Test func sidebarFileDropHandsFindShortcutToOpenedMarkdownPanel() throws {
+    @Test func sidebarFileDropHandsFindShortcutToOpenedMarkdownPanel() async throws {
         let appDelegate = try #require(AppDelegate.shared)
 
         let windowId = appDelegate.createMainWindow()
@@ -26,6 +26,7 @@ struct SidebarFileDropFindRoutingTests {
 
         let window = try #require(mainWindow(for: windowId))
         window.makeKeyAndOrderFront(nil)
+        await AppKitTestEventPump().drain()
         let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
         let workspace = try #require(manager.selectedWorkspace)
         let focusController = try #require(appDelegate.keyboardFocusCoordinator(for: window))
@@ -64,6 +65,7 @@ struct SidebarFileDropFindRoutingTests {
             ),
             "Expected the markdown file drop to open a panel"
         )
+        await AppKitTestEventPump().drain()
 
         let focusedPanelId = try #require(workspace.focusedPanelId)
         #expect(

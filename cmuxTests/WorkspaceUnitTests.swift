@@ -1,4 +1,5 @@
 import CmuxCore
+import Darwin
 import AppKit
 import CmuxFoundation
 import CmuxTerminalCore
@@ -6495,7 +6496,13 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
 
     func testForkAgentWorkspaceLaunchInRemoteWorkspacePreservesRemoteContext() throws {
         let workspace = Workspace()
-        let agentSocketPath = "/tmp/cmux-fork-agent.sock"
+        let agentSocketPath = SSHStartupManualReconnectTests.makeSocketPath("fork-agent")
+        let socketFD = try SSHStartupManualReconnectTests.bindUnixSocket(at: agentSocketPath)
+        defer {
+            Darwin.close(socketFD)
+            unlink(agentSocketPath)
+            workspace.teardownAllPanels()
+        }
         workspace.configureRemoteConnection(
             WorkspaceRemoteConfiguration(
                 destination: "cmux-macmini",
@@ -6539,7 +6546,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertNil(launch.terminalWorkingDirectory)
         XCTAssertEqual(
             launch.initialTerminalCommand,
-            "ssh -p 2222 -i /Users/example/.ssh/cmux -o ServerAliveInterval=30 -o ForwardAgent=yes -tt cmux-macmini"
+            "/usr/bin/ssh -p 2222 -i /Users/example/.ssh/cmux -o ServerAliveInterval=30 -o ForwardAgent=yes -tt cmux-macmini"
         )
         XCTAssertEqual(launch.initialTerminalInput, snapshot.forkCommand.map { $0 + "\n" })
         XCTAssertEqual(launch.initialTerminalEnvironment["SSH_AUTH_SOCK"], agentSocketPath)
@@ -6555,7 +6562,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertNil(launch.remoteConfiguration?.localSocketPath)
     }
 
-    func testForkAgentWorkspaceLaunchFromPersistentSSHPTYDoesNotReuseParentRelayOrDaemonSlot() throws {
+    func testForkAgentWorkspaceLaunchFromPersistentSSHPTYRotatesRelayCredentialsAndDropsParentDaemonSlot() throws {
         let workspace = Workspace()
         workspace.configureRemoteConnection(
             WorkspaceRemoteConfiguration(
@@ -6601,17 +6608,23 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(launch.remoteConfiguration?.destination, "cmux-macmini")
         XCTAssertEqual(launch.remoteConfiguration?.port, 2222)
         XCTAssertEqual(launch.remoteConfiguration?.preserveAfterTerminalExit, false)
-        XCTAssertNil(launch.remoteConfiguration?.relayPort)
-        XCTAssertNil(launch.remoteConfiguration?.relayID)
-        XCTAssertNil(launch.remoteConfiguration?.relayToken)
-        XCTAssertNil(launch.remoteConfiguration?.localSocketPath)
+        XCTAssertEqual(launch.remoteConfiguration?.relayPort, 64017)
+        let forkRelayID = try XCTUnwrap(launch.remoteConfiguration?.relayID)
+        let forkRelayToken = try XCTUnwrap(launch.remoteConfiguration?.relayToken)
+        XCTAssertNotEqual(forkRelayID, "relay-fork-persistent")
+        XCTAssertNotEqual(forkRelayToken, String(repeating: "c", count: 64))
+        XCTAssertEqual(forkRelayToken.count, 64)
+        XCTAssertEqual(
+            launch.remoteConfiguration?.localSocketPath,
+            TerminalController.shared.currentSocketPathForRemoteRestore()
+        )
         XCTAssertNil(launch.remoteConfiguration?.persistentDaemonSlot)
         let startupCommand = try XCTUnwrap(launch.remoteConfiguration?.terminalStartupCommand)
         XCTAssertFalse(startupCommand.contains("ssh-pty-attach"), startupCommand)
-        XCTAssertEqual(
-            startupCommand,
-            "ssh -p 2222 -i /Users/example/.ssh/cmux -tt cmux-macmini"
-        )
+        XCTAssertEqual(launch.initialTerminalCommand, startupCommand)
+        XCTAssertTrue(startupCommand.contains("workspace.remote.terminal_session_launching"), startupCommand)
+        XCTAssertTrue(startupCommand.contains("cmux-macmini"), startupCommand)
+        XCTAssertFalse(startupCommand.contains("ssh-parent-slot"), startupCommand)
     }
 
     func testForkAgentWorkspaceLaunchInRemoteWorkspaceUsesFallbackDirectoryInForkCommand() throws {
@@ -6657,7 +6670,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
 
         XCTAssertEqual(launch.workingDirectory, "/Users/cmux/fallback repo")
         XCTAssertNil(launch.terminalWorkingDirectory)
-        XCTAssertEqual(launch.initialTerminalCommand, "ssh -tt cmux-macmini")
+        XCTAssertEqual(launch.initialTerminalCommand, "/usr/bin/ssh -tt cmux-macmini")
         XCTAssertEqual(
             launch.initialTerminalInput,
             "cd -- '/Users/cmux/fallback repo' 2>/dev/null || [ ! -d '/Users/cmux/fallback repo' ] && '/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951'\n"
@@ -6935,10 +6948,11 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         }
 
         var publishCount = 0
-        let cancellable = workspace.objectWillChange.sink { _ in
+        let cancellable = workspace.sidebarObservationPublisher.sink {
             publishCount += 1
         }
         defer { cancellable.cancel() }
+        publishCount = 0
 
         workspace.updatePanelGitBranch(panelId: panelId, branch: "main", isDirty: false)
         let baselinePublishCount = publishCount
@@ -6946,7 +6960,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertGreaterThan(
             baselinePublishCount,
             0,
-            "Expected the first focused branch update to publish workspace changes"
+            "Expected the first focused branch update to publish sidebar changes"
         )
 
         workspace.updatePanelGitBranch(panelId: panelId, branch: "main", isDirty: false)
@@ -6954,7 +6968,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(
             publishCount,
             baselinePublishCount,
-            "Expected identical focused branch refreshes to avoid extra workspace publishes"
+            "Expected identical focused branch refreshes to avoid extra sidebar publishes"
         )
     }
 
@@ -6968,10 +6982,11 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         workspace.updatePanelGitBranch(panelId: panelId, branch: "feature/sidebar-pr", isDirty: false)
 
         var publishCount = 0
-        let cancellable = workspace.objectWillChange.sink { _ in
+        let cancellable = workspace.sidebarObservationPublisher.sink {
             publishCount += 1
         }
         defer { cancellable.cancel() }
+        publishCount = 0
 
         let pullRequestURL = URL(string: "https://github.com/manaflow-ai/cmux/pull/2388")!
         workspace.updatePanelPullRequest(
@@ -6987,7 +7002,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertGreaterThan(
             baselinePublishCount,
             0,
-            "Expected the first focused pull request update to publish workspace changes"
+            "Expected the first focused pull request update to publish sidebar changes"
         )
 
         workspace.updatePanelPullRequest(
@@ -7002,7 +7017,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(
             publishCount,
             baselinePublishCount,
-            "Expected identical focused pull request refreshes to avoid extra workspace publishes"
+            "Expected identical focused pull request refreshes to avoid extra sidebar publishes"
         )
     }
 
@@ -7460,7 +7475,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         )
     }
 
-    func testForkConversationContextMenuDefaultActionWorksForCodexSnapshot() throws {
+    func testForkConversationContextMenuDefaultActionWorksForCodexSnapshot() async throws {
         // Parity coverage with the Claude path: Codex sessions are also `.supportedWithoutProbe`
         // and should reach the default right-split path through the context-menu dispatcher.
         let defaults = UserDefaults.standard
@@ -7487,12 +7502,22 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             workspace.bonsplitController.tabs(inPane: sourcePaneId).first { $0.id == anchorTabId }
         )
 
+        let forkCreated = expectation(description: "Context menu creates the fork panel")
+        let panelChanges = workspace.$panels
+            .dropFirst()
+            .filter { $0.count == 2 }
+            .first()
+            .sink { _ in forkCreated.fulfill() }
+        defer { panelChanges.cancel() }
+
         workspace.splitTabBar(
             workspace.bonsplitController,
             didRequestTabContextAction: .forkConversation,
             for: anchorTab,
             inPane: sourcePaneId
         )
+
+        await fulfillment(of: [forkCreated], timeout: 5)
 
         let forkPanelId = try XCTUnwrap(workspace.focusedPanelId)
         XCTAssertNotEqual(forkPanelId, sourcePanelId, "Codex fork should focus the new split")
@@ -7507,7 +7532,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(try paneId(in: split.second), forkPaneUUID)
     }
 
-    func testForkConversationContextMenuNewTabActionCreatesSiblingTab() throws {
+    func testForkConversationContextMenuNewTabActionCreatesSiblingTab() async throws {
         // Drive the same code path the bonsplit context menu triggers, end-to-end,
         // to lock in that the menu wiring stays connected.
         let workspace = Workspace()
@@ -7519,12 +7544,22 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         let tabs = workspace.bonsplitController.tabs(inPane: sourcePaneId)
         let anchorTab = try XCTUnwrap(tabs.first { $0.id == anchorTabId })
 
+        let forkCreated = expectation(description: "Context menu creates the fork panel")
+        let panelChanges = workspace.$panels
+            .dropFirst()
+            .filter { $0.count == 2 }
+            .first()
+            .sink { _ in forkCreated.fulfill() }
+        defer { panelChanges.cancel() }
+
         workspace.splitTabBar(
             workspace.bonsplitController,
             didRequestTabContextAction: .forkConversationNewTab,
             for: anchorTab,
             inPane: sourcePaneId
         )
+
+        await fulfillment(of: [forkCreated], timeout: 5)
 
         XCTAssertEqual(
             workspace.bonsplitController.tabs(inPane: sourcePaneId).count,
@@ -7538,7 +7573,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         )
     }
 
-    func testForkConversationContextMenuPrimaryActionUsesConfiguredDefault() throws {
+    func testForkConversationContextMenuPrimaryActionUsesConfiguredDefault() async throws {
         let defaults = UserDefaults.standard
         let previousValue = defaults.object(forKey: AgentConversationForkDefaultSettings.key)
         defer {
@@ -7560,12 +7595,22 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             workspace.bonsplitController.tabs(inPane: sourcePaneId).first { $0.id == anchorTabId }
         )
 
+        let forkCreated = expectation(description: "Context menu creates the fork panel")
+        let panelChanges = workspace.$panels
+            .dropFirst()
+            .filter { $0.count == 2 }
+            .first()
+            .sink { _ in forkCreated.fulfill() }
+        defer { panelChanges.cancel() }
+
         workspace.splitTabBar(
             workspace.bonsplitController,
             didRequestTabContextAction: .forkConversation,
             for: anchorTab,
             inPane: sourcePaneId
         )
+
+        await fulfillment(of: [forkCreated], timeout: 5)
 
         XCTAssertEqual(
             workspace.bonsplitController.tabs(inPane: sourcePaneId).count,

@@ -4423,7 +4423,12 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                     }
 
 #if DEBUG
-                    XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: event))
+                    // Other actions may legitimately consume this physical key;
+                    // this regression is specifically about the configured digit.
+                    XCTAssertFalse(appDelegate.debugMatchesConfiguredShortcut(
+                        event: event,
+                        action: .showNotifications
+                    ))
 #else
                     XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
@@ -7189,52 +7194,59 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
     }
 
-    func testTextBoxSecondEscapeHidesWhenTerminalSurfaceOwnsFocus() {
-        guard let appDelegate = AppDelegate.shared else {
-            XCTFail("Expected AppDelegate.shared")
-            return
+    func testTextBoxSecondEscapeHidesWhenTerminalSurfaceOwnsFocus() async {
+        await AppContextSerialGate.withExclusiveAppContext {
+            guard let appDelegate = AppDelegate.shared else {
+                XCTFail("Expected AppDelegate.shared")
+                return
+            }
+
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            guard let window = window(withId: windowId),
+                  let contentView = window.contentView,
+                  let manager = appDelegate.tabManagerFor(windowId: windowId),
+                  let workspace = manager.selectedWorkspace,
+                  let panelId = workspace.focusedPanelId,
+                  let terminalPanel = workspace.terminalPanel(for: panelId) else {
+                XCTFail("Expected focused terminal panel")
+                return
+            }
+
+            let textBoxView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 240, height: 30))
+            let textBoxScrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 240, height: 30))
+            textBoxScrollView.documentView = textBoxView
+            contentView.addSubview(textBoxScrollView)
+            defer { textBoxScrollView.removeFromSuperview() }
+
+            window.makeKeyAndOrderFront(nil)
+            window.displayIfNeeded()
+            _ = await AppKitTestEventPump().waitUntil {
+                terminalPanel.hostedView.uiWindow === window
+                    && terminalPanel.hostedView.surfaceView.window === window
+            }
+            appDelegate.noteTerminalKeyboardFocusIntent(
+                workspaceId: workspace.id,
+                panelId: panelId,
+                in: window
+            )
+            terminalPanel.hostedView.setVisibleInUI(true)
+            terminalPanel.hostedView.setActive(true)
+            terminalPanel.hostedView.moveFocus()
+            terminalPanel.registerTextBoxInputView(textBoxView)
+            XCTAssertTrue(terminalPanel.toggleTextBoxInput())
+            _ = await AppKitTestEventPump().waitUntil { window.firstResponder === textBoxView }
+
+            terminalPanel.handleTextBoxEscape()
+            _ = await AppKitTestEventPump().waitUntil {
+                terminalPanel.hostedView.isSurfaceViewFirstResponder()
+            }
+
+            XCTAssertTrue(terminalPanel.hostedView.isSurfaceViewFirstResponder())
+            XCTAssertTrue(terminalPanel.consumeTextBoxHideEscapeIfArmed(in: window))
+            XCTAssertFalse(terminalPanel.isTextBoxActive)
         }
-
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
-
-        guard let window = window(withId: windowId),
-              let contentView = window.contentView,
-              let manager = appDelegate.tabManagerFor(windowId: windowId),
-              let workspace = manager.selectedWorkspace,
-              let panelId = workspace.focusedPanelId,
-              let terminalPanel = workspace.terminalPanel(for: panelId) else {
-            XCTFail("Expected focused terminal panel")
-            return
-        }
-
-        let textBoxView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 240, height: 30))
-        let textBoxScrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 240, height: 30))
-        textBoxScrollView.documentView = textBoxView
-        contentView.addSubview(textBoxScrollView)
-        defer { textBoxScrollView.removeFromSuperview() }
-
-        window.makeKeyAndOrderFront(nil)
-        window.displayIfNeeded()
-        terminalPanel.hostedView.setVisibleInUI(true)
-        terminalPanel.hostedView.setActive(true)
-        terminalPanel.hostedView.moveFocus()
-        terminalPanel.registerTextBoxInputView(textBoxView)
-        XCTAssertTrue(terminalPanel.toggleTextBoxInput())
-        waitFor(
-            timeout: 1.0,
-            until: { window.firstResponder === textBoxView }
-        )
-
-        terminalPanel.handleTextBoxEscape()
-        waitFor(
-            timeout: 1.0,
-            until: { terminalPanel.hostedView.isSurfaceViewFirstResponder() }
-        )
-
-        XCTAssertTrue(terminalPanel.hostedView.isSurfaceViewFirstResponder())
-        XCTAssertTrue(terminalPanel.consumeTextBoxHideEscapeIfArmed(in: window))
-        XCTAssertFalse(terminalPanel.isTextBoxActive)
     }
 
     func testTextBoxSecondEscapeAfterFocusMovesToAnotherSplitClearsArmWithoutHiding() {

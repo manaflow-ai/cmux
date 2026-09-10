@@ -22,6 +22,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
             return value
         }
 
+        func admittedNotificationKeysSnapshot() -> [String] {
+            lock.lock()
+            defer { lock.unlock() }
+            return notifications.admittedCorrelationKeys
+        }
+
         func timestampedSnapshot() -> [(command: String, timestamp: TimeInterval)] {
             lock.lock()
             let value = zip(commands, commandTimestamps).map {

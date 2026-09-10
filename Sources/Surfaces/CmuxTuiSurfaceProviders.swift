@@ -1224,7 +1224,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         let provisional = SurfaceRemoteWorkspace(id: id, name: provisionalName, index: info.remoteWorkspaces?.count ?? 0, focused: false)
         if info.remoteWorkspaces?.contains(where: { $0.id == id }) != true {
             info.remoteWorkspaces = (info.remoteWorkspaces ?? []) + [provisional]
-            catalog.updateMachine(info, from: self)
+            catalog.updateMachine(info, from: self, createdRemoteWorkspaceID: id)
         }
         if let starter = CmuxTuiSnapshotParser.createdTerminal(fromRunResult: object) {
             _ = recordCreatedTerminal(starter, workspaceID: id, name: nil, cwd: nil)
@@ -1705,7 +1705,9 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
               host == "localhost" || host == "127.0.0.1" || host == "::1" else {
             return nil
         }
-        parts.host = privateAddress
+        parts.host = privateAddress.contains(":") && !privateAddress.hasPrefix("[")
+            ? "[\(privateAddress)]"
+            : privateAddress
         return parts.url?.absoluteString
     }
 

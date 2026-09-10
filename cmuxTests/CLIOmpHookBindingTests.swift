@@ -68,6 +68,8 @@ struct CLIOmpHookBindingTests {
         )
         let launchPath = "\(binDirectory.path):/usr/bin:/bin:/usr/sbin:/sbin"
         var environment = Harness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = Self.liveWorkspaceId
+        environment["CMUX_SURFACE_ID"] = Self.liveSurfaceId
         environment["PATH"] = launchPath
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = stateDirectory.path
         environment["CMUX_AGENT_LAUNCH_KIND"] = "pi"
@@ -319,6 +321,9 @@ struct CLIOmpHookBindingTests {
         let context = try Harness.makeContext(name: "generic-tty-boundary")
         defer { context.cleanup() }
         let sessionId = "codex-ambient-tty-session"
+        let transcriptURL = context.root.appendingPathComponent("rollout-\(sessionId).jsonl")
+        try #"{"type":"session_meta","payload":{"id":"\#(sessionId)","source":"cli","originator":"codex-tui"}}"#
+            .write(to: transcriptURL, atomically: true, encoding: .utf8)
         let staleTTY = "ttys-ambient-stale"
         let serverHandled = Harness.startDeliveryTargetServer(
             context: context,
@@ -344,7 +349,7 @@ struct CLIOmpHookBindingTests {
             context: context,
             arguments: ["hooks", "codex", "session-start"],
             environment: environment,
-            standardInput: #"{"session_id":"\#(sessionId)","source":"clear","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
+            standardInput: #"{"session_id":"\#(sessionId)","source":"clear","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"SessionStart"}"#
         )
 
         #expect(serverHandled.wait(timeout: .now() + 5) == .success)

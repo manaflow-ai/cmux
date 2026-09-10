@@ -31,7 +31,7 @@ struct BrowserWebViewUserAgentRegressionTests {
         panel.navigate(to: URL(string: "about:blank")!)
 
         #expect(
-            panel.webView.customUserAgent == nil,
+            (panel.webView.customUserAgent ?? "").isEmpty,
             "Embedded WKWebView must keep its native identity so canvas apps do not select Safari-only rendering paths"
         )
     }

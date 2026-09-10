@@ -261,6 +261,7 @@ struct WorkspaceForkConversationContextMenuTests {
             )
         }
 
+        _ = await sharedIndex.indexRefreshingNow()
         await sharedIndex.refreshForkAvailabilityNow(workspaceId: staleWorkspaceId, panelId: stalePanelId)
         #expect(
             sharedIndex.snapshotForForkAvailability(
@@ -1574,9 +1575,7 @@ struct WorkspaceForkConversationContextMenuTests {
         ))
 
         releaseLoader.withLock { $0 = true }
-        for _ in 0..<10_000 where !probedSessionIds.withLock({ $0.contains("live-index-request") }) {
-            await Task.yield()
-        }
+        await sharedIndex.refreshForkAvailabilityNow(workspaceId: workspaceId, panelId: panelId)
 
         #expect(probedSessionIds.withLock { $0 } == [
             "restored-fallback-request",
@@ -1684,7 +1683,7 @@ struct WorkspaceForkConversationContextMenuTests {
         #expect(probeCount.withLock { $0 } == 2)
     }
 
-    @Test
+    @Test(.timeLimit(.minutes(1)))
     func cancelledSharedForkProbeRefreshDoesNotRemoveOtherPendingPanel() async throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
@@ -1719,7 +1718,7 @@ struct WorkspaceForkConversationContextMenuTests {
         let loaderCallCount = OSAllocatedUnfairLock(initialState: 0)
         let loaderStartedCount = OSAllocatedUnfairLock(initialState: 0)
         let firstLoaderRelease = DispatchSemaphore(value: 0)
-        let secondLoaderRelease = DispatchSemaphore(value: 0)
+        let secondRefreshStarted = AsyncStream<Void>.makeStream()
         let sharedIndex = SharedLiveAgentIndex(
             indexLoader: {
                 let call = loaderCallCount.withLock { count in
@@ -1731,8 +1730,6 @@ struct WorkspaceForkConversationContextMenuTests {
                 }
                 if call == 1 {
                     firstLoaderRelease.wait()
-                } else if call == 2 {
-                    secondLoaderRelease.wait()
                 }
                 let index = RestorableAgentSessionIndex.load(
                     homeDirectory: root.path,
@@ -1780,18 +1777,16 @@ struct WorkspaceForkConversationContextMenuTests {
         #expect(loaderStartedCount.withLock { $0 } >= 1)
 
         let secondRefresh = Task {
+            secondRefreshStarted.continuation.yield(())
             await sharedIndex.refreshForkAvailabilityNow(
                 workspaceId: secondWorkspaceId,
                 panelId: secondPanelId
             )
         }
-        for _ in 0..<1000 where loaderStartedCount.withLock({ $0 }) < 2 {
-            await Task.yield()
-        }
-        #expect(loaderStartedCount.withLock { $0 } >= 2)
+        _ = await secondRefreshStarted.stream.first(where: { _ in true })
+        #expect(loaderStartedCount.withLock { $0 } == 1, "Concurrent refreshes share the active index loader.")
 
         secondRefresh.cancel()
-        secondLoaderRelease.signal()
         await secondRefresh.value
         firstLoaderRelease.signal()
         await firstRefresh.value
@@ -1811,7 +1806,7 @@ struct WorkspaceForkConversationContextMenuTests {
         )
     }
 
-    @Test
+    @Test(.timeLimit(.minutes(1)))
     func sharedForkProbeFallbackWaitsForActiveSamePanelValidation() async throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
@@ -1839,6 +1834,9 @@ struct WorkspaceForkConversationContextMenuTests {
         let secondProviderRelease = OSAllocatedUnfairLock(initialState: false)
         let secondRefreshFinished = OSAllocatedUnfairLock(initialState: false)
         let probedSessionIds = OSAllocatedUnfairLock(initialState: [String]())
+        let firstProbeStarted = AsyncStream<Void>.makeStream()
+        let secondProbeStarted = AsyncStream<Void>.makeStream()
+        let secondRefreshStarted = AsyncStream<Void>.makeStream()
         let sharedIndex = SharedLiveAgentIndex(
             indexLoader: {
                 loaderCallCount.withLock { $0 += 1 }
@@ -1860,6 +1858,7 @@ struct WorkspaceForkConversationContextMenuTests {
                     return count
                 }
                 probedSessionIds.withLock { $0.append(snapshot.sessionId) }
+                (call == 1 ? firstProbeStarted : secondProbeStarted).continuation.yield(())
                 while !Task.isCancelled {
                     let released = if call == 1 {
                         firstProviderRelease.withLock { $0 }
@@ -1885,12 +1884,11 @@ struct WorkspaceForkConversationContextMenuTests {
                 fallbackSnapshot: firstFallback
             )
         }
-        for _ in 0..<1000 where providerStartedCount.withLock({ $0 }) < 1 {
-            await Task.yield()
-        }
+        _ = await firstProbeStarted.stream.first(where: { _ in true })
         #expect(providerStartedCount.withLock { $0 } >= 1)
 
         let secondRefresh = Task {
+            secondRefreshStarted.continuation.yield(())
             await sharedIndex.refreshForkAvailabilityNow(
                 workspaceId: workspaceId,
                 panelId: panelId,
@@ -1898,10 +1896,7 @@ struct WorkspaceForkConversationContextMenuTests {
             )
             secondRefreshFinished.withLock { $0 = true }
         }
-        for _ in 0..<1000 where providerStartedCount.withLock({ $0 }) < 2
-            && !secondRefreshFinished.withLock({ $0 }) {
-            await Task.yield()
-        }
+        _ = await secondRefreshStarted.stream.first(where: { _ in true })
         #expect(providerStartedCount.withLock { $0 } == 1)
         #expect(
             !secondRefreshFinished.withLock { $0 },
@@ -1909,9 +1904,7 @@ struct WorkspaceForkConversationContextMenuTests {
         )
 
         firstProviderRelease.withLock { $0 = true }
-        for _ in 0..<1000 where providerStartedCount.withLock({ $0 }) < 2 {
-            await Task.yield()
-        }
+        _ = await secondProbeStarted.stream.first(where: { _ in true })
         #expect(providerStartedCount.withLock { $0 } == 2)
         #expect(!secondRefreshFinished.withLock { $0 })
         secondProviderRelease.withLock { $0 = true }
@@ -2184,7 +2177,7 @@ struct WorkspaceForkConversationContextMenuTests {
         )
     }
 
-    @Test
+    @Test(.timeLimit(.minutes(1)))
     func cancelledSharedForkProbeRefreshDoesNotReplayCompletedValidation() async throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
@@ -2221,6 +2214,8 @@ struct WorkspaceForkConversationContextMenuTests {
         let firstLoaderRelease = DispatchSemaphore(value: 0)
         let secondProviderRelease = OSAllocatedUnfairLock(initialState: false)
         let probedSessionIds = OSAllocatedUnfairLock(initialState: [String]())
+        let secondRefreshStarted = AsyncStream<Void>.makeStream()
+        let secondProbeStarted = AsyncStream<Void>.makeStream()
         let sharedIndex = SharedLiveAgentIndex(
             indexLoader: {
                 let call = loaderCallCount.withLock { count in
@@ -2264,6 +2259,7 @@ struct WorkspaceForkConversationContextMenuTests {
             forkSupportProvider: { snapshot, _ in
                 probedSessionIds.withLock { $0.append(snapshot.sessionId) }
                 if snapshot.sessionId == "second-replay" {
+                    secondProbeStarted.continuation.yield(())
                     while !Task.isCancelled && !secondProviderRelease.withLock({ $0 }) {
                         await Task.yield()
                     }
@@ -2287,20 +2283,20 @@ struct WorkspaceForkConversationContextMenuTests {
         #expect(loaderStartedCount.withLock { $0 } == 1)
 
         let secondRefresh = Task {
+            secondRefreshStarted.continuation.yield(())
             await sharedIndex.refreshForkAvailabilityNow(
                 workspaceId: secondWorkspaceId,
                 panelId: secondPanelId
             )
         }
-        for _ in 0..<1000 where !probedSessionIds.withLock({ $0.contains("second-replay") }) {
-            await Task.yield()
-        }
+        _ = await secondRefreshStarted.stream.first(where: { _ in true })
+        firstLoaderRelease.signal()
+        _ = await secondProbeStarted.stream.first(where: { _ in true })
         #expect(probedSessionIds.withLock { $0 } == ["first-replay", "second-replay"])
 
         secondRefresh.cancel()
         secondProviderRelease.withLock { $0 = true }
         await secondRefresh.value
-        firstLoaderRelease.signal()
         await firstRefresh.value
 
         #expect(probedSessionIds.withLock { $0 } == ["first-replay", "second-replay"])
@@ -2332,7 +2328,7 @@ struct WorkspaceForkConversationContextMenuTests {
         }
     }
 
-    @Test
+    @Test(.timeLimit(.minutes(1)))
     func sharedForkProbeBackgroundRefreshRestartsPendingRequestQueuedDuringActiveValidation() async throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
@@ -2435,6 +2431,19 @@ struct WorkspaceForkConversationContextMenuTests {
             }
         )
 
+        let notifications = AsyncStream<Void>.makeStream()
+        let observer = NotificationCenter.default.addObserver(
+            forName: .sharedLiveAgentIndexDidChange,
+            object: sharedIndex,
+            queue: nil
+        ) { _ in
+            notifications.continuation.yield(())
+        }
+        defer {
+            NotificationCenter.default.removeObserver(observer)
+            notifications.continuation.finish()
+        }
+
         #expect(!sharedIndex.prepareForkAvailabilityProbe(workspaceId: firstWorkspaceId, panelId: firstPanelId))
         for _ in 0..<1000 where !probedSessionIds.withLock({ $0.contains("first-background") }) {
             await Task.yield()
@@ -2460,8 +2469,13 @@ struct WorkspaceForkConversationContextMenuTests {
         #expect(probedSessionIds.withLock { $0 } == ["first-background", "second-background"])
 
         secondProviderRelease.withLock { $0 = true }
-        for _ in 0..<1000 where !probedSessionIds.withLock({ $0.contains("third-background") }) {
-            await Task.yield()
+        for await _ in notifications.stream {
+            if sharedIndex.snapshotForForkAvailability(
+                workspaceId: thirdWorkspaceId,
+                panelId: thirdPanelId
+            ) != nil {
+                break
+            }
         }
 
         #expect(probedSessionIds.withLock { $0 } == ["first-background", "second-background", "third-background"])
@@ -2938,7 +2952,7 @@ struct WorkspaceForkConversationContextMenuTests {
         )
     }
 
-    @Test
+    @Test(.timeLimit(.minutes(1)))
     func sharedForkProbeValidationRefreshesBeforeReuseWhenWatchPathBudgetIsExceeded() async throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
@@ -2990,6 +3004,7 @@ struct WorkspaceForkConversationContextMenuTests {
             )
         )
         let probeCount = OSAllocatedUnfairLock(initialState: 0)
+        let replacementProbeStarted = AsyncStream<Void>.makeStream()
         let sharedIndex = SharedLiveAgentIndex(
             indexLoader: {
                 let index = RestorableAgentSessionIndex.load(
@@ -3016,7 +3031,11 @@ struct WorkspaceForkConversationContextMenuTests {
                 )
             },
             forkSupportProvider: { _, _ in
-                probeCount.withLock { $0 += 1 }
+                let count = probeCount.withLock { count in
+                    count += 1
+                    return count
+                }
+                if count == 2 { replacementProbeStarted.continuation.yield(()) }
                 return true
             },
             hookStoreDirectoryProvider: {
@@ -3033,17 +3052,13 @@ struct WorkspaceForkConversationContextMenuTests {
             sharedIndex.snapshotForForkAvailability(workspaceId: workspaceId, panelId: panelId) != nil,
             "Watch budget exhaustion should not reject a supported agent; the result should instead refresh before reuse."
         )
-        for _ in 0..<50 {
-            if probeCount.withLock({ $0 }) >= 2 {
-                break
-            }
-            await Task.yield()
-        }
+        _ = await replacementProbeStarted.stream.first(where: { _ in true })
         #expect(
             probeCount.withLock { $0 } == 2,
             "Preparing a refresh-before-reuse validation should schedule a replacement probe."
         )
 
+        _ = await sharedIndex.indexRefreshingNow()
         try writePiProbe(output: "pi 0.59.0-downgraded", modifiedAt: 2_000)
         await sharedIndex.refreshForkAvailabilityNow(workspaceId: workspaceId, panelId: panelId)
         #expect(probeCount.withLock { $0 } == 3)
@@ -3058,7 +3073,9 @@ struct WorkspaceForkConversationContextMenuTests {
         defer { try? fm.removeItem(at: root) }
         try fm.createDirectory(at: root.appendingPathComponent(".cmuxterm", isDirectory: true), withIntermediateDirectories: true)
 
-        let executable = root.appendingPathComponent("pi", isDirectory: false)
+        let binDirectory = root.appendingPathComponent("bin", isDirectory: true)
+        try fm.createDirectory(at: binDirectory, withIntermediateDirectories: true)
+        let executable = binDirectory.appendingPathComponent("pi", isDirectory: false)
         let counter = root.appendingPathComponent("probe-count.txt", isDirectory: false)
         try """
         #!/bin/sh
@@ -3664,8 +3681,8 @@ struct WorkspaceForkConversationContextMenuTests {
 
         await sharedIndex.refreshForkAvailabilityNow(workspaceId: workspaceId, panelId: panelId)
         #expect(!sharedIndex.forkSupportProbeAccepted(workspaceId: workspaceId, panelId: panelId))
-        #expect(!sharedIndex.forkSupportProbeRejected(workspaceId: workspaceId, panelId: panelId))
-        #expect(!sharedIndex.prepareForkAvailabilityProbe(workspaceId: workspaceId, panelId: panelId))
+        #expect(sharedIndex.forkSupportProbeRejected(workspaceId: workspaceId, panelId: panelId))
+        #expect(sharedIndex.prepareForkAvailabilityProbe(workspaceId: workspaceId, panelId: panelId))
         let supportsFork = await AgentForkSupport.supportsFork(snapshot: snapshot)
         #expect(!supportsFork)
         #expect(
@@ -4136,7 +4153,7 @@ struct WorkspaceForkConversationContextMenuTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func forkCapabilityProbeTimesOutWhenWrapperLeavesOutputPipeOpen() async throws {
+    func forkCapabilityProbeCleansUpDescendantsWhenWrapperExits() async throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-pi-leaky-probe-\(UUID().uuidString)", isDirectory: true)
@@ -4170,7 +4187,7 @@ struct WorkspaceForkConversationContextMenuTests {
             )
         )
 
-        #expect(!(await AgentForkSupport.supportsFork(snapshot: snapshot)))
+        #expect(await AgentForkSupport.supportsFork(snapshot: snapshot))
         try expectProcessExited(pidFile: childPIDFile)
     }
 
@@ -4188,7 +4205,7 @@ struct WorkspaceForkConversationContextMenuTests {
             .replacingOccurrences(of: "'", with: "'\\''")
         try """
         #!/bin/sh
-        /usr/bin/python3 -c 'import os, pathlib, signal; os.setsid(); pathlib.Path('\''\(escapedChildPIDFile)'\'').write_text(str(os.getpid())); signal.pause()' &
+        /usr/bin/python3 -c 'import os, pathlib, signal, sys; os.setsid(); pathlib.Path(sys.argv[1]).write_text(str(os.getpid())); signal.pause()' '\(escapedChildPIDFile)' &
         while [ ! -s '\(escapedChildPIDFile)' ]; do :; done
         printf '%s\\n' '0.80.6'
         """
@@ -4227,7 +4244,7 @@ struct WorkspaceForkConversationContextMenuTests {
             .replacingOccurrences(of: "'", with: "'\\''")
         try """
         #!/bin/sh
-        /usr/bin/python3 -c 'import os, pathlib, signal; os.setsid(); signal.signal(signal.SIGTERM, signal.SIG_IGN); pathlib.Path('\''\(escapedChildPIDFile)'\'').write_text(str(os.getpid())); signal.pause()' &
+        /usr/bin/python3 -c 'import os, pathlib, signal, sys; os.setsid(); signal.signal(signal.SIGTERM, signal.SIG_IGN); pathlib.Path(sys.argv[1]).write_text(str(os.getpid())); signal.pause()' '\(escapedChildPIDFile)' &
         while [ ! -s '\(escapedChildPIDFile)' ]; do :; done
         trap 'exit 0' TERM
         sleep 10
@@ -4790,28 +4807,33 @@ struct WorkspaceForkConversationContextMenuTests {
             ]
         )
 
+        let panelKey = RestorableAgentSessionIndex.PanelKey(workspaceId: workspace.id, panelId: panelId)
         let forkSupported = OSAllocatedUnfairLock(initialState: false)
         let now = OSAllocatedUnfairLock(initialState: Date(timeIntervalSince1970: 42))
         let liveAgentIndex = SharedLiveAgentIndex(
             indexLoader: {
-                SharedLiveAgentIndexLoader(
+                let index = RestorableAgentSessionIndex.load(
                     homeDirectory: root.path,
                     fileManager: fm,
                     registry: CmuxVaultAgentRegistry(registrations: []),
-                    processSnapshotProvider: {
-                        CmuxTopProcessSnapshot(
-                            processes: [],
-                            sampledAt: Date(timeIntervalSince1970: 42),
-                            includesProcessDetails: true
-                        )
-                    },
-                    capturedAtProvider: { 42 },
-                    processArgumentsProvider: { _ in nil }
+                    detectedSnapshots: [
+                        panelKey: (
+                            snapshot: snapshotWithExecutable,
+                            updatedAt: 42,
+                            processIDs: [7_311],
+                            agentProcessIDs: [7_311],
+                            sessionIDSource: .explicit
+                        ),
+                    ]
                 )
-                .loadResultSynchronously()
+                return (
+                    index: index,
+                    liveAgentProcessFingerprint: ["opencode-live"],
+                    processScopeFingerprint: ["opencode-live"],
+                    forkValidatedPanels: [panelKey]
+                )
             },
             forkSupportProvider: { _, _ in
-                now.withLock { $0 = Date(timeIntervalSince1970: 100) }
                 return forkSupported.withLock { $0 }
             },
             hookStoreDirectoryProvider: {
@@ -4836,6 +4858,7 @@ struct WorkspaceForkConversationContextMenuTests {
         )
 
         forkSupported.withLock { $0 = true }
+        now.withLock { $0 = Date(timeIntervalSince1970: 100) }
         await liveAgentIndex.refreshForkAvailabilityNow(workspaceId: workspace.id, panelId: panelId)
 
         #expect(

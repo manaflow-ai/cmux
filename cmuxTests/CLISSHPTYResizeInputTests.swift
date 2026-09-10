@@ -11,6 +11,8 @@ struct CLISSHPTYResizeInputTests {
         var listenerFD = try bindUnixSocket(at: socketPath)
         let bridge = try bindLoopbackTCP()
         let state = MockSocketServerState()
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-resize-input-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         let workspaceId = "22222222-2222-2222-2222-222222222222"
         let surfaceId = "33333333-3333-3333-3333-333333333333"
         let sessionId = "ssh-\(workspaceId)-\(surfaceId)"
@@ -31,6 +33,7 @@ struct CLISSHPTYResizeInputTests {
             if listenerFD >= 0 { Darwin.close(listenerFD) }
             Darwin.close(bridge.fd)
             unlink(socketPath)
+            try? FileManager.default.removeItem(at: home)
         }
 
         guard openpty(&masterFD, &slaveFD, nil, nil, nil) == 0 else {
@@ -117,10 +120,13 @@ struct CLISSHPTYResizeInputTests {
             "--session-id", sessionId,
             "--attachment-id", surfaceId,
         ]
-        var environment = ProcessInfo.processInfo.environment
-        environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        process.environment = environment
+        process.environment = [
+            "HOME": home.path,
+            "CFFIXED_USER_HOME": home.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "CMUX_SOCKET_PATH": socketPath,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+        ]
         process.standardInput = stdinHandle
         process.standardOutput = stdoutHandle
         process.standardError = stderrPipe
@@ -133,7 +139,8 @@ struct CLISSHPTYResizeInputTests {
                 process.terminate()
             }
         }
-        #expect(bridgeReady.wait(timeout: .now() + 5) == .success)
+        #expect(bridgeReady.wait(timeout: .now() + 5) == .success,
+            "Bridge did not become ready; requests: \(state.snapshot())")
 
         try setPTYSize(masterFD: masterFD, cols: 120, rows: 40)
         writeAll(fd: masterFD, data: Data("stty size\n".utf8))

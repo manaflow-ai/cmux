@@ -152,9 +152,13 @@ struct CLICodexHookTimeoutRegressionTests {
         let socketPath = makeCodexHookSocketPath("codex-permission")
         let listenerFD = try bindCodexHookUnixSocket(at: socketPath)
         let commands = CodexHookCapturedSocketCommands()
+        let sessionId = "codex-permission-session"
         let workspaceId = "11111111-1111-1111-1111-111111111111"
         let surfaceId = "22222222-2222-2222-2222-222222222222"
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let transcriptURL = root.appendingPathComponent("rollout-\(sessionId).jsonl")
+        try #"{"type":"session_meta","payload":{"id":"\#(sessionId)","source":"cli","originator":"codex-tui"}}"#
+            .write(to: transcriptURL, atomically: true, encoding: .utf8)
         defer {
             Darwin.close(listenerFD)
             unlink(socketPath)
@@ -180,7 +184,7 @@ struct CLICodexHookTimeoutRegressionTests {
                 "CMUX_AGENT_HOOK_STATE_DIR": root.path,
                 "CMUX_CLI_SENTRY_DISABLED": "1",
             ],
-            standardInput: #"{"session_id":"codex-permission-session","cwd":"\#(root.path)","hook_event_name":"PermissionRequest","message":"approval required"}"#,
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"PermissionRequest","message":"approval required"}"#,
             timeout: 5
         )
 
@@ -622,6 +626,9 @@ struct CLICodexHookTimeoutRegressionTests {
         let surfaceId = "22222222-2222-2222-2222-222222222222"
         let sessionId = "codex-installed-stale-stop-session"
         try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        let transcriptURL = root.appendingPathComponent("rollout-\(sessionId).jsonl")
+        try #"{"type":"session_meta","payload":{"id":"\#(sessionId)","source":"cli","originator":"codex-tui"}}"#
+            .write(to: transcriptURL, atomically: true, encoding: .utf8)
         defer {
             Darwin.close(listenerFD)
             unlink(socketPath)
@@ -662,14 +669,14 @@ struct CLICodexHookTimeoutRegressionTests {
             "CMUX_AGENT_HOOK_STATE_DIR": root.path,
             "CMUX_CLI_SENTRY_DISABLED": "1",
             "CMUX_BUNDLED_CLI_PATH": cliPath,
-            "CMUX_CODEX_PID": "4242",
+            "CMUX_CODEX_PID": String(getpid()),
         ]
 
         let oldPrompt = runCodexHookProcess(
             executablePath: "/bin/sh",
             arguments: ["-c", promptCommand],
             environment: environment,
-            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"old-turn","cwd":"\#(root.path)","hook_event_name":"UserPromptSubmit","prompt":"old"}"#,
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"old-turn","cwd":"\#(root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"UserPromptSubmit","prompt":"old"}"#,
             timeout: 3
         )
         #expect(oldPrompt.status == 0, Comment(rawValue: oldPrompt.stderr))
@@ -682,15 +689,16 @@ struct CLICodexHookTimeoutRegressionTests {
             executablePath: "/bin/sh",
             arguments: ["-c", promptCommand],
             environment: environment,
-            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"current-turn","cwd":"\#(root.path)","hook_event_name":"UserPromptSubmit","prompt":"current"}"#,
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"current-turn","cwd":"\#(root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"UserPromptSubmit","prompt":"current"}"#,
             timeout: 3
         )
         #expect(currentPrompt.status == 0, Comment(rawValue: currentPrompt.stderr))
         #expect(currentPrompt.stdout == "{}\n")
         #expect(waitForConditionBlocking(timeout: 2) {
-            let snapshot = commands.snapshot()
-            return snapshot.contains { $0.hasPrefix("clear_notifications ") }
-                && snapshot.contains { $0.hasPrefix("set_status codex Running ") }
+            AgentJournalAppendCapture.captures(in: commands.snapshot()).contains {
+                $0.kind == "agent.turn.started"
+                    && ($0.draft["attention"] as? [String: Any])?["turnIdentity"] as? String == "current-turn"
+            }
         })
 
         let staleStopStart = commands.snapshot().count
@@ -698,7 +706,7 @@ struct CLICodexHookTimeoutRegressionTests {
             executablePath: "/bin/sh",
             arguments: ["-c", stopCommand],
             environment: environment,
-            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"old-turn","cwd":"\#(root.path)","hook_event_name":"Stop","last_assistant_message":"old done"}"#,
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"old-turn","cwd":"\#(root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop","last_assistant_message":"old done"}"#,
             timeout: 3
         )
         #expect(staleStop.status == 0, Comment(rawValue: staleStop.stderr))
@@ -810,6 +818,9 @@ struct CLICodexHookTimeoutRegressionTests {
         let sessionId = "codex-start-session"
         let stateURL = root.appendingPathComponent("codex-hook-sessions.json")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let transcriptURL = root.appendingPathComponent("rollout-\(sessionId).jsonl")
+        try #"{"type":"session_meta","payload":{"id":"\#(sessionId)","source":"cli","originator":"codex-tui"}}"#
+            .write(to: transcriptURL, atomically: true, encoding: .utf8)
         defer {
             Darwin.close(listenerFD)
             unlink(socketPath)
@@ -859,7 +870,7 @@ struct CLICodexHookTimeoutRegressionTests {
                 "CMUX_CLI_SENTRY_DISABLED": "1",
                 "CMUX_CODEX_PID": "2",
             ],
-            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"SessionStart"}"#,
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"SessionStart"}"#,
             timeout: 5
         )
 
@@ -895,6 +906,9 @@ struct CLICodexHookTimeoutRegressionTests {
         let sessionId = "codex-fresh-session"
         let stateURL = root.appendingPathComponent("codex-hook-sessions.json")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let transcriptURL = root.appendingPathComponent("rollout-\(sessionId).jsonl")
+        try #"{"type":"session_meta","payload":{"id":"\#(sessionId)","source":"cli","originator":"codex-tui"}}"#
+            .write(to: transcriptURL, atomically: true, encoding: .utf8)
         defer {
             Darwin.close(listenerFD)
             unlink(socketPath)
@@ -942,7 +956,7 @@ struct CLICodexHookTimeoutRegressionTests {
                 "CMUX_AGENT_HOOK_STATE_DIR": root.path,
                 "CMUX_CLI_SENTRY_DISABLED": "1",
             ],
-            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"SessionStart"}"#,
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"SessionStart"}"#,
             timeout: 5
         )
 
@@ -980,7 +994,7 @@ struct CLICodexHookTimeoutRegressionTests {
                 "CMUX_CLI_SENTRY_DISABLED": "1",
                 "CMUX_CODEX_PID": "1",
             ],
-            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-done","cwd":"\#(root.path)","hook_event_name":"UserPromptSubmit","prompt":"late"}"#,
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-done","cwd":"\#(root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"UserPromptSubmit","prompt":"late"}"#,
             timeout: 5
         )
 
@@ -1006,6 +1020,9 @@ struct CLICodexHookTimeoutRegressionTests {
         let sessionId = "codex-same-pid-session"
         let stateURL = root.appendingPathComponent("codex-hook-sessions.json")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let transcriptURL = root.appendingPathComponent("rollout-\(sessionId).jsonl")
+        try #"{"type":"session_meta","payload":{"id":"\#(sessionId)","source":"cli","originator":"codex-tui"}}"#
+            .write(to: transcriptURL, atomically: true, encoding: .utf8)
         defer {
             Darwin.close(listenerFD)
             unlink(socketPath)
@@ -1053,7 +1070,7 @@ struct CLICodexHookTimeoutRegressionTests {
                 "CMUX_CLI_SENTRY_DISABLED": "1",
                 "CMUX_CODEX_PID": "4242",
             ],
-            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"SessionStart"}"#,
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"SessionStart"}"#,
             timeout: 5
         )
 

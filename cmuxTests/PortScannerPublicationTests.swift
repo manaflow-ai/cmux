@@ -415,8 +415,13 @@ struct PortScannerAgentPublicationIntegrationTests {
         #expect(processScanWasReleased == false)
         #expect(removalLifecycleWasActiveAtCallback)
 
-        await withCheckedContinuation { continuation in
-            scanner.queue.async { continuation.resume() }
+        // Queue acknowledgement is followed by a main-actor lifecycle update.
+        // A queue barrier alone can resume this test before that update runs.
+        _ = await AppKitTestEventPump().waitUntil {
+            !scanner.publicationState.isCurrentAgentRevision(
+                removalRevision,
+                workspaceId: workspaceID
+            )
         }
         #expect(scanner.publicationState.isCurrentAgentRevision(
             removalRevision,

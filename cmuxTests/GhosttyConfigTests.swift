@@ -5081,7 +5081,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         XCTAssertTrue(log.contains("set-environment -gu CMUX_PANEL_ID"), log)
     }
 
-    func testShellIntegrationRefreshesWorkspaceScopedCmuxEnvironmentFromTmuxWithoutOverwritingSurfaceScope() throws {
+    func testShellIntegrationRefreshesWorkspaceScopedCmuxEnvironmentFromTmuxAndClearsStaleSurfaceScope() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-zsh-tmux-refresh-\(UUID().uuidString)")
@@ -5094,7 +5094,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             at: binDir.appendingPathComponent("tmux", isDirectory: false),
             contents: """
             #!/bin/sh
-            if [ "$1" = "show-environment" ] && [ "$2" = "-g" ]; then
+            if [ "$1" = "show-environment" ] && [ "$#" = "1" ]; then
               printf '%s\\n' 'CMUX_SOCKET_PATH=/tmp/cmux-current.sock'
               printf '%s\\n' 'CMUX_TAG=feat-tmux-notification-attention-state'
               printf '%s\\n' 'CMUX_WORKSPACE_ID=11111111-1111-1111-1111-111111111111'
@@ -5125,7 +5125,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
 
         XCTAssertEqual(
             output,
-            "feat-tmux-notification-attention-state|/tmp/cmux-current.sock|11111111-1111-1111-1111-111111111111|22222222-2222-2222-2222-222222222222|22222222-2222-2222-2222-222222222222"
+            "feat-tmux-notification-attention-state|/tmp/cmux-current.sock|11111111-1111-1111-1111-111111111111||"
         )
     }
 
@@ -5440,7 +5440,8 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         let repoA = root.appendingPathComponent("repo-a", isDirectory: true)
         let repoB = root.appendingPathComponent("repo-b", isDirectory: true)
         let logPath = root.appendingPathComponent("send.log", isDirectory: false)
-        let socketPath = root.appendingPathComponent("cmux-test.sock", isDirectory: false)
+        // Keep the socket below sockaddr_un.sun_path even on CI temp roots.
+        let socketPath = URL(fileURLWithPath: "/tmp/cmux-git-\(UUID().uuidString.prefix(8)).sock")
 
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         let socketFD = try bindUnixSocket(at: socketPath.path)
@@ -5501,7 +5502,8 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         let repoA = root.appendingPathComponent("repo-a", isDirectory: true)
         let repoB = root.appendingPathComponent("repo-b", isDirectory: true)
         let logPath = root.appendingPathComponent("send.log", isDirectory: false)
-        let socketPath = root.appendingPathComponent("cmux-test.sock", isDirectory: false)
+        // Keep the socket below sockaddr_un.sun_path even on CI temp roots.
+        let socketPath = URL(fileURLWithPath: "/tmp/cmux-git-\(UUID().uuidString.prefix(8)).sock")
 
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         let socketFD = try bindUnixSocket(at: socketPath.path)

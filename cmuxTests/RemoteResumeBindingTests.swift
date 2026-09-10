@@ -609,7 +609,7 @@ struct RemoteResumeBindingTests {
         let forbidden = rewriter.rewriteRemoteRelayCommandLine(
             try requestData([
                 "id": "relay-forbidden",
-                "method": "surface.send_text",
+                "method": "workspace.close",
                 "params": [
                     "workspace_id": workspace.id.uuidString,
                     "surface_id": surfaceID.uuidString,
@@ -1327,11 +1327,10 @@ struct RemoteResumeBindingTests {
     private func decodedRemoteCommand(from startupCommand: String) throws -> String {
         let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(startupCommand).map(\.value)
         let script = try #require(words.dropFirst(2).first)
-        let range = try #require(
-            script.range(of: #"--command-b64 [A-Za-z0-9+/=]+"#, options: .regularExpression)
-        )
-        let encoded = String(script[range]).split(separator: " ", maxSplits: 1).last.map(String.init)
-        let data = try #require(encoded.flatMap { Data(base64Encoded: $0) })
+        let scriptWords = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(script).map(\.value)
+        let commandIndex = try #require(scriptWords.firstIndex(of: "--command-b64"))
+        let encoded = try #require(scriptWords.dropFirst(commandIndex + 1).first)
+        let data = try #require(Data(base64Encoded: encoded))
         return try #require(String(data: data, encoding: .utf8))
     }
 
