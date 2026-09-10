@@ -16,7 +16,9 @@ const binding = z.strictObject({
   revoked: z.boolean(),
   deviceId: z.string().max(255).nullable().optional(),
   instanceTag: z.string().max(64).nullable().optional(),
-  homeRelayUrl: z.string().url().nullable().optional(),
+  // URL shape is validated by the broker policy so malformed hints produce the
+  // protocol's typed invalid_hint response instead of a generic frame drop.
+  homeRelayUrl: z.string().max(2048).nullable().optional(),
   updatedAt: isoDate.nullable().optional(),
   status: z.enum(["active", "seeded", "stale", "retired", "suspended", "pending", "superseded"]).optional(),
   appVersion: z.string().max(128).optional(),
@@ -80,7 +82,7 @@ const directoryFrame = z.strictObject({
 });
 const hintUpdateFrame = z.strictObject({
   v: z.literal(1), type: z.literal("hint_update"), rev: revision,
-  payload: z.strictObject({ endpointId: boundedString(128), homeRelayUrl: z.string().url(), updatedAt: isoDate.nullable().optional() }),
+  payload: z.strictObject({ endpointId: boundedString(128), homeRelayUrl: z.string().max(2048), updatedAt: isoDate.nullable().optional() }),
 });
 const relayPassesFrame = z.strictObject({
   v: z.literal(1), type: z.literal("relay_passes"), rev: revision,
@@ -104,7 +106,7 @@ const mintRequestFrame = z.strictObject({
 });
 const publishHintFrame = z.strictObject({
   v: z.literal(1), type: z.literal("publish_hint"),
-  payload: z.strictObject({ endpointId: boundedString(128), homeRelayUrl: z.string().url(), proof: proof.optional() }),
+  payload: z.strictObject({ endpointId: boundedString(128), homeRelayUrl: z.string().max(2048), proof: proof.optional() }),
 });
 
 export const ControlFrameSchema = z.discriminatedUnion("type", [
