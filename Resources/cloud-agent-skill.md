@@ -25,9 +25,9 @@ if help and this document disagree, follow help and report the discrepancy.
 
 | Term | Meaning |
 |------|---------|
-| **Machine** | A persistent cloud VM (`cmux vm ls`); its generated name (for example `brave-otter`) is its id everywhere, while `vm rename` changes only a display label. `/root` is persistent; the compute filesystem is disposable. A machine may sleep when idle and wakes on connect or exec. |
-| **Kind** | `base` is shell-only; `desktop` adds TigerVNC on `:1`, openbox, the devbox dock, and noVNC on 6901. `vm new` and `vm base open` choose desktop by default; pass `--base` (alias `--no-desktop`) when you explicitly need a shell-only machine. Shells on a desktop machine get `DISPLAY=:1`, so `agent-browser`, `xdotool`, and `cua-driver` can drive its screen. |
-| **Contents** | The Ubuntu 24.04 devbox supplies node, bun, uv, git, gh, ripgrep, fd, jq, tmux, xdotool, Chrome, and `cua-driver`; Claude Code, Codex, OpenCode, and Pi are provisioned under `/root/.npm-global/bin`. If a fresh machine is still bootstrapping, inspect `/tmp/cmux/provision.log`. |
+| **Machine** | A persistent cloud VM (`cmux vm ls`); its generated name (for example `brave-otter`) is its id everywhere, while `vm rename` changes only a display label. New machines run terminals, agents, exec, and the desktop as `cmux` (uid 1000, home `/home/cmux`, passwordless sudo). Older machines keep their root layout until recreated; resolve paths from the remote `$HOME`. A machine may sleep when idle and wakes on connect or exec. |
+| **Kind** | Every new machine uses the devbox with TigerVNC on `:1`, openbox, the dock, and noVNC on 6901. `--desktop`, `--base`, and `--no-desktop` remain accepted for older scripts; they no longer select different new-machine kinds. Historical `base` machines can still lack a screen. Shells receive the desktop environment, including `DISPLAY=:1`, so `agent-browser`, `xdotool`, and `cua-driver` can drive the screen. |
+| **Contents** | The Ubuntu 24.04 devbox supplies node, bun, uv, git, gh, ripgrep, fd, jq, tmux, xdotool, Chrome, and `cua-driver`; Claude Code, Codex, OpenCode, and Pi are installed on the session PATH. If a fresh machine is still bootstrapping, inspect `/tmp/cmux/provision.log`. |
 | **Session** | Every machine runs a **cmux-tui remote daemon** with workspaces (`ws_…`) and terminals (`term_…`). A terminal keeps running when the Mac disconnects or its pane closes. |
 | **Publication** | `cmux cloud domains publish` maps one VM port to one HTTPS hostname. `personal` allows the owner, `team` allows current members of a selected team, and `public` allows anyone with the URL. |
 | **Workspaces** | One machine hosts **many** cmux-tui workspaces: the machine is the big box, workspaces are the desks in it. Make a workspace per task *inside* a machine (`cmux vm workspace new <id> --name <task>`, the machine's ⌘N) — not a machine per task. The Cloud sidebar shows them grouped under the machine's Workspaces group. |
@@ -53,7 +53,7 @@ if help and this document disagree, follow help and report the discrepancy.
 cmux vm route                                            # which machine this directory would get, and why (--json for scripts)
 cmux vm run -- uname -a                                  # routed, executed, exit code passed through
 cmux vm run --sync -- bun test                           # push cwd to work/<dir> first, run there
-cmux vm run --sync --pull work/app/dist -- sh -c 'cd work/app && bun run build'
+cmux vm run --sync --pull work/app/dist -- bun run build
 cmux vm agent --agent claude --sync -- "run the tests and fix failures"   # a detached Claude Code session on the routed machine
 cmux vm tree                                             # the surface catalog: This Mac, then every machine → workspaces → ports → VNC displays → terminals
 cmux vm open vivid-newt/main/term_2f9c                   # show the human one terminal (reuses its pane if open)
@@ -69,8 +69,8 @@ Repeat runs from the same directory hit the same machine (sticky binding, 14 day
 1. `cmux vm route` — the router's answer for this directory. If it says it *would provision*, that costs a machine slot: check `cmux vm ls` first (`--provision` creates it now).
 2. Ongoing user work → Base (`cmux vm base open`, or `--machine <base-id>`).
 3. A new task on a machine you already use → a new **workspace**, not a new machine (`cmux vm workspace new <id> --name <task>`): one machine hosts many workspaces, and that is the intended unit of scale.
-4. Hard isolation (a different environment, a risky experiment) → `cmux vm fork <id>` of a warm machine, or `cmux vm new --base --detach --json` for an explicit shell-only machine (omit `--base` when the isolated task needs a screen); add `--name <label>`. Choose `--size` from `vm ls --json` → `limits.memoryOptionsMb` (named aliases: `4g`, `8g`, `16g`, `24g`, `32g`, `64g`; raw MB also parses). Never pass `--image` unless you have a specific image id. Then `--machine <id>`, and `cmux vm wait <id> --wake` before the first command.
-5. Persistent disk growth → `cmux vm resize <id> --disk <GiB>` after confirming the target and requested capacity. Values are 4–256 GiB in 4 GiB steps; the operation is grow-only, keeps `/root` and the machine identity intact, and can take a provider minute. Run `cmux vm stats <id>` afterward to verify `disk_total_mb`.
+4. Hard isolation (a different environment, a risky experiment) → `cmux vm fork <id>` of a warm machine, or `cmux vm new --detach --json` for a new devbox; add `--name <label>`. Choose `--size` from `vm ls --json` → `limits.memoryOptionsMb` (named aliases: `4g`, `8g`, `16g`, `24g`, `32g`, `64g`; raw MB also parses). Never pass `--image` unless you have a specific image id. Then `--machine <id>`, and `cmux vm wait <id> --wake` before the first command.
+5. Persistent disk growth → `cmux vm resize <id> --disk <GiB>` after confirming the target and requested capacity. Values are 4–256 GiB in 4 GiB steps; the operation is grow-only, keeps the machine data and identity intact, and can take a provider minute. Run `cmux vm stats <id>` afterward to verify `disk_total_mb`.
 6. Never draft the user's own machines without `--machine`, and respect the plan meter.
 
 ## Publish a VM port safely
@@ -137,19 +137,14 @@ The user cannot see inside the machine: print URLs, pull artifacts, or open a pa
 
 ## Credentials
 
-Agents started with `vm agent` authenticate inside the machine the way they would locally: their own login under `/root` (set up once with `vm exec`; it persists on the volume), or the team's subrouter through `cmux ai-accounts upload` (uploads local credentials so no token is copied onto a machine). Do not put the user's tokens on a machine unless they ask.
+Agents started with `vm agent` authenticate inside the machine the way they would locally: their own login under the remote `$HOME` (set up once with `vm exec`; it persists with the machine), or the team's subrouter through `cmux ai-accounts upload` (uploads local credentials so no token is copied onto a machine). Do not put the user's tokens on a machine unless they ask.
 
 ## Guest auth and CodeRouter
 
-Run `cmux self` first. The guest `cmux` command answers only two questions, through
-the machine's TLS edge (no account token lives in the VM):
-
-```bash
-cmux self [--json]     # this machine: name, id, status, team, machine count
-cmux vm ls [--json]    # the team's live machines, this one marked *
-```
-
-`--json` returns `{schema, machine: {id, vmId, name, displayName, slug, status, createdAt, self}, team: {id}, machines: [...]}`. `id` is the machine id every Mac `cmux vm …` verb takes. Every other verb (`vm new`, `vm exec`, `notify`, …) exits 2 and names the Mac CLI; run those there.
+Start with `cmux self --json` to identify the current machine and `cmux vm ls`
+to list the team's live machines. The guest reads those through its VM-bound
+TLS edge without a Mac account token. Host lifecycle verbs still run on the Mac;
+read the guest's `cmux --help` for the subset its image supports.
 
 Inside a Cloud machine, the guest `cmux` adapter can report route health and run
 an agent through the shared CodeRouter without exposing the Mac's Stack session:
@@ -182,7 +177,7 @@ selected machine, while the guest `cmux agent` form runs through CodeRouter.
 | Symptom | Fix |
 |---------|-----|
 | `vm exec` hangs or times out | Exec is capped (~30 s). Background it: `nohup … > /tmp/x.log 2>&1 &`, then poll — or use `vm run`, `vm agent`, or a session terminal driven with `terminal send|wait|read`. |
-| `claude`/`codex` not found on a brand-new machine | Provisioning is still running: `cmux vm exec <id> -- tail /tmp/cmux/provision.log`; the agents land in `/root/.npm-global/bin` (on PATH in login shells). |
+| `claude`/`codex` not found on a brand-new machine | Provisioning is still running: `cmux vm exec <id> -- tail /tmp/cmux/provision.log`; the agents land in the session PATH (use a login shell). |
 | First command after idle is slow | The machine was asleep: `cmux vm wait <id> --wake`. |
 | Attach/exec cannot reach any machine | The WireGuard tunnel is down: `cmux vpn up` (state: `cmux vpn status`; needs `brew install wireguard-tools`). Machines have no public ports. |
 | `vm tree --json` times out while a link is connecting | Retry without `--refresh` or scope it to `cmux vm tree <id>`; inspect `cmux vm ls --json`/`vm status <id>`, then use `vm exec` or `vm terminal read` directly when you already know the target. |

@@ -27,8 +27,8 @@ cmux vm open "$id":port/3000 --print                             # private-netwo
 Sticky binding means every `vm run` from this directory lands on the same machine. The explicit reuse-or-create spelling still works when you want full control:
 
 ```bash
-id=$(cmux vm ls --json | jq -r '[.vms[] | select(.displayName == "agent-pool" and (.status | test("^(running|ready|standby|paused)$")))][0].id // empty')
-[ -n "$id" ] || id=$(cmux vm new --base --detach --json | jq -r '.id')
+# After provisioning is authorized, use the router's recorded pool IDs.
+id=$(cmux vm route --provision --json | jq -er '.machine')
 cmux vm wait "$id" --wake
 cmux vm push "$id" . work/app
 cmux vm exec "$id" -- sh -c 'cd work/app && bun install'
@@ -46,12 +46,12 @@ cmux vm tree "$(echo "$term" | jq -r '.machine')"                 # [agent claud
 
 The agent runs as a detached terminal in the machine's cmux-tui session: it keeps going if the pane closes, and `cmux vm open <reattach address>` brings it back (reusing the pane if one already shows it). Fan out by calling `vm agent` once per task with `--machine` pinned to different machines (or forks, §4) and watch them all in `cmux vm tree`.
 
-Inside the machine the agent authenticates like it would locally (its own login, or CodeRouter's env/config under `/root`, set once with `vm exec`). Never copy the user's tokens onto a machine unless they ask.
+Inside the machine the agent authenticates like it would locally (its own login, or CodeRouter's env/config under the remote `$HOME`, set once with `vm exec`). Never copy the user's tokens onto a machine unless they ask.
 
 ## 2b. Drive an interactive program headlessly (REPL, TUI, watch mode, another agent)
 
 ```bash
-out=$(cmux surface new-terminal --machine <id> --no-open --json --cwd /root/work/app -- bun test --watch)
+out=$(cmux surface new-terminal --machine <id> --no-open --json -- sh -lc 'cd "$HOME/work/app" && exec bun test --watch')
 term=$(echo "$out" | jq -r '.terminal_id')
 cmux vm terminal wait <id> "$term" --pattern 'Waiting for file changes|passed|failed' --timeout 300
 cmux vm terminal read <id> "$term"                                # the screen a person would see
@@ -93,12 +93,13 @@ fork_b=$(cmux vm fork <id> --name try-approach-b --detach --json | jq -r '.id')
 cmux vm agent --agent codex --machine "$fork_a" --no-open -- exec "try approach A in work/app"
 cmux vm agent --agent codex --machine "$fork_b" --no-open -- exec "try approach B in work/app"
 cmux vm tree                                           # both agents, side by side
-Delete only the forks you created through the Cloud sidebar after the experiment; this rollout has no top-level VM delete verb.
 ```
+
+Delete only the forks you created after the experiment (`cmux vm rm <id>`).
 
 ## 6. Desktop and browser tasks
 
-Desktop-kind machines (`cmux vm new --desktop`) boot TigerVNC with an openbox session and noVNC on 6901; shells there get `DISPLAY=:1` while the desktop is up. Drive it from inside the machine (`vm agent` with a computer-use-capable agent — `cua-driver` is preinstalled) and show the human the screen; on a `--base` machine these verbs exit 1 (no screen):
+New machines (`cmux vm new`) include TigerVNC with an openbox session and noVNC on 6901; shells get `DISPLAY=:1` while the desktop is up. Drive it from inside the machine (`vm agent` with a computer-use-capable agent — `cua-driver` is preinstalled) and show the human the screen. Historical shell-only machines still have no screen; inspect `vm status` before opening one:
 
 ```bash
 cmux vm open <id>:desktop              # the screen as a browser pane beside the shell
@@ -111,9 +112,9 @@ Group one task's terminals into a named machine workspace, so the whole thing op
 
 ```bash
 ws=$(cmux vm workspace new <id> --name pr-4123 --json | jq -r '.remote_workspace_id')
-cmux surface new-terminal --machine <id> --remote-workspace "$ws" --no-open --name dev   --cwd /root/work/app -- bun run dev
-cmux surface new-terminal --machine <id> --remote-workspace "$ws" --no-open --name tests --cwd /root/work/app -- bun test --watch
-cmux surface new-terminal --machine <id> --remote-workspace "$ws" --no-open --name agent --cwd /root/work/app -- sh -lc 'claude -p "fix the failing tests"'
+cmux surface new-terminal --machine <id> --remote-workspace "$ws" --no-open --name dev   -- sh -lc 'cd "$HOME/work/app" && exec bun run dev'
+cmux surface new-terminal --machine <id> --remote-workspace "$ws" --no-open --name tests -- sh -lc 'cd "$HOME/work/app" && exec bun test --watch'
+cmux surface new-terminal --machine <id> --remote-workspace "$ws" --no-open --name agent -- sh -lc 'cd "$HOME/work/app" && exec claude -p "fix the failing tests"'
 cmux vm tree <id> --json                          # verify the composition headlessly: terminals, lifecycle, agent state
 cmux notify --title "Cloud workspace staged: pr-4123" --body "Open: click the pr-4123 row, or cmux vm workspace open <id> $ws"
 ```
@@ -172,4 +173,4 @@ Pair with `cmux notify` so they know why a pane appeared. Prefer `--print`/`--de
 
 - New cmux-created machines normally remain available until explicitly paused or stopped; older/provider-managed machines may sleep. Opening or running a command wakes a sleeper, so leaving one for the user to inspect is fine (say so in your handoff).
 - Delete forks and scratch machines you created once their purpose is served; close the workspaces and terminals you opened on a shared machine (`vm terminal close`, `vm workspace rm`).
-- Never `vm rm` or `vm base reset` a machine you didn't create without explicit user confirmation — both discard data permanently.
+- Never `vm rm` or `vm base reset` a machine you didn't create without explicit user confirmation — `vm rm` deletes it permanently; `vm base reset` creates a new Base generation and retains the old machine.
