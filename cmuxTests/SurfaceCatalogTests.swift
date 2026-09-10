@@ -315,7 +315,9 @@ struct SurfaceCatalogTests {
             info: provider.info
         )
 
-        #expect(catalog.snapshot.resources(on: machine).first { $0.id.key == "term_one" }?.title == "new")
+        let changedTerminal = try #require(catalog.snapshot.resources(on: machine).first { $0.id.key == "term_one" })
+        #expect(changedTerminal.remoteViews?.first { $0.tabID == "tab_one" }?.name == "new")
+        #expect(changedTerminal.title == "old", "a placement-local label does not rename the terminal")
         #expect(catalog.snapshot.resources(on: machine).contains(termTwo))
         #expect(catalog.snapshot.resources(on: machine).contains(port))
         #expect(catalog.cloudStates[machine]?.cursor == CloudVMCursor(generation: "g1", revision: 2))
@@ -360,7 +362,7 @@ struct SurfaceCatalogTests {
         catalog.register(provider)
         let snapshot: [String: Any] = [
             "cursor": ["generation": "g1", "revision": "1"],
-            "workspaces": [["id": "ws", "name": "canonical"]],
+            "workspaces": [["id": "ws", "name": "canonical", "focused": true]],
             "screens": [],
             "panes": [],
             "tabs": [],
@@ -385,6 +387,22 @@ struct SurfaceCatalogTests {
         #expect(catalog.machines[machine]?.remoteWorkspaces == [
             SurfaceRemoteWorkspace(id: "ws", name: "canonical", index: 0, focused: true),
         ])
+
+        catalog.updateCloudPendingWrites(on: machine, writes: [CloudVMPendingMutation(
+            kind: .terminalCreate,
+            resource: SurfaceResourceID(machine: machine, kind: .terminal, key: "new_terminal"),
+            remoteWorkspaceID: "new_workspace",
+            remoteTabID: "new_tab",
+            name: nil,
+            receipt: CloudVMCursor(generation: "g1", revision: 2)
+        )], from: provider)
+        let pending = SurfaceRemoteWorkspace(id: "new_workspace", name: "pending", index: 2, focused: false)
+        staleInfo.remoteWorkspaces?.append(pending)
+        catalog.updateMachine(staleInfo, from: provider)
+        #expect(catalog.machines[machine]?.remoteWorkspaces == [
+            SurfaceRemoteWorkspace(id: "ws", name: "canonical", index: 0, focused: true),
+            pending,
+        ], "an explicitly tracked creation remains visible while an unproven stale row stays removed")
     }
 
     @Test func `Resource ID round trips through the wire form`() {

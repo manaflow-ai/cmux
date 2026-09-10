@@ -693,10 +693,14 @@ final class SurfaceCatalog {
             SurfaceRemoteWorkspace(id: $0.id, name: $0.name, index: $0.index, focused: $0.focused)
         }
         var seen = Set(canonical.map(\.id))
-        // A create response can expose a new empty workspace before the next
-        // journal snapshot. Keep such genuinely new rows, but never retain an
-        // incoming row whose id the accepted graph removed.
-        let pending = (info.remoteWorkspaces ?? []).filter { seen.insert($0.id).inserted }
+        // Only an explicit pending creation proves that an extra row is new.
+        // A late summary alone cannot distinguish it from a removed workspace.
+        let pendingWorkspaceIDs = Set((cloudStateObservations[info.id]?.pendingWrites ?? []).compactMap {
+            $0.kind == .terminalCreate ? $0.remoteWorkspaceID : nil
+        })
+        let pending = (info.remoteWorkspaces ?? []).filter {
+            pendingWorkspaceIDs.contains($0.id) && seen.insert($0.id).inserted
+        }
         adjusted.remoteWorkspaces = canonical + pending
         return adjusted
     }
