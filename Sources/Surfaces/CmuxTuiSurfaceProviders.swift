@@ -2037,6 +2037,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// the placeholder.
     private func reprojectRestoredPanes(generation: UInt64) {
         guard isCurrentLifecycleGeneration(generation), isRegisteredInCatalog() else { return }
+        reprojectRestoredBrowserPanes(generation: generation)
         let terminals = catalog.snapshot.resources(on: machine).filter { $0.kind == .terminal }
         for terminal in terminals {
             for projection in catalog.projections(of: terminal.id) where !materializedPanels.contains(projection.panelID) {
