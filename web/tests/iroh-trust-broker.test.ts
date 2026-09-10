@@ -518,6 +518,15 @@ describe("Iroh trust broker registration", () => {
     );
   });
 
+  test("rejects a superseded signed challenge at the broker boundary", async () => {
+    const fixture = makeFixture();
+    const old = await fixture.signedRegistration();
+    const current = await fixture.signedRegistration();
+    await expectEffectFailure(fixture.broker.register(USER_A, old, NOW), "IrohNotFoundError");
+    const registered = await Effect.runPromise(fixture.broker.register(USER_A, current, NOW));
+    expect(registered).toHaveProperty("binding");
+  });
+
   test("rejects expired and replayed challenges", async () => {
     const expired = makeFixture();
     await expectEffectFailure(
