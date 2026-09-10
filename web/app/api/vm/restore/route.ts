@@ -7,16 +7,16 @@ import { vmModelPlaneGatewayFor } from "../../../../services/vms/modelPlaneGatew
 import {
   jsonResponse,
   requestedVmTeamIdFromRequest,
-  vmCreateLikeErrorResponse,
+  vmCreateLikeErrorResponders,
   vmErrorResponse,
   withAuthedVmApiRoute,
   resolveVmProvisioningAccountScope,
 } from "../../../../services/vms/routeHelpers";
+import { runVmRoute } from "../../../../services/vms/routeWorkflow";
 import { setSpanAttributes } from "../../../../services/telemetry";
-import { restoreVm, runVmWorkflow } from "../../../../services/vms/workflows";
+import { restoreVm } from "../../../../services/vms/workflows";
 import { VmTimingRecorder } from "../../../../services/vms/timings";
 import { authProviderErrorResponse } from "../../../../services/vms/authErrors";
-import { vmRequestLocale } from "../../../../services/vms/vmErrorMessages";
 import {
   idempotencyKeyFromRequest,
   parseRequiredObjectBody,
@@ -109,41 +109,39 @@ export async function POST(request: Request): Promise<Response> {
         "cmux.vm.provider": provider,
         "cmux.idempotency_key_set": !!idempotencyKey,
       });
-      try {
-        const restored = await runVmWorkflow(restoreVm({
-          userId: user.id,
-          billingCustomerType: entitlements.billingCustomerType,
-          billingTeamId: entitlements.billingTeamId,
-          billingPlanId: entitlements.planId,
-          maxActiveVms: entitlements.maxActiveVms,
-          provider,
-          snapshotId,
-          idempotencyKey,
-          // The restored machine is a new row: it gets its own token and edge rule.
-          modelPlane: vmModelPlaneGatewayFor({
-            teamId: entitlements.billingTeamId,
-            stackUserId: user.id,
-          }),
-          timing,
-        }));
-        return jsonResponse({
-          id: restored.providerVmId,
-          provider: restored.provider,
-          image: restored.image,
-          imageVersion: restored.imageVersion,
-          status: restored.status,
-          createdAt: restored.createdAt,
-        });
-      } catch (err) {
-        const response = await vmCreateLikeErrorResponse(err, {
+      const run = await runVmRoute(restoreVm({
+        userId: user.id,
+        billingCustomerType: entitlements.billingCustomerType,
+        billingTeamId: entitlements.billingTeamId,
+        billingPlanId: entitlements.planId,
+        maxActiveVms: entitlements.maxActiveVms,
+        provider,
+        snapshotId,
+        idempotencyKey,
+        // The restored machine is a new row: it gets its own token and edge rule.
+        modelPlane: vmModelPlaneGatewayFor({
+          teamId: entitlements.billingTeamId,
+          stackUserId: user.id,
+        }),
+        timing,
+      }), {
+        request,
+        onError: vmCreateLikeErrorResponders({
           operation: "restore",
           planId: entitlements.planId,
           retryAction: "Run `cmux vm ls`, then delete an active VM with `cmux vm rm <id>` before restoring another.",
-          locale: vmRequestLocale(request),
-        });
-        if (response) return response;
-        throw err;
-      }
+        }),
+      });
+      if (!run.ok) return run.response;
+      const restored = run.value;
+      return jsonResponse({
+        id: restored.providerVmId,
+        provider: restored.provider,
+        image: restored.image,
+        imageVersion: restored.imageVersion,
+        status: restored.status,
+        createdAt: restored.createdAt,
+      });
     },
   );
 }

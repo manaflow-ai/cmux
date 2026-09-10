@@ -6,14 +6,16 @@ import Foundation
 // The CLI is presentation only; each verb maps to one `coderouter.*` socket
 // method handled by the app's `CoderouterClient`, which holds the Stack
 // session. Every other `cmux coderouter ...` verb, and all of `cmux cr ...`,
-// is exec'd into the installed CodeRouter CLI before any socket is opened.
+// is exec'd into the CodeRouter CLI before any socket is opened
+// (CMUXCLI+CoderouterPassthrough.swift, which also installs it when missing).
 extension CMUXCLI {
     static let coderouterUsage = """
         Usage: cmux coderouter <status|machines|claude> [options]
 
         Team settings for the cmux coderouter model plane that Cloud machines
         route codex, claude, pi, and opencode through. Any other verb, and every
-        `cmux cr ...`, runs the installed CodeRouter CLI unchanged.
+        `cmux cr ...`, runs the CodeRouter CLI unchanged, offering to install it
+        first when this machine has none.
 
           cmux coderouter status [--team <id>] [--json]
               Sign-in state, selected team, and the team's Claude upstream accounts.

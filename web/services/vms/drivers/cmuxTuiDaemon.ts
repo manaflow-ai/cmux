@@ -441,7 +441,7 @@ function cmuxTuiUserDaemonInvocation(
     `if ! mountpoint -q ${home} 2>/dev/null || ! mountpoint -q ${backing} 2>/dev/null; then exit ${CMUX_TUI_HOME_VIEW_LOST_EXIT_CODE}; fi; ` +
     `elif mountpoint -q ${home} 2>/dev/null; then exit ${CMUX_TUI_HOME_VIEW_LOST_EXIT_CODE}; fi; ` +
     `cd ${home} 2>/dev/null || exit ${CMUX_TUI_HOME_VIEW_LOST_EXIT_CODE}; ` +
-    `exec runuser -u ${user} -- env HOME=${home} USER=${user} LOGNAME=${user} SHELL=/bin/bash TERM=xterm-256color ${binary} ${args}`;
+    `exec runuser -u ${user} -- env HOME=${home} USER=${user} LOGNAME=${user} SHELL=/bin/bash ${CMUX_TUI_DAEMON_TERMINAL_ENV} ${binary} ${args}`;
   return cmuxTuiSupervisedDaemonInvocation(
     daemon,
     [home, backing],
@@ -491,6 +491,19 @@ function cmuxTuiBackingDaemonInvocation(
  * and starts the root daemon on the persistent backing mount until the view is
  * repaired.
  */
+/**
+ * Terminal identity every daemon-spawned pane inherits. The Mac app renders
+ * each pane in its embedded Ghostty and exports the same identity to local and
+ * SSH shells, so panes get TERM=xterm-256color, TERM_PROGRAM=ghostty, and
+ * TERM_PROGRAM_VERSION from /etc/cmux/ghostty-version (the image's Ghostty
+ * .deb pin, written by the devbox bake and Dockerfile; empty on images that
+ * predate it). The daemon itself adds COLORTERM=truecolor at spawn. Agents
+ * gate synchronized output, progress reporting, strikethrough, and Cmd-click
+ * on TERM_PROGRAM. cmux-devbox-boot repeats this string byte for byte.
+ */
+export const CMUX_TUI_DAEMON_TERMINAL_ENV =
+  'TERM=xterm-256color TERM_PROGRAM=ghostty TERM_PROGRAM_VERSION="$(cat /etc/cmux/ghostty-version 2>/dev/null)"';
+
 export function cmuxTuiDaemonCommand(
   remoteWsBind: string = CMUX_TUI_DEFAULT_REMOTE_WS_BIND,
   layout?: CmuxTuiHomeLayout,
@@ -498,7 +511,7 @@ export function cmuxTuiDaemonCommand(
 ): string {
   const args = `server start --session ${CMUX_TUI_SESSION} --remote-ws ${remoteWsBind} --remote-ws-insecure-bind ${CMUX_TUI_TRUSTED_CARRIER_FLAG}`;
   if (!layout) {
-    return `cd /root && env HOME=/root TERM=xterm-256color ${CMUX_TUI_BINARY_PATH} ${args}`;
+    return `cd /root && env HOME=/root ${CMUX_TUI_DAEMON_TERMINAL_ENV} ${CMUX_TUI_BINARY_PATH} ${args}`;
   }
   const { home, volumeBackingPath: backing } = layout;
   const persistentVolumeExpected = options?.persistentVolumeExpected === true;
@@ -513,14 +526,14 @@ export function cmuxTuiDaemonCommand(
     ? `${usableBase} && mountpoint -q ${backing} 2>/dev/null`
     : usableBase;
   const backingDaemon =
-    `if [ -x ${backingBin} ]; then exec env HOME=${backing} TERM=xterm-256color ${backingBin} ${args}; ` +
-    `elif [ -x ${legacyBin} ]; then exec env HOME=${backing} TERM=xterm-256color ${legacyBin} ${args}; ` +
-    `else exec env HOME=${backing} TERM=xterm-256color ${backingBin} ${args}; fi`;
+    `if [ -x ${backingBin} ]; then exec env HOME=${backing} ${CMUX_TUI_DAEMON_TERMINAL_ENV} ${backingBin} ${args}; ` +
+    `elif [ -x ${legacyBin} ]; then exec env HOME=${backing} ${CMUX_TUI_DAEMON_TERMINAL_ENV} ${legacyBin} ${args}; ` +
+    `else exec env HOME=${backing} ${CMUX_TUI_DAEMON_TERMINAL_ENV} ${backingBin} ${args}; fi`;
   const backingInvocation = cmuxTuiBackingDaemonInvocation(layout, backingDaemon);
   const legacyDaemon =
-    `if [ -x ${legacyBin} ]; then exec env HOME=/root TERM=xterm-256color ${legacyBin} ${args}; ` +
-    `elif [ -x ${bin} ]; then exec env HOME=/root TERM=xterm-256color ${bin} ${args}; ` +
-    `else exec env HOME=/root TERM=xterm-256color ${legacyBin} ${args}; fi`;
+    `if [ -x ${legacyBin} ]; then exec env HOME=/root ${CMUX_TUI_DAEMON_TERMINAL_ENV} ${legacyBin} ${args}; ` +
+    `elif [ -x ${bin} ]; then exec env HOME=/root ${CMUX_TUI_DAEMON_TERMINAL_ENV} ${bin} ${args}; ` +
+    `else exec env HOME=/root ${CMUX_TUI_DAEMON_TERMINAL_ENV} ${legacyBin} ${args}; fi`;
   const legacyInvocation = persistentVolumeExpected
     ? cmuxTuiSupervisedDaemonInvocation(
       `if ! mountpoint -q /root 2>/dev/null; then exit ${CMUX_TUI_HOME_VIEW_LOST_EXIT_CODE}; fi; cd /root 2>/dev/null || exit ${CMUX_TUI_HOME_VIEW_LOST_EXIT_CODE}; ${legacyDaemon}`,
@@ -534,7 +547,7 @@ export function cmuxTuiDaemonCommand(
     persistentVolumeExpected
       ? `if mountpoint -q ${backing} 2>/dev/null; then ${backingInvocation}; else exit ${CMUX_TUI_HOME_VIEW_LOST_EXIT_CODE}; fi`
       : `if mountpoint -q ${backing} 2>/dev/null; then ${backingInvocation}; ` +
-        `else cd ${home} && exec env HOME=${home} TERM=xterm-256color ${bin} ${args}; fi`;
+        `else cd ${home} && exec env HOME=${home} ${CMUX_TUI_DAEMON_TERMINAL_ENV} ${bin} ${args}; fi`;
   const persistentVolumeGuard = cmuxTuiPersistentMountWait(layout, persistentVolumeExpected);
   return (
     // Snapshot the backing mount before selecting a branch. The watcher uses

@@ -64,9 +64,13 @@ struct CloudTuiCommandLine: Sendable {
         ["--socket", socketPath, "--json", "workspace", workspaceID, "run", "--"] + command
     }
 
-    /// `workspace create --name <name>`: a workspace with one terminal.
-    static func createWorkspaceArguments(socketPath: String, name: String) -> [String] {
-        ["--socket", socketPath, "--json", "workspace", "create", "--name", name]
+    /// `workspace create [--name <name>]`: the daemon owns auto-naming.
+    static func createWorkspaceArguments(socketPath: String, name: String? = nil) -> [String] {
+        var arguments = ["--socket", socketPath, "--json", "workspace", "create"]
+        if let name, !name.isEmpty {
+            arguments += ["--name", name]
+        }
+        return arguments
     }
 
     /// `terminal <term_id> close`: end that remote terminal (spec `terminal.close`).
@@ -127,6 +131,20 @@ struct CloudTuiCommandLine: Sendable {
         if let expectedRevision { arguments += ["--expected-revision", String(expectedRevision)] }
         arguments += ["workspace", workspaceID, "rename", "--name", name]
         return arguments
+    }
+
+    /// `notification ack --client <id> <notification-id>…` (spec `notification.ack`):
+    /// records this Mac's reads on the machine. The idempotency key is minted once
+    /// per batch by the sync and reused on every retry, so a retried ack replays the
+    /// committed result instead of a second revision.
+    static func notificationAckArguments(
+        socketPath: String,
+        clientID: String,
+        notificationIDs: [String],
+        idempotencyKey: String
+    ) -> [String] {
+        ["--socket", socketPath, "--json", "--idempotency-key", idempotencyKey,
+         "notification", "ack", "--client", clientID] + notificationIDs
     }
 
     /// `terminal <term_id> write --text <text>` (spec `terminal.input.write`): the bytes

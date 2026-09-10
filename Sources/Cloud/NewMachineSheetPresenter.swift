@@ -61,23 +61,26 @@ final class NewMachineSheetPresenter {
     /// command palette) goes through: paywall check, model, sheet. Create
     /// launches `cmux vm new …` through the shared coordinator; the Machines
     /// panel shows the pending row and the outcome, whichever window it is in.
-    /// `plan` and `memoryOptionsMb` come from whatever fleet page the caller
-    /// already holds.
+    /// `plan`, `memoryOptionsMb`, and `imageKinds` come from whatever fleet
+    /// page the caller already holds; `imageKinds` decides which kinds the
+    /// sheet offers (Desktop first, and preselected when servable).
     func presentNewMachine(
         plan: MachinePlanSnapshot?,
         memoryOptionsMb: [Int],
+        imageKinds: [VMImageKindOption] = [],
         preferredWindow: NSWindow?,
         coordinator: MachineCreateCoordinator? = nil
     ) {
         let coordinator = coordinator ?? .shared
         if let plan, plan.isAtLimit, !plan.isPaidPlan {
-            ProUpgradePresenter.present()
+            ProUpgradePresenter.present(source: .newMachineAtLimit)
             return
         }
         let model = NewMachineModel(
             mode: .newMachine,
             plan: plan,
             memoryOptionsMb: memoryOptionsMb,
+            imageKinds: imageKinds,
             submit: { request in
                 coordinator.start(request, cancellableLaunch: { arguments, progress, completion in
                     var cancellation: CloudVMActionLauncher.CancellationHandle?
@@ -109,6 +112,7 @@ final class NewMachineSheetPresenter {
             presentNewMachine(
                 plan: MachineSnapshotBuilder.planSnapshot(activeCount: page?.vms.count ?? 0, limits: page?.limits),
                 memoryOptionsMb: page?.limits?.memoryOptionsMb ?? [],
+                imageKinds: page?.limits?.imageKinds ?? [],
                 preferredWindow: preferredWindow
             )
         }

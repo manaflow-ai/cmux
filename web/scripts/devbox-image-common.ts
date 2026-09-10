@@ -38,6 +38,7 @@ export const DEVBOX_TEMPLATE_FILES = [
   "cmux-motd",
   "cmux-terminfo.sh",
   "cmux-terminfo.src",
+  "codex-managed.toml",
   "seed-history",
 ] as const;
 
@@ -239,6 +240,18 @@ export function devboxGhosttyDebUrl(dockerfile = readDevboxDockerfile()): string
  * recipes verify the downloaded bytes against it before dpkg runs as root, so
  * a moved or tampered release asset fails the bake instead of installing.
  */
+/**
+ * The Ghostty release the image is built against, from the .deb pin: the
+ * version panes export as TERM_PROGRAM_VERSION (cmux-devbox-boot reads it from
+ * /etc/cmux/ghostty-version). Base images ship no Ghostty binary, so the pin,
+ * not `ghostty +version`, is the source.
+ */
+export function devboxGhosttyVersion(dockerfile = readDevboxDockerfile()): string {
+  const version = /\/ghostty_(\d+\.\d+\.\d+)[-_]/.exec(devboxGhosttyDebUrl(dockerfile))?.[1];
+  if (!version) throw new Error("devbox Dockerfile's CMUX_IMAGE_GHOSTTY_DEB_URL carries no ghostty_<x.y.z> version");
+  return version;
+}
+
 export function devboxGhosttyDebSha256(dockerfile = readDevboxDockerfile()): string {
   const sha = /^ARG CMUX_IMAGE_GHOSTTY_DEB_SHA256=([0-9a-f]{64})$/m.exec(dockerfile)?.[1];
   if (!sha) throw new Error("devbox Dockerfile is missing a 64-hex ARG CMUX_IMAGE_GHOSTTY_DEB_SHA256");

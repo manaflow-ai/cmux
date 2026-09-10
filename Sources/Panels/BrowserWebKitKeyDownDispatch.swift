@@ -61,7 +61,7 @@ func cmuxWithBrowserWebKitKeyDownDispatch<T>(
 }
 
 /// The outcome of delivering one browser automation key through AppKit.
-nonisolated enum BrowserKeyboardReplayResult: Sendable, Equatable {
+enum BrowserKeyboardReplayResult: Sendable, Equatable {
     /// The native event sequence was created and delivered to WebKit.
     case delivered
 

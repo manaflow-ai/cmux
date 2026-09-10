@@ -326,6 +326,60 @@ import Testing
         #expect(invocation.environment["CMUX_AGENT_RESTORE_LAUNCH"] == "amp:\(restoredThreadID)")
     }
 
+    @Test func chainedAmpRestoresKeepOneThreadPositionalAcrossCycles() throws {
+        // A cmux restore relaunches Amp as `amp threads continue <options> <thread>`;
+        // the wrapper execs the real binary with that tail and the plugin
+        // captures it as the next launch. A restore of that restore must not
+        // accumulate thread ids: `amp threads continue` foregrounds the first
+        // positional thread, so the restored thread has to be the only one.
+        let threadID = "T-01a080cd-412e-72eb-a287-94ea1515de6f"
+        let executable = "/Users/example/.local/bin/amp"
+        let shim = "/tmp/cmux-shims/amp"
+        let planner = AgentRestorePlanner(
+            isExecutableFile: { $0 == shim || $0 == executable }
+        )
+        var capturedArguments = [executable, "--mode", "smart"]
+
+        for cycle in 1...3 {
+            let request = AgentRestoreRequest(
+                mode: .resumeAgent,
+                kind: "amp",
+                checkpointID: threadID,
+                source: "agent-hook",
+                workingDirectory: "/tmp/amp project",
+                environment: [:],
+                launchCommand: AgentLaunchCommand(
+                    launcher: "amp",
+                    executablePath: executable,
+                    arguments: capturedArguments,
+                    workingDirectory: "/tmp/amp project",
+                    environment: ["CMUX_CUSTOM_AMP_PATH": executable]
+                ),
+                preparedArguments: nil,
+                observedPermissionMode: nil
+            )
+            let invocation = try #require(planner.invocation(
+                for: request,
+                ambientEnvironment: [
+                    "PATH": "/usr/bin:/bin",
+                    "CMUX_AMP_WRAPPER_SHIM": shim,
+                ]
+            ), "cycle \(cycle)")
+
+            #expect(invocation.arguments.first == shim, "cycle \(cycle)")
+            #expect(
+                Array(invocation.arguments.dropFirst()) == ["threads", "continue", "--mode", "smart", threadID],
+                "cycle \(cycle): \(invocation.arguments)"
+            )
+            #expect(
+                invocation.arguments.filter { $0.hasPrefix("T-") } == [threadID],
+                "cycle \(cycle): exactly one thread positional"
+            )
+            #expect(invocation.environment["CMUX_AGENT_RESTORE_LAUNCH"] == "amp:\(threadID)", "cycle \(cycle)")
+            capturedArguments = [executable] + invocation.arguments.dropFirst()
+        }
+    }
+
     @Test func directBindingPreservesStructuredArgumentsBeyondFormerInlineBudget() throws {
         let hazards = [
             "space value",

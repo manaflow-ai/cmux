@@ -9,6 +9,12 @@ import {
   TEAM_CHECKOUT_URL,
   withCheckoutInterval,
 } from "../../lib/billing";
+import {
+  CHECKOUT_SOURCE_PARAM,
+  CHECKOUT_SOURCE_PRICING_PAGE,
+  checkoutAttributionParamsFrom,
+  withCheckoutAttribution,
+} from "../../../services/analytics/checkoutAttribution";
 import { DOWNLOAD_CONFIRMATION_HREF } from "../../lib/download";
 import { getStackServerApp, isStackConfigured } from "../../lib/stack";
 import { resolveProPlanStatus } from "../../../services/billing/pro";
@@ -101,13 +107,22 @@ export default async function PricingPage({
   const snapshot = await currentPlanSnapshot();
   const canManageBilling = snapshot.billingManagement === "stripe";
   const interval = proBillingInterval(firstParam(query.interval) ?? "year");
+  // A link into /pricing may name its own origin (the CLI trial notice, a
+  // campaign with utm_* tags); that beats the page default so the checkout
+  // is attributed to the surface that sent the visitor here.
+  const attribution = {
+    [CHECKOUT_SOURCE_PARAM]: CHECKOUT_SOURCE_PRICING_PAGE,
+    ...checkoutAttributionParamsFrom(query),
+  };
+  const proCheckoutURL = withCheckoutAttribution(PRO_CHECKOUT_URL, attribution);
+  const teamCheckoutURL = withCheckoutAttribution(TEAM_CHECKOUT_URL, attribution);
   const proCheckoutHrefs = {
-    month: withCheckoutInterval(PRO_CHECKOUT_URL, "month"),
-    year: withCheckoutInterval(PRO_CHECKOUT_URL, "year"),
+    month: withCheckoutInterval(proCheckoutURL, "month"),
+    year: withCheckoutInterval(proCheckoutURL, "year"),
   };
   const teamCheckoutHrefs = {
-    month: withCheckoutInterval(TEAM_CHECKOUT_URL, "month"),
-    year: withCheckoutInterval(TEAM_CHECKOUT_URL, "year"),
+    month: withCheckoutInterval(teamCheckoutURL, "month"),
+    year: withCheckoutInterval(teamCheckoutURL, "year"),
   };
   const annualComparePrice = t("annualComparePrice", {
     monthly: PRO_PRICING_USD.year.monthlyEquivalent,
@@ -160,14 +175,6 @@ export default async function PricingPage({
         <PricingIntervalProvider initialInterval={interval}>
           {/* Title */}
           <h1 className="text-2xl font-medium tracking-tight">{t("title")}</h1>
-          <p className="mt-3 text-sm text-muted">
-            <Link
-              href="/billing/recover"
-              className="underline underline-offset-2 decoration-link-underline hover:text-foreground"
-            >
-              {t("alreadyPaid")}
-            </Link>
-          </p>
           <PricingIntervalSelector
             billingPeriodLabel={t("billingPeriod")}
             monthlyLabel={t("monthly")}
@@ -275,6 +282,15 @@ export default async function PricingPage({
               <FeatureList items={enterpriseFeatures} />
             </PlanCard>
           </div>
+
+          <p className="mt-6 text-sm text-muted">
+            <Link
+              href="/billing/recover"
+              className="underline underline-offset-2 decoration-link-underline hover:text-foreground"
+            >
+              {t("alreadyPaid")}
+            </Link>
+          </p>
 
           {/* Compare plans. Header row is sticky under the 48px h-12 site header.
               Horizontal scrolling is mobile-only so desktop keeps the page as the

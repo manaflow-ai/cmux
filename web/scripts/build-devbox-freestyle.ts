@@ -99,6 +99,7 @@ import {
   devboxFileBytes,
   devboxGhosttyDebSha256,
   devboxGhosttyDebUrl,
+  devboxGhosttyVersion,
   devboxIdentityCheckCommand,
   devboxIdentityInstallCommand,
   devboxJournalResetCommand,
@@ -294,7 +295,16 @@ try {
 
   await step(
     "claude-managed-settings",
-    `mkdir -p /etc/claude-code && echo '{ "cleanupPeriodDays": 99999 }' > /etc/claude-code/managed-settings.json && node -e 'JSON.parse(require("fs").readFileSync("/etc/claude-code/managed-settings.json","utf8"))'`,
+    `mkdir -p /etc/claude-code && echo '{ "cleanupPeriodDays": 99999, "skipDangerousModePermissionPrompt": true }' > /etc/claude-code/managed-settings.json && node -e 'JSON.parse(require("fs").readFileSync("/etc/claude-code/managed-settings.json","utf8"))'`,
+  );
+  // codex managed defaults: folder trust for /root and the work HOME
+  // (codex-managed.toml); cloned repos are trusted per launch by the codex()
+  // wrapper in agent-config.sh.
+  await step("codex-etc", "mkdir -p /etc/codex");
+  await put("codex-managed.toml", "/etc/codex/managed_config.toml", 0o644);
+  await step(
+    "codex-managed-config",
+    `python3 -c 'import tomllib; d = tomllib.load(open("/etc/codex/managed_config.toml", "rb")); assert d["projects"]["/root"]["trust_level"] == "trusted"; assert d["projects"]["${WORK_HOME}"]["trust_level"] == "trusted"'`,
   );
 
   // devshell replays the Dockerfile devshell + ble.sh tput cache bake (same
@@ -314,7 +324,7 @@ try {
   await put("agent-config.sh", "/etc/cmux/agent-config.sh");
   await step(
     "agent-config",
-    `bash -n /etc/cmux/agent-config.sh && echo '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' > /etc/profile.d/cmux-agents.sh && ${rcFiles.map((rc) => `echo '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' >> ${rc}`).join(" && ")} && mkdir -p /tmp/agent-config-check && env HOME=/tmp/agent-config-check OPENAI_BASE_URL=https://example.invalid/v1 OPENAI_API_KEY=cmux-vm-edge-placeholder CMUX_CODEROUTER_URL=https://example.invalid ANTHROPIC_BASE_URL=https://example.invalid ANTHROPIC_API_KEY=cmux-vm-edge-placeholder CMUX_VM_ID=vm-check bash -lc 'true' && grep -q 'model_provider = "cmux"' /tmp/agent-config-check/.codex/config.toml && grep -q 'wire_api = "responses"' /tmp/agent-config-check/.codex/config.toml && grep -q 'supports_websockets = false' /tmp/agent-config-check/.codex/config.toml && grep -q "export OPENAI_API_KEY='cmux-vm-edge-placeholder'" /tmp/agent-config-check/.config/cmux/model-plane.env && grep -q "export ANTHROPIC_BASE_URL='https://example.invalid'" /tmp/agent-config-check/.config/cmux/model-plane.env && grep -q "export CMUX_VM_ID='vm-check'" /tmp/agent-config-check/.config/cmux/model-plane.env && [ "$(stat -c %a /tmp/agent-config-check/.config/cmux/model-plane.env)" = "600" ] && grep -qF '"apiKey": "e30.' /tmp/agent-config-check/.pi/agent/models.json && ! grep -q x-coderouter-route-token /tmp/agent-config-check/.pi/agent/models.json && ! grep -q crt_ /tmp/agent-config-check/.pi/agent/models.json && test ! -e /tmp/agent-config-check/.config/opencode/opencode.json && rm -rf /tmp/agent-config-check && test ! -e /root/.codex/config.toml && test ! -e /root/.pi/agent/models.json && test ! -e /root/.config/opencode/opencode.json && test ! -e ${WORK_HOME}/.codex/config.toml`,
+    `bash -n /etc/cmux/agent-config.sh && echo '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' > /etc/profile.d/cmux-agents.sh && ${rcFiles.map((rc) => `echo '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' >> ${rc}`).join(" && ")} && rm -rf /tmp/agent-config-check && mkdir -p /tmp/agent-config-check && env HOME=/tmp/agent-config-check OPENAI_BASE_URL=https://example.invalid/v1 OPENAI_API_KEY=cmux-vm-edge-placeholder CMUX_CODEROUTER_URL=https://example.invalid ANTHROPIC_BASE_URL=https://example.invalid ANTHROPIC_API_KEY=cmux-vm-edge-placeholder CMUX_VM_ID=vm-check bash -lc 'true' && grep -q 'model_provider = "cmux"' /tmp/agent-config-check/.codex/config.toml && grep -q 'wire_api = "responses"' /tmp/agent-config-check/.codex/config.toml && grep -q 'supports_websockets = false' /tmp/agent-config-check/.codex/config.toml && grep -q "export OPENAI_API_KEY='cmux-vm-edge-placeholder'" /tmp/agent-config-check/.config/cmux/model-plane.env && grep -q "export ANTHROPIC_BASE_URL='https://example.invalid'" /tmp/agent-config-check/.config/cmux/model-plane.env && grep -q "export CMUX_VM_ID='vm-check'" /tmp/agent-config-check/.config/cmux/model-plane.env && [ "$(stat -c %a /tmp/agent-config-check/.config/cmux/model-plane.env)" = "600" ] && grep -qF '"apiKey": "e30.' /tmp/agent-config-check/.pi/agent/models.json && ! grep -q x-coderouter-route-token /tmp/agent-config-check/.pi/agent/models.json && ! grep -q crt_ /tmp/agent-config-check/.pi/agent/models.json && test ! -e /tmp/agent-config-check/.config/opencode/opencode.json && node -e 'const j = JSON.parse(require("fs").readFileSync("/tmp/agent-config-check/.claude.json","utf8")); if (!(j.hasCompletedOnboarding === true && j.bypassPermissionsModeAccepted === true && j.projects["/"].hasTrustDialogAccepted === true && Array.isArray(j.customApiKeyResponses.approved) && j.customApiKeyResponses.approved.includes("-vm-edge-placeholder"))) process.exit(1)' && [ "$(stat -c %a /tmp/agent-config-check/.claude.json)" = "600" ] && [ "$(bash -lc 'echo $CLAUDE_CODE_SANDBOXED:$IS_SANDBOX:$DISABLE_AUTOUPDATER')" = "1:1:1" ] && rm -rf /tmp/agent-config-check && test ! -e /root/.codex/config.toml && test ! -e /root/.pi/agent/models.json && test ! -e /root/.config/opencode/opencode.json && test ! -e ${WORK_HOME}/.codex/config.toml`,
   );
 
   // Login banner: pam_motd renders /etc/update-motd.d on SSH logins. The
@@ -419,6 +429,13 @@ try {
     `${cmuxTuiPinCheckCommand(cmuxTuiSource)} && mkdir -p /etc/cmux /root/.config/cmux && printf '%s %s\n' ${cmuxTuiSource.sha256} ${cmuxTuiSource.commit} > /etc/cmux/cmux-tui-pin && cat /etc/cmux/cmux-tui-pin`,
   );
 
+  // The Ghostty generation panes announce as TERM_PROGRAM_VERSION (the
+  // supervisor exports it next to TERM_PROGRAM=ghostty; see cmux-devbox-boot).
+  await step(
+    "ghostty-version",
+    `mkdir -p /etc/cmux && printf '%s\n' ${devboxGhosttyVersion()} > /etc/cmux/ghostty-version && cat /etc/cmux/ghostty-version`,
+  );
+
   // The cmux-tui daemon supervisor + its systemd unit (see the header).
   const service = [
     "[Unit]",
@@ -499,7 +516,13 @@ try {
 
   // The journal starts over so a machine's log begins under its own name,
   // not with the base's boot as `freestyle-vm`.
-  await step("clean", `rm -rf /var/lib/apt/lists/* /root/.npm/_cacache ${WORK_HOME}/.npm/_cacache 2>/dev/null; ${devboxJournalResetCommand}; sync; true`);
+  // The interactive bake probes above ran login shells for root and the work
+  // user before the model-plane env was baked, so their ~/.claude.json seeds
+  // lack the placeholder key approval. Drop them: each machine's first shell
+  // seeds its own from the env. (The static codex config those shells wrote
+  // is the same bytes on every machine and stays; the verifier checks it.)
+  await step("clean", `rm -rf /var/lib/apt/lists/* /root/.npm/_cacache ${WORK_HOME}/.npm/_cacache 2>/dev/null; rm -f /root/.claude.json ${WORK_HOME}/.claude.json; ${devboxJournalResetCommand}; sync; true`);
+  await step("no-stale-claude-seed", `test ! -e /root/.claude.json && test ! -e ${WORK_HOME}/.claude.json && echo no-stale-claude-seed`);
 } catch (error) {
   console.error(`bake failed: ${String(error)}`);
   await deleteBuilder();

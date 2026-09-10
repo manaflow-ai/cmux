@@ -114,7 +114,7 @@ describe("cmux-tui install and daemon commands", () => {
     // Terminals must be non-root shells: agents refuse root
     // (`claude --dangerously-skip-permissions`), sudo is the escalation path.
     expect(command).toContain(
-      "runuser -u cmux -- env HOME=/home/cmux USER=cmux LOGNAME=cmux SHELL=/bin/bash TERM=xterm-256color /home/cmux/.cmux/bin/cmux-tui server start",
+      "runuser -u cmux -- env HOME=/home/cmux USER=cmux LOGNAME=cmux SHELL=/bin/bash TERM=xterm-256color TERM_PROGRAM=ghostty TERM_PROGRAM_VERSION=\"$(cat /etc/cmux/ghostty-version 2>/dev/null)\" /home/cmux/.cmux/bin/cmux-tui server start",
     );
     expect(command).toContain("&& runuser -u cmux -- test -w /home/cmux 2>/dev/null; then cmux_tui_view_lost=0;");
     expect(command).toContain("cd /home/cmux 2>/dev/null || exit 75; exec runuser -u cmux -- env HOME=/home/cmux");
@@ -131,20 +131,20 @@ describe("cmux-tui install and daemon commands", () => {
     // A sandbox born before the layout change still has its persistent volume (data
     // AND daemon state) at /root; it must keep the root daemon until resurrection.
     expect(command).toContain("if mountpoint -q /root 2>/dev/null; then { mkdir -p /etc/cmux 2>/dev/null; printf 'root\\n'");
-    expect(command).toContain("exec env HOME=/root TERM=xterm-256color /home/cmux/.cmux/bin/cmux-tui server start");
-    expect(command).toContain("exec env HOME=/root TERM=xterm-256color /root/.cmux/bin/cmux-tui server start");
+    expect(command).toContain("exec env HOME=/root TERM=xterm-256color TERM_PROGRAM=ghostty TERM_PROGRAM_VERSION=\"$(cat /etc/cmux/ghostty-version 2>/dev/null)\" /home/cmux/.cmux/bin/cmux-tui server start");
+    expect(command).toContain("exec env HOME=/root TERM=xterm-256color TERM_PROGRAM=ghostty TERM_PROGRAM_VERSION=\"$(cat /etc/cmux/ghostty-version 2>/dev/null)\" /root/.cmux/bin/cmux-tui server start");
     // Volume mounted but the identity view missing (bindfs failed): home on the
     // persistent backing path as root, never the writable-but-disposable rootfs dir.
     expect(command).toContain("elif mountpoint -q /cmux/home 2>/dev/null && ! mountpoint -q /home/cmux 2>/dev/null; then ");
-    expect(command).toContain("cd /cmux/home 2>/dev/null || exit 75; if [ -x /cmux/home/.cmux/bin/cmux-tui ]; then exec env HOME=/cmux/home TERM=xterm-256color /cmux/home/.cmux/bin/cmux-tui server start");
-    expect(command).toContain("elif [ -x /root/.cmux/bin/cmux-tui ]; then exec env HOME=/cmux/home TERM=xterm-256color /root/.cmux/bin/cmux-tui server start");
+    expect(command).toContain("cd /cmux/home 2>/dev/null || exit 75; if [ -x /cmux/home/.cmux/bin/cmux-tui ]; then exec env HOME=/cmux/home TERM=xterm-256color TERM_PROGRAM=ghostty TERM_PROGRAM_VERSION=\"$(cat /etc/cmux/ghostty-version 2>/dev/null)\" /cmux/home/.cmux/bin/cmux-tui server start");
+    expect(command).toContain("elif [ -x /root/.cmux/bin/cmux-tui ]; then exec env HOME=/cmux/home TERM=xterm-256color TERM_PROGRAM=ghostty TERM_PROGRAM_VERSION=\"$(cat /etc/cmux/ghostty-version 2>/dev/null)\" /root/.cmux/bin/cmux-tui server start");
     // No user, no runuser, or an unusable home (bindfs view missing over the
     // root-squashing volume): fall back to root instead of crash-looping.
     expect(command).toContain(
       "[ \"$(id -u cmux 2>/dev/null || echo -1)\" = \"1001\" ] && command -v bash >/dev/null 2>&1 && command -v runuser >/dev/null 2>&1 && command -v sudo >/dev/null 2>&1 && runuser -u cmux -- test -w /home/cmux 2>/dev/null",
     );
     expect(command).toContain("(! mountpoint -q /cmux/home 2>/dev/null || mountpoint -q /home/cmux 2>/dev/null)");
-    expect(command).toContain("cd /home/cmux && exec env HOME=/home/cmux TERM=xterm-256color /home/cmux/.cmux/bin/cmux-tui server start");
+    expect(command).toContain("cd /home/cmux && exec env HOME=/home/cmux TERM=xterm-256color TERM_PROGRAM=ghostty TERM_PROGRAM_VERSION=\"$(cat /etc/cmux/ghostty-version 2>/dev/null)\" /home/cmux/.cmux/bin/cmux-tui server start");
     // If the work user is unavailable even after setup, keep root fallback state on
     // the mounted volume instead of the disposable /home/cmux rootfs directory.
     expect(command).toContain(

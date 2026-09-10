@@ -55,6 +55,15 @@
 # and restarts it if it ever exits. The daemon loop below is untouched by it:
 # the desktop is a sibling process, never a child of the session daemon.
 BIN=/root/.cmux/bin/cmux-tui
+# Terminal identity for every pane the daemon opens. Children inherit the
+# daemon's environment, and the Mac app renders each pane in its embedded
+# Ghostty, so panes carry the same identity the app exports to local and SSH
+# shells: TERM=xterm-256color plus COLORTERM=truecolor (set by the daemon at
+# spawn), TERM_PROGRAM=ghostty, and TERM_PROGRAM_VERSION from the Ghostty
+# generation the bake recorded in /etc/cmux/ghostty-version. Agents gate
+# synchronized output, progress reporting, strikethrough, and Cmd-click on
+# TERM_PROGRAM; without it Claude Code treats the pane as a plain xterm.
+# The exact string is CMUX_TUI_DAEMON_TERMINAL_ENV in cmuxTuiDaemon.ts.
 DESKTOP_BOOT=/usr/local/bin/cmux-desktop-boot
 DESKTOP_RUNTIME_DIR=/run/cmux-desktop
 DESKTOP_DISPLAY=:1
@@ -135,7 +144,7 @@ while true; do
         # --remote-ws-trusted-carrier: the listener is reachable only inside the
         # owner's private network, whose members are all authorized, so every
         # link gets carrier authentication with no device enrollment.
-        (cd /root && exec env HOME=/root TERM=xterm-256color /root/.cmux/bin/cmux-tui server start --session cloud --remote-ws "${CMUX_TUI_REMOTE_WS_BIND:-0.0.0.0:1337}" --remote-ws-insecure-bind --remote-ws-trusted-carrier) &
+        (cd /root && exec env HOME=/root TERM=xterm-256color TERM_PROGRAM=ghostty TERM_PROGRAM_VERSION="$(cat /etc/cmux/ghostty-version 2>/dev/null)" /root/.cmux/bin/cmux-tui server start --session cloud --remote-ws "${CMUX_TUI_REMOTE_WS_BIND:-0.0.0.0:1337}" --remote-ws-insecure-bind --remote-ws-trusted-carrier) &
         daemon_pid=$!
       fi
     fi

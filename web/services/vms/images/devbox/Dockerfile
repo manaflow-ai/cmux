@@ -209,10 +209,17 @@ RUN npm install -g --foreground-scripts \
   && mise reshim \
   && claude --version && codex --version && opencode --version && pi --version && agent-browser --version
 
-# Keep Claude Code session transcripts effectively forever (chatmux parity).
+# Keep Claude Code session transcripts effectively forever (chatmux parity)
+# and pre-accept the --dangerously-skip-permissions confirmation: the VM is
+# the isolation boundary, so the seeded launch must reach the prompt.
 RUN mkdir -p /etc/claude-code \
-  && echo '{ "cleanupPeriodDays": 99999 }' > /etc/claude-code/managed-settings.json \
+  && echo '{ "cleanupPeriodDays": 99999, "skipDangerousModePermissionPrompt": true }' > /etc/claude-code/managed-settings.json \
   && node -e 'JSON.parse(require("fs").readFileSync("/etc/claude-code/managed-settings.json","utf8"))'
+
+# codex managed defaults: folder trust for the HOMEs (see codex-managed.toml).
+COPY codex-managed.toml /etc/codex/managed_config.toml
+RUN python3 -c 'import tomllib; d = tomllib.load(open("/etc/codex/managed_config.toml", "rb")); assert d["projects"]["/root"]["trust_level"] == "trusted"' \
+  && chmod 0644 /etc/codex/managed_config.toml
 
 # Identity (web/services/vms/images/identity.ts): a cmux Cloud machine is
 # `cmux`, never the provider's base name. The Freestyle bake owns that step
@@ -306,7 +313,7 @@ RUN bash -n /etc/cmux/agent-config.sh \
   && echo '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' >> /etc/bash.bashrc \
   && echo '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' >> /etc/skel/.bashrc \
   && echo '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' >> /root/.bashrc \
-  && mkdir -p /tmp/agent-config-check \
+  && rm -rf /tmp/agent-config-check && mkdir -p /tmp/agent-config-check \
   && env HOME=/tmp/agent-config-check OPENAI_BASE_URL=https://example.invalid/v1 OPENAI_API_KEY=cmux-vm-edge-placeholder CMUX_CODEROUTER_URL=https://example.invalid ANTHROPIC_BASE_URL=https://example.invalid ANTHROPIC_API_KEY=cmux-vm-edge-placeholder CMUX_VM_ID=vm-check bash -lc 'true' \
   && grep -q 'model_provider = "cmux"' /tmp/agent-config-check/.codex/config.toml \
   && grep -q 'base_url = "https://example.invalid/v1"' /tmp/agent-config-check/.codex/config.toml \
@@ -323,6 +330,9 @@ RUN bash -n /etc/cmux/agent-config.sh \
   && ! grep -q 'x-coderouter-route-token' /tmp/agent-config-check/.pi/agent/models.json \
   && ! grep -q 'crt_' /tmp/agent-config-check/.pi/agent/models.json \
   && test ! -e /tmp/agent-config-check/.config/opencode/opencode.json \
+  && node -e 'const j = JSON.parse(require("fs").readFileSync("/tmp/agent-config-check/.claude.json","utf8")); if (!(j.hasCompletedOnboarding === true && j.bypassPermissionsModeAccepted === true && j.projects["/"].hasTrustDialogAccepted === true && Array.isArray(j.customApiKeyResponses.approved) && j.customApiKeyResponses.approved.includes("-vm-edge-placeholder"))) process.exit(1)' \
+  && [ "$(stat -c %a /tmp/agent-config-check/.claude.json)" = "600" ] \
+  && [ "$(bash -lc 'echo $CLAUDE_CODE_SANDBOXED:$IS_SANDBOX:$DISABLE_AUTOUPDATER')" = "1:1:1" ] \
   && rm -rf /tmp/agent-config-check \
   && mkdir -p /tmp/agent-config-resurrect/.config/cmux \
   && echo "export OPENAI_BASE_URL='https://resurrect.invalid/v1'" > /tmp/agent-config-resurrect/.config/cmux/model-plane.env \
@@ -330,6 +340,8 @@ RUN bash -n /etc/cmux/agent-config.sh \
   && env HOME=/tmp/agent-config-resurrect bash -lc 'grep -q "https://resurrect.invalid/v1" "$HOME/.codex/config.toml"' \
   && rm -rf /tmp/agent-config-resurrect \
   && bash -lc 'true' \
+  && rm -f /root/.claude.json \
+  && test ! -e /root/.claude.json \
   && test ! -e /root/.codex/config.toml \
   && test ! -e /root/.pi/agent/models.json \
   && test ! -e /root/.config/opencode/opencode.json \
@@ -339,8 +351,14 @@ RUN bash -n /etc/cmux/agent-config.sh \
 # by the driver at create time, never baked). Without systemd it also runs the
 # desktop supervisor as the work user.
 COPY cmux-devbox-boot /usr/local/bin/cmux-devbox-boot
+# The Ghostty generation panes announce as TERM_PROGRAM_VERSION next to
+# TERM_PROGRAM=ghostty (the supervisor reads it; base images without the .deb
+# still record the pin). The Freestyle bake writes the same file.
 RUN chmod 0755 /usr/local/bin/cmux-devbox-boot \
-  && sh -n /usr/local/bin/cmux-devbox-boot
+  && sh -n /usr/local/bin/cmux-devbox-boot \
+  && mkdir -p /etc/cmux \
+  && echo "$CMUX_IMAGE_GHOSTTY_DEB_URL" | sed -n 's|.*/ghostty_\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)[-_].*|\1|p' > /etc/cmux/ghostty-version \
+  && grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' /etc/cmux/ghostty-version
 
 # Desktop self-check, the way a container boots it: the supervisor starts the
 # session as the work user, both contract ports answer, noVNC serves its
@@ -389,3 +407,10 @@ RUN chmod 0755 /etc/update-motd.d/00-cmux \
 # layers the image carries (verify-devbox-image.ts keys the desktop checks on
 # the word "desktop").
 RUN echo "cmux-devbox ${CMUX_IMAGE_EPOCH} desktop" > /etc/cmux/image-stamp && cat /etc/cmux/image-stamp
+
+# The login-shell probes above seeded ~/.claude.json before any model-plane
+# env existed. Ship no seed: each machine's first shell writes its own, with
+# the placeholder key approval derived from the env (Freestyle bake parity).
+RUN work_home="$(getent passwd 1000 | cut -d: -f6)" \
+  && rm -f /root/.claude.json "$work_home/.claude.json" \
+  && test ! -e /root/.claude.json && test ! -e "$work_home/.claude.json"

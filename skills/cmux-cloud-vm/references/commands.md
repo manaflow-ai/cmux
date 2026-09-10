@@ -1,6 +1,6 @@
 # cmux vm command reference
 
-`cloud` is an alias for `vm` (`cmux cloud ls` == `cmux vm ls`). The global `--json` flag works on every subcommand and may appear before or after the subcommand. All of this requires the cmux app running and a signed-in account.
+`cloud` is an alias for `vm` (`cmux cloud ls` == `cmux vm ls`). The global `--json` flag works on every subcommand and may appear before or after the subcommand. All of this requires the cmux app running and a signed-in account, except the guest `cmux self` and `cmux vm ls`, which run inside a machine on its edge-injected credential.
 
 ## Discovery: the cloud tree
 
@@ -11,6 +11,7 @@ cmux vm ls --json                      # {vms: [{id, status, image, createdAt, f
 cmux vpn status                        # this build's WireGuard tunnel to its private machine network (machines open no public port): up, down, or up for another enrollment (stale)
 cmux vpn up                            # enroll this Mac and bring the tunnel up (sudo); a stale tunnel (rotated keys) is replaced. One tunnel per deployment (`cmux` for production, `cmux-staging`/`cmux-dev` for dev builds), so a dev build and the production app can both be up
 cmux vpn down                          # take this build's tunnel down (sudo)
+cmux self                              # INSIDE a machine: this machine's name, id, status, team (--json: {schema, machine, team, machines}); the guest `cmux vm ls` lists the team's machines with this one marked *
 cmux vm tree                           # the surface catalog: This Mac (terminals by workspace, browsers), then every machine → Workspaces, Ports, VNC Displays, Terminals
 cmux vm tree <id> --refresh            # one machine (`local` for This Mac), re-synced first
 cmux vm workspace new <id> [--name n]  # a new cmux-tui workspace on the machine (⌘N there), opened as a new local workspace

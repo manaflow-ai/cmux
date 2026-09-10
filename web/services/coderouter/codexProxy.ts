@@ -6,6 +6,7 @@ import {
 } from "./repository";
 import { freshCredential } from "./refresh";
 import { fetchProviderRead } from "./providerFetch";
+import { RESPONSES_PROVIDERS, type CodeRouterCredential } from "./types";
 import { captureCoderouterEvent } from "./analytics";
 import {
   addCoderouterBreadcrumb,
@@ -37,6 +38,10 @@ import {
 
 const CODEX_UPSTREAM = "https://chatgpt.com/backend-api/codex/responses";
 const CODEX_MODELS_UPSTREAM = "https://chatgpt.com/backend-api/codex/models";
+const OPENAI_UPSTREAM = "https://api.openai.com/v1/responses";
+const OPENAI_MODELS_UPSTREAM = "https://api.openai.com/v1/models";
+const OPENROUTER_UPSTREAM = "https://openrouter.ai/api/v1/responses";
+const OPENROUTER_MODELS_UPSTREAM = "https://openrouter.ai/api/v1/models";
 const ALLOWED_REQUEST_HEADERS = [
   "accept",
   "content-encoding",
@@ -228,7 +233,7 @@ async function proxyCodexRequestWith(
         runtime.now,
         (signal) => dependencies.select({
           teamId: identity.teamId,
-          provider: "codex",
+          provider: RESPONSES_PROVIDERS,
           sessionKey,
           excludedAccountIds: attempted,
           signal,
@@ -308,7 +313,7 @@ async function proxyCodexRequestWith(
       if (tag === "CodeRouterCredentialBroken") continue;
       throw error;
     }
-    if (credential.provider !== "codex") continue;
+    if (!servesResponses(credential)) continue;
     throwIfRequestAborted(request);
     const headersTimeoutMs = remainingUpstreamHeadersTimeoutMs(
       upstreamHeaderDeadlineAt,
@@ -321,7 +326,7 @@ async function proxyCodexRequestWith(
     }
     const upstreamStartedAt = performance.now();
     try {
-      upstream = await sendCodex(
+      upstream = await sendResponses(
         request.clone(),
         forwardedHeaders,
         credential,
@@ -331,7 +336,7 @@ async function proxyCodexRequestWith(
       recordCoderouterSpan({
         name: "upstream_attempt",
         startedAt: upstreamStartedAt,
-        attributes: { provider: "codex", attempt: attempt + 1, status: upstream.status },
+        attributes: { provider: credential.provider, attempt: attempt + 1, status: upstream.status },
       });
     } catch (error) {
       if (request.signal.aborted) throw error;
@@ -387,7 +392,7 @@ async function proxyCodexRequestWith(
             break;
           }
           const retryStartedAt = performance.now();
-          upstream = await sendCodex(
+          upstream = await sendResponses(
             request.clone(),
             forwardedHeaders,
             refreshed,
@@ -547,7 +552,7 @@ export function createCodexModelsProxy(dependencies: CodexModelsDependencies) {
       const selectStartedAt = performance.now();
       const account = await dependencies.select(
         identity.teamId,
-        "codex",
+        RESPONSES_PROVIDERS,
         attempted,
       );
       recordCoderouterSpan({
@@ -568,19 +573,13 @@ export function createCodexModelsProxy(dependencies: CodexModelsDependencies) {
         failureStage = "credential_refresh";
         continue;
       }
-      if (credential.provider !== "codex") continue;
-      const upstreamUrl = new URL(CODEX_MODELS_UPSTREAM);
-      upstreamUrl.search = new URL(request.url).search;
+      if (!servesResponses(credential)) continue;
+      const models = modelsRequest(credential, request);
       const upstreamStartedAt = performance.now();
       try {
         upstream = await dependencies.providerRead(() =>
-          fetch(upstreamUrl, {
-            headers: {
-              authorization: `Bearer ${credential.accessToken}`,
-              "chatgpt-account-id": credential.accountId,
-              originator: "codex_cli_rs",
-              "user-agent": request.headers.get("user-agent") ?? "coderouter",
-            },
+          fetch(models.url, {
+            headers: models.headers,
             cache: "no-store",
             signal: AbortSignal.timeout(5_000),
           }),
@@ -620,6 +619,10 @@ export function createCodexModelsProxy(dependencies: CodexModelsDependencies) {
           rateLimitDelay(upstream.headers),
           request.signal,
         );
+        continue;
+      }
+      if (upstream.status === 401) {
+        await retireRejectedCredential(dependencies, identity.teamId, account);
         continue;
       }
       break;
@@ -669,27 +672,141 @@ export const proxyCodexModels = createCodexModelsProxy({
   providerRead: fetchProviderRead,
 });
 
-async function sendCodex(
+type ResponsesCredential = Extract<
+  CodeRouterCredential,
+  { provider: "codex" | "openai-apikey" | "openrouter-apikey" }
+>;
+
+function servesResponses(credential: CodeRouterCredential): credential is ResponsesCredential {
+  return (RESPONSES_PROVIDERS as readonly string[]).includes(credential.provider);
+}
+
+/**
+ * Forwards one Responses call to the account's own upstream. Codex sign-ins go
+ * to the ChatGPT backend with the account header; an OpenAI key goes to the
+ * public API; an OpenRouter key goes to OpenRouter, whose model catalog is
+ * vendor-prefixed, so a bare OpenAI model id is rewritten to `openai/<id>`.
+ */
+async function sendResponses(
   request: Request,
   forwardedHeaders: Headers,
-  credential: { accessToken: string; accountId: string },
+  credential: ResponsesCredential,
   fetchImpl: typeof fetch,
   headersTimeoutMs: number,
 ): Promise<Response> {
   const headers = new Headers(forwardedHeaders);
-  headers.set("authorization", `Bearer ${credential.accessToken}`);
-  headers.set("chatgpt-account-id", credential.accountId);
-  headers.set("originator", "coderouter");
+  let url = CODEX_UPSTREAM;
+  let body: BodyInit | null = request.body;
+  switch (credential.provider) {
+    case "codex":
+      headers.set("authorization", `Bearer ${credential.accessToken}`);
+      headers.set("chatgpt-account-id", credential.accountId);
+      headers.set("originator", "coderouter");
+      break;
+    case "openai-apikey":
+      url = OPENAI_UPSTREAM;
+      headers.set("authorization", `Bearer ${credential.apiKey}`);
+      headers.delete("session_id");
+      break;
+    case "openrouter-apikey":
+      url = OPENROUTER_UPSTREAM;
+      headers.set("authorization", `Bearer ${credential.apiKey}`);
+      headers.set("http-referer", "https://cmux.com");
+      headers.set("x-title", "cmux coderouter");
+      headers.delete("session_id");
+      headers.delete("openai-beta");
+      body = await openRouterBody(request);
+      break;
+  }
   // Bounded to headers only: a hung upstream fails over instead of holding
   // the function for the full maxDuration; the body streams unbounded.
-  return await fetchWithHeadersTimeout(fetchImpl, CODEX_UPSTREAM, {
+  return await fetchWithHeadersTimeout(fetchImpl, url, {
     method: "POST",
     headers,
-    body: request.body,
+    body,
     signal: request.signal,
     duplex: "half",
     cache: "no-store",
   } as RequestInit & { duplex: "half" }, headersTimeoutMs);
+}
+
+/** Rewrites a bare model id to OpenRouter's `openai/<id>`; anything else passes through. */
+async function openRouterBody(request: Request): Promise<BodyInit | null> {
+  const text = await request.text();
+  try {
+    const parsed: unknown = JSON.parse(text);
+    if (
+      parsed && typeof parsed === "object" && !Array.isArray(parsed) &&
+      typeof (parsed as { model?: unknown }).model === "string"
+    ) {
+      return JSON.stringify({ ...parsed, model: openRouterModelId((parsed as { model: string }).model) });
+    }
+  } catch {
+    // Not JSON: forward as received and let OpenRouter answer.
+  }
+  return text;
+}
+
+export function openRouterModelId(model: string): string {
+  return model.includes("/") ? model : `openai/${model}`;
+}
+
+/**
+ * A 401 on model discovery: force a refresh so an expired sign-in rotates and
+ * a rejected API key is marked broken, then let the loop pick another account.
+ */
+async function retireRejectedCredential(
+  dependencies: Pick<CodexModelsDependencies, "credential">,
+  teamId: string,
+  account: { readonly id: string; readonly vaultRevision: number },
+): Promise<void> {
+  try {
+    await dependencies.credential({
+      teamId,
+      accountId: account.id,
+      expectedRevision: account.vaultRevision,
+      force: true,
+    });
+  } catch {
+    // Busy or broken: either way this account is not used for this request.
+  }
+}
+
+function modelsRequest(
+  credential: ResponsesCredential,
+  request: Request,
+): { readonly url: URL; readonly headers: Record<string, string> } {
+  const userAgent = request.headers.get("user-agent") ?? "coderouter";
+  switch (credential.provider) {
+    case "codex": {
+      const url = new URL(CODEX_MODELS_UPSTREAM);
+      url.search = new URL(request.url).search;
+      return {
+        url,
+        headers: {
+          authorization: `Bearer ${credential.accessToken}`,
+          "chatgpt-account-id": credential.accountId,
+          originator: "codex_cli_rs",
+          "user-agent": userAgent,
+        },
+      };
+    }
+    case "openai-apikey":
+      return {
+        url: new URL(OPENAI_MODELS_UPSTREAM),
+        headers: { authorization: `Bearer ${credential.apiKey}`, "user-agent": userAgent },
+      };
+    case "openrouter-apikey":
+      return {
+        url: new URL(OPENROUTER_MODELS_UPSTREAM),
+        headers: {
+          authorization: `Bearer ${credential.apiKey}`,
+          "http-referer": "https://cmux.com",
+          "x-title": "cmux coderouter",
+          "user-agent": userAgent,
+        },
+      };
+  }
 }
 
 function rateLimitDelay(headers: Headers): number {
