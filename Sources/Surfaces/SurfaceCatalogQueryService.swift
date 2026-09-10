@@ -27,6 +27,9 @@ struct SurfaceCatalogQueryService {
     func read(machine: SurfaceMachineID?, refresh: Bool) async -> SurfaceCatalogExport {
         if refresh {
             if let machine {
+                // A create can finish before the fleet poll sees the machine.
+                // Discover it before an empty catalog is treated as unavailable.
+                _ = await provider(for: machine)
                 await catalog.refresh(machine: machine, force: true)
             } else {
                 await catalog.refreshAll(force: true)

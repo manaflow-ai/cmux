@@ -111,9 +111,6 @@ extension TerminalController {
         return v2VmCall(id: id, timeoutSeconds: 120) {
             let machine = vmId.map { SurfaceMachineID.cloud($0) }
             let query = await Self.surfaceCatalogQuery(catalog: .shared)
-            if refresh, let vmId {
-                _ = await CmuxTuiSurfaceProviderRegistry.shared.providerRefreshingIfMissing(machineID: vmId)
-            }
             let export = await query.read(machine: machine, refresh: refresh)
             return Self.surfaceCatalogPayload(export, machine: machine, cloudOnly: true)
         }
