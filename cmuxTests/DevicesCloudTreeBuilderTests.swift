@@ -332,7 +332,7 @@ struct DevicesCloudTreeBuilderTests {
     @Test("My Devices follows all fleet and catalog-only cloud machines")
     func devicesFollowEntireFleet() {
         let snapshot = SurfaceCatalogSnapshot(
-            machines: [info(studio, name: "Studio", online: true), cloudInfo("catalog-only"), cloudInfo("fleet-a"), cloudInfo("fleet-b")],
+            machines: [info(studio, name: "Studio", online: true, linkState: .connected), cloudInfo("catalog-only"), cloudInfo("fleet-a"), cloudInfo("fleet-b")],
             resources: [], projections: []
         )
         let nodes = CloudTreeNodeBuilder.nodes(
