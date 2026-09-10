@@ -349,7 +349,8 @@ import Testing
         if case .notFound = resolver.resolveVMRemoteView(in: detached, workspaceID: "ws_main") {} else {
             Issue.record("an authoritative empty view array overrides stale legacy placement")
         }
-        for malformed: Any in ["invalid", [[:]] as [[String: Any]]] {
+        let malformedValues: [Any] = ["invalid", [[:]] as [[String: Any]]]
+        for malformed in malformedValues {
             var payload = legacy
             payload["remote_views"] = malformed
             if case .unavailable = resolver.resolveVMRemoteView(in: payload, workspaceID: "ws_main") {} else {
