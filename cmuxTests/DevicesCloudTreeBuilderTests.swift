@@ -110,6 +110,18 @@ struct DevicesCloudTreeBuilderTests {
         _ = container
     }
 
+    @MainActor
+    @Test("Revoked device links do not expose creation controls through cached terminal pools")
+    func unavailableDeviceHidesCachedCreationActions() {
+        let workspace = SurfaceRemoteWorkspace(id: "w1", name: "Work", index: 0, focused: true)
+        let snapshot = SurfaceCatalogSnapshot(
+            machines: [info(studio, name: "Studio", online: true, linkState: .unavailable, workspaces: [workspace])],
+            resources: [terminal("t1", on: .device(studio), in: workspace, title: "zsh")], projections: []
+        )
+        let nodes = CloudTreeNodeBuilder.nodes(machines: [], snapshot: snapshot, localWorkspaces: [], source: .devices)
+        #expect(CloudTreeNodeBuilder.flattened(nodes).allSatisfy { !CloudTreeRowHoverButtons.hasButtons(for: $0.kind) })
+    }
+
     private func presence(
         online: Bool,
         tag: String,
