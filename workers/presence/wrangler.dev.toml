@@ -5,6 +5,7 @@
 name = "cmux-presence-dev"
 main = "src/index.ts"
 compatibility_date = "2026-05-01"
+compatibility_flags = ["nodejs_compat"]
 workers_dev = true
 
 [observability]
