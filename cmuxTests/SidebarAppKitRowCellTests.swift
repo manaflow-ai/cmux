@@ -10,6 +10,31 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct SidebarAppKitRowCellTests {
+    @Test
+    func activeRowBackgroundUsesAndTracksInjectedChromePalette() throws {
+        let model = Self.makeModel(isActive: true)
+        let cell = Self.configuredCell(model: model)
+        let window = Self.layoutCell(cell, model: model)
+
+        for selectionHex in ["#243346", "#FEDCBA"] {
+            let selection = try #require(ChromeColor(hex: selectionHex))
+            let palette = ChromePalette.resolve(
+                theme: .catppuccin,
+                colorScheme: .dark,
+                overrides: ChromeTokenOverrides([.surfaceSelected: selection])
+            )
+            cell.setChromePalette(palette)
+            let paintedBackgrounds = cell.subviews.compactMap { view -> String? in
+                guard let color = view.layer?.backgroundColor else { return nil }
+                return NSColor(cgColor: color)?.hexString()
+            }
+
+            #expect(paintedBackgrounds.contains(selectionHex))
+            #expect(SidebarRowPalette(model: model, chromePalette: palette).selectedBackground.hexString() == selectionHex)
+        }
+        _ = window
+    }
+
     private static func makeSnapshot(
         title: String = "Workspace",
         customDescription: String? = nil,
