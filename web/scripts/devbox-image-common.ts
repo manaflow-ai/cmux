@@ -14,7 +14,7 @@
  * guest-facing `/usr/local/bin/cmux` adapter and the cmux-devbox-boot
  * supervisor, but no daemon binary.
  */
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { Buffer } from "node:buffer";
 import { existsSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -279,7 +279,7 @@ export function devboxGhosttyDebSha256(dockerfile = readDevboxDockerfile()): str
   return sha;
 }
 
-const AGENT_PIN_ARGS: readonly { arg: string; pkg: string; binary: string }[] = [
+export const AGENT_PIN_ARGS: readonly { arg: string; pkg: string; binary: string }[] = [
   { arg: "CMUX_IMAGE_CLAUDE_CODE_VERSION", pkg: "@anthropic-ai/claude-code", binary: "claude" },
   { arg: "CMUX_IMAGE_CODEX_VERSION", pkg: "@openai/codex", binary: "codex" },
   { arg: "CMUX_IMAGE_OPENCODE_VERSION", pkg: "opencode-ai", binary: "opencode" },
@@ -302,6 +302,47 @@ export function readDevboxDockerfile(): string {
   return readFileSync(devboxDockerfilePath, "utf8");
 }
 
+/** An exact npm release: `x.y.z`, never a range, a tag, or a prerelease. */
+export const EXACT_AGENT_PIN = /^\d+\.\d+\.\d+$/;
+
+/**
+ * Rewrites the Dockerfile's `ARG CMUX_IMAGE_<TOOL>_VERSION=` lines to
+ * `versions` (keyed by npm package), leaving every other byte alone. The one
+ * sanctioned way to bump a pin (`bun run devbox:pins:check --write`): a pin is
+ * an exact release, a package the Dockerfile does not bake is a mistake, and
+ * a missing ARG line means the recipe no longer matches this table.
+ */
+export function rewriteDevboxAgentPins(dockerfile: string, versions: Record<string, string>): string {
+  let next = dockerfile;
+  for (const [pkg, version] of Object.entries(versions)) {
+    const pin = AGENT_PIN_ARGS.find((candidate) => candidate.pkg === pkg);
+    if (!pin) throw new Error(`${pkg} is not a devbox agent pin (${AGENT_PIN_ARGS.map((row) => row.pkg).join(", ")})`);
+    if (!EXACT_AGENT_PIN.test(version)) throw new Error(`${pkg}: ${version} is not an exact x.y.z release`);
+    const line = new RegExp(`^ARG ${pin.arg}=\\S+$`, "m");
+    if (!line.test(next)) throw new Error(`devbox Dockerfile is missing ARG ${pin.arg}`);
+    next = next.replace(line, `ARG ${pin.arg}=${version}`);
+  }
+  return next;
+}
+
+export type AgentPinDrift = {
+  readonly pkg: string;
+  readonly binary: string;
+  readonly pinned: string;
+  readonly latest: string;
+  /** The registry's latest is not the pin (a newer release, or a pin ahead of a yanked latest). */
+  readonly behind: boolean;
+};
+
+/** Pins next to the registry's current release; `latest` is keyed by npm package. */
+export function agentPinDrift(pins: readonly AgentPin[], latest: Readonly<Record<string, string>>): AgentPinDrift[] {
+  return pins.map((pin) => {
+    const current = latest[pin.pkg];
+    if (!current) throw new Error(`no registry version for ${pin.pkg}`);
+    return { pkg: pin.pkg, binary: pin.binary, pinned: pin.version, latest: current, behind: current !== pin.version };
+  });
+}
+
 /** The cua computer-use driver pin, from the Dockerfile (never a second copy). */
 export function devboxCuaDriverVersion(dockerfile = readDevboxDockerfile()): string {
   const version = /CUA_DRIVER_RS_VERSION=(\S+)/.exec(dockerfile)?.[1];
@@ -312,6 +353,131 @@ export function devboxCuaDriverVersion(dockerfile = readDevboxDockerfile()): str
 export function devboxImageEpoch(dockerfile = readDevboxDockerfile()): string {
   return /CMUX_IMAGE_EPOCH=([^\s"]+)/.exec(dockerfile)?.[1] ?? "none";
 }
+
+/**
+ * The source-digest formula version a manifest entry was recorded with.
+ * Schema 1 covered the verbatim files, the ARG pins and the epoch; schema 2
+ * adds the Dockerfile's instructions (comments dropped by the Dockerfile
+ * grammar) and every non-blank line of the Freestyle bake script, so a step
+ * change such as a new apt package can no longer leave the digest unchanged.
+ * Entries keep the schema they were recorded with and are checked with that
+ * formula, so a formula change never forces a rebake of an already promoted
+ * ladder; new bakes record the current schema, and
+ * `upgradeDevboxSourceRecords` moves an entry up only when its provenance is
+ * proven from what it already recorded.
+ */
+export const DEVBOX_SOURCE_SCHEMA = 2;
+export const bakeScriptPath = path.join(webRoot, "scripts/build-devbox-freestyle.ts");
+
+/**
+ * A Dockerfile reduced to its instructions, by the Dockerfile grammar: a line
+ * whose first non-blank character is `#` is a comment (also inside a
+ * continued instruction) unless it is a parser directive (`# key=value`
+ * before the first instruction), which changes how the file is read and is
+ * kept. Blank lines dropped, trailing whitespace trimmed. The container
+ * recipe and the Freestyle replay are kept in step by hand, so an
+ * instruction edit is an image change even when no ARG moved; a comment is
+ * not.
+ */
+export function normalizedDockerfileInstructions(dockerfile: string): string {
+  const kept: string[] = [];
+  let beforeFirstInstruction = true;
+  for (const raw of dockerfile.split("\n")) {
+    const line = raw.trimEnd();
+    const trimmed = line.trim();
+    if (trimmed === "") continue;
+    if (trimmed.startsWith("#")) {
+      if (beforeFirstInstruction && /^#\s*[A-Za-z][A-Za-z0-9]*\s*=/.test(trimmed)) kept.push(line);
+      continue;
+    }
+    beforeFirstInstruction = false;
+    kept.push(line);
+  }
+  return kept.join("\n");
+}
+
+/**
+ * The bake script reduced to its non-blank lines, trailing whitespace
+ * trimmed. Nothing else is dropped on purpose: telling a comment from code
+ * in TypeScript needs a full lexer (block comments, strings, template
+ * literals, regex literals), and any line heuristic can hide a code change
+ * (a `*`-prefixed continuation, a generator method). So a comment edit to
+ * build-devbox-freestyle.ts also moves the digest and asks for a
+ * re-promotion; that is the price of a digest that cannot miss a step
+ * change, and edits to the bake script are promoted anyway.
+ */
+export function normalizedBakeScript(source: string): string {
+  return source
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .filter((line) => line.trim() !== "")
+    .join("\n");
+}
+
+/**
+ * Everything the Freestyle bake takes from this checkout for an image with
+ * `layers` (the shell layer for `base`, plus the desktop layer for
+ * `desktop`): the files shipped verbatim (sha256 each, the desktop files by
+ * their DEVBOX_DESKTOP_INSTALLS path), the pins the Dockerfile ARGs carry
+ * (agents, cua-driver, the Ghostty .deb, the desktop apt list), the epoch
+ * and, from schema 2, the Dockerfile's instructions and the bake script's
+ * non-blank lines (normalizedDockerfileInstructions, normalizedBakeScript).
+ * Dockerfile prose is deliberately not part of it: a comment cannot change a
+ * machine; bake-script prose is, for want of a lexer that could tell it from
+ * code.
+ * `devboxSourceDigest` is its sha256, recorded on every manifest entry at
+ * bake time so `devboxSourceDriftProblems` can tell when main describes a
+ * machine the promoted default no longer is.
+ */
+export function devboxSourceManifest(
+  layers: DevboxImageKind,
+  dockerfile = readDevboxDockerfile(),
+  schema: number = DEVBOX_SOURCE_SCHEMA,
+  bakeScript = () => readFileSync(bakeScriptPath, "utf8"),
+): Record<string, unknown> {
+  if (schema !== 1 && schema !== 2) throw new Error(`unknown devbox source schema ${schema}`);
+  const files = Object.fromEntries(
+    DEVBOX_TEMPLATE_FILES.filter((name) => name !== "Dockerfile").map((name) => [name, sha256File(path.join(devboxDir, name))]),
+  );
+  const shell: Record<string, unknown> = {
+    schema,
+    layers,
+    epoch: devboxImageEpoch(dockerfile),
+    agentPins: Object.fromEntries(devboxAgentPins(dockerfile).map((pin) => [pin.pkg, pin.version])),
+    cuaDriver: devboxCuaDriverVersion(dockerfile),
+    ghosttyVersion: devboxGhosttyVersion(dockerfile),
+    files,
+  };
+  if (schema >= 2) {
+    shell.dockerfileInstructions = createHash("sha256").update(normalizedDockerfileInstructions(dockerfile)).digest("hex");
+    shell.bakeScript = createHash("sha256").update(normalizedBakeScript(bakeScript())).digest("hex");
+  }
+  if (layers === "base") return shell;
+  return {
+    ...shell,
+    ghosttyDeb: { url: devboxGhosttyDebUrl(dockerfile), sha256: devboxGhosttyDebSha256(dockerfile) },
+    desktopPackages: devboxDesktopPackages(dockerfile),
+    desktopFiles: Object.fromEntries(
+      DEVBOX_DESKTOP_INSTALLS.map((install) => [install.source, sha256File(path.join(devboxDir, install.source))]),
+    ),
+  };
+}
+
+export function devboxSourceDigest(
+  layers: DevboxImageKind,
+  dockerfile = readDevboxDockerfile(),
+  schema: number = DEVBOX_SOURCE_SCHEMA,
+  bakeScript?: () => string,
+): string {
+  return createHash("sha256").update(JSON.stringify(devboxSourceManifest(layers, dockerfile, schema, bakeScript))).digest("hex");
+}
+
+/** Which layers an image carries, the digest of the sources they were baked from, and the formula it was computed with (absent: schema 1). */
+export type DevboxSourceRecord = {
+  readonly layers: DevboxImageKind;
+  readonly digest: string;
+  readonly schema?: number;
+};
 
 export function devboxTemplateFile(name: string): string {
   return readFileSync(path.join(devboxDir, name), "utf8");
@@ -606,11 +772,13 @@ export type DevboxBakeMetadata = {
   readonly repoCommit: string;
   readonly builderScriptVersion: string;
   readonly agentToolResolvedVersions: Record<string, string>;
+  readonly devboxSource: DevboxSourceRecord;
 };
 
 export function bakeMetadata(
   preflight: { sha: string; epoch: string },
   builderScriptPath: string,
+  layers: DevboxImageKind,
 ): DevboxBakeMetadata {
   return {
     builtAt: new Date().toISOString(),
@@ -620,6 +788,7 @@ export function bakeMetadata(
     agentToolResolvedVersions: Object.fromEntries(
       devboxAgentPins().map((pin) => [pin.pkg, pin.version]),
     ),
+    devboxSource: { layers, digest: devboxSourceDigest(layers), schema: DEVBOX_SOURCE_SCHEMA },
   };
 }
 
@@ -651,6 +820,10 @@ export type DevboxManifestEntry = {
   cmuxTuiSha256?: string;
   /** The cmux commit whose devbox definition produced this image. */
   repoCommit?: string;
+  /** The Dockerfile's CMUX_IMAGE_EPOCH at bake time; older entries carry it in `notes` only (see manifestEntryEpoch). */
+  epoch?: string;
+  /** The layers the image carries and the digest of the sources they were baked from (devboxSourceDigest). Absent on older entries. */
+  devboxSource?: DevboxSourceRecord;
   builtAt: string;
   builderScriptVersion: string;
   agentToolResolvedVersions: Record<string, string>;
@@ -677,6 +850,8 @@ export function manifestEntrySkeleton(
     // artifacts manifest; no cmuxd-remote build is baked.
     cmuxdRemoteCommit: "none-cmux-tui",
     repoCommit: metadata.repoCommit,
+    epoch: metadata.epoch,
+    devboxSource: metadata.devboxSource,
     builtAt: metadata.builtAt,
     builderScriptVersion: metadata.builderScriptVersion,
     agentToolResolvedVersions: metadata.agentToolResolvedVersions,
@@ -808,11 +983,79 @@ function sizeKey(entry: Pick<DevboxManifestEntry, "size">): string {
 }
 
 /**
+ * Appends fully-formed rows (each a promotion's output: `kind`,
+ * `defaultForKind`, `size`, `validationStatus`) to the manifest, demoting the
+ * provider's existing defaults for every kind+size a default row takes over
+ * (a sized row also retires the size-less defaults of its kind: the ladder
+ * replaces the single-shape image; a row carrying `defaultForLocalDev`
+ * retires the previous one). Pure: returns a new manifest and never mutates
+ * the input. Existing entries are only ever flag-flipped, never removed, so
+ * rollback stays a one-line manifest change. This is the one edit a
+ * promotion performs, and `promote --replay <summary.json>` re-applies the
+ * rows an earlier run appended onto a manifest that changed underneath it
+ * (another ladder merged first), so a merge conflict is resolved through the
+ * sanctioned writer and never by hand.
+ */
+export function appendImageManifestEntries(
+  manifest: DevboxImageManifest,
+  rows: readonly DevboxManifestEntry[],
+): DevboxImageManifest {
+  if (rows.length === 0) throw new Error("refusing to append no manifest rows");
+  for (const row of rows) {
+    if (!row.provider || !row.version || !row.imageId) {
+      throw new Error(`refusing to append a row without provider, version and imageId: ${JSON.stringify(row).slice(0, 200)}`);
+    }
+    if (row.defaultForKind && row.validationStatus !== "passed") {
+      throw new Error(
+        `refusing to promote ${row.provider} ${row.imageId}: validationStatus is ` +
+          `${row.validationStatus}, not passed (run verify-devbox-image.ts first)`,
+      );
+    }
+    const clash = manifest.images.find((candidate) =>
+      candidate.provider === row.provider &&
+      candidate.imageId === row.imageId &&
+      (candidate.kind ?? "base") === (row.kind ?? "base") &&
+      sizeKey(candidate) === sizeKey(row)
+    );
+    if (clash) {
+      throw new Error(
+        `refusing to promote ${row.provider} ${row.imageId}: already listed as ${clash.version} (${row.kind ?? "base"}${row.size ? `, ${row.size.name}` : ""})`,
+      );
+    }
+  }
+  // provider/kind -> the size keys its new default rows take over.
+  const takeover = new Map<string, Set<string>>();
+  const localDevProviders = new Set<string>();
+  for (const row of rows) {
+    if (row.defaultForLocalDev) localDevProviders.add(row.provider);
+    if (!row.defaultForKind) continue;
+    const key = `${row.provider}/${row.kind ?? "base"}`;
+    takeover.set(key, new Set([...(takeover.get(key) ?? []), sizeKey(row)]));
+  }
+  const providers = new Set(rows.map((row) => row.provider));
+  const demoted = manifest.images.map((candidate) => {
+    if (!providers.has(candidate.provider)) return candidate;
+    const next: DevboxManifestEntry = { ...candidate };
+    if (localDevProviders.has(next.provider) && next.defaultForLocalDev) next.defaultForLocalDev = false;
+    const sizes = takeover.get(`${next.provider}/${next.kind ?? "base"}`);
+    if (sizes && next.defaultForKind) {
+      const sized = [...sizes].some((size) => size !== "");
+      if (sizes.has(sizeKey(next)) || (sizeKey(next) === "" && sized)) next.defaultForKind = false;
+    }
+    return next;
+  });
+  return { schemaVersion: manifest.schemaVersion, images: [...demoted, ...rows] };
+}
+
+/**
  * Appends a verified image to the manifest as the default for every kind in
  * `kinds` (and every size in `sizes`), demoting the provider's previous
- * defaults for those kind+size pairs. Pure: returns a new manifest and never
- * mutates the input. Existing entries are only ever flag-flipped, never
- * removed, so rollback stays a one-line manifest change.
+ * defaults for those kind+size pairs (appendImageManifestEntries). A row the
+ * manifest already lists for the same image, kind and size is left as it is:
+ * a promotion is idempotent per kind, so a kind can be added to an image
+ * promoted earlier (one snapshot serving both kinds) without re-listing the
+ * rows it already has; only a promotion that would add nothing is refused.
+ * Pure.
  */
 export function promoteImageManifestEntry(
   manifest: DevboxImageManifest,
@@ -834,32 +1077,6 @@ export function promoteImageManifestEntry(
       ? [...options.sizes].sort((a, b) => vmImageSizeRank(a.size.name) - vmImageSizeRank(b.size.name))
       : [{ imageId: entry.imageId }];
   const promotesLocalDevBase = kinds.includes("base") && variants.some((variant) => variant.size?.name === "sm");
-  for (const kind of kinds) {
-    for (const variant of variants) {
-      const clash = manifest.images.find((candidate) =>
-        candidate.provider === entry.provider &&
-        candidate.imageId === variant.imageId &&
-        (candidate.kind ?? "base") === kind &&
-        sizeKey(candidate) === (variant.size?.name ?? "")
-      );
-      if (clash) {
-        throw new Error(
-          `refusing to promote ${entry.provider} ${variant.imageId}: already listed as ${clash.version} (${kind}${variant.size ? `, ${variant.size.name}` : ""})`,
-        );
-      }
-    }
-  }
-  const promotedSizes = new Set<string>(variants.map((variant) => variant.size?.name ?? ""));
-  const demoted = manifest.images.map((candidate) => {
-    if (candidate.provider !== entry.provider) return candidate;
-    const next: DevboxManifestEntry = { ...candidate };
-    if (promotesLocalDevBase && next.provider === entry.provider && next.defaultForLocalDev) next.defaultForLocalDev = false;
-    // A sized promotion demotes the provider's size-less defaults too: the
-    // ladder replaces the single-shape image, not just one row of it.
-    const sameSize = promotedSizes.has(sizeKey(next)) || (sizeKey(next) === "" && promotedSizes.size > 0);
-    if (next.defaultForKind && kinds.includes(next.kind ?? "base") && sameSize) next.defaultForKind = false;
-    return next;
-  });
   const notes = [entry.notes, options.validationNotes].filter(Boolean).join(" ");
   const promoted: DevboxManifestEntry[] = [];
   for (const kind of kinds) {
@@ -879,7 +1096,21 @@ export function promoteImageManifestEntry(
       });
     }
   }
-  return { schemaVersion: manifest.schemaVersion, images: [...demoted, ...promoted] };
+  const listed = (row: DevboxManifestEntry) =>
+    manifest.images.find((candidate) =>
+      candidate.provider === row.provider &&
+      candidate.imageId === row.imageId &&
+      (candidate.kind ?? "base") === (row.kind ?? "base") &&
+      sizeKey(candidate) === sizeKey(row)
+    );
+  const fresh = promoted.filter((row) => !listed(row));
+  if (fresh.length === 0) {
+    const clash = listed(promoted[0])!;
+    throw new Error(
+      `refusing to promote ${entry.provider} ${promoted[0].imageId}: already listed as ${clash.version} (${promoted[0].kind}${promoted[0].size ? `, ${promoted[0].size.name}` : ""})`,
+    );
+  }
+  return appendImageManifestEntries(manifest, fresh);
 }
 
 /**
@@ -944,7 +1175,7 @@ export function devboxImageLadderProblems(
   manifest: DevboxImageManifest,
   provider: DevboxProvider = "freestyle",
 ): string[] {
-  const problems: string[] = [];
+  const problems: string[] = devboxUnifiedSnapshotProblems(manifest, provider);
   for (const kind of ["base", "desktop"] as const) {
     const defaults = manifest.images.filter(
       (entry) => entry.provider === provider && (entry.kind ?? "base") === kind && entry.defaultForKind,
@@ -999,6 +1230,163 @@ export function devboxImageLadderProblems(
     const local = localDefaults[0];
     if ((local.kind ?? "base") !== "base" || local.size?.name !== "sm" || !local.defaultForKind) {
       problems.push(`${local.version}: defaultForLocalDev must be the base sm default`);
+    }
+  }
+  return problems;
+}
+
+/** Product defaults share one desktop-capable snapshot at each size across legacy kinds. */
+export function devboxUnifiedSnapshotProblems(
+  manifest: DevboxImageManifest,
+  provider: DevboxProvider = "freestyle",
+): string[] {
+  const problems: string[] = [];
+  const snapshots = new Map<string, string>();
+  for (const entry of manifest.images) {
+    if (entry.provider !== provider || !entry.defaultForKind || !entry.size) continue;
+    if (entry.devboxSource?.layers !== "desktop") {
+      problems.push(`${entry.version}: default devbox must include the desktop layer`);
+    }
+    const previous = snapshots.get(entry.size.name);
+    if (previous && previous !== entry.imageId) {
+      problems.push(`${provider}/${entry.size.name}: all kinds must share one snapshot`);
+    }
+    snapshots.set(entry.size.name, entry.imageId);
+  }
+  return problems;
+}
+
+
+/**
+ * The devbox Dockerfile as committed at `commit`, or null when the commit or
+ * the file is not available here. `commit` comes from a manifest entry, which
+ * may have been written on a branch this checkout did not author, so it is
+ * accepted only as a full 40-hex object id and passed to git as an argument,
+ * never through a shell.
+ */
+export function devboxDockerfileAtCommit(commit: string): string | null {
+  if (!/^[0-9a-f]{40}$/i.test(commit)) return null;
+  try {
+    return execFileSync("git", ["show", `${commit}:web/services/vms/images/devbox/Dockerfile`], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Moves default entries recorded at an older source schema to the current
+ * one without a rebake, only where every input the newer schema adds is
+ * proven from what the entry recorded, never synthesized from the checkout:
+ * its digest at its own schema must equal this checkout's (the verbatim
+ * files, pins and epoch are the bake's); its `builderScriptVersion` must
+ * equal this checkout's bake script; and the Dockerfile's instructions at
+ * its `repoCommit` (read from git; a commit or file that is not available
+ * here is not proof) must equal this checkout's. Anything else is left alone
+ * and reported: a rebake is the only other way up. Pure but for the git read,
+ * which `dockerfileAt` replaces in tests.
+ */
+export function upgradeDevboxSourceRecords(
+  manifest: DevboxImageManifest,
+  options: {
+    provider?: DevboxProvider;
+    dockerfile?: string;
+    bakeScript?: () => string;
+    dockerfileAt?: (commit: string) => string | null;
+  } = {},
+): { manifest: DevboxImageManifest; upgraded: string[]; skipped: Array<{ version: string; reason: string }> } {
+  const provider = options.provider ?? "freestyle";
+  const dockerfile = options.dockerfile ?? readDevboxDockerfile();
+  const bakeScript = options.bakeScript ?? (() => readFileSync(bakeScriptPath, "utf8"));
+  const dockerfileAt = options.dockerfileAt ?? devboxDockerfileAtCommit;
+  const bakeScriptSha256 = createHash("sha256").update(bakeScript()).digest("hex");
+  const instructions = normalizedDockerfileInstructions(dockerfile);
+  const upgraded: string[] = [];
+  const skipped: Array<{ version: string; reason: string }> = [];
+  const images = manifest.images.map((entry) => {
+    const source = entry.devboxSource;
+    if (entry.provider !== provider || !entry.defaultForKind || !source) return entry;
+    const schema = source.schema ?? 1;
+    if (schema >= DEVBOX_SOURCE_SCHEMA) return entry;
+    if (source.layers !== "desktop" && source.layers !== "base") {
+      skipped.push({ version: entry.version, reason: `devboxSource.layers ${String(source.layers)} is not desktop|base` });
+      return entry;
+    }
+    if (source.digest !== devboxSourceDigest(source.layers, dockerfile, schema, bakeScript)) {
+      skipped.push({ version: entry.version, reason: `schema ${schema} digest does not match this checkout` });
+      return entry;
+    }
+    if (entry.builderScriptVersion !== bakeScriptSha256) {
+      skipped.push({ version: entry.version, reason: "builderScriptVersion does not match this checkout's bake script" });
+      return entry;
+    }
+    const bakedDockerfile = entry.repoCommit ? dockerfileAt(entry.repoCommit) : null;
+    if (bakedDockerfile === null) {
+      skipped.push({ version: entry.version, reason: `Dockerfile at repoCommit ${entry.repoCommit ?? "(none)"} is not available here; rebake to record schema ${DEVBOX_SOURCE_SCHEMA}` });
+      return entry;
+    }
+    if (normalizedDockerfileInstructions(bakedDockerfile) !== instructions) {
+      skipped.push({ version: entry.version, reason: `Dockerfile instructions changed since repoCommit ${entry.repoCommit}; rebake to record schema ${DEVBOX_SOURCE_SCHEMA}` });
+      return entry;
+    }
+    upgraded.push(entry.version);
+    return {
+      ...entry,
+      devboxSource: { layers: source.layers, digest: devboxSourceDigest(source.layers, dockerfile, DEVBOX_SOURCE_SCHEMA, bakeScript), schema: DEVBOX_SOURCE_SCHEMA },
+    };
+  });
+  return { manifest: { schemaVersion: manifest.schemaVersion, images }, upgraded, skipped };
+}
+
+/** The epoch an entry was baked at: the field, or the `cmux devbox epoch <x>` prefix every bake writes into `notes`. */
+export function manifestEntryEpoch(entry: Pick<DevboxManifestEntry, "epoch" | "notes">): string | undefined {
+  return entry.epoch ?? /cmux devbox epoch (\S+)/.exec(entry.notes ?? "")?.[1];
+}
+
+/**
+ * The invariant that makes the checked-in manifest describe the machine
+ * users get: every default of `provider` was baked at the Dockerfile's
+ * current CMUX_IMAGE_EPOCH (a bumped epoch without a promotion, or a
+ * rollback to an older ladder without reverting the sources, fails), and an
+ * entry that recorded its source digest was baked from exactly the files and
+ * pins in this checkout (a template or pin change without a re-promotion
+ * fails). Rollback therefore reverts the promotion commit as a whole, sources
+ * included, never the manifest flags alone. Entries without a digest predate
+ * the record and are held to the epoch only.
+ */
+export function devboxSourceDriftProblems(
+  manifest: DevboxImageManifest,
+  provider: DevboxProvider = "freestyle",
+  dockerfile = readDevboxDockerfile(),
+): string[] {
+  const problems: string[] = [];
+  const epoch = devboxImageEpoch(dockerfile);
+  const digests = new Map<string, string>();
+  for (const entry of manifest.images) {
+    if (entry.provider !== provider || !entry.defaultForKind) continue;
+    const bakedEpoch = manifestEntryEpoch(entry);
+    if (bakedEpoch !== epoch) {
+      problems.push(`${entry.version}: baked at devbox epoch ${bakedEpoch ?? "(unknown)"}, the Dockerfile is at ${epoch}; promote a new bake or revert the sources with the manifest`);
+    }
+    const source = entry.devboxSource;
+    if (!source) continue;
+    if (source.layers !== "desktop" && source.layers !== "base") {
+      problems.push(`${entry.version}: devboxSource.layers ${String(source.layers)} is not desktop|base`);
+      continue;
+    }
+    const schema = source.schema ?? 1;
+    if (schema !== 1 && schema !== 2) {
+      problems.push(`${entry.version}: devboxSource.schema ${String(source.schema)} is not a known formula (1 or 2)`);
+      continue;
+    }
+    const key = `${source.layers}/${schema}`;
+    const current = digests.get(key) ?? devboxSourceDigest(source.layers, dockerfile, schema);
+    digests.set(key, current);
+    if (source.digest !== current) {
+      problems.push(`${entry.version}: baked from devbox sources ${source.digest.slice(0, 12)}… (schema ${schema}), this checkout's ${source.layers} sources are ${current.slice(0, 12)}…; promote a new bake or revert the sources with the manifest`);
     }
   }
   return problems;

@@ -270,7 +270,7 @@ export async function POST(request: Request): Promise<Response> {
         provider: created.provider,
         image: created.image,
         imageVersion: created.imageVersion,
-        kind: imageSelection.kind,
+        kind: vmImageKindFor(created.provider, created.image),
         ...(imageSelection.size ? { size: imageSelection.size } : {}),
         createdAt: created.createdAt,
         capabilities: vmCapabilitiesFor(created.provider),

@@ -22,6 +22,7 @@
 // The devbox freestyle bake targets the public platform (see
 // build-devbox-freestyle.ts), the same platform the shipped driver speaks.
 import { Freestyle } from "freestyle";
+import { agentLaunchCheck } from "./devbox-agent-launch";
 import { DEFAULT_VM_EDGE_ALIAS_DOMAIN } from "../services/coderouter/vmGuestEnv";
 import { GUEST_CMUX_SHIM_PATH } from "../services/vms/guestCli";
 import path from "node:path";
@@ -93,6 +94,9 @@ const CHECKS: readonly string[] = [
   "grep -q AGENT_BROWSER_EXECUTABLE_PATH /etc/profile.d/cmux-media.sh && echo media-profile-ok",
   "cua-driver --version",
   "ffmpeg -version | head -1 && command -v Xvfb && command -v xdpyinfo && command -v xdotool",
+  // codex's Linux sandbox prerequisite: without the distro bwrap, codex warns
+  // on every launch that it is falling back to its bundled copy.
+  "bwrap --version && echo bubblewrap-ok",
   // Baked files are byte-identical to this checkout.
   ...FILE_PIN_CHECKS,
   // The guest adapter is pinned as a normal image template file; verify both
@@ -206,6 +210,21 @@ const desktopChecks = (): readonly string[] => [
   "test -s /etc/cmux/icons/google-chrome.png && test -s /etc/cmux/icons/thunar.png && test -s /etc/cmux/icons/ghostty.png && echo dock-icons-ok",
   `test -x ${DEVBOX_DESKTOP_START_SCRIPT} && grep -q '/etc/cmux/desktop-env.sh' /etc/profile.d/cmux-desktop.sh && grep -q '/etc/cmux/desktop-env.sh' ${DEVBOX_DESKTOP_HOME}/.bashrc && grep -q '/etc/cmux/desktop-env.sh' /root/.bashrc && echo desktop-env-chained`,
   ...desktopFilePinChecks(),
+];
+
+// These probes watch real PTY output with a deadline and cancellation cleanup.
+// The work-user Claude flow is also covered by FREESTYLE_BASE_CHECKS below.
+const CLAUDE_LAUNCH_MARKER = "bypass permissions on";
+const CLAUDE_GATE_TEXTS = "Do you trust|Detected a custom API key|text style that looks best|Yes, I accept|cannot be used with root|Select login method";
+const CODEX_LAUNCH_MARKER = "Ask Codex to do anything";
+const CODEX_GATE_TEXTS = "Do you trust|new version|bubblewrap|sandbox prerequisites|Sign in with ChatGPT";
+const AGENT_LAUNCH_CHECKS: readonly string[] = [
+  agentLaunchCheck("root", "/root", "claude-root-launch", "claude --dangerously-skip-permissions", CLAUDE_LAUNCH_MARKER, CLAUDE_GATE_TEXTS),
+  agentLaunchCheck("root", "/root", "codex-root-launch", "codex", CODEX_LAUNCH_MARKER, CODEX_GATE_TEXTS),
+  agentLaunchCheck(DEVBOX_DESKTOP_USER, DEVBOX_DESKTOP_HOME, "codex-work-user-launch", "codex", CODEX_LAUNCH_MARKER, CODEX_GATE_TEXTS),
+  // Nothing a launch wrote in the work user's home may be root-owned (the
+  // root probes ran with HOME=/root, never the work user's home).
+  `[ "$(find ${DEVBOX_DESKTOP_HOME} -not -user ${DEVBOX_DESKTOP_USER} | wc -l)" = 0 ] && echo home-still-owned-by-${DEVBOX_DESKTOP_USER}`,
 ];
 
 // Freestyle: the work user is the base's uid-1000 account renamed to `cmux`
@@ -441,6 +460,7 @@ if (provider === "freestyle") {
       ...CHECKS,
       ...DAEMON_CHECKS,
       ...FREESTYLE_BASE_CHECKS,
+      ...AGENT_LAUNCH_CHECKS,
       ...IDENTITY_CHECKS,
       ...(desktop
         ? desktopChecks()

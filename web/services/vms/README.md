@@ -148,14 +148,16 @@ Image policy:
   `services/vms/images/devbox/README.md`. `tests/vm-image-manifest.test.ts` holds the invariants:
   one `defaultForKind` per provider and kind, unique versions, every default
   `validationStatus: "passed"`.
-- The **desktop** ladder is what every default create path boots (the app's New Machine sheet,
-  bare `cmux vm new`, `vm base open` / `vm base reset`, and any API body without a `kind`):
-  TigerVNC on `:1` with an openbox session, the tint2 dock (Chrome, Files, Ghostty), the CC0
-  wallpaper, the accessibility bus for computer-use, and noVNC on 6901, run by the
-  `cmux-desktop` unit; the contract lives in `services/vms/images/desktop.ts`. The separately
-  baked **base** ladder (`--no-desktop`, no VNC layer) is served only for an explicit
-  `kind: "base"` (`--base` in the CLI, Base in the sheet); the Mac app lists a Displays row only
-  for desktop-kind machines, so a base machine truthfully shows none. `POST /api/vm/[id]/open-port` (the app's Displays row, `cmux
+- Every devbox default is the **desktop** image and **one snapshot ladder serves both kinds**: the
+  manifest lists each snapshot once as the `desktop` default and once as the `base` default (the
+  `-base` rows point at the same ids), so `kind` never changes what a machine is. Every machine has
+  the shell tooling, the coding agents, TigerVNC on `:1` with an openbox session, the tint2 dock
+  (Chrome, Files, Ghostty), the CC0 wallpaper, the accessibility bus for computer-use, and noVNC on
+  6901, run by the `cmux-desktop` unit; the contract lives in `services/vms/images/desktop.ts`. The
+  app's New Machine sheet asks only for a size, `cmux vm new` accepts `--desktop` / `--base` for
+  older scripts without changing anything, and the Mac app lists a Displays row for every
+  newly created default machine. Historical shell-only machines keep their existing capabilities. A shell-only base ladder can still be baked (`--no-desktop`) but is not promoted.
+  `POST /api/vm/[id]/open-port` (the app's Displays row, `cmux
   vm open <m>:desktop`, port rows) returns the machine's **private VPC address**
   (`http://10.x.x.x:6901/vnc.html?…`), reachable only over the owner's WireGuard tunnel, the same
   path the daemon route takes; the driver (re)starts the `cmux-desktop` unit first when noVNC is
@@ -163,18 +165,24 @@ Image policy:
   before private networking) gets an error rather than a public URL.
 - Baked agent tools are installed at image-build time. They are not auto-updated on VM startup, so
   startup latency stays bounded and the manifest remains the source of truth.
-- To update tool versions, bump the Dockerfile ARG pins and `CMUX_IMAGE_EPOCH`, then promote a new
-  image. `CMUX_CLOUD_IMAGE_<TOOL>_NPM_SPEC` overrides must be exact npm package version pins, for
-  example `@openai/codex@0.130.0`, or `none` to disable a tool. The image builder rejects ranges
-  and tags such as `latest`.
+- To update tool versions, run `bun run devbox:pins:check --write` (web/; it rewrites the Dockerfile
+  ARG pins to the npm registry's current releases and refuses ranges and tags), bump
+  `CMUX_IMAGE_EPOCH`, then promote both ladders. `tests/vm-image-manifest.test.ts` and
+  `devbox:manifest:check` fail while a default is baked at another epoch or from other devbox
+  sources than the checkout (`devboxSourceDriftProblems`), so a pin bump and its promotion land
+  in one PR and never drift apart. `CMUX_CLOUD_IMAGE_<TOOL>_NPM_SPEC` overrides must be exact npm
+  package version pins, for example `@openai/codex@0.130.0`, or `none` to disable a tool. The
+  image builder rejects ranges and tags such as `latest`.
 
 A leftover `FREESTYLE_SANDBOX_SNAPSHOT` in a deployment is ignored; the env audit reports it as
 stale configuration to remove.
 
 Rollback is a manifest change:
 
-1. Revert the promotion PR (or flip `defaultForKind` back to a previous entry with
-   `validationStatus: "passed"`; entries are never removed).
+1. Revert the promotion PR as a whole (entries are never removed). Flipping `defaultForKind` back
+   to a previous `validationStatus: "passed"` entry by hand also means reverting the Dockerfile
+   epoch and pins that entry was baked from, or `devbox:manifest:check` and the manifest test fail
+   on the epoch and source-digest invariants.
 2. Deploy staging, smoke test, then production.
 3. Keep old snapshots until all VMs using them are gone.
 

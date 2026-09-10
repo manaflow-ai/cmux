@@ -32,14 +32,17 @@ FROM ubuntu:24.04
 # Cache-buster: bump the date to force remote builders past stale layer
 # caches (a remote builder served stale layers for chatmux on 2026-08-21 and
 # 2026-08-25). Also the image version /etc/cmux/image-stamp carries.
-ENV CMUX_IMAGE_EPOCH=2026-09-07-r1
+ENV CMUX_IMAGE_EPOCH=2026-09-10-r1
 
 ENV LANG=C.UTF-8 \
     DEBIAN_FRONTEND=noninteractive
 
 # Devtools (chatmux devbox apt list) plus vim, sudo for non-root provider
-# exec users, procps for the driver's daemon process discovery (pgrep), and
-# iproute2 for the desktop's port probes (ss).
+# exec users, procps for the driver's daemon process discovery (pgrep),
+# iproute2 for the desktop's port probes (ss), and bubblewrap: codex's Linux
+# sandbox prerequisite (developers.openai.com/codex/concepts/sandboxing), so
+# codex uses the distro's bwrap instead of warning on every launch that it is
+# falling back to its bundled copy.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     ripgrep \
@@ -67,10 +70,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     vim \
     sudo \
     util-linux \
+    bubblewrap \
   && rm -rf /var/lib/apt/lists/* \
   && ln -s "$(command -v fdfind)" /usr/local/bin/fd \
   && echo 'LANG=C.UTF-8' > /etc/default/locale \
-  && fd --version && jq --version && fzf --version && sqlite3 --version && tmux -V && ss -V
+  && fd --version && jq --version && fzf --version && sqlite3 --version && tmux -V && ss -V && bwrap --version
 
 # The work user: the base's uid-1000 account renamed to `cmux`
 # (web/services/vms/images/workUser.ts). ONE account owns the desktop session,
@@ -220,12 +224,14 @@ RUN chmod 0755 /usr/local/bin/start-vnc.sh /usr/local/bin/cmux-desktop-boot \
 
 # Coding agents, pinned at bake time (bump with the image epoch; keep in
 # lockstep with the chatmux devbox). Installed on the mise node so they
-# ride the same toolchain users get.
-ARG CMUX_IMAGE_CLAUDE_CODE_VERSION=2.1.252
-ARG CMUX_IMAGE_CODEX_VERSION=0.151.0
-ARG CMUX_IMAGE_OPENCODE_VERSION=1.18.25
-ARG CMUX_IMAGE_PI_VERSION=0.84.4
-ARG CMUX_IMAGE_AGENT_BROWSER_VERSION=0.35.2
+# ride the same toolchain users get. `bun run devbox:pins:check` (web/)
+# compares these with the npm registry and `--write` rewrites them; a pin is
+# always an exact release, never a range or a tag.
+ARG CMUX_IMAGE_CLAUDE_CODE_VERSION=2.1.267
+ARG CMUX_IMAGE_CODEX_VERSION=0.154.0
+ARG CMUX_IMAGE_OPENCODE_VERSION=1.18.30
+ARG CMUX_IMAGE_PI_VERSION=0.85.1
+ARG CMUX_IMAGE_AGENT_BROWSER_VERSION=0.37.1
 RUN npm install -g --foreground-scripts \
     "@anthropic-ai/claude-code@${CMUX_IMAGE_CLAUDE_CODE_VERSION}" \
     "@openai/codex@${CMUX_IMAGE_CODEX_VERSION}" \
