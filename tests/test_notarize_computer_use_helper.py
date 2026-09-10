@@ -92,9 +92,10 @@ class HelperNotarizationTests(unittest.TestCase):
         self.entitlements = self.root / 'entitlements.plist'
         self.entitlements.write_bytes(plistlib.dumps({}))
         self.state = self.root / 'submission.state'
+        # Authentication is stubbed; this credential has no account or network access.
         self.env = dict(os.environ, FIXTURE_ROOT=str(self.root),
                         APPLE_ID='fixture@example.com', APPLE_TEAM_ID='FIXTURETEAM',
-                        APPLE_APP_SPECIFIC_PASSWORD='fixture-password',
+                        APPLE_APP_SPECIFIC_PASSWORD='fixture-password',  # noqa: S106  # gitleaks:allow
                         CMUX_HELPER_ENTITLEMENTS=str(self.entitlements),
                         CMUX_GATEKEEPER_ASSESS_DELAY_SECONDS='0',
                         CMUX_GATEKEEPER_ASSESS_ATTEMPTS='3')
@@ -105,9 +106,11 @@ class HelperNotarizationTests(unittest.TestCase):
             self.env['CMUX_' + tool.upper().replace('-', '_') + '_TOOL'] = str(path)
 
     def run_helper(self, *args, success=True, **env):
-        result = subprocess.run([str(SCRIPT), *map(str, args), str(self.app),
+        # Only the repository script and fixture arguments are executed, without a shell.
+        result = subprocess.run([str(SCRIPT), *map(str, args), str(self.app),  # noqa: S603
                                  str(self.entitlements), 'Developer ID Application: Fixture'],
-                                env=dict(self.env, **env), text=True, capture_output=True)
+                                env=dict(self.env, **env), text=True,
+                                capture_output=True, check=False)
         self.assertEqual(result.returncode == 0, success, result.stdout + result.stderr)
         return result
 
