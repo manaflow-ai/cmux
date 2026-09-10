@@ -15708,10 +15708,11 @@ struct TabItemView: View, Equatable {
     }
 
     private var selectedWorkspaceBackgroundNSColor: NSColor {
-        if let hex = sidebarSelectionColorHex, let parsed = NSColor(hex: hex) {
-            return parsed
-        }
-        return (chromePalette.surfaceSelected).cmuxNSColor
+        sidebarSelectedWorkspaceBackgroundNSColor(
+            for: colorScheme,
+            sidebarSelectionColorHex: sidebarSelectionColorHex,
+            chromePalette: chromePalette
+        )
     }
 
     private func selectedWorkspaceForegroundNSColor(opacity: CGFloat) -> NSColor {
@@ -16436,7 +16437,8 @@ struct TabItemView: View, Equatable {
             isMultiSelected: isMultiSelected,
             customColorHex: workspaceSnapshot.customColorHex,
             colorScheme: colorScheme,
-            sidebarSelectionColorHex: sidebarSelectionColorHex
+            sidebarSelectionColorHex: sidebarSelectionColorHex,
+            chromePalette: chromePalette
         )
         guard let color = style.color else { return .clear }
         return Color(nsColor: color).opacity(style.opacity)

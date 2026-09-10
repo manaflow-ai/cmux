@@ -23,10 +23,11 @@ struct SidebarRowPalette {
     var colorScheme: ColorScheme { model.colorSchemeIsDark ? .dark : .light }
 
     var selectedBackground: NSColor {
-        if let hex = model.settings.selectionColorHex, let parsed = NSColor(hex: hex) {
-            return parsed
-        }
-        return (chromePalette.surfaceSelected).cmuxNSColor
+        sidebarSelectedWorkspaceBackgroundNSColor(
+            for: colorScheme,
+            sidebarSelectionColorHex: model.settings.selectionColorHex,
+            chromePalette: chromePalette
+        )
     }
 
     func selectedForeground(_ opacity: CGFloat) -> NSColor {

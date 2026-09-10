@@ -317,13 +317,14 @@ enum SidebarRemoteErrorCopySupport {
 
 func sidebarSelectedWorkspaceBackgroundNSColor(
     for colorScheme: ColorScheme,
-    sidebarSelectionColorHex: String? = UserDefaults.standard.string(forKey: "sidebarSelectionColorHex")
+    sidebarSelectionColorHex: String? = UserDefaults.standard.string(forKey: "sidebarSelectionColorHex"),
+    chromePalette: ChromePalette? = nil
 ) -> NSColor {
     if let hex = sidebarSelectionColorHex,
        let parsed = NSColor(hex: hex) {
         return parsed
     }
-    return cmuxAccentNSColor(for: colorScheme)
+    return chromePalette?.surfaceSelected.cmuxNSColor ?? cmuxAccentNSColor(for: colorScheme)
 }
 
 func sidebarSelectedWorkspaceForegroundNSColor(opacity: CGFloat) -> NSColor {
@@ -374,13 +375,15 @@ func sidebarWorkspaceRowBackgroundStyle(
     isMultiSelected: Bool,
     customColorHex: String?,
     colorScheme: ColorScheme,
-    sidebarSelectionColorHex: String?
+    sidebarSelectionColorHex: String?,
+    chromePalette: ChromePalette
 ) -> SidebarWorkspaceRowBackgroundStyle {
     let selectedBackground = sidebarSelectedWorkspaceBackgroundNSColor(
         for: colorScheme,
-        sidebarSelectionColorHex: sidebarSelectionColorHex
+        sidebarSelectionColorHex: sidebarSelectionColorHex,
+        chromePalette: chromePalette
     )
-    let accentBackground = cmuxAccentNSColor(for: colorScheme)
+    let accentBackground = chromePalette.cmuxAccentNSColor
     let customBackground = customColorHex.flatMap {
         WorkspaceTabColorSettings.displayNSColor(
             hex: $0,

@@ -138,12 +138,13 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
             isMultiSelected: false,
             customColorHex: workspace.customColor,
             colorScheme: .light,
-            sidebarSelectionColorHex: nil
+            sidebarSelectionColorHex: nil,
+            chromePalette: ChromePalette.resolve(theme: .default, colorScheme: .light)
         )
 
         XCTAssertEqual(
             background.color?.hexString(),
-            sidebarSelectedWorkspaceBackgroundNSColor(for: .light).hexString()
+            ChromePalette.resolve(theme: .default, colorScheme: .light).surfaceSelected.cmuxNSColor.hexString()
         )
         XCTAssertEqual(background.opacity, 1.0, accuracy: 0.001)
         withExtendedLifetime(cancellable) {}
@@ -174,12 +175,13 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
             isMultiSelected: false,
             customColorHex: workspace.customColor,
             colorScheme: .light,
-            sidebarSelectionColorHex: nil
+            sidebarSelectionColorHex: nil,
+            chromePalette: ChromePalette.resolve(theme: .default, colorScheme: .light)
         )
 
         XCTAssertEqual(
             background.color?.hexString(),
-            sidebarSelectedWorkspaceBackgroundNSColor(for: .light).hexString()
+            ChromePalette.resolve(theme: .default, colorScheme: .light).surfaceSelected.cmuxNSColor.hexString()
         )
         XCTAssertEqual(background.opacity, 1.0, accuracy: 0.001)
         withExtendedLifetime(cancellable) {}
@@ -201,7 +203,8 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
             isMultiSelected: false,
             customColorHex: workspace.customColor,
             colorScheme: .light,
-            sidebarSelectionColorHex: nil
+            sidebarSelectionColorHex: nil,
+            chromePalette: ChromePalette.resolve(theme: .default, colorScheme: .light)
         )
 
         XCTAssertNil(background.color)
@@ -244,7 +247,8 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
             isMultiSelected: false,
             customColorHex: workspace.customColor,
             colorScheme: .light,
-            sidebarSelectionColorHex: nil
+            sidebarSelectionColorHex: nil,
+            chromePalette: ChromePalette.resolve(theme: .default, colorScheme: .light)
         )
 
         XCTAssertEqual(background.color?.hexString(), "#C0392B")
