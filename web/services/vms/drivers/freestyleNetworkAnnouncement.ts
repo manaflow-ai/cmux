@@ -8,7 +8,8 @@ import { ProviderError } from "./types";
  * A resumed snapshot can acquire a VPC address before the provider learns its
  * link-layer mapping. Announce only addresses actually assigned to this guest:
  * one gratuitous ARP for IPv4 and one unsolicited neighbor advertisement for
- * IPv6. No routes, firewall rules, interfaces, or running sessions are changed.
+ * IPv6. One available family is sufficient; clients retain their address race.
+ * No routes, firewall rules, interfaces, or running sessions are changed.
  */
 export function freestyleNetworkAnnouncementCommand(addresses: readonly string[]): string {
   const script = `import ipaddress,json,socket,struct,subprocess,sys
@@ -23,22 +24,25 @@ for link in links:
         ip = ipaddress.ip_address(address['local'])
         if ip not in expected or ip in announced:
             continue
-        if ip.version == 4:
-            packet = b'\\xff'*6 + mac + struct.pack('!HHHBBH', 0x0806, 1, 0x0800, 6, 4, 1)
-            packet += mac + ip.packed + b'\\x00'*6 + ip.packed
-            with socket.socket(socket.AF_PACKET, socket.SOCK_RAW) as stream:
-                stream.bind((link['ifname'], 0))
-                stream.send(packet)
-        else:
-            index = link['ifindex']
-            packet = struct.pack('!BBHI', 136, 0, 0, 0x20000000) + ip.packed + bytes([2, 1]) + mac
-            with socket.socket(socket.AF_INET6, socket.SOCK_RAW, socket.IPPROTO_ICMPV6) as stream:
-                stream.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_MULTICAST_IF, index)
-                stream.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_MULTICAST_HOPS, 255)
-                stream.bind((str(ip), 0, 0, index))
-                stream.sendto(packet, ('ff02::1', 0, 0, index))
+        try:
+            if ip.version == 4:
+                packet = b'\\xff'*6 + mac + struct.pack('!HHHBBH', 0x0806, 1, 0x0800, 6, 4, 1)
+                packet += mac + ip.packed + b'\\x00'*6 + ip.packed
+                with socket.socket(socket.AF_PACKET, socket.SOCK_RAW) as stream:
+                    stream.bind((link['ifname'], 0))
+                    stream.send(packet)
+            else:
+                index = link['ifindex']
+                packet = struct.pack('!BBHI', 136, 0, 0, 0x20000000) + ip.packed + bytes([2, 1]) + mac
+                with socket.socket(socket.AF_INET6, socket.SOCK_RAW, socket.IPPROTO_ICMPV6) as stream:
+                    stream.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_MULTICAST_IF, index)
+                    stream.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_MULTICAST_HOPS, 255)
+                    stream.bind((str(ip), 0, 0, index))
+                    stream.sendto(packet, ('ff02::1', 0, 0, index))
+        except OSError:
+            continue
         announced.add(ip)
-if announced != expected:
+if not announced:
     raise SystemExit('Private network addresses are not ready on the guest')
 `;
   return `python3 -c ${shellQuote(script)} ${shellQuote(JSON.stringify(addresses))}`;
