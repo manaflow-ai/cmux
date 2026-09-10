@@ -2869,12 +2869,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// Panes being moved to another workspace: their surface projection moves with them
     /// instead of ending when they leave this one (see `Workspace+SurfaceCatalog.swift`).
     var surfaceTransferringPanelIds: Set<UUID> = []
-    /// True while `teardownAllPanels` runs: the panes end because the workspace itself
-    /// goes away, which leaves a mirrored machine workspace exactly as it was.
-    var surfaceTeardownInProgress = false
-    /// Scoped to the synchronous close of a pane replaced by a provider.
-    var surfaceReplacementPanelIDs: Set<UUID> = []
-
     /// Subscriptions for panel updates (e.g., browser title changes)
     var panelSubscriptions: [UUID: AnyCancellable] = [:]
     private var agentSessionPanelCallbackIds: Set<UUID> = []
@@ -10639,8 +10633,12 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// ``retireFromOwningTabManager()`` passes `retireDock: true` at the
     /// authoritative workspace-removal boundary.
     func teardownAllPanels(retireDock: Bool = false) {
-        surfaceTeardownInProgress = true
-        defer { surfaceTeardownInProgress = false }
+        SurfaceCatalog.shared.withProjectionEndReason(for: Array(panels.keys), reason: .workspaceTeardown) {
+            teardownPanelResources(retireDock: retireDock)
+        }
+    }
+
+    private func teardownPanelResources(retireDock: Bool) {
         portalRenderingEnabled = false
         clearLayoutFollowUp()
         hideAllTerminalPortalViews()

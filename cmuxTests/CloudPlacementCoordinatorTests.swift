@@ -378,4 +378,40 @@ struct CloudPlacementCoordinatorTests {
         snapshot["tabs"] = [tab, duplicate]
         #expect(await CmuxTuiSnapshotParser.terminalPlacement(from: try JSONSerialization.data(withJSONObject: snapshot), terminalID: "term_1") == nil)
     }
+
+    @Test func invalidPlacementGraphsAreRejectedBeforeChoosingADestination() async throws {
+        let tab = ["id": "tab_1", "pane_id": "pane", "content_kind": "terminal", "content_id": "term_1"]
+        var snapshot: [String: Any] = [
+            "cursor": ["generation": "g", "revision": "8"],
+            "workspaces": [["id": "ws_main"]],
+            "screens": [["id": "screen", "workspace_id": "ws_main"]],
+            "panes": [["id": "pane", "screen_id": "screen"]],
+            "tabs": [tab, tab], "terminals": [["id": "term_1"]], "browsers": [], "agents": []
+        ]
+        #expect(CmuxTuiSnapshotParser.projectionTarget(from: snapshot, inWorkspace: "ws_main") == nil)
+        #expect(await CmuxTuiSnapshotParser.tabPlacement(from: try JSONSerialization.data(withJSONObject: snapshot), tabID: "tab_1") == nil)
+        snapshot["tabs"] = [tab]
+        snapshot["screens"] = [["id": "screen", "workspace_id": "ws_missing"]]
+        #expect(await CmuxTuiSnapshotParser.terminalProjectionTarget(from: try JSONSerialization.data(withJSONObject: snapshot), preferringWorkspace: nil) == nil)
+    }
+
+    @Test(arguments: [SurfaceProjectionEndReason.replaced, .workspaceTeardown])
+    func programmaticRemovalReasonsAreScopedAndNeverLeakPastAFailedClose(reason: SurfaceProjectionEndReason) async {
+        let bound = UUID(), replaced = UUID(), failedClose = UUID()
+        let (catalog, provider) = Self.harness(bound: bound)
+        let replacedTerm = Self.terminal("replaced", views: [SurfaceRemoteView(tabID: "tab_replaced", workspace: Self.api)])
+        let failedTerm = Self.terminal("failed", views: [SurfaceRemoteView(tabID: "tab_failed", workspace: Self.api)])
+        catalog.replaceResources([replacedTerm, failedTerm], on: Self.machine)
+        catalog.record(SurfaceProjection(resource: replacedTerm.id, workspaceID: bound, panelID: replaced, remoteWorkspaceID: "ws_api", remoteTabID: "tab_replaced"))
+        catalog.record(SurfaceProjection(resource: failedTerm.id, workspaceID: bound, panelID: failedClose, remoteWorkspaceID: "ws_api", remoteTabID: "tab_failed"))
+        catalog.withProjectionEndReason(for: [replaced], reason: reason) {
+            catalog.endProjections(panelID: replaced)
+        }
+        catalog.withProjectionEndReason(for: [failedClose], reason: reason) {
+            // A rejected socket close does not mutate the panel map.
+        }
+        catalog.endProjections(panelID: failedClose)
+        await catalog.cloudPlacementCoordinator.waitForPendingMutations()
+        #expect(provider.closedTabs == ["tab_failed"])
+    }
 }

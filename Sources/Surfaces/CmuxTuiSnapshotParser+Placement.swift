@@ -10,7 +10,7 @@ extension CmuxTuiSnapshotParser {
 #endif
     nonisolated static func terminalPlacement(from data: Data, terminalID: String) async -> (placement: SurfaceRemotePlacement?, revision: String?)? {
         guard let snapshot = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              requiredGraphCollectionsArePresent(in: snapshot),
+              authoritativeGraphIsValid(snapshot),
               let terminals = snapshot["terminals"] as? [[String: Any]],
               terminals.contains(where: { $0["id"] as? String == terminalID }),
               let allTabs = snapshot["tabs"] as? [[String: Any]] else { return nil }
@@ -58,7 +58,7 @@ extension CmuxTuiSnapshotParser {
 #endif
     nonisolated static func tabPlacement(from data: Data, tabID: String) async -> (workspaceID: String?, revision: String)? {
         guard let snapshot = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              requiredGraphCollectionsArePresent(in: snapshot),
+              authoritativeGraphIsValid(snapshot),
               let revision = resourceRevision(from: snapshot),
               let tabs = snapshot["tabs"] as? [[String: Any]],
               let panes = snapshot["panes"] as? [[String: Any]],
@@ -75,7 +75,7 @@ extension CmuxTuiSnapshotParser {
     /// (explicit indexes first, daemon order otherwise), appended after that pane's tabs.
     /// nil when the workspace is not in the snapshot or has no live pane.
     static func projectionTarget(from snapshot: [String: Any], inWorkspace workspaceID: String) -> CloudTuiTerminalProjectionTarget? {
-        guard requiredGraphCollectionsArePresent(in: snapshot),
+        guard authoritativeGraphIsValid(snapshot),
               let workspaces = snapshot["workspaces"] as? [[String: Any]],
               workspaces.contains(where: { ($0["id"] as? String) == workspaceID }) else { return nil }
         let screens = snapshot["screens"] as? [[String: Any]] ?? []
@@ -121,7 +121,8 @@ extension CmuxTuiSnapshotParser {
         from data: Data,
         preferringWorkspace workspaceID: String?
     ) async -> (target: CloudTuiTerminalProjectionTarget, revision: String?)? {
-        guard let snapshot = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        guard let snapshot = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              authoritativeGraphIsValid(snapshot) else { return nil }
         let destination: CloudTuiTerminalProjectionTarget?
         if let workspaceID {
             destination = projectionTarget(from: snapshot, inWorkspace: workspaceID)

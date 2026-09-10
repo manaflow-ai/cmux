@@ -110,10 +110,7 @@ struct CmuxTuiSnapshotParser: Sendable {
         } else {
             cursor = nil
         }
-        guard identityCollectionsAreUnique(in: snapshot),
-              requiredGraphCollectionsArePresent(in: snapshot),
-              snapshotRelationshipsAreConsistent(in: snapshot)
-        else { return nil }
+        guard authoritativeGraphIsValid(snapshot) else { return nil }
         let document = CloudVMStateDocument(snapshot: snapshot)
         guard let rawSnapshot = document.data() else { return nil }
 
@@ -287,13 +284,20 @@ struct CmuxTuiSnapshotParser: Sendable {
         return true
     }
 
+    /// The same identity and foreign-key contract gates accepted state and mutations.
+    static func authoritativeGraphIsValid(_ snapshot: [String: Any]) -> Bool {
+        identityCollectionsAreUnique(in: snapshot)
+            && requiredGraphCollectionsArePresent(in: snapshot)
+            && snapshotRelationshipsAreConsistent(in: snapshot)
+    }
+
     /// A session snapshot is an authoritative cut of the daemon graph. The
     /// protocol emits every modeled collection, including empty arrays. Missing
     /// one is different from an empty collection: it indicates truncation or a
     /// protocol mismatch, and accepting it could erase live remote resources.
     /// Unknown top-level collections remain optional and are retained by the
     /// canonical document for forward compatibility.
-    static func requiredGraphCollectionsArePresent(in snapshot: [String: Any]) -> Bool {
+    private static func requiredGraphCollectionsArePresent(in snapshot: [String: Any]) -> Bool {
         ["workspaces", "screens", "panes", "tabs", "terminals", "browsers", "agents"]
             .allSatisfy { snapshot[$0] is [[String: Any]] }
     }

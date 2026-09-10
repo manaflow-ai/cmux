@@ -14,13 +14,7 @@ extension Workspace {
             // A pane in flight to another workspace keeps its resource; the target's
             // `panelDidAppear` moves the projection.
             if surfaceTransferringPanelIds.contains(panelID) { continue }
-            // A workspace tearing down ends its panes without editing the machine
-            // workspace it mirrors; a pane closed on purpose does edit it.
-            provider.panelWillDisappear(
-                panelID: panelID,
-                reason: surfaceTeardownInProgress ? .workspaceTeardown
-                    : (surfaceReplacementPanelIDs.contains(panelID) ? .replaced : .paneClosed)
-            )
+            provider.panelWillDisappear(panelID: panelID)
         }
     }
 

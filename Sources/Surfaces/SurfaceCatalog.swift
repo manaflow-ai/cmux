@@ -167,6 +167,7 @@ final class SurfaceCatalog {
     private let materializationClock: any Clock<Duration>
     /// Panels whose projection was recorded from a restored session before the provider
     /// re-synced; resolved into `projections` once the resource shows up.
+    private var projectionEndReasons: [UUID: SurfaceProjectionEndReason] = [:]
     private var pendingRestoredProjections: [SurfaceProjectionRecord: UUID] = [:]
 
     /// Focus/select behavior the app uses to bring an existing projection forward.
@@ -1216,6 +1217,21 @@ final class SurfaceCatalog {
         projections.insert(projection)
     }
 
+    /// Carries a transition owner's intent through the synchronous panel-map observer.
+    /// Nested scopes restore the previous reason, and rejected closes leave no marker.
+    func withProjectionEndReason<Result>(
+        for panelIDs: [UUID],
+        reason: SurfaceProjectionEndReason,
+        perform operation: () throws -> Result
+    ) rethrows -> Result {
+        let previous = panelIDs.map { ($0, projectionEndReasons[$0]) }
+        for panelID in panelIDs { projectionEndReasons[panelID] = reason }
+        defer {
+            for (panelID, reason) in previous { projectionEndReasons[panelID] = reason }
+        }
+        return try operation()
+    }
+
     /// A pane went away. Remote resources live on; a pane closed on purpose inside a
     /// mirrored workspace also closes its machine tab (`CloudPlacementCoordinator`).
     func endProjections(panelID: UUID, reason: SurfaceProjectionEndReason = .paneClosed) {
@@ -1223,7 +1239,7 @@ final class SurfaceCatalog {
         guard !ended.isEmpty else { return }
         projections.subtract(ended)
         for projection in ended {
-            cloudPlacementCoordinator.projectionDidEnd(projection, reason: reason, catalog: self)
+            cloudPlacementCoordinator.projectionDidEnd(projection, reason: projectionEndReasons[panelID] ?? reason, catalog: self)
             providers[projection.resource.machine]?.projectionDidEnd(projection)
         }
         notifyChange()
@@ -1241,6 +1257,16 @@ final class SurfaceCatalog {
         reconcileCloudWorkspaceBinding(localWorkspaceID: workspaceID)
         for projection in projections where projection.panelID == panelID {
             cloudPlacementCoordinator.projectionDidMove(projection, catalog: self)
+        }
+        notifyChange()
+    }
+
+    /// Applies one accepted graph's coordinate changes in O(changed projections).
+    func reconcileRemotePlacements(_ replacements: [SurfaceProjection: SurfaceProjection]) {
+        guard !replacements.isEmpty else { return }
+        for (previous, updated) in replacements where projections.contains(previous) {
+            projections.remove(previous)
+            projections.insert(updated)
         }
         notifyChange()
     }

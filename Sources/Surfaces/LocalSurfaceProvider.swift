@@ -135,8 +135,8 @@ final class LocalSurfaceProvider: SurfaceProvider {
     }
 
     /// A pane left a workspace for good (closed, torn down). Transfers never reach this.
-    func panelWillDisappear(panelID: UUID, reason: SurfaceProjectionEndReason = .paneClosed) {
-        catalog.endProjections(panelID: panelID, reason: reason)
+    func panelWillDisappear(panelID: UUID) {
+        catalog.endProjections(panelID: panelID)
     }
 
     func projectionDidEnd(_ projection: SurfaceProjection) {

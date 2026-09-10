@@ -75,6 +75,11 @@ class CloudLayoutHarness:
         self.fixtures.append(fixture)
         return fixture
 
+    def checkpoint(self, label, workspace):
+        if os.environ.get("CMUX_LAYOUT_EVIDENCE_PAUSE") == "1":
+            self.client._call("workspace.select", {"workspace_id": workspace})
+            input("CHECKPOINT " + label + " — capture the tagged window, then continue: ")
+
     def run(self):
         prefix = "layout-sync-" + uuid.uuid4().hex[:8]
         source = self.create_workspace(prefix + "-source")
@@ -82,16 +87,19 @@ class CloudLayoutHarness:
         terminal = source["terminal_id"]
         remote_target = target["remote_workspace_id"]
         self.expect_layout(lambda s: self.terminal_workspaces(s, terminal) == [source["remote_workspace_id"]], "initial source placement")
+        self.checkpoint("before-move", source["workspace_id"])
         self.client._call("surface.move", {
             "surface_id": source["surface_id"], "workspace_id": target["workspace_id"], "focus": False,
         })
         self.expect_layout(lambda s: self.terminal_workspaces(s, terminal) == [remote_target], "native move must move the daemon tab")
         print("PASS native move updates the machine workspace", flush=True)
+        self.checkpoint("after-move", target["workspace_id"])
 
         self.client._call("surface.close", {"surface_id": source["surface_id"], "workspace_id": target["workspace_id"]})
         detached = self.expect_layout(lambda s: self.terminal_workspaces(s, terminal) == [], "native close must detach the daemon tab")
         assert any(t["id"] == terminal for t in detached["terminals"]), "pane close killed its terminal"
         print("PASS native close detaches and preserves the terminal", flush=True)
+        self.checkpoint("after-close", target["workspace_id"])
 
         viewer = self.client._call("workspace.create", {"focus": False})["workspace_id"]
         self.local_workspaces.append(viewer)

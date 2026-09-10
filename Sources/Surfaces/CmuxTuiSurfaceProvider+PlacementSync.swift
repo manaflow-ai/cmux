@@ -59,7 +59,8 @@ extension CmuxTuiSurfaceProvider: SurfacePlacementSyncing {
         while true {
             try Task.checkCancellation()
             let snapshot = try await link.run(arguments: CloudTuiCommandLine.snapshotArguments(socketPath: connected.socketPath))
-            guard let destination = await CmuxTuiSnapshotParser.terminalProjectionTarget(from: snapshot, preferringWorkspace: remoteWorkspaceID) else {
+            guard let destination = await CmuxTuiSnapshotParser.terminalProjectionTarget(from: snapshot, preferringWorkspace: remoteWorkspaceID),
+                  destination.revision != nil else {
                 throw ProviderError.noWorkspaceOnMachine(machineID)
             }
             var existingTabID = tabID

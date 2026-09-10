@@ -69000,6 +69000,12 @@
             "state": "translated",
             "value": "The pane does not identify a unique machine tab. Reopen it from the machine workspace."
           }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このペインに対応するマシンのタブを一意に特定できません。マシンのワークスペースから開き直してください。"
+          }
         }
       }
     },
@@ -69011,6 +69017,12 @@
             "state": "translated",
             "value": "Your local pane change was kept, but the machine layout could not be synchronized. Reopen the machine workspace to see its current layout."
           }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカルのペインへの変更は保持されましたが、マシンのレイアウトを同期できませんでした。マシンのワークスペースを開き直して、現在のレイアウトを確認してください。"
+          }
         }
       }
     },
@@ -69021,6 +69033,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Couldn’t update the machine workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンのワークスペースを更新できませんでした"
           }
         }
       }

@@ -101,6 +101,7 @@ final class CloudPlacementCoordinator {
     /// snapshots cannot undo a local move whose mutation receipt is still ahead of them.
     func reconcileRemoteState(_ state: CloudVMState, catalog: SurfaceCatalog) {
         guard lanes[state.machine] == nil else { return }
+        var replacements: [SurfaceProjection: SurfaceProjection] = [:]
         for projection in catalog.projections where projection.resource.machine == state.machine {
             guard let tabID = projection.remoteTabID else { continue }
             if let receipt = confirmationCursors[state.machine]?[tabID] {
@@ -109,17 +110,23 @@ final class CloudPlacementCoordinator {
                 confirmationCursors[state.machine]?[tabID] = nil
             }
             if projection.resource.kind == .terminal,
-               state.terminals.contains(where: { $0.id == projection.resource.key }),
-               !state.tabs.contains(where: { $0.contentKind == "terminal" && $0.contentID == projection.resource.key }) {
-                catalog.setRemotePlacement(for: projection, workspaceID: nil, tabID: nil)
+               state.lookupIndex.terminal(id: projection.resource.key) != nil,
+               state.lookupIndex.tabIDsByContent[CloudVMTabContentKey(kind: "terminal", id: projection.resource.key)]?.isEmpty != false {
+                var updated = projection
+                updated.remoteWorkspaceID = nil
+                updated.remoteTabID = nil
+                replacements[projection] = updated
                 continue
             }
-            guard let tab = state.tabs.first(where: { $0.id == tabID && $0.contentID == projection.resource.key }),
-                  let pane = state.panes.first(where: { $0.id == tab.paneID }),
-                  let screen = state.screens.first(where: { $0.id == pane.screenID }),
+            guard let tab = state.lookupIndex.tab(id: tabID), tab.contentID == projection.resource.key,
+                  let pane = state.lookupIndex.pane(id: tab.paneID),
+                  let screen = state.lookupIndex.screen(id: pane.screenID),
                   projection.remoteWorkspaceID != screen.workspaceID else { continue }
-            catalog.setRemotePlacement(for: projection, workspaceID: screen.workspaceID, tabID: tabID)
+            var updated = projection
+            updated.remoteWorkspaceID = screen.workspaceID
+            replacements[projection] = updated
         }
+        catalog.reconcileRemotePlacements(replacements)
         // Receipts for panes closed before confirmation need no retained local state.
         let liveTabIDs = Set(catalog.projections.filter { $0.resource.machine == state.machine }.compactMap(\.remoteTabID))
         confirmationCursors[state.machine] = confirmationCursors[state.machine]?.filter { liveTabIDs.contains($0.key) }
