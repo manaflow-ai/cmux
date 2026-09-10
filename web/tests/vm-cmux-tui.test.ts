@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import {
+  CMUX_TUI_DAEMON_TERMINAL_ENV,
   CMUX_TUI_LAYOUT_MARKER_PATH,
   cmuxTuiDaemonCommand,
   cmuxTuiInstallCommand,
@@ -110,7 +111,7 @@ describe("cmux-tui install and daemon commands", () => {
     // reached the daemon (it was SIGKILLed, and its next start rejected the
     // half-written shutdown record), and `pgrep -f` matched the wrapper first.
     expect(command).toContain(
-      'exec setpriv --reuid="$CMUX_TUI_USER" --regid="$CMUX_TUI_USER" --init-groups env HOME="$CMUX_TUI_HOME" USER="$CMUX_TUI_USER" LOGNAME="$CMUX_TUI_USER" SHELL=/bin/bash TERM=xterm-256color "$CMUX_TUI_BIN"',
+      `exec setpriv --reuid="$CMUX_TUI_USER" --regid="$CMUX_TUI_USER" --init-groups env HOME="$CMUX_TUI_HOME" USER="$CMUX_TUI_USER" LOGNAME="$CMUX_TUI_USER" SHELL=/bin/bash ${CMUX_TUI_DAEMON_TERMINAL_ENV} "$CMUX_TUI_BIN"`,
     );
     expect(command).not.toContain("runuser");
     expect(command).toContain('cd "$CMUX_TUI_HOME"');

@@ -127,6 +127,12 @@ impl Flags {
         self.values.remove(name).is_some()
     }
 
+    /// Take a flag by its dashed spelling, for compatibility flags whose bare
+    /// name is not part of this CLI's public vocabulary.
+    fn take_dashed(&mut self, flag: &str) -> Option<String> {
+        self.take(flag.trim_start_matches('-'))
+    }
+
     fn reject_remaining(&self) -> Result<(), UsageError> {
         match self.values.keys().next() {
             Some(name) => Err(UsageError::new(format!("unknown flag --{name} for this action"))),
@@ -165,6 +171,7 @@ pub(super) fn parse(args: &[String]) -> Result<CommandPlan, UsageError> {
         "terminal" => parse_terminal(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
         "browser" => parse_browser(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
         "notification" => parse_notification(&tokens.words[1..], &mut tokens.flags)?,
+        "notify" => parse_notify(&tokens.words[1..], &mut tokens.flags)?,
         "agent" => parse_agent(&tokens.words[1..], &mut tokens.flags)?,
         "sidebar" => parse_sidebar(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
         "pairing" => parse_pairing(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
@@ -261,6 +268,8 @@ fn tokenize(args: &[String]) -> Result<Tokens, UsageError> {
 /// same distinction Clap models with `ArgAction::SetTrue`, while retaining
 /// cmux's custom forwarding and error text.
 const BOOLEAN_FLAGS: &[&str] = &[
+    "clear",
+    "reply",
     "empty",
     "left",
     "right",
@@ -1310,7 +1319,7 @@ fn parse_notification(words: &[String], flags: &mut Flags) -> Result<CommandPlan
         ["list"] => {
             let mut params = Map::new();
             if let Some(limit) = flags.take("limit") {
-                insert_bounded_u32(&mut params, "limit", "--limit", limit, 1, 1_000)?;
+                insert_bounded_u32(&mut params, "limit", "--limit", limit, 1, 256)?;
             }
             request(ResourceOperation::NotificationList, &selectors, flags, params)
         }
@@ -1321,6 +1330,9 @@ fn parse_notification(words: &[String], flags: &mut Flags) -> Result<CommandPlan
                 return Err(UsageError::new("--title cannot be empty"));
             }
             params.insert("title".into(), Value::String(title));
+            if let Some(subtitle) = flags.take("subtitle") {
+                params.insert("subtitle".into(), Value::String(subtitle));
+            }
             params.insert("body".into(), Value::String(flags.required("body")?));
             if let Some(level) = flags.take("level") {
                 validate_one_of("--level", &level, &["info", "success", "warning", "error"])?;
@@ -1332,8 +1344,136 @@ fn parse_notification(words: &[String], flags: &mut Flags) -> Result<CommandPlan
             }
             request(ResourceOperation::NotificationCreate, &selectors, flags, params)
         }
+        ["clear"] => {
+            let mut params = Map::new();
+            if let Some(terminal) = flags.take("terminal") {
+                validate_prefixed_id("terminal", "term", &terminal)?;
+                params.insert("terminal_id".into(), Value::String(terminal));
+            }
+            request(ResourceOperation::NotificationClear, &selectors, flags, params)
+        }
+        ["ack", ids @ ..] => {
+            let mut params = Map::new();
+            let client_id = flags.required("client")?;
+            if client_id.is_empty()
+                || client_id.len() > 128
+                || !client_id.bytes().all(|byte| byte.is_ascii_graphic())
+            {
+                return Err(UsageError::new(
+                    "--client must be 1 to 128 printable ASCII bytes without spaces",
+                ));
+            }
+            params.insert("client_id".into(), Value::String(client_id));
+            if ids.is_empty() {
+                return Err(UsageError::new("notification ack needs at least one notification ID"));
+            }
+            if ids.len() > 256 {
+                return Err(UsageError::new(
+                    "notification ack accepts at most 256 notification IDs",
+                ));
+            }
+            for id in ids {
+                validate_prefixed_id("notification", "notification", id)?;
+            }
+            params.insert(
+                "notifications".into(),
+                Value::Array(ids.iter().map(|id| Value::String((*id).to_string())).collect()),
+            );
+            request(ResourceOperation::NotificationAck, &selectors, flags, params)
+        }
         _ => usage("notification action"),
     }
+}
+
+/// `cmux notify`, with the flags of the macOS `cmux notify`, so a script or an
+/// agent hook written for a local terminal works unchanged inside a machine.
+/// The target is the caller's own terminal (`CMUX_TUI_TERMINAL_ID`, injected
+/// into every daemon PTY) unless `--surface` names another terminal of this
+/// session or `--workspace` asks for a session-level row; a machine cannot
+/// address anything outside its own session. `--reply` is refused: the reply
+/// channel would type into a terminal, and that channel does not cross the
+/// machine boundary. `--window` and `--id-format` are accepted for
+/// signature parity and have no meaning on a machine.
+fn parse_notify(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
+    if !words.is_empty() {
+        return usage("notify takes flags only");
+    }
+    let selectors = Selectors::default();
+    if flags.boolean("reply") {
+        return Err(UsageError::new(
+            "--reply is not available on a machine: replies would type into a terminal across the link",
+        ));
+    }
+    let _ = flags.take("window");
+    let _ = flags.take("id-format");
+    let workspace = flags.take("workspace");
+    if let Some(workspace) = &workspace
+        && workspace != "current"
+    {
+        validate_prefixed_id("workspace", "ws", workspace)?;
+    }
+    let caller_terminal = std::env::var("CMUX_TUI_TERMINAL_ID").ok().filter(|id| !id.is_empty());
+    let surface = match flags.take_dashed("--surface") {
+        Some(value) if value == "current" => match caller_terminal {
+            Some(terminal) => Some(terminal),
+            None => {
+                return Err(UsageError::new(
+                    "--surface current needs a caller terminal (CMUX_TUI_TERMINAL_ID is not set); pass --surface <term_id>",
+                ));
+            }
+        },
+        Some(value) => Some(value),
+        // A workspace-scoped notify has no terminal, like the local form.
+        None if workspace.is_some() => None,
+        None => caller_terminal,
+    };
+    if let Some(surface) = &surface {
+        validate_prefixed_id("terminal", "term", surface)?;
+    }
+    let mut params = Map::new();
+    if flags.boolean("clear") {
+        if flags.take("title").is_some()
+            || flags.take("subtitle").is_some()
+            || flags.take("body").is_some()
+        {
+            return Err(UsageError::new("--clear does not take --title, --subtitle, or --body"));
+        }
+        // A clear must name its scope. Outside a daemon terminal there is no
+        // caller terminal to default to, and silently clearing the whole
+        // session would be the wrong surprise.
+        if surface.is_none() && workspace.is_none() {
+            return Err(UsageError::new(
+                "--clear needs a scope: run it from a machine terminal, or pass --surface <term_id> or --workspace current",
+            ));
+        }
+        if let Some(surface) = surface {
+            params.insert("terminal_id".into(), Value::String(surface));
+        }
+        return request(ResourceOperation::NotificationClear, &selectors, flags, params);
+    }
+    let title = flags.take("title").unwrap_or_else(|| "Notification".into());
+    if title.is_empty() {
+        return Err(UsageError::new("--title cannot be empty"));
+    }
+    if title.chars().count() > 512 {
+        return Err(UsageError::new("--title is limited to 512 characters"));
+    }
+    params.insert("title".into(), Value::String(title));
+    if let Some(subtitle) = flags.take("subtitle") {
+        if subtitle.chars().count() > 512 {
+            return Err(UsageError::new("--subtitle is limited to 512 characters"));
+        }
+        params.insert("subtitle".into(), Value::String(subtitle));
+    }
+    let body = flags.take("body").unwrap_or_default();
+    if body.chars().count() > 4096 {
+        return Err(UsageError::new("--body is limited to 4096 characters"));
+    }
+    params.insert("body".into(), Value::String(body));
+    if let Some(surface) = surface {
+        params.insert("terminal_id".into(), Value::String(surface));
+    }
+    request(ResourceOperation::NotificationCreate, &selectors, flags, params)
 }
 
 fn parse_agent(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
@@ -3217,6 +3357,63 @@ mod tests {
     }
 
     #[test]
+    fn notify_matches_the_local_cmux_notify_signature() {
+        const TERMINAL: &str = "term_00000000000000000000000000000041";
+        let plain = protocol(&[
+            "notify",
+            "--title",
+            "Build done",
+            "--subtitle",
+            "api",
+            "--body",
+            "ok",
+            "--surface",
+            TERMINAL,
+            "--id-format",
+            "both",
+            "--window",
+            "1",
+        ]);
+        assert_eq!(plain.operation.name().unwrap(), "notification.create");
+        assert_eq!(plain.params["title"], "Build done");
+        assert_eq!(plain.params["subtitle"], "api");
+        assert_eq!(plain.params["body"], "ok");
+        assert_eq!(plain.params["terminal_id"], TERMINAL);
+
+        // Defaults match the local CLI: title "Notification", empty body.
+        let defaults = protocol(&["notify", "--workspace", "current"]);
+        assert_eq!(defaults.params["title"], "Notification");
+        assert_eq!(defaults.params["body"], "");
+        assert!(defaults.params.get("terminal_id").is_none(), "a workspace notify has no terminal");
+
+        let clear = protocol(&["notify", "--clear", "--surface", TERMINAL]);
+        assert_eq!(clear.operation.name().unwrap(), "notification.clear");
+        assert_eq!(clear.params["terminal_id"], TERMINAL);
+        let clear_all = protocol(&["notify", "--clear", "--workspace", "current"]);
+        assert!(clear_all.params.get("terminal_id").is_none());
+
+        assert!(
+            parse(&strings(&["notify", "--reply", "--title", "x"])).is_err(),
+            "no reply channel across the link"
+        );
+        if std::env::var_os("CMUX_TUI_TERMINAL_ID").is_none() {
+            assert!(
+                parse(&strings(&["notify", "--clear"])).is_err(),
+                "no implicit whole-session clear"
+            );
+            assert!(parse(&strings(&["notify", "--surface", "current"])).is_err());
+        }
+        assert!(parse(&strings(&["notify", "--title", ""])).is_err());
+        assert!(
+            parse(&strings(&["notify", "--surface", "not-a-terminal"])).is_err(),
+            "only this session's terminal ids"
+        );
+        assert!(parse(&strings(&["notify", "extra"])).is_err());
+        let long = "x".repeat(4097);
+        assert!(parse(&strings(&["notify", "--body", &long])).is_err());
+    }
+
+    #[test]
     fn journal_subscribe_builds_replay_cursor_and_filter_contracts() {
         const SESSION: &str = "session_00000000000000000000000000000002";
         const WORKSPACE: &str = "ws_00000000000000000000000000000004";
@@ -4481,6 +4678,8 @@ mod tests {
                 vec![
                     "notification",
                     "create",
+                    "--subtitle",
+                    "api",
                     "--title",
                     "done",
                     "--body",
@@ -4520,11 +4719,30 @@ mod tests {
                 "sidebar_view.resize",
             ),
             (vec!["sidebar", "view", "reload", "--view", VIEW], "sidebar_view.reload"),
+            (
+                vec![
+                    "notification",
+                    "ack",
+                    "notification_00000000000000000000000000000041",
+                    "--client",
+                    "mac-1",
+                ],
+                "notification.ack",
+            ),
+            (
+                vec![
+                    "notification",
+                    "clear",
+                    "--terminal",
+                    "term_00000000000000000000000000000041",
+                ],
+                "notification.clear",
+            ),
         ];
 
-        assert_eq!(cases.len(), 118);
+        assert_eq!(cases.len(), 120);
         let catalog = operation_catalog();
-        assert_eq!(catalog["operations"].as_object().unwrap().len(), 125);
+        assert_eq!(catalog["operations"].as_object().unwrap().len(), 127);
         let mut seen = std::collections::BTreeSet::new();
         let mut covered_fields = BTreeMap::<&str, std::collections::BTreeSet<String>>::new();
         for (args, expected) in &cases {

@@ -5,8 +5,8 @@ import {
   withAuthedVmApiRoute,
 } from "../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../services/telemetry";
-import { isVmNotFoundError } from "../../../../services/vms/errors";
-import { destroyVm, getVm, renameVm, runVmWorkflow } from "../../../../services/vms/workflows";
+import { runVmRoute } from "../../../../services/vms/routeWorkflow";
+import { destroyVm, getVm, renameVm } from "../../../../services/vms/workflows";
 import { PublicationNotFoundError } from "../../../../services/vm-publications/repository";
 import { deleteVmPublicationsForVmDeletion } from "../../../../services/vm-publications/vmDeletion";
 import { publicationErrorResponse } from "../publications/routeShared";
@@ -27,27 +27,24 @@ export async function GET(
       const account = resolveVmRouteAccountScope(user, request);
       if (!account.ok) return account.response;
       setSpanAttributes(span, { "cmux.vm.id": id });
-      try {
-        const vm = await runVmWorkflow(getVm({
-          userId: user.id,
-          billingTeamId: account.entitlements.billingTeamId,
-          teamIds: user.teamIds,
-          providerVmId: id,
-        }));
-        return jsonResponse({
-          id: vm.providerVmId,
-          provider: vm.provider,
-          image: vm.image,
-          imageVersion: vm.imageVersion,
-          status: vm.status,
-          createdAt: vm.createdAt,
-          displayName: vm.displayName,
-          slug: vm.slug,
-        });
-      } catch (err) {
-        if (isVmNotFoundError(err)) return notFoundVm(id);
-        throw err;
-      }
+      const run = await runVmRoute(getVm({
+        userId: user.id,
+        billingTeamId: account.entitlements.billingTeamId,
+        teamIds: user.teamIds,
+        providerVmId: id,
+      }), { request });
+      if (!run.ok) return run.response;
+      const vm = run.value;
+      return jsonResponse({
+        id: vm.providerVmId,
+        provider: vm.provider,
+        image: vm.image,
+        imageVersion: vm.imageVersion,
+        status: vm.status,
+        createdAt: vm.createdAt,
+        displayName: vm.displayName,
+        slug: vm.slug,
+      });
     },
   );
 }
@@ -97,23 +94,20 @@ export async function PATCH(
           400,
         );
       }
-      try {
-        const vm = await runVmWorkflow(renameVm({
-          userId: user.id,
-          billingTeamId: account.entitlements.billingTeamId,
-          teamIds: user.teamIds,
-          providerVmId: id,
-          displayName,
-        }));
-        return jsonResponse({
-          id: vm.providerVmId,
-          displayName: vm.displayName,
-          slug: vm.slug,
-        });
-      } catch (err) {
-        if (isVmNotFoundError(err)) return notFoundVm(id);
-        throw err;
-      }
+      const run = await runVmRoute(renameVm({
+        userId: user.id,
+        billingTeamId: account.entitlements.billingTeamId,
+        teamIds: user.teamIds,
+        providerVmId: id,
+        displayName,
+      }), { request });
+      if (!run.ok) return run.response;
+      const vm = run.value;
+      return jsonResponse({
+        id: vm.providerVmId,
+        displayName: vm.displayName,
+        slug: vm.slug,
+      });
     },
   );
 }
@@ -145,18 +139,14 @@ export async function DELETE(
         }
         return publicationErrorResponse(err);
       }
-      try {
-        await runVmWorkflow(destroyVm({
-          userId: user.id,
-          billingTeamId: account.entitlements.billingTeamId,
-          teamIds: user.teamIds,
-          providerVmId: id,
-          modelPlane: vmModelPlaneRevoker(),
-        }));
-      } catch (err) {
-        if (isVmNotFoundError(err)) return notFoundVm(id);
-        throw err;
-      }
+      const run = await runVmRoute(destroyVm({
+        userId: user.id,
+        billingTeamId: account.entitlements.billingTeamId,
+        teamIds: user.teamIds,
+        providerVmId: id,
+        modelPlane: vmModelPlaneRevoker(),
+      }), { request });
+      if (!run.ok) return run.response;
       return jsonResponse({ ok: true });
     },
   );

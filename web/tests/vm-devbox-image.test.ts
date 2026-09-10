@@ -14,12 +14,10 @@ import {
 import {
   DEVBOX_TEMPLATE_FILES,
   devboxAgentPins,
-  devboxClaudeManagedSettings,
-  devboxClaudeOnboardingSeed,
   devboxCuaDriverVersion,
+  devboxGhosttyVersion,
   devboxParkDaemonCommand,
 } from "../scripts/devbox-image-common";
-import { VM_PLACEHOLDER_API_KEY } from "../services/coderouter/vmGuestEnv";
 import { DEVBOX_DESKTOP_USER } from "../services/vms/images/desktop";
 import {
   DEVBOX_WORK_HOME,
@@ -90,13 +88,12 @@ describe("devbox image template", () => {
       "README.md",
       "agent-config.sh",
       "chrome-managed-policy.json",
-      "claude-managed-settings.json",
-      "claude-onboarding.json",
       "cmux-bashrc",
       "cmux-devbox-boot",
       "cmux-motd",
       "cmux-terminfo.sh",
       "cmux-terminfo.src",
+      "codex-managed.toml",
       // The desktop layer (Freestyle only); pinned by vm-devbox-desktop.test.ts.
       "desktop",
       "seed-history",
@@ -106,15 +103,20 @@ describe("devbox image template", () => {
       "Dockerfile",
       "agent-config.sh",
       "chrome-managed-policy.json",
-      "claude-managed-settings.json",
-      "claude-onboarding.json",
       "cmux-bashrc",
       "cmux-devbox-boot",
       "cmux-motd",
       "cmux-terminfo.sh",
       "cmux-terminfo.src",
+      "codex-managed.toml",
       "seed-history",
     ]);
+  });
+
+  test("the Ghostty version panes announce comes from the .deb pin and is a release version", () => {
+    expect(devboxGhosttyVersion()).toMatch(/^\d+\.\d+\.\d+$/);
+    expect(devboxGhosttyVersion("ARG CMUX_IMAGE_GHOSTTY_DEB_URL=https://x/ghostty_1.2.3-0.ppa2_amd64_24.04.deb\n")).toBe("1.2.3");
+    expect(() => devboxGhosttyVersion("ARG CMUX_IMAGE_GHOSTTY_DEB_URL=https://x/ghostty.deb\n")).toThrow(/ghostty_<x.y.z>/);
   });
 
   test("every shell file parses", () => {
@@ -239,34 +241,6 @@ describe("devbox image template", () => {
     expect(verify).toContain("daemon-runs-as-work-user");
   });
 
-  test("Claude Code's first run is pre-answered, so a fresh machine lands on the prompt", () => {
-    // Every one of these keys answers a dialog a fresh machine otherwise
-    // shows before `claude --dangerously-skip-permissions` reaches a prompt,
-    // verified live against the shipped build. The files are generated from
-    // the constants they depend on; this is the drift guard.
-    expect(read("claude-onboarding.json")).toBe(devboxClaudeOnboardingSeed());
-    expect(read("claude-managed-settings.json")).toBe(devboxClaudeManagedSettings());
-    const seed = JSON.parse(read("claude-onboarding.json"));
-    expect(seed.hasCompletedOnboarding).toBe(true);
-    expect(seed.bypassPermissionsModeAccepted).toBe(true);
-    // Claude Code records the last 20 characters of the key it approved. The
-    // placeholder is public and identical on every machine: the real
-    // credential is injected by the TLS edge and never reaches the guest.
-    expect(seed.customApiKeyResponses.approved).toEqual([VM_PLACEHOLDER_API_KEY.slice(-20)]);
-    expect(read("claude-onboarding.json")).not.toContain("sk-ant");
-    // The folder-trust dialog is pre-accepted for the work user's home only;
-    // any other folder still asks, which is the point of that gate.
-    expect(Object.keys(seed.projects)).toEqual([DEVBOX_WORK_HOME]);
-    // The updater can only fail against the image's root-owned npm prefix.
-    expect(JSON.parse(read("claude-managed-settings.json")).autoUpdates).toBe(false);
-    // Both recipes install them, and the verifier proves the result on a real
-    // machine by typing the seeded command into a pane.
-    expect(dockerfile).toContain("COPY claude-onboarding.json /etc/skel/.claude.json");
-    const freestyleScript = readScript("build-devbox-freestyle.ts");
-    expect(freestyleScript).toContain('await put("claude-onboarding.json", `${WORK_HOME}/.claude.json`, 0o600);');
-    expect(readScript("verify-devbox-image.ts")).toContain("claude-reaches-the-prompt");
-  });
-
   test("ble.sh integration stays minimal: no token highlighting, ghost text only", () => {
     // User feedback 2026-08-31: any token highlighting (colored backgrounds
     // under mistyped commands included) reads as noise. The bashrc turns the
@@ -277,6 +251,19 @@ describe("devbox image template", () => {
     for (const line of faceLines) {
       expect(line).not.toContain("bg=");
     }
+  });
+
+  test("keeps Alt+Backspace word delete working in ble.sh", () => {
+    // Once ble.sh identifies the terminal from its DA2 reply it enables xterm
+    // modifyOtherKeys, and then Alt+Backspace does nothing: the legacy ESC DEL
+    // binding is gone and CSI 27;3;127~ does not decode back to M-C-?. Cloud
+    // panes send the legacy form, so the bashrc pins the legacy encoding and
+    // binds both backspace spellings.
+    expect(bashrc).toContain(
+      "bleopt term_modifyOtherKeys_internal=0 term_modifyOtherKeys_external=0",
+    );
+    expect(bashrc).toContain("ble-bind -f 'M-C-?' kill-backward-cword");
+    expect(bashrc).toContain("ble-bind -f 'M-C-h' kill-backward-cword");
   });
 
   test("bakes ble.sh cache seeds for every shared devbox provider", () => {
@@ -688,10 +675,8 @@ describe("devbox image template", () => {
   });
 
   test("claude transcript retention is pinned everywhere", () => {
-    // One generated policy file, installed by both recipes.
-    expect(JSON.parse(read("claude-managed-settings.json")).cleanupPeriodDays).toBe(99999);
-    expect(dockerfile).toContain("COPY claude-managed-settings.json /etc/claude-code/managed-settings.json");
-    expect(readScript("build-devbox-freestyle.ts")).toContain('await put("claude-managed-settings.json", "/etc/claude-code/managed-settings.json");');
+    expect(dockerfile).toContain('{ "cleanupPeriodDays": 99999, "skipDangerousModePermissionPrompt": true }');
+    expect(readScript("build-devbox-freestyle.ts")).toContain('{ "cleanupPeriodDays": 99999, "skipDangerousModePermissionPrompt": true }');
   });
 
   test("never installs docker (deliberate image-scope choice)", () => {

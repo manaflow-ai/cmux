@@ -19,8 +19,7 @@ import { Buffer } from "node:buffer";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { cmuxTuiLayoutSelector } from "../services/vms/drivers/cmuxTuiDaemon";
-import { VM_PLACEHOLDER_API_KEY } from "../services/coderouter/vmGuestEnv";
+import { cmuxTuiAsDaemonUser, cmuxTuiLayoutSelector, shellQuote } from "../services/vms/drivers/cmuxTuiDaemon";
 import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER } from "../services/vms/images/workUser";
 import { VM_IMAGE_SIZES, VM_IMAGE_SIZE_NAMES, vmImageSizeRank, type VmImageSizeName } from "../services/vms/images/sizes";
 import { DEVBOX_HOSTNAME, DEVBOX_HOSTNAME_LOOPBACK, DEVBOX_PROVIDER_HOSTNAME } from "../services/vms/images/identity";
@@ -36,13 +35,12 @@ export const DEVBOX_TEMPLATE_FILES = [
   "Dockerfile",
   "agent-config.sh",
   "chrome-managed-policy.json",
-  "claude-managed-settings.json",
-  "claude-onboarding.json",
   "cmux-bashrc",
   "cmux-devbox-boot",
   "cmux-motd",
   "cmux-terminfo.sh",
   "cmux-terminfo.src",
+  "codex-managed.toml",
   "seed-history",
 ] as const;
 
@@ -76,14 +74,14 @@ export const devboxTerminfoInstallCommand =
  * temporary device and removes the workspace before a snapshot can capture
  * test state.
  */
-export function cmuxTuiWebsocketSmokeCommand(session = "cloud"): string {
+export function cmuxTuiWebsocketSmokeCommand(session = "cloud", binary?: string): string {
   const identity = `${DEVBOX_WORK_USER}@${DEVBOX_HOSTNAME}`;
   // Runs as the daemon's own user with the daemon's HOME: enrollment reads and
   // writes the session state the daemon owns, and as root that state dir is a
   // different (empty) one on a work-user machine.
-  // The layout is selected by the caller (as root, the only user that can ask
-  // runuser) and handed in: re-running the selector here, already dropped to
-  // the daemon's user, cannot use runuser and would fall back to root's path.
+  // The layout is selected by the caller (as root, the only user that can drop
+  // privileges) and handed in: re-running the selector here, already dropped to
+  // the daemon's user, would fail every probe and fall back to root's path.
   const shell = `#!/usr/bin/env bash
 set -euo pipefail
 BIN="\${CMUX_TUI_BIN:?cmux-tui binary not provided}"
@@ -174,58 +172,14 @@ echo "websocket-smoke-ok marker=$MARKER through_sequence=$FIRST_SEQUENCE->$SECON
   return (
     `printf %s ${encoded} | base64 -d >${script} && chmod 755 ${script} && ` +
     `${cmuxTuiLayoutSelector()} && ` +
-    `runuser -u "$CMUX_TUI_USER" -- env HOME="$CMUX_TUI_HOME" CMUX_TUI_BIN="$CMUX_TUI_BIN" bash ${script}`
+    // `binary` overrides only the client: the reachability check drives a
+    // freshly downloaded build against the daemon the image baked. HOME still
+    // comes from the layout, because enrollment reads the daemon's own state.
+    `${cmuxTuiAsDaemonUser(`CMUX_TUI_BIN=${binary ? shellQuote(binary) : '"$CMUX_TUI_BIN"'} bash ${script}`)}`
   );
 }
 
-/**
- * Claude Code's first-run state, pre-answered so the first `claude
- * --dangerously-skip-permissions` in a cmux Cloud terminal lands on the
- * prompt instead of a stack of dialogs. Each key answers one gate that a
- * fresh machine otherwise shows (verified live against the shipped build):
- *
- *  - `theme` / `hasCompletedOnboarding`: the "Let's get started" theme
- *    picker, then the login-method chooser.
- *  - `bypassPermissionsModeAccepted`: the risk acknowledgement the
- *    `--dangerously-skip-permissions` flag itself asks for.
- *  - `customApiKeyResponses.approved`: "Detected a custom API key in your
- *    environment ... use this API key?", which defaults to No. The key is the
- *    same public placeholder on every machine (the coderouter route token is
- *    injected by the TLS edge and never reaches the guest), and Claude Code
- *    records the last 20 characters of the key it approved.
- *  - `projects[<home>]`: the per-folder trust dialog, for the work user's
- *    home only. Any other folder still asks, which is the point of that gate.
- *
- * Nothing here grants access to anything a person could not reach by pressing
- * Enter four times on the machine they own.
- */
-export function devboxClaudeOnboardingSeed(): string {
-  return `${JSON.stringify({
-    theme: "dark",
-    hasCompletedOnboarding: true,
-    bypassPermissionsModeAccepted: true,
-    customApiKeyResponses: { approved: [VM_PLACEHOLDER_API_KEY.slice(-20)], rejected: [] },
-    projects: {
-      [DEVBOX_WORK_HOME]: { hasTrustDialogAccepted: true, hasCompletedProjectOnboarding: true },
-    },
-  }, null, 2)}\n`;
-}
 
-/**
- * Claude Code's machine-wide policy: keep session transcripts effectively
- * forever (chatmux parity), and turn the auto-updater off. The image pins the
- * agent versions and installs them into a root-owned global prefix, so the
- * updater can only fail, once per session, in the user's face
- * ("Auto-update failed: no write permission to npm prefix"). A new version
- * ships by rebake.
- */
-export function devboxClaudeManagedSettings(): string {
-  return `${JSON.stringify({
-    cleanupPeriodDays: 99999,
-    autoUpdates: false,
-    env: { DISABLE_AUTOUPDATER: "1" },
-  }, null, 2)}\n`;
-}
 
 /**
  * The desktop layer (ported from the retired Blaxel cmux-devbox image): an
@@ -305,6 +259,18 @@ export function devboxGhosttyDebUrl(dockerfile = readDevboxDockerfile()): string
  * recipes verify the downloaded bytes against it before dpkg runs as root, so
  * a moved or tampered release asset fails the bake instead of installing.
  */
+/**
+ * The Ghostty release the image is built against, from the .deb pin: the
+ * version panes export as TERM_PROGRAM_VERSION (cmux-devbox-boot reads it from
+ * /etc/cmux/ghostty-version). Base images ship no Ghostty binary, so the pin,
+ * not `ghostty +version`, is the source.
+ */
+export function devboxGhosttyVersion(dockerfile = readDevboxDockerfile()): string {
+  const version = /\/ghostty_(\d+\.\d+\.\d+)[-_]/.exec(devboxGhosttyDebUrl(dockerfile))?.[1];
+  if (!version) throw new Error("devbox Dockerfile's CMUX_IMAGE_GHOSTTY_DEB_URL carries no ghostty_<x.y.z> version");
+  return version;
+}
+
 export function devboxGhosttyDebSha256(dockerfile = readDevboxDockerfile()): string {
   const sha = /^ARG CMUX_IMAGE_GHOSTTY_DEB_SHA256=([0-9a-f]{64})$/m.exec(dockerfile)?.[1];
   if (!sha) throw new Error("devbox Dockerfile is missing a 64-hex ARG CMUX_IMAGE_GHOSTTY_DEB_SHA256");

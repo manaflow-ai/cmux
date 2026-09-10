@@ -8,8 +8,7 @@ import SwiftUI
 struct MobilePrimaryTabScaffold<
     Workspaces: View,
     Notifications: View,
-    WorkspaceSearch: View,
-    NotificationSearch: View
+    Search: View
 >: View {
     @Binding var selection: MobilePrimaryTab
     @Bindable var searchCoordinator: MobilePrimarySearchCoordinator
@@ -17,8 +16,7 @@ struct MobilePrimaryTabScaffold<
     let taskComposerAction: (() -> Void)?
     let workspaces: Workspaces
     let notifications: Notifications
-    let workspaceSearch: WorkspaceSearch
-    let notificationSearch: NotificationSearch
+    let search: Search
 
     init(
         selection: Binding<MobilePrimaryTab>,
@@ -27,8 +25,7 @@ struct MobilePrimaryTabScaffold<
         taskComposerAction: (() -> Void)? = nil,
         @ViewBuilder workspaces: () -> Workspaces,
         @ViewBuilder notifications: () -> Notifications,
-        @ViewBuilder workspaceSearch: () -> WorkspaceSearch,
-        @ViewBuilder notificationSearch: () -> NotificationSearch
+        @ViewBuilder search: () -> Search
     ) {
         _selection = selection
         self.searchCoordinator = searchCoordinator
@@ -36,8 +33,7 @@ struct MobilePrimaryTabScaffold<
         self.taskComposerAction = taskComposerAction
         self.workspaces = workspaces()
         self.notifications = notifications()
-        self.workspaceSearch = workspaceSearch()
-        self.notificationSearch = notificationSearch()
+        self.search = search()
     }
 
     var body: some View {
@@ -47,19 +43,8 @@ struct MobilePrimaryTabScaffold<
                     primaryTabs
 
                     Tab(value: MobilePrimaryTab.search, role: .search) {
-                        // Scoped to the search tab's content: a TabView-level
-                        // searchable is inherited by every tab's navigation bar,
-                        // which rendered a second, top search field on the
-                        // workspaces and notifications tabs.
-                        searchDestination
-                            .searchable(
-                                text: activeSearchText,
-                                isPresented: searchPresentation,
-                                prompt: activeSearchPrompt
-                            )
-                            .onSubmit(of: .search) {
-                                selection = searchCoordinator.commitSubmit()
-                            }
+                        search
+                            .environment(\.mobilePrimarySearchDestination, true)
                     }
                     .accessibilityIdentifier("MobilePrimaryTabSearch")
                 }
@@ -122,73 +107,6 @@ struct MobilePrimaryTabScaffold<
                 selection = newValue
             }
         )
-    }
-
-    private var searchPresentation: Binding<Bool> {
-        Binding(
-            get: { searchCoordinator.isPresented },
-            set: { presented in
-                searchCoordinator.setPresentation(presented)
-            }
-        )
-    }
-
-    @ViewBuilder
-    private var searchDestination: some View {
-        switch searchCoordinator.scope {
-        case .workspaces:
-            workspaceSearch
-                .modifier(MobilePrimarySearchLifecycleModifier(
-                    scope: .workspaces,
-                    update: updateSearchLifecycle
-                ))
-                .environment(\.mobilePrimarySearchDestination, true)
-        case .notifications:
-            notificationSearch
-                .modifier(MobilePrimarySearchLifecycleModifier(
-                    scope: .notifications,
-                    update: updateSearchLifecycle
-                ))
-                .environment(\.mobilePrimarySearchDestination, true)
-        }
-    }
-
-    private var activeSearchText: Binding<String> {
-        let scope = searchCoordinator.scope
-        let activationGeneration = searchCoordinator.activationGeneration
-        return Binding(
-            get: { searchCoordinator.nativeSearchText(for: scope) },
-            set: { value in
-                searchCoordinator.updateNativeSearchText(
-                    value,
-                    for: scope,
-                    activationGeneration: activationGeneration
-                )
-            }
-        )
-    }
-
-    private var activeSearchPrompt: Text {
-        switch searchCoordinator.scope {
-        case .workspaces:
-            Text(
-                L10n.string(
-                    "mobile.workspaces.search.placeholder",
-                    defaultValue: "Search workspaces"
-                )
-            )
-        case .notifications:
-            Text(
-                L10n.string(
-                    "mobile.notificationFeed.search.placeholder",
-                    defaultValue: "Search notifications"
-                )
-            )
-        }
-    }
-
-    private func updateSearchLifecycle(scope: MobilePrimarySearchScope, isSearching: Bool) {
-        searchCoordinator.updateLifecycle(scope: scope, isSearching: isSearching)
     }
 
     @TabContentBuilder<MobilePrimaryTab>

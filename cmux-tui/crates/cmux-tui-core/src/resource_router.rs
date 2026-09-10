@@ -881,6 +881,8 @@ fn dispatch_resource_request(
                 ))
             }
             ResourceOperation::NotificationCreate => create_notification(mux, request),
+            ResourceOperation::NotificationAck => ack_notifications(mux, request),
+            ResourceOperation::NotificationClear => clear_notifications(mux, request),
             _ => unreachable!("operation_owner classifies snapshot operations exhaustively"),
         },
         OperationOwner::Connection => Err(ResourceError::operation_failed(
@@ -921,7 +923,9 @@ const fn operation_owner(operation: ResourceOperation) -> OperationOwner {
         | ResourceOperation::BrowserList
         | ResourceOperation::BrowserGet
         | ResourceOperation::NotificationList
-        | ResourceOperation::NotificationCreate => OperationOwner::Snapshot,
+        | ResourceOperation::NotificationCreate
+        | ResourceOperation::NotificationAck
+        | ResourceOperation::NotificationClear => OperationOwner::Snapshot,
         ResourceOperation::WorkspaceList
         | ResourceOperation::WorkspaceGet
         | ResourceOperation::WorkspaceCreate
@@ -1220,6 +1224,7 @@ fn create_notification(mux: &Mux, request: ParsedResourceRequest) -> Result<Valu
     let intent = json!({
         "notification_id": notification_id,
         "title": required_string(&request.fields, "title")?,
+        "subtitle": request.fields.get("subtitle").and_then(Value::as_str),
         "body": required_string(&request.fields, "body")?,
         "level": required_string(&request.fields, "level")?,
         "terminal_id": terminal_id,
@@ -1346,29 +1351,31 @@ fn execute_notification_effect(
         )
     })?;
     let session_id = mux.local_resource_context().map_err(resource_operation_error)?.session_id;
+    let subtitle = intent.get("subtitle").and_then(Value::as_str).map(str::to_string);
     mux.post_resource_notification(
         notification_id.clone(),
         title.to_string(),
+        subtitle.clone(),
         body.to_string(),
         level,
         surface,
         terminal_id.clone(),
         created_at_ms,
     );
-    let mut value = json!({
-        "id":notification_id,
-        "session_id":session_id,
-        "title":title,
-        "body":body,
-        "level":level.as_str(),
-        "created_at_ms":created_at_ms.to_string(),
-        "unread":surface
-            .and_then(|surface| mux.surface_notification(surface))
-            .is_some_and(|notification| notification.unread),
-    });
-    if let Some(terminal_id) = terminal_id {
-        value["terminal_id"] = json!(terminal_id);
-    }
+    let value = mux.notification_snapshot_value(
+        &crate::ResourceNotification {
+            id: notification_id.clone(),
+            title: title.to_string(),
+            subtitle,
+            body: body.to_string(),
+            level,
+            terminal_id,
+            created_at_ms,
+            surface,
+        },
+        &session_id,
+        &[],
+    );
     let outcome = ResourceEffectOutcome::Success(value.clone());
     let deltas = json!([{
         "kind":"upsert",
@@ -1390,7 +1397,90 @@ fn execute_notification_effect(
             return Err(indeterminate_error(idempotency_key, "notification.create"));
         }
     };
+    mux.prune_evicted_notification_reads();
     mutation_result(mux, value, revision, false)
+}
+
+fn ack_notifications(mux: &Mux, request: ParsedResourceRequest) -> Result<Value, ResourceError> {
+    ensure_session_route(mux, &request.selectors)?;
+    let client_id = required_string(&request.fields, "client_id")?.to_string();
+    crate::mux::validate_client_id(&client_id)
+        .map_err(|error| validation_error(&error.to_string(), json!({"client_id":client_id})))?;
+    let notifications = request
+        .fields
+        .get("notifications")
+        .and_then(Value::as_array)
+        .ok_or_else(|| validation_error("notifications must be an array", json!({})))?
+        .iter()
+        .map(|value| {
+            NotificationPublicId::parse(
+                value
+                    .as_str()
+                    .ok_or_else(|| validation_error("notification id must be a string", json!({})))?
+                    .to_string(),
+            )
+        })
+        .collect::<Result<Vec<_>, ResourceError>>()?;
+    let mutation = crate::workspace_registry::WorkspaceMutation::new(
+        request
+            .envelope
+            .idempotency_key
+            .clone()
+            .expect("catalog-validated mutations have an idempotency key"),
+        "resource-api",
+    )
+    .map_err(resource_operation_error)?;
+    let ack = mux
+        .ack_notifications(
+            &mutation,
+            expected_revision(&request.fields)?,
+            &client_id,
+            &notifications,
+        )
+        .map_err(resource_operation_error)?;
+    mutation_result(mux, ack.result, ack.revision, ack.replayed)
+}
+
+fn clear_notifications(mux: &Mux, request: ParsedResourceRequest) -> Result<Value, ResourceError> {
+    ensure_session_route(mux, &request.selectors)?;
+    let terminal_id = request
+        .fields
+        .get("terminal_id")
+        .map(|value| {
+            TerminalPublicId::parse(
+                value.as_str().expect("catalog resource-id validation").to_string(),
+            )
+        })
+        .transpose()?;
+    let mutation = crate::workspace_registry::WorkspaceMutation::new(
+        request
+            .envelope
+            .idempotency_key
+            .clone()
+            .expect("catalog-validated mutations have an idempotency key"),
+        "resource-api",
+    )
+    .map_err(resource_operation_error)?;
+    let commit = mux
+        .clear_notifications(&mutation, expected_revision(&request.fields)?, terminal_id.as_ref())
+        .map_err(|error| {
+            // Revision conflicts keep their typed error; anything else is an
+            // internal failure whose raw cause stays in the daemon log.
+            let mapped = resource_operation_error(error);
+            if mapped.code == "revision.conflict" {
+                return mapped;
+            }
+            mux.report_internal_diagnostic(format!(
+                "notification.clear failed: {}",
+                mapped.message
+            ));
+            ResourceError::operation_failed(
+                "notification.clear",
+                "the machine could not clear notifications; retry after the next state refresh",
+                json!({}),
+            )
+        })?;
+    mutation_result(mux, commit.result, commit.revision, commit.replayed)
 }
 
 fn indeterminate_error(idempotency_key: &str, operation: &str) -> ResourceError {
@@ -1630,7 +1720,7 @@ mod tests {
     #[test]
     fn every_catalog_operation_has_one_concrete_owner() {
         let operations = operation_catalog()["operations"].as_object().unwrap();
-        assert_eq!(operations.len(), 125);
+        assert_eq!(operations.len(), 127);
         for name in operations.keys() {
             let operation: ResourceOperation =
                 serde_json::from_value(Value::String(name.clone())).unwrap();
@@ -1649,7 +1739,7 @@ mod tests {
     #[test]
     fn every_catalog_operation_accepts_its_result_and_declared_error_fixtures() {
         let operations = operation_catalog()["operations"].as_object().unwrap();
-        assert_eq!(operations.len(), 125);
+        assert_eq!(operations.len(), 127);
         for (name, descriptor) in operations {
             let operation: ResourceOperation =
                 serde_json::from_value(Value::String(name.clone())).unwrap();

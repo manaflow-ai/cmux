@@ -418,6 +418,7 @@ function accountProvider(value: unknown): string | null {
     "openai-apikey",
     "anthropic-apikey",
     "opencode-go",
+    "openrouter-apikey",
   ]);
 }
 

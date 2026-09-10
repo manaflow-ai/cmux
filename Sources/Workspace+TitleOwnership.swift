@@ -133,7 +133,7 @@ extension Workspace {
             didMutatePanelTitle = true
         }
 
-        if didMutatePanelTitle,
+        if !isRemoteTmuxMirror,
            let tabId = surfaceIdFromPanelId(panelId),
            let panel = panels[panelId],
            let existing = bonsplitController.tab(tabId) {
@@ -147,6 +147,7 @@ extension Workspace {
                     title: titleUpdate,
                     hasCustomTitle: hasCustomTitle
                 )
+                didMutate = true
             }
         }
 

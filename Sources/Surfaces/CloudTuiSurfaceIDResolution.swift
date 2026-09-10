@@ -5,6 +5,8 @@
 enum CloudTuiSurfaceIDResolution: Equatable, Sendable {
     case resolved(UInt64)
     case noPlacement
+    /// The remote terminal exited (or the daemon has no record of it).
+    case exited
     case unsupported
     case failed
 }

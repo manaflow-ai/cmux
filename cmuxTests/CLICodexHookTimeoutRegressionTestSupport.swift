@@ -53,23 +53,7 @@ func makeCodexHookExecutableShellFile(at url: URL, lines: [String]) throws {
     try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
 }
 
-final class CodexHookCapturedSocketCommands: @unchecked Sendable {
-    private let lock = NSLock()
-    private var commands: [String] = []
 
-    func append(_ command: String) {
-        lock.lock()
-        commands.append(command)
-        lock.unlock()
-    }
-
-    func snapshot() -> [String] {
-        lock.lock()
-        let value = commands
-        lock.unlock()
-        return value
-    }
-}
 
 func makeCodexHookSocketPath(_ name: String) -> String {
     let shortID = UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8)

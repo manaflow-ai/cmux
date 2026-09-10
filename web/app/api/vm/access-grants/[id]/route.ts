@@ -5,10 +5,10 @@ import {
   withAuthedVmApiRoute,
 } from "@/services/vms/routeHelpers";
 import { optionalString, parseLenientObjectBody } from "@/services/vms/routeInput";
+import { runVmRoute } from "@/services/vms/routeWorkflow";
 import {
   renameVmAccessGrant,
   revokeVmAccessGrant,
-  runVmWorkflow,
 } from "@/services/vms/workflows";
 
 const MAX_DISPLAY_NAME_LENGTH = 63;
@@ -38,12 +38,13 @@ export async function PATCH(
           phase: "network",
         });
       }
-      const renamed = await runVmWorkflow(renameVmAccessGrant({
+      const renamed = await runVmRoute(renameVmAccessGrant({
         userId: user.id,
         accessGrantId: id,
         displayName: raw || null,
-      }));
-      if (!renamed) {
+      }), { request });
+      if (!renamed.ok) return renamed.response;
+      if (!renamed.value) {
         return vmErrorResponse({
           error: "vm_access_grant_not_found",
           status: 404,
@@ -68,10 +69,12 @@ export async function DELETE(
     { "cmux.vm.operation": "revoke_access_grant" },
     "/api/vm/access-grants/[id] failed",
     async ({ user }) => {
-      const result = await runVmWorkflow(revokeVmAccessGrant({
+      const revoke = await runVmRoute(revokeVmAccessGrant({
         userId: user.id,
         accessGrantId: id,
-      }));
+      }), { request });
+      if (!revoke.ok) return revoke.response;
+      const result = revoke.value;
       if (result.revoked && result.stackSessionIds.length > 0) {
         const stackUser = await getStackServerApp().getUser({ tokenStore: request });
         if (stackUser?.id === user.id) {

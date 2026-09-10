@@ -1,6 +1,7 @@
 // Authenticated REST facade over the VM control plane. Native clients use this surface so
 // provider credentials stay behind server-side ownership checks.
 
+import type { Span } from "@opentelemetry/api";
 import { preconnectFreestyle } from "../../../services/vms/drivers/freestyle";
 import {
   unauthorized,
@@ -17,11 +18,7 @@ import { assertVmCreateEnabled } from "../../../services/vms/config";
 import { vmModelPlaneGatewayFor } from "../../../services/vms/modelPlaneGateway";
 import {
   isVmCreateDisabledError,
-  isVmCreateFailedError,
-  isVmCreateCreditsInsufficientError,
-  isVmCreateInProgressError,
   isVmImageConfigError,
-  isVmLimitExceededError,
 } from "../../../services/vms/errors";
 import {
   defaultMemoryMbForPlan,
@@ -30,6 +27,7 @@ import {
   isVmBillingTeamResolutionError,
   maxMemoryMbForPlan,
   resolveVmEntitlements,
+  type VmEntitlements,
   vmFreeAccessWindowDays,
 } from "../../../services/vms/entitlements";
 import {
@@ -50,19 +48,18 @@ import {
   jsonResponse,
   requestedVmTeamIdFromRequest,
   vmErrorResponse,
-  vmWorkflowErrorResponse,
   withAuthedVmApiRoute,
   vmActiveLimitExceededResponse,
   resolveVmProvisioningAccountScope,
   runAfterResponse,
+  type VmWorkflowErrorOverrides,
 } from "../../../services/vms/routeHelpers";
-import { vmRequestLocale } from "../../../services/vms/vmErrorMessages";
+import { runVmRoute } from "../../../services/vms/routeWorkflow";
 import { captureVmProvisionOutcome } from "../../../services/vms/observability";
 import { annotateVmRequestBilling } from "../../../services/vms/requestContext";
 import {
   createVm,
   listUserVms,
-  runVmWorkflow,
 } from "../../../services/vms/workflows";
 import { recordSpanError, setSpanAttributes } from "../../../services/telemetry";
 import {
@@ -110,7 +107,9 @@ export async function GET(request: Request): Promise<Response> {
         throw err;
       }
 
-      const entries = await runVmWorkflow(listUserVms(user.id, billingTeamId));
+      const listed = await runVmRoute(listUserVms(user.id, billingTeamId), { request });
+      if (!listed.ok) return listed.response;
+      const entries = listed.value;
       setSpanAttributes(span, { "cmux.vm.count": entries.length });
       // REST adapter: expose `id` at the top level so existing CLI + curl users don't need to
       // learn the new `providerVmId` field name. Swift CLI reads `vm["id"]`.
@@ -202,370 +201,410 @@ export async function POST(request: Request): Promise<Response> {
         }
         captureVmProvisionOutcome({ userId: initialUser.id, operation: "create", response, span });
       });
-      let user: AuthedUser = initialUser;
-      {
-        // Runtime-validate the payload before we call a paid provider. An invalid `provider`
-        // (client sending `"aws"` or `"docker"`) previously slipped past the type cast and
-        // surfaced as a 500 from the driver after provisioning had already half-succeeded.
-        // Allow callers to send no body at all. The handler already falls through to
-        // default provider/image, so a bare `curl -X POST /api/vm` should create a default
-        // VM. Empty is a default-create; malformed or non-object JSON is rejected below.
-        let parsedBody: { readonly bodyWasEmpty: boolean; readonly raw: unknown };
-        try {
-          parsedBody = await measureVmAsync(timing, "request_parse", async () => {
-            const rawText = await request.text();
-            const bodyWasEmpty = rawText.length === 0;
-            if (bodyWasEmpty) {
-              return { bodyWasEmpty, raw: undefined as unknown };
-            }
-            return { bodyWasEmpty, raw: JSON.parse(rawText) as unknown };
-          });
-        } catch (err) {
-          if (!(err instanceof SyntaxError)) throw err;
-          recordSpanError(span, err);
-          return vmErrorResponse({
-            error: "vm_json_parse_failed",
-            status: 400,
-            message: "Cloud VM create expected valid JSON.",
-            action: "Send `{}` for the default VM, or include only documented fields such as `image` and `teamId`.",
-          });
-        }
-        const { bodyWasEmpty, raw } = parsedBody;
-        if (!bodyWasEmpty && (raw === null || typeof raw !== "object" || Array.isArray(raw))) {
-          recordSpanError(span, new Error("Cloud VM create body was not a JSON object"));
-          return vmErrorResponse({
-            error: "vm_expected_object",
-            status: 400,
-            message: "Cloud VM create expected a JSON object body.",
-            action: "Send `{}` for the default VM, or include only documented fields such as `image` and `teamId`.",
-          });
-        }
-        const candidate = (raw ?? {}) as Record<string, unknown>;
-        if (candidate.image !== undefined && typeof candidate.image !== "string") {
-          return vmErrorResponse({
-            error: "vm_invalid_request",
-            status: 400,
-            message: "`image` must be a string when provided.",
-            action: "Remove `image` to use the default Cloud VM image, or pass a supported Cloud VM image id.",
-            details: { field: "image" },
-          });
-        }
-        if (candidate.kind !== undefined && !isVmImageKind(candidate.kind)) {
-          return vmErrorResponse({
-            error: "vm_invalid_request",
-            status: 400,
-            message: `\`kind\` must be one of ${VM_IMAGE_KINDS.join(", ")} when provided.`,
-            action: "Remove `kind` to use the default Cloud VM image, or pass `desktop` or `base`.",
-            details: { field: "kind", allowedKinds: VM_IMAGE_KINDS },
-          });
-        }
-        if (candidate.provider !== undefined) {
-          if (typeof candidate.provider !== "string") {
-            return vmErrorResponse({
-              error: "vm_invalid_request",
-              status: 400,
-              message: "Cloud VM service override must be a string when provided.",
-              action: "Remove the override to use the default Cloud VM service.",
-              details: { field: "provider" },
-            });
-          }
-          if (!isProviderId(candidate.provider)) {
-            return vmErrorResponse({
-              error: "vm_invalid_provider",
-              status: 400,
-              message: "Unsupported Cloud VM service override.",
-              action: "Remove the override to use the default Cloud VM service.",
-              details: { field: "provider" },
-            });
-          }
-        }
-        const bodyBillingTeamId = candidate.billingTeamId ?? candidate.teamId;
-        if (bodyBillingTeamId !== undefined && typeof bodyBillingTeamId !== "string") {
-          return invalidTeamIdResponse();
-        }
-        if (candidate.persistentHome !== undefined && typeof candidate.persistentHome !== "boolean") {
-          return vmErrorResponse({
-            error: "vm_invalid_request",
-            status: 400,
-            message: "`persistentHome` must be a boolean when provided.",
-            action: "Omit `persistentHome`, or send `true` to mount the per-user persistent home volume.",
-            details: { field: "persistentHome" },
-          });
-        }
-        if (candidate.perMachineHome !== undefined && typeof candidate.perMachineHome !== "boolean") {
-          return vmErrorResponse({
-            error: "vm_invalid_request",
-            status: 400,
-            message: "`perMachineHome` must be a boolean when provided.",
-            action: "Omit `perMachineHome`, or send `true` to give the new machine its own persistent home volume.",
-            details: { field: "perMachineHome" },
-          });
-        }
-        if (
-          candidate.memoryMb !== undefined &&
-          (!Number.isSafeInteger(candidate.memoryMb) || (candidate.memoryMb as number) < 512)
-        ) {
-          return vmErrorResponse({
-            error: "vm_invalid_request",
-            status: 400,
-            message: "`memoryMb` must be an integer of at least 512 when provided.",
-            action: "Omit `memoryMb` for the plan default, or send a larger integer memory size in MB.",
-            details: { field: "memoryMb", minimumMemoryMb: 512 },
-          });
-        }
-        if (typeof bodyBillingTeamId === "string" && bodyBillingTeamId.trim().length === 0) {
-          return invalidTeamIdResponse();
-        }
-        if (requestHasBlankVmTeamId(request)) {
-          return invalidTeamIdResponse();
-        }
-        const body: { image?: string; kind?: VmImageKind; provider?: ProviderId; billingTeamId?: string } = {
-          image: typeof candidate.image === "string" ? candidate.image : undefined,
-          kind: isVmImageKind(candidate.kind) ? candidate.kind : undefined,
-          provider: candidate.provider as ProviderId | undefined,
-          billingTeamId: typeof bodyBillingTeamId === "string" ? bodyBillingTeamId.trim() : undefined,
-        };
-        // Idempotency-Key is standard HTTP; we also accept x-cmux-idempotency-key for CLI
-        // callers that don't know about RFC-style keys. Trim + clamp to a reasonable length
-        // so we don't store unbounded idempotency metadata.
-        const rawKey = (
-          request.headers.get("idempotency-key") ||
-          request.headers.get("x-cmux-idempotency-key") ||
-          ""
-        ).trim();
-        const idempotencyKey = rawKey ? rawKey.slice(0, 128) : undefined;
 
-        const requestedBillingTeamId = body.billingTeamId || requestedVmTeamIdFromRequest(request);
-        if (requestedBillingTeamId && !user.teamIds.includes(requestedBillingTeamId)) {
-          let refreshedUser: AuthedUser | null;
-          try {
-            refreshedUser = await measureVmAsync(timing, "auth", () =>
-              verifyRequest(request, { requestedTeamId: requestedBillingTeamId })
-            );
-          } catch (error) {
-            return authProviderErrorResponse(error, "/api/vm.create.team-auth");
-          }
-          if (!refreshedUser) return unauthorized();
-          user = refreshedUser;
-        }
-        // Read-time reconcile: a Stripe subscription change is corrected here
-        // right before paid limits apply. Best-effort — billing reads must
-        // not block VM creation, so the whole reconcile races a hard
-        // deadline and VM create proceeds with current metadata on timeout.
-        // The Stripe-to-Stack plan reconcile (a Stack read plus our subscription
-        // table) used to run before every create and cost 150 to 360 ms. It can
-        // only change this request's outcome when the cached plan would block
-        // it, so it runs inline on that path alone. Otherwise it runs after the
-        // response, so the next request still sees fresh metadata.
-        const reconcileProPlan = (recordTiming: boolean) =>
-          withBillingReconcileDeadline(
-            measureVmAsync(recordTiming ? timing : undefined, "billing_reconcile", async () => {
-              const serverUser = await getStackServerApp().getUser(user.id);
-              return serverUser ? reconcileProPlanMetadata(serverUser) : false;
-            }),
-          );
-        let account = await measureVmAsync(timing, "entitlements", () =>
-          resolveVmProvisioningAccountScope(user, request, { requestedBillingTeamId })
-        );
-        let reconcileMode: "off" | "deferred" | "inline" = isStackConfigured() ? "deferred" : "off";
-        if (!account.ok && reconcileMode === "deferred") {
-          reconcileMode = "inline";
-          try {
-            if (await reconcileProPlan(true)) {
-              const reconciledUser = await measureVmAsync(timing, "auth", () =>
-                verifyRequest(request, { requestedTeamId: requestedBillingTeamId })
-              );
-              if (reconciledUser) user = reconciledUser;
-              account = await measureVmAsync(timing, "entitlements", () =>
-                resolveVmProvisioningAccountScope(user, request, { requestedBillingTeamId })
-              );
-            }
-          } catch (err) {
-            console.error("[VM] Pro plan reconcile failed", err);
-          }
-        }
-        setSpanAttributes(span, { "cmux.billing.reconcile_mode": reconcileMode });
-        if (!account.ok) return account.response;
-        if (reconcileMode === "deferred") {
-          runAfterResponse(() => reconcileProPlan(false).then(() => undefined));
-        }
-        const entitlements = account.entitlements;
-        setSpanAttributes(span, {
-          "cmux.billing.team_id_set": !!entitlements.billingTeamId,
-          "cmux.billing.customer_type": entitlements.billingCustomerType,
-          "cmux.billing.plan_id": entitlements.planId,
-          "cmux.billing.requested_team_id_set": !!requestedBillingTeamId,
-          "cmux.vm.max_active": entitlements.maxActiveVms,
-        });
+      const parsed = await parseCreateRequest(request, span, timing);
+      if (!parsed.ok) return parsed.response;
+      const { candidate, body, idempotencyKey } = parsed;
 
-        const maxMemoryMb = maxMemoryMbForPlan(entitlements.planId, process.env);
-        const memoryOptionsMb = memoryOptionsMbForPlan(entitlements.planId, process.env);
-        const planMemoryMb = defaultMemoryMbForPlan(entitlements.planId, process.env);
-        const requestedMemoryMb = candidate.memoryMb as number | undefined;
-        // The server owns the supported size ladder. A stale client request
-        // that is not on the ladder resolves to the plan default instead of
-        // failing the create. The repository enforces the machine-count allowance.
-        // Clients ship their own size table and always trail the server: the
-        // 2026-09-02 pricing change (#11610) left every installed nightly
-        // sending its old 24 GB default and the server rejecting each create
-        // with `vm_memory_exceeds_plan` until the next nightly published. The
-        // server owns the machine spec, so a stale client must still get a
-        // machine; the mismatch is recorded on the span for Axiom.
-        const memoryMb =
-          requestedMemoryMb === undefined || memoryOptionsMb.includes(requestedMemoryMb)
-            ? requestedMemoryMb ?? planMemoryMb
-            : planMemoryMb;
-        setSpanAttributes(span, {
-          "cmux.vm.memory_mb": memoryMb,
-          "cmux.vm.max_memory_mb": maxMemoryMb,
-          "cmux.vm.memory_requested_mb": requestedMemoryMb,
-          "cmux.vm.memory_coerced": requestedMemoryMb !== undefined && requestedMemoryMb !== memoryMb,
-        });
+      const scope = await resolveCreateAccount({ request, span, timing, user: initialUser, body });
+      if (!scope.ok) return scope.response;
+      const { user, entitlements } = scope;
 
-        // Resolve provider/image only after the paid-plan boundary. A free or
-        // unknown plan must receive `vm_requires_pro` without consulting
-        // provider configuration, image manifests, or provider SDKs.
-        // An explicit manifest image names its own provider: the CLI sends
-        // provider-specific image ids without a provider field, and the
-        // deployment default must not reroute them under the wrong provider.
-        const provider = body.provider ?? inferVmProviderForImage(body.image) ?? defaultProviderId();
-        let imageSelection;
-        try {
-          assertVmCreateEnabled(provider);
-          // The plan's memory picks the snapshot size (one snapshot per size on
-          // Freestyle), so the machine boots at its shape with nothing to resize.
-          imageSelection = resolveVmImage(provider, body.image, process.env, { kind: body.kind, memoryMb });
-        } catch (err) {
-          if (isVmCreateDisabledError(err)) {
-            return vmErrorResponse({
-              error: "vm_create_disabled",
-              status: 503,
-              message: "Cloud VM creation is disabled for this environment.",
-              action: "Ask an admin to enable Cloud VM creation, then retry.",
-              reason: "Cloud VM creation is disabled.",
-            });
-          }
-          if (isVmImageConfigError(err)) {
-            const described = reportVmImageConfigError(err);
-            return vmErrorResponse({
-              error: "vm_image_config_error",
-              status: 503,
-              message: described.message,
-              action: described.action,
-              reason: "Cloud VM image configuration is unavailable.",
-              details: described.details,
-              diagnostics: {
-                provider,
-                image: err.image,
-                envVar: err.envVar,
-                configReason: err.reason,
-              },
-            });
-          }
-          throw err;
-        }
-        const image = imageSelection.image;
-        setSpanAttributes(span, {
-          "cmux.vm.provider": provider,
-          "cmux.vm.image_set": image.length > 0,
-          "cmux.vm.image_version": imageSelection.imageVersion,
-          "cmux.vm.image_manifest": !!imageSelection.manifestEntry,
-          "cmux.vm.image_size": imageSelection.size?.name ?? "size-less",
-          "cmux.idempotency_key_set": !!idempotencyKey,
-        });
+      const memoryMb = resolveCreateMemory(span, entitlements.planId, candidate.memoryMb as number | undefined);
 
-        // Wire the machine to coderouter inside the workflow: the route token
-        // is bound to the VM row id, so provisioning runs after the row exists
-        // and before the provider call, and a failure fails the create.
-        const modelPlane = vmModelPlaneGatewayFor({
-          teamId: entitlements.billingTeamId,
-          stackUserId: user.id,
-        });
-        setSpanAttributes(span, { "cmux.vm.model_plane": !!modelPlane });
+      // Resolve provider/image only after the paid-plan boundary. A free or
+      // unknown plan must receive `vm_requires_pro` without consulting
+      // provider configuration, image manifests, or provider SDKs.
+      // An explicit manifest image names its own provider: the CLI sends
+      // provider-specific image ids without a provider field, and the
+      // deployment default must not reroute them under the wrong provider.
+      const provider = body.provider ?? inferVmProviderForImage(body.image) ?? defaultProviderId();
+      const selected = resolveCreateImage(provider, body, memoryMb);
+      if (!selected.ok) return selected.response;
+      const { imageSelection } = selected;
+      const image = imageSelection.image;
+      setSpanAttributes(span, {
+        "cmux.vm.provider": provider,
+        "cmux.vm.image_set": image.length > 0,
+        "cmux.vm.image_version": imageSelection.imageVersion,
+        "cmux.vm.image_manifest": !!imageSelection.manifestEntry,
+        "cmux.vm.image_size": imageSelection.size?.name ?? "size-less",
+        "cmux.idempotency_key_set": !!idempotencyKey,
+      });
 
-        let created;
-        try {
-          created = await runVmWorkflow(createVm({
-            userId: user.id,
-            billingCustomerType: entitlements.billingCustomerType,
-            billingTeamId: entitlements.billingTeamId,
-            billingPlanId: entitlements.planId,
-            maxActiveVms: entitlements.maxActiveVms,
-            image,
-            imageVersion: imageSelection.imageVersion,
-            provider,
-            idempotencyKey,
-            persistentHome: candidate.persistentHome === true,
-            perMachineHome: candidate.perMachineHome === true,
-            memoryMb,
-            imageSize: imageSelection.size ?? undefined,
-            modelPlane,
-            timing,
-          }));
-        } catch (err) {
-          if (isVmCreateInProgressError(err)) {
-            return vmErrorResponse({
-              error: "vm_create_in_progress",
-              status: 409,
-              message: "A Cloud VM create is already running for this request.",
-              action: "Wait for the first `cmux vm new` to finish. If your terminal was interrupted, retry the same command and cmux will reuse the in-flight request.",
-              details: { idempotencyKeySet: !!err.idempotencyKey },
-            });
-          }
-          if (isVmCreateFailedError(err)) {
-            return vmErrorResponse({
-              error: "vm_create_failed",
-              status: 500,
-              message: "The previous Cloud VM create attempt failed.",
-              action: "Retry with a fresh `cmux vm new`. If it fails again, copy the details and contact support.",
-              details: {
-                idempotencyKeySet: !!err.idempotencyKey,
-                failureCode: err.code,
-                failureMessage: err.message,
-              },
-            });
-          }
-          if (isVmLimitExceededError(err)) {
-            return vmActiveLimitExceededResponse({
-              limit: err.limit,
-              planId: entitlements.planId,
-              retryAction: "Run `cmux vm ls`, then delete an active VM with `cmux vm rm <id>` before creating another, or upgrade your plan.",
-            });
-          }
-          if (isVmCreateCreditsInsufficientError(err)) {
-            const billsUser = entitlements.billingCustomerType === "user";
-            return vmErrorResponse({
-              error: "vm_create_credits_insufficient",
-              status: 402,
-              message: billsUser
-                ? "Your account has no Cloud VM create credits left."
-                : "This team has no Cloud VM create credits left.",
-              action: billsUser
-                ? "Upgrade your plan or add Cloud VM create credits, then retry."
-                : "Upgrade the team's plan or ask an admin to add Cloud VM create credits, then retry.",
-              extra: { amount: err.amount },
-              details: { amount: err.amount },
-            });
-          }
-          const workflowError = await vmWorkflowErrorResponse(err, { locale: vmRequestLocale(request) });
-          if (workflowError) return workflowError;
-          throw err;
-        }
-        setSpanAttributes(span, { "cmux.vm.id": created.providerVmId });
-        return jsonResponse({
-          id: created.providerVmId,
-          provider: created.provider,
-          image: created.image,
-          imageVersion: created.imageVersion,
-          kind: imageSelection.kind,
-          ...(imageSelection.size ? { size: imageSelection.size } : {}),
-          createdAt: created.createdAt,
-          displayName: created.displayName,
-          slug: created.slug,
-        });
-      }
+      // Wire the machine to coderouter inside the workflow: the route token
+      // is bound to the VM row id, so provisioning runs after the row exists
+      // and before the provider call, and a failure fails the create.
+      const modelPlane = vmModelPlaneGatewayFor({
+        teamId: entitlements.billingTeamId,
+        stackUserId: user.id,
+      });
+      setSpanAttributes(span, { "cmux.vm.model_plane": !!modelPlane });
+
+      const run = await runVmRoute(createVm({
+        userId: user.id,
+        billingCustomerType: entitlements.billingCustomerType,
+        billingTeamId: entitlements.billingTeamId,
+        billingPlanId: entitlements.planId,
+        maxActiveVms: entitlements.maxActiveVms,
+        image,
+        imageVersion: imageSelection.imageVersion,
+        provider,
+        idempotencyKey,
+        persistentHome: candidate.persistentHome === true,
+        perMachineHome: candidate.perMachineHome === true,
+        memoryMb,
+        imageSize: imageSelection.size ?? undefined,
+        modelPlane,
+        timing,
+      }), {
+        request,
+        onError: createErrorResponders(entitlements),
+      });
+      if (!run.ok) return run.response;
+      const created = run.value;
+      setSpanAttributes(span, { "cmux.vm.id": created.providerVmId });
+      return jsonResponse({
+        id: created.providerVmId,
+        provider: created.provider,
+        image: created.image,
+        imageVersion: created.imageVersion,
+        kind: imageSelection.kind,
+        ...(imageSelection.size ? { size: imageSelection.size } : {}),
+        createdAt: created.createdAt,
+        displayName: created.displayName,
+        slug: created.slug,
+      });
     },
   );
+}
+
+type CreateBody = {
+  readonly image?: string;
+  readonly kind?: VmImageKind;
+  readonly provider?: ProviderId;
+  readonly billingTeamId?: string;
+};
+
+type ParsedCreateRequest =
+  | {
+    readonly ok: true;
+    readonly candidate: Record<string, unknown>;
+    readonly body: CreateBody;
+    readonly idempotencyKey: string | undefined;
+  }
+  | { readonly ok: false; readonly response: Response };
+
+/**
+ * Runtime-validate the payload before we call a paid provider. An invalid `provider`
+ * (client sending `"aws"` or `"docker"`) previously slipped past the type cast and
+ * surfaced as a 500 from the driver after provisioning had already half-succeeded.
+ * Allow callers to send no body at all. The handler already falls through to
+ * default provider/image, so a bare `curl -X POST /api/vm` should create a default
+ * VM. Empty is a default-create; malformed or non-object JSON is rejected here.
+ */
+async function parseCreateRequest(
+  request: Request,
+  span: Span,
+  timing: VmTimingRecorder,
+): Promise<ParsedCreateRequest> {
+  let parsedBody: { readonly bodyWasEmpty: boolean; readonly raw: unknown };
+  try {
+    parsedBody = await measureVmAsync(timing, "request_parse", async () => {
+      const rawText = await request.text();
+      const bodyWasEmpty = rawText.length === 0;
+      if (bodyWasEmpty) {
+        return { bodyWasEmpty, raw: undefined as unknown };
+      }
+      return { bodyWasEmpty, raw: JSON.parse(rawText) as unknown };
+    });
+  } catch (err) {
+    if (!(err instanceof SyntaxError)) throw err;
+    recordSpanError(span, err);
+    return {
+      ok: false,
+      response: vmErrorResponse({
+        error: "vm_json_parse_failed",
+        status: 400,
+        message: "Cloud VM create expected valid JSON.",
+        action: "Send `{}` for the default VM, or include only documented fields such as `image` and `teamId`.",
+      }),
+    };
+  }
+  const { bodyWasEmpty, raw } = parsedBody;
+  if (!bodyWasEmpty && (raw === null || typeof raw !== "object" || Array.isArray(raw))) {
+    recordSpanError(span, new Error("Cloud VM create body was not a JSON object"));
+    return {
+      ok: false,
+      response: vmErrorResponse({
+        error: "vm_expected_object",
+        status: 400,
+        message: "Cloud VM create expected a JSON object body.",
+        action: "Send `{}` for the default VM, or include only documented fields such as `image` and `teamId`.",
+      }),
+    };
+  }
+  const candidate = (raw ?? {}) as Record<string, unknown>;
+  const invalid = invalidCreateFieldResponse(candidate, request);
+  if (invalid) return { ok: false, response: invalid };
+  const bodyBillingTeamId = candidate.billingTeamId ?? candidate.teamId;
+  const body: CreateBody = {
+    image: typeof candidate.image === "string" ? candidate.image : undefined,
+    kind: isVmImageKind(candidate.kind) ? candidate.kind : undefined,
+    provider: candidate.provider as ProviderId | undefined,
+    billingTeamId: typeof bodyBillingTeamId === "string" ? bodyBillingTeamId.trim() : undefined,
+  };
+  // Idempotency-Key is standard HTTP; we also accept x-cmux-idempotency-key for CLI
+  // callers that don't know about RFC-style keys. Trim + clamp to a reasonable length
+  // so we don't store unbounded idempotency metadata.
+  const rawKey = (
+    request.headers.get("idempotency-key") ||
+    request.headers.get("x-cmux-idempotency-key") ||
+    ""
+  ).trim();
+  const idempotencyKey = rawKey ? rawKey.slice(0, 128) : undefined;
+  return { ok: true, candidate, body, idempotencyKey };
+}
+
+function invalidCreateRequestResponse(message: string, action: string, details: Record<string, unknown>): Response {
+  return vmErrorResponse({ error: "vm_invalid_request", status: 400, message, action, details });
+}
+
+/** The first field-level 400 for a create body, in the order the fields are documented. */
+function invalidCreateFieldResponse(candidate: Record<string, unknown>, request: Request): Response | null {
+  if (candidate.image !== undefined && typeof candidate.image !== "string") {
+    return invalidCreateRequestResponse(
+      "`image` must be a string when provided.",
+      "Remove `image` to use the default Cloud VM image, or pass a supported Cloud VM image id.",
+      { field: "image" },
+    );
+  }
+  if (candidate.kind !== undefined && !isVmImageKind(candidate.kind)) {
+    return invalidCreateRequestResponse(
+      `\`kind\` must be one of ${VM_IMAGE_KINDS.join(", ")} when provided.`,
+      "Remove `kind` to use the default Cloud VM image, or pass `desktop` or `base`.",
+      { field: "kind", allowedKinds: VM_IMAGE_KINDS },
+    );
+  }
+  const invalidProvider = invalidCreateProviderResponse(candidate.provider);
+  if (invalidProvider) return invalidProvider;
+  const bodyBillingTeamId = candidate.billingTeamId ?? candidate.teamId;
+  if (bodyBillingTeamId !== undefined && typeof bodyBillingTeamId !== "string") {
+    return invalidTeamIdResponse();
+  }
+  if (candidate.persistentHome !== undefined && typeof candidate.persistentHome !== "boolean") {
+    return invalidCreateRequestResponse(
+      "`persistentHome` must be a boolean when provided.",
+      "Omit `persistentHome`, or send `true` to mount the per-user persistent home volume.",
+      { field: "persistentHome" },
+    );
+  }
+  if (candidate.perMachineHome !== undefined && typeof candidate.perMachineHome !== "boolean") {
+    return invalidCreateRequestResponse(
+      "`perMachineHome` must be a boolean when provided.",
+      "Omit `perMachineHome`, or send `true` to give the new machine its own persistent home volume.",
+      { field: "perMachineHome" },
+    );
+  }
+  if (
+    candidate.memoryMb !== undefined &&
+    (!Number.isSafeInteger(candidate.memoryMb) || (candidate.memoryMb as number) < 512)
+  ) {
+    return invalidCreateRequestResponse(
+      "`memoryMb` must be an integer of at least 512 when provided.",
+      "Omit `memoryMb` for the plan default, or send a larger integer memory size in MB.",
+      { field: "memoryMb", minimumMemoryMb: 512 },
+    );
+  }
+  if (typeof bodyBillingTeamId === "string" && bodyBillingTeamId.trim().length === 0) {
+    return invalidTeamIdResponse();
+  }
+  if (requestHasBlankVmTeamId(request)) {
+    return invalidTeamIdResponse();
+  }
+  return null;
+}
+
+function invalidCreateProviderResponse(provider: unknown): Response | null {
+  if (provider === undefined) return null;
+  if (typeof provider !== "string") {
+    return invalidCreateRequestResponse(
+      "Cloud VM service override must be a string when provided.",
+      "Remove the override to use the default Cloud VM service.",
+      { field: "provider" },
+    );
+  }
+  if (!isProviderId(provider)) {
+    return vmErrorResponse({
+      error: "vm_invalid_provider",
+      status: 400,
+      message: "Unsupported Cloud VM service override.",
+      action: "Remove the override to use the default Cloud VM service.",
+      details: { field: "provider" },
+    });
+  }
+  return null;
+}
+
+type CreateAccountScope =
+  | { readonly ok: true; readonly user: AuthedUser; readonly entitlements: VmEntitlements }
+  | { readonly ok: false; readonly response: Response };
+
+/**
+ * The caller's billing scope for this create: re-verify when a team outside
+ * the cached membership is requested, then resolve entitlements with the
+ * read-time Pro reconcile.
+ */
+async function resolveCreateAccount(input: {
+  readonly request: Request;
+  readonly span: Span;
+  readonly timing: VmTimingRecorder;
+  readonly user: AuthedUser;
+  readonly body: CreateBody;
+}): Promise<CreateAccountScope> {
+  const { request, span, timing } = input;
+  let user = input.user;
+  const requestedBillingTeamId = input.body.billingTeamId || requestedVmTeamIdFromRequest(request);
+  if (requestedBillingTeamId && !user.teamIds.includes(requestedBillingTeamId)) {
+    let refreshedUser: AuthedUser | null;
+    try {
+      refreshedUser = await measureVmAsync(timing, "auth", () =>
+        verifyRequest(request, { requestedTeamId: requestedBillingTeamId })
+      );
+    } catch (error) {
+      return { ok: false, response: authProviderErrorResponse(error, "/api/vm.create.team-auth") };
+    }
+    if (!refreshedUser) return { ok: false, response: unauthorized() };
+    user = refreshedUser;
+  }
+  // Read-time reconcile: a Stripe subscription change is corrected here
+  // right before paid limits apply. Best-effort — billing reads must
+  // not block VM creation, so the whole reconcile races a hard
+  // deadline and VM create proceeds with current metadata on timeout.
+  // The Stripe-to-Stack plan reconcile (a Stack read plus our subscription
+  // table) used to run before every create and cost 150 to 360 ms. It can
+  // only change this request's outcome when the cached plan would block
+  // it, so it runs inline on that path alone. Otherwise it runs after the
+  // response, so the next request still sees fresh metadata.
+  const reconcileProPlan = (recordTiming: boolean) =>
+    withBillingReconcileDeadline(
+      measureVmAsync(recordTiming ? timing : undefined, "billing_reconcile", async () => {
+        const serverUser = await getStackServerApp().getUser(user.id);
+        return serverUser ? reconcileProPlanMetadata(serverUser) : false;
+      }),
+    );
+  let account = await measureVmAsync(timing, "entitlements", () =>
+    resolveVmProvisioningAccountScope(user, request, { requestedBillingTeamId })
+  );
+  let reconcileMode: "off" | "deferred" | "inline" = isStackConfigured() ? "deferred" : "off";
+  if (!account.ok && reconcileMode === "deferred") {
+    reconcileMode = "inline";
+    try {
+      if (await reconcileProPlan(true)) {
+        const reconciledUser = await measureVmAsync(timing, "auth", () =>
+          verifyRequest(request, { requestedTeamId: requestedBillingTeamId })
+        );
+        if (reconciledUser) user = reconciledUser;
+        account = await measureVmAsync(timing, "entitlements", () =>
+          resolveVmProvisioningAccountScope(user, request, { requestedBillingTeamId })
+        );
+      }
+    } catch (err) {
+      console.error("[VM] Pro plan reconcile failed", err);
+    }
+  }
+  setSpanAttributes(span, { "cmux.billing.reconcile_mode": reconcileMode });
+  if (!account.ok) return { ok: false, response: account.response };
+  if (reconcileMode === "deferred") {
+    runAfterResponse(() => reconcileProPlan(false).then(() => undefined));
+  }
+  const entitlements = account.entitlements;
+  setSpanAttributes(span, {
+    "cmux.billing.team_id_set": !!entitlements.billingTeamId,
+    "cmux.billing.customer_type": entitlements.billingCustomerType,
+    "cmux.billing.plan_id": entitlements.planId,
+    "cmux.billing.requested_team_id_set": !!requestedBillingTeamId,
+    "cmux.vm.max_active": entitlements.maxActiveVms,
+  });
+  return { ok: true, user, entitlements };
+}
+
+/**
+ * The server owns the supported size ladder. A stale client request
+ * that is not on the ladder resolves to the plan default instead of
+ * failing the create. The repository enforces the machine-count allowance.
+ * Clients ship their own size table and always trail the server: the
+ * 2026-09-02 pricing change (#11610) left every installed nightly
+ * sending its old 24 GB default and the server rejecting each create
+ * with `vm_memory_exceeds_plan` until the next nightly published. The
+ * server owns the machine spec, so a stale client must still get a
+ * machine; the mismatch is recorded on the span for Axiom.
+ */
+function resolveCreateMemory(span: Span, planId: string, requestedMemoryMb: number | undefined): number {
+  const maxMemoryMb = maxMemoryMbForPlan(planId, process.env);
+  const memoryOptionsMb = memoryOptionsMbForPlan(planId, process.env);
+  const planMemoryMb = defaultMemoryMbForPlan(planId, process.env);
+  const memoryMb =
+    requestedMemoryMb === undefined || memoryOptionsMb.includes(requestedMemoryMb)
+      ? requestedMemoryMb ?? planMemoryMb
+      : planMemoryMb;
+  setSpanAttributes(span, {
+    "cmux.vm.memory_mb": memoryMb,
+    "cmux.vm.max_memory_mb": maxMemoryMb,
+    "cmux.vm.memory_requested_mb": requestedMemoryMb,
+    "cmux.vm.memory_coerced": requestedMemoryMb !== undefined && requestedMemoryMb !== memoryMb,
+  });
+  return memoryMb;
+}
+
+type CreateImageSelection =
+  | { readonly ok: true; readonly imageSelection: ReturnType<typeof resolveVmImage> }
+  | { readonly ok: false; readonly response: Response };
+
+/**
+ * The plan's memory picks the snapshot size (one snapshot per size on
+ * Freestyle), so the machine boots at its shape with nothing to resize.
+ */
+function resolveCreateImage(provider: ProviderId, body: CreateBody, memoryMb: number): CreateImageSelection {
+  try {
+    assertVmCreateEnabled(provider);
+    const imageSelection = resolveVmImage(provider, body.image, process.env, { kind: body.kind, memoryMb });
+    return { ok: true, imageSelection };
+  } catch (err) {
+    if (isVmCreateDisabledError(err)) {
+      return {
+        ok: false,
+        response: vmErrorResponse({
+          error: "vm_create_disabled",
+          status: 503,
+          message: "Cloud VM creation is disabled for this environment.",
+          action: "Ask an admin to enable Cloud VM creation, then retry.",
+          reason: "Cloud VM creation is disabled.",
+        }),
+      };
+    }
+    if (isVmImageConfigError(err)) {
+      const described = reportVmImageConfigError(err);
+      return {
+        ok: false,
+        response: vmErrorResponse({
+          error: "vm_image_config_error",
+          status: 503,
+          message: described.message,
+          action: described.action,
+          reason: "Cloud VM image configuration is unavailable.",
+          details: described.details,
+          diagnostics: {
+            provider,
+            image: err.image,
+            envVar: err.envVar,
+            configReason: err.reason,
+          },
+        }),
+      };
+    }
+    throw err;
+  }
 }
 
 // Upper bound on how long VM creation waits for the best-effort billing
@@ -592,6 +631,56 @@ export async function withBillingReconcileDeadline(
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** Create-specific copy for the provisioning failures; everything else uses the shared table. */
+function createErrorResponders(entitlements: {
+  readonly planId: string;
+  readonly billingCustomerType: string;
+}): VmWorkflowErrorOverrides {
+  return {
+    VmCreateInProgressError: (error) =>
+      vmErrorResponse({
+        error: "vm_create_in_progress",
+        status: 409,
+        message: "A Cloud VM create is already running for this request.",
+        action: "Wait for the first `cmux vm new` to finish. If your terminal was interrupted, retry the same command and cmux will reuse the in-flight request.",
+        details: { idempotencyKeySet: !!error.idempotencyKey },
+      }),
+    VmCreateFailedError: (error) =>
+      vmErrorResponse({
+        error: "vm_create_failed",
+        status: 500,
+        message: "The previous Cloud VM create attempt failed.",
+        action: "Retry with a fresh `cmux vm new`. If it fails again, copy the details and contact support.",
+        details: {
+          idempotencyKeySet: !!error.idempotencyKey,
+          failureCode: error.code,
+          failureMessage: error.message,
+        },
+      }),
+    VmLimitExceededError: (error) =>
+      vmActiveLimitExceededResponse({
+        limit: error.limit,
+        planId: entitlements.planId,
+        retryAction: "Run `cmux vm ls`, then delete an active VM with `cmux vm rm <id>` before creating another, or upgrade your plan.",
+      }),
+    VmCreateCreditsInsufficientError: (error) => {
+      const billsUser = entitlements.billingCustomerType === "user";
+      return vmErrorResponse({
+        error: "vm_create_credits_insufficient",
+        status: 402,
+        message: billsUser
+          ? "Your account has no Cloud VM create credits left."
+          : "This team has no Cloud VM create credits left.",
+        action: billsUser
+          ? "Upgrade your plan or add Cloud VM create credits, then retry."
+          : "Upgrade the team's plan or ask an admin to add Cloud VM create credits, then retry.",
+        extra: { amount: error.amount },
+        details: { amount: error.amount },
+      });
+    },
+  };
 }
 
 function invalidTeamIdResponse(): Response {

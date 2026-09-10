@@ -109,8 +109,10 @@ final class SessionIndexTableController: NSObject, NSTableViewDataSource, NSTabl
             object: scrollView.contentView,
             queue: .main
         ) { [weak self, weak table] _ in
-            guard let self, let table, !self.isApplyingRows else { return }
-            self.reconcilePresentation(in: table)
+            MainActor.assumeIsolated {
+                guard let self, let table, !self.isApplyingRows else { return }
+                self.reconcilePresentation(in: table)
+            }
         }
         table.frame = scrollView.contentView.bounds
         table.autoresizingMask = [.width]

@@ -1085,12 +1085,14 @@ export const subrouterTenants = pgTable(
  * live in the envelope-encrypted coderouterCredentials table; this table
  * coordinates selection and rotating refresh-token leases.
  */
+type CodeRouterProviderColumn = "codex" | "opencode-go" | "openai-apikey" | "openrouter-apikey";
+
 export const coderouterAccounts = pgTable(
   "coderouter_accounts",
   {
     id: uuid("id").defaultRandom().primaryKey(),
     teamId: text("team_id").notNull(),
-    provider: text("provider").$type<"codex" | "opencode-go">().notNull(),
+    provider: text("provider").$type<CodeRouterProviderColumn>().notNull(),
     providerAccountId: text("provider_account_id").notNull(),
     label: text("label").notNull(),
     state: text("state")
@@ -1166,7 +1168,7 @@ export const coderouterCredentials = pgTable(
       .primaryKey()
       .references(() => coderouterAccounts.id, { onDelete: "cascade" }),
     teamId: text("team_id").notNull(),
-    provider: text("provider").$type<"codex" | "opencode-go">().notNull(),
+    provider: text("provider").$type<CodeRouterProviderColumn>().notNull(),
     credentialRevision: bigint("credential_revision", { mode: "number" })
       .notNull(),
     algorithm: text("algorithm").notNull().default("aes-256-gcm"),
@@ -1219,7 +1221,7 @@ export const coderouterSessionAccounts = pgTable(
   "coderouter_session_accounts",
   {
     teamId: text("team_id").notNull(),
-    provider: text("provider").$type<"codex" | "opencode-go">().notNull(),
+    provider: text("provider").$type<CodeRouterProviderColumn>().notNull(),
     sessionKey: text("session_key").notNull(),
     accountId: uuid("account_id")
       .notNull()

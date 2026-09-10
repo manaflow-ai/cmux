@@ -139,12 +139,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private static let maximumRenderPresentationRetries: UInt8 = 3
     /// Value-only render metadata captured by the serial surface queue.
     ///
-    /// This type is explicitly nonisolated because its instances cross from
-    /// the main-actor admission path into `GhosttySurfaceWorkQueue.async`.
-    /// The raw surface pointer is valid for the matching generation, and the
-    /// owning view resets that generation before teardown; no UIKit state is
-    /// accessed from the queue closure.
-    nonisolated struct RenderSubmission: @unchecked Sendable {
+    /// Instances cross from the main-actor admission path into
+    /// `GhosttySurfaceWorkQueue.async`, so the type stays free of actor
+    /// isolation and value-only. The raw surface pointer is valid for the
+    /// matching generation, and the owning view resets that generation before
+    /// teardown; no UIKit state is accessed from the queue closure.
+    struct RenderSubmission: @unchecked Sendable {
         let token: UInt64
         let generation: UInt64
         let kind: RenderSubmissionKind
@@ -285,7 +285,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// gesture whose batch has not reached the queue voids the anchor. The lock
     /// is held only for field reads and writes, never across a Ghostty C call.
     /// The ticket revokes a timed-out restore whose queued block has not claimed it.
-    nonisolated struct ViewportRestoreGate {
+    struct ViewportRestoreGate {
         var interactionGeneration: UInt64 = 0
         var appliedInteractionGeneration: UInt64 = 0
         /// Raw Ghostty scrollbar state is not user intent. Resize and replay
@@ -301,7 +301,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// on `outputQueue`, and bottom snaps / surface replacement reset it from
     /// the main actor. Same lock discipline as `viewportRestoreGate`: held
     /// only for field reads and writes, never across a Ghostty C call.
-    nonisolated struct LocalPixelScrollState {
+    struct LocalPixelScrollState {
         /// Bumped by every clear (dock/typing snap, surface replacement,
         /// alt routing). Batches capture the epoch at pump time and only
         /// commit results while it still matches, so an in-flight batch
@@ -311,7 +311,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         var lastFallbackLogTime: CFTimeInterval = 0
         /// One applied pixel-pump position, remembered as the gesture's
         /// authority between batches.
-        nonisolated struct Held: Equatable, Sendable {
+        struct Held: Equatable, Sendable {
             /// The viewport top row applied to Ghostty.
             var row: UInt64
             /// The whole-pixel offset actually applied to Ghostty.
@@ -5092,7 +5092,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let bottomInsetPx = UInt32(max(0, Int((bottomInsetPts * scale).rounded(.down))))
         let appliedBottomInsetPts = CGFloat(bottomInsetPx) / scale
         let eff = effectiveGrid
-        let requiresExactEffectiveGrid = verifiedReplayRenderSuppressed
         let pushContentScale = abs(lastAppliedContentScale - scale) > 0.001
         if pushContentScale { lastAppliedContentScale = scale }
         let generation = surfaceGeneration
@@ -5117,13 +5116,19 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             var pinnedSize: CGSize?
             if let eff, eff.cols > 0, eff.rows > 0, cell.width > 0, cell.height > 0 {
                 let fillsNaturalGrid = eff.cols >= Int(measured.columns) && eff.rows >= Int(measured.rows)
-                let withinOneCell = (Int(measured.columns) - eff.cols) <= 1 && (Int(measured.rows) - eff.rows) <= 1
                 let exactGridFitsInsideNatural = eff.cols <= Int(measured.columns)
                     && eff.rows <= Int(measured.rows)
                 let pinnedW = CGFloat(eff.cols) * cell.width / scale
                 let pinnedH = CGFloat(eff.rows) * cell.height / scale
+                // The producer's effective grid is the contract for every
+                // authoritative render-grid replay. Even a one-row/column
+                // difference must be fitted locally, otherwise the apply
+                // fence rejects every replay and the lane keeps reopening
+                // behind a fresh recovery cycle. Keep the fit bounded to
+                // grids that actually fit inside the measured surface; a
+                // larger effective grid still needs a normal geometry pass.
                 let shouldFitEffectiveGrid = !fillsNaturalGrid
-                    && (!withinOneCell || requiresExactEffectiveGrid && exactGridFitsInsideNatural)
+                    && exactGridFitsInsideNatural
                 if shouldFitEffectiveGrid,
                    pinnedW + 0.5 < containerW || pinnedH + 0.5 < containerH {
                     let fitted = Self.fitSurfaceToGrid(surface, cols: eff.cols, rows: eff.rows, cellPixelSize: cell)
@@ -5771,7 +5776,7 @@ extension GhosttySurfaceView: UIScrollViewDelegate {
 }
 
 /// Internal for `GhosttySurfaceView+RenderRecovery.swift` replay decisions.
-nonisolated enum RenderPipelineRecoveryReplay {
+enum RenderPipelineRecoveryReplay {
     case callerWillRequestReplay
     case delegateWhenNoCaller
 }
@@ -5779,7 +5784,7 @@ nonisolated enum RenderPipelineRecoveryReplay {
 /// One output/geometry operation awaiting either its output-queue completion or
 /// the display-link deadline that rebuilds the stalled render pipeline.
 /// Internal for `GhosttySurfaceView+RenderRecovery.swift` deadline handling.
-nonisolated struct PendingSurfaceOperation {
+struct PendingSurfaceOperation {
     let id: UInt64
     let startedAt: CFTimeInterval
     let byteCount: Int?
@@ -5789,7 +5794,7 @@ nonisolated struct PendingSurfaceOperation {
 /// One visible-terminal snapshot read awaiting output-queue completion or its
 /// display-link deadline. A timeout skips only the pending text snapshot.
 /// Internal for `GhosttySurfaceView+RenderRecovery.swift` deadline handling.
-nonisolated struct PendingVisibleSnapshot {
+struct PendingVisibleSnapshot {
     let id: UInt64
     let startedAt: CFTimeInterval
     let continuation: CheckedContinuation<(text: String, columns: Int)?, Never>
@@ -5797,7 +5802,7 @@ nonisolated struct PendingVisibleSnapshot {
 
 /// One verified-replay viewport-anchor capture awaiting output-queue completion
 /// or its skip-only display-link deadline.
-nonisolated struct PendingVerifiedReplayViewportAnchorCapture {
+struct PendingVerifiedReplayViewportAnchorCapture {
     let id: UInt64
     let startedAt: CFTimeInterval
     let continuation: CheckedContinuation<VerifiedReplayCapturedViewportAnchor?, Never>
@@ -5805,7 +5810,7 @@ nonisolated struct PendingVerifiedReplayViewportAnchorCapture {
 
 /// One verified-replay viewport-anchor restore awaiting output-queue completion
 /// or its skip-only display-link deadline.
-nonisolated struct PendingVerifiedReplayViewportAnchorRestore {
+struct PendingVerifiedReplayViewportAnchorRestore {
     let id: UInt64
     let startedAt: CFTimeInterval
     let continuation: CheckedContinuation<Bool, Never>
@@ -5813,7 +5818,7 @@ nonisolated struct PendingVerifiedReplayViewportAnchorRestore {
 
 /// One "View as Text" read awaiting output-queue completion or deadline.
 /// Internal for `GhosttySurfaceView+RenderRecovery.swift` deadline handling.
-nonisolated struct PendingCopyableTextRead {
+struct PendingCopyableTextRead {
     let id: UInt64
     let startedAt: CFTimeInterval
     fileprivate let cancellation: SurfaceOperationCancellationToken
@@ -5829,13 +5834,13 @@ nonisolated struct PendingCopyableTextRead {
 ///
 /// The C surface pointer is dereferenced only on `GhosttySurfaceWorkQueue`,
 /// which is the same FIFO queue that owns `process_output` and surface free.
-nonisolated private struct CopyableTextRead: @unchecked Sendable {
+private struct CopyableTextRead: @unchecked Sendable {
     let surface: ghostty_surface_t
     let generation: UInt64
     let cancellation: SurfaceOperationCancellationToken
 }
 
-nonisolated private final class SurfaceOperationCancellationToken: Sendable {
+private final class SurfaceOperationCancellationToken: Sendable {
     // lint:allow lock - tiny cross-queue cancellation flag for already-enqueued
     // libghostty work; actor hops would put the serial surface queue back behind
     // the main actor and defeat the stale-read fast path.

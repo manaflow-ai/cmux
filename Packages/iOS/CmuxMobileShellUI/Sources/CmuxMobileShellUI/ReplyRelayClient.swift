@@ -1,4 +1,5 @@
 #if os(iOS)
+import CMUXMobileCore
 import Foundation
 
 /// One inline notification reply handed to the server-side inbox.
@@ -67,6 +68,10 @@ public struct SystemReplyRelayClient: ReplyRelaying {
     private let serviceBaseURL: URL?
     private let accessToken: @Sendable () async -> String?
     private let session: URLSession
+    /// One service-owned deadline suppresses every outer reply-ladder wake.
+    /// The coordinator may check again after five seconds, but no HTTP request
+    /// escapes until the server's deadline has passed.
+    private let retryAfterGate = CmxRetryAfterGate()
 
     /// - Parameters:
     ///   - serviceBaseURL: The presence worker origin (the same one the
@@ -83,6 +88,7 @@ public struct SystemReplyRelayClient: ReplyRelaying {
     }
 
     public func relay(_ reply: RelayedReply) async -> Bool {
+        guard await retryAfterGate.remainingSeconds() == nil else { return false }
         guard let serviceBaseURL,
               var comps = URLComponents(
                   url: serviceBaseURL,
@@ -113,6 +119,12 @@ public struct SystemReplyRelayClient: ReplyRelaying {
         do {
             let (_, response) = try await session.data(for: request)
             guard let http = response as? HTTPURLResponse else { return false }
+            if http.statusCode == 429 {
+                let seconds = CmxRetryAfterPolicy.seconds(
+                    from: http.value(forHTTPHeaderField: "Retry-After")
+                ) ?? CmxRetryAfterPolicy.defaultRateLimitSeconds
+                await retryAfterGate.extend(by: seconds)
+            }
             return (200...299).contains(http.statusCode)
         } catch {
             return false

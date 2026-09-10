@@ -75,7 +75,7 @@ struct DeviceTreeView: View {
                                 setCaffeine: setCaffeine,
                                 caffeineMutatingComputerIDs: store.caffeineMutatingPairingIDs,
                                 hide: hideComputer,
-                                unhide: unhideComputer,
+                                unhide: unhideComputer
                             )
                         } header: {
                             Text(section.title)
@@ -88,7 +88,7 @@ struct DeviceTreeView: View {
                                 hiddenComputers: store.hiddenComputers,
                                 mutatingComputerIDs: store.computerVisibilityMutationIDs,
                                 hide: hideComputer,
-                                unhide: unhideComputer,
+                                unhide: unhideComputer
                             )
                         } header: {
                             Text(L10n.string(

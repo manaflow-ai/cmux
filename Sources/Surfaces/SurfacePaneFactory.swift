@@ -74,6 +74,32 @@ enum SurfacePaneFactory {
         _ = TerminalController.shared.controlSurfaceClose(routing: routing(workspaceID: workspaceID), surfaceID: panelID, hasSurfaceIDParam: true)
     }
 
+    /// Closes a pane whose process has ended, the way a local terminal pane
+    /// disappears when its shell exits.
+    ///
+    /// This is not ``close(panelID:in:)``: the socket close refuses a
+    /// workspace's last surface, so an agent cannot empty a workspace by
+    /// accident. A shell that ended is not an accident, and a cloud workspace
+    /// opened by `cmux vm workspace new` holds exactly one pane, so the socket
+    /// rule would leave the dead pane on screen forever.
+    static func closeExited(panelID: UUID, in workspaceID: UUID) {
+        guard let appDelegate = AppDelegate.shared,
+              let workspace = appDelegate.workspace(containingSurfaceID: panelID) else { return }
+        // A workspace whose only pane is the dead terminal goes with it, which
+        // is what a local workspace does when its last shell exits. Closing
+        // only the pane there leaves the workspace to open a fresh local shell
+        // in the cloud pane's place.
+        if workspace.panels.count <= 1 {
+            let manager = workspace.owningTabManager ?? TerminalController.shared.tabManager
+            if manager?.closeWorkspaceNonInteractively(workspace) == true { return }
+            // The workspace refused to close (pinned, or the window's last one
+            // during teardown). Close the pane anyway: a replacement local
+            // shell is still better than a frozen pane that swallows input.
+        }
+        workspace.markCloseHistoryEligible(panelId: panelID)
+        _ = workspace.closePanel(panelID, force: true)
+    }
+
     /// A fresh local workspace (⌘N) titled `title`, returned with the id of the starter
     /// pane it opened with so a caller projecting a group can take that pane's place.
     static func createLocalWorkspace(title: String) throws -> (workspaceID: UUID, starterPanelID: UUID?) {

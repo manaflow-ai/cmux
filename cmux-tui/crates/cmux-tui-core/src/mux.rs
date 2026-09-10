@@ -8,7 +8,7 @@ mod resource_topology;
 pub(crate) use resource_content::ResourceEffectProjection;
 
 use public_projections::{RestoredPublicProjections, restore_public_projections};
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::fmt;
 use std::ops::{Deref, DerefMut};
 use std::path::Path;
@@ -1041,6 +1041,18 @@ pub struct TreeDelta {
     pub workspace_revision: Option<u64>,
 }
 
+/// A durable client install identity: non-empty, at most 128 ASCII graphic
+/// bytes. Shared by per-client focus memory and per-client notification reads.
+pub(crate) fn validate_client_id(client_id: &str) -> anyhow::Result<()> {
+    if client_id.is_empty()
+        || client_id.len() > 128
+        || !client_id.bytes().all(|byte| byte.is_ascii_graphic())
+    {
+        anyhow::bail!("bad request: invalid client_id");
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NotificationLevel {
     Info,
@@ -1071,6 +1083,8 @@ pub struct NotificationEvent {
 pub struct ResourceNotification {
     pub id: NotificationPublicId,
     pub title: String,
+    /// Second line under the title, as `cmux notify --subtitle`.
+    pub subtitle: Option<String>,
     pub body: String,
     pub level: NotificationLevel,
     pub terminal_id: Option<TerminalPublicId>,
@@ -1171,6 +1185,49 @@ fn agent_state_for_hook_kind(kind: &str) -> Option<AgentState> {
         "agent.session.ended" => AgentState::Done,
         _ => return None,
     })
+}
+
+/// Title, body, and level for the notification an agent hook event earns,
+/// or `None` for transitions that need no attention (session start, turn
+/// start, child lifecycle, session end).
+fn agent_hook_notification(
+    ingress: &crate::JournalIngress,
+) -> Option<(String, String, NotificationLevel)> {
+    const BODY_MAX_CHARS: usize = 512;
+    let (verb, level) = match ingress.kind.as_str() {
+        "agent.turn.completed" => ("finished", NotificationLevel::Info),
+        "agent.approval.requested" => ("needs approval", NotificationLevel::Warning),
+        "agent.question.requested" => ("asked a question", NotificationLevel::Warning),
+        "agent.plan_review.requested" => ("requested plan review", NotificationLevel::Warning),
+        "agent.error.reported" => ("reported an error", NotificationLevel::Error),
+        _ => return None,
+    };
+    let adapter = ingress
+        .payload
+        .get("adapter")
+        .and_then(|adapter| adapter.get("id"))
+        .and_then(Value::as_str)
+        .filter(|id| !id.is_empty())
+        .unwrap_or("Agent");
+    let mut agent = String::with_capacity(adapter.len());
+    let mut chars = adapter.chars();
+    if let Some(first) = chars.next() {
+        agent.extend(first.to_uppercase());
+        agent.push_str(chars.as_str());
+    }
+    // Prompt and message text is redacted before the journal accepts it, so
+    // the body is the one structural field a viewer can act on: the tool an
+    // approval is waiting on. Everything else stays empty rather than leaking
+    // a redaction marker into the notification feed.
+    let normalized = ingress.payload.get("normalized");
+    let body = ["tool_name"]
+        .into_iter()
+        .filter_map(|field| normalized.and_then(|value| value.get(field)).and_then(Value::as_str))
+        .map(str::trim)
+        .find(|text| !text.is_empty() && *text != "[redacted]")
+        .map(|text| text.chars().take(BODY_MAX_CHARS).collect::<String>())
+        .unwrap_or_default();
+    Some((format!("{agent} {verb}"), body, level))
 }
 
 #[derive(Debug, Clone)]
@@ -2251,6 +2308,16 @@ pub struct Mux {
     placement_notifications: Mutex<HashMap<SurfaceId, SurfaceNotification>>,
     terminal_notifications: Mutex<HashMap<TerminalPublicId, SurfaceNotification>>,
     notification_ledger: Mutex<VecDeque<ResourceNotification>>,
+    /// Per-client read marks. The shared unread marker above answers "does
+    /// this terminal need attention on the shared console"; this map answers
+    /// "has this client install seen this notification", so several remote
+    /// clients of one session keep independent unread state.
+    notification_reads: Mutex<HashMap<NotificationPublicId, BTreeSet<String>>>,
+    /// Notification ids the in-memory ledger evicted whose durable read marks
+    /// are still to be pruned. Pruning happens only after a create commits,
+    /// and only for ids the committed receipts no longer retain, so a failed
+    /// create cannot orphan marks the next restart would rebuild.
+    notification_read_prunes: Mutex<Vec<NotificationPublicId>>,
     resource_machine_service: OnceLock<Arc<dyn crate::ResourceMachineService>>,
     journal_kernel: Arc<crate::journal_kernel::JournalKernel>,
     journal_ingress: crate::journal_ingress::JournalIngressSender,
@@ -2320,7 +2387,19 @@ struct RestoredTerminalBinding {
 
 impl Mux {
     fn default_workspace_name(state: &State) -> String {
-        state.workspaces.len().to_string()
+        // Provider-created workspaces use a stable, human-readable sequence.
+        // Existing names (including user-renamed workspaces) are left untouched;
+        // only the next automatically generated name is derived here.
+        let next = state
+            .workspaces
+            .iter()
+            .filter_map(|workspace| {
+                workspace.name.strip_prefix("workspace-")?.parse::<usize>().ok()
+            })
+            .max()
+            .unwrap_or(0)
+            .saturating_add(1);
+        format!("workspace-{next}")
     }
 
     /// Resolve one public resource path from a single live-state snapshot.
@@ -2521,6 +2600,7 @@ impl Mux {
             agent_hook_fences,
             terminal_notifications,
             notification_ledger,
+            notification_reads,
         } = restore_public_projections(&state, registry.public_projections()?)?;
         let journal_producers = registry.journal_producer_manifests()?;
         let session_public_id = registry.session_id().clone();
@@ -2639,6 +2719,8 @@ impl Mux {
             placement_notifications: Mutex::new(HashMap::new()),
             terminal_notifications: Mutex::new(terminal_notifications),
             notification_ledger: Mutex::new(notification_ledger),
+            notification_reads: Mutex::new(notification_reads),
+            notification_read_prunes: Mutex::new(Vec::new()),
             resource_machine_service: OnceLock::new(),
             journal_kernel,
             journal_ingress,
@@ -5739,6 +5821,22 @@ impl Mux {
         ) else {
             return Ok(());
         };
+        // Attention-worthy transitions become durable notifications before
+        // the agent report commits. The notification key is derived from the
+        // journal sequence, so a retry after a crash between the two commits
+        // replays the notification instead of posting it twice, and the fence
+        // (stored by the report) still advances exactly once.
+        if let Some((title, body, level)) = agent_hook_notification(ingress) {
+            self.create_durable_notification(
+                &format!("agent-hook-notification-{sequence}"),
+                title,
+                None,
+                body,
+                level,
+                Some(surface),
+            )
+            .with_context(|| format!("agent hook notification for sequence {sequence}"))?;
+        }
         // The record's session field is a human-facing label; native agent
         // session ids are opaque, so views fall back to their own context.
         let marker = if state == AgentState::Done {
@@ -5868,7 +5966,7 @@ impl Mux {
     /// Sends a diagnostic to the frontend-owned sink without writing to a
     /// frontend terminal. One message is retained when startup races sink
     /// installation.
-    fn report_internal_diagnostic(&self, message: impl Into<String>) {
+    pub(crate) fn report_internal_diagnostic(&self, message: impl Into<String>) {
         let message = message.into();
         if let Some(reporter) = self.diagnostic_reporter.get().cloned() {
             reporter(&message);
@@ -9048,6 +9146,9 @@ impl Mux {
         }
     }
 
+    /// Post a notification from the legacy `notify` verb. This is the same
+    /// durable path as `notification.create`, under a fresh key, so remote
+    /// subscribers of the resource feed and a restarted daemon see it too.
     pub fn post_notification(
         &self,
         title: String,
@@ -9055,24 +9156,9 @@ impl Mux {
         level: NotificationLevel,
         surface: Option<SurfaceId>,
     ) -> anyhow::Result<u64> {
-        let public_id = NotificationPublicId::random()?;
-        let terminal_id = surface.and_then(|surface| {
-            let state = self.state.lock().unwrap();
-            state
-                .surfaces
-                .get(&surface)
-                .or_else(|| state.terminal_runtime_by_id(surface))
-                .and_then(|surface| surface.terminal_public_id().cloned())
-        });
-        Ok(self.post_resource_notification(
-            public_id,
-            title,
-            body,
-            level,
-            surface,
-            terminal_id,
-            now_ms(),
-        ))
+        let key = format!("notify-{}", crate::workspace_registry::new_uuid_v4());
+        self.create_durable_notification(&key, title, None, body, level, surface)?
+            .context("fresh notify key unexpectedly replayed")
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -9080,6 +9166,7 @@ impl Mux {
         &self,
         public_id: NotificationPublicId,
         title: String,
+        subtitle: Option<String>,
         body: String,
         level: NotificationLevel,
         surface: Option<SurfaceId>,
@@ -9093,14 +9180,25 @@ impl Mux {
             ledger.push_back(ResourceNotification {
                 id: public_id,
                 title: title.clone(),
+                subtitle,
                 body: body.clone(),
                 level,
                 terminal_id: terminal_id.clone(),
                 created_at_ms,
                 surface,
             });
+            let mut evicted = Vec::new();
             while ledger.len() > NOTIFICATION_LEDGER_CAPACITY {
-                ledger.pop_front();
+                if let Some(old) = ledger.pop_front() {
+                    evicted.push(old.id);
+                }
+            }
+            if !evicted.is_empty() {
+                let mut reads = self.notification_reads.lock().unwrap();
+                for id in &evicted {
+                    reads.remove(id);
+                }
+                self.notification_read_prunes.lock().unwrap().extend(evicted);
             }
         }
         // Shared topology focus is only a default projection. A frontend must
@@ -9160,6 +9258,376 @@ impl Mux {
             }
         }
         notifications
+    }
+
+    /// Client ids that acknowledged `notification`, sorted and unique.
+    pub fn notification_read_by(&self, notification: &NotificationPublicId) -> Vec<String> {
+        self.notification_reads
+            .lock()
+            .unwrap()
+            .get(notification)
+            .map(|clients| clients.iter().cloned().collect())
+            .unwrap_or_default()
+    }
+
+    /// The public snapshot row for one ledger entry. Every producer of a
+    /// `notification` resource value goes through here so create results,
+    /// acknowledgement deltas, and session snapshots cannot drift.
+    pub(crate) fn notification_snapshot_value(
+        &self,
+        notification: &ResourceNotification,
+        session_id: &SessionPublicId,
+        read_by: &[String],
+    ) -> Value {
+        let unread = notification
+            .terminal_id
+            .as_ref()
+            .and_then(|terminal_id| self.terminal_notification(terminal_id))
+            .is_some_and(|marker| marker.unread);
+        let mut value = serde_json::json!({
+            "id": notification.id,
+            "session_id": session_id,
+            "title": notification.title,
+            "body": notification.body,
+            "level": notification.level.as_str(),
+            "created_at_ms": notification.created_at_ms.to_string(),
+            "unread": unread,
+            "read_by": read_by,
+        });
+        if let Some(terminal_id) = &notification.terminal_id {
+            value["terminal_id"] = serde_json::json!(terminal_id);
+        }
+        if let Some(subtitle) = &notification.subtitle {
+            value["subtitle"] = serde_json::json!(subtitle);
+        }
+        value
+    }
+
+    /// Post a notification through the durable `notification.create` effect
+    /// path under a caller-owned idempotency key. Replaying the same key
+    /// returns `None` without posting again, so journal-driven producers
+    /// (agent hooks) and the legacy `notify` verb share one durable ledger
+    /// with the resource API and survive a daemon restart. A fresh post
+    /// returns the session-local legacy notification id.
+    pub(crate) fn create_durable_notification(
+        &self,
+        idempotency_key: &str,
+        title: String,
+        subtitle: Option<String>,
+        body: String,
+        level: NotificationLevel,
+        surface: Option<SurfaceId>,
+    ) -> anyhow::Result<Option<u64>> {
+        const OPERATION: &str = "notification.create";
+        let terminal_id = surface.and_then(|surface| {
+            let state = self.state.lock().unwrap();
+            state
+                .surfaces
+                .get(&surface)
+                .or_else(|| state.terminal_runtime_by_id(surface))
+                .and_then(|surface| surface.terminal_public_id().cloned())
+        });
+        // The fingerprint names the subtitle only when one was given, so a key
+        // minted before subtitles existed (an agent-hook retry across an
+        // upgrade) still matches its stored receipt.
+        let mut fingerprint = serde_json::json!({
+            "operation": OPERATION,
+            "origin": "durable-notification",
+            "title": title,
+            "body": body,
+            "level": level.as_str(),
+            "terminal_id": terminal_id,
+        });
+        if let Some(subtitle) = &subtitle {
+            fingerprint["subtitle"] = serde_json::json!(subtitle);
+        }
+        let committed = |outcome: ResourceEffectOutcome| match outcome {
+            ResourceEffectOutcome::Success(_) => Ok(None),
+            ResourceEffectOutcome::Failure(error) => Err(anyhow::Error::new(error)),
+        };
+        let preparation = match self.lookup_resource_effect(
+            idempotency_key,
+            OPERATION,
+            &fingerprint,
+        )? {
+            Some(preparation) => preparation,
+            None => {
+                let intent = serde_json::json!({
+                    "notification_id": NotificationPublicId::random().map_err(anyhow::Error::new)?,
+                    "title": title,
+                    "subtitle": subtitle,
+                    "body": body,
+                    "level": level.as_str(),
+                    "terminal_id": terminal_id,
+                    "created_at_ms": now_ms(),
+                });
+                self.prepare_resource_effect(
+                    idempotency_key,
+                    OPERATION,
+                    &fingerprint,
+                    &intent,
+                    None,
+                    None,
+                )?
+            }
+        };
+        let intent = match preparation {
+            ResourceEffectPreparation::Committed { outcome, .. } => {
+                return committed(outcome);
+            }
+            ResourceEffectPreparation::Indeterminate => {
+                // The post may or may not have happened before a crash. A
+                // notification is advisory, so the caller proceeds without it
+                // rather than retrying the same key forever; the agent-hook
+                // fold in particular must still commit its report and fence.
+                self.report_internal_diagnostic("notification effect indeterminate, skipped");
+                return Ok(None);
+            }
+            ResourceEffectPreparation::Execute { .. } => {
+                self.mark_resource_effect_executing(idempotency_key, OPERATION, &fingerprint)?
+            }
+        };
+        let notification_id: NotificationPublicId =
+            serde_json::from_value(intent["notification_id"].clone())
+                .context("stored notification intent has an invalid identity")?;
+        let created_at_ms = intent
+            .get("created_at_ms")
+            .and_then(Value::as_u64)
+            .context("stored notification intent has an invalid timestamp")?;
+        let numeric_id = self.post_resource_notification(
+            notification_id.clone(),
+            title.clone(),
+            subtitle.clone(),
+            body.clone(),
+            level,
+            surface,
+            terminal_id.clone(),
+            created_at_ms,
+        );
+        let session_id = self.workspace_registry.lock().unwrap().session_id().clone();
+        let value = self.notification_snapshot_value(
+            &ResourceNotification {
+                id: notification_id.clone(),
+                title,
+                subtitle,
+                body,
+                level,
+                terminal_id,
+                created_at_ms,
+                surface,
+            },
+            &session_id,
+            &[],
+        );
+        let outcome = ResourceEffectOutcome::Success(value.clone());
+        let deltas = serde_json::json!([{
+            "kind":"upsert",
+            "sequence":0,
+            "resource":"notification",
+            "id":notification_id,
+            "value":value,
+        }]);
+        if let Err(error) = self.commit_resource_effect(
+            idempotency_key,
+            OPERATION,
+            &fingerprint,
+            &outcome,
+            Some(&deltas),
+        ) {
+            let _ = self.mark_resource_effect_indeterminate(idempotency_key);
+            return Err(error.context("notification effect commit failed"));
+        }
+        self.prune_evicted_notification_reads();
+        Ok(Some(numeric_id))
+    }
+
+    /// Delete durable read marks for evicted notifications that the committed
+    /// receipts no longer retain. Called after a notification create commits;
+    /// ids still retained durably stay queued for a later create.
+    pub(crate) fn prune_evicted_notification_reads(&self) {
+        let candidates = std::mem::take(&mut *self.notification_read_prunes.lock().unwrap());
+        if candidates.is_empty() {
+            return;
+        }
+        let remaining =
+            match self.workspace_registry.lock().unwrap().prune_notification_reads(&candidates) {
+                Ok(remaining) => remaining,
+                Err(_) => {
+                    self.report_internal_diagnostic("notification read-mark prune deferred");
+                    candidates
+                }
+            };
+        if !remaining.is_empty() {
+            self.notification_read_prunes.lock().unwrap().extend(remaining);
+        }
+    }
+
+    /// Record that `client_id` read `notifications`. Unknown ids are reported,
+    /// not rejected: a bounded ledger may have evicted them, and an
+    /// acknowledgement of something already gone is complete by definition.
+    /// The refreshed rows are published as one resource revision so every
+    /// subscribed client converges on the same `read_by` sets.
+    pub(crate) fn ack_notifications(
+        &self,
+        mutation: &WorkspaceMutation,
+        expected_revision: Option<u64>,
+        client_id: &str,
+        notifications: &[NotificationPublicId],
+    ) -> anyhow::Result<ResourcePatchCommit> {
+        const OPERATION: &str = "notification.ack";
+        validate_client_id(client_id)?;
+        let fingerprint = serde_json::json!({
+            "operation": OPERATION,
+            "client_id": client_id,
+            "notifications": notifications,
+        });
+        let mut registry = self.workspace_registry.lock().unwrap();
+        if let Some(replay) = registry.replay_resource_patch(mutation, OPERATION, &fingerprint)? {
+            return Ok(replay);
+        }
+        let session_id = registry.session_id().clone();
+        let mut acknowledged: Vec<NotificationPublicId> = Vec::new();
+        let mut unknown: Vec<NotificationPublicId> = Vec::new();
+        let mut deltas = Vec::new();
+        {
+            let ledger = self.notification_ledger.lock().unwrap();
+            let reads = self.notification_reads.lock().unwrap();
+            for id in notifications {
+                if acknowledged.contains(id) || unknown.contains(id) {
+                    continue;
+                }
+                match ledger.iter().find(|entry| &entry.id == id) {
+                    Some(entry) => {
+                        let mut read_by = reads.get(id).cloned().unwrap_or_default();
+                        read_by.insert(client_id.to_string());
+                        let read_by = read_by.into_iter().collect::<Vec<_>>();
+                        let value = self.notification_snapshot_value(entry, &session_id, &read_by);
+                        deltas.push(serde_json::json!({
+                            "kind":"upsert",
+                            "sequence":0,
+                            "resource":"notification",
+                            "id":id,
+                            "value":value,
+                        }));
+                        acknowledged.push(id.clone());
+                    }
+                    None => unknown.push(id.clone()),
+                }
+            }
+        }
+        let result = serde_json::json!({
+            "client_id": client_id,
+            "acknowledged": acknowledged,
+            "unknown": unknown,
+        });
+        let commit = registry.commit_notification_ack(
+            mutation,
+            &fingerprint,
+            expected_revision,
+            client_id,
+            &acknowledged,
+            now_ms(),
+            &result,
+            &Value::Array(deltas),
+        )?;
+        if !commit.replayed {
+            {
+                let mut reads = self.notification_reads.lock().unwrap();
+                for id in &acknowledged {
+                    reads.entry(id.clone()).or_default().insert(client_id.to_string());
+                }
+            }
+            self.state.lock().unwrap().resource_revision = commit.revision;
+        }
+        drop(registry);
+        if !commit.replayed {
+            self.publish_resource_event();
+        }
+        Ok(commit)
+    }
+
+    /// Remove retained notifications, for one terminal or the whole session.
+    /// This is the source-of-truth form of a local `cmux notify --clear`: the
+    /// rows leave the ledger, their durable receipts are masked by a clear
+    /// record, every client receives a delete delta, and the console marker
+    /// for the terminal is dropped.
+    pub(crate) fn clear_notifications(
+        &self,
+        mutation: &WorkspaceMutation,
+        expected_revision: Option<u64>,
+        terminal_id: Option<&TerminalPublicId>,
+    ) -> anyhow::Result<ResourcePatchCommit> {
+        const OPERATION: &str = "notification.clear";
+        let fingerprint = serde_json::json!({
+            "operation": OPERATION,
+            "terminal_id": terminal_id,
+        });
+        let mut registry = self.workspace_registry.lock().unwrap();
+        if let Some(replay) = registry.replay_resource_patch(mutation, OPERATION, &fingerprint)? {
+            return Ok(replay);
+        }
+        let candidates: Vec<NotificationPublicId> = {
+            let ledger = self.notification_ledger.lock().unwrap();
+            ledger
+                .iter()
+                .filter(|entry| {
+                    terminal_id.is_none_or(|wanted| entry.terminal_id.as_ref() == Some(wanted))
+                })
+                .map(|entry| entry.id.clone())
+                .collect()
+        };
+        // Only durably committed rows are cleared. A row whose create receipt
+        // is still in flight stays, so the clear cannot mask a receipt that
+        // commits after it (the registry lock held here serializes the two).
+        let cleared = registry.committed_notification_ids(&candidates)?;
+        let deltas = cleared
+            .iter()
+            .map(|id| {
+                serde_json::json!({
+                    "kind":"delete",
+                    "sequence":0,
+                    "resource":"notification",
+                    "id":id,
+                })
+            })
+            .collect::<Vec<_>>();
+        let result = serde_json::json!({ "cleared": cleared });
+        let commit = registry.commit_notification_clear(
+            mutation,
+            &fingerprint,
+            expected_revision,
+            &cleared,
+            &result,
+            &Value::Array(deltas),
+        )?;
+        if !commit.replayed {
+            {
+                let mut ledger = self.notification_ledger.lock().unwrap();
+                ledger.retain(|entry| !cleared.contains(&entry.id));
+            }
+            {
+                let mut reads = self.notification_reads.lock().unwrap();
+                for id in &cleared {
+                    reads.remove(id);
+                }
+            }
+            match terminal_id {
+                Some(terminal_id) => {
+                    self.terminal_notifications.lock().unwrap().remove(terminal_id);
+                }
+                None => {
+                    self.terminal_notifications.lock().unwrap().clear();
+                    self.placement_notifications.lock().unwrap().clear();
+                }
+            }
+            self.state.lock().unwrap().resource_revision = commit.revision;
+        }
+        drop(registry);
+        if !commit.replayed {
+            self.emit(MuxEvent::TreeChanged);
+            self.publish_resource_event();
+        }
+        Ok(commit)
     }
 
     pub fn report_agent(
@@ -22628,6 +23096,442 @@ mod tests {
     }
 
     #[test]
+    fn agent_hook_transitions_post_durable_notifications_once() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let surface_id = surface.id;
+        let terminal_id = surface.terminal_public_id().cloned().unwrap();
+        let ingress = |event: &str, native: Value| {
+            crate::agent_hooks::agent_hook_journal_ingress(
+                "claude",
+                event,
+                Some(&terminal_id.to_string()),
+                native,
+            )
+            .unwrap()
+        };
+        mux.apply_agent_hook_record(&ingress("SessionStart", serde_json::json!({})), 1).unwrap();
+        mux.apply_agent_hook_record(&ingress("UserPromptSubmit", serde_json::json!({})), 2)
+            .unwrap();
+        assert!(mux.resource_notifications(16).is_empty(), "start and prompt need no attention");
+
+        mux.apply_agent_hook_record(
+            &ingress(
+                "PermissionRequest",
+                serde_json::json!({"tool_name":"Bash","message":"Allow Bash(rm -rf build)?"}),
+            ),
+            3,
+        )
+        .unwrap();
+        let posted = mux.resource_notifications(16);
+        assert_eq!(posted.len(), 1);
+        assert_eq!(posted[0].title, "Claude needs approval");
+        assert_eq!(posted[0].body, "Bash", "redacted prompt text must not leak; tool name may");
+        assert_eq!(posted[0].level, NotificationLevel::Warning);
+        assert_eq!(posted[0].terminal_id.as_ref(), Some(&terminal_id));
+        assert!(mux.surface_notification(surface_id).is_some_and(|marker| marker.unread));
+
+        // A replayed sequence (restart repair) is a fence no-op and must not
+        // post a second notification.
+        mux.apply_agent_hook_record(
+            &ingress("PermissionRequest", serde_json::json!({"message":"again"})),
+            3,
+        )
+        .unwrap();
+        assert_eq!(mux.resource_notifications(16).len(), 1);
+
+        mux.apply_agent_hook_record(&ingress("Stop", serde_json::json!({})), 4).unwrap();
+        let posted = mux.resource_notifications(16);
+        assert_eq!(posted.len(), 2);
+        assert_eq!(posted[0].title, "Claude finished");
+        assert_eq!(posted[0].level, NotificationLevel::Info);
+
+        // The rows are durable resource effects: the public snapshot carries
+        // them with an empty per-client read set.
+        let snapshot = crate::resource_api::public_session_snapshot(&mux).unwrap();
+        let rows = snapshot["notifications"].as_array().unwrap();
+        assert_eq!(rows.len(), 2);
+        for row in rows {
+            assert_eq!(row["read_by"], serde_json::json!([]));
+            assert_eq!(row["terminal_id"], serde_json::json!(terminal_id));
+        }
+    }
+
+    #[test]
+    fn notification_ack_is_per_client_and_replay_safe() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let surface_id = surface.id;
+        let first = mux
+            .post_notification("one".into(), "".into(), NotificationLevel::Info, Some(surface_id))
+            .unwrap();
+        let second = mux
+            .post_notification("two".into(), "".into(), NotificationLevel::Error, Some(surface_id))
+            .unwrap();
+        assert_ne!(first, second);
+        let ledger = mux.resource_notifications(16);
+        let (newest, oldest) = (ledger[0].id.clone(), ledger[1].id.clone());
+        let revision_before = mux.with_state(|state| state.resource_revision);
+        let epoch_before = mux.resource_event_epoch();
+
+        let mutation = WorkspaceMutation::new("ack-a-1", "test").unwrap();
+        let ack =
+            mux.ack_notifications(&mutation, None, "mac-a", std::slice::from_ref(&oldest)).unwrap();
+        assert!(!ack.replayed);
+        assert_eq!(ack.result["acknowledged"], serde_json::json!([oldest]));
+        assert_eq!(ack.result["unknown"], serde_json::json!([]));
+        assert_eq!(ack.revision, revision_before + 1);
+        assert_eq!(mux.with_state(|state| state.resource_revision), revision_before + 1);
+        assert!(mux.resource_event_epoch() > epoch_before, "subscribers must wake");
+        assert_eq!(mux.notification_read_by(&oldest), vec!["mac-a".to_string()]);
+        assert!(mux.notification_read_by(&newest).is_empty());
+        // The shared console marker is not a per-client read.
+        assert!(mux.surface_notification(surface_id).is_some_and(|marker| marker.unread));
+
+        // Same key, same input: replay without a new revision or a new row.
+        let replay =
+            mux.ack_notifications(&mutation, None, "mac-a", std::slice::from_ref(&oldest)).unwrap();
+        assert!(replay.replayed);
+        assert_eq!(replay.revision, revision_before + 1);
+        assert_eq!(mux.with_state(|state| state.resource_revision), revision_before + 1);
+
+        // A second client keeps its own state and sees the merged set.
+        let mutation_b = WorkspaceMutation::new("ack-b-1", "test").unwrap();
+        let unknown = NotificationPublicId::random().unwrap();
+        let ack_b = mux
+            .ack_notifications(
+                &mutation_b,
+                None,
+                "mac-b",
+                &[newest.clone(), oldest.clone(), unknown.clone(), oldest.clone()],
+            )
+            .unwrap();
+        assert_eq!(ack_b.result["acknowledged"], serde_json::json!([newest, oldest]));
+        assert_eq!(ack_b.result["unknown"], serde_json::json!([unknown]));
+        assert_eq!(
+            mux.notification_read_by(&oldest),
+            vec!["mac-a".to_string(), "mac-b".to_string()]
+        );
+        assert_eq!(mux.notification_read_by(&newest), vec!["mac-b".to_string()]);
+
+        let snapshot = crate::resource_api::public_session_snapshot(&mux).unwrap();
+        let rows = snapshot["notifications"].as_array().unwrap();
+        let row = |id: &NotificationPublicId| {
+            rows.iter().find(|row| row["id"] == serde_json::json!(id)).cloned().unwrap()
+        };
+        assert_eq!(row(&oldest)["read_by"], serde_json::json!(["mac-a", "mac-b"]));
+        assert_eq!(row(&newest)["read_by"], serde_json::json!(["mac-b"]));
+
+        // The ack publishes one upsert delta per acknowledged row so remote
+        // feeds converge without a snapshot.
+        let page = mux.resource_events_after(revision_before).unwrap();
+        let ack_batch =
+            page.batches.iter().find(|batch| batch.revision == revision_before + 2).unwrap();
+        let changes = ack_batch.changes.as_array().unwrap();
+        assert_eq!(changes.len(), 2);
+        assert!(changes.iter().all(|change| {
+            change["resource"] == "notification"
+                && change["kind"] == "upsert"
+                && change["value"]["read_by"]
+                    .as_array()
+                    .unwrap()
+                    .contains(&serde_json::json!("mac-b"))
+        }));
+
+        let bad = WorkspaceMutation::new("ack-bad", "test").unwrap();
+        assert!(mux.ack_notifications(&bad, None, "has space", &[oldest]).is_err());
+    }
+
+    #[test]
+    fn notification_clear_removes_rows_everywhere_and_survives_restart() {
+        let root = std::env::temp_dir()
+            .join(format!("cmux-notification-clear-{}", WorkspacePublicId::random().unwrap()));
+        let session = "notification-clear";
+        let open = || {
+            let registry = WorkspaceRegistry::open(&root, session).unwrap();
+            Mux::from_workspace_registry(
+                session.into(),
+                SurfaceOptions::default(),
+                registry,
+                ProviderWorkspaceState::default(),
+                true,
+            )
+            .unwrap()
+        };
+        let mux = open();
+        let first = mux.new_workspace(None, None).unwrap();
+        let second = mux.new_workspace(None, None).unwrap();
+        let first_terminal = first.terminal_public_id().cloned().unwrap();
+        mux.create_durable_notification(
+            "n-a",
+            "a".into(),
+            Some("sub".into()),
+            "".into(),
+            NotificationLevel::Info,
+            Some(first.id),
+        )
+        .unwrap();
+        mux.create_durable_notification(
+            "n-b",
+            "b".into(),
+            None,
+            "".into(),
+            NotificationLevel::Info,
+            Some(second.id),
+        )
+        .unwrap();
+        mux.create_durable_notification(
+            "n-c",
+            "c".into(),
+            None,
+            "".into(),
+            NotificationLevel::Info,
+            Some(first.id),
+        )
+        .unwrap();
+        let snapshot = crate::resource_api::public_session_snapshot(&mux).unwrap();
+        let row_a = snapshot["notifications"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["title"] == "a")
+            .cloned()
+            .unwrap();
+        assert_eq!(row_a["subtitle"], "sub", "subtitle rides the row");
+        let mutation = WorkspaceMutation::new("ack-a", "test").unwrap();
+        let ledger = mux.resource_notifications(8);
+        let id_b = ledger.iter().find(|entry| entry.title == "b").unwrap().id.clone();
+        mux.ack_notifications(&mutation, None, "mac-a", std::slice::from_ref(&id_b)).unwrap();
+        let revision_before = mux.with_state(|state| state.resource_revision);
+
+        // Clear one terminal: its two rows go, the other terminal's row stays.
+        let clear = WorkspaceMutation::new("clear-first", "test").unwrap();
+        let commit = mux.clear_notifications(&clear, None, Some(&first_terminal)).unwrap();
+        assert!(!commit.replayed);
+        assert_eq!(commit.result["cleared"].as_array().unwrap().len(), 2);
+        let remaining = mux.resource_notifications(8);
+        assert_eq!(
+            remaining.iter().map(|entry| entry.title.as_str()).collect::<Vec<_>>(),
+            vec!["b"]
+        );
+        assert!(
+            mux.surface_notification(first.id).is_none(),
+            "console marker dropped with the rows"
+        );
+        let page = mux.resource_events_after(revision_before).unwrap();
+        let batch =
+            page.batches.iter().find(|batch| batch.revision == revision_before + 1).unwrap();
+        assert!(
+            batch
+                .changes
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|change| change["kind"] == "delete" && change["resource"] == "notification")
+        );
+        // Replay is a no-op.
+        let replay = mux.clear_notifications(&clear, None, Some(&first_terminal)).unwrap();
+        assert!(replay.replayed);
+        drop(mux);
+
+        let mux = open();
+        let titles = mux
+            .resource_notifications(8)
+            .iter()
+            .map(|entry| entry.title.clone())
+            .collect::<Vec<_>>();
+        assert_eq!(titles, vec!["b"], "cleared rows must not come back from the receipts");
+        assert_eq!(mux.notification_read_by(&id_b), vec!["mac-a".to_string()]);
+        // Clear everything.
+        let all = WorkspaceMutation::new("clear-all", "test").unwrap();
+        mux.clear_notifications(&all, None, None).unwrap();
+        assert!(mux.resource_notifications(8).is_empty());
+        assert!(mux.notification_read_by(&id_b).is_empty());
+        drop(mux);
+        let mux = open();
+        assert!(mux.resource_notifications(8).is_empty());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn notification_reads_survive_restart_and_eviction_prunes_them() {
+        let root = std::env::temp_dir()
+            .join(format!("cmux-notification-reads-{}", WorkspacePublicId::random().unwrap()));
+        let session = "notification-reads";
+        let open = || {
+            let registry = WorkspaceRegistry::open(&root, session).unwrap();
+            Mux::from_workspace_registry(
+                session.into(),
+                SurfaceOptions::default(),
+                registry,
+                ProviderWorkspaceState::default(),
+                true,
+            )
+            .unwrap()
+        };
+        let mux = open();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let surface_id = surface.id;
+        mux.post_notification("kept".into(), "".into(), NotificationLevel::Info, Some(surface_id))
+            .unwrap();
+        let kept = mux.resource_notifications(1)[0].id.clone();
+        let mutation = WorkspaceMutation::new("ack-restart", "test").unwrap();
+        mux.ack_notifications(&mutation, None, "mac-a", std::slice::from_ref(&kept)).unwrap();
+        drop(mux);
+
+        let mux = open();
+        assert_eq!(mux.notification_read_by(&kept), vec!["mac-a".to_string()]);
+        let snapshot = crate::resource_api::public_session_snapshot(&mux).unwrap();
+        let row = snapshot["notifications"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["id"] == serde_json::json!(kept))
+            .cloned()
+            .unwrap();
+        assert_eq!(row["read_by"], serde_json::json!(["mac-a"]));
+        // Replay across restart still returns the original commit.
+        let replay =
+            mux.ack_notifications(&mutation, None, "mac-a", std::slice::from_ref(&kept)).unwrap();
+        assert!(replay.replayed);
+
+        // Evict `kept` from the bounded ledger, then acknowledge something
+        // else: the stale read row must be gone from memory and from disk.
+        let surface_id = mux.resource_surface_for_terminal(
+            mux.resource_notifications(1)[0].terminal_id.as_ref().unwrap(),
+        );
+        for index in 0..256 {
+            mux.post_notification(
+                format!("fill-{index}"),
+                "".into(),
+                NotificationLevel::Info,
+                surface_id,
+            )
+            .unwrap();
+        }
+        assert!(mux.resource_notifications(256).iter().all(|entry| entry.id != kept));
+        assert!(mux.notification_read_by(&kept).is_empty());
+        // The prune rides the committed create that evicted `kept`, not an
+        // acknowledgement, and only once the receipts no longer retain it.
+        let newest = mux.resource_notifications(1)[0].id.clone();
+        let prune = WorkspaceMutation::new("ack-newest", "test").unwrap();
+        mux.ack_notifications(&prune, None, "mac-a", std::slice::from_ref(&newest)).unwrap();
+        let stale_rows = mux
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .durable_notification_read_clients(kept.as_str())
+            .unwrap();
+        assert!(stale_rows.is_empty(), "evicted notification kept read rows: {stale_rows:?}");
+        drop(mux);
+        let mux = open();
+        assert!(mux.notification_read_by(&kept).is_empty());
+        assert_eq!(mux.notification_read_by(&newest), vec!["mac-a".to_string()]);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Random creates, acks from several clients, replays, and restarts must
+    /// keep one invariant: a retained notification's `read_by` is exactly the
+    /// set of clients that acknowledged it while it was retained.
+    #[test]
+    fn notification_read_state_converges_under_random_operations() {
+        let root = std::env::temp_dir()
+            .join(format!("cmux-notification-fuzz-{}", WorkspacePublicId::random().unwrap()));
+        let session = "notification-fuzz";
+        let open = || {
+            let registry = WorkspaceRegistry::open(&root, session).unwrap();
+            Mux::from_workspace_registry(
+                session.into(),
+                SurfaceOptions::default(),
+                registry,
+                ProviderWorkspaceState::default(),
+                true,
+            )
+            .unwrap()
+        };
+        let mut mux = open();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().unwrap();
+        let clients = ["mac-a", "mac-b", "phone-c"];
+        let mut expected: HashMap<NotificationPublicId, BTreeSet<String>> = HashMap::new();
+        let mut retained: VecDeque<NotificationPublicId> = VecDeque::new();
+        let mut seed: u64 = 0x9e37_79b9_7f4a_7c15;
+        let mut next = || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        let mut ack_counter = 0u64;
+        let mut last_ack: Option<(WorkspaceMutation, String, Vec<NotificationPublicId>)> = None;
+        for step in 0..400u64 {
+            match next() % 10 {
+                0..=3 => {
+                    let surface_id = mux.resource_surface_for_terminal(&terminal_id);
+                    mux.post_notification(
+                        format!("n-{step}"),
+                        "".into(),
+                        NotificationLevel::Info,
+                        surface_id,
+                    )
+                    .unwrap();
+                    let id = mux.resource_notifications(1)[0].id.clone();
+                    retained.push_back(id.clone());
+                    expected.insert(id, BTreeSet::new());
+                    while retained.len() > 256 {
+                        let evicted = retained.pop_front().unwrap();
+                        expected.remove(&evicted);
+                    }
+                }
+                4..=6 if !retained.is_empty() => {
+                    let client = clients[(next() % clients.len() as u64) as usize];
+                    let count = 1 + (next() % 4) as usize;
+                    let ids = (0..count)
+                        .map(|_| retained[(next() % retained.len() as u64) as usize].clone())
+                        .collect::<Vec<_>>();
+                    ack_counter += 1;
+                    let mutation =
+                        WorkspaceMutation::new(format!("fuzz-ack-{ack_counter}"), "test").unwrap();
+                    mux.ack_notifications(&mutation, None, client, &ids).unwrap();
+                    for id in &ids {
+                        expected.get_mut(id).unwrap().insert(client.to_string());
+                    }
+                    last_ack = Some((mutation, client.to_string(), ids));
+                }
+                7 => {
+                    if let Some((mutation, client, ids)) = &last_ack {
+                        let replay = mux.ack_notifications(mutation, None, client, ids).unwrap();
+                        assert!(replay.replayed, "step {step}: replay must not re-commit");
+                    }
+                }
+                8 => {
+                    drop(mux);
+                    mux = open();
+                }
+                _ => {}
+            }
+            for id in &retained {
+                let actual = mux.notification_read_by(id).into_iter().collect::<BTreeSet<_>>();
+                assert_eq!(&actual, &expected[id], "step {step}: read set diverged for {id}");
+            }
+        }
+        drop(mux);
+        let mux = open();
+        let snapshot = crate::resource_api::public_session_snapshot(&mux).unwrap();
+        for row in snapshot["notifications"].as_array().unwrap() {
+            let id = NotificationPublicId::parse(row["id"].as_str().unwrap()).unwrap();
+            let read_by = row["read_by"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|value| value.as_str().unwrap().to_string())
+                .collect::<BTreeSet<_>>();
+            assert_eq!(read_by, expected[&id], "restart lost or invented a read mark for {id}");
+        }
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
     fn replayed_agent_hook_events_do_not_rewrite_the_record() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, None).unwrap();
@@ -24057,7 +24961,7 @@ mod tests {
         );
         let first = mux.apply_layout(None, Some("round-trip".into()), &spec, None).unwrap();
         let exported_shape = node_shape(&screen_root(&mux, first.screen));
-        mux.with_state(|state| assert_eq!(state.workspaces[0].name, "0"));
+        mux.with_state(|state| assert_eq!(state.workspaces[0].name, "workspace-1"));
 
         let round_trip_spec = mux.with_state(|s| {
             fn from_node(node: &Node) -> LayoutSpec {
@@ -26648,7 +27552,7 @@ mod tests {
 
         let (ws0, ws1, pane1, surface1) = mux.with_state(|s| {
             assert_eq!(s.workspaces.len(), 2);
-            assert_eq!(s.workspaces[0].name, "0");
+            assert_eq!(s.workspaces[0].name, "workspace-1");
             assert_eq!(s.workspaces[1].name, "dev");
             assert_eq!(s.active_workspace, 1);
             let pane = s.workspaces[1].screens[0].active_pane;
@@ -26679,6 +27583,29 @@ mod tests {
             assert_eq!(s.active_workspace, 0);
         });
         assert!(events.try_iter().count() > 0);
+    }
+
+    #[test]
+    fn automatically_created_workspaces_use_one_based_sequence() {
+        let mux = test_mux();
+        let _first = mux.new_workspace(None, None).unwrap();
+        let second = mux.new_workspace(None, None).unwrap();
+        mux.with_state(|state| {
+            assert_eq!(state.workspaces[0].name, "workspace-1");
+            assert_eq!(state.workspaces[1].name, "workspace-2");
+        });
+
+        // A user name is authoritative and does not get rewritten by later
+        // automatic creation. The sequence continues past existing defaults.
+        let first_workspace = mux.with_state(|state| state.workspaces[0].id);
+        assert!(mux.rename_workspace(first_workspace, "shell".into()));
+        let third = mux.new_workspace(None, None).unwrap();
+        mux.with_state(|state| {
+            assert_eq!(state.workspaces[0].name, "shell");
+            assert_eq!(state.workspaces[1].name, "workspace-2");
+            assert_eq!(state.workspaces[2].name, "workspace-3");
+        });
+        assert_ne!(second.id, third.id);
     }
 
     #[test]

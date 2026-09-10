@@ -105,7 +105,43 @@ cmux_write_agent_configs() {
   fi
 
   # claude: ANTHROPIC_BASE_URL and the placeholder ANTHROPIC_API_KEY in the
-  # env are all Claude Code needs; nothing is written.
+  # env are all Claude Code needs for the model plane. A fresh HOME still
+  # blocks an interactive run on three first-run gates before the prompt is
+  # usable: the theme/onboarding wizard, the folder-trust dialog, and the
+  # --dangerously-skip-permissions confirmation. Seed the flags those gates
+  # write. Not env-gated: the gates block regardless of the model plane.
+  # The "/" trust entry covers plain directories only; claude's trust lookup
+  # is exact-path and stops at a git root, so CLAUDE_CODE_SANDBOXED below is
+  # what trusts a cloned repo. bypassPermissionsModeAccepted is the legacy
+  # spelling of the bypass acceptance; the documented key,
+  # skipDangerousModePermissionPrompt, rides
+  # /etc/claude-code/managed-settings.json (written at image build).
+  # A fourth gate is the custom-API-key consent ("Detected a custom API key
+  # in your environment ... use this API key?", seen live on 2.1.252): claude
+  # records answers under customApiKeyResponses as the key's LAST 20
+  # characters, so the placeholder key from the env is pre-approved the same
+  # way. Derived from the env so a placeholder change cannot desync it.
+  if [ ! -e "$HOME/.claude.json" ]; then
+    cmux_claude_key_tail=""
+    if [ -n "${ANTHROPIC_API_KEY-}" ]; then
+      cmux_claude_key_tail=$(printf '%s' "$ANTHROPIC_API_KEY" | tail -c 20)
+    fi
+    (
+      umask 077
+      {
+        echo '{'
+        echo '  "hasCompletedOnboarding": true,'
+        echo '  "bypassPermissionsModeAccepted": true,'
+        echo '  "theme": "dark",'
+        if [ -n "$cmux_claude_key_tail" ]; then
+          printf '  "customApiKeyResponses": { "approved": ["%s"], "rejected": [] },\n' "$cmux_claude_key_tail"
+        fi
+        echo '  "projects": { "/": { "hasTrustDialogAccepted": true } }'
+        echo '}'
+      } > "$HOME/.claude.json"
+    ) 2>/dev/null
+    unset cmux_claude_key_tail
+  fi
 
   # opencode: the provider catalog (ids, npm packages, model lists) lives in
   # the team's opencode console account behind the coderouter proxy and
@@ -136,6 +172,56 @@ cmux_write_agent_configs() {
         ;;
     esac
     unset cmux_opencode_config
+  fi
+}
+
+# claude folder-trust gate: claude's trust check short-circuits on
+# CLAUDE_CODE_SANDBOXED (the escape its own self-hosted runner provisioning
+# uses), which describes this machine exactly: a disposable cloud VM the user
+# owns. The ~/.claude.json seed above cannot express this for git repos,
+# because the trust lookup is exact-path and the paths users clone are
+# unknowable at image build. Exported for every shell (this file is sourced
+# from /etc/profile.d and the bashrc chain).
+export CLAUDE_CODE_SANDBOXED=1
+
+# claude root gate, separate from the trust dialog: claude refuses
+# --dangerously-skip-permissions under uid 0 unless IS_SANDBOX=1, its
+# documented container escape. cmux-tui sessions and the exec API run as
+# root, so without it the seeded `claude --dangerously-skip-permissions`
+# launch dies at start. The VM, not the uid, is the isolation boundary here.
+export IS_SANDBOX=1
+
+# claude self-update: the npm install auto-updates itself in the background
+# on the first interactive launch (2.1.252 -> latest within 20 s, verified
+# live on the trust3 bake), reinstalling the package under nvm. That defeats
+# the image pin and leaves `claude` briefly unresolvable while npm relinks
+# the bin. The binary is image-baked; new versions ship by rebake.
+export DISABLE_AUTOUPDATER=1
+
+# codex folder-trust gate: codex has no sandbox env short-circuit and its
+# trust lookup matches config keys EXACTLY against the cwd or its git root,
+# no ancestor walk, so the managed defaults (/etc/codex/managed_config.toml,
+# baked at image build) can only pre-trust the HOMEs, never a cloned repo.
+# Inject the launch directory's trust per invocation instead: -c overrides
+# merge as a config layer, so other projects entries survive. For a linked
+# worktree codex keys trust by the MAIN checkout root, so trust that too.
+# Paths a TOML string cannot carry raw (quote, backslash, unprintable) are
+# skipped; codex then prompts, which beats failing its config parse.
+codex() {
+  local sub main d entries
+  sub=$(git rev-parse --show-toplevel 2>/dev/null) || sub=$PWD
+  main=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || main=""
+  case $main in */.git) main=${main%/.git} ;; *) main="" ;; esac
+  if [ "$main" = "$sub" ]; then main=""; fi
+  entries=""
+  for d in "$sub" "$main"; do
+    case $d in ''|*[\"\\]*|*[![:print:]]*) continue ;; esac
+    entries="${entries:+$entries, }\"$d\" = { trust_level = \"trusted\" }"
+  done
+  if [ -n "$entries" ]; then
+    command codex -c "projects={ $entries }" "$@"
+  else
+    command codex "$@"
   fi
 }
 

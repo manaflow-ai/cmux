@@ -10,9 +10,10 @@ import {
   KMSClient,
 } from "@aws-sdk/client-kms";
 import { awsCredentialsProvider } from "@vercel/oidc-aws-credentials-provider";
-import type {
-  CodeRouterCredential,
-  CodeRouterProvider,
+import {
+  CODEROUTER_PROVIDERS,
+  type CodeRouterCredential,
+  type CodeRouterProvider,
 } from "./types";
 
 const ALGORITHM = "aes-256-gcm" as const;
@@ -257,7 +258,7 @@ function assertIdentity(input: {
   if (
     !input.accountId ||
     !input.teamId ||
-    !["codex", "opencode-go"].includes(input.provider) ||
+    !CODEROUTER_PROVIDERS.includes(input.provider) ||
     !Number.isSafeInteger(input.credentialRevision) ||
     input.credentialRevision < 1
   ) {
@@ -285,6 +286,9 @@ function strictBase64(value: string, label: string): Buffer {
 
 function parseCredential(value: unknown): CodeRouterCredential | null {
   if (!isRecord(value)) return null;
+  if (value.provider === "openai-apikey" || value.provider === "openrouter-apikey") {
+    return parseApiKeyCredential(value.provider, value);
+  }
   const {
     accessToken,
     refreshToken,
@@ -331,6 +335,15 @@ function parseCredential(value: unknown): CodeRouterCredential | null {
     };
   }
   return null;
+}
+
+function parseApiKeyCredential(
+  provider: "openai-apikey" | "openrouter-apikey",
+  value: Record<string, unknown>,
+): CodeRouterCredential | null {
+  return string(value.apiKey) && string(value.accountId) && typeof value.label === "string"
+    ? { provider, apiKey: value.apiKey, accountId: value.accountId, label: value.label }
+    : null;
 }
 
 function string(value: unknown): value is string {
