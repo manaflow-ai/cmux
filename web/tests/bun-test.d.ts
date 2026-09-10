@@ -13,12 +13,14 @@ declare module "bun:test" {
     rejects: Matchers;
     resolves: Matchers;
   };
-  type MockFunction<T extends (...args: unknown[]) => unknown> = T & {
+  type MockFunction<T extends (...args: never[]) => unknown> = T & {
+    // Argument-free implementations can still record arguments passed by callers.
+    mock: { calls: Parameters<T> extends [] ? unknown[][] : Parameters<T>[] };
     mockClear: () => void;
     mockResolvedValue: (value: unknown) => void;
   };
   type Mock = {
-    <T extends (...args: unknown[]) => unknown>(
+    <T extends (...args: never[]) => unknown>(
       implementation?: T,
     ): MockFunction<T>;
     module: (specifier: string, factory: () => unknown) => void;
