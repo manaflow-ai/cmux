@@ -55,6 +55,43 @@ struct DeviceTerminalMirrorTests {
         #expect(!failure.isEmpty)
     }
 
+    @Test("Invalidating the input router cancels an in-flight send", .timeLimit(.minutes(5)))
+    func invalidatingInputCancelsSend() async throws {
+        let started = AsyncStream<Void>.makeStream()
+        let cancelled = AsyncStream<Void>.makeStream()
+        defer { started.continuation.finish(); cancelled.continuation.finish() }
+        let router = DeviceTerminalInputRouter(send: { _ in
+            try await withTaskCancellationHandler {
+                started.continuation.yield(())
+                // This is a deliberately hung transport with a watchdog;
+                // success requires cancellation, never elapsed time.
+                try await Task.sleep(for: .seconds(300))
+            } onCancel: {
+                cancelled.continuation.yield(())
+            }
+        }, onFailure: { _ in Issue.record("Teardown cancellation is not a delivery failure") })
+        defer { router.invalidate() }
+        router.enqueue(.bytes(Data("first".utf8)))
+        var sends = started.stream.makeAsyncIterator()
+        try #require(await sends.next() != nil)
+        router.enqueue(.bytes(Data("pending".utf8)))
+        router.invalidate()
+        var cancellations = cancelled.stream.makeAsyncIterator()
+        try #require(await cancellations.next() != nil)
+    }
+
+    @Test("Host diagnostics never appear in a device error's user-facing description")
+    func hostDiagnosticsStayPrivate() {
+        let diagnostic = "mobile.terminal.create secret-account@internal.invalid"
+        for error in [
+            DeviceLinkError.hostRejected(code: "internal", message: diagnostic),
+            DeviceLinkError.malformedResponse(diagnostic)
+        ] {
+            #expect(error.errorDescription?.contains(diagnostic) == false)
+            #expect(error.errorDescription?.isEmpty == false)
+        }
+    }
+
     @Test("terminal.bytes decodes to a sequenced byte run for its surface")
     func bytesEvent() throws {
         let decoded = try #require(DeviceTerminalEvent.decode(try envelope("terminal.bytes", [

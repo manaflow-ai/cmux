@@ -101,6 +101,37 @@ struct DeviceDirectoryLifecycleTests {
         var states: [DeviceDirectory.PresenceState] = []
     }
 
+    @Test("A cancelled registry read cannot publish over its replacement", .timeLimit(.minutes(5)))
+    func cancelledRegistryReadCannotPublish() async throws {
+        let suite = "DeviceDirectoryRegistry-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let requests = AsyncStream<CheckedContinuation<AuthenticatedSessionSnapshot, any Error>>.makeStream()
+        defer { requests.continuation.finish() }
+        let client = DeviceRegistryDirectoryClient(session: {
+            try await withCheckedThrowingContinuation { requests.continuation.yield($0) }
+        }, teamID: nil)
+        let directory = makeDirectory(
+            defaults: defaults, clock: SidebarTestManualClock(), registryClient: client, serviceURL: { nil }
+        )
+        defer { directory.stop() }
+        var calls = requests.stream.makeAsyncIterator()
+        let oldTask = directory.refreshRegistry()
+        let oldRequest = try #require(await calls.next())
+        directory.stop()
+        let newTask = directory.refreshRegistry()
+        let newRequest = try #require(await calls.next())
+        oldRequest.resume(throwing: DeviceRegistryDirectoryClient.ListError.notSignedIn)
+        await oldTask.value
+        #expect(directory.isRefreshingRegistry)
+        #expect(!directory.hasLoadedRegistry)
+        #expect(directory.registryError == nil)
+        newRequest.resume(throwing: DeviceRegistryDirectoryClient.ListError.notSignedIn)
+        await newTask.value
+        #expect(!directory.isRefreshingRegistry)
+        #expect(directory.hasLoadedRegistry)
+    }
+
     @Test("A reconnect discards interrupted owner pages and commits only the new snapshot", arguments: [false, true])
     func reconnectReplacesIncompleteOwnershipSnapshot(includeNewOwner: Bool) throws {
         let suite = "DeviceDirectoryReconnect-\(UUID().uuidString)"
@@ -150,6 +181,7 @@ struct DeviceDirectoryLifecycleTests {
         defaults: UserDefaults,
         clock: SidebarTestManualClock,
         teamID: String? = nil,
+        registryClient: DeviceRegistryDirectoryClient? = nil,
         serviceURL: @escaping @MainActor @Sendable () -> URL?,
         makeSubscriber: @escaping @Sendable (URL, @escaping @Sendable () async throws -> DevicePresenceSubscriber.Credentials?) -> DevicePresenceSubscriber = {
             DevicePresenceSubscriber(serviceBaseURL: $0, credentials: $1)
@@ -171,7 +203,7 @@ struct DeviceDirectoryLifecycleTests {
         return DeviceDirectory(
             auth: auth, identity: AuthenticatedSessionIdentity(generation: 0, accountID: "test"),
             teamID: teamID, pairing: UnpairedDevices(),
-            registryClient: DeviceRegistryDirectoryClient(session: { throw DeviceRegistryDirectoryClient.ListError.notSignedIn }, teamID: nil),
+            registryClient: registryClient ?? DeviceRegistryDirectoryClient(session: { throw DeviceRegistryDirectoryClient.ListError.notSignedIn }, teamID: nil),
             serviceURL: serviceURL, makeSubscriber: makeSubscriber,
             selfInstance: SurfaceDeviceInstanceID(deviceID: "self", tag: "test"), clock: clock
         )
