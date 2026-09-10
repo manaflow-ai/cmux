@@ -70,9 +70,9 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(feedHooksByEvent.count == expectedFeedEvents.count)
         for event in ["PreToolUse", "PostToolUse"] {
             let hook = try #require(feedHooksByEvent[event])
-            #expect(hook.body.contains("hooks codex \(event == "PreToolUse" ? "pre-tool-use" : "post-tool-use")"))
-            #expect(hook.body.contains("nohup sh -c"))
-            #expect(hook.body.contains(">/dev/null 2>&1 &"))
+            #expect(hook.body.contains("hooks enqueue codex \(event == "PreToolUse" ? "pre-tool-use" : "post-tool-use")"))
+            #expect(!hook.body.contains("nohup"))
+            #expect(!hook.body.contains(">/dev/null 2>&1 &"))
         }
         let permissionHook = try #require(feedHooksByEvent["PermissionRequest"])
         #expect(permissionHook.body.contains("hooks feed --source codex --event PermissionRequest"))

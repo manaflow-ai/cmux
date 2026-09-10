@@ -93,7 +93,11 @@ extension CMUXCLI {
                 .init(agentEvent: "beforeSubmitPrompt", cmuxSubcommand: "prompt-submit"),
                 .init(agentEvent: "stop", cmuxSubcommand: "stop"),
                 .init(agentEvent: "afterAgentResponse", cmuxSubcommand: "agent-response"),
-                .init(agentEvent: "beforeShellExecution", cmuxSubcommand: "shell-exec"),
+                .init(
+                    agentEvent: "beforeShellExecution",
+                    cmuxSubcommand: "shell-exec",
+                    delivery: .direct
+                ),
                 .init(agentEvent: "afterShellExecution", cmuxSubcommand: "shell-done"),
                 .init(
                     agentEvent: "postToolUseFailure",

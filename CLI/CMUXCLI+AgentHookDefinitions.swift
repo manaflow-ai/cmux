@@ -217,7 +217,7 @@ extension CMUXCLI {
                 )
             }
         } else {
-            inline = agentHookShellCommand(command, for: def)
+            inline = agentHookShellCommand(command, for: def, failOpen: true)
         }
         if def.name == "codex" {
             return codexPersistentHookScriptCommand(
@@ -262,9 +262,10 @@ extension CMUXCLI {
             let inline: String
             switch injectedEvent.delivery {
             case .queued:
-                inline = codexFireAndForgetAgentHookShellCommand(
-                    "cmux hooks codex \(injectedEvent.cmuxSubcommand)",
-                    for: def
+                inline = queuedAgentHookShellCommand(
+                    agent: def.name,
+                    subcommand: injectedEvent.cmuxSubcommand,
+                    disableEnvironmentVariable: def.disableEnvVar
                 )
             case .direct:
                 inline = codexSynchronousAgentHookShellCommand(

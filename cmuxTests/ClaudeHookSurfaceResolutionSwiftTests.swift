@@ -114,7 +114,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
             resumeBindingRequests(in: context).last,
             "Expected ordinary Claude SessionStart to publish a resume binding, saw \(context.state.snapshot())"
         )
-        #expect(request["session_id"] as? String == sessionId)
+        #expect(request["checkpoint_id"] as? String == sessionId)
         #expect(request["workspace_id"] as? String == context.workspaceId)
         #expect(request["surface_id"] as? String == context.surfaceId)
     }

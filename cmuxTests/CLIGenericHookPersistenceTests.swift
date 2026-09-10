@@ -1615,6 +1615,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Expected one cmux Cursor approval hook after repeated setup, saw \(beforeCommands)"
         )
         XCTAssertFalse(
+            beforeCommands.contains { $0.contains("hooks enqueue cursor shell-exec") },
+            "Cursor approval must remain on the synchronous hook path, saw \(beforeCommands)"
+        )
+        XCTAssertFalse(
             beforeCommands.contains { $0.contains("hooks feed --source cursor") },
             "Expected setup to replace the stale Cursor Feed bridge, saw \(beforeCommands)"
         )
