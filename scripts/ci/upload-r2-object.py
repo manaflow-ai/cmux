@@ -6,6 +6,7 @@ import datetime as dt
 import hashlib
 import hmac
 import json
+import mimetypes
 import os
 import sys
 import urllib.error
@@ -59,6 +60,7 @@ def _build_signed_request(
     }
     if method == "PUT":
         headers["cache-control"] = args.cache_control
+        headers["content-type"] = args.content_type
     if extra_headers:
         headers.update({name.lower(): value for name, value in extra_headers.items()})
     session_token = os.environ.get("AWS_SESSION_TOKEN")
@@ -141,12 +143,21 @@ def main() -> int:
     parser.add_argument("--key", required=True, help="Object key inside the bucket")
     parser.add_argument("--cache-control", required=True, help="Cache-Control metadata")
     parser.add_argument(
+        "--content-type",
+        help="Content-Type metadata (default: infer from file extension, otherwise application/octet-stream)",
+    )
+    parser.add_argument(
         "--write-once",
         action="store_true",
         help="Refuse to overwrite an immutable object; accept an identical existing object",
     )
     parser.add_argument("--dry-run-json", action="store_true", help="Print the signed request instead of uploading")
     args = parser.parse_args()
+    if not args.content_type:
+        content_type, encoding = mimetypes.guess_type(args.file)
+        # A compressed file is not the unencoded type returned by guess_type.
+        # Keep its bytes opaque unless the caller supplies the archive type.
+        args.content_type = content_type if content_type and not encoding else "application/octet-stream"
 
     with open(args.file, "rb") as file:
         body = file.read()
