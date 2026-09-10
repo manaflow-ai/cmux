@@ -158,9 +158,11 @@ actor CloudLoopbackPortForward {
         let id = UUID()
         connections[id] = connection
         acceptedConnectionCount += 1
-        var target = self.target
+        let target: CloudPortForwardTarget
         if let preferredHost {
-            target = CloudPortForwardTarget(host: preferredHost, port: target.port, fallbackHosts: target.hosts)
+            target = CloudPortForwardTarget(host: preferredHost, port: self.target.port, fallbackHosts: self.target.hosts)
+        } else {
+            target = self.target
         }
         let relay = self.relay
         let queue = self.queue
