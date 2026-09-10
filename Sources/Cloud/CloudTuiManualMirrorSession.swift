@@ -384,25 +384,31 @@ final class CloudTuiManualMirrorSession {
 
     private func handle(frame: CloudTuiManualIOFrame) {
         switch frame {
-        case let .snapshot(surfaceID, columns, rows, bytes):
+        case let .snapshot(surfaceID, columns, rows, bytes, colors):
             guard surfaceID == remoteSurfaceID else { return }
             applyReplay(bytes, reset: replayNeedsReset)
+            applyColors(colors)
             replayNeedsReset = false
             hasReceivedRemoteReplay = true
             lastRemoteGrid = CloudTuiManualIOGrid(columns: columns, rows: rows)
             reconcileRemoteGrid()
-        case let .output(surfaceID, bytes):
+        case let .output(surfaceID, bytes, colors):
             guard surfaceID == remoteSurfaceID else { return }
             surface?.processRemoteOutput(bytes)
-        case let .resized(surfaceID, columns, rows, bytes):
+            applyColors(colors)
+        case let .resized(surfaceID, columns, rows, bytes, colors):
             guard surfaceID == remoteSurfaceID else { return }
             // `resized` carries a replacement replay, not an incremental
             // output chunk. Resetting first prevents old rows/cursor state from
             // surviving a shrink or a reconnect.
             applyReplay(bytes, reset: true)
+            applyColors(colors)
             hasReceivedRemoteReplay = true
             lastRemoteGrid = CloudTuiManualIOGrid(columns: columns, rows: rows)
             reconcileRemoteGrid()
+        case let .colorsChanged(surfaceID, colors):
+            guard surfaceID == remoteSurfaceID else { return }
+            applyColors(colors)
         case let .detached(surfaceID):
             guard surfaceID == remoteSurfaceID else { return }
             transitionToDisconnected()
@@ -427,6 +433,14 @@ final class CloudTuiManualMirrorSession {
             surface?.processRemoteOutput(Self.replayReset)
         }
         surface?.processRemoteOutput(bytes)
+    }
+
+    /// The replay is theme-portable: it carries no palette or default-color
+    /// OSC state, so the local Ghostty theme stands for every color the
+    /// remote PTY did not author. The sidecar restores the authored ones.
+    private func applyColors(_ colors: CloudTuiRemoteColors?) {
+        guard let colors, !colors.isEmpty else { return }
+        surface?.processRemoteOutput(colors.oscBytes)
     }
 
     private func transitionToDisconnected() {

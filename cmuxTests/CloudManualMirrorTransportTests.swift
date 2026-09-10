@@ -46,6 +46,64 @@ struct CloudManualMirrorTransportTests {
     }
 
     @Test
+    func attachFramesCarryTheSparseColorSidecarAsLocalOscBytes() throws {
+        let decoder = CloudTuiManualIOFrameDecoder()
+        let snapshot = try #require(decoder.decode(try Self.line([
+            "event": "vt-state",
+            "surface": 17,
+            "cols": 99,
+            "rows": 35,
+            "data": Data("screen".utf8).base64EncodedString(),
+            "colors": [
+                "fg": "#EEEEEE",
+                "bg": NSNull(),
+                "cursor": "#ffee00",
+                "cursor_style": "bar",
+                "cursor_blink": true,
+                // Index 300 and a non-hex value are dropped; nothing else is.
+                "palette": ["1": "#112233", "300": "#000000", "9": "red", "15": "#ABCDEF"],
+            ],
+        ])))
+        guard case let .snapshot(surfaceID, _, _, bytes, colors) = snapshot else {
+            Issue.record("expected a snapshot frame, got \(snapshot)")
+            return
+        }
+        #expect(surfaceID == 17)
+        #expect(bytes == Data("screen".utf8))
+        let expected = CloudTuiRemoteColors(
+            foreground: "#eeeeee",
+            cursor: "#ffee00",
+            palette: [1: "#112233", 15: "#abcdef"]
+        )
+        #expect(colors == expected)
+        #expect(
+            String(decoding: expected.oscBytes, as: UTF8.self)
+                == "\u{1B}]10;rgb:ee/ee/ee\u{1B}\\\u{1B}]12;rgb:ff/ee/00\u{1B}\\\u{1B}]4;1;rgb:11/22/33\u{1B}\\\u{1B}]4;15;rgb:ab/cd/ef\u{1B}\\"
+        )
+
+        // A frame without a sidecar still decodes, with no colors to apply.
+        let plain = try #require(decoder.decode(try Self.line([
+            "event": "output",
+            "surface": 17,
+            "data": Data("x".utf8).base64EncodedString(),
+        ])))
+        #expect(plain == .output(surfaceID: 17, bytes: Data("x".utf8)))
+
+        // The daemon flattens the colors object into `colors-changed`.
+        let changed = try #require(decoder.decode(try Self.line([
+            "event": "colors-changed",
+            "surface": 17,
+            "fg": "#010203",
+            "palette": ["4": "#445566"],
+        ])))
+        #expect(changed == .colorsChanged(
+            surfaceID: 17,
+            colors: CloudTuiRemoteColors(foreground: "#010203", palette: [4: "#445566"])
+        ))
+        #expect(CloudTuiRemoteColors(palette: [:]).isEmpty)
+    }
+
+    @Test
     func inputAndResizeCommandsTargetTheRemotePtyWithoutRendering() throws {
         let attach = try #require(commands.attach(surfaceID: 17, columns: 120, rows: 40))
         #expect(attach["cmd"] as? String == "attach-surface")

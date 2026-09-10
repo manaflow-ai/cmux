@@ -5650,7 +5650,11 @@ impl Surface {
         // the reader thread cannot apply bytes between the two.
         #[cfg(test)]
         pty.vt_replay_builds.fetch_add(1, Ordering::AcqRel);
-        let replay = term.vt_replay_bounded(VT_REPLAY_MAX_BYTES)?;
+        // Byte mirrors render in their own libghostty with their own theme.
+        // A palette-including replay would pin every one of the 256 entries
+        // (and the default fg/bg) to this process's colors; the sparse
+        // `colors` sidecar below carries only what the PTY authored.
+        let replay = term.vt_replay_bounded_theme_portable_with_aliases(VT_REPLAY_MAX_BYTES)?;
         let (cols, rows) = (term.cols(), term.rows());
         let defaults = pty.mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
         let colors = pty.terminal_colors_locked(&term, defaults);
@@ -6529,7 +6533,7 @@ impl PtySurface {
                 return;
             }
         }
-        let replay = match term.vt_replay_bounded(VT_REPLAY_MAX_BYTES) {
+        let replay = match term.vt_replay_bounded_theme_portable_with_aliases(VT_REPLAY_MAX_BYTES) {
             Ok(replay) => replay,
             Err(_) => {
                 let mut taps = self.taps.lock().unwrap();
@@ -6889,7 +6893,7 @@ impl PtySurface {
         let replay = if has_attach_taps {
             #[cfg(test)]
             self.vt_replay_builds.fetch_add(1, Ordering::AcqRel);
-            match term.vt_replay_bounded(VT_REPLAY_MAX_BYTES) {
+            match term.vt_replay_bounded_theme_portable_with_aliases(VT_REPLAY_MAX_BYTES) {
                 Ok(replay) => Some(replay),
                 Err(_) => {
                     // Budget failure was already ruled out under this same
