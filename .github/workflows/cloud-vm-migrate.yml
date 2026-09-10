@@ -11,6 +11,11 @@ on:
         options:
           - staging
           - production
+      cleanup_iroh_challenges:
+        description: Prune expired, consumed, and duplicate Iroh registration challenges after migration
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -43,6 +48,10 @@ jobs:
 
       - name: Cloud VM migration preflight
         run: bun run cloud-vm:preflight -- --schema-only .
+
+      - name: Rehearse Iroh cleanup on isolated Postgres
+        if: ${{ inputs.cleanup_iroh_challenges }}
+        run: bun run cloud-vm:preflight -- .
 
   migrate-staging:
     if: ${{ inputs.target == 'staging' || inputs.target == 'production' }}
@@ -101,6 +110,10 @@ jobs:
       - name: Apply staging migration
         run: bun run cloud-vm:migrate -- staging
 
+      - name: Clean up staging Iroh challenges
+        if: ${{ inputs.cleanup_iroh_challenges }}
+        run: bun run cloud-vm:cleanup-iroh -- staging --apply
+
   migrate-production:
     if: ${{ inputs.target == 'production' }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
@@ -157,3 +170,7 @@ jobs:
 
       - name: Apply production migration
         run: bun run cloud-vm:migrate -- production
+
+      - name: Clean up production Iroh challenges
+        if: ${{ inputs.cleanup_iroh_challenges }}
+        run: bun run cloud-vm:cleanup-iroh -- production --apply

@@ -78,6 +78,23 @@ dbTest("cleanup resolves tied legacy timestamps deterministically", async () => 
   expect((await pool.query("select id from iroh_registration_challenges")).rows).toEqual([{ id }]);
 });
 
+dbTest("cleanup reports incomplete when a registration holds an expired row, then resumes", async () => {
+  const id = await seed({ expired: true });
+  const registration = await pool.connect();
+  try {
+    await registration.query("begin");
+    await registration.query("select id from iroh_registration_challenges where id = $1 for update", [id]);
+    const result = await Effect.runPromiseExit(cleanupIrohChallenges(pool, { now, apply: true }));
+    expect(result._tag).toBe("Failure");
+    expect((await pool.query("select id from iroh_registration_challenges")).rows).toEqual([{ id }]);
+  } finally {
+    await registration.query("rollback");
+    registration.release();
+  }
+  const completed = await Effect.runPromise(cleanupIrohChallenges(pool, { now, apply: true }));
+  expect(completed.after).toMatchObject({ rows: 0, expired: 0, duplicates: 0 });
+});
+
 dbTest("cleanup waits for an issuer and retains the challenge it commits", async () => {
   await seed();
   const issuer = await pool.connect();
