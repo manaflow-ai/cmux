@@ -186,6 +186,12 @@ export function preconnectFreestyle(): void {
   fetch(`${baseUrl}/`, { method: "HEAD", signal: AbortSignal.timeout(3_000) }).catch(() => undefined);
 }
 
+/** Logs a failed best-effort guest exec; the attach never fails on one. */
+function warnBestEffortExec(vmId: string, what: string, result: ExecResult | null | undefined): void {
+  if (result?.exitCode === 0) return;
+  console.warn(`[freestyle] ${what} in ${vmId} failed: ${(result?.stderr || result?.stdout || "no exec result").slice(0, 200)}`);
+}
+
 /** Exported for the publication provider, which shares this account-wide client. */
 export function freestyleClient(timeoutMs = DEFAULT_TIMEOUT_MS): Freestyle {
   const longFetch: typeof fetch = (input, init) =>
@@ -1362,12 +1368,8 @@ export class FreestyleProvider implements VMProvider {
       this.execResult(vm, guestSelfCliInstallCommand()),
       this.execResult(vm, devboxNetworkAnnounceCommand()),
     ]);
-    if (shim?.exitCode !== 0) {
-      console.warn(`[freestyle] guest cmux shim install in ${vmId} failed: ${(shim?.stderr || shim?.stdout || "no exec result").slice(0, 200)}`);
-    }
-    if (announce?.exitCode !== 0) {
-      console.warn(`[freestyle] private-network announce in ${vmId} failed: ${(announce?.stderr || announce?.stdout || "no exec result").slice(0, 200)}`);
-    }
+    warnBestEffortExec(vmId, "guest cmux shim install", shim);
+    warnBestEffortExec(vmId, "private-network announce", announce);
     let result = await this.execResult(
       vm,
       cmuxTuiAttachBundleCommand({ readyGate: freestyleDaemonSettledCommand(), ...bundleOptions }),
