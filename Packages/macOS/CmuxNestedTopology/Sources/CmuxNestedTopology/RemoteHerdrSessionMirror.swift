@@ -110,14 +110,22 @@ public enum RemoteHerdrSessionMirror {
                 content: .pane(first)
             )
         }
-        let children = paneIDs.enumerated().map { index, paneID in
-            RemoteHerdrLayoutNode(
+        let total = 24
+        let count = paneIDs.count
+        let base = total / count
+        let remainder = total % count
+        var offsetY = 0
+        let children = paneIDs.enumerated().map { index, paneID -> RemoteHerdrLayoutNode in
+            let paneHeight = base + (index < remainder ? 1 : 0)
+            let node = RemoteHerdrLayoutNode(
                 width: 80,
-                height: 12,
+                height: paneHeight,
                 x: 0,
-                y: index * 12,
+                y: offsetY,
                 content: .pane(paneID)
             )
+            offsetY += paneHeight
+            return node
         }
         return RemoteHerdrLayoutNode(
             width: 80,

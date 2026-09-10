@@ -239,6 +239,7 @@ public struct NestedTopologyReducer: Sendable {
 
     private func replaceFocus(_ focus: NestedFocus) throws -> NestedTopologySnapshot {
         let current = try requireSnapshot()
+        let merged = coherentFocus(applying: focus, in: current)
         let kindByID = Dictionary(
             uniqueKeysWithValues:
                 current.workspaces.map { ($0.id, NestedNodeKind.workspace) }
@@ -246,17 +247,76 @@ public struct NestedTopologyReducer: Sendable {
                 + current.panes.map { ($0.id, .pane) }
                 + current.agents.map { ($0.id, .agent) }
         )
-        try validator.validateFocus(focus, kindByID: kindByID)
+        try validator.validateFocus(merged, kindByID: kindByID)
         let next = rebuilt(
             from: current,
             workspaces: current.workspaces,
             tabs: current.tabs,
             panes: current.panes,
             agents: current.agents,
-            focus: focus
+            focus: merged
         )
         try validator.validateSnapshot(next)
         return next
+    }
+    /// Rebuilds a coherent workspace→tab→pane→agent focus chain from an incoming
+    /// focus event, backfilling missing ancestors from the authoritative tree.
+    ///
+    /// Herdr focus events carry only the IDs on that event (`pane_focused` omits
+    /// the tab, `workspace_focused` omits tab and pane). Replacing the whole
+    /// focus record with those sparse IDs would drop the owning ancestors the
+    /// tree still knows — leaving a pane focused with no tab. Anchoring on the
+    /// deepest incoming ID and backfilling its ancestors keeps focus consistent
+    /// with the tree, while descendant levels below the anchor are intentionally
+    /// cleared (focus moved up). Unknown or wrong-kind anchors are returned
+    /// as-is and rejected by ``validateFocus``.
+    private func coherentFocus(
+        applying incoming: NestedFocus,
+        in snapshot: NestedTopologySnapshot
+    ) -> NestedFocus {
+        if let agentID = incoming.agentID {
+            return focusChain(agentID: agentID, in: snapshot)
+        }
+        if let paneID = incoming.paneID {
+            return focusChain(paneID: paneID, in: snapshot)
+        }
+        if let tabID = incoming.tabID {
+            return focusChain(tabID: tabID, in: snapshot)
+        }
+        if let workspaceID = incoming.workspaceID {
+            return NestedFocus(workspaceID: workspaceID)
+        }
+        return incoming
+    }
+
+    /// Builds a focus chain anchored on an agent, deriving its pane/tab/workspace.
+    private func focusChain(agentID: NestedNodeID, in snapshot: NestedTopologySnapshot) -> NestedFocus {
+        guard let agent = snapshot.agent(id: agentID) else {
+            return NestedFocus(agentID: agentID)
+        }
+        var focus = focusChain(paneID: agent.paneID, in: snapshot)
+        focus.agentID = agentID
+        return focus
+    }
+
+    /// Builds a focus chain anchored on a pane, deriving its tab/workspace.
+    private func focusChain(paneID: NestedNodeID, in snapshot: NestedTopologySnapshot) -> NestedFocus {
+        guard let pane = snapshot.pane(id: paneID) else {
+            return NestedFocus(paneID: paneID)
+        }
+        var focus = focusChain(tabID: pane.tabID, in: snapshot)
+        focus.paneID = paneID
+        return focus
+    }
+
+    /// Builds a focus chain anchored on a tab, deriving its workspace.
+    private func focusChain(tabID: NestedNodeID, in snapshot: NestedTopologySnapshot) -> NestedFocus {
+        guard let tab = snapshot.tab(id: tabID) else {
+            return NestedFocus(tabID: tabID)
+        }
+        var focus = NestedFocus(workspaceID: tab.workspaceID)
+        focus.tabID = tabID
+        return focus
     }
 
     private func updateTitle(id: NestedNodeID, displayTitle: String) throws -> NestedTopologySnapshot {

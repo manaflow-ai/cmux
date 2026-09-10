@@ -1091,6 +1091,7 @@ public actor NestedTopologyAttachmentCoordinator {
             record.latestSnapshot = snapshot
             record.providerInstanceID = snapshot.provider.providerInstanceID
             record.capabilities = snapshot.provider.capabilities
+            record.providerInstanceIdentityProofAvailable = snapshot.provider.instanceIdentityIsDurable
             var reducer = NestedTopologyReducer(
                 providerKind: record.providerKind,
                 providerInstanceID: snapshot.provider.providerInstanceID,

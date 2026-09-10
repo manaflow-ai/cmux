@@ -634,6 +634,62 @@ import Testing
 
         await coordinator.teardown()
     }
+
+    @Test func reconnectWithMintedInstanceClearsIdentityProof() async throws {
+        let handoffDir = try AttachmentTestFixtures.makeHandoffDirectory()
+        defer { try? FileManager.default.removeItem(at: handoffDir) }
+        let client = StubNestedTopologyProviderClient(
+            handshake: { AttachmentTestFixtures.handshake(instance: "durable-1") },
+            snapshot: {
+                AttachmentTestFixtures.snapshot(
+                    attachmentID: UUID(),
+                    hostStableSurfaceID: AttachmentTestFixtures.surfaceA,
+                    instance: "durable-1"
+                )
+            },
+            events: {
+                AsyncThrowingStream { continuation in
+                    continuation.yield(
+                        .replaceSnapshot(
+                            AttachmentTestFixtures.snapshot(
+                                attachmentID: UUID(),
+                                hostStableSurfaceID: AttachmentTestFixtures.surfaceA,
+                                instance: "minted-2",
+                                instanceIdentityIsDurable: false
+                            )
+                        )
+                    )
+                    continuation.onTermination = { _ in }
+                }
+            }
+        )
+        let coordinator = NestedTopologyAttachmentCoordinator(
+            validator: StubEndpointValidator(preConnectResult: .success(AttachmentTestFixtures.endpoint)),
+            clientFactory: StubNestedTopologyProviderClientFactory(client: client),
+            handoff: NestedPluginWriterHandoff(directoryURL: handoffDir)
+        )
+        let record = try await coordinator.attach(
+            hostWorkspaceID: AttachmentTestFixtures.workspaceA,
+            hostStableSurfaceID: AttachmentTestFixtures.surfaceA,
+            providerKind: .herdr,
+            socketPath: AttachmentTestFixtures.endpoint.canonicalPath,
+            authorization: .userConfirmed
+        )
+        // Durable handshake at attach time proves identity.
+        #expect(record.providerInstanceIdentityProofAvailable)
+        // The reconnect snapshot carries a minted (non-durable) identity, so the proof clears.
+        var proofCleared = false
+        for _ in 0..<100 {
+            let current = await coordinator.attachment(for: AttachmentTestFixtures.surfaceA)
+            if current?.providerInstanceIdentityProofAvailable == false {
+                proofCleared = true
+                break
+            }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        #expect(proofCleared)
+        await coordinator.teardown()
+    }
 }
 
 // MARK: - Test helpers

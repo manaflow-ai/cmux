@@ -132,7 +132,8 @@ enum AttachmentTestFixtures {
         attachmentID: UUID,
         hostStableSurfaceID: UUID,
         instance: String = "instance-a",
-        paneRawID: String = "w1:p1"
+        paneRawID: String = "w1:p1",
+        instanceIdentityIsDurable: Bool = true
     ) -> NestedTopologySnapshot {
         let instanceID = NestedProviderInstanceID(rawValue: instance)
         let workspaceID = NestedNodeID(
@@ -156,7 +157,7 @@ enum AttachmentTestFixtures {
         return NestedTopologySnapshot(
             attachmentID: attachmentID,
             hostStableSurfaceID: hostStableSurfaceID,
-            provider: handshake(instance: instance),
+            provider: handshake(instance: instance, instanceIdentityIsDurable: instanceIdentityIsDurable),
             workspaces: [
                 NestedWorkspaceNode(id: workspaceID, displayTitle: "W", orderIndex: 0),
             ],
