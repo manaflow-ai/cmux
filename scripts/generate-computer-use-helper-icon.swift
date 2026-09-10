@@ -14,11 +14,17 @@
 
 import AppKit
 
-let plateCornerRadius: CGFloat = 224
-let cursorTranslation = CGPoint(x: 293.4, y: 293.4)
+// Keep these measurements in sync with
+// `ComputerUseOnboardingVisualTokens`. The 7/32 ratio is the rounded-tile
+// family used by the hero, permission tiles, companion, and this icon.
+let tileCornerRadiusRatio: CGFloat = 7.0 / 32.0
 let cursorScale: CGFloat = 44.8
 let rimWidth: CGFloat = 14
 let canvas = CGRect(x: 0, y: 0, width: 1_024, height: 1_024)
+let plateCornerRadius = canvas.width * tileCornerRadiusRatio
+// The kite's measured path bounds are centered in the source canvas. Centering
+// its bounding box keeps the visually heavy lower-right lobe from drifting.
+let cursorTranslation = CGPoint(x: 251.0085, y: 251.0085)
 
 func cursorPath() -> CGPath {
     let kite = CGMutablePath()
