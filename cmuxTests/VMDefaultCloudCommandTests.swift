@@ -114,8 +114,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     ok: true,
                     result: [
                         "route": "ws://10.40.0.10:1337/v1/link",
-                        "session": "cloud",
-                        "trusted_carrier": true,
+                        "session": "cloud", "trusted_carrier": true,
                         "wireguard_hub_socket": "/tmp/cmux-wg-test.sock",
                     ]
                 )
@@ -265,7 +264,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         wait(for: [serverHandled], timeout: 5)
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertTrue(result.stdout.contains("OK vm-explicit-freestyle"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("vm-explicit-freestyle is ready"), result.stdout)
         XCTAssertTrue(result.stderr.isEmpty, result.stderr)
         XCTAssertEqual(
             state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
@@ -489,7 +488,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     result: [
                         "route": "ws://10.40.0.10:1337/v1/link",
                         "session": "cloud",
-                        "wireguard_hub_socket": "/tmp/cmux-wg-test.sock",
+                        "wireguard_hub_socket": "/tmp/cmux-wg-test.sock", "trusted_carrier": true,
                     ]
                 )
             case "workspace.create":
@@ -619,7 +618,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     result: [
                         "route": "ws://10.40.0.10:1337/v1/link",
                         "session": "cloud",
-                        "wireguard_hub_socket": "/tmp/cmux-wg-test.sock",
+                        "wireguard_hub_socket": "/tmp/cmux-wg-test.sock", "trusted_carrier": true,
                     ]
                 )
             case "workspace.create":

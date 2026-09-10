@@ -25,7 +25,7 @@ final class NewMachineSheetKindUITests: XCTestCase {
 
         // The palette's New Cloud Machine… runs the same presenter path the
         // Machines panel ＋ uses. Signed out, the sheet still opens (the plan
-        // meter is simply absent) without a kind switcher.
+        // meter and the size row are simply absent) without a kind switcher.
         let searchField = app.textFields["CommandPaletteSearchField"]
         app.typeKey("p", modifierFlags: [.command, .shift])
         XCTAssertTrue(searchField.waitForExistence(timeout: 5.0), "Expected command palette search field")
@@ -41,25 +41,45 @@ final class NewMachineSheetKindUITests: XCTestCase {
         XCTAssertTrue(row.waitForExistence(timeout: 5.0), "Expected the New Cloud Machine… palette row")
         row.click()
 
-        // NSHostingController can expose the localized button label without its
-        // SwiftUI identifier on macOS 15. Match either accessibility representation.
-        let createButtons = app.buttons.matching(NSPredicate(
-            format: "identifier == %@ OR label == %@", "NewMachineSheet.create", "Create"
-        ))
-        let create = createButtons.firstMatch
-        XCTAssertTrue(create.waitForExistence(timeout: 8.0), "Expected New Machine to open")
-        XCTAssertEqual(createButtons.count, 1)
-        XCTAssertFalse(app.radioButtons["Desktop"].exists)
-        XCTAssertFalse(app.radioButtons["Base"].exists)
-        XCTAssertFalse(app.descendants(matching: .any)["NewMachineSheet.kindSection"].exists)
+        // The sheet is a window sheet on the main window. NSHostingController can
+        // expose a button's localized label without its SwiftUI identifier on
+        // macOS 15, so both representations match (the run forces English).
+        let create = Self.button(in: app, identifier: "NewMachineSheet.create", label: "Create")
+        let cancel = Self.button(in: app, identifier: "NewMachineSheet.cancel", label: "Cancel")
+        let opened = app.sheets.firstMatch.waitForExistence(timeout: 8.0)
+            && create.waitForExistence(timeout: 8.0)
+        if !opened {
+            print("NewMachineSheetKindUITests hierarchy:\n\(app.debugDescription.prefix(8000))")
+        }
+        XCTAssertTrue(opened, "Expected New Machine to open as a sheet with its Create button")
+        XCTAssertTrue(app.staticTexts["New Machine"].exists, "Expected the New Machine title")
+        XCTAssertEqual(Self.buttons(in: app, identifier: "NewMachineSheet.create", label: "Create").count, 1)
+        XCTAssertTrue(cancel.exists, "Expected the sheet's Cancel button")
         attachScreenshot(of: app, named: "new-machine-single-flow")
 
-        let cancel = app.buttons["NewMachineSheet.cancel"].exists
-            ? app.buttons["NewMachineSheet.cancel"]
-            : app.buttons["Cancel"]
-        XCTAssertTrue(cancel.waitForExistence(timeout: 3.0), "Expected the sheet's Cancel button")
+        // Every witness of the old Kind picker: its segments, its label, its
+        // section, and the summary lines it switched between.
+        XCTAssertFalse(app.radioButtons["Desktop"].exists, "No Desktop segment")
+        XCTAssertFalse(app.radioButtons["Base"].exists, "No Base segment")
+        XCTAssertFalse(app.staticTexts["Kind"].exists, "No Kind label")
+        XCTAssertFalse(app.descendants(matching: .any)["NewMachineSheet.kindSection"].exists)
+        XCTAssertEqual(
+            app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "terminal only")).count, 0
+        )
+        XCTAssertEqual(
+            app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "screen you can watch")).count, 0
+        )
+
         cancel.click()
         XCTAssertTrue(pollUntil(timeout: 5.0) { !create.exists }, "Cancel should close the sheet")
+    }
+
+    private static func buttons(in app: XCUIApplication, identifier: String, label: String) -> XCUIElementQuery {
+        app.buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@", identifier, label))
+    }
+
+    private static func button(in app: XCUIApplication, identifier: String, label: String) -> XCUIElement {
+        buttons(in: app, identifier: identifier, label: label).firstMatch
     }
 
     private func attachScreenshot(of app: XCUIApplication, named name: String) {
