@@ -137,7 +137,6 @@ final class HiveComputersService {
         case .failure(let message):
             error = message
         case .ok, .state:
-            registry.reveal(instance: instance)
             error = nil
         }
         publish()

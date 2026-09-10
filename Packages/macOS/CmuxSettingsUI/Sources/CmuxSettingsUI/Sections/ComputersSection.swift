@@ -8,6 +8,7 @@ public struct ComputersSection: View {
     @State private var pairingError: String?
     @State private var isPairing = false
     @State private var devices: DefaultsValueModel<Bool>
+    @State private var devicesManagedByPolicy = ManagedDevicePolicy().isEnforced(.disableRemoteControl)
 
     public init(hostActions: SettingsHostActions, defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog) {
         actions = hostActions.computersSettingsActions()
@@ -24,10 +25,12 @@ public struct ComputersSection: View {
                 Toggle(String(localized: "settings.betaFeatures.devices", defaultValue: "My Devices"), isOn: Binding(
                     get: { devices.current },
                     set: {
+                        guard !devicesManagedByPolicy else { return }
                         devices.set($0)
                         NotificationCenter.default.post(name: Notification.Name("rightSidebarBetaFeatureDidChange"), object: nil)
                     }
                 ))
+                .disabled(devicesManagedByPolicy)
                 .accessibilityIdentifier("SettingsComputersEnabled")
                 Text(String(localized: "settings.computers.optIn", defaultValue: "Enables viewing your paired Macs and makes this Mac available to other devices signed in to your account."))
                     .font(.callout)
@@ -82,6 +85,11 @@ public struct ComputersSection: View {
             }
         }
         .task { await actions.refresh() }
+        .task {
+            for await _ in ManagedDevicePolicy.changeSignals() {
+                devicesManagedByPolicy = ManagedDevicePolicy().isEnforced(.disableRemoteControl)
+            }
+        }
     }
 
     private func pair() {
