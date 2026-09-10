@@ -24,6 +24,9 @@ class SidebarAliasTests(unittest.TestCase):
         cli = os.environ["CMUX_CLI_BIN"]
         env = {k: v for k, v in os.environ.items() if not k.startswith("CMUX_")}
         with tempfile.TemporaryDirectory(prefix="sidebar-alias-", dir="/tmp") as root:
+            test_home = str(Path(root) / "home")
+            Path(test_home).mkdir()
+            env.update(HOME=test_home, CFFIXED_USER_HOME=test_home)
             socket_path = str(Path(root) / "s")
             with socketserver.ThreadingUnixStreamServer(socket_path, SidebarHandler) as server:
                 server.commands = []

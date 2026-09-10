@@ -66,6 +66,7 @@ final class DeviceDirectory {
     private var pendingSyncSnapshot: [DeviceSyncRecord] = []
     private var presenceTask: Task<Void, Never>?
     private var registryTask: Task<Void, Never>?
+    private var registryGeneration: UInt64 = 0
     private var pairingObserver: NSObjectProtocol?
     /// Presence snapshots received since start; the first one follows the
     /// start-time registry read, later ones mark a reconnect.
@@ -125,6 +126,7 @@ final class DeviceDirectory {
         pairingObserver = nil
         presenceTask?.cancel()
         presenceTask = nil
+        registryGeneration &+= 1
         registryTask?.cancel()
         registryTask = nil
         isRefreshingRegistry = false
@@ -148,8 +150,18 @@ final class DeviceDirectory {
         if let registryTask { return registryTask }
         isRefreshingRegistry = true
         notifyChanged()
+        registryGeneration &+= 1
+        let generation = registryGeneration
         let task = Task { [weak self] in
             guard let self else { return }
+            defer {
+                if generation == self.registryGeneration {
+                    self.isRefreshingRegistry = false
+                    self.registryTask = nil
+                    self.remerge()
+                }
+            }
+            guard !Task.isCancelled else { return }
             do {
                 let devices = try await self.registryClient.list()
                 guard !Task.isCancelled else { return }
@@ -164,9 +176,6 @@ final class DeviceDirectory {
                 deviceDirectoryLog.error("device registry list failed: \(String(describing: error), privacy: .private)")
             }
             self.hasLoadedRegistry = true
-            self.isRefreshingRegistry = false
-            self.registryTask = nil
-            self.remerge()
         }
         registryTask = task
         return task
