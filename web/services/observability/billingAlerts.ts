@@ -1,4 +1,5 @@
-import { and, count, gte, isNotNull, isNull, lt, desc } from "drizzle-orm";
+import { and, countDistinct, desc, eq, gte, isNotNull, isNull, lt, notExists, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { cloudDb } from "../../db/client";
 import { billingEmailVerificationDeliveries, stripeWebhookEvents } from "../../db/schema";
 import { sendAlert, type AlertFetch, type AlertInput, type AlertResult } from "./alerts";
@@ -104,13 +105,24 @@ async function countUnsentPurchaseEmailsInDb(
   since: Date,
   olderThan: Date,
 ): Promise<number> {
+  // One purchaser can own several delivery rows (one per checkout session);
+  // a row only matters when no session ever reached that account's inbox.
   const [row] = await db
-    .select({ count: count() })
+    .select({ count: countDistinct(billingEmailVerificationDeliveries.stackUserId) })
     .from(billingEmailVerificationDeliveries)
     .where(and(
       isNull(billingEmailVerificationDeliveries.sentAt),
       gte(billingEmailVerificationDeliveries.createdAt, since),
       lt(billingEmailVerificationDeliveries.createdAt, olderThan),
+      notExists(
+        db
+          .select({ one: sql`1` })
+          .from(alias(billingEmailVerificationDeliveries, "sent"))
+          .where(and(
+            eq(sql`"sent"."stack_user_id"`, billingEmailVerificationDeliveries.stackUserId),
+            isNotNull(sql`"sent"."sent_at"`),
+          )),
+      ),
     ));
   return Number(row?.count ?? 0);
 }
