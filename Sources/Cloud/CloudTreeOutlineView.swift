@@ -90,7 +90,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         private var nodes: [CloudTreeNode] = []
         private var structureSignature: [String] = []
         private var contentSignature: [String] = []
-        private var selectedNodeID: String?
+        /// Authoritative row identity; the create menu receives a derived value snapshot.
+        var selectedNodeID: String?
         private var isUpdatingProgrammatically = false
         private var activeDrag: ActiveDrag?
         // NSDraggingItem retains the writer for the live native session. A weak
@@ -278,6 +279,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                         forRowIndexes: IndexSet(integersIn: 0..<outlineView.numberOfRows),
                         columnIndexes: IndexSet(integer: 0)
                     )
+                    restoreSelection(in: outlineView)
                 }
                 return
             }
@@ -313,19 +315,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             }
         }
 
-        private func restoreSelection(in outlineView: NSOutlineView) {
-            guard let selectedNodeID else { return }
-            for row in 0..<outlineView.numberOfRows {
-                if (outlineView.item(atRow: row) as? CloudTreeNode)?.id == selectedNodeID {
-                    outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
-                    if let node = outlineView.item(atRow: row) as? CloudTreeNode {
-                        onSelectionChange(selectionContext(for: node))
-                    }
-                    return
-                }
-            }
-        }
-
         private func withProgrammaticUpdate(_ body: () -> Void) {
             isUpdatingProgrammatically = true
             body()
@@ -354,7 +343,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             guard let node = item as? CloudTreeNode else { return nil }
             let cell = (outlineView.makeView(withIdentifier: CloudTreeCellView.identifier, owner: nil) as? CloudTreeCellView)
                 ?? CloudTreeCellView(frame: .zero)
-            cell.configure(node: node, machineActions: machineActions, nodeActions: nodeActions, style: style)
+            cell.configure(node: node, machineActions: machineActions, nodeActions: nodeActions, style: style, machineName: machineDisplayName(node.machine))
             return cell
         }
 
@@ -383,13 +372,10 @@ struct CloudTreeOutlineView: NSViewRepresentable {
 
         func outlineViewSelectionDidChange(_ notification: Notification) {
             guard !isUpdatingProgrammatically, let outlineView else { return }
-            selectedNodeID = outlineView.selectedRow >= 0
-                ? (outlineView.item(atRow: outlineView.selectedRow) as? CloudTreeNode)?.id
-                : nil
             let node = outlineView.selectedRow >= 0
                 ? outlineView.item(atRow: outlineView.selectedRow) as? CloudTreeNode
                 : nil
-            onSelectionChange(node.flatMap(selectionContext))
+            updateSelection(from: node)
         }
 
         func outlineViewItemDidExpand(_ notification: Notification) {
@@ -528,6 +514,10 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             return nil
         }
 
+        private func machineDisplayName(_ id: SurfaceMachineID) -> String {
+            machine(id: id)?.displayName ?? id.rawValue
+        }
+
         // MARK: Keyboard
 
         func moveSelection(by delta: Int) {
@@ -605,7 +595,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 ]
             case .terminalsPool(let machine, _):
                 return [
-                    item(String(format: String(localized: "cloudTree.menu.newTerminalOnMachine", defaultValue: "New Terminal on %@"), machine.rawValue)) { [nodeActions] in nodeActions.newTerminal(machine, nil) },
+                    item(String(format: String(localized: "cloudTree.menu.newTerminalOnMachine", defaultValue: "New Terminal on %@"), machineDisplayName(machine))) { [nodeActions] in nodeActions.newTerminal(machine, nil) },
                     item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() },
                 ]
             case .displaysPool:
@@ -614,8 +604,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 ]
             case .workspacesGroup(let machine):
                 return [
-                    item(String(format: String(localized: "cloudTree.menu.newWorkspaceOnMachine", defaultValue: "New Workspace on %@"), machine.rawValue)) { [nodeActions] in nodeActions.newWorkspace(machine) },
-                    item(String(format: String(localized: "cloudTree.menu.newTerminalOnMachine", defaultValue: "New Terminal on %@"), machine.rawValue)) { [nodeActions] in nodeActions.newTerminal(machine, nil) },
+                    item(String(format: String(localized: "cloudTree.menu.newWorkspaceOnMachine", defaultValue: "New Workspace on %@"), machineDisplayName(machine))) { [nodeActions] in nodeActions.newWorkspace(machine) },
+                    item(String(format: String(localized: "cloudTree.menu.newTerminalOnMachine", defaultValue: "New Terminal on %@"), machineDisplayName(machine))) { [nodeActions] in nodeActions.newTerminal(machine, nil) },
                     item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() },
                 ]
             case .workspace(let machine, let workspace, _, _, let openIn):

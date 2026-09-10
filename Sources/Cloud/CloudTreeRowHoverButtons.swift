@@ -6,6 +6,7 @@ import SwiftUI
 /// pools and workspace rows get their "+" creation verb.
 struct CloudTreeRowHoverButtons: View {
     let kind: CloudTreeNode.Kind
+    let machineName: String
     let machineActions: MachineRowActions
     let nodeActions: CloudTreeNodeActions
 
@@ -48,7 +49,7 @@ struct CloudTreeRowHoverButtons: View {
             plus(
                 String(
                     format: String(localized: "cloudTree.menu.newTerminalOnMachine", defaultValue: "New Terminal on %@"),
-                    machine.rawValue
+                    machineName
                 )
             ) {
                 nodeActions.newTerminal(machine, nil)
@@ -59,7 +60,7 @@ struct CloudTreeRowHoverButtons: View {
             plus(
                 String(
                     format: String(localized: "cloudTree.menu.newWorkspaceOnMachine", defaultValue: "New Workspace on %@"),
-                    machine.rawValue
+                    machineName
                 )
             ) {
                 nodeActions.newWorkspace(machine)
