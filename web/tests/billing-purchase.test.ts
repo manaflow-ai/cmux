@@ -3279,7 +3279,9 @@ describe("billing user lookup without a user-list scan", () => {
     );
     expect(user?.id).toBe(dotted.id);
     expect(snapshotUserIds).toHaveBeenCalledWith("billingfixture@gmail.com");
-    const scanned = listUsers.mock.calls.some((call) => (call[0] as { query?: string }).query === undefined);
+    const scanned = (listUsers as unknown as { mock: { calls: unknown[][] } }).mock.calls.some(
+      (call) => (call[0] as { query?: string }).query === undefined,
+    );
     expect(scanned).toBe(false);
   });
 
@@ -3309,7 +3311,7 @@ describe("billing user lookup without a user-list scan", () => {
       { snapshotUserIds: async () => [] },
     );
     expect(user?.id).toBe(dotted.id);
-    expect(listUsers.mock.calls.length).toBeLessThanOrEqual(400);
+    expect((listUsers as unknown as { mock: { calls: unknown[][] } }).mock.calls.length).toBeLessThanOrEqual(400);
   });
 });
 
