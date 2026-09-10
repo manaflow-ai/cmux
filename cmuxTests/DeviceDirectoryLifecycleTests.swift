@@ -132,6 +132,36 @@ struct DeviceDirectoryLifecycleTests {
         #expect(directory.hasLoadedRegistry)
     }
 
+    @Test("Cancelling the current registry refresh releases its busy state", .timeLimit(.minutes(5)))
+    func cancelledCurrentRegistryReadCanRetry() async throws {
+        let suite = "DeviceDirectoryCancel-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let requests = AsyncStream<CheckedContinuation<AuthenticatedSessionSnapshot, any Error>>.makeStream()
+        defer { requests.continuation.finish() }
+        let client = DeviceRegistryDirectoryClient(session: {
+            try await withCheckedThrowingContinuation { requests.continuation.yield($0) }
+        }, teamID: nil)
+        let directory = makeDirectory(
+            defaults: defaults, clock: SidebarTestManualClock(), registryClient: client, serviceURL: { nil }
+        )
+        defer { directory.stop() }
+        var calls = requests.stream.makeAsyncIterator()
+        let task = directory.refreshRegistry()
+        let request = try #require(await calls.next())
+        task.cancel()
+        request.resume(throwing: CancellationError())
+        await task.value
+        #expect(!directory.isRefreshingRegistry)
+        #expect(!directory.hasLoadedRegistry)
+        let retry = directory.refreshRegistry()
+        let retriedRequest = try #require(await calls.next())
+        retriedRequest.resume(throwing: DeviceRegistryDirectoryClient.ListError.notSignedIn)
+        await retry.value
+        #expect(directory.hasLoadedRegistry)
+        #expect(!directory.isRefreshingRegistry)
+    }
+
     @Test("A reconnect discards interrupted owner pages and commits only the new snapshot", arguments: [false, true])
     func reconnectReplacesIncompleteOwnershipSnapshot(includeNewOwner: Bool) throws {
         let suite = "DeviceDirectoryReconnect-\(UUID().uuidString)"
