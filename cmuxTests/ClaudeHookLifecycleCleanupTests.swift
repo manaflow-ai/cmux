@@ -395,8 +395,7 @@ struct ClaudeHookLifecycleCleanupTests {
             context: context,
             arguments: ["hooks", "claude", "pre-tool-use"],
             environment: environment,
-            standardInput: #"{"session_id":"\#(sessionId)","hook_event_name":"PreToolUse","tool_name":"AskUserQuestion","permission_mode":"bypassPermissions","cwd":"\#(context.root.path)"}"#,
-            timeout: 30
+            standardInput: #"{"session_id":"\#(sessionId)","hook_event_name":"PreToolUse","tool_name":"AskUserQuestion","permission_mode":"bypassPermissions","cwd":"\#(context.root.path)"}"#
         )
 
         #expect(serverHandled.wait(timeout: .now() + 5) == .success)

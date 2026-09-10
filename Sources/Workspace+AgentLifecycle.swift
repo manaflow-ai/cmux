@@ -317,11 +317,20 @@ extension Workspace {
                  .some(.completedAgentExit):
                 break
             case .some(.manualResumeAvailable), nil:
-                invalidateRestoredAgentSnapshot(panelId: panelId, restoredAgent: restoredAgent)
+                if restoredAgentHasLiveProcess(restoredAgent, panelId: panelId) {
+                    // A TUI turn (OSC 133;C) from the agent itself, not an
+                    // unrelated command replacing an idle agent.
+                    restoredAgentLifecycle.setResumeState(.observedAgentCommandRunning, panelId: panelId)
+                } else {
+                    invalidateRestoredAgentSnapshot(panelId: panelId, restoredAgent: restoredAgent)
+                }
             }
         case .promptIdle:
             switch restoredAgentResumeStatesByPanelId[panelId] {
             case .some(.autoResumeCommandRunning), .some(.observedAgentCommandRunning):
+                // A TUI prompt mark (OSC 133;A) is not the shell prompt
+                // returning while the agent process is still alive.
+                guard !restoredAgentHasLiveProcess(restoredAgent, panelId: panelId) else { break }
                 markRestoredAgentCompleted(panelId: panelId, snapshot: restoredAgent)
                 restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
                 retireAgentHookResumeBinding(panelId: panelId, matching: restoredAgent)
@@ -347,6 +356,7 @@ extension Workspace {
             scheduleRestoredStartupInputResend(panelId: panelId)
         case (.promptIdle, .some(.autoResumeCommandRunning)),
              (.promptIdle, .some(.observedAgentCommandRunning)):
+            guard !agentHookBindingHasLiveProcess(panelId: panelId) else { break }
             restoredAgentLifecycle.setResumeState(nil, panelId: panelId)
             restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
             retireAgentHookResumeBinding(panelId: panelId)
@@ -355,7 +365,10 @@ extension Workspace {
         }
     }
 
-    /// Grace period before replaying startup input that a slow login shell may discard.
+    /// Grace period between a restored launch's shell settling at an idle prompt
+    /// and replaying its startup input. Long enough for a prompt-then-command
+    /// sequence to report `commandRunning`, short enough that a lost restore
+    /// still resumes before the user notices an empty shell.
     static var restoredStartupInputResendGrace: TimeInterval = 2
 
     /// Replays a retained restore selector once after the shell reports an idle prompt.
@@ -475,69 +488,6 @@ extension Workspace {
         guard !continuesRestoredSession else { return }
         clearRestoredAgentSnapshot(panelId: panelId)
         invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
-    }
-
-    /// True when `binding` is a plain (non-tmux) agent-hook resume binding
-    /// whose session no longer shows up as a live process. Generalizes the
-    /// tmux-only `isProcessDetected` staleness signal in
-    /// `reconcileSurfaceResumeBindings` so a normal exit of a resumed
-    /// non-tmux agent doesn't leave a binding that gets replayed automatically
-    /// on the next relaunch (#8446).
-    ///
-    /// `restorableAgentIndex`, when supplied, is a freshly loaded index from
-    /// the same scan generation as the caller's `SurfaceResumeBindingIndex`
-    /// (see `ProcessDetectedResumeIndexes.load()`); prefer it over the
-    /// separately TTL-cached `SharedLiveAgentIndex.shared.index` so pruning
-    /// and the binding scan it is paired with always describe the same
-    /// point-in-time snapshot instead of two independently stale ones.
-    func isStaleAgentHookBinding(
-        _ binding: SurfaceResumeBindingSnapshot,
-        panelId: UUID,
-        restorableAgentIndex: RestorableAgentSessionIndex? = nil
-    ) -> Bool {
-        // `RestorableAgentSessionIndex` / `SharedLiveAgentIndex` are built by
-        // scanning LOCAL processes (pid/sysctl-based). A `.persistentSSH`
-        // agent-hook binding's process runs on the remote host and can never
-        // appear in that local scan, so treating it as this function's kind
-        // of "stale" would prune every live remote agent-hook binding on the
-        // very next reconciliation. Only judge local-launch bindings here;
-        // remote bindings are left to whatever governs their own lifecycle.
-        guard binding.isAgentHookBinding,
-              binding.launchFlavor == .local,
-              let checkpointId = binding.checkpointId?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !checkpointId.isEmpty,
-              let kind = binding.kind?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !kind.isEmpty else {
-            return false
-        }
-        if restoredAgentLifecycleOwns(binding, panelId: panelId) {
-            return false
-        }
-        let liveIndex = restorableAgentIndex ?? SharedLiveAgentIndex.shared.index
-        // Missing index data is unknown evidence, not proof that the agent
-        // exited. Preserve automatic ownership until a completed scan can
-        // establish liveness (or an explicit lifecycle event retires it).
-        guard let liveIndex else { return false }
-        guard !liveIndex.hasAmbiguousPanel(panelId) else { return false }
-        // A recorded PID with unknown cached liveness is inconclusive, not an
-        // exited session. Preserve the automatic binding until a later scan
-        // can establish that the process is gone.
-        guard liveIndex.hasUncertainStablePanelEntry(
-            panelId: panelId,
-            revalidateProcessEvidence: false
-        ) != true else {
-            return false
-        }
-        let liveEntry = liveIndex.entryForStablePanel(
-            workspaceId: id,
-            panelId: panelId,
-            revalidateProcessEvidence: false
-        )
-        return !AgentResumeLiveness.hasLiveProcess(
-            for: liveEntry,
-            kind: kind,
-            sessionId: checkpointId
-        )
     }
 
     func seedDetachedRestoredAgentState(from detached: DetachedSurfaceTransfer) {
