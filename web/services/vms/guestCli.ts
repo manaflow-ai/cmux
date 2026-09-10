@@ -522,10 +522,61 @@ guest_auth_status() {
   [ "\$cmux_authenticated" -eq 1 ] || return 1
 }
 
+# The human readout of GET /api/coderouter/vm-usage/self: a title, this
+# machine's 30-day totals, then one row per day that had usage. Every number is
+# labeled so an agent reading the terminal understands it too; \`--json\` returns
+# the contract unchanged (vmUsageContract.ts). Without jq the raw JSON is
+# printed, so an older image never loses the readout.
+guest_coderouter_usage_render() {
+  cmux_cu_file="\$1"
+  if ! jq -e . "\$cmux_cu_file" >/dev/null 2>&1; then cat "\$cmux_cu_file"; return 0; fi
+  if ! jq -e '.kind == "ready" and (.totals | type) == "object"' "\$cmux_cu_file" >/dev/null 2>&1; then
+    cmux_message usageUnavailable
+    return 0
+  fi
+  eval "\$(jq -r '@sh "cmux_cu_days=\\(.periodDays // 30) cmux_cu_asof=\\((.asOf // "?") | tostring | sub("T"; " ") | sub(":[0-9]{2}(\\\\.[0-9]+)?Z\$"; " UTC")) cmux_cu_total=\\(.totals.totalTokens // 0) cmux_cu_listed=\\((.days // []) | length) cmux_cu_active=\\((.days // []) | map(select((.totalTokens // 0) > 0)) | length)"' "\$cmux_cu_file")"
+  cmux_message usageTitle "\$cmux_cu_days" "\$cmux_cu_asof"
+  jq -r --arg machine "\$(cmux_message labelMachine)" --arg tokens "\$(cmux_message labelTokens)" \\
+    --arg cost "\$(cmux_message labelCost)" --arg day "\$(cmux_message labelDay)" --arg total "\$(cmux_message labelTotal)" \\
+    --arg input "\$(cmux_message labelInput)" --arg cached "\$(cmux_message labelCached)" --arg output "\$(cmux_message labelOutput)" \\
+    --arg api "\$(cmux_message labelApiEquivalent)" '
+    def commas: tostring | (length - 1) as \$n
+      | [range(0; length) as \$i | .[\$i:\$i+1] + (if (\$n - \$i) > 0 and ((\$n - \$i) % 3 == 0) then "," else "" end)] | join("");
+    def whole: (. // 0) | floor | commas;
+    def usd: (. // 0) as \$v | ((\$v * 100) | round) as \$c
+      | if \$v > 0 and \$c == 0 then "<\$0.01"
+        else "\$" + ((\$c / 100 | floor) | commas) + "." + ((\$c % 100) | tostring | if length < 2 then "0" + . else . end) end;
+    def lpad(\$w): tostring | if length >= \$w then . else (" " * (\$w - length)) + . end;
+    def rpad(\$w): tostring | if length >= \$w then . else . + (" " * (\$w - length)) end;
+    .totals as \$t
+    | ([\$machine, \$tokens, \$cost] | map(length) | max) as \$lw
+    | ((.days // []) | map(select((.totalTokens // 0) > 0))) as \$rows
+    | "\\(\$machine | rpad(\$lw))  \\(.vmId // "?")",
+      "\\(\$tokens | rpad(\$lw))  \\(\$t.totalTokens | whole) \\(\$total) = \\(\$t.inputTokens | whole) \\(\$input) (\\(\$t.cachedInputTokens | whole) \\(\$cached)) + \\(\$t.outputTokens | whole) \\(\$output)",
+      "\\(\$cost | rpad(\$lw))  \\(\$t.apiEquivalentUsd | usd) \\(\$api)",
+      (if (\$rows | length) > 0 then
+        ([\$rows[].totalTokens | whole | length] + [(\$tokens | length)] | max) as \$tw
+        | ([\$rows[].apiEquivalentUsd | usd | length] + [(\$cost | length)] | max) as \$cw
+        | "",
+          "\\(\$day | rpad(10))  \\(\$tokens | lpad(\$tw))  \\(\$cost | lpad(\$cw))",
+          (\$rows[] | "\\(.day | rpad(10))  \\(.totalTokens | whole | lpad(\$tw))  \\(.apiEquivalentUsd | usd | lpad(\$cw))")
+      else empty end)
+  ' "\$cmux_cu_file"
+  if [ "\$cmux_cu_total" -eq 0 ] 2>/dev/null; then
+    printf '\\n'
+    cmux_message usageNone "\$cmux_cu_days"
+  elif [ "\$cmux_cu_active" -lt "\$cmux_cu_listed" ] 2>/dev/null; then
+    cmux_message usageOmitted "\$((cmux_cu_listed - cmux_cu_active))" "\$cmux_cu_listed"
+  fi
+  printf '\\n'
+  cmux_message usageJsonHint
+}
+
 guest_coderouter_usage() {
+  cmux_cu_json=0
   for cmux_arg in "\$@"; do
     case "\$cmux_arg" in
-      --json) ;;
+      --json) cmux_cu_json=1 ;;
       --help|-h) guest_usage; return 0 ;;
       *) die_message 2 usageOption "\$cmux_arg" ;;
     esac
@@ -537,7 +588,14 @@ guest_coderouter_usage() {
     printf '%s\\n' "\$cmux_response" >&2
     return 1
   }
-  printf '%s\\n' "\$cmux_response"
+  if [ "\$cmux_cu_json" -eq 1 ] || ! command -v jq >/dev/null 2>&1; then
+    printf '%s\\n' "\$cmux_response"
+    return 0
+  fi
+  cmux_cu_out="\$(mktemp "\${TMPDIR:-/tmp}/cmux-usage.XXXXXX")"
+  printf '%s\\n' "\$cmux_response" > "\$cmux_cu_out"
+  guest_coderouter_usage_render "\$cmux_cu_out"
+  rm -f "\$cmux_cu_out"
 }
 
 guest_coderouter_models() {

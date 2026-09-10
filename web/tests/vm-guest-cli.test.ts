@@ -185,7 +185,7 @@ esac
     const run = runShim(["--help"]);
     expect(run.status).toBe(0);
     expect(run.stdout).toContain("cmux auth status [--json]");
-    expect(run.stdout).toContain("cmux coderouter status|usage|models");
+    expect(run.stdout).toContain("cmux coderouter status|usage [--json]|models");
     expect(run.stdout).toContain("cmux coderouter agent <claude|codex|opencode|pi>");
     expect(run.stdout).toContain("cmux agent <claude|codex|opencode|pi>");
   });
@@ -252,25 +252,92 @@ esac
   });
 
   describe("CodeRouter agent entrypoints", () => {
-    test("reads usage and models through the configured HTTPS edge", () => {
-      const run = runShim(
-        ["coderouter", "usage"],
-        { CMUX_CODEROUTER_URL: "https://coderouter.cmux.internal" },
-        (directory) => {
-          const curl = join(directory, "curl");
-          writeFileSync(
-            curl,
-            "#!/bin/sh\ncase \"$*\" in\n  *vm-usage/self*) printf '%s' '{\"kind\":\"ready\",\"vmId\":\"vm-test\"}' ;;\n  *v1/models*) printf '%s' '{\"data\":[{\"id\":\"test-model\"}]}' ;;\n  *) exit 1 ;;\nesac\n",
-          );
-          chmodSync(curl, 0o755);
-        },
-      );
-      expect(run.status).toBe(0);
-      expect(JSON.parse(run.stdout)).toEqual({ kind: "ready", vmId: "vm-test" });
+    const USAGE_BODY = JSON.stringify({
+      vmId: "28e987ce-549f-4040-8489-5ed3789faf3e",
+      periodDays: 30,
+      kind: "ready",
+      asOf: "2026-09-10T23:24:01.425Z",
+      totals: { inputTokens: 68564, cachedInputTokens: 14848, outputTokens: 48, totalTokens: 68612, apiEquivalentUsd: 0 },
+      days: [
+        { day: "2026-09-08", totalTokens: 0, apiEquivalentUsd: 0 },
+        { day: "2026-09-09", totalTokens: 1234567, apiEquivalentUsd: 12.3456 },
+        { day: "2026-09-10", totalTokens: 68612, apiEquivalentUsd: 0.004 },
+      ],
+    });
+    const usageCurl = (body: string) => (directory: string) => {
+      const curl = join(directory, "curl");
+      writeFileSync(curl, `#!/bin/sh\ncase "$*" in\n  *vm-usage/self*) printf '%s' '${body}' ;;\n  *) exit 1 ;;\nesac\n`);
+      chmodSync(curl, 0o755);
+    };
+    const USAGE_ENV = { CMUX_CODEROUTER_URL: "https://coderouter.cmux.internal" };
 
+    test("renders usage for people: labeled totals, one row per day with usage, and the --json hint", () => {
+      const run = runShim(["coderouter", "usage"], USAGE_ENV, usageCurl(USAGE_BODY));
+      expect(run.status).toBe(0);
+      expect(run.stdout).toBe([
+        "CodeRouter usage for this machine, last 30 days (as of 2026-09-10 23:24 UTC)",
+        "machine  28e987ce-549f-4040-8489-5ed3789faf3e",
+        "tokens   68,612 total = 68,564 input (14,848 cached) + 48 output",
+        "cost     $0.00 API-equivalent",
+        "",
+        "day            tokens    cost",
+        "2026-09-09  1,234,567  $12.35",
+        "2026-09-10     68,612  <$0.01",
+        "Days without usage are not listed (1 of 3).",
+        "",
+        "Machine-readable JSON: cmux coderouter usage --json",
+        "",
+      ].join("\n"));
+    });
+
+    test("usage --json returns the vm-usage contract unchanged, for agents and scripts", () => {
+      const run = runShim(["coderouter", "usage", "--json"], USAGE_ENV, usageCurl(USAGE_BODY));
+      expect(run.status).toBe(0);
+      expect(JSON.parse(run.stdout)).toEqual(JSON.parse(USAGE_BODY));
+      const alias = runShim(["coderouter", "machines", "--json"], USAGE_ENV, usageCurl(USAGE_BODY));
+      expect(JSON.parse(alias.stdout)).toEqual(JSON.parse(USAGE_BODY));
+    });
+
+    test("usage says so when the ledger is unavailable or the machine spent nothing", () => {
+      const unavailable = runShim(
+        ["coderouter", "usage"],
+        USAGE_ENV,
+        usageCurl(JSON.stringify({ vmId: "vm-a", periodDays: 30, kind: "unavailable", asOf: null, totals: null, days: [] })),
+      );
+      expect(unavailable.status).toBe(0);
+      expect(unavailable.stdout).toBe("CodeRouter usage is unavailable right now (the usage ledger did not answer). Retry in a moment.\n");
+
+      const zero = runShim(
+        ["coderouter", "usage"],
+        USAGE_ENV,
+        usageCurl(JSON.stringify({
+          vmId: "vm-zero",
+          periodDays: 30,
+          kind: "ready",
+          asOf: "2026-09-10T00:00:00.000Z",
+          totals: { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, totalTokens: 0, apiEquivalentUsd: 0 },
+          days: [{ day: "2026-09-10", totalTokens: 0, apiEquivalentUsd: 0 }],
+        })),
+      );
+      expect(zero.status).toBe(0);
+      expect(zero.stdout).toContain("machine  vm-zero\n");
+      expect(zero.stdout).toContain("\nNo CodeRouter usage from this machine in the last 30 days.\n");
+      expect(zero.stdout).not.toContain("day  ");
+    });
+
+    test("usage falls back to the raw body when it is not JSON, and rejects unknown options", () => {
+      const raw = runShim(["coderouter", "usage"], USAGE_ENV, usageCurl("not json"));
+      expect(raw.status).toBe(0);
+      expect(raw.stdout).toBe("not json\n");
+      const bad = runShim(["coderouter", "usage", "--tsv"], USAGE_ENV, usageCurl(USAGE_BODY));
+      expect(bad.status).toBe(2);
+      expect(bad.stderr).toContain("coderouter usage: unknown option --tsv");
+    });
+
+    test("reads models through the configured HTTPS edge", () => {
       const models = runShim(
         ["coderouter", "models"],
-        { CMUX_CODEROUTER_URL: "https://coderouter.cmux.internal" },
+        USAGE_ENV,
         (directory) => {
           const curl = join(directory, "curl");
           writeFileSync(curl, "#!/bin/sh\nprintf '%s' '{\"data\":[{\"id\":\"test-model\"}]}'\n");
