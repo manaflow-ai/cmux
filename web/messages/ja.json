@@ -1,4 +1,8 @@
 {
+  "coderouterAuth": {
+    "title": "認証を受け取りました",
+    "description": "ターミナルに戻ってセットアップを完了してください。"
+  },
   "guestCLI": {
     "topologyHelp": "ターミナルを再起動せずに、このマシンの配置を変更します:\n  cmux workspace new [--name <name>] [--json]\n  cmux workspace rename <workspace> <name> [--json]\n  cmux workspace move <workspace> --index <index> [--json]\n  cmux workspace focus|close <workspace> [--json]\n  cmux tab rename <tab> <name> [--json]\n  cmux terminal rename <terminal|current> <name> [--json]\n  cmux tab move <tab> --workspace <ws> --screen <screen> --pane <pane> --index <index> [--json]\n  cmux pane split <pane> <left|right|up|down> [--ratio <fraction>] [--json]\n  cmux pane swap <pane> --other-workspace <ws> --other-screen <screen> --other-pane <pane> [--json]\n  cmux pane resize <pane> --split <split> --ratio <fraction> [--json]\n  cmux pane|tab focus <id> [--json]\n  cmux workspace|pane|tab list [--json]\n\nID は cmux tree で確認できます。インデックスは 0 から始まります。\nタブ名は配置ごとに設定され、terminal rename はそのターミナルの現在の全配置を変更します。\n複数の表示があるターミナルは tab move で対象の配置だけを移動してください。\nピアでは cmux vm <workspace|pane|tab|terminal> <verb> <machine> ... を使います。\nセレクターを先に指定するデーモン構文も利用できます。layout apply は新規または空の\nワークスペース用です。使用中の配置は move/swap/resize で変更してください。\nこれらはデーモンのレイアウトを変更します。Mac で表示するには\ncmux vm workspace open <machine> <ws> を使います。",
     "topologyUsage": "配置コマンドの引数が無効です。名前変更と配置操作は cmux workspace help で確認してください。",
