@@ -167,7 +167,7 @@ struct JSONConfigStoreTests {
     @Test func updateRefusesToOverwriteUndecodableValue() async throws {
         let (store, fileURL, catalog) = makeStore()
         let key = catalog.chrome.overrides
-        let persisted = Data(#"{"chrome":{"overrides":{"accent":"#112233","unknown":"#445566"}},"app":{"appearance":"dark"}}"#.utf8)
+        let persisted = Data(###"{"chrome":{"overrides":{"accent":"#112233","unknown":"#445566"}},"app":{"appearance":"dark"}}"###.utf8)
         try persisted.write(to: fileURL)
 
         await #expect(throws: (any Error).self) {
