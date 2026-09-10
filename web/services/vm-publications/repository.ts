@@ -37,6 +37,7 @@ import {
 } from "../account/deletionLock";
 import type { ProviderId } from "../vms/drivers";
 import { reserveManagedPublication, type ManagedPublicationInput } from "./managedRepository";
+import { tracePublicationAuthOperation } from "./requestTelemetry";
 
 export type CloudVmDomainRow = typeof cloudVmDomains.$inferSelect;
 export type CloudVmPublicationRow = typeof cloudVmPublications.$inferSelect;
@@ -498,7 +499,7 @@ function repositoryEffect<A>(
   run: () => Promise<A>,
 ): Effect.Effect<A, RepositoryError> {
   return Effect.tryPromise({
-    try: run,
+    try: () => tracePublicationAuthOperation(`database.${operation}`, run),
     catch: (cause) =>
       isRepositoryDomainError(cause)
         ? cause
@@ -511,7 +512,7 @@ function databaseEffect<A>(
   run: () => Promise<A>,
 ): Effect.Effect<A, PublicationDatabaseError> {
   return Effect.tryPromise({
-    try: run,
+    try: () => tracePublicationAuthOperation(`database.${operation}`, run),
     catch: (cause) => new PublicationDatabaseError({ operation, cause }),
   });
 }

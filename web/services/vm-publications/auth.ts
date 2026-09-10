@@ -26,6 +26,7 @@ import {
   randomPublicationToken,
 } from "./security";
 import { normalizePublicationEmail } from "./managedHostnames";
+import { tracePublicationAuthOperation } from "./requestTelemetry";
 
 export const PUBLICATION_TRANSACTION_TTL_MS = 10 * 60 * 1_000;
 export const PUBLICATION_AUTH_CODE_TTL_MS = 60 * 1_000;
@@ -53,7 +54,7 @@ export const PublicationViewerResolverLive = Layer.succeed(
   {
     resolve: (userId) =>
       Effect.tryPromise({
-        try: async () => {
+        try: () => tracePublicationAuthOperation("identity", async () => {
           const user = await getStackServerApp().getUser(userId);
           if (!user) return null;
           const teamIds: string[] = [];
@@ -77,7 +78,7 @@ export const PublicationViewerResolverLive = Layer.succeed(
             cursor = nextCursor;
           }
           throw new Error("Stack team pagination exceeded its page limit");
-        },
+        }),
         catch: (cause) => new PublicationIdentityError({
           operation: "resolvePublicationViewer",
           cause,

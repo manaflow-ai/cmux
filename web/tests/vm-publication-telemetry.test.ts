@@ -67,6 +67,18 @@ describe("publication authorization telemetry", () => {
     expect(exporter.getFinishedSpans()).toHaveLength(0);
   });
 
+  test("bounds retained operation records even when the handler throws", async () => {
+    const response = await withPublicationAuthRequest(request(), async () => {
+      for (let i = 0; i < 40; i++) await tracePublicationAuthOperation("identity", async () => undefined);
+      throw new Error("private-credential");
+    });
+    expect(response.status).toBe(503);
+    const span = exporter.getFinishedSpans()[0]!;
+    expect(span.events).toHaveLength(32);
+    expect(span.attributes["cmux.publication_auth.dropped_operations"]).toBe(9);
+    expect(JSON.stringify(span.events)).not.toContain("private-credential");
+  });
+
   test("keeps operation records separate for concurrent requests", async () => {
     await Promise.all(["database.findRequestContext", "identity"].map(operation =>
       withPublicationAuthRequest(request(), async () => {
