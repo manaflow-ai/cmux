@@ -12,6 +12,8 @@ on:
       - web/scripts/validate-devbox-ladder.ts
       - web/scripts/build-devbox-freestyle.ts
       - web/scripts/verify-devbox-image.ts
+      - web/scripts/devbox-agent-launch.*
+      - web/tests/devbox-agent-launch-test.py
       - web/scripts/check-devbox-agent-pins.ts
       - web/services/vms/images/manifest.json
       - web/services/vms/images/sizes.ts
@@ -29,6 +31,8 @@ on:
       - web/scripts/validate-devbox-ladder.ts
       - web/scripts/build-devbox-freestyle.ts
       - web/scripts/verify-devbox-image.ts
+      - web/scripts/devbox-agent-launch.*
+      - web/tests/devbox-agent-launch-test.py
       - web/scripts/check-devbox-agent-pins.ts
       - web/services/vms/images/manifest.json
       - web/services/vms/images/sizes.ts

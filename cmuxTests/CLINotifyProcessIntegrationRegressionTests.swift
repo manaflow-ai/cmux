@@ -7157,10 +7157,12 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let state = MockSocketServerState()
         let listedWindowId = "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA"
         let requestedWindowId = listedWindowId.lowercased()
+        let homeURL = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-vm-window-case-\(UUID().uuidString)", isDirectory: true)
 
         defer {
             Darwin.close(listenerFD)
             unlink(socketPath)
+            try? FileManager.default.removeItem(at: homeURL)
         }
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
@@ -7173,17 +7175,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             switch method {
             case "window.list":
                 return self.v2Response(
-                    id: id,
-                    ok: true,
-                    result: [
-                        "windows": [
-                            [
-                                "id": listedWindowId,
-                                "ref": "window:1",
-                                "index": 0,
-                            ],
-                        ],
-                    ]
+                    id: id, ok: true,
+                    result: ["windows": [["id": listedWindowId, "ref": "window:1", "index": 0]]]
                 )
             case "vm.create":
                 return self.v2Response(
@@ -7204,7 +7197,9 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
-
+        environment["AppleLanguages"] = "(en)"  // the ready line is localized; the assertion reads English
+        environment["HOME"] = homeURL.path
+        environment["CFFIXED_USER_HOME"] = homeURL.path
         let result = runProcess(
             executablePath: cliPath,
             arguments: ["vm", "new", "--window", requestedWindowId, "--detach"],
@@ -7215,7 +7210,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         wait(for: [serverHandled], timeout: 5)
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertTrue(result.stdout.contains("OK vm-test-case-window"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("vm-test-case-window is ready"), result.stdout)
         XCTAssertEqual(
             state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
             ["window.list", "vm.create"]
