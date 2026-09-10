@@ -151,9 +151,9 @@ extension CmuxTuiSurfaceProvider {
             guard let destination = await CmuxTuiSnapshotParser.terminalProjectionTarget(from: snapshot, preferringWorkspace: preferredWorkspaceID) else {
                 throw ProviderError.noWorkspaceOnMachine(self.machineID)
             }
-            return try await self.projectTerminal(
+            return try await self.ensureTerminalAttachment(
                 SurfaceResourceID(machine: self.machine, kind: .terminal, key: terminalID),
-                intoRemoteWorkspace: destination.target.workspaceID
+                preferringRemoteWorkspace: destination.target.workspaceID
             )
         }
         remoteTerminalProjectionTasks[key] = task

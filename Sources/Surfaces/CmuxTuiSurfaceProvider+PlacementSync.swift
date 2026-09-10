@@ -3,6 +3,17 @@ import Foundation
 /// Revision-fenced placement edits, retried once with fresh destination coordinates.
 @MainActor
 extension CmuxTuiSurfaceProvider: SurfacePlacementSyncing {
+    enum TerminalPlacementIntent {
+        case attachment
+        case layoutEdit
+
+        /// A reconnect/viewer preserves any existing view. Only an explicit
+        /// layout edit can request that the unique view change workspaces.
+        func retainedPlacement(_ existing: SurfaceRemotePlacement, requestedWorkspaceID: String) -> SurfaceRemotePlacement? {
+            self == .attachment || existing.workspaceID == requestedWorkspaceID ? existing : nil
+        }
+    }
+
     func moveRemoteTab(id: String, intoRemoteWorkspace remoteWorkspaceID: String) async throws -> SurfaceRemotePlacement {
         try await runPlacementMutation(intoRemoteWorkspace: remoteWorkspaceID, tabID: id) { socketPath, target, revision, key in
             CloudTuiCommandLine.moveTabArguments(
@@ -12,7 +23,15 @@ extension CmuxTuiSurfaceProvider: SurfacePlacementSyncing {
     }
 
     func projectTerminal(_ id: SurfaceResourceID, intoRemoteWorkspace remoteWorkspaceID: String) async throws -> SurfaceRemotePlacement {
-        try await runPlacementMutation(intoRemoteWorkspace: remoteWorkspaceID, terminalID: id.key) { socketPath, target, revision, key in
+        try await placeTerminal(id, intoRemoteWorkspace: remoteWorkspaceID, intent: .layoutEdit)
+    }
+
+    func ensureTerminalAttachment(_ id: SurfaceResourceID, preferringRemoteWorkspace remoteWorkspaceID: String) async throws -> SurfaceRemotePlacement {
+        try await placeTerminal(id, intoRemoteWorkspace: remoteWorkspaceID, intent: .attachment)
+    }
+
+    private func placeTerminal(_ id: SurfaceResourceID, intoRemoteWorkspace remoteWorkspaceID: String, intent: TerminalPlacementIntent) async throws -> SurfaceRemotePlacement {
+        try await runPlacementMutation(intoRemoteWorkspace: remoteWorkspaceID, terminalID: id.key, intent: intent) { socketPath, target, revision, key in
             CloudTuiCommandLine.projectTerminalArguments(
                 socketPath: socketPath, terminalID: id.key, target: target, expectedRevision: revision, idempotencyKey: key
             )
@@ -49,6 +68,7 @@ extension CmuxTuiSurfaceProvider: SurfacePlacementSyncing {
         intoRemoteWorkspace remoteWorkspaceID: String,
         tabID: String? = nil,
         terminalID: String? = nil,
+        intent: TerminalPlacementIntent = .layoutEdit,
         arguments: (_ socketPath: String, _ target: CloudTuiTerminalProjectionTarget, _ revision: String?, _ idempotencyKey: String) -> [String]
     ) async throws -> SurfaceRemotePlacement {
         let connected = try await links.connected(machineID: machineID)
@@ -70,7 +90,7 @@ extension CmuxTuiSurfaceProvider: SurfacePlacementSyncing {
                     throw ProviderError.terminalNotCreated(terminalID)
                 }
                 if let placement = current.placement {
-                    if placement.workspaceID == remoteWorkspaceID { return placement }
+                    if let retained = intent.retainedPlacement(placement, requestedWorkspaceID: remoteWorkspaceID) { return retained }
                     existingTabID = placement.tabID
                     command = CloudTuiCommandLine.moveTabArguments(
                         socketPath: connected.socketPath, tabID: placement.tabID, target: destination.target,

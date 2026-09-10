@@ -373,6 +373,11 @@ struct CloudPlacementCoordinatorTests {
         snapshot["tabs"] = [tab]
         let existing = try #require(await CmuxTuiSnapshotParser.terminalPlacement(from: JSONSerialization.data(withJSONObject: snapshot), terminalID: "term_1"))
         #expect(existing.placement?.tabID == "tab_1" && existing.placement?.workspaceID == "ws_main")
+        let placement = try #require(existing.placement)
+        // The daemon focus moved elsewhere while a reconnect/open was waiting.
+        // Attachment keeps this exact tab; a user layout edit may reparent it.
+        #expect(CmuxTuiSurfaceProvider.TerminalPlacementIntent.attachment.retainedPlacement(placement, requestedWorkspaceID: "ws_api") == placement)
+        #expect(CmuxTuiSurfaceProvider.TerminalPlacementIntent.layoutEdit.retainedPlacement(placement, requestedWorkspaceID: "ws_api") == nil)
         var duplicate = tab
         duplicate["id"] = "tab_2"
         snapshot["tabs"] = [tab, duplicate]
