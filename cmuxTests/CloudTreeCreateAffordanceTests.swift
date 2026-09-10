@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 import Testing
 
 #if canImport(cmux_DEV)
@@ -133,5 +133,97 @@ struct CloudTreeCreateAffordanceTests {
         )
         coordinator.open(machineNode)
         #expect(createdTerminals == 0)
+    }
+
+    @Test("Removing a selected workspace or machine clears the header create target", arguments: [false, true])
+    func removedSelectionClearsCreateTarget(removeMachine: Bool) throws {
+        var selection: CloudTreeCreateSelection?
+        let coordinator = makeCoordinator { selection = $0 }
+        let container = CloudTreeContainerView(coordinator: coordinator)
+        defer { withExtendedLifetime(container) {} }
+        let main = workspace("ws_main", "main", index: 0)
+        let root = try #require(rows(workspaces: [main]).first)
+        coordinator.apply(nodes: [root])
+        let outline = try #require(coordinator.outlineView)
+        try select("machine:brave-otter/ws/ws_main", in: outline)
+        #expect(selection == .workspace(machine: machine, workspaceID: main.id, workspaceName: main.name))
+
+        coordinator.apply(nodes: removeMachine ? [] : [try #require(rows(workspaces: []).first)])
+        #expect(outline.selectedRow == -1)
+        #expect(selection == nil)
+
+        // Reappearing IDs must not silently revive an obsolete create destination.
+        coordinator.apply(nodes: [root])
+        #expect(outline.selectedRow == -1)
+        #expect(selection == nil)
+    }
+
+    @Test("A content-only workspace rename updates the selected create target")
+    func renamedSelectionRefreshesCreateTarget() throws {
+        var selection: CloudTreeCreateSelection?
+        let coordinator = makeCoordinator { selection = $0 }
+        let container = CloudTreeContainerView(coordinator: coordinator)
+        defer { withExtendedLifetime(container) {} }
+        let main = workspace("ws_main", "main", index: 0)
+        coordinator.apply(nodes: [try #require(rows(workspaces: [main]).first)])
+        let outline = try #require(coordinator.outlineView)
+        try select("machine:brave-otter/ws/ws_main", in: outline)
+
+        let renamed = workspace(main.id, "Renamed workspace", index: 0)
+        coordinator.apply(nodes: [try #require(rows(workspaces: [renamed]).first)])
+        #expect(selection == .workspace(machine: machine, workspaceID: main.id, workspaceName: renamed.name))
+        #expect(outline.selectedRow >= 0)
+    }
+
+    @Test("Group creation menus use the machine display name")
+    func groupCreateMenusUseDisplayName() throws {
+        let coordinator = makeCoordinator()
+        let container = CloudTreeContainerView(coordinator: coordinator)
+        defer { withExtendedLifetime(container) {} }
+        coordinator.apply(nodes: [try #require(rows(workspaces: []).first)])
+        let outline = try #require(coordinator.outlineView)
+        let workspaceTitle = String(format: String(localized: "cloudTree.menu.newWorkspaceOnMachine", defaultValue: "New Workspace on %@"), "Big Machine")
+        let terminalTitle = String(format: String(localized: "cloudTree.menu.newTerminalOnMachine", defaultValue: "New Terminal on %@"), "Big Machine")
+        for suffix in ["workspaces", "terminals"] {
+            try select("machine:brave-otter/\(suffix)", in: outline)
+            let menu = try #require(coordinator.contextMenu(forRow: outline.selectedRow))
+            let titles = menu.items.map(\.title)
+            #expect(titles.contains(terminalTitle))
+            if suffix == "workspaces" { #expect(titles.contains(workspaceTitle)) }
+            #expect(titles.allSatisfy { !$0.contains(machineID) })
+        }
+    }
+
+    private func select(_ id: String, in outline: NSOutlineView) throws {
+        let row = try #require((0..<outline.numberOfRows).first {
+            (outline.item(atRow: $0) as? CloudTreeNode)?.id == id
+        })
+        outline.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+    }
+
+    private func makeCoordinator(
+        onSelectionChange: @escaping @MainActor (CloudTreeCreateSelection?) -> Void = { _ in }
+    ) -> CloudTreeOutlineView.Coordinator {
+        CloudTreeOutlineView.Coordinator(
+            machineActions: MachineRowActions(
+                openShell: { _ in }, openDesktop: { _ in }, runCommand: { _, _ in },
+                confirmDelete: { _ in }, promptRename: { _, _ in }, promptUpgrade: {}
+            ),
+            nodeActions: CloudTreeNodeActions(
+                project: { _, _, _ in }, projectRemoteView: { _, _, _, _ in },
+                projectInLocalWorkspace: { _, _ in }, projectRemoteViewInLocalWorkspace: { _, _, _ in },
+                newTerminal: { _, _ in }, openGroup: { _, _, _, _ in },
+                openGroupAsWorkspace: { _, _, _ in }, newWorkspace: { _ in },
+                closeTerminal: { _ in }, closeWorkspace: { _, _ in },
+                renameWorkspace: { _, _ in }, renameTerminal: { _, _ in },
+                selectLocalWorkspace: { _ in }, copyToPasteboard: { _ in },
+                copyPortLink: { _ in }, refresh: {}
+            ),
+            expansionStore: CloudTreeExpansionStore(
+                defaults: UserDefaults(suiteName: "cloud-tree-create-\(UUID().uuidString)")!
+            ),
+            onSelectionChange: onSelectionChange,
+            tabDragTransferRegistry: { nil }
+        )
     }
 }
