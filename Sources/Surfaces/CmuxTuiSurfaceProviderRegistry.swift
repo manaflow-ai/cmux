@@ -235,6 +235,10 @@ final class CmuxTuiSurfaceProviderRegistry {
         await links.privateRoute(for: machineID)
     }
 
+    func resolvedPrivateRoute(machineID: String, through hub: CloudWireGuardHub.Ready, fallbackRoute: String, addresses: [String]) async throws -> String {
+        try await links.resolvedPrivateRoute(machineID: machineID, through: hub, fallbackRoute: fallbackRoute, addresses: addresses)
+    }
+
     // MARK: - internals
 
     private func performRefresh(force: Bool, generation: UInt64) async -> Bool {
@@ -270,7 +274,7 @@ final class CmuxTuiSurfaceProviderRegistry {
                 await teardown.value
                 guard generation == refreshGeneration else { return false }
             }
-            await links.setPrivateAddress(summary.preferredPrivateAddress, for: summary.id)
+            await links.setPrivateAddresses([summary.addressIPv4, summary.addressIPv6].compactMap { $0 }, for: summary.id)
             // A delete that ran while that await was suspended bumped the
             // generation; creating a provider now would hand its link and
             // forwards to the teardown that delete scheduled.
