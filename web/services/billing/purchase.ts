@@ -128,6 +128,17 @@ export type StackBillingUser = ProBillingClaimUser & {
     primaryEmailVerified?: boolean;
     clientReadOnlyMetadata?: unknown;
   }): Promise<unknown>;
+  listContactChannels?(): Promise<readonly StackBillingContactChannel[]>;
+};
+
+/** The slice of a Stack contact channel the purchase email path uses. */
+export type StackBillingContactChannel = {
+  readonly id: string;
+  readonly type: string;
+  readonly value: string;
+  readonly isPrimary: boolean;
+  readonly isVerified: boolean;
+  sendVerificationEmail(options?: { callbackUrl?: string }): Promise<unknown>;
 };
 
 type StackBillingUserLookup = {
@@ -3062,23 +3073,82 @@ async function requestPurchaseMagicLink(
       },
       async () => {
         await mutationLease.refresh();
-        const result = await input.stackApp!.sendMagicLinkEmail!(input.email, {
-          callbackUrl: PURCHASE_MAGIC_LINK_CALLBACK,
+        await deliverPurchaseSignInEmail(input.stackApp!, {
+          email: input.email,
+          stackUserId: input.stackUserId,
         });
-        if (isFailedStackResult(result)) {
-          throw new PurchaseMagicLinkProviderRejectedError(
-            "Stack sign-in link request failed",
-          );
-        }
       },
     );
-  } catch {
+  } catch (error) {
     // The billing rows are already durable. A failed message can be retried by
     // the recovery endpoint, so email delivery must not roll back a purchase.
     console.warn("billing.purchase.magic_link_failed", {
-      failure: "provider_unavailable",
+      failure: error instanceof PurchaseMagicLinkProviderRejectedError
+        ? "provider_rejected"
+        : "provider_unavailable",
+      message: error instanceof Error ? error.message : String(error),
     });
   }
+}
+
+const PURCHASE_VERIFICATION_CALLBACK = "https://cmux.com/handler/email-verification";
+
+/**
+ * Send the purchaser the one email that lets them reach their entitlement.
+ *
+ * Stack refuses a sign-in (magic) link for an address that belongs to an
+ * existing unverified user, and the checkout shell is created exactly that
+ * way, so the sign-in link alone never reached a new purchaser. When Stack
+ * refuses it, send the mailbox verification link for that contact channel
+ * instead: verifying the address is what lets the purchaser sign in, and the
+ * after-sign-in handler then transfers the parked claim.
+ */
+/** Stack refused a sign-in link because the address belongs to an unverified user. */
+function isUnverifiedMailboxRefusal(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const code = (error as { code?: unknown }).code;
+  if (code === "USER_EMAIL_ALREADY_EXISTS") return true;
+  const message = (error as { message?: unknown }).message;
+  return typeof message === "string" && /already exists/i.test(message);
+}
+
+export async function deliverPurchaseSignInEmail(
+  stackApp: Pick<StackBillingApp, "sendMagicLinkEmail" | "getUser">,
+  input: { readonly email: string; readonly stackUserId: string },
+): Promise<"magic_link" | "verification"> {
+  if (!stackApp.sendMagicLinkEmail) {
+    throw new PurchaseMagicLinkProviderRejectedError("Stack cannot send sign-in links");
+  }
+  try {
+    const result = await stackApp.sendMagicLinkEmail(input.email, {
+      callbackUrl: PURCHASE_MAGIC_LINK_CALLBACK,
+    });
+    if (!isFailedStackResult(result)) return "magic_link";
+  } catch (error) {
+    // The SDK throws the refusal as a KnownError rather than returning a
+    // failed result. Anything else (transport, timeout) may have sent the
+    // message, so it stays ambiguous and keeps its delivery marker.
+    if (!isUnverifiedMailboxRefusal(error)) throw error;
+  }
+  const matching = canonicalizeEmailForMatching(input.email);
+  const user = await stackApp.getUser(input.stackUserId);
+  const channels = (await user?.listContactChannels?.()) ?? [];
+  const channel = channels.find(
+    (candidate) =>
+      candidate.type === "email" &&
+      !candidate.isVerified &&
+      canonicalizeEmailForMatching(candidate.value) === matching,
+  );
+  if (!channel) {
+    throw new PurchaseMagicLinkProviderRejectedError("Stack sign-in link request failed");
+  }
+  const verification = await channel.sendVerificationEmail({
+    callbackUrl: PURCHASE_VERIFICATION_CALLBACK,
+  });
+  if (isFailedStackResult(verification)) {
+    throw new PurchaseMagicLinkProviderRejectedError("Stack verification email request failed");
+  }
+  return "verification";
 }
 
 async function stackUserIdForStripeCustomer(
