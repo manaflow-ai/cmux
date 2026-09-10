@@ -109,6 +109,9 @@ function validateEntry(entry: MobileMacCompatEntry, path: string): void {
     }
   } else {
     // Accept the pre-build-kind shape during a rolling deployment.
+    if (entry.stableMinVersion === undefined) {
+      throw new Error(`${path}.stableMinVersion is required for legacy entries`);
+    }
     version(entry.stableMinVersion, `${path}.stableMinVersion`);
     if (entry.nightly !== undefined) {
       version(entry.nightly.minBaseVersion, `${path}.nightly.minBaseVersion`);
