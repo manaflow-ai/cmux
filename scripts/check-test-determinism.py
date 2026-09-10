@@ -3327,7 +3327,7 @@ def _direct_network_target_ranges(
             ".swift",
         ).strip()
         executable_match = re.search(
-            r'^(?:(?:Foundation\.)?URL(?:\.init)?)\s*'
+            r'^(?:(?:Foundation\.)?URL(?:\.init)?|\.init)\s*'
             r'\(\s*fileURLWithPath\s*:\s*"([^"]+)"'
             r'(?:\s*,\s*isDirectory\s*:\s*(?:true|false))?\s*\)$',
             executable_source,

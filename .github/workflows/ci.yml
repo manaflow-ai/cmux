@@ -784,10 +784,9 @@ jobs:
       - name: Run agent chat transcript lifecycle regressions
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |
-          # Swift Testing assertion failures are tolerated in the full sharded
-          # app-host suite. Keep hook-driven transcript resolution on a
-          # non-tolerant focused invocation so Feed ingress cannot regain an
-          # unbounded recursive filesystem scan.
+          # Keep hook-driven transcript resolution in a dedicated invocation
+          # before the broad sharded suite. Verify that Feed ingress cannot
+          # regain an unbounded recursive filesystem scan.
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           for suite in \
@@ -809,9 +808,8 @@ jobs:
       - name: Run agent resume binding regressions
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |
-          # Swift Testing assertion failures are tolerated in the full sharded
-          # app-host suite. Keep the resume-binding ownership rules on a
-          # non-tolerant focused invocation so a same-session agent-hook write
+          # Keep resume-binding ownership rules in a dedicated invocation
+          # before the broad sharded suite so a same-session agent-hook write
           # or a TUI prompt mark cannot regain the ability to demote a live
           # agent's automatic resume (#12084).
           set -euo pipefail
@@ -923,9 +921,8 @@ jobs:
       - name: Run Pi Feed ownership regressions
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |
-          # Swift Testing assertion failures are tolerated in the full sharded
-          # app-host suite. Keep Feed ingestion and ownership on a non-tolerant
-          # focused invocation so valid Pi Feed targets cannot silently regress.
+          # Verify Pi Feed ingestion and ownership in focused invocations
+          # before the broad sharded suite.
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           # Each suite mutates process-global app/store state. Give every suite
@@ -1226,10 +1223,8 @@ jobs:
       - name: Run sidebar workspace-switch layout regression
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |
-          # The tolerant full-suite step can accept Swift Testing assertion
-          # failures when XCTest reports "0 unexpected". Keep #9612's real
-          # window-switch workload non-tolerant so NSHostingView layout
-          # reentry cannot silently return.
+          # Keep #9612's real window-switch workload in a dedicated process,
+          # with NSHostingView layout reentry asserted directly.
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           scripts/ci/run-in-console-session.sh \
