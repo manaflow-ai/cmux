@@ -321,4 +321,42 @@ import Testing
         }
         #expect(wire.layouts["w1:t1"]?.paneIDsInOrder == ["w1:p1"])
     }
+
+    @Test func fallbackLayoutDistributesHeightAcrossThreePanes() throws {
+        let node = try #require(
+            RemoteHerdrSessionMirror.fallbackLayout(paneIDs: ["p1", "p2", "p3"])
+        )
+        #expect(node.height == 24)
+        guard case .vertical(let children) = node.content else {
+            Issue.record("expected vertical split")
+            return
+        }
+        #expect(children.count == 3)
+        // Panes tile the parent: no gaps, no overflow, cumulative y.
+        var expectedY = 0
+        for child in children {
+            #expect(child.y == expectedY)
+            expectedY += child.height
+        }
+        #expect(expectedY == 24)
+        let last = try #require(children.last)
+        #expect(last.y + last.height == 24)
+        // 24 / 3 is exact, so every pane is height 8.
+        #expect(children.allSatisfy { $0.height == 8 })
+    }
+
+    @Test func fallbackLayoutTilesWithRemainder() throws {
+        let node = try #require(
+            RemoteHerdrSessionMirror.fallbackLayout(paneIDs: ["p1", "p2", "p3", "p4", "p5"])
+        )
+        guard case .vertical(let children) = node.content else {
+            Issue.record("expected vertical split")
+            return
+        }
+        // 24 / 5 = 4 rem 4: first four panes get 5, last gets 4; total stays 24.
+        #expect(children.map(\.height) == [5, 5, 5, 5, 4])
+        #expect(children.map(\.y) == [0, 5, 10, 15, 20])
+        let last = try #require(children.last)
+        #expect(last.y + last.height == 24)
+    }
 }

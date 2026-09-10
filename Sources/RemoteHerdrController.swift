@@ -66,11 +66,17 @@ final class RemoteHerdrController {
         guard let path = RemoteHerdrLifecycle.validateSocketPath(socketPath) else {
             throw RemoteHerdrHostError.invalidParams
         }
+        let endpoint: NestedAttachmentEndpoint
+        do {
+            endpoint = try NestedUnixSocketEndpointValidator().validatePreConnect(path: path)
+        } catch is NestedEndpointSecurityError {
+            throw RemoteHerdrHostError.invalidParams
+        }
         let attachmentID = UUID()
         let hostSurfaceID = UUID()
         let client = HerdrNestedTopologyClient(
             configuration: HerdrNestedTopologyClientConfiguration(
-                socketPath: path,
+                socketPath: endpoint.canonicalPath,
                 attachmentID: attachmentID,
                 hostStableSurfaceID: hostSurfaceID
             )

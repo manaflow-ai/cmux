@@ -198,4 +198,103 @@ import Testing
             try reducer.apply(.replaceSnapshot(foreign))
         }
     }
+
+    /// Builds a single-workspace tree with two tabs, each owning one pane, plus
+    /// one agent under the first pane. Used by focus-merge coverage.
+    private func twoTabSnapshot(focus: NestedFocus) -> NestedTopologySnapshot {
+        let tree = NestedTopologyFixtures.baseTree()
+        let tab2 = NestedTabNode(
+            id: NestedTopologyFixtures.nodeID(kind: .tab, rawID: "w1:t2"),
+            workspaceID: tree.workspace.id,
+            displayTitle: "Tab 2",
+            orderIndex: 1
+        )
+        let pane2 = NestedPaneNode(
+            id: NestedTopologyFixtures.nodeID(kind: .pane, rawID: "w1:p2"),
+            tabID: tab2.id,
+            displayTitle: "Pane 2",
+            orderIndex: 0
+        )
+        return NestedTopologyFixtures.snapshot(
+            tabs: [tree.tab, tab2],
+            panes: [tree.pane, pane2],
+            agents: [tree.agent],
+            focus: focus
+        )
+    }
+
+    @Test func paneFocusBackfillsOwningTabAndWorkspace() throws {
+        let tree = NestedTopologyFixtures.baseTree()
+        let tab2 = NestedTopologyFixtures.nodeID(kind: .tab, rawID: "w1:t2")
+        let pane2 = NestedTopologyFixtures.nodeID(kind: .pane, rawID: "w1:p2")
+        var reducer = NestedTopologyFixtures.reducer()
+        try reducer.apply(
+            .replaceSnapshot(
+                twoTabSnapshot(
+                    focus: NestedFocus(
+                        workspaceID: tree.workspace.id,
+                        tabID: tree.tab.id,
+                        paneID: tree.pane.id,
+                        agentID: tree.agent.id
+                    )
+                )
+            )
+        )
+        // A Herdr `pane_focused` event carries only workspace + pane.
+        try reducer.apply(.focusChanged(NestedFocus(workspaceID: tree.workspace.id, paneID: pane2)))
+        let focus = try #require(reducer.snapshot?.focus)
+        #expect(focus.workspaceID == tree.workspace.id)
+        #expect(focus.tabID == tab2) // backfilled from the tree, not wiped
+        #expect(focus.paneID == pane2)
+        #expect(focus.agentID == nil) // prior agent belonged to a different pane
+    }
+
+    @Test func workspaceFocusClearsDescendantLevels() throws {
+        let tree = NestedTopologyFixtures.baseTree()
+        var reducer = NestedTopologyFixtures.reducer()
+        try reducer.apply(
+            .replaceSnapshot(
+                twoTabSnapshot(
+                    focus: NestedFocus(
+                        workspaceID: tree.workspace.id,
+                        tabID: tree.tab.id,
+                        paneID: tree.pane.id,
+                        agentID: tree.agent.id
+                    )
+                )
+            )
+        )
+        // Focus moved up to the workspace: descendant levels are cleared, not retained.
+        try reducer.apply(.focusChanged(NestedFocus(workspaceID: tree.workspace.id)))
+        let focus = try #require(reducer.snapshot?.focus)
+        #expect(focus.workspaceID == tree.workspace.id)
+        #expect(focus.tabID == nil)
+        #expect(focus.paneID == nil)
+        #expect(focus.agentID == nil)
+    }
+
+    @Test func tabFocusClearsStalePaneFromOtherTab() throws {
+        let tree = NestedTopologyFixtures.baseTree()
+        let tab2 = NestedTopologyFixtures.nodeID(kind: .tab, rawID: "w1:t2")
+        var reducer = NestedTopologyFixtures.reducer()
+        try reducer.apply(
+            .replaceSnapshot(
+                twoTabSnapshot(
+                    focus: NestedFocus(
+                        workspaceID: tree.workspace.id,
+                        tabID: tree.tab.id,
+                        paneID: tree.pane.id,
+                        agentID: tree.agent.id
+                    )
+                )
+            )
+        )
+        // A Herdr `tab_focused` event carries workspace + tab (no pane).
+        try reducer.apply(.focusChanged(NestedFocus(workspaceID: tree.workspace.id, tabID: tab2)))
+        let focus = try #require(reducer.snapshot?.focus)
+        #expect(focus.workspaceID == tree.workspace.id)
+        #expect(focus.tabID == tab2)
+        #expect(focus.paneID == nil) // p1 belongs to t1, not the newly focused t2
+        #expect(focus.agentID == nil)
+    }
 }
