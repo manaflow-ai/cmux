@@ -319,6 +319,38 @@ describe("Freestyle platform contract", () => {
     ]);
   });
 
+  test("create sizes from the create response and never re-reads the machine", async () => {
+    // vms.create already returns the machine's resources; a status read after
+    // it cost ~100 ms on every prod create for nothing.
+    const fake = fakeFreestyle({ probeExit: 0 });
+    const gets: string[] = [];
+    fake.client.vms.create = async (options: unknown) => {
+      fake.creates.push(options);
+      return {
+        vm: fake.client.vms.ref(VM_ID),
+        vmId: VM_ID,
+        data: {
+          publicIpv6: "2602:f75c:0:1::2a",
+          vpcs: [],
+          resources: { cpu: 2, memory: 4096, storage: 16384 },
+        },
+      } as never;
+    };
+    fake.client.vms.get = async (id: string) => {
+      gets.push(id);
+      throw new Error("create must not read the machine it just created");
+    };
+    const provider = providerWith(fake);
+    await provider.create({
+      image: "sh-image",
+      network: { id: "vpc-test-1" },
+      memoryMb: 20480,
+      imageSize: { name: "lgx", cpu: 12, memoryMb: 24576, storageMb: 98304 },
+    } as never);
+    expect(gets).toEqual([]);
+    expect(fake.resizes).toEqual([{ cpu: 12, memory: 24576, storage: 98304 }]);
+  });
+
   test("network addresses persist from the create response, absent without a network", () => {
     expect(
       freestyleNetworkAddressMetadata({
