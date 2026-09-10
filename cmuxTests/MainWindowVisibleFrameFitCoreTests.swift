@@ -437,6 +437,145 @@ struct MainWindowZoomIntentTests {
 @MainActor
 @Suite("Main window zoom placement callbacks", .serialized)
 struct MainWindowZoomPlacementTests {
+    enum RampingTopology: CaseIterable, Equatable, Sendable {
+        case missingStableIdentity
+        case degenerateVisibleFrame
+    }
+
+    @Test(arguments: RampingTopology.allCases)
+    func untrustedDisplayTopologyPreservesZoomedMonitor(_ rampingTopology: RampingTopology) throws {
+        try withZoomedWindow { window, _ in
+            let originalFrame = window.frame
+            let transientFrame = originalFrame.offsetBy(dx: originalFrame.width * 0.75, dy: 0)
+            let transientDisplay = SessionDisplayGeometry(
+                displayID: 42,
+                stableID: rampingTopology == .missingStableIdentity ? nil : "built-in",
+                frame: transientFrame,
+                visibleFrame: transientFrame
+            )
+            var rampingDisplays = [transientDisplay]
+            if rampingTopology == .degenerateVisibleFrame {
+                rampingDisplays.append(SessionDisplayGeometry(
+                    displayID: 77,
+                    stableID: "external",
+                    frame: originalFrame,
+                    visibleFrame: .zero
+                ))
+            }
+            let core = MainWindowVisibleFrameFitCore()
+            #expect(core.trustedTopologySignature(of: rampingDisplays) == nil)
+            // The titlebar remains reachable, so the earlier reachability
+            // safety net does not move this window before zoom reconciliation.
+            #expect(AppDelegate.reconciledFrameAfterScreenChange(
+                frame: originalFrame,
+                availableDisplays: rampingDisplays
+            ) == nil)
+
+            let reconciler = MainWindowFrameReconciler()
+            reconciler.repair(
+                displays: rampingDisplays,
+                windows: [window],
+                trigger: .displayTopology(changed: false)
+            )
+
+            #expect(window.frame == originalFrame)
+            #expect(window.cmuxWantsZoomedFrame)
+
+            let settledDisplays = [
+                SessionDisplayGeometry(
+                    displayID: 77,
+                    stableID: "external",
+                    frame: originalFrame,
+                    visibleFrame: originalFrame
+                ),
+                SessionDisplayGeometry(
+                    displayID: 42,
+                    stableID: "built-in",
+                    frame: originalFrame.offsetBy(dx: originalFrame.width, dy: 0),
+                    visibleFrame: originalFrame.offsetBy(dx: originalFrame.width, dy: 0)
+                ),
+            ]
+            _ = try #require(core.trustedTopologySignature(of: settledDisplays))
+            reconciler.repair(
+                displays: settledDisplays,
+                windows: [window],
+                trigger: .displayTopology(changed: true)
+            )
+
+            // Fitting the ramping snapshot would make the built-in display
+            // overlap most of the window here, permanently changing its monitor.
+            #expect(window.frame == originalFrame)
+        }
+    }
+
+    @Test func trustedUnchangedTopologyUpdatesZoomedVisibleFrame() throws {
+        try withZoomedWindow { window, _ in
+            let originalFrame = window.frame
+            let displayFrame = CGRect(
+                x: originalFrame.minX,
+                y: originalFrame.minY,
+                width: originalFrame.width,
+                height: originalFrame.height + 24
+            )
+            let beforeDockResize = SessionDisplayGeometry(
+                displayID: 42,
+                stableID: "built-in",
+                frame: displayFrame,
+                visibleFrame: originalFrame
+            )
+            let dockInsetFrame = CGRect(
+                x: originalFrame.minX + 40,
+                y: originalFrame.minY + 50,
+                width: originalFrame.width - 40,
+                height: originalFrame.height - 50
+            )
+            let afterDockResize = SessionDisplayGeometry(
+                displayID: 42,
+                stableID: "built-in",
+                frame: displayFrame,
+                visibleFrame: dockInsetFrame
+            )
+            let core = MainWindowVisibleFrameFitCore()
+            let previousSignature = try #require(core.trustedTopologySignature(of: [beforeDockResize]))
+            #expect(core.trustedTopologySignature(of: [afterDockResize]) == previousSignature)
+
+            MainWindowFrameReconciler().repair(
+                displays: [afterDockResize],
+                windows: [window],
+                trigger: .displayTopology(changed: false)
+            )
+
+            #expect(window.frame == dockInsetFrame)
+            #expect(window.cmuxWantsZoomedFrame)
+        }
+    }
+
+    @Test(arguments: [false, true])
+    func lifecycleRepairWithoutStableDisplayIdentityRestoresZoom(isRestoration: Bool) throws {
+        try withZoomedWindow { window, _ in
+            let originalFrame = window.frame
+            let display = SessionDisplayGeometry(
+                displayID: 42,
+                frame: originalFrame,
+                visibleFrame: originalFrame
+            )
+            var shrunk = originalFrame
+            shrunk.size.height -= 80
+            window.setFrameForManagedPlacement(shrunk, display: false)
+            #expect(window.frame != originalFrame)
+            #expect(window.cmuxWantsZoomedFrame)
+            #expect(MainWindowVisibleFrameFitCore().trustedTopologySignature(of: [display]) == nil)
+
+            MainWindowFrameReconciler().repair(
+                displays: [display],
+                windows: [window],
+                trigger: isRestoration ? .restorationCheckpoint : .applicationActivation
+            )
+
+            #expect(window.frame == originalFrame)
+        }
+    }
+
     @Test func titlebarClickWithoutMovementPreservesZoomRecovery() throws {
         try withZoomedWindow { window, _ in
             let mouseDown = try #require(NSEvent.mouseEvent(
