@@ -563,7 +563,8 @@ describe("VM REST auth", () => {
     }));
   });
 
-  test.each(["open", "reset"])("Base %s reports the returned machine capability", async (operation) => {
+  for (const operation of ["open", "reset"]) {
+  test(`Base ${operation} reports the returned machine capability`, async () => {
     getUser.mockResolvedValue(authedStackUser());
     const route = operation === "open" ? baseOpenRoute : baseResetRoute;
     for (const [image, kind] of [[MANIFEST_DESKTOP_DEFAULT.imageId, "desktop"], ["sh-never-listed", "base"]]) {
@@ -580,6 +581,8 @@ describe("VM REST auth", () => {
       expect(await response.json()).toMatchObject({ image, kind });
     }
   });
+
+  }
 
   test("a plan size the manifest ladder cannot serve fails with an actionable image config error", async () => {
     // Both kinds have a manifest ladder, so the only way nothing resolves is a
