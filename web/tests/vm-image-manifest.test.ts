@@ -330,11 +330,11 @@ describe("upgradeDevboxSourceRecords (promote --upgrade-source-schema)", () => {
       expect(devboxDockerfileAtCommit(hostile)).toBeNull();
       expect(upgradeDevboxSourceRecords(manifestOf(recorded("base", { repoCommit: hostile }))).upgraded).toEqual([]);
     }
-    // A real full object id that carries the file resolves through git.
-    const bakeCommit = spawnSync("git", ["rev-parse", "d3b2da01be"], { cwd: path.join(import.meta.dirname, "../.."), encoding: "utf8" }).stdout.trim();
-    if (/^[0-9a-f]{40}$/.test(bakeCommit)) {
-      expect(devboxDockerfileAtCommit(bakeCommit)).toContain("CMUX_IMAGE_EPOCH=");
-    }
+    // A real full object id that carries the file resolves through git: HEAD
+    // exists in every checkout, shallow ones included.
+    const head = spawnSync("git", ["rev-parse", "HEAD"], { cwd: path.join(import.meta.dirname, "../.."), encoding: "utf8" }).stdout.trim();
+    expect(head).toMatch(/^[0-9a-f]{40}$/);
+    expect(devboxDockerfileAtCommit(head)).toContain("CMUX_IMAGE_EPOCH=");
   });
 });
 
