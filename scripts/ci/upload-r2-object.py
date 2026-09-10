@@ -7,10 +7,13 @@ import hashlib
 import hmac
 import json
 import os
+import random
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from typing import Callable
 
 
 def _sign(key: bytes, message: str) -> bytes:
@@ -27,6 +30,76 @@ def _get_signing_key(secret_key: str, date_stamp: str, region: str) -> bytes:
     region_key = _sign(date_key, region)
     service_key = _sign(region_key, "s3")
     return _sign(service_key, "aws4_request")
+
+
+def _amz_date() -> str:
+    """SigV4 timestamp, fresh per attempt so retries never reuse a stale date.
+
+    CMUX_R2_UPLOAD_AMZ_DATE pins it for signature tests.
+    """
+
+    pinned = os.environ.get("CMUX_R2_UPLOAD_AMZ_DATE")
+    if pinned:
+        return pinned
+    return dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+
+def _retry_budget() -> tuple[int, float]:
+    """Attempt count and base delay for transient failures.
+
+    R2 answers some PutObject calls with HTTP 500 InternalError ("Please try
+    again") and occasionally 429/503. Those are safe to retry: PutObject is
+    idempotent and write-once uploads fall back to the digest check on 412.
+    """
+
+    attempts = int(os.environ.get("CMUX_R2_UPLOAD_MAX_ATTEMPTS", "5"))
+    base = float(os.environ.get("CMUX_R2_UPLOAD_RETRY_BASE_SECONDS", "2"))
+    return max(1, attempts), max(0.0, base)
+
+
+def _is_transient(error: BaseException) -> bool:
+    if isinstance(error, urllib.error.HTTPError):
+        return error.code == 429 or error.code >= 500
+    # urllib.error.URLError covers refused connections, DNS, and TLS
+    # failures; socket.timeout and other OSErrors cover stalled reads.
+    return isinstance(error, OSError)
+
+
+def _describe(error: BaseException) -> str:
+    if isinstance(error, urllib.error.HTTPError):
+        return f"HTTP {error.code} {error.reason}"
+    return str(error)
+
+
+def _open_with_retry(
+    build_request: Callable[[], urllib.request.Request],
+    *,
+    timeout: float,
+    what: str,
+) -> tuple[int, bytes]:
+    """Send a request, retrying transient failures with jittered backoff.
+
+    `build_request` runs on every attempt so each retry carries a fresh
+    SigV4 date; the final failure propagates to the caller unchanged.
+    """
+
+    attempts, base = _retry_budget()
+    for attempt in range(1, attempts + 1):
+        try:
+            with urllib.request.urlopen(build_request(), timeout=timeout) as response:
+                return response.status, response.read()
+        except (urllib.error.HTTPError, OSError) as error:
+            if attempt >= attempts or not _is_transient(error):
+                raise
+            if isinstance(error, urllib.error.HTTPError):
+                error.read()
+            delay = min(base * (2 ** (attempt - 1)), 30.0) * random.uniform(0.5, 1.5)
+            sys.stderr.write(
+                f"R2 {what} attempt {attempt}/{attempts} failed: {_describe(error)}; "
+                f"retrying in {delay:.1f}s\n"
+            )
+            time.sleep(delay)
+    raise AssertionError("unreachable")
 
 
 def _build_signed_request(
@@ -107,23 +180,26 @@ def _build_signed_request(
 def _read_existing_object(
     args: argparse.Namespace,
     *,
-    amz_date: str,
     expected_digest: str,
 ) -> bool:
     """Return true when an existing immutable object has the same bytes."""
 
-    head = _build_signed_request(args, b"", amz_date, method="HEAD")
     try:
-        with urllib.request.urlopen(head, timeout=30) as response:
-            response.read()
+        _open_with_retry(
+            lambda: _build_signed_request(args, b"", _amz_date(), method="HEAD"),
+            timeout=30,
+            what=f"HEAD {args.key}",
+        )
     except urllib.error.HTTPError as error:
         if error.code == 404:
             return False
         raise
 
-    get = _build_signed_request(args, b"", amz_date, method="GET")
-    with urllib.request.urlopen(get, timeout=120) as response:
-        existing = response.read()
+    _, existing = _open_with_retry(
+        lambda: _build_signed_request(args, b"", _amz_date(), method="GET"),
+        timeout=120,
+        what=f"GET {args.key}",
+    )
     actual_digest = hashlib.sha256(existing).hexdigest()
     if actual_digest != expected_digest:
         raise RuntimeError(
@@ -151,9 +227,7 @@ def main() -> int:
     with open(args.file, "rb") as file:
         body = file.read()
 
-    amz_date = os.environ.get("CMUX_R2_UPLOAD_AMZ_DATE")
-    if not amz_date:
-        amz_date = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    amz_date = _amz_date()
 
     body_digest = hashlib.sha256(body).hexdigest()
     if args.dry_run_json:
@@ -180,28 +254,28 @@ def main() -> int:
     try:
         if args.write_once and _read_existing_object(
             args,
-            amz_date=amz_date,
             expected_digest=body_digest,
         ):
             print(f"Already present with matching digest: s3://{args.bucket}/{args.key}")
             return 0
 
-        request = _build_signed_request(
-            args,
-            body,
-            amz_date,
-            extra_headers={"if-none-match": "*"} if args.write_once else None,
+        status, _ = _open_with_retry(
+            lambda: _build_signed_request(
+                args,
+                body,
+                _amz_date(),
+                extra_headers={"if-none-match": "*"} if args.write_once else None,
+            ),
+            timeout=30,
+            what=f"PUT {args.key}",
         )
-        with urllib.request.urlopen(request, timeout=30) as response:
-            response.read()
-            print(f"Uploaded {args.file} to s3://{args.bucket}/{args.key} ({response.status})")
-            return 0
+        print(f"Uploaded {args.file} to s3://{args.bucket}/{args.key} ({status})")
+        return 0
     except urllib.error.HTTPError as error:
         if args.write_once and error.code == 412:
             try:
                 if _read_existing_object(
                     args,
-                    amz_date=amz_date,
                     expected_digest=body_digest,
                 ):
                     print(f"Already present with matching digest: s3://{args.bucket}/{args.key}")

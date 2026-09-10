@@ -1148,15 +1148,28 @@ jobs:
           # either the old version or the new one, never missing. Thin feeds go
           # first: the app rewrites the legacy feed URL to a thin feed, so those
           # must already be current when the legacy feed changes.
+          # Every feed gets its attempt even when an earlier one fails, so one
+          # broken R2 key (2026-09-06: nightly/appcast-arm64.xml rejected every
+          # write with InternalError) leaves the other tracks updatable. The
+          # step still fails, so the nightly tag stays put and the failure
+          # issue stays open until every feed is current.
+          failed=()
           for appcast in appcast-arm64.xml appcast-x86_64.xml appcast-universal.xml appcast.xml; do
-            python3 scripts/ci/upload-r2-object.py \
+            if python3 scripts/ci/upload-r2-object.py \
               --file "nightly-out/$appcast" \
               --endpoint-url "$R2_ENDPOINT" \
               --bucket cmux-binaries \
               --key "nightly/$appcast" \
-              --cache-control "no-cache, no-store, must-revalidate"
-            echo "R2 appcast upload complete: https://files.cmux.com/nightly/$appcast"
+              --cache-control "no-cache, no-store, must-revalidate"; then
+              echo "R2 appcast upload complete: https://files.cmux.com/nightly/$appcast"
+            else
+              failed+=("$appcast")
+            fi
           done
+          if [ "${#failed[@]}" -gt 0 ]; then
+            echo "::error::R2 appcast upload failed for: ${failed[*]}" >&2
+            exit 1
+          fi
 
       # The nightly tag is the completion marker used by the decide job. Move it
       # to the fixed candidate selected at dispatch only after every publication
