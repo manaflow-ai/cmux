@@ -3103,6 +3103,15 @@ const PURCHASE_VERIFICATION_CALLBACK = "https://cmux.com/handler/email-verificat
  * instead: verifying the address is what lets the purchaser sign in, and the
  * after-sign-in handler then transfers the parked claim.
  */
+/** Stack refused a sign-in link because the address belongs to an unverified user. */
+function isUnverifiedMailboxRefusal(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const code = (error as { code?: unknown }).code;
+  if (code === "USER_EMAIL_ALREADY_EXISTS") return true;
+  const message = (error as { message?: unknown }).message;
+  return typeof message === "string" && /already exists/i.test(message);
+}
+
 export async function deliverPurchaseSignInEmail(
   stackApp: Pick<StackBillingApp, "sendMagicLinkEmail" | "getUser">,
   input: { readonly email: string; readonly stackUserId: string },
@@ -3110,10 +3119,17 @@ export async function deliverPurchaseSignInEmail(
   if (!stackApp.sendMagicLinkEmail) {
     throw new PurchaseMagicLinkProviderRejectedError("Stack cannot send sign-in links");
   }
-  const result = await stackApp.sendMagicLinkEmail(input.email, {
-    callbackUrl: PURCHASE_MAGIC_LINK_CALLBACK,
-  });
-  if (!isFailedStackResult(result)) return "magic_link";
+  try {
+    const result = await stackApp.sendMagicLinkEmail(input.email, {
+      callbackUrl: PURCHASE_MAGIC_LINK_CALLBACK,
+    });
+    if (!isFailedStackResult(result)) return "magic_link";
+  } catch (error) {
+    // The SDK throws the refusal as a KnownError rather than returning a
+    // failed result. Anything else (transport, timeout) may have sent the
+    // message, so it stays ambiguous and keeps its delivery marker.
+    if (!isUnverifiedMailboxRefusal(error)) throw error;
+  }
   const matching = canonicalizeEmailForMatching(input.email);
   const user = await stackApp.getUser(input.stackUserId);
   const channels = (await user?.listContactChannels?.()) ?? [];
