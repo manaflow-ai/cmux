@@ -72,6 +72,13 @@ import Testing
         #expect(CloudFileDelivery.outcome(fromScreen: "CMUX-FILE-ERR destination not writable: /etc/x") == .failed("destination not writable: /etc/x"))
         #expect(CloudFileDelivery.outcome(fromScreen: "CMUX-FILE-ERR") == .failed("unknown error"))
         #expect(CloudFileDelivery.outcome(fromScreen: "CMUX-FILE-READY\n") == nil)
+        #expect(CloudFileDelivery.outcome(fromScreen: "CMUX-FILE-OK bytes=12 path=/home/cmux/my project/key mode=600") == .ok(bytes: 12, path: "/home/cmux/my project/key", mode: "600"))
+    }
+
+    @Test func missingFileOutcomeNeverDisclosesReceiverScreen() {
+        let secret = Data("private-key-material".utf8).base64EncodedString()
+        let error = CloudFileDelivery.DeliveryError.noResult(secret)
+        #expect(!error.localizedDescription.contains(secret))
     }
 
     @Test func requireOutcomeInsistsOnTheFullByteCount() throws {

@@ -12,6 +12,23 @@ import Testing
 /// tests are the boundary: a hostile daemon must get at most a sanitized, rate-limited,
 /// host-attributed notification per legitimate `notify`, and nothing else.
 @Suite struct CloudMachineNotificationEventTests {
+    @Test(arguments: [1, 2, 3, 4]) func sanitizerHonorsSmallByteBudgets(cap: Int) {
+        #expect(NotificationTextSanitizer.sanitize("a long notification", maxBytes: cap).utf8.count <= cap)
+    }
+
+    @Test func liveNotificationRowSanitizesRemoteText() throws {
+        let row = try #require(CloudVMNotificationRow.row(fromObject: [
+            "id": Self.notificationID,
+            "title": "hello\u{202e}" + String(repeating: "x", count: 200),
+            "subtitle": "remote\u{0007}",
+            "body": "body\u{202e}" + String(repeating: "x", count: 2000)
+        ]))
+        #expect(row.title.utf8.count <= 128)
+        #expect(row.body.utf8.count <= 1024)
+        #expect(!row.title.contains("\u{202e}"))
+        #expect(!row.body.contains("\u{202e}"))
+        #expect(row.subtitle == "remote")
+    }
     static let notificationID = "notification_0123456789abcdef0123456789abcdef"
     static let otherNotificationID = "notification_fedcba9876543210fedcba9876543210"
     static let terminalID = "term_0123456789abcdef0123456789abcdef"

@@ -19,7 +19,7 @@ describe("vm capability derivation", () => {
       stats: true,
       // Port previews ride the platform's TLS edge (style.dev capability URLs).
       ports: true,
-      desktop: false,
+      desktop: true,
       // Grow-only live resize honors memoryMb as a floor.
       sizing: true,
       persistentHome: false,

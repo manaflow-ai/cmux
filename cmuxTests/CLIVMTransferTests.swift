@@ -976,7 +976,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             case "vm.terminal_output":
                 let after = (params["after"] as? Int) ?? 0
                 if after == 0 {
-                    return ["text": "hello ", "start_offset": 0, "next_offset": 6, "complete": false]
+                    return ["text": "hello ", "start_offset": "0", "next_offset": "6", "complete": false]
                 }
                 return ["text": "world\n", "start_offset": after, "next_offset": after + 6, "complete": true]
             default:
