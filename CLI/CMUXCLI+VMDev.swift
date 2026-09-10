@@ -305,24 +305,37 @@ extension CMUXCLI {
         return ids
     }
 
-    /// True when any terminal of the machine, live or exited, is placed in the
-    /// workspace: those panes exist on the daemon regardless of lifecycle.
+    /// Counts live and exited placements. An unknown catalog cannot prove the
+    /// workspace is empty, or justify reporting that it already has panes.
     static func vmDevWorkspaceHasPlacedTerminals(
         _ resources: [[String: Any]],
         machine: String,
         workspaceID: String
-    ) -> Bool {
+    ) throws -> Bool {
         let resolver = VMRemoteWorkspaceResolver()
-        return resources.contains { resource in
+        var unavailableSelector: String?
+        for resource in resources {
             guard (resource["kind"] as? String) == "terminal",
-                  Self.vmDevResourceBelongsToMachine(resource, machine: machine) else { return false }
+                  Self.vmDevResourceBelongsToMachine(resource, machine: machine) else { continue }
             switch resolver.resolveVMRemoteView(in: resource, workspaceID: workspaceID) {
-            case .resolved, .legacy, .ambiguous, .unavailable:
+            case .resolved, .legacy:
+                if resolver.vmTerminalID(in: resource, machine: machine) != nil { return true }
+            case .ambiguous:
+                // Ambiguity is between views that match this workspace, so it
+                // prevents choosing a tab but still proves the workspace has panes.
                 return true
+            case .unavailable:
+                break
             case .notFound:
-                return false
+                continue
             }
+            let selector = (resource["key"] as? String) ?? (resource["id"] as? String) ?? "?"
+            unavailableSelector = unavailableSelector.map { min($0, selector) } ?? selector
         }
+        if let selector = unavailableSelector {
+            throw CLIError(message: "vm dev: terminal placement for workspace \(workspaceID) on \(machine) is unavailable (resource \(selector)); reconnect and retry")
+        }
+        return false
     }
 
     private static func vmDevResourceBelongsToMachine(_ resource: [String: Any], machine: String) -> Bool {
@@ -715,18 +728,11 @@ extension CMUXCLI {
             machine: machine,
             workspaceID: remoteWorkspace
         )
-        let hasPanes: Bool
-        switch VMRemoteWorkspaceResolver().resolveVMRemoteWorkspaceTerminal(resources, machine: machine, workspaceID: remoteWorkspace) {
-        case .resolved, .ambiguous:
-            hasPanes = true
-        case .none:
-            // The resolver counts live terminals only. Exited ones still hold
-            // their panes, and the shim refuses to lay out a non-empty
-            // workspace, so they keep the layout too (`workspace rm` rebuilds).
-            hasPanes = Self.vmDevWorkspaceHasPlacedTerminals(resources, machine: machine, workspaceID: remoteWorkspace)
-        case .unavailable(let selector):
-            throw CLIError(message: "vm dev: terminal placement for workspace \(remoteWorkspace) on \(machine) is unavailable (resource \(selector)); reconnect and retry")
-        }
+        let hasPanes = try Self.vmDevWorkspaceHasPlacedTerminals(
+            resources,
+            machine: machine,
+            workspaceID: remoteWorkspace
+        )
         return (hasPanes: hasPanes, terminalIDs: terminalIDs)
     }
 
