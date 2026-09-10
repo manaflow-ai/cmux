@@ -61,10 +61,14 @@ writes):
 - an entry that recorded `devboxSource` (`{ layers, digest, schema }`,
   `devboxSourceDigest()`: sha256 over the files the bake ships verbatim, the
   agent, cua-driver and Ghostty pins, the desktop apt list, the epoch and,
-  from schema 2, the Dockerfile's instructions and the bake script's code
-  with comment and blank lines dropped, per layer set; prose is excluded
-  because a comment cannot change a machine) was baked from exactly this
-  checkout's sources. An entry is checked with the schema it was recorded
+  from schema 2, the Dockerfile's instructions (its comments dropped by the
+  Dockerfile grammar, parser directives kept) and every non-blank line of
+  `build-devbox-freestyle.ts`, comments included, per layer set. Dockerfile
+  prose is excluded because a comment cannot change a machine; bake-script
+  comments are intentionally part of the digest, because telling a comment
+  from code in TypeScript needs a full lexer and any line heuristic can hide
+  a code change, so a comment-only edit to the bake script also asks for a
+  re-promotion) was baked from exactly this checkout's sources. An entry is checked with the schema it was recorded
   with (absent: 1), so a formula change never forces a rebake; new bakes
   record `DEVBOX_SOURCE_SCHEMA`, and `bun run devbox:promote -- freestyle
   --upgrade-source-schema` moves older defaults up without a bake only where
