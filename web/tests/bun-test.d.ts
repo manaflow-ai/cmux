@@ -13,13 +13,13 @@ declare module "bun:test" {
     rejects: Matchers;
     resolves: Matchers;
   };
-  type MockFunction<T extends (...args: unknown[]) => unknown> = T & {
+  type MockFunction<T extends (...args: never[]) => unknown> = T & {
     mock: { calls: Parameters<T>[] };
     mockClear: () => void;
-    mockResolvedValue: (value: unknown) => void;
+    mockResolvedValue: (value: Awaited<ReturnType<T>>) => void;
   };
   type Mock = {
-    <T extends (...args: unknown[]) => unknown>(
+    <T extends (...args: never[]) => unknown>(
       implementation?: T,
     ): MockFunction<T>;
     module: (specifier: string, factory: () => unknown) => void;
