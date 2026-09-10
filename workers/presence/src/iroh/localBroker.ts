@@ -1,7 +1,7 @@
 import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
 import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { Effect } from "effect";
-import { accountBindings, accountChallenges, accountDrizzleSchema } from "../accountDrizzleSchema";
+import { accountBindings, accountChallenges, accountPreferences, accountMeta, accountDrizzleSchema } from "../accountDrizzleSchema";
 import { accountDrizzleDatabase, type AccountDrizzleDatabase } from "../accountDrizzleDatabase";
 import {
   deriveLanRendezvousKey,
@@ -26,6 +26,8 @@ import {
 import { IrohConflictError, IrohForbiddenError, IrohInvalidInputError, IrohNotFoundError } from "./errors";
 import { MANAGED_RELAY_URLS } from "./publicationPolicy";
 import { IROH_CHALLENGE_LIFETIME_MS } from "./model";
+import { bindingMatchesDiscoveryScope, irohDiscoveryScopeJSON, parseIrohDiscoveryScope, type IrohDiscoveryScope } from "./discoveryScope";
+import { z } from "zod";
 
 export type LocalIrohConfig = {
   readonly lanDiscoverySecretBase64: string;
@@ -67,6 +69,24 @@ type StoredChallenge = {
   readonly payloadSha256: string;
   readonly nonceHash: string;
 };
+
+const relayPreferenceSchema = z.strictObject({
+  mode: z.enum(["automatic", "managed", "custom"]),
+  selectedManagedRelayIds: z.array(z.string().regex(/^[a-z0-9][a-z0-9._-]{0,62}[a-z0-9]$/).max(64)).max(16),
+  customRelays: z.array(z.strictObject({
+    id: z.string().regex(/^[a-z0-9][a-z0-9._-]{0,62}[a-z0-9]$/).max(64),
+    provider: z.string().min(1).max(80), region: z.string().min(1).max(80),
+    url: z.string().url().max(2_048), displayName: z.string().min(1).max(100).optional(),
+    authMode: z.enum(["none", "device_secret"]),
+  })).max(16),
+}).superRefine((value, ctx) => {
+  if (value.mode === "managed" && value.selectedManagedRelayIds.length === 0) ctx.addIssue({ code: "custom", path: ["selectedManagedRelayIds"], message: "managed requires a relay" });
+  if (value.mode === "custom" && value.customRelays.length === 0) ctx.addIssue({ code: "custom", path: ["customRelays"], message: "custom requires a relay" });
+  if (new Set(value.selectedManagedRelayIds).size !== value.selectedManagedRelayIds.length) ctx.addIssue({ code: "custom", path: ["selectedManagedRelayIds"], message: "duplicate relay" });
+  if (new Set(value.customRelays.map((relay) => relay.id)).size !== value.customRelays.length || new Set(value.customRelays.map((relay) => relay.url)).size !== value.customRelays.length) ctx.addIssue({ code: "custom", path: ["customRelays"], message: "duplicate relay" });
+});
+type RelayPreference = z.infer<typeof relayPreferenceSchema>;
+const defaultRelayPreference: RelayPreference = { mode: "automatic", selectedManagedRelayIds: [], customRelays: [] };
 
 export class LocalIrohBroker {
   private readonly db: AccountDrizzleDatabase;
@@ -121,7 +141,7 @@ export class LocalIrohBroker {
         if (challengeRow.expiresAt <= now) throw new IrohForbiddenError({ code: "challenge_expired" });
         if (challenge.payloadSha256 !== decoded.sha256) throw new IrohForbiddenError({ code: "payload_hash_mismatch" });
         if (challenge.nonceHash !== nonceHash(request.nonce)) throw new IrohForbiddenError({ code: "invalid_challenge_nonce" });
-        assertChallengeMatchesPayload(challenge as never, decoded.payload);
+        assertChallengeMatchesPayload(challenge, decoded.payload);
         verifyEndpointRegistrationSignature({
           endpointId: decoded.payload.endpointId,
           challengeId: request.challengeId,
@@ -150,7 +170,8 @@ export class LocalIrohBroker {
         }
         this.db.delete(accountChallenges).where(eq(accountChallenges.challengeId, request.challengeId)).run();
         const binding = this.readBinding(finalId, userId);
-        return { revision: now, binding: this.publicBinding(binding), relay: { status: "not_requested" as const }, discovery: this.discovery(userId, namespace, now), discovery_complete: true };
+        const revision = this.bumpRevision(now);
+        return { revision, binding: this.publicBinding(binding), relay: { status: "not_requested" as const }, discovery: this.discovery(userId, namespace, now), discovery_complete: true };
       },
       catch: (error) => error,
     });
@@ -163,6 +184,70 @@ export class LocalIrohBroker {
     });
   }
 
+  getRelayPreference(_userId: string) {
+    return Effect.try({
+      try: () => {
+        const row = this.db.select().from(accountPreferences).where(eq(accountPreferences.preferenceKey, "relay")).get();
+        if (!row) return { preference: defaultRelayPreference, preferenceRevision: 0 };
+        const stored = JSON.parse(row.payload) as { preference?: unknown; revision?: unknown };
+        const parsed = relayPreferenceSchema.safeParse(stored.preference ?? stored);
+        const revision = stored.preference === undefined ? 0 : stored.revision;
+        if (!parsed.success || typeof revision !== "number" || !Number.isSafeInteger(revision) || revision < 0) {
+          throw new IrohInvalidInputError({ code: "invalid_persisted_preference" });
+        }
+        return { preference: parsed.data, preferenceRevision: revision };
+      },
+      catch: (error) => error,
+    });
+  }
+
+  setRelayPreference(_userId: string, raw: unknown, now = Date.now()) {
+    return Effect.try({
+      try: () => {
+        if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new IrohInvalidInputError({ code: "invalid_preference" });
+        const body = raw as Record<string, unknown>;
+        const keys = Object.keys(body);
+        if (keys.some((key) => key !== "expectedRevision" && key !== "preference")) throw new IrohInvalidInputError({ code: "invalid_preference" });
+        const expected = body.expectedRevision;
+        if (expected !== undefined && (!Number.isSafeInteger(expected) || (expected as number) < 0)) throw new IrohInvalidInputError({ code: "invalid_preference" });
+        const parsed = relayPreferenceSchema.safeParse(body.preference);
+        if (!parsed.success) throw new IrohInvalidInputError({ code: "invalid_preference" });
+        const current = Effect.runSync(this.getRelayPreference(_userId));
+        if (expected !== undefined && expected !== current.preferenceRevision) throw new IrohConflictError({ code: "preference_conflict" });
+        const revision = current.preferenceRevision + 1;
+        const payload = JSON.stringify({ preference: parsed.data, revision });
+        const values = { preferenceKey: "relay" as const, payload, payloadBytes: new TextEncoder().encode(payload).byteLength, updatedAt: now };
+        this.db.insert(accountPreferences).values(values).onConflictDoUpdate({ target: accountPreferences.preferenceKey, set: { payload, payloadBytes: values.payloadBytes, updatedAt: now } }).run();
+        return { preference: parsed.data, preferenceRevision: revision };
+      },
+      catch: (error) => error,
+    });
+  }
+
+  syncConnectivity(userId: string, raw: unknown, namespace = "legacy", now = Date.now()) {
+    return Effect.try({
+      try: () => {
+        if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new IrohInvalidInputError({ code: "invalid_request" });
+        const body = raw as Record<string, unknown>;
+        const protocol = body.protocol_version;
+        if (protocol !== 2 && protocol !== 3) throw new IrohInvalidInputError({ code: "unsupported_protocol" });
+        const known = body.known_revision;
+        if (known !== undefined && known !== null && (!Number.isSafeInteger(known) || (known as number) < 0)) throw new IrohInvalidInputError({ code: "invalid_revision" });
+        const scope = protocol === 3 ? parseIrohDiscoveryScope(body.discovery_scope) : undefined;
+        const discovery = this.discovery(userId, namespace, now, scope);
+        const changed = known === null || known === undefined || known !== discovery.revision;
+        return {
+          protocol_version: protocol, revision: discovery.revision, changed, reset: typeof known === "number" && known > discovery.revision,
+          ...(changed ? { snapshot: discovery } : {}),
+          ...(protocol === 2
+            ? (changed ? { snapshot_complete: true } : {})
+            : { discovery_scope: irohDiscoveryScopeJSON(scope!), ...(changed ? { snapshot_scope_complete: true } : {}) }),
+        };
+      },
+      catch: (error) => error,
+    });
+  }
+
   revoke(userId: string, raw: unknown, now = Date.now(), namespace = "legacy", proof?: IrohBindingRequestProof) {
     return Effect.try({
       try: () => {
@@ -171,7 +256,7 @@ export class LocalIrohBroker {
         if (!binding || binding.clientNamespace !== namespace) throw new IrohNotFoundError({ resource: "binding" });
         if (proof) verifyBindingRequestSignature({ ...proof, endpointId: binding.endpointId, nowSeconds: Math.floor(now / 1000) });
         this.db.update(accountBindings).set({ revokedAt: now, tombstoneExpiresAt: now + 30 * 24 * 60 * 60 * 1000 }).where(eq(accountBindings.bindingId, bindingId)).run();
-        return { revoked: true, revision: now, lan_rendezvous_rotated: true };
+        return { revoked: true, revision: this.bumpRevision(now), lan_rendezvous_rotated: true };
       },
       catch: (error) => error,
     });
@@ -248,12 +333,23 @@ export class LocalIrohBroker {
     return { token: result.token, expires_at: result.expiresAt, refresh_after: new Date(now + 12 * 60 * 60 * 1000).toISOString(), relay_fleet: MANAGED_RELAY_URLS };
   }
 
-  private discovery(userId: string, namespace: string, now: number) {
+  private discovery(userId: string, namespace: string, now: number, scope?: IrohDiscoveryScope) {
     const rows = this.db.select().from(accountBindings).where(and(eq(accountBindings.clientNamespace, namespace), isNull(accountBindings.revokedAt))).all();
-    const bindings = rows.map((row) => this.publicBinding(this.readBinding(row.bindingId, userId), now));
+    const bindings = rows.map((row) => this.readBinding(row.bindingId, userId)).filter((binding) => !scope || bindingMatchesDiscoveryScope(binding, scope)).map((binding) => this.publicBinding(binding, now));
+    const revisionRow = this.db.select().from(accountMeta).where(eq(accountMeta.key, "route_revision")).get();
+    const persistedRevision = revisionRow ? Number(revisionRow.value) : 0;
+    const revision = Number.isSafeInteger(persistedRevision) && persistedRevision >= 0 ? persistedRevision : 0;
     const generation = 1;
     const rendezvous = deriveLanRendezvousKey(this.config.lanDiscoverySecretBase64, userId, generation);
-    return { route_contract_version: 1, revision: now, bindings, relay_fleet: MANAGED_RELAY_URLS, lan_rendezvous: { generation, key: rendezvous }, grant_verification_keys: this.config.grantVerificationKeys };
+    return { route_contract_version: 1, revision, bindings, relay_fleet: MANAGED_RELAY_URLS, lan_rendezvous: { generation, key: rendezvous }, grant_verification_keys: this.config.grantVerificationKeys };
+  }
+
+  private bumpRevision(now: number): number {
+    const row = this.db.select().from(accountMeta).where(eq(accountMeta.key, "route_revision")).get();
+    const current = row ? Number(row.value) : 0;
+    const revision = Math.max(Number.isSafeInteger(current) && current >= 0 ? current + 1 : 1, now);
+    this.db.insert(accountMeta).values({ key: "route_revision", value: String(revision) }).onConflictDoUpdate({ target: accountMeta.key, set: { value: String(revision) } }).run();
+    return revision;
   }
 
   private readBinding(bindingId: string, userId: string): StoredBinding {

@@ -35,8 +35,9 @@ import { migrate } from "drizzle-orm/durable-sqlite/migrator";
 import { LocalIrohBroker } from "./iroh/localBroker";
 import { sha256 } from "./iroh/model";
 import type { IrohBindingRequestProof } from "./iroh/crypto";
+import { emitAxiomEvent, traceId, type AxiomEnv } from "./axiom";
 
-export interface ControlPlaneEnv extends SentryEnv {
+export interface ControlPlaneEnv extends SentryEnv, AxiomEnv {
   CMUX_IROH_LAN_DISCOVERY_SECRET_B64?: string;
   CMUX_IROH_ACCOUNT_SUBJECT_SECRET_B64?: string;
   CMUX_IROH_GRANT_SIGNING_KEY_P8?: string;
@@ -98,6 +99,7 @@ export class AccountControlPlane extends DurableObject<ControlPlaneEnv> {
       ? JSON.parse(this.env.CMUX_IROH_GRANT_VERIFICATION_KEYS_JSON)
       : { version: 1, current_kid: "", keys: [] },
   });
+  private activeAccountId = "";
 
   constructor(ctx: DurableObjectState, env: ControlPlaneEnv) {
     super(ctx, env);
@@ -114,20 +116,38 @@ export class AccountControlPlane extends DurableObject<ControlPlaneEnv> {
     // single widening cast, same pattern as TeamPresence.syncStorage().
     storage: this.ctx.storage as unknown as CtlStorage,
     now: () => Date.now(),
-    upstream: async () => {
-      // The Durable Object has no Vercel or database proxy fallback. The
-      // local SQLite broker owns the control path; this adapter remains only
-      // for the legacy fact-stream core until its facts are fully local.
-      return { status: 503, json: { error: "local_control_plane_not_ready" } };
-    },
+    upstream: async (path, init) => this.localUpstream(path, init),
     scheduleAlarmAt: (atMs) => this.ensureAlarmAt(atMs),
     sockets: () => this.ctx.getWebSockets().map(wrapSocket),
   });
 
   override async fetch(request: Request): Promise<Response> {
+    const started = Date.now();
+    const requestTraceId = traceId(request);
     try {
-      return await this.handleFetch(request);
+      const response = await this.handleFetch(request);
+      this.ctx.waitUntil(emitAxiomEvent(this.env, {
+        event: "do_request",
+        do_class: "AccountControlPlane",
+        operation: "fetch",
+        path: new URL(request.url).pathname,
+        method: request.method,
+        status: response.status,
+        duration_ms: Date.now() - started,
+        trace_id: requestTraceId,
+      }));
+      return response;
     } catch (error) {
+      this.ctx.waitUntil(emitAxiomEvent(this.env, {
+        event: "do_request",
+        do_class: "AccountControlPlane",
+        operation: "fetch",
+        path: new URL(request.url).pathname,
+        method: request.method,
+        status: 500,
+        duration_ms: Date.now() - started,
+        trace_id: requestTraceId,
+      }));
       await captureSentryException(this.env, "cloudflare-control-plane", error, {
         durable_object: "AccountControlPlane",
         operation: "fetch",
@@ -168,6 +188,7 @@ export class AccountControlPlane extends DurableObject<ControlPlaneEnv> {
     // Verified by the worker; never client input.
     const accountId = request.headers.get("x-control-account-id")?.trim();
     if (!accountId) return json({ error: "account_required" }, 403);
+    this.activeAccountId = accountId;
     // The DO keeps the connection's own bearer for its upstream proxy calls.
     const bearer = bearerToken(request);
     if (!bearer) return json({ error: "unauthorized" }, 401);
@@ -198,6 +219,21 @@ export class AccountControlPlane extends DurableObject<ControlPlaneEnv> {
     return new Response(null, { status: 101, webSocket: client });
   }
 
+  private async localUpstream(path: string, init: { method: string; headers: Record<string, string>; body?: string }) {
+    if (!this.activeAccountId) return { status: 403, json: { error: "account_required" } };
+    const namespace = init.headers["x-cmux-app-namespace"] ?? "legacy";
+    const body = init.body === undefined ? undefined : JSON.parse(init.body) as unknown;
+    if (path === "/api/devices/iroh" && init.method === "GET") {
+      const result = await Effect.runPromise(this.localIroh.discover(this.activeAccountId, namespace));
+      return { status: 200, json: result };
+    }
+    if (path === "/api/relay/token" && init.method === "POST") {
+      const result = await this.localIroh.issueRelayToken(this.activeAccountId, body, Date.now(), namespace);
+      return { status: 200, json: { token: result.token, expiresAt: Math.floor(new Date(result.expires_at).getTime() / 1_000), refreshAfter: Math.floor(new Date(result.refresh_after).getTime() / 1_000), relays: result.relay_fleet } };
+    }
+    return { status: 404, json: { error: "not_found" } };
+  }
+
   private async handleLocalIroh(request: Request, path: string): Promise<Response> {
     const accountId = request.headers.get("x-control-account-id")?.trim();
     if (!accountId) return json({ error: "account_required" }, 403);
@@ -214,6 +250,8 @@ export class AccountControlPlane extends DurableObject<ControlPlaneEnv> {
       : path.endsWith("/pair-grants") ? "pair_grant"
       : path.endsWith("/endpoint-attestations") ? "endpoint_attestation"
       : path === "/api/relay/token" ? "relay_token"
+      : path === "/api/relay/preferences" ? "relay_preferences"
+      : path === "/api/connectivity/v2/sync" || path === "/api/connectivity/v3/sync" ? "connectivity_sync"
       : path === "/api/devices/iroh" && request.method === "GET" ? "discover"
       : path === "/api/devices/iroh" && request.method === "DELETE" ? "revoke"
       : null;
@@ -231,12 +269,24 @@ export class AccountControlPlane extends DurableObject<ControlPlaneEnv> {
                 ? await Effect.runPromise(this.localIroh.issuePairGrant(accountId, body, Date.now(), namespace, proof ?? undefined))
                 : operation === "endpoint_attestation"
                   ? await Effect.runPromise(this.localIroh.issueEndpointAttestation(accountId, body, Date.now(), namespace, proof ?? undefined))
-                  : await this.localIroh.issueRelayToken(accountId, body, Date.now(), namespace, proof ?? undefined);
-      return json(result, operation === "discover" || operation === "revoke" ? 200 : 201);
+                  : operation === "relay_preferences"
+                    ? request.method === "GET"
+                      ? await Effect.runPromise(this.localIroh.getRelayPreference(accountId))
+                      : await Effect.runPromise(this.localIroh.setRelayPreference(accountId, body, Date.now()))
+                    : operation === "connectivity_sync"
+                      ? await Effect.runPromise(this.localIroh.syncConnectivity(accountId, body, namespace, Date.now()))
+                      : await this.localIroh.issueRelayToken(accountId, body, Date.now(), namespace, proof ?? undefined);
+      return json(result, operation === "discover" || operation === "revoke" || operation === "relay_preferences" || operation === "connectivity_sync" ? 200 : 201);
     } catch (error) {
-      console.error("local iroh operation failed", String(error));
       const code = error && typeof error === "object" && "code" in error ? String((error as { code: unknown }).code) : "iroh_internal_error";
-      const status = code.includes("not_found") ? 404 : code.includes("invalid") || code.includes("expired") ? 400 : 500;
+      this.ctx.waitUntil(emitAxiomEvent(this.env, {
+        event: "iroh_operation",
+        do_class: "AccountControlPlane",
+        operation,
+        outcome: "error",
+        error_code: code,
+      }));
+      const status = code.includes("not_found") ? 404 : code.includes("conflict") ? 409 : code.includes("forbidden") || code.includes("not_configured") || code.includes("expired") ? 403 : code.includes("invalid") ? 400 : 500;
       return json({ error: code }, status);
     }
   }
@@ -280,11 +330,26 @@ export class AccountControlPlane extends DurableObject<ControlPlaneEnv> {
   }
 
   override async alarm(): Promise<void> {
+    const started = Date.now();
     try {
       pruneExpiredAccountState(this.sqlite, Date.now());
       await this.core.handleAlarm();
       await this.scheduleRetention(Date.now());
+      this.ctx.waitUntil(emitAxiomEvent(this.env, {
+        event: "do_alarm",
+        do_class: "AccountControlPlane",
+        operation: "retention",
+        status: "ok",
+        duration_ms: Date.now() - started,
+      }));
     } catch (error) {
+      this.ctx.waitUntil(emitAxiomEvent(this.env, {
+        event: "do_alarm",
+        do_class: "AccountControlPlane",
+        operation: "retention",
+        status: "error",
+        duration_ms: Date.now() - started,
+      }));
       await captureSentryException(this.env, "cloudflare-control-plane", error, {
         durable_object: "AccountControlPlane",
         operation: "alarm",
