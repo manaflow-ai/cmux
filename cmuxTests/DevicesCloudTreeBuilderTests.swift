@@ -224,6 +224,7 @@ struct DevicesCloudTreeBuilderTests {
         var sawTerminal = false
         var sawPool = false
         var sawPorts = false
+        var sawDisplays = false
         for node in CloudTreeNodeBuilder.flattened(nodes[0].children) {
             switch node.kind {
             case .workspacesGroup(let machine):
@@ -236,6 +237,8 @@ struct DevicesCloudTreeBuilderTests {
                 sawPool = machine == studioMachine && count == 1
             case .portsGroup, .port:
                 sawPorts = true
+            case .displaysPool, .display:
+                sawDisplays = true
             default:
                 break
             }
@@ -245,6 +248,7 @@ struct DevicesCloudTreeBuilderTests {
         #expect(sawTerminal)
         #expect(sawPool)
         #expect(!sawPorts, "devices have no port forwards")
+        #expect(!sawDisplays, "personal devices have no Cloud display group")
 
         // Offline device: one dimmed placeholder, no groups.
         let offlineChildren = nodes[1].children
