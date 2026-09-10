@@ -298,8 +298,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                   let incoming = CmuxTuiSnapshotParser.state(fromSnapshot: object, machine: machine)
             else { throw ProviderError.invalidSnapshot(machineID) }
             let installed = installSnapshotIfNewer(incoming, requestVersion: requestVersion)
-            // Equal cursors are a valid no-op refresh only when the accepted
-            // graph is byte-for-byte equivalent. A cursor alone is not proof
+            // Equal cursors are a valid no-op refresh only when the revisioned
+            // graph is equivalent. A cursor alone is not proof
             // that a malformed or misconfigured daemon returned the same graph.
             // A newer event can also win the race while this snapshot is in
             // flight; the final install-version check below covers that case.
@@ -442,7 +442,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             return false
         }
         // A snapshot with the exact installed cursor is a valid no-op only when
-        // its graph and every pending receipt agree. This is important after a
+        // its revisioned graph and every pending receipt agree. This is important after a
         // rename: a delayed equal-cursor predecessor must not look current.
         if let current = cloudState, current.cursor == incoming.cursor {
             guard current.hasSameRevisionedContent(as: incoming), incomingPassesPendingRenameFence(incoming) else {
@@ -451,6 +451,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 #endif
                 return false
             }
+            cloudState = incoming
             retirePendingRemoteRenames(observed: incoming)
             return true
         }

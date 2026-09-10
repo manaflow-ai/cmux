@@ -1269,19 +1269,6 @@ struct CloudVMState: Hashable, Codable, Sendable {
     // New archives contain one canonical document. The decoder keeps a
     // one-way rawSnapshot fallback for archives written before this model.
 
-    static func == (lhs: CloudVMState, rhs: CloudVMState) -> Bool {
-        lhs.machine == rhs.machine
-            && lhs.cursor == rhs.cursor
-            && lhs.document == rhs.document
-            && lhs.workspaces == rhs.workspaces
-            && lhs.screens == rhs.screens
-            && lhs.panes == rhs.panes
-            && lhs.tabs == rhs.tabs
-            && lhs.terminals == rhs.terminals
-            && lhs.browsers == rhs.browsers
-            && lhs.agents == rhs.agents
-    }
-
     func hash(into hasher: inout Hasher) {
         hasher.combine(machine)
         hasher.combine(cursor)
