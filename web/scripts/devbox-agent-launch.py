@@ -15,6 +15,10 @@ import termios
 import time
 
 
+class LaunchCancelled(Exception):
+    """Cancellation must propagate through selectors, which absorbs InterruptedError."""
+
+
 def verify_launch(command, ready, forbidden, timeout):
     """Read PTY output until readiness, an exit, cancellation, or the deadline."""
     child, master = pty.fork()
@@ -26,7 +30,7 @@ def verify_launch(command, ready, forbidden, timeout):
     ansi = re.compile(r"\x1b\][^\x07]*(?:\x07|\x1b\\)|\x1b\[[0-?]*[ -/]*[@-~]")
 
     def cancelled(signum, _frame):
-        raise InterruptedError("agent launch cancelled by signal %s" % signum)
+        raise LaunchCancelled("agent launch cancelled by signal %s" % signum)
 
     previous = {sig: signal.signal(sig, cancelled) for sig in (signal.SIGTERM, signal.SIGINT)}
     try:
@@ -78,7 +82,7 @@ def main():
     args = parser.parse_args()
     try:
         verify_launch(args.command, args.ready, args.forbidden, args.timeout)
-    except (RuntimeError, TimeoutError, InterruptedError) as error:
+    except (RuntimeError, TimeoutError, LaunchCancelled) as error:
         print("\n%s: %s" % (args.label, error), file=sys.stderr)
         return 1
     print("\n%s-ok" % args.label)

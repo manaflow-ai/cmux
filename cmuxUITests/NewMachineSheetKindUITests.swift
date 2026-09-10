@@ -41,9 +41,14 @@ final class NewMachineSheetKindUITests: XCTestCase {
         XCTAssertTrue(row.waitForExistence(timeout: 5.0), "Expected the New Cloud Machine… palette row")
         row.click()
 
-        let create = app.buttons["NewMachineSheet.create"]
+        // NSHostingController can expose the localized button label without its
+        // SwiftUI identifier on macOS 15. Match either accessibility representation.
+        let createButtons = app.buttons.matching(NSPredicate(
+            format: "identifier == %@ OR label == %@", "NewMachineSheet.create", "Create"
+        ))
+        let create = createButtons.firstMatch
         XCTAssertTrue(create.waitForExistence(timeout: 8.0), "Expected New Machine to open")
-        XCTAssertEqual(app.buttons.matching(identifier: "NewMachineSheet.create").count, 1)
+        XCTAssertEqual(createButtons.count, 1)
         XCTAssertFalse(app.radioButtons["Desktop"].exists)
         XCTAssertFalse(app.radioButtons["Base"].exists)
         XCTAssertFalse(app.descendants(matching: .any)["NewMachineSheet.kindSection"].exists)
