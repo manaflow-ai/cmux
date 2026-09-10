@@ -120,8 +120,10 @@ Image policy:
 - Clients request a machine **kind** (`kind: "desktop" | "base"` on `POST /api/vm`,
   `POST /api/vm/base/open`, and `POST /api/vm/base/reset`) rather than pinning an image id. With
   no `image`, the resolver serves the manifest entry flagged `kind` + `defaultForKind` at the
-  plan's **size** (a body with neither `image` nor `kind` gets the `base` default) and otherwise
-  fails closed with `vm_image_config_error`. Sizes are Freestyle's ladder (`sm` … `2xl`,
+  plan's **size** (a body with neither `image` nor `kind` gets the **`desktop`** default,
+  `VM_IMAGE_DEFAULT_KIND`: a machine with a screen is the product default and shell-only is
+  always an explicit `kind: "base"`, #12239) and otherwise fails closed with
+  `vm_image_config_error`. Sizes are Freestyle's ladder (`sm` … `2xl`,
   `services/vms/images/sizes.ts`): one snapshot per size, and the smallest whose memory covers
   the plan's `defaultMemoryMbForPlan` is served, so machines boot at their shape and the driver
   never resizes. Create responses and `limits.imageKinds` carry the `size`. `image` still wins when present, but a client-requested `image` must be
@@ -135,15 +137,10 @@ Image policy:
   `expectNoCloudVmImplementationLeaks` in `tests/vm-route-auth.test.ts`).
 - Local development and every deployed runtime serve the same `defaultForKind` entry; there is no
   separate local default and nothing to copy into `.env`.
-- Today's default (both kinds, every size) is the `freestyle-cmux-devbox-11761b` ladder, baked and
-  verified on cmux's Freestyle account from https://github.com/manaflow-ai/cmux/pull/11776
-  (`090e3daddd`, epoch `2026-09-02-r4`: the desktop session with owner-signalled readiness
-  (`Type=notify`), the accessibility bus, clipboard helper and published `DISPLAY`, baked cmux-tui
-  daemon, `freestyle/ubuntu-sm` base): `sm` `sh-60effaffd5404e5ab8dbdb08bd5f5eed`, `md`
-  `sh-1ce6c11f5d6e4f8e98c19454e9a38751`, `lg` `sh-bda89603f1ab41a2902ac5d781e2c6ce`, `xl`
-  `sh-95b526e17c234593a45edfb572e49396`, `2xl` `sh-236a1866dd244082ba0f06829df2358d`. The retired
-  beta entry stays listed for the record and is never a default; earlier public entries (the
-  `11761a`, `20260903b` and `edge1` ladders before it) stay for rollback.
+- The current default ladders and their validation metadata are recorded in the authoritative
+  [`images/manifest.json`](./images/manifest.json). Retired and rollback entries remain in that
+  manifest for auditability; this README intentionally does not duplicate time-sensitive snapshot
+  ids.
 - Snapshots are account-scoped: a manifest id is only bootable by the Freestyle account whose
   `FREESTYLE_API_KEY` the deployment uses; promote under cmux's key.
 - Promotion is `bun run devbox:promote -- freestyle` (bake → verify → manifest write), then a PR
@@ -151,10 +148,14 @@ Image policy:
   `services/vms/images/devbox/README.md`. `tests/vm-image-manifest.test.ts` holds the invariants:
   one `defaultForKind` per provider and kind, unique versions, every default
   `validationStatus: "passed"`.
-- Every devbox default is a **desktop** image (one snapshot serves both kinds): TigerVNC on
-  `:1` with an openbox session, the tint2 dock (Chrome, Files, Ghostty), the CC0 wallpaper, the
-  accessibility bus for computer-use, and noVNC on 6901; the contract lives in
-  `services/vms/images/desktop.ts`. `POST /api/vm/[id]/open-port` (the app's Displays row, `cmux
+- The **desktop** ladder is what every default create path boots (the app's New Machine sheet,
+  bare `cmux vm new`, `vm base open` / `vm base reset`, and any API body without a `kind`):
+  TigerVNC on `:1` with an openbox session, the tint2 dock (Chrome, Files, Ghostty), the CC0
+  wallpaper, the accessibility bus for computer-use, and noVNC on 6901, run by the
+  `cmux-desktop` unit; the contract lives in `services/vms/images/desktop.ts`. The separately
+  baked **base** ladder (`--no-desktop`, no VNC layer) is served only for an explicit
+  `kind: "base"` (`--base` in the CLI, Base in the sheet); the Mac app lists a Displays row only
+  for desktop-kind machines, so a base machine truthfully shows none. `POST /api/vm/[id]/open-port` (the app's Displays row, `cmux
   vm open <m>:desktop`, port rows) returns the machine's **private VPC address**
   (`http://10.x.x.x:6901/vnc.html?…`), reachable only over the owner's WireGuard tunnel, the same
   path the daemon route takes; the driver (re)starts the `cmux-desktop` unit first when noVNC is

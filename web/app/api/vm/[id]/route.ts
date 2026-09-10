@@ -5,10 +5,10 @@ import {
   withAuthedVmApiRoute,
 } from "../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../services/telemetry";
-import { vmCapabilitiesFor } from "../../../../services/vms/drivers";
-import { vmImageKindFor } from "../../../../services/vms/images/resolver";
 import { runVmRoute } from "../../../../services/vms/routeWorkflow";
 import { destroyVm, getVm, renameVm } from "../../../../services/vms/workflows";
+import { vmCapabilitiesFor } from "../../../../services/vms/drivers";
+import { vmImageKindFor } from "../../../../services/vms/images/resolver";
 import { PublicationNotFoundError } from "../../../../services/vm-publications/repository";
 import { deleteVmPublicationsForVmDeletion } from "../../../../services/vm-publications/vmDeletion";
 import { publicationErrorResponse } from "../publications/routeShared";
@@ -37,20 +37,21 @@ export async function GET(
       }), { request });
       if (!run.ok) return run.response;
       const vm = run.value;
+      // The same machine shape `GET /api/vm` lists: `kind` is what the client
+      // shows a Displays row and opens the desktop for (`cmux vm status`,
+      // `cmux vm open`), and `address` is the private address those open.
       return jsonResponse({
         id: vm.providerVmId,
         provider: vm.provider,
         image: vm.image,
         imageVersion: vm.imageVersion,
-        status: vm.status,
         kind: vmImageKindFor(vm.provider, vm.image),
         capabilities: vmCapabilitiesFor(vm.provider),
-        ...(vm.addressIpv4 || vm.addressIpv6
-          ? { address: { ipv4: vm.addressIpv4, ipv6: vm.addressIpv6 } }
-          : {}),
+        status: vm.status,
         createdAt: vm.createdAt,
         displayName: vm.displayName,
         slug: vm.slug,
+        address: { ipv4: vm.addressIpv4 ?? null, ipv6: vm.addressIpv6 ?? null },
       });
     },
   );

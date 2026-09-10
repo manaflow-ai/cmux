@@ -94,12 +94,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
             switch method {
             case "vm.create":
                 let params = payload["params"] as? [String: Any] ?? [:]
-                // Bare `vm new` requests a shell-only machine by kind; the
-                // backend chooses the provider and its configured image.
+                // Bare `vm new`: backend-chosen provider, a desktop by kind (#12239), no image id.
                 XCTAssertNil(params["provider"])
                 XCTAssertNotEqual(params["idempotency_key"] as? String, "cmux-default-freestyle-sshd-v1")
+                XCTAssertEqual(params["kind"] as? String, "desktop")
                 XCTAssertNil(params["image"])
-                XCTAssertEqual(params["kind"] as? String, "base")
                 return self.v2Response(
                     id: id,
                     ok: true,
@@ -221,8 +220,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
             case "vm.create":
                 let params = payload["params"] as? [String: Any] ?? [:]
                 XCTAssertEqual(params["provider"] as? String, "freestyle")
+                XCTAssertEqual(params["kind"] as? String, "desktop")
                 XCTAssertNil(params["image"])
-                XCTAssertEqual(params["kind"] as? String, "base")
                 XCTAssertNotEqual(params["idempotency_key"] as? String, "cmux-default-freestyle-sshd-v1")
                 return self.v2Response(
                     id: id,
@@ -461,12 +460,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
             switch method {
             case "vm.create":
                 let params = payload["params"] as? [String: Any] ?? [:]
-                // A fresh shell-only machine is distinct from the legacy Base
-                // slot; the backend chooses the provider and configured image.
+                // Distinct from the legacy Base slot: backend-picked provider, a desktop by kind.
                 XCTAssertNil(params["provider"])
                 XCTAssertNotEqual(params["idempotency_key"] as? String, "cmux-default-freestyle-sshd-v1")
+                XCTAssertEqual(params["kind"] as? String, "desktop")
                 XCTAssertNil(params["image"])
-                XCTAssertEqual(params["kind"] as? String, "base")
                 return self.v2Response(
                     id: id,
                     ok: true,
@@ -585,13 +583,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
             switch method {
             case "vm.create":
                 let params = payload["params"] as? [String: Any] ?? [:]
-                // A fresh shell-only machine lets the backend choose its provider
-                // and image, and uses a per-create key rather than the legacy
-                // shared Base-slot idempotency key.
+                // Backend-chosen provider, a desktop by kind, a per-create key (not the legacy Base-slot key).
                 XCTAssertNil(params["provider"])
                 XCTAssertNotEqual(params["idempotency_key"] as? String, "cmux-default-freestyle-sshd-v1")
+                XCTAssertEqual(params["kind"] as? String, "desktop")
                 XCTAssertNil(params["image"])
-                XCTAssertEqual(params["kind"] as? String, "base")
                 return self.v2Response(
                     id: id,
                     ok: true,

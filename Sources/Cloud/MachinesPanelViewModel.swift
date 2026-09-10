@@ -456,7 +456,7 @@ final class MachinesPanelViewModel: ObservableObject {
     /// Last plan limits the list returned; the banner countdown re-derives from
     /// these on every local recompute without another round trip.
     private var lastLimits: VMPlanLimits?
-    /// Legacy image-kind data for older callers; the current sheet is base-only.
+    /// The kinds the backend can serve, for the New Machine sheet's kind picker.
     var imageKinds: [VMImageKindOption] { lastLimits?.imageKinds ?? [] }
     var memoryOptionsMb: [Int] { lastLimits?.memoryOptionsMb ?? [] }
     private var authSignOutObserver: NSObjectProtocol?
