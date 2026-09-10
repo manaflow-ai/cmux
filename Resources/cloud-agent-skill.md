@@ -119,7 +119,7 @@ cmux vm terminal read <id> <term>       # the screen of any machine terminal, wi
 cmux vm open <id>                       # the machine's shell
 cmux vm open <id>/<ws>/<term>           # one terminal as a pane; reuses the pane already showing it
 cmux vm workspace open <id> <ws> [--here|--tabs|--pane <p> --left]   # a whole workspace: new local workspace, or into this one
-cmux vm open <id>:desktop               # the noVNC screen (desktop-kind machines; base machines have no screen)
+cmux vm open <id>:desktop               # the noVNC screen (new machines; historical shell-only machines have no screen)
 cmux vm open <id>:port/3000 [--print]   # URL for an HTTP port on the machine's private address (--print: URL only; needs `cmux vpn up`)
 cmux vm workspace rename <id> <ws> <name>   # rename it; `close` keeps its terminals (they detach into the pool), `rm` deletes it AND kills them
 cmux vm tab rename <id> <tab> <name>       # rename one exact tab placement; "" clears its custom label

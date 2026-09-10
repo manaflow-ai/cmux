@@ -1066,7 +1066,11 @@ extension CMUXCLI {
         } catch {
             // Product-level copy only: the underlying failure names a local lock path
             // and raw OS text, which do not belong in user-facing output.
-            throw CLIError(message: "vm run: provisioned \(id) but could not record it in the pool store, so later runs will not reuse it. Use `cmux vm run --machine \(id)` to keep using it or `cmux vm rm \(id)` to remove it.")
+            let template = CMUXDiffViewerLocalization.string(
+                "cli.vm.run.poolRecordFailed",
+                defaultValue: "vm run: provisioned %1$@ but could not record it in the pool store, so later runs will not reuse it. Use `cmux vm run --machine %1$@` to keep using it or `cmux vm rm %1$@` to remove it."
+            )
+            throw CLIError(message: String(format: template, id))
         }
         // The label is cosmetic (membership is already recorded), but without it
         // the machine is not recognizable as pool in `vm ls`, so say so.
