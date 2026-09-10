@@ -583,31 +583,34 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let fixture = try vmDevFixture("app", files: ["package.json": #"{"scripts": {"dev": "next dev"}}"#])
         defer { try? FileManager.default.removeItem(at: fixture.root) }
 
-        let (result, log) = try runVMDev(
-            "vm-dev-unavailable-placement",
-            arguments: ["vm", "dev", "brave-otter", fixture.project.path, "--no-sync", "--no-open"],
-            home: fixture.home
-        ) { method, _ in
-            switch method {
-            case "vm.status": return ["status": "running"]
-            case "vm.tree":
-                return [
-                    "machines": [["id": "brave-otter", "remote_workspaces": [["id": "ws_7", "name": "app"]]]],
-                    "resources": [[
-                        "id": "brave-otter/terminal/term_dev",
-                        "machine": "brave-otter",
-                        "kind": "terminal",
-                        "key": "term_dev",
-                        "lifecycle": "running",
-                        "remote_views": NSNull(),
-                    ]],
-                ]
-            default: return nil
+        for lifecycle in ["running", "exited"] {
+            let (result, log) = try runVMDev(
+                "vm-dev-unavailable-placement-\(lifecycle)",
+                arguments: ["vm", "dev", "brave-otter", fixture.project.path, "--no-sync", "--no-open"],
+                home: fixture.home
+            ) { method, _ in
+                switch method {
+                case "vm.status": return ["status": "running"]
+                case "vm.tree":
+                    return [
+                        "machines": [["id": "brave-otter", "remote_workspaces": [["id": "ws_7", "name": "app"]]]],
+                        "resources": [[
+                            "id": "brave-otter/terminal/term_dev",
+                            "machine": "brave-otter",
+                            "kind": "terminal",
+                            "key": "term_dev",
+                            "lifecycle": lifecycle,
+                            "remote_workspace": ["id": "ws_other", "name": "other"],
+                            "remote_views": NSNull(),
+                        ]],
+                    ]
+                default: return nil
+                }
             }
+            XCTAssertNotEqual(result.status, 0, "stdout=\(result.stdout) stderr=\(result.stderr)")
+            XCTAssertTrue(result.stderr.contains("terminal placement for workspace ws_7 on brave-otter is unavailable"), result.stderr)
+            XCTAssertEqual(log.methods, ["vm.status", "vm.tree"], log.methods.description)
         }
-        XCTAssertNotEqual(result.status, 0, "stdout=\(result.stdout) stderr=\(result.stderr)")
-        XCTAssertTrue(result.stderr.contains("terminal placement for workspace ws_7 on brave-otter is unavailable"), result.stderr)
-        XCTAssertEqual(log.methods, ["vm.status", "vm.tree"], log.methods.description)
     }
 
     func testVMDevSyncPushesTheFolderBeforeBuildingTheWorkspace() throws {
