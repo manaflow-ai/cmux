@@ -48,6 +48,19 @@ struct CloudVMStateSnapshotComparisonTests {
         #expect(try !before.hasSameRevisionedContent(as: state(object)))
     }
 
+    @Test("PTY title updates remain live observations while launch identity stays strict")
+    func terminalTitleDoesNotInvalidateTheGraph() throws {
+        var object = snapshot()
+        object["terminals"] = [["id": "term-1", "running": true, "lifecycle": "running", "title": "bash", "cwd": "/home/cmux"]]
+        let before = try state(object)
+        object["terminals"] = [["id": "term-1", "running": true, "lifecycle": "running", "title": "vim", "cwd": "/home/cmux"]]
+        let after = try state(object)
+        #expect(before != after)
+        #expect(before.hasSameRevisionedContent(as: after))
+        object["terminals"] = [["id": "term-1", "running": true, "lifecycle": "running", "title": "vim", "cwd": "/different-launch"]]
+        #expect(try !before.hasSameRevisionedContent(as: state(object)))
+    }
+
     @Test("Actual same-cursor conflicts remain rejected", arguments: ["workspaces", "terminals", "future_resources", "cursor"])
     func graphChangesRemainConflicts(field: String) throws {
         let before = try state(snapshot())
