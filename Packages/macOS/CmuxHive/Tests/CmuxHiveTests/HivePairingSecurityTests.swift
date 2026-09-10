@@ -162,6 +162,30 @@ struct HivePairingSecurityTests {
     }
 
     @Test
+    func cancelledDisconnectStillClosesItsTransport() async throws {
+        let peer = PairingPeer()
+        let runtime = PairingRuntime(transportFactory: PairingFactory(peer: peer))
+        let request = try HivePairingRequest(input: "100.64.0.1:7333", userID: "owner", email: nil, allowsLoopback: false)
+        let client = MobileCoreRPCClient(
+            runtime: runtime, route: request.route, ticket: request.ticket,
+            allowsStackAuthFallback: false, userTailscalePairingAuthorization: request.authorization,
+            sessionPurpose: .probe
+        )
+        _ = try await client.sendRequestAndAuthenticatedHostStatus(
+            MobileCoreRPCClient.requestData(method: "workspace.list", params: [:]),
+            timeoutNanoseconds: runtime.pairingRequestTimeoutNanoseconds,
+            hostStatusTimeoutNanoseconds: { runtime.pairingRequestTimeoutNanoseconds }
+        )
+        let cleanup = Task {
+            await client.disconnect()
+            await client.disconnectAndWaitForTransportDrain()
+        }
+        cleanup.cancel()
+        await cleanup.value
+        #expect(await peer.closed)
+    }
+
+    @Test
     func stopDuringHostStatusDoesNotPersistAuthorization() async throws {
         let fixture = try Fixture()
         defer { fixture.removeFiles() }
@@ -240,7 +264,7 @@ private actor PairingPeer: CmxByteTransport {
     private let includeIdentity: Bool
     private var queued: [Data] = []
     private var waiters: [CheckedContinuation<Data?, Never>] = []
-    private var closed = false
+    private(set) var closed = false
     private(set) var methods: [String] = []
     private(set) var tokens: [String] = []
 
