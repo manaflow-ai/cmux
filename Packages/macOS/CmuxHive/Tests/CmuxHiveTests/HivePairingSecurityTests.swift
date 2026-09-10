@@ -3,6 +3,7 @@ import CmuxMobilePairedMac
 import CmuxMobileRPC
 import Foundation
 import Testing
+import SQLite3
 @testable import CmuxHive
 
 @Suite
@@ -50,6 +51,44 @@ struct HivePairingSecurityTests {
         #expect(throws: HivePairingError.missingIdentity) {
             try request.verifiedIdentity(status: status, ownDeviceID: "mac-a", ownInstanceTag: "default")
         }
+    }
+
+    @Test
+    func paddedSelfIdentityIsRejected() throws {
+        let request = try HivePairingRequest(input: "100.64.0.1:7333", userID: "owner", email: nil, allowsLoopback: false)
+        let status = try MobileHostStatusResponse.decode(Data(#"{"mac_device_id":"  mac-a  ","mac_instance_tag":"default"}"#.utf8))
+        #expect(throws: HivePairingError.thisMac) {
+            try request.verifiedIdentity(status: status, ownDeviceID: "mac-a", ownInstanceTag: "default")
+        }
+    }
+
+    @Test
+    func pairingLinkRequiresItsNamedDeviceIdentity() throws {
+        let link = "cmux-ios://attach?v=2&r=100.64.0.1:7333&d=mac-b&ub=owner"
+        let request = try HivePairingRequest(input: link, userID: "owner", email: nil, allowsLoopback: false)
+        let status = try MobileHostStatusResponse.decode(Data(#"{"mac_device_id":"mac-c","mac_instance_tag":"default"}"#.utf8))
+        #expect(throws: HivePairingError.identityMismatch) {
+            try request.verifiedIdentity(status: status, ownDeviceID: "mac-a", ownInstanceTag: "default")
+        }
+    }
+
+    @Test
+    func failedEndpointGrantRollsBackPairingMetadata() async throws {
+        let fixture = try Fixture()
+        defer { fixture.removeFiles() }
+        _ = try await fixture.store.loadAll(stackUserID: "owner", teamID: "team")
+        var database: OpaquePointer?
+        let path = fixture.directory.appendingPathComponent("pairings.sqlite3").path
+        try #require(sqlite3_open(path, &database) == SQLITE_OK)
+        defer { sqlite3_close(database) }
+        let sql = "CREATE TRIGGER reject_test_grant BEFORE INSERT ON legacy_tailscale_route_grants BEGIN SELECT RAISE(ABORT, 'test grant failure'); END;"
+        try #require(sqlite3_exec(database, sql, nil, nil, nil) == SQLITE_OK)
+        let controller = fixture.controller(peer: PairingPeer())
+        defer { controller.stop() }
+        await #expect(throws: HivePairingError.storageFailed) {
+            try await controller.pair("100.64.0.1:7333")
+        }
+        #expect(try await fixture.store.loadAll(stackUserID: "owner", teamID: "team").isEmpty)
     }
 
     @Test
