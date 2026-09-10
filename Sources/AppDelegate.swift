@@ -955,7 +955,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var transientGlobalSearchMenuBarExtraController: MenuBarExtraController?
     private var lastMenuBarExtraShouldInstall: Bool?
     /// App-owned computer-use graph; all runtime dependencies are injected here.
-    private lazy var computerUseUXCoordinator: ComputerUseUXCoordinator = {
+    private(set) lazy var computerUseUXCoordinator: ComputerUseUXCoordinator = {
         guard let computerUseRuntimeService else {
             preconditionFailure("ComputerUseRuntimeService must be injected before coordinator use")
         }
