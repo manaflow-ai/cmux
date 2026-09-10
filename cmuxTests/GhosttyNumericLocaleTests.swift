@@ -14,6 +14,7 @@ import Testing
 @Suite("Ghostty numeric locale", .serialized)
 struct GhosttyNumericLocaleTests {
     @Test
+    /// Pins the process numeric locale without changing the user's other locale settings.
     func pinsNumericLocaleForAppKit() {
         let previous = setlocale(LC_NUMERIC, nil).map { String(cString: $0) }
         defer {
@@ -37,6 +38,7 @@ struct GhosttyNumericLocaleTests {
     }
 
     @Test @MainActor
+    /// Confirms AppKit can rasterize a system symbol after numeric locale pinning.
     func pinnedLocaleMaterializesSystemSymbol() throws {
         let previous = setlocale(LC_NUMERIC, nil).map { String(cString: $0) }
         defer {

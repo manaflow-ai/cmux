@@ -871,6 +871,13 @@ class GhosttyApp {
             unsetenv("NO_COLOR")
         }
 
+        let numericLocaleController = GhosttyNumericLocaleController()
+        defer {
+            // Ghostty may apply the user's locale during initialization. Restore
+            // the CoreUI-safe numeric locale on every exit, including failures.
+            numericLocaleController.pinProcessNumericLocale()
+        }
+
         // Initialize Ghostty library first
         let result = ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv)
         if result != GHOSTTY_SUCCESS {
@@ -883,7 +890,7 @@ class GhosttyApp {
             )
             return
         }
-        GhosttyNumericLocaleController().pinProcessNumericLocale()
+        numericLocaleController.pinProcessNumericLocale()
 
         resolvedUserShell = TerminalShellResolver.resolveCurrentUserShell()
         if let resolvedUserShell {
