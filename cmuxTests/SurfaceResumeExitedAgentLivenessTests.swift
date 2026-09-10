@@ -478,7 +478,7 @@ struct SurfaceResumeExitedAgentLivenessTests {
                 "arguments": ["/usr/local/bin/codex"],
                 "workingDirectory": "/tmp/repo",
                 "capturedAt": 1_777_777_777,
-                "source": "test",
+                "source": "process",
             ],
         ]
         let data = try JSONSerialization.data(

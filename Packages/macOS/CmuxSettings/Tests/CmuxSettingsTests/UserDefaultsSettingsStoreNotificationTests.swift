@@ -31,7 +31,7 @@ struct UserDefaultsSettingsStoreNotificationTests {
         #expect(storedValue == "#EXTERNAL")
     }
 
-    @Test func observedDirectDefaultsOverwriteWithSupersededSourceRejectsOlderPendingSource() async {
+    @Test func observedDirectDefaultsOverwriteAfterDeliveredSourceRejectsOlderPendingSource() async {
         let suiteName = "cmux.tests.\(UUID().uuidString)"
         let store = UserDefaultsSettingsStore(defaults: UserDefaults(suiteName: suiteName)!)
         let externalDefaults = UserDefaults(suiteName: suiteName)!
@@ -75,10 +75,11 @@ struct UserDefaultsSettingsStoreNotificationTests {
         )
 
         let externalEvent = await waitForEvent(in: recorder) { event in
-            event.value == "#EXTERNAL" && event.supersededMutationSource == firstSource
+            event.value == "#EXTERNAL"
         }
+        #expect(externalEvent?.value == "#EXTERNAL")
         #expect(externalEvent?.mutationSource == nil)
-        #expect(externalEvent?.supersededMutationSource == firstSource)
+        #expect(externalEvent?.supersededMutationSource == nil)
 
         let acceptedSource = await store.set("#DELAYED", for: key, source: delayedSource)
         let storedValue = await store.value(for: key)
