@@ -848,19 +848,18 @@ def test_app_host_multi_batch_failure_cannot_reuse_prior_expected_summary() -> N
     assert "simulated app-host crash before test summary" in result.stdout
 
 
-def run_remote_tmux_mirror_step(
+def run_focused_app_host_step(
     outcomes: list[str],
+    step_name: str = "Run remote tmux mirror detach and placement regressions",
 ) -> tuple[subprocess.CompletedProcess[str], int]:
-    """Run the remote tmux mirror focused gate against a fake console runner.
+    """Run a focused app-host gate against a fake console runner.
 
     ``outcomes`` lists what each xcodebuild invocation reports, in order:
     ``pass``; ``crash`` (xcodebuild restarted the app host, exit 65); or
     ``fail`` (an assertion failure with the host alive, exit 65). Returns the
     step result and how many times the runner was invoked.
     """
-    script = workflow_job_step_script(
-        "app-host-unit-tests", "Run remote tmux mirror detach and placement regressions"
-    )
+    script = workflow_job_step_script("app-host-unit-tests", step_name)
 
     with tempfile.TemporaryDirectory() as temp_dir:
         root = Path(temp_dir)
@@ -931,7 +930,7 @@ esac
 def test_remote_tmux_mirror_gate_reruns_a_suite_once_after_an_app_host_crash() -> None:
     # The close suite crashes once and passes on its rerun; the placement
     # suite then runs and passes, so the step is green with three invocations.
-    result, invocations = run_remote_tmux_mirror_step(["crash", "pass", "pass"])
+    result, invocations = run_focused_app_host_step(["crash", "pass", "pass"])
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert invocations == 3, result.stdout
@@ -940,7 +939,7 @@ def test_remote_tmux_mirror_gate_reruns_a_suite_once_after_an_app_host_crash() -
 
 
 def test_remote_tmux_mirror_gate_never_reruns_an_assertion_failure() -> None:
-    result, invocations = run_remote_tmux_mirror_step(["fail", "pass", "pass"])
+    result, invocations = run_focused_app_host_step(["fail", "pass", "pass"])
 
     assert result.returncode == 65, result.stdout + result.stderr
     assert invocations == 1, result.stdout
@@ -948,10 +947,25 @@ def test_remote_tmux_mirror_gate_never_reruns_an_assertion_failure() -> None:
 
 
 def test_remote_tmux_mirror_gate_fails_after_a_second_crash() -> None:
-    result, invocations = run_remote_tmux_mirror_step(["crash", "crash", "pass"])
+    result, invocations = run_focused_app_host_step(["crash", "crash", "pass"])
 
     assert result.returncode == 65, result.stdout + result.stderr
     assert invocations == 2, result.stdout
+
+
+def test_devices_gate_propagates_assertion_failures_and_crashes() -> None:
+    for outcome in ("fail", "crash"):
+        result, invocations = run_focused_app_host_step(
+            [outcome, "pass"], "Run My Devices regressions"
+        )
+        assert result.returncode == 65, result.stdout + result.stderr
+        assert invocations == 1, result.stdout
+
+
+def test_devices_gate_accepts_successful_execution() -> None:
+    result, invocations = run_focused_app_host_step(["pass"], "Run My Devices regressions")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert invocations == 1, result.stdout
 
 
 def test_app_host_rejects_failed_or_empty_shard_generation() -> None:
