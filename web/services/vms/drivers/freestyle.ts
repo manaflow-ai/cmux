@@ -1114,7 +1114,18 @@ export class FreestyleProvider implements VMProvider {
           const fs = this.deps.client(CREATE_TIMEOUT_MS);
           const vm = fs.vms.ref(vmId);
           const data = await vm.start();
-          await this.announcePrivateAddresses(vm, data);
+          // The wake already succeeded: the machine is running and, unlike
+          // create and restore, there is no fresh allocation to roll back. A
+          // start payload can also name the network a VM is on before the
+          // platform fills in the address assigned on it, so an unusable
+          // address here is not a verdict on the machine. Prepare the route
+          // best-effort and leave readiness to openCmuxRemote, which reads the
+          // authoritative addresses and fails closed on them.
+          try {
+            await this.announcePrivateAddresses(vm, data);
+          } catch (announceError) {
+            recordSpanError(span, announceError);
+          }
           // Older cmux machines were created while the provider's account
           // default supplied a finite idle timeout. Clear that legacy policy
           // the first time the user wakes one so the box stays available after
