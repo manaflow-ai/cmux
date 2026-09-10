@@ -23,7 +23,7 @@ public struct ComputersSection: View {
         SettingsCard {
             VStack(alignment: .leading, spacing: 12) {
                 Toggle(String(localized: "settings.betaFeatures.devices", defaultValue: "My Devices"), isOn: Binding(
-                    get: { devices.current },
+                    get: { devices.current && !devicesManagedByPolicy },
                     set: {
                         guard !devicesManagedByPolicy else { return }
                         devices.set($0)
@@ -62,7 +62,7 @@ public struct ComputersSection: View {
                     .accessibilityIdentifier("SettingsComputersPairingInput")
                     .onSubmit { pair() }
                     Button(String(localized: "settings.computers.pair", defaultValue: "Pair Mac")) { pair() }
-                        .disabled(!devices.current || !snapshot.isSignedIn || isPairing || pairingInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .disabled(devicesManagedByPolicy || !devices.current || !snapshot.isSignedIn || isPairing || pairingInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         .accessibilityIdentifier("SettingsComputersPair")
                 }
                 if isPairing { ProgressView().controlSize(.small) }
@@ -93,7 +93,7 @@ public struct ComputersSection: View {
     }
 
     private func pair() {
-        guard devices.current, snapshot.isSignedIn, !isPairing, !pairingInput.isEmpty else { return }
+        guard !devicesManagedByPolicy, devices.current, snapshot.isSignedIn, !isPairing, !pairingInput.isEmpty else { return }
         isPairing = true
         pairingError = nil
         Task {
