@@ -131,9 +131,9 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 CmuxSystemSymbolImage(
                     magnified: "pin.fill",
                     pointSize: metrics.pinnedIconFontSize,
-                    weight: .semibold
+                    weight: .semibold,
+                    tint: .secondary
                 )
-                .foregroundStyle(.secondary)
                 .frame(width: metrics.iconFrame, height: metrics.iconFrame)
                 .safeHelp(pinnedGroupTooltip)
                 .accessibilityLabel(Text(pinnedGroupTooltip))
@@ -142,9 +142,8 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 systemName: isCollapsed ? "chevron.right" : "chevron.down",
                 pointSize: metrics.chevronFontSize,
                 weight: .semibold,
-                appliesGlobalFontMagnification: true
-            )
-                .foregroundStyle(.secondary)
+                tint: .secondary,
+                appliesGlobalFontMagnification: true)
                 .frame(width: metrics.chevronFrame, height: metrics.chevronFrame)
                 .contentShape(Rectangle())
                 .onTapGesture { actions.onToggleCollapsed() }
@@ -162,9 +161,8 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                     systemName: displayedIconSymbol,
                     pointSize: metrics.iconFontSize,
                     weight: .semibold,
-                    appliesGlobalFontMagnification: true
-                )
-                    .foregroundStyle(iconColor)
+                    tint: iconColor,
+                    appliesGlobalFontMagnification: true)
                     .frame(width: metrics.iconFrame, height: metrics.iconFrame)
                     .accessibilityHidden(true)
                 Text(name)
@@ -203,9 +201,8 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                     systemName: "plus",
                     pointSize: metrics.plusFontSize,
                     weight: .medium,
-                    appliesGlobalFontMagnification: true
-                )
-                    .foregroundStyle(.secondary)
+                    tint: .secondary,
+                    appliesGlobalFontMagnification: true)
                     .frame(width: metrics.plusFrame, height: metrics.plusFrame)
                     .contentShape(Rectangle())
                     .opacity(plusVisible ? 1 : 0)

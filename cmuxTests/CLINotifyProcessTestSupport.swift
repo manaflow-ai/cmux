@@ -9,34 +9,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let timedOut: Bool
     }
 
-    final class MockSocketServerState: @unchecked Sendable {
-        private let lock = NSLock()
-        private(set) var commands: [String] = []
-        private var commandTimestamps: [TimeInterval] = []
 
-        func append(_ command: String) {
-            lock.lock()
-            commands.append(command)
-            commandTimestamps.append(ProcessInfo.processInfo.systemUptime)
-            lock.unlock()
-        }
-
-        func snapshot() -> [String] {
-            lock.lock()
-            let value = commands
-            lock.unlock()
-            return value
-        }
-
-        func timestampedSnapshot() -> [(command: String, timestamp: TimeInterval)] {
-            lock.lock()
-            let value = zip(commands, commandTimestamps).map {
-                (command: $0.0, timestamp: $0.1)
-            }
-            lock.unlock()
-            return value
-        }
-    }
 
     struct LoopbackTCPListener {
         let fd: Int32
@@ -443,7 +416,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let stdinPipe = standardInput == nil ? nil : Pipe()
         process.executableURL = URL(fileURLWithPath: executablePath)
         process.arguments = arguments
-        process.environment = isolatedCLIChildEnvironment(environment)
+        process.environment = CLIChildEnvironment(appHostEnvironment: ProcessInfo.processInfo.environment).normalizing(environment)
         process.standardInput = stdinPipe ?? FileHandle.nullDevice
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
@@ -510,36 +483,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
             stderr: stderr,
             timedOut: timedOut
         )
-    }
-
-    /// App-host CI gives XCTest an isolated Core Foundation home. CLI tests
-    /// then supply a narrower HOME for each subprocess. Keep all three user
-    /// configuration roots on that per-test home so the inherited app-host
-    /// redirects cannot make sibling CLI tests share state.
-    ///
-    /// `NSHomeDirectory()` resolves through Core Foundation — `CFFIXED_USER_HOME`,
-    /// then the passwd entry — and never through `HOME`, so a child that reads its
-    /// home that way ignores the test's HOME in every environment, not only under
-    /// the app-host lane's redirect. Whenever a test supplies HOME, pin
-    /// `CFFIXED_USER_HOME` to the same directory so both resolution paths agree.
-    private func isolatedCLIChildEnvironment(
-        _ environment: [String: String]
-    ) -> [String: String] {
-        guard let rawHome = environment["HOME"]?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !rawHome.isEmpty else {
-            return environment
-        }
-        let isolationRequired = environment["CMUX_APP_HOST_ISOLATION_REQUIRED"] == "1"
-
-        var resolved = environment
-        resolved["CFFIXED_USER_HOME"] = rawHome
-        if isolationRequired {
-            resolved["XDG_CONFIG_HOME"] = URL(
-                fileURLWithPath: rawHome,
-                isDirectory: true
-            ).appendingPathComponent(".config", isDirectory: true).path
-        }
-        return resolved
     }
 
     private static func writeAll(fd: Int32, data: Data) {

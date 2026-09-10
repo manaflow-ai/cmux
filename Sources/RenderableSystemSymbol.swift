@@ -412,12 +412,21 @@ enum RenderableSystemSymbol {
     #endif
 }
 
+/// SF Symbol drawn by the AppKit-hosted icon renderer with an explicit tint.
+///
+/// `tint` replaces the `.foregroundStyle` / `.foregroundColor` modifier the
+/// SwiftUI symbol image used to inherit: the color is bridged to a dynamic
+/// `NSColor` and baked into the bitmap, the same way the Vault icons pass
+/// `tintColor` to `SessionIndexResolvedSystemSymbolImage`. SwiftUI never
+/// composites the glyph (no raster image, no mask), which is what keeps it
+/// visible on Intel Macs running macOS 15.
 struct CmuxSystemSymbolImage: View {
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
 
     let systemName: String
     let pointSize: CGFloat
     var weight: Font.Weight?
+    let tint: Color
     var alignment: Alignment = .center
     var appliesGlobalFontMagnification = false
 
@@ -425,12 +434,14 @@ struct CmuxSystemSymbolImage: View {
         systemName: String,
         pointSize: CGFloat,
         weight: Font.Weight? = nil,
+        tint: Color,
         alignment: Alignment = .center,
         appliesGlobalFontMagnification: Bool = false
     ) {
         self.systemName = systemName
         self.pointSize = pointSize
         self.weight = weight
+        self.tint = tint
         self.alignment = alignment
         self.appliesGlobalFontMagnification = appliesGlobalFontMagnification
     }
@@ -439,15 +450,25 @@ struct CmuxSystemSymbolImage: View {
         magnified systemName: String,
         pointSize: CGFloat,
         weight: Font.Weight? = nil,
+        tint: Color,
         alignment: Alignment = .center
     ) {
         self.init(
             systemName: systemName,
             pointSize: pointSize,
             weight: weight,
+            tint: tint,
             alignment: alignment,
             appliesGlobalFontMagnification: true
         )
+    }
+
+    /// Bridges a SwiftUI color (including `.primary` / `.secondary` and
+    /// `.opacity` variants) to a dynamic `NSColor` that resolves under the
+    /// renderer's drawing appearance. Equal inputs bridge to equal colors, so
+    /// the hosted image view's render key stays stable across updates.
+    nonisolated static func hostedTintColor(for tint: Color) -> NSColor {
+        NSColor(tint)
     }
 
     var body: some View {
@@ -456,8 +477,8 @@ struct CmuxSystemSymbolImage: View {
             globalFontPercent: globalFontPercent,
             appliesGlobalFontMagnification: appliesGlobalFontMagnification
         )
-        // SwiftUI raster images draw blank on Intel Macs running macOS 15, so
-        // the AppKit-hosted renderer owns every symbol draw. The materialized
+        let tintColor = Self.hostedTintColor(for: tint)
+        // The AppKit-hosted renderer owns every symbol draw. The materialized
         // image only supplies the configured symbol's natural layout size.
         if let image = RenderableSystemSymbol.configuredAppKitImage(
             systemName: systemName,
@@ -469,6 +490,7 @@ struct CmuxSystemSymbolImage: View {
                 pointSize: rasterSize,
                 imageSize: image.size,
                 weight: RenderableSystemSymbol.nsFontWeight(for: weight),
+                tintColor: tintColor,
                 slotSize: rasterSize,
                 alignment: alignment
             )
@@ -480,6 +502,7 @@ struct CmuxSystemSymbolImage: View {
                 pointSize: rasterSize,
                 imageSize: NSSize(width: rasterSize, height: rasterSize),
                 weight: RenderableSystemSymbol.nsFontWeight(for: weight),
+                tintColor: tintColor,
                 slotSize: rasterSize,
                 alignment: alignment
             )

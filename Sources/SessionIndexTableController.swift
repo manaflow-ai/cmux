@@ -109,7 +109,7 @@ final class SessionIndexTableController: NSObject, NSTableViewDataSource, NSTabl
             object: scrollView.contentView,
             queue: .main
         ) { [weak self, weak table] _ in
-            Task { @MainActor [weak self, weak table] in
+            MainActor.assumeIsolated {
                 guard let self, let table, !self.isApplyingRows else { return }
                 self.reconcilePresentation(in: table)
             }

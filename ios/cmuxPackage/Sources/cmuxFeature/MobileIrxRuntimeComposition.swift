@@ -489,7 +489,8 @@ public actor MobileIrxRuntimeComposition {
                 revoked: entry.revoked,
                 isFresh: fresh,
                 appVersion: entry.appVersion,
-                minimumSupportedVersion: snapshot.minimumSupportedMacVersion
+                minimumSupportedVersion: snapshot.minimumSupportedMacVersion,
+                releaseTrack: entry.releaseTrack
             )
             byEndpoint[endpointIDHex] = projected
             if let deviceID = entry.deviceID {
@@ -1392,6 +1393,29 @@ public actor MobileIrxRuntimeComposition {
                 "surface": surfaceID.uuidString.lowercased(),
                 "cursor": cursor.map(String.init) ?? "-",
             ]
+        )
+        return MobileIrohTerminalLane(stream: lane.bidirectional())
+    }
+
+    /// Opens a terminal input-only lane. Render-grid output remains on the
+    /// ordered event stream, while keystrokes use an independent QUIC stream
+    /// whose writes do not wait for an RPC response.
+    public func openTerminalInputLane(
+        for request: CmxByteTransportRequest,
+        surfaceID: UUID
+    ) async throws -> MobileIrohTerminalLane {
+        let peerHex = try peerTarget(for: request)
+        let session = try await engine(forPeer: peerHex)
+            .ensureSession(trigger: "terminal-input-lane")
+        let lane = try await session.connection.openLane(
+            IrxLaneDescriptor(
+                lane: .terminalInput,
+                resource: "terminal:\(surfaceID.uuidString.lowercased())"
+            )
+        )
+        Self.journal.record(
+            "client-terminal-input", "lane-opened",
+            ["surface": surfaceID.uuidString.lowercased()]
         )
         return MobileIrohTerminalLane(stream: lane.bidirectional())
     }
