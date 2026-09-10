@@ -54,7 +54,10 @@ struct TerminalCustomUploadRunner {
                 $0.jsonStore.snapshotValue(for: $0.catalog.terminal.uploadCommands)
             } ?? []
         }
-        return TerminalUploadCommand(rules: rules).command(forDestination: endpoint.destination)
+        return TerminalUploadCommand(rules: rules).command(
+            forDestination: endpoint.destination,
+            sshOptions: endpoint.sshOptions
+        )
     }
 
     /// Runs `command` once per file and returns the space-joined string to type
