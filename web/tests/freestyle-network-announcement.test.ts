@@ -92,6 +92,13 @@ describe("Freestyle private network readiness", () => {
     expect(packets).toEqual([]);
   });
 
+  test("one assigned family remains usable while the other address is still pending", () => {
+    const { status, packets } = captureAnnouncements(["10.16.0.2", "fd00::99"]);
+    expect(status).toBe(0);
+    expect(packets).toHaveLength(1);
+    expect(Buffer.from(packets[0].packet, "hex").readUInt16BE(12)).toBe(0x0806);
+  });
+
   test("a guest failure prevents reporting that its network is ready", async () => {
     const vm = { exec: async () => ({ statusCode: 1, stdout: "", stderr: "not assigned" }) };
     await expect(Effect.runPromise(announceFreestyleNetwork(vm as never, ["10.16.0.2"]))).rejects.toThrow();
