@@ -27,8 +27,10 @@ extension MobileHostIrohRuntime {
         #if DEBUG
         let debugTransportVerificationMode: CmxIrohTransportVerificationMode? =
             transportVerificationMode
+        let pathPreference = CmxIrohPathPreference.stored(in: UserDefaults.standard)
         #else
         let debugTransportVerificationMode: CmxIrohTransportVerificationMode? = nil
+        let pathPreference: CmxIrohPathPreference = .automatic
         #endif
         return CmxIrohSettingsSnapshot(
             runtimeStatus: Self.settingsRuntimeStatus(
@@ -38,7 +40,7 @@ extension MobileHostIrohRuntime {
             ),
             selectedTransportPath: selectedPath,
             preference: Self.settingsPreference(requested),
-            pathPreference: CmxIrohPathPreference.stored(in: .standard),
+            pathPreference: pathPreference,
             managedRelays: managedPolicy?.relays.map { relay in
                 CmxIrohSettingsSnapshot.ManagedRelay(
                     id: relay.id,

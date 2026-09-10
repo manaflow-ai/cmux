@@ -6,7 +6,7 @@ import Foundation
 /// A PTY name can be reused after its session exits. Pairing the session-leader
 /// PID with its process start time distinguishes the new terminal generation
 /// from a stale report that happened to use the same device name.
-nonisolated struct TerminalTTYSessionIdentity: Equatable, Sendable {
+struct TerminalTTYSessionIdentity: Equatable, Sendable {
     let processIdentity: AgentPIDProcessIdentity
 
     init(processIdentity: AgentPIDProcessIdentity) {

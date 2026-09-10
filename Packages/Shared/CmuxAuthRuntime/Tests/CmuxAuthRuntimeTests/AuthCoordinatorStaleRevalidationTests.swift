@@ -206,17 +206,16 @@ import Testing
         }
         await client.storedAccessDidPark()
 
+        // The late exchange's write is what sign-out's credential capture has to
+        // race, so wait for the store to hold exchange 2's tokens (or to have
+        // been cleared) before releasing the capture. The client resumes this
+        // from the write, so the wait does not compete with it for CPU.
         await client.releaseParkedCredential()
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: .seconds(2))
-        while true {
-            let refresh = await client.refreshToken()
-            if refresh == "refresh-2" || refresh == nil { break }
-            if clock.now >= deadline {
-                preconditionFailure("Timed out waiting for late exchange cleanup to reach the token store")
-            }
-            await Task.yield()
+        let cleanupWatchdog = failAfterDeadline(.seconds(30)) {
+            "Timed out waiting for late exchange cleanup to reach the token store"
         }
+        await client.tokensDidSettle(afterExchange: 2)
+        cleanupWatchdog.cancel()
 
         await client.releaseParkedStoredAccess()
         await signOut.value

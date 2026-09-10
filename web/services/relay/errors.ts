@@ -28,6 +28,39 @@ export class RelayDatabaseError extends Data.TaggedError("RelayDatabaseError")<{
   readonly cause: unknown;
 }> {}
 
+/**
+ * Return bounded, non-secret database failure metadata for operational logs.
+ * Aurora/pg errors can contain connection strings, SQL, or bind values, so
+ * never stringify the original cause into a response or log line.
+ */
+export function relayDatabaseFailureMetadata(
+  error: RelayDatabaseError,
+): { operation: string; category: string; code?: string; retryable: boolean } {
+  const cause = error.cause as {
+    readonly code?: unknown;
+    readonly name?: unknown;
+    readonly message?: unknown;
+    readonly errno?: unknown;
+  } | null;
+  const text = [cause?.name, cause?.code, cause?.message]
+    .filter((value): value is string => typeof value === "string")
+    .join(" ");
+  const retryable = /timeout|timed out|econn|connection|unavailable|deadlock|too many/i.test(text);
+  const category = /timeout|timed out/i.test(text)
+    ? "timeout"
+    : /econn|connection|unavailable/i.test(text)
+      ? "connection"
+      : /deadlock/i.test(text)
+        ? "deadlock"
+        : /too many/i.test(text)
+          ? "pool_exhausted"
+          : "database_failure";
+  const rawCode = [cause?.code, cause?.errno]
+    .find((value): value is string | number => typeof value === "string" || typeof value === "number");
+  const code = rawCode === undefined ? undefined : String(rawCode).slice(0, 64);
+  return { operation: error.operation, category, ...(code ? { code } : {}), retryable };
+}
+
 export class RelayPreferenceValidationError extends Data.TaggedError(
   "RelayPreferenceValidationError",
 )<{
@@ -52,11 +85,91 @@ export class RelayAccountDeletionBlockedError extends Data.TaggedError(
 export class RelayRateLimitError extends Data.TaggedError("RelayRateLimitError")<{
   readonly code: "rate_limited" | "rate_limit_unavailable";
   readonly retryAfterSeconds?: number;
+  readonly source?: RelayRateLimitSource;
 }> {}
+
+export class RelayAuthenticationError extends Data.TaggedError(
+  "RelayAuthenticationError",
+)<{
+  readonly code: "rate_limited" | "unavailable";
+  readonly cause: unknown;
+  readonly retryAfterSeconds?: number;
+}> {}
+
+/** Which enforcement layer produced a 429; diagnosing the 08-27 incident
+ * required hours of elimination because all three were indistinguishable. */
+export type RelayRateLimitSource =
+  | "ingress_ip"
+  | "account_budget"
+  | "device_budget"
+  | "auth_provider";
+
 
 export class RelaySigningError extends Data.TaggedError("RelaySigningError")<{
   readonly cause: unknown;
 }> {}
+
+const MAX_AUTH_ERROR_METADATA_NODES = 64;
+const MAX_AUTH_ERROR_METADATA_DEPTH = 8;
+
+/**
+ * Convert an auth-provider failure into a coarse, retry-safe relay error.
+ * Stack's SDK wraps upstream throttles in AggregateError/RetryError objects,
+ * so inspect only bounded error metadata and never serialize the original
+ * failure (it can contain bearer or refresh-token details).
+ */
+export function relayAuthenticationError(cause: unknown): RelayAuthenticationError {
+  const rateLimited = hasRateLimitSignal(cause);
+  if (rateLimited) {
+    console.warn("relay.rate_limited", { source: "auth_provider" });
+  }
+  return new RelayAuthenticationError({
+    code: rateLimited ? "rate_limited" : "unavailable",
+    cause,
+    ...(rateLimited ? { retryAfterSeconds: 60 } : {}),
+  });
+}
+
+function hasRateLimitSignal(
+  value: unknown,
+  state: {
+    readonly seen: Set<object>;
+    count: number;
+  } = { seen: new Set<object>(), count: 0 },
+  depth = 0,
+): boolean {
+  if (depth > MAX_AUTH_ERROR_METADATA_DEPTH) return false;
+  if (typeof value === "number") return value === 429;
+  if (typeof value === "string") {
+    return /rate[\s_-]?limit(?:ed|ing)?|too many requests/i.test(value);
+  }
+  if (!value || typeof value !== "object") return false;
+  if (
+    state.count >= MAX_AUTH_ERROR_METADATA_NODES ||
+    state.seen.has(value)
+  ) return false;
+  state.seen.add(value);
+  state.count += 1;
+
+  const candidate = value as {
+    readonly message?: unknown;
+    readonly name?: unknown;
+    readonly code?: unknown;
+    readonly status?: unknown;
+    readonly statusCode?: unknown;
+    readonly cause?: unknown;
+    readonly errors?: unknown;
+  };
+  return hasRateLimitSignal(candidate.message, state, depth + 1) ||
+    hasRateLimitSignal(candidate.name, state, depth + 1) ||
+    hasRateLimitSignal(candidate.code, state, depth + 1) ||
+    hasRateLimitSignal(candidate.status, state, depth + 1) ||
+    hasRateLimitSignal(candidate.statusCode, state, depth + 1) ||
+    hasRateLimitSignal(candidate.cause, state, depth + 1) ||
+    (Array.isArray(candidate.errors) && candidate.errors
+      .slice(0, MAX_AUTH_ERROR_METADATA_NODES)
+      .some((error) => hasRateLimitSignal(error, state, depth + 1)));
+}
 
 export type RelayServiceError =
   | RelayConfigurationError
@@ -67,4 +180,5 @@ export type RelayServiceError =
   | RelayPreferenceConflictError
   | RelayAccountDeletionBlockedError
   | RelayRateLimitError
+  | RelayAuthenticationError
   | RelaySigningError;

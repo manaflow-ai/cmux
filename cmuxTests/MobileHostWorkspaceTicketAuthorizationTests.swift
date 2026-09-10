@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CoreGraphics
 import Foundation
 import Testing
 #if canImport(cmux_DEV)
@@ -232,6 +233,69 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
         #expect(try compactTicket(from: attachURL).routes == ticket.routes)
     }
 
+    @Test func omittedTargetTailscaleCompatibilityCodeIsMinimalV2() throws {
+        let store = MobileAttachTicketStore()
+        let secondaryTailscale = try tailscaleRoute(
+            id: "tailscale_2",
+            host: "100.64.0.6",
+            priority: 20
+        )
+        let ticket = try store.createTicket(
+            workspaceID: "",
+            terminalID: nil,
+            routes: [
+                try loopbackRoute(),
+                try tailscaleRoute(),
+                secondaryTailscale,
+                try irohRoute(),
+            ],
+            ttl: 3600,
+            macUserEmail: "Owner@Example.com",
+            macUserID: "user_mac_123",
+            macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
+            macAppVersion: "0.65.0",
+            macAppBuild: "42"
+        )
+
+        let payload = try store.payload(for: ticket)
+        let attachURL = try #require(payload["attach_url"] as? String)
+
+        // The pairing window's Tailscale code speaks the plain v2 grammar:
+        // routes plus the account binding (`ub`, the wrong-account fast-fail)
+        // and the compatibility level (`pc`, which fielded decoders default
+        // to 0 when absent, spuriously firing the cross-version warning).
+        // Never base64 JSON carrying device id, display name, or build
+        // metadata: those arrive post-handshake from `mobile.host.status`.
+        #expect(CmxPairingQRCode().isPairingCodeURLString(attachURL))
+        #expect(!attachURL.contains("payload="))
+        #expect(!attachURL.contains("av="))
+        #expect(!attachURL.contains("ab="))
+        #expect(!attachURL.lowercased().contains("owner@example.com"))
+        #expect(!attachURL.contains("relay.should-not-leak.example"))
+        #expect(!attachURL.contains(try #require(ticket.authToken)))
+
+        let components = try #require(URLComponents(string: attachURL))
+        let decoded = try CmxPairingQRCode().decode(components)
+        #expect(decoded.routes == [try tailscaleRoute(), secondaryTailscale])
+        #expect(decoded.macUserID == "user_mac_123")
+        #expect(
+            decoded.macPairingCompatibilityVersion
+                == CmxMobileDefaults.pairingCompatibilityVersion
+        )
+        #expect(decoded.macAppVersion == nil)
+        #expect(decoded.macAppBuild == nil)
+        #expect(decoded.macDisplayName == nil)
+        #expect(decoded.macDeviceID == "")
+
+        // Scannability: the account-bound two-route code stays at or below
+        // QR version 8 (49x49 modules) at the renderer's ECC M, so modules
+        // render large on a glossy screen. The full-key JSON payload this
+        // replaced rendered version 23 (109x109 modules).
+        let image = try #require(CmxPairingQRBitmap().makeImage(payload: attachURL))
+        let modules = image.width - CmxPairingQRBitmap.quietZoneModules * 2
+        #expect(modules <= 49, "pairing QR too dense: \(modules)x\(modules) modules")
+    }
+
     #if DEBUG
     @Test func omittedTargetRPCPreservesLegacyAttachURL() async throws {
         let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
@@ -312,6 +376,30 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
             ("workspace.action", ["workspace_id": "other-workspace", "action": "rename"], "forbidden"),
             ("workspace.close", ["workspace_id": "workspace"], nil),
             ("workspace.close", ["workspace_id": "other-workspace"], "forbidden"),
+            ("mobile.surface.focus", ["workspace_id": "workspace", "surface_id": "surface"], nil),
+            ("mobile.surface.focus", ["workspace_id": "other-workspace", "surface_id": "surface"], "forbidden"),
+            ("mobile.todo.add", ["workspace_id": "workspace", "text": "item"], nil),
+            ("mobile.todo.add", ["workspace_id": "other-workspace", "text": "item"], "forbidden"),
+            ("mobile.todo.set_state", ["workspace_id": "workspace", "id": "item", "state": "completed"], nil),
+            ("mobile.todo.set_state", ["workspace_id": "other-workspace", "id": "item", "state": "completed"], "forbidden"),
+            ("mobile.todo.edit", ["workspace_id": "workspace", "id": "item", "text": "edited"], nil),
+            ("mobile.todo.edit", ["workspace_id": "other-workspace", "id": "item", "text": "edited"], "forbidden"),
+            ("mobile.todo.move", ["workspace_id": "workspace", "id": "item", "to_index": "0"], nil),
+            ("mobile.todo.move", ["workspace_id": "other-workspace", "id": "item", "to_index": "0"], "forbidden"),
+            ("mobile.todo.remove", ["workspace_id": "workspace", "id": "item"], nil),
+            ("mobile.todo.remove", ["workspace_id": "other-workspace", "id": "item"], "forbidden"),
+            ("mobile.todo.open", ["workspace_id": "workspace"], nil),
+            ("mobile.todo.open", ["workspace_id": "other-workspace"], "forbidden"),
+            ("mobile.status.set", ["workspace_id": "workspace", "status": "done"], nil),
+            ("mobile.status.set", ["workspace_id": "other-workspace", "status": "done"], "forbidden"),
+            ("mobile.status.cycle", ["workspace_id": "workspace"], nil),
+            ("mobile.status.cycle", ["workspace_id": "other-workspace"], "forbidden"),
+            ("mobile.panel.artifact.stat", ["workspace_id": "workspace", "surface_id": "surface", "path": "/tmp/a"], nil),
+            ("mobile.panel.artifact.stat", ["workspace_id": "other-workspace", "surface_id": "surface", "path": "/tmp/a"], "forbidden"),
+            ("mobile.panel.artifact.fetch", ["workspace_id": "workspace", "surface_id": "surface", "path": "/tmp/a"], nil),
+            ("mobile.panel.artifact.fetch", ["workspace_id": "other-workspace", "surface_id": "surface", "path": "/tmp/a"], "forbidden"),
+            ("mobile.panel.artifact.thumbnail", ["workspace_id": "workspace", "surface_id": "surface", "path": "/tmp/a"], nil),
+            ("mobile.panel.artifact.thumbnail", ["workspace_id": "other-workspace", "surface_id": "surface", "path": "/tmp/a"], "forbidden"),
         ]
 
         for testCase in cases {

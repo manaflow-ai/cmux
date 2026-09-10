@@ -119,14 +119,21 @@ extension RemoteSessionCoordinator {
     /// adopt the shared master.
     ///
     /// The exact socket path is both the process-ownership lease and recovery
-    /// identity. Custom paths remain user-managed. If OpenSSH cannot resolve a
-    /// cmux-owned path, the connection attempt fails before daemon bootstrap.
+    /// identity. Custom paths remain user-managed. An unresolved cmux template
+    /// is intentionally returned unchanged: OpenSSH expands `%C` as part of
+    /// the real control operation, so a speculative `ssh -G` must not delay a
+    /// healthy connection. Recovery resolves the path lazily only after a
+    /// forward-binding conflict, when the exact identity is required for a
+    /// destructive `ssh -O exit`.
     func resolvedControlMasterSSHOptionsLocked() -> [String]? {
         if let resolvedControlMasterSSHOptions {
             let sharingOptions = connectionBroker.sharingOptions
             guard let resolvedPath = sharingOptions.cmuxOwnedControlPath(
                 in: resolvedControlMasterSSHOptions
             ) else {
+                return resolvedControlMasterSSHOptions
+            }
+            guard !resolvedPath.contains("%") else {
                 return resolvedControlMasterSSHOptions
             }
             guard connectionBroker.retainResolvedControlMasterLease(
@@ -153,48 +160,22 @@ extension RemoteSessionCoordinator {
             return effectiveOptions
         }
 
-        let resolvedPath: String?
-        if ownedPath.contains("%") {
-            do {
-                let result = try sshExec(
-                    arguments: resolver.resolutionArguments(
-                        configuration: configuration,
-                        effectiveOptions: effectiveOptions
-                    ),
-                    timeout: 5
-                )
-                guard result.status == 0 else {
-                    return nil
-                }
-                resolvedPath = resolver.resolvedControlPath(
-                    effectiveOptions: effectiveOptions,
-                    sshConfigOutput: result.stdout
-                )
-            } catch {
-                debugLog(
-                    "remote.relay.controlmaster.resolveFailed " +
-                    "\(error.localizedDescription) \(debugConfigSummary())"
-                )
-                return nil
-            }
-        } else {
-            resolvedPath = ownedPath
-        }
-        guard let resolvedPath else {
-            debugLog(
-                "remote.relay.controlmaster.resolveFailed " +
-                "missing-owned-path \(debugConfigSummary())"
-            )
-            return nil
+        guard !ownedPath.contains("%") else {
+            // OpenSSH expands `%C` while executing `ssh -O forward`; resolving
+            // it speculatively here adds a second local process before the
+            // first remote bootstrap command and can consume the full probe
+            // timeout on a slow or unusual ssh_config.
+            resolvedControlMasterSSHOptions = effectiveOptions
+            return effectiveOptions
         }
 
         let resolvedOptions = resolver.replacingControlPath(
             in: effectiveOptions,
-            with: resolvedPath
+            with: ownedPath
         )
         guard connectionBroker.retainResolvedControlMasterLease(
             for: configuration,
-            controlPath: resolvedPath
+            controlPath: ownedPath
         ) else {
             debugLog(
                 "remote.relay.controlmaster.ownershipBusy " +
@@ -202,8 +183,9 @@ extension RemoteSessionCoordinator {
             )
             return nil
         }
-        observeControlMasterReapsLocked(controlPath: resolvedPath)
+        observeControlMasterReapsLocked(controlPath: ownedPath)
         resolvedControlMasterSSHOptions = resolvedOptions
         return resolvedOptions
     }
+
 }

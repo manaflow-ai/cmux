@@ -9,14 +9,17 @@ struct WorkspaceChangesNavigationView: View {
     let totals: ChangesTotals
     let files: [ChangedFileItem]
     let listState: WorkspaceChangesListState
-    let cachedPresentations: [String: FileDiffPresentation]
+    let presentationStore: FileDiffPresentationStore
     let fontSize: Double
     let listActions: WorkspaceChangesListActions
     let pagerActions: WorkspaceFileDiffPagerActions
     let inlineActionHost: ChatArtifactInlineActionHost?
+    // Owned by the composition layer and forwarded from inside each page's
+    // hosting boundary, because preference keys do not cross
+    // UIHostingController boundaries in the UIKit-owned pager.
+    let inlineActionDescriptor: ChatArtifactInlineActionDescriptor?
     @Binding var path: [WorkspaceChangesNavigationRoute]
     let onClose: @MainActor @Sendable () -> Void
-    @State private var inlineActionDescriptor: ChatArtifactInlineActionDescriptor?
 
     init(
         branch: String,
@@ -24,11 +27,12 @@ struct WorkspaceChangesNavigationView: View {
         totals: ChangesTotals,
         files: [ChangedFileItem],
         listState: WorkspaceChangesListState,
-        cachedPresentations: [String: FileDiffPresentation],
+        presentationStore: FileDiffPresentationStore,
         fontSize: Double,
         listActions: WorkspaceChangesListActions,
         pagerActions: WorkspaceFileDiffPagerActions,
         inlineActionHost: ChatArtifactInlineActionHost? = nil,
+        inlineActionDescriptor: ChatArtifactInlineActionDescriptor? = nil,
         path: Binding<[WorkspaceChangesNavigationRoute]>,
         onClose: @escaping @MainActor @Sendable () -> Void
     ) {
@@ -37,13 +41,13 @@ struct WorkspaceChangesNavigationView: View {
         self.totals = totals
         self.files = files
         self.listState = listState
-        self.cachedPresentations = cachedPresentations
+        self.presentationStore = presentationStore
         self.fontSize = fontSize
         self.listActions = listActions
         self.pagerActions = pagerActions
         self.inlineActionHost = inlineActionHost
+        self.inlineActionDescriptor = inlineActionDescriptor
         _path = path
-        _inlineActionDescriptor = State(initialValue: nil)
         self.onClose = onClose
     }
 
@@ -71,7 +75,7 @@ struct WorkspaceChangesNavigationView: View {
                     WorkspaceFileDiffPagerView(
                         files: files,
                         initialSelectedIndex: index,
-                        cachedPresentations: cachedPresentations,
+                        presentationStore: presentationStore,
                         initialFontSize: fontSize,
                         actions: pagerActions
                     )
@@ -140,9 +144,6 @@ struct WorkspaceChangesNavigationView: View {
                     }
                 }
             }
-        }
-        .onPreferenceChange(ChatArtifactInlineActionsPreferenceKey.self) { descriptor in
-            inlineActionDescriptor = descriptor
         }
         .accessibilityIdentifier("MobileChangesSheet")
     }

@@ -120,8 +120,6 @@ extension TerminalController: ControlDebugContext {
         panelSnapshotReset(surfaceArgument)
     }
 
-    func controlDebugCaptureScreenshot(label: String) -> String { captureScreenshot(label) }
-
     func controlDebugShowCanvasCommandScrollHint(
         routing: ControlRoutingSelectors
     ) -> ControlCanvasActionResolution {

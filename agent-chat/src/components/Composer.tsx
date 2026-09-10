@@ -9,6 +9,7 @@ import { sanitizeStartOptions, withLocalValues } from "./options";
 import { ShortcutOverlay, useKeymap } from "../hooks/useKeymap";
 import { useAutoGrow } from "../hooks/useAutoGrow";
 import {
+  loadingProviderOptionIds,
   providerOptionMap,
   useCwdErrorFallback,
   useCwdValidation,
@@ -57,6 +58,10 @@ export function Composer() {
   const taRef = useAutoGrow(prompt, 300);
   const baseOptions = providerOptions[provider]?.length ? providerOptions[provider] : capabilities[provider]?.options ?? [];
   const allProviderOptions = providerOptionMap(providers, providerOptions, capabilities);
+  const loadingProviderIds = useMemo(
+    () => loadingProviderOptionIds(providers, providerOptions),
+    [providerOptions, providers],
+  );
   const startOptions = startOptionsByProvider[provider] ?? {};
   const options = withLocalValues(baseOptions, startOptions);
   const commandGroups = useMemo(() => withFileTrigger(providerCommands[provider] ?? [], filesByCwd[committedCwd] ?? []), [committedCwd, filesByCwd, provider, providerCommands]);
@@ -152,6 +157,7 @@ export function Composer() {
           provider={provider}
           providers={providers}
           allProviderOptions={allProviderOptions}
+          loadingProviderIds={loadingProviderIds}
           onProviderModelChange={changeProviderModel}
           cwd={cwd}
           onCwdChange={changeCwd}

@@ -224,14 +224,17 @@ public final class BrowserPointerFrameTest {
                 String streamId = String.valueOf(params.get("stream_id"));
                 inbound.add(response(
                     id,
-                    Map.of("stream_id", streamId)
+                    Map.of(
+                        "stream_id", streamId,
+                        "attachment_lease", "browser-lease"
+                    )
                 ));
                 inbound.add(frameItem(streamId));
                 return;
             }
             if (operation.equals("stream.cancel")) {
                 inbound.add(Map.of(
-                    "protocol", "cmux.protocol/1",
+                    "protocol", "cmux.protocol/2",
                     "type", "stream_end",
                     "stream_id", String.valueOf(params.get("stream")),
                     "reason", "canceled"
@@ -290,7 +293,7 @@ public final class BrowserPointerFrameTest {
                 frame.put("pointer_frame_seq", pointerFrameSeq);
             }
             return Map.of(
-                "protocol", "cmux.protocol/1",
+                "protocol", "cmux.protocol/2",
                 "type", "stream_item",
                 "stream_id", streamId,
                 "sequence", "1",
@@ -312,7 +315,7 @@ public final class BrowserPointerFrameTest {
             Map<String, Object> result
         ) {
             return Map.of(
-                "protocol", "cmux.protocol/1",
+                "protocol", "cmux.protocol/2",
                 "type", "response",
                 "id", id,
                 "ok", true,

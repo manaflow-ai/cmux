@@ -4,7 +4,7 @@ import {
   type ClientOptions,
   type WebSocketConstructor,
   type WebSocketTransportOptions,
-} from "cmux/browser";
+} from "cmux-sdk/browser";
 import {
   BrowserController,
   type BrowserControllerOptions,

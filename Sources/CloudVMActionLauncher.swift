@@ -1,4 +1,5 @@
 import CmuxFoundation
+import CmuxSettings
 import AppKit
 import Foundation
 
@@ -6,32 +7,245 @@ import Foundation
 final class CloudVMActionLauncher {
     static let shared = CloudVMActionLauncher()
 
+    /// A handle for a caller-owned CLI operation. Cancelling the handle only
+    /// stops that child process; the completion still arrives so its owner can
+    /// reconcile any output emitted before termination.
+    struct CancellationHandle {
+        private let action: @MainActor () -> Void
+
+        init(_ action: @escaping @MainActor () -> Void) {
+            self.action = action
+        }
+
+        @MainActor
+        func cancel() {
+            action()
+        }
+    }
+
     struct Completion {
         let terminationStatus: Int32
         let output: String
         let workspaceId: UUID?
+        /// The machine the CLI reported creating, parsed from its stable
+        /// `machine=<id>` token — never from localized display text.
+        var machineId: String? = nil
+        /// True when the caller explicitly cancelled the child process. A
+        /// cancelled create is not a failed create and must not present an
+        /// error sheet or notification.
+        var wasCancelled: Bool = false
 
         var succeeded: Bool {
             terminationStatus == 0
         }
+
+        /// The CLI's not-found failure (`Cloud VM not found (HTTP 404: vm_not_found)`):
+        /// the backend no longer knows the machine. For a delete that is the
+        /// outcome the person asked for.
+        var indicatesCloudVMNotFound: Bool {
+            !succeeded && output.range(of: "vm_not_found", options: .caseInsensitive) != nil
+        }
     }
 
-    private var processes: [Int32: Process] = [:]
-    private var progressControllers: [Int32: CloudVMActionProgressController] = [:]
+    /// The verb-specific half of a failure alert. Every verb shares one alert
+    /// shape (summary, what to try, scrollable details); the title and the
+    /// advice belong to the verb, and a verb may declare some failures silent.
+    struct FailurePresentation {
+        var title: String
+        var action: String
+        /// True when this failure needs no alert. Deleting a machine the backend
+        /// already forgot removes its row and workspaces (the `vm.destroy`
+        /// handler cleans up on 404), which is what the person asked for.
+        var isSilent: (Completion) -> Bool = { _ in false }
+
+        static var startCloudVM: FailurePresentation {
+            FailurePresentation(
+                title: String(localized: "command.cloudVM.failed.title", defaultValue: "Couldn't Start Cloud VM"),
+                action: String(
+                    localized: "command.cloudVM.failed.action.exit",
+                    defaultValue: "Open a terminal and run `cmux auth status`, `cmux vm ls`, then `cmux vm base open`. If you hit the active VM limit, delete one with `cmux vm rm <id>` and retry."
+                )
+            )
+        }
+
+        /// The presentation for one `cmux …` invocation, keyed on its verb, so
+        /// every entrypoint (row menu, palette, ＋ menu) names what failed: a
+        /// delete or a rename is never reported as "Couldn't Start Cloud VM".
+        static func forCommand(_ arguments: [String]) -> FailurePresentation {
+            let words = arguments.filter { !$0.hasPrefix("-") }
+            guard words.first == "vm", words.count > 1 else { return startCloudVM }
+            let generic = String(
+                localized: "command.cloudVM.failed.action.generic",
+                defaultValue: "Retry, or run the Cloud VM command in a terminal to see the full output."
+            )
+            switch words[1] {
+            case "base", "new":
+                return startCloudVM
+            case "rm", "destroy", "delete":
+                return FailurePresentation(
+                    title: String(localized: "command.cloudVM.failed.title.delete", defaultValue: "Couldn't Delete Machine"),
+                    action: String(
+                        localized: "command.cloudVM.failed.action.delete",
+                        defaultValue: "Refresh the Machines list and retry. A machine that no longer exists is removed from the list automatically. To see the full output, run `cmux vm rm <id>` in a terminal."
+                    ),
+                    isSilent: { $0.indicatesCloudVMNotFound }
+                )
+            case "rename":
+                return FailurePresentation(
+                    title: String(localized: "command.cloudVM.failed.title.rename", defaultValue: "Couldn't Rename Machine"),
+                    action: String(
+                        localized: "command.cloudVM.failed.action.rename",
+                        defaultValue: "A label is printable text of at most 64 characters. Retry, or run `cmux vm rename <id> <label>` in a terminal to see the full output."
+                    )
+                )
+            case "snapshot":
+                return FailurePresentation(
+                    title: String(localized: "command.cloudVM.failed.title.checkpoint", defaultValue: "Couldn't Checkpoint Machine"),
+                    action: generic
+                )
+            case "fork":
+                return FailurePresentation(
+                    title: String(localized: "command.cloudVM.failed.title.fork", defaultValue: "Couldn't Fork Machine"),
+                    action: generic
+                )
+            case "restore":
+                return FailurePresentation(
+                    title: String(localized: "command.cloudVM.failed.title.restore", defaultValue: "Couldn't Restore Checkpoint"),
+                    action: generic
+                )
+            case "status":
+                return FailurePresentation(
+                    title: String(localized: "command.cloudVM.failed.title.status", defaultValue: "Couldn't Read Machine Status"),
+                    action: generic
+                )
+            case "shell", "desktop", "open":
+                return FailurePresentation(
+                    title: String(localized: "command.cloudVM.failed.title.open", defaultValue: "Couldn't Open Machine"),
+                    action: generic
+                )
+            default:
+                return FailurePresentation(
+                    title: String(localized: "command.cloudVM.failed.title.generic", defaultValue: "Cloud VM Command Failed"),
+                    action: generic
+                )
+            }
+        }
+    }
+
+    /// Tracks one launch token alongside its PID. Keeping this tiny registry
+    /// separate makes the PID-reuse rule explicit: a deferred callback may
+    /// remove an entry only when its token still matches the current entry.
+    struct LaunchRegistry<Value> {
+        struct Entry {
+            let value: Value
+            let launchID: UUID
+        }
+
+        private(set) var entries: [Int32: Entry] = [:]
+
+        /// Records or replaces the launch currently occupying `processID`.
+        mutating func insert(_ value: Value, processID: Int32, launchID: UUID) {
+            entries[processID] = Entry(value: value, launchID: launchID)
+        }
+
+        /// Returns the entry for a PID without treating the PID as a complete
+        /// identity; callers must compare its `launchID` before mutating it.
+        func entry(processID: Int32) -> Entry? {
+            entries[processID]
+        }
+
+        /// Removes an entry only when both the PID and launch token match.
+        @discardableResult
+        mutating func remove(processID: Int32, launchID: UUID) -> Value? {
+            guard entries[processID]?.launchID == launchID else { return nil }
+            return entries.removeValue(forKey: processID)?.value
+        }
+
+        mutating func removeAll() {
+            entries.removeAll()
+        }
+    }
+
+    private var processes = LaunchRegistry<Process>()
+    private var authTransitionSuppressedLaunchIDs: Set<UUID> = []
+    private var cancelledLaunchIDs: Set<UUID> = []
     private var isShuttingDown = false
 
     private init() {}
 
     func terminateAll() {
         isShuttingDown = true
-        for process in processes.values where process.isRunning {
-            process.terminate()
+        for tracked in processes.entries.values where tracked.value.isRunning {
+            tracked.value.terminate()
         }
         processes.removeAll()
-        for controller in progressControllers.values {
-            controller.close()
+        authTransitionSuppressedLaunchIDs.removeAll()
+        cancelledLaunchIDs.removeAll()
+    }
+
+    /// Cancel Cloud VM CLI children when the account is signing out without
+    /// putting the launcher into the permanent application-termination state.
+    /// Their late termination callbacks are suppressed so a failed CLI cannot
+    /// present an alert over the signed-out account screen.
+    func cancelAllForAuthTransition() {
+        for tracked in processes.entries.values {
+            // Mark every tracked launch, including one that has exited but whose
+            // termination callback is still queued, so no late callback presents
+            // an alert after the account transition.
+            authTransitionSuppressedLaunchIDs.insert(tracked.launchID)
+            if tracked.value.isRunning {
+                tracked.value.terminate()
+            }
         }
-        progressControllers.removeAll()
+        processes.removeAll()
+        // A process that was cancelled before sign-out may report after the
+        // table is cleared. Do not let that old launch mark a later child as
+        // cancelled if the operating system reuses its PID.
+        cancelledLaunchIDs.removeAll()
+    }
+
+    /// Stops one child launched by `start`. The termination callback remains
+    /// authoritative: callers still receive its final output and can clean up
+    /// a provider machine that was created just before cancellation.
+    func cancel(processID: Int32) {
+        guard let tracked = processes.entry(processID: processID) else { return }
+        cancel(processID: processID, launchID: tracked.launchID)
+    }
+
+    /// Cancels only the launch identified by both its PID and unique token. The
+    /// token prevents a stale cancellation handle from acting on a later child
+    /// after the operating system recycles the PID.
+    private func cancel(processID: Int32, launchID: UUID) {
+        guard let tracked = processes.entry(processID: processID), tracked.launchID == launchID else { return }
+        cancelledLaunchIDs.insert(launchID)
+        if tracked.value.isRunning {
+            tracked.value.terminate()
+        }
+    }
+
+    /// Best-effort cleanup for a machine that was announced by a cancelled
+    /// create. Delete is idempotent at the socket boundary, so a race with the
+    /// create finalizer is safe; the local workspace/catalog cleanup is handled
+    /// by the same destroy path as a user-initiated delete. The auth-transition
+    /// override keeps a late tombstone from opening a sign-in sheet; the socket
+    /// still enforces the account's server-side authorization.
+    func destroyMachineBestEffort(_ machineID: String) {
+        let id = machineID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !id.isEmpty else { return }
+        let socketPath = TerminalController.shared.activeSocketPath(
+            preferredPath: SocketControlSettings.socketPath()
+        )
+        _ = start(
+            socketPath: socketPath,
+            preferredWindow: nil,
+            arguments: ["vm", "rm", id],
+            presentsFailureAlert: false,
+            allowDuringAuthTransition: true,
+            onCompletion: { completion in
+                guard completion.succeeded || completion.indicatesCloudVMNotFound else { return }
+                AppDelegate.shared?.closeWorkspaces(forManagedCloudVMID: id)
+            }
+        )
     }
 
     @discardableResult
@@ -41,25 +255,45 @@ final class CloudVMActionLauncher {
         arguments: [String] = ["vm", "base", "open"],
         successTitle: String? = nil,
         presentOutputOnSuccess: Bool = false,
-        showsProgress: Bool = true,
         presentsFailureAlert: Bool = true,
+        /// Internal cleanup operations may be delivered after sign-out has
+        /// started. They still use the app's authenticated socket path but must
+        /// not open a sign-in sheet when the transition has cleared local UI.
+        allowDuringAuthTransition: Bool = false,
+        failurePresentation: FailurePresentation? = nil,
         environmentOverrides: [String: String] = [:],
+        onCancellationReady: (@MainActor (CancellationHandle) -> Void)? = nil,
+        onOutput: (@MainActor (String) -> Void)? = nil,
         onCompletion: ((Completion) -> Void)? = nil
     ) -> Bool {
+        let accountFlow = AppDelegate.shared?.auth?.accountFlow
+        let authState = CloudVMPanelAuthState.resolve(
+            isAuthenticated: accountFlow?.isAuthenticated == true,
+            isWorkingOnAuth: accountFlow?.isWorkingOnAuth == true
+        )
+        if !authState.allowsAuthenticatedOperation, !allowDuringAuthTransition {
+            // Keep every native launcher entrypoint aligned with the Machines
+            // panel: a signed-out action opens the shared sign-in screen and
+            // never starts a child CLI that could create or attach a VM.
+            _ = AppDelegate.shared?.performAccountSignInWorkspaceAction(
+                preferredWindow: preferredWindow,
+                debugSource: "cloudVM.auth"
+            )
+            return false
+        }
+        let failure = failurePresentation ?? FailurePresentation.forCommand(arguments)
         let cliURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux")
         guard let cliURL,
               FileManager.default.isExecutableFile(atPath: cliURL.path) else {
             if presentsFailureAlert {
                 presentStartFailure(
+                    title: failure.title,
                     summary: String(
                         localized: "command.cloudVM.failed.missingCLI",
                         defaultValue: "The bundled cmux CLI is missing from this app build."
                     ),
                     output: "",
-                    action: String(
-                        localized: "command.cloudVM.failed.action.missingCLI",
-                        defaultValue: "Install or reload a fresh cmux build, then try Start Cloud VM again. You can also run `cmux vm base open` in a terminal to see the full error."
-                    ),
+                    action: failure.action,
                     preferredWindow: preferredWindow
                 )
             }
@@ -82,80 +316,83 @@ final class CloudVMActionLauncher {
         let errorPipe = Pipe()
         process.standardOutput = outputPipe
         process.standardError = errorPipe
-        let outputCollector = ProcessOutputCollector(stdout: outputPipe, stderr: errorPipe)
+        let outputCollector = ProcessOutputCollector(stdout: outputPipe, stderr: errorPipe) { chunk in
+            guard let chunk = String(data: chunk, encoding: .utf8), !chunk.isEmpty else { return }
+            Task { @MainActor in
+                onOutput?(chunk)
+            }
+        }
         outputCollector.start()
         let launchWindow = preferredWindow
-        let presentation = Self.progressPresentation(arguments: arguments)
-        let progressController = showsProgress
-            ? CloudVMActionProgressController(
-                title: presentation.title,
-                message: presentation.message,
-                preferredWindow: preferredWindow
-            )
-            : nil
+        let launchID = UUID()
         process.terminationHandler = { terminatedProcess in
             let output = outputCollector.finish()
             let processIdentifier = terminatedProcess.processIdentifier
             let terminationStatus = terminatedProcess.terminationStatus
             Task { @MainActor in
-                Self.shared.processes.removeValue(forKey: processIdentifier)
-                Self.shared.progressControllers.removeValue(forKey: processIdentifier)?.close()
-                onCompletion?(
-                    Completion(
-                        terminationStatus: terminationStatus,
-                        output: output,
-                        workspaceId: Self.createdWorkspaceId(from: output)
-                    )
+                // A PID can be reused before this deferred main-actor callback
+                // runs. Remove the table entry only when it is still this
+                // launch; the old completion must never tear down a new child.
+                _ = Self.shared.processes.remove(processID: processIdentifier, launchID: launchID)
+                let suppressPresentation = Self.shared.authTransitionSuppressedLaunchIDs.remove(launchID) != nil
+                let wasCancelled = Self.shared.cancelledLaunchIDs.remove(launchID) != nil
+                let completion = Completion(
+                    terminationStatus: terminationStatus,
+                    output: output,
+                    workspaceId: Self.createdWorkspaceId(from: output),
+                    machineId: Self.createdMachineId(from: output),
+                    wasCancelled: wasCancelled
                 )
-                if terminationStatus == 0, presentOutputOnSuccess, !Self.shared.isShuttingDown {
+                onCompletion?(completion)
+                if terminationStatus == 0, presentOutputOnSuccess, !Self.shared.isShuttingDown, !suppressPresentation, !wasCancelled {
                     Self.shared.presentCommandResult(
                         title: successTitle ?? String(localized: "command.cloudVM.result.title", defaultValue: "Cloud VM"),
                         output: output,
                         preferredWindow: launchWindow
                     )
                 }
-                guard terminationStatus != 0, !Self.shared.isShuttingDown, presentsFailureAlert else { return }
+                guard terminationStatus != 0,
+                      !Self.shared.isShuttingDown,
+                      !suppressPresentation,
+                      !wasCancelled,
+                      presentsFailureAlert,
+                      !failure.isSilent(completion) else { return }
                 let format = String(
                     localized: "command.cloudVM.failed.exit",
-                    defaultValue: "Cloud VM command exited with status %d."
+                    defaultValue: "The Cloud VM command exited with status %d."
                 )
                 Self.shared.presentStartFailure(
+                    title: failure.title,
                     summary: String(format: format, Int(terminationStatus)),
                     output: output,
-                    action: String(
-                        localized: "command.cloudVM.failed.action.exit",
-                        defaultValue: "Open a terminal and run `cmux auth status`, `cmux vm ls`, then `cmux vm base open`. If you hit the active VM limit, delete one with `cmux vm rm <id>` and retry."
-                    ),
+                    action: failure.action,
                     preferredWindow: launchWindow
                 )
             }
         }
 
         do {
-            progressController?.show()
             try process.run()
-            processes[process.processIdentifier] = process
-            if let progressController {
-                progressControllers[process.processIdentifier] = progressController
-            }
+            let processID = process.processIdentifier
+            processes.insert(process, processID: processID, launchID: launchID)
+            onCancellationReady?(CancellationHandle { [weak self] in
+                self?.cancel(processID: processID, launchID: launchID)
+            })
 #if DEBUG
-            cmuxDebugLog("cloudVM.launch pid=\(process.processIdentifier) socket=\(socketPath)")
+            cmuxDebugLog("cloudVM.launch pid=\(processID) socket=\(socketPath)")
 #endif
             return true
         } catch {
             outputCollector.cancel()
-            progressController?.close()
             if presentsFailureAlert {
                 presentStartFailure(
+                    title: failure.title,
                     summary: String(
                         localized: "command.cloudVM.failed.launch",
-                        defaultValue: "cmux vm base open could not be launched."
+                        defaultValue: "The Cloud VM command could not be launched."
                     ),
                     output: error.localizedDescription,
-                    action: String(
-                        localized: "command.cloudVM.failed.action.launch",
-                        defaultValue: "Reload cmux so the bundled CLI is available, then try again. If it still fails, run `cmux vm base open` in a terminal and send us the output."
-                    ),
+                    action: failure.action,
                     preferredWindow: preferredWindow
                 )
             }
@@ -164,20 +401,35 @@ final class CloudVMActionLauncher {
     }
 
     private func presentCommandResult(title: String, output: String, preferredWindow: NSWindow?) {
-        let trimmedOutput = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedOutput = String(output.trimmingCharacters(in: .whitespacesAndNewlines).prefix(4000))
         let alert = NSAlert()
         alert.alertStyle = .informational
         alert.messageText = title
-        alert.informativeText = String(trimmedOutput.prefix(4000))
         alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
-
-        if let preferredWindow {
-            alert.beginSheetModal(for: preferredWindow, completionHandler: nil)
-        } else if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+        // House alert style: command output lives in the scrollable details
+        // region so long results never balloon the sheet.
+        let content = CmuxAlertContent.scrollingAll(trimmedOutput)
+        let window = Self.presentationWindow(preferred: preferredWindow, key: NSApp.keyWindow, main: NSApp.mainWindow)
+        content.apply(to: alert, presentingWindow: window)
+        if let window {
             alert.beginSheetModal(for: window, completionHandler: nil)
         } else {
             _ = alert.runModal()
         }
+    }
+
+    /// `cmux vm new` prints `OK machine=<id>` the moment the machine exists,
+    /// before it tries to open it, so a failed open still reports the machine.
+    private static func createdMachineId(from output: String) -> String? {
+        for token in output.split(whereSeparator: \.isWhitespace) {
+            let string = String(token)
+            guard string.hasPrefix("machine=") else { continue }
+            let id = String(string.dropFirst("machine=".count))
+            if !id.isEmpty, id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }) {
+                return id
+            }
+        }
+        return nil
     }
 
     private static func createdWorkspaceId(from output: String) -> UUID? {
@@ -192,50 +444,41 @@ final class CloudVMActionLauncher {
         return nil
     }
 
-    private struct ProgressPresentation {
-        let title: String
-        let message: String
+    /// The window a result or failure sheet attaches to, decided when the sheet
+    /// is presented, never when the CLI was launched. A launch from a confirm
+    /// sheet's completion handler (Delete…, Rename…, Set Up Base) captures that
+    /// sheet as the key window; by the time the CLI exits the sheet is gone, and
+    /// an alert attached to a dismissed sheet stays on screen when OK is pressed
+    /// (only Escape closes it). Such a window is skipped: a live sheet hands over
+    /// to its parent, then the key window and the main window are tried, and
+    /// with nothing visible the alert runs app-modal instead.
+    static func presentationWindow(preferred: NSWindow?, key: NSWindow?, main: NSWindow?) -> NSWindow? {
+        for candidate in [preferred, key, main] {
+            guard let candidate else { continue }
+            if isUsablePresentationWindow(candidate) { return candidate }
+            if candidate.isSheet, let parent = candidate.sheetParent, isUsablePresentationWindow(parent) {
+                return parent
+            }
+        }
+        return nil
     }
 
-    private static func progressPresentation(arguments: [String]) -> ProgressPresentation {
-        if arguments.starts(with: ["vm", "base"]) || arguments.starts(with: ["vm", "new"]) {
-            return ProgressPresentation(
-                title: String(localized: "command.cloudVM.loading.open.title", defaultValue: "Opening Base"),
-                message: String(localized: "command.cloudVM.loading.open.message", defaultValue: "Creating or reattaching to your persistent cloud workspace.")
-            )
-        }
-        if arguments.contains("fork") {
-            return ProgressPresentation(
-                title: String(localized: "command.cloudVM.loading.fork.title", defaultValue: "Forking Cloud VM"),
-                message: String(localized: "command.cloudVM.loading.fork.message", defaultValue: "Creating a copy of the selected Cloud VM.")
-            )
-        }
-        if arguments.contains("snapshot") {
-            return ProgressPresentation(
-                title: String(localized: "command.cloudVM.loading.snapshot.title", defaultValue: "Checkpointing Cloud VM"),
-                message: String(localized: "command.cloudVM.loading.snapshot.message", defaultValue: "Saving a checkpoint for the selected Cloud VM.")
-            )
-        }
-        if arguments.contains("restore") {
-            return ProgressPresentation(
-                title: String(localized: "command.cloudVM.loading.restore.title", defaultValue: "Restoring Cloud VM"),
-                message: String(localized: "command.cloudVM.loading.restore.message", defaultValue: "Starting a Cloud VM from the selected checkpoint.")
-            )
-        }
-        return ProgressPresentation(
-            title: String(localized: "command.cloudVM.loading.command.title", defaultValue: "Cloud VM"),
-            message: String(localized: "command.cloudVM.loading.command.message", defaultValue: "Running Cloud VM command.")
-        )
+    private static func isUsablePresentationWindow(_ window: NSWindow) -> Bool {
+        window.isVisible && !window.isSheet && window.sheetParent == nil && window.attachedSheet == nil
     }
 
-    private func presentStartFailure(summary: String, output: String, action: String, preferredWindow: NSWindow?) {
+    private func presentStartFailure(title: String, summary: String, output: String, action: String, preferredWindow: NSWindow?) {
         let trimmedOutput = output.trimmingCharacters(in: .whitespacesAndNewlines)
         let limitedOutput = String(trimmedOutput.prefix(2000))
-        let safeOutput = sanitizedCloudVMStartOutput(limitedOutput)
+        let safeOutput = Self.sanitizedCloudVMStartOutput(limitedOutput)
+        // When the whole transcript is held back (it mentions backend internals),
+        // still tell the person *why* it failed: the CLI's first line is the
+        // human-readable reason ("Cloud VM state is unavailable (HTTP 503 …)").
+        let reason = safeOutput.isEmpty ? Self.firstSafeLine(of: limitedOutput) : nil
         let whatToTry = String(localized: "command.cloudVM.failed.whatToTry", defaultValue: "What to try:")
         let details = String(localized: "command.cloudVM.failed.details", defaultValue: "Details:")
         var sections = [
-            summary,
+            reason.map { "\(summary)\n\($0)" } ?? summary,
             "\(whatToTry)\n\(action)",
         ]
         if !safeOutput.isEmpty {
@@ -245,20 +488,47 @@ final class CloudVMActionLauncher {
 
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = String(localized: "command.cloudVM.failed.title", defaultValue: "Couldn't Start Cloud VM")
-        alert.informativeText = informativeText
+        alert.messageText = title
         alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
-
-        if let preferredWindow {
-            alert.beginSheetModal(for: preferredWindow, completionHandler: nil)
-        } else if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+        // House alert style: summary and next steps stay fixed, raw output
+        // scrolls, and the sheet is attached to the window so it moves with it.
+        let content = safeOutput.isEmpty
+            ? CmuxAlertContent(informativeText: informativeText)
+            : CmuxAlertContent(flattenedText: informativeText, separatingScrollableDetails: safeOutput)
+        let window = Self.presentationWindow(preferred: preferredWindow, key: NSApp.keyWindow, main: NSApp.mainWindow)
+        content.apply(to: alert, presentingWindow: window)
+        if let window {
             alert.beginSheetModal(for: window, completionHandler: nil)
         } else {
             _ = alert.runModal()
         }
     }
 
-    private func sanitizedCloudVMStartOutput(_ output: String) -> String {
+    /// What replaces output that cannot be shown: the person is told details
+    /// exist without the transcript leaking anything the redaction blocks.
+    nonisolated static var hiddenOutputPlaceholder: String {
+        String(
+            localized: "command.cloudVM.failed.details.hidden",
+            defaultValue: "Additional technical details are available in logs."
+        )
+    }
+
+    /// The first line of CLI output that passes the same redaction as the full
+    /// transcript, with an "Error:" prefix dropped. Nil when no line is safe.
+    nonisolated static func firstSafeLine(of output: String) -> String? {
+        for rawLine in output.split(whereSeparator: \.isNewline) {
+            var line = rawLine.trimmingCharacters(in: .whitespaces)
+            if line.lowercased().hasPrefix("error:") {
+                line = String(line.dropFirst("error:".count)).trimmingCharacters(in: .whitespaces)
+            }
+            guard !line.isEmpty else { continue }
+            let safe = sanitizedCloudVMStartOutput(line)
+            if !safe.isEmpty, safe != hiddenOutputPlaceholder { return String(safe.prefix(240)) }
+        }
+        return nil
+    }
+
+    nonisolated static func sanitizedCloudVMStartOutput(_ output: String) -> String {
         let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return "" }
         let lowercased = trimmed.lowercased()
@@ -276,7 +546,6 @@ final class CloudVMActionLauncher {
             "cookie",
             "credential",
             "database",
-            "daytona",
             "e2b",
             "freestyle",
             "http://",
@@ -308,7 +577,6 @@ final class CloudVMActionLauncher {
             "cookie",
             "credential",
             "database",
-            "daytona",
             "e2b",
             "freestyle",
             "itemid",
@@ -340,95 +608,9 @@ final class CloudVMActionLauncher {
               !containsLikelyEmail,
               !containsLikelyIPAddress,
               !containsLikelyFilesystemPath else {
-            return String(
-                localized: "command.cloudVM.failed.details.hidden",
-                defaultValue: "Additional technical details are available in logs."
-            )
+            return hiddenOutputPlaceholder
         }
         return trimmed
-    }
-}
-
-@MainActor
-private final class CloudVMActionProgressController {
-    private let panel: NSPanel
-    private weak var preferredWindow: NSWindow?
-
-    init(title: String, message: String, preferredWindow: NSWindow?) {
-        self.preferredWindow = preferredWindow
-        panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 320, height: 96),
-            styleMask: [.hudWindow, .nonactivatingPanel],
-            backing: .buffered,
-            defer: false
-        )
-        panel.isReleasedWhenClosed = false
-        panel.level = .floating
-        panel.hidesOnDeactivate = false
-        panel.titleVisibility = .hidden
-        panel.titlebarAppearsTransparent = true
-        panel.isMovableByWindowBackground = false
-        panel.contentView = Self.makeContentView(title: title, message: message)
-    }
-
-    func show() {
-        if let window = preferredWindow ?? NSApp.keyWindow ?? NSApp.mainWindow {
-            let frame = window.frame
-            let origin = NSPoint(
-                x: frame.midX - panel.frame.width / 2,
-                y: frame.maxY - panel.frame.height - 56
-            )
-            panel.setFrameOrigin(origin)
-        }
-        panel.orderFrontRegardless()
-    }
-
-    func close() {
-        panel.orderOut(nil)
-    }
-
-    private static func makeContentView(title: String, message: String) -> NSView {
-        let root = NSVisualEffectView()
-        root.blendingMode = .behindWindow
-        root.material = .hudWindow
-        root.state = .active
-
-        let spinner = NSProgressIndicator()
-        spinner.style = .spinning
-        spinner.controlSize = .small
-        spinner.isIndeterminate = true
-        spinner.startAnimation(nil)
-        spinner.translatesAutoresizingMaskIntoConstraints = false
-
-        let titleLabel = NSTextField(labelWithString: title)
-        titleLabel.font = .systemFont(ofSize: 13, weight: .semibold)
-        titleLabel.textColor = .labelColor
-        titleLabel.lineBreakMode = .byTruncatingTail
-        titleLabel.translatesAutoresizingMaskIntoConstraints = false
-
-        let messageLabel = NSTextField(labelWithString: message)
-        messageLabel.font = .systemFont(ofSize: 12)
-        messageLabel.textColor = .secondaryLabelColor
-        messageLabel.lineBreakMode = .byWordWrapping
-        messageLabel.maximumNumberOfLines = 2
-        messageLabel.translatesAutoresizingMaskIntoConstraints = false
-
-        root.addSubview(spinner)
-        root.addSubview(titleLabel)
-        root.addSubview(messageLabel)
-
-        NSLayoutConstraint.activate([
-            spinner.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 18),
-            spinner.centerYAnchor.constraint(equalTo: root.centerYAnchor),
-            titleLabel.leadingAnchor.constraint(equalTo: spinner.trailingAnchor, constant: 12),
-            titleLabel.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -18),
-            titleLabel.topAnchor.constraint(equalTo: root.topAnchor, constant: 22),
-            messageLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
-            messageLabel.trailingAnchor.constraint(equalTo: titleLabel.trailingAnchor),
-            messageLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 4),
-        ])
-
-        return root
     }
 }
 
@@ -446,9 +628,12 @@ final class ProcessOutputCollector: @unchecked Sendable {
     private var stderr = Data()
     private var isFinished = false
 
-    init(stdout: Pipe, stderr: Pipe) {
+    private let onOutput: ((Data) -> Void)?
+
+    init(stdout: Pipe, stderr: Pipe, onOutput: ((Data) -> Void)? = nil) {
         stdoutHandle = stdout.fileHandleForReading
         stderrHandle = stderr.fileHandleForReading
+        self.onOutput = onOutput
     }
 
     func start() {
@@ -515,6 +700,7 @@ final class ProcessOutputCollector: @unchecked Sendable {
 
     private func append(_ data: Data, to stream: Stream) {
         guard !data.isEmpty else { return }
+        onOutput?(data)
         lock.lock()
         defer { lock.unlock() }
 

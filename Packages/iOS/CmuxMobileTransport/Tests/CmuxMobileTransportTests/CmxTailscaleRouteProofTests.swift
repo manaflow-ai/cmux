@@ -5,6 +5,26 @@ import Testing
 private let tailscaleInterface = CmxNetworkInterfaceIdentity(name: "utun4", index: 22)
 
 @Suite struct CmxTailscaleRouteProofTests {
+    @Test func classifiesOnlyLiveTunnelStateChangesAsTransientReadinessFailures() {
+        let transient: [CmxTailscaleRouteProofError] = [
+            .pathUnavailable, .tailscaleInterfaceUnavailable,
+            .ambiguousTailscaleInterfaces, .routeGenerationChanged,
+            .interfaceChanged, .connectionPathUnavailable,
+        ]
+        let terminal: [CmxTailscaleRouteProofError] = [
+            .unsupportedRouteKind, .unsupportedAuthorizationMode,
+            .authorizationEvidenceMismatch, .unsupportedEndpoint,
+            .nonNumericPeer, .peerOutsideTailscaleRange, .peerIsLocalDevice,
+            .localEndpointMismatch, .remoteEndpointMismatch, .remotePortMismatch,
+        ]
+        for error in transient {
+            #expect(error.isTransientReadinessFailure, "\(error) must retry within the readiness deadline")
+        }
+        for error in terminal {
+            #expect(!error.isTransientReadinessFailure, "\(error) must fail the attempt immediately")
+        }
+    }
+
     @Test func rejectsGenericBearerAndMismatchedLegacyEvidence() throws {
         let genericBearer = try tailscaleRequest(
             host: "100.71.210.41",
@@ -80,7 +100,8 @@ private let tailscaleInterface = CmxNetworkInterfaceIdentity(name: "utun4", inde
         try CmxTailscaleRouteProofValidator().validate(
             proof: ipv4Proof,
             authoritySnapshot: snapshot,
-            connectionPath: connectionPath()
+            connectionPath: connectionPath(),
+            phase: .established
         )
 
         let ipv6 = try tailscaleRequest(host: "fd7a:115c:a1e0::1234")
@@ -91,7 +112,8 @@ private let tailscaleInterface = CmxNetworkInterfaceIdentity(name: "utun4", inde
         try CmxTailscaleRouteProofValidator().validate(
             proof: ipv6Proof,
             authoritySnapshot: snapshot,
-            connectionPath: connectionPath(remoteAddress: "fd7a:115c:a1e0::1234")
+            connectionPath: connectionPath(remoteAddress: "fd7a:115c:a1e0::1234"),
+            phase: .established
         )
 
         #expect(ipv4Proof.interface == tailscaleInterface)
@@ -111,7 +133,8 @@ private let tailscaleInterface = CmxNetworkInterfaceIdentity(name: "utun4", inde
             try CmxTailscaleRouteProofValidator().validate(
                 proof: proof,
                 authoritySnapshot: authoritySnapshot(generation: 42),
-                connectionPath: connectionPath()
+                connectionPath: connectionPath(),
+                phase: .established
             )
         }
         #expect(throws: CmxTailscaleRouteProofError.connectionPathUnavailable) {
@@ -124,21 +147,88 @@ private let tailscaleInterface = CmxNetworkInterfaceIdentity(name: "utun4", inde
                     localAddress: CmxTailscaleIPAddress("100.70.231.80"),
                     remoteAddress: CmxTailscaleIPAddress("100.71.210.41"),
                     remotePort: 58_465
-                )
+                ),
+                phase: .established
             )
         }
         #expect(throws: CmxTailscaleRouteProofError.remoteEndpointMismatch) {
             try CmxTailscaleRouteProofValidator().validate(
                 proof: proof,
                 authoritySnapshot: snapshot,
-                connectionPath: connectionPath(remoteAddress: "100.71.210.42")
+                connectionPath: connectionPath(remoteAddress: "100.71.210.42"),
+                phase: .established
             )
         }
         #expect(throws: CmxTailscaleRouteProofError.remotePortMismatch) {
             try CmxTailscaleRouteProofValidator().validate(
                 proof: proof,
                 authoritySnapshot: snapshot,
-                connectionPath: connectionPath(remotePort: 58_466)
+                connectionPath: connectionPath(remotePort: 58_466),
+                phase: .established
+            )
+        }
+    }
+
+    /// Repro of the first-scan device failure: `NWConnection` delivers its
+    /// first path update before the socket binds a local endpoint, so a
+    /// still-connecting path carries the proven interface but no endpoints.
+    /// That update must pass route-level validation instead of misreading the
+    /// unbound endpoints as a substitution and killing the dial; the same
+    /// path must still fail the established phase, where endpoints are
+    /// mandatory.
+    @Test func preEstablishmentPathUpdateValidatesRouteFactsOnly() throws {
+        let request = try tailscaleRequest(host: "100.71.210.41")
+        let snapshot = authoritySnapshot(generation: 41)
+        let proof = try CmxTailscaleRouteProofValidator().prepare(
+            request: request,
+            snapshot: snapshot
+        )
+        let stillConnecting = CmxTailscaleConnectionPathSnapshot(
+            isSatisfied: true,
+            availableInterfaces: [tailscaleInterface],
+            localAddress: nil,
+            remoteAddress: CmxTailscaleIPAddress("100.71.210.41"),
+            remotePort: 58_465
+        )
+
+        try CmxTailscaleRouteProofValidator().validate(
+            proof: proof,
+            authoritySnapshot: snapshot,
+            connectionPath: stillConnecting,
+            phase: .pathUpdate
+        )
+        #expect(throws: CmxTailscaleRouteProofError.localEndpointMismatch) {
+            try CmxTailscaleRouteProofValidator().validate(
+                proof: proof,
+                authoritySnapshot: snapshot,
+                connectionPath: stillConnecting,
+                phase: .established
+            )
+        }
+
+        // Route-level facts still gate the path-update phase: a path that
+        // lost the proven interface fails even while connecting.
+        let wrongInterface = CmxTailscaleConnectionPathSnapshot(
+            isSatisfied: true,
+            availableInterfaces: [CmxNetworkInterfaceIdentity(name: "utun5", index: 23)],
+            localAddress: nil,
+            remoteAddress: nil,
+            remotePort: nil
+        )
+        #expect(throws: CmxTailscaleRouteProofError.connectionPathUnavailable) {
+            try CmxTailscaleRouteProofValidator().validate(
+                proof: proof,
+                authoritySnapshot: snapshot,
+                connectionPath: wrongInterface,
+                phase: .pathUpdate
+            )
+        }
+        #expect(throws: CmxTailscaleRouteProofError.routeGenerationChanged) {
+            try CmxTailscaleRouteProofValidator().validate(
+                proof: proof,
+                authoritySnapshot: authoritySnapshot(generation: 42),
+                connectionPath: stillConnecting,
+                phase: .pathUpdate
             )
         }
     }

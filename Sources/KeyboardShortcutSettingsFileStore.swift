@@ -42,7 +42,14 @@ final class CmuxSettingsFileStore {
     private let fallbackPaths: [String]
     private let fileManager: FileManager
     private let notificationCenter: NotificationCenter
+    private let userDefaults: UserDefaults
+    private let languageSettingsStore: LanguageSettingsStore?
     private let passwordStore: SocketControlPasswordStore
+    /// Whether an MDM configuration profile forces a `UserDefaults` key.
+    /// The importer must never write a forced key: the write can not change
+    /// the effective (forced) value, and re-asserting on every defaults
+    /// change would loop forever against it.
+    private let isUserDefaultsKeyForcedByProfile: (String) -> Bool
     private let onWatchedFileReload: @MainActor @Sendable (String) -> Void
     private let stateLock = NSLock()
 
@@ -68,18 +75,35 @@ final class CmuxSettingsFileStore {
         additionalFallbackPaths: [String] = [CmuxSettingsFileStore.defaultApplicationSupportFallbackPath].compactMap { $0 },
         fileManager: FileManager = .default,
         notificationCenter: NotificationCenter = .default,
+        userDefaults: UserDefaults = .standard,
+        languageSettingsStore: LanguageSettingsStore? = nil,
         passwordStore: SocketControlPasswordStore = SocketControlPasswordStore(),
         startWatching: Bool = true,
+        isUserDefaultsKeyForcedByProfile: @escaping (String) -> Bool = { key in
+            let policy = ManagedDevicePolicy()
+            if key == BrowserURLAllowlistPolicy.userDefaultsKey {
+                return policy.isBrowserURLAllowlistLocked(
+                    userDefaultsKey: BrowserURLAllowlistPolicy.userDefaultsKey
+                )
+            }
+            return policy.isKeyForcedInAppDomain(key)
+        },
         onWatchedFileReload: @escaping @MainActor @Sendable (String) -> Void = { _ in }
     ) {
+        self.isUserDefaultsKeyForcedByProfile = isUserDefaultsKeyForcedByProfile
         self.primaryPath = primaryPath
         self.fallbackPaths = ([fallbackPath].compactMap { $0 } + additionalFallbackPaths)
             .filter { $0 != primaryPath }
         self.fileManager = fileManager
         self.notificationCenter = notificationCenter
+        self.userDefaults = userDefaults
+        // Language override ownership is supplied by the composition root. A custom
+        // UserDefaults suite must provide a LanguageSettingsStore with its domain name;
+        // there is no safe way to infer a suite name from a UserDefaults instance.
+        self.languageSettingsStore = languageSettingsStore
         self.passwordStore = passwordStore
         self.onWatchedFileReload = onWatchedFileReload
-        importedManagedDefaults = Self.loadImportedManagedDefaults()
+        importedManagedDefaults = Self.loadImportedManagedDefaults(defaults: userDefaults)
         bootstrapPrimaryTemplateIfNeeded()
         reload(applyLiveDefaultSideEffects: false)
         guard startWatching else { return }
@@ -89,9 +113,9 @@ final class CmuxSettingsFileStore {
             return Task { @MainActor [weak self] in
                 for await _ in events {
                     guard let self else { break }
-                    let previousSocketAccessMode = Self.liveSocketAccessMode()
+                    let previousSocketAccessMode = Self.liveSocketAccessMode(defaults: self.userDefaults)
                     self.reload()
-                    guard Self.liveSocketAccessMode() != previousSocketAccessMode else { continue }
+                    guard Self.liveSocketAccessMode(defaults: self.userDefaults) != previousSocketAccessMode else { continue }
                     self.onWatchedFileReload("settings.file_watcher")
                 }
             }
@@ -115,9 +139,13 @@ final class CmuxSettingsFileStore {
 
     /// Returns whether the reload posted `didChangeNotification`, so callers
     /// that must guarantee a notification can post one without double-firing.
+    /// When provided, `notificationSourceURL` identifies the reload's post.
     @discardableResult
-    func reload() -> Bool {
-        reload(applyLiveDefaultSideEffects: true)
+    func reload(notificationSourceURL: URL? = nil) -> Bool {
+        reload(
+            applyLiveDefaultSideEffects: true,
+            notificationSourceURL: notificationSourceURL
+        )
     }
 
     func applyDeferredManagedDefaultSideEffects() {
@@ -125,7 +153,10 @@ final class CmuxSettingsFileStore {
     }
 
     @discardableResult
-    private func reload(applyLiveDefaultSideEffects: Bool) -> Bool {
+    private func reload(
+        applyLiveDefaultSideEffects: Bool,
+        notificationSourceURL: URL? = nil
+    ) -> Bool {
         let previousState = synchronized {
             (
                 shortcuts: shortcutsByAction,
@@ -161,7 +192,10 @@ final class CmuxSettingsFileStore {
             || previousState.managedShortcutActions != resolved.managedShortcutActions
             || previousState.whenClauses != resolved.whenClauses
             || previousState.sourcePath != resolved.path {
-            KeyboardShortcutSettings.notifySettingsFileDidChange(center: notificationCenter)
+            KeyboardShortcutSettings.notifySettingsFileDidChange(
+                center: notificationCenter,
+                sourceURL: notificationSourceURL
+            )
             return true
         }
         return false
@@ -206,7 +240,8 @@ final class CmuxSettingsFileStore {
             let template = legacySettingsDataForBootstrap() ?? Data(Self.defaultTemplate().utf8)
             let contents = Self.materializeBootstrapSocketPolicy(
                 in: template,
-                imported: importedManagedDefaults[SocketControlSettings.appStorageKey]
+                imported: importedManagedDefaults[SocketControlSettings.appStorageKey],
+                defaults: userDefaults
             )
             try contents.write(to: fileURL, options: [.atomic])
             try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
@@ -280,7 +315,7 @@ final class CmuxSettingsFileStore {
     private func resolveSettings() -> ResolvedSettingsSnapshot {
         // A transient missing or malformed file must not restore a potentially broader unmanaged policy.
         let priorSocketMode = synchronized { activeManagedUserDefaults[SocketControlSettings.appStorageKey] }
-        let preservedSocketMode = priorSocketMode ?? .string(Self.failClosedSocketMode().rawValue)
+        let preservedSocketMode = priorSocketMode ?? .string(Self.failClosedSocketMode(defaults: userDefaults).rawValue)
         switch loadSettings(at: primaryPath) {
         case .parsed(var snapshot, let malformedAutomation):
             mergeFallbackSettings(into: &snapshot)
@@ -295,7 +330,8 @@ final class CmuxSettingsFileStore {
         mergeFallbackSettings(into: &fallbackSnapshot)
         fallbackSnapshot.managedUserDefaults[SocketControlSettings.appStorageKey] =
             Self.socketModeAfterMissingPrimary(prior: priorSocketMode,
-                fallback: fallbackSnapshot.managedUserDefaults[SocketControlSettings.appStorageKey])
+                fallback: fallbackSnapshot.managedUserDefaults[SocketControlSettings.appStorageKey],
+                defaults: userDefaults)
         return fallbackSnapshot
     }
     private func mergeFallbackSettings(into snapshot: inout ResolvedSettingsSnapshot) {
@@ -500,13 +536,36 @@ final class CmuxSettingsFileStore {
         applyBooleanSettings(NotificationSettingsFileMapping.booleanSettings, from: section, sourcePath: sourcePath, snapshot: &snapshot)
         if let raw = jsonString(section["sound"]) {
             let allowed = Set(NotificationSoundSettings.systemSounds.map(\.value))
-            guard allowed.contains(raw) else {
+            if allowed.contains(raw) {
+                snapshot.managedUserDefaults[NotificationSoundSettings.key] = .string(raw)
+            } else {
                 logInvalid("notifications.sound", sourcePath: sourcePath)
-                return
             }
-            snapshot.managedUserDefaults[NotificationSoundSettings.key] = .string(raw)
+        }
+        if let raw = section["soundOverrides"] {
+            if let data = NotificationSoundOverrides.boundedJSONData(
+                fromJSONObject: raw
+            ),
+               let overrides = try? NotificationSoundOverrides(jsonData: data) {
+                snapshot.managedUserDefaults[
+                    NotificationsCatalogSection().soundOverrides.userDefaultsKey
+                ] = .string(overrides.jsonString)
+            } else {
+                logInvalid("notifications.soundOverrides", sourcePath: sourcePath)
+            }
         }
         applyStringSettings(NotificationSettingsFileMapping.stringSettings, from: section, snapshot: &snapshot)
+        if section.keys.contains("paneFlashColor") {
+            if let value = parseNullableHex(
+                section["paneFlashColor"],
+                path: "notifications.paneFlashColor",
+                sourcePath: sourcePath
+            ) {
+                snapshot.managedUserDefaults[
+                    NotificationsCatalogSection().paneFlashColorHex.userDefaultsKey
+                ] = .nullableString(value)
+            }
+        }
         if let raw = jsonString(section["agentTurnComplete"]) {
             if AgentTurnCompleteMode(rawValue: raw) != nil {
                 snapshot.managedUserDefaults[NotificationsCatalogSection().agentTurnComplete.userDefaultsKey] = .string(raw)
@@ -827,7 +886,7 @@ final class CmuxSettingsFileStore {
             let mode = raw.flatMap { knownModes.contains(normalizedRaw ?? "") ? SocketControlSettings.migrateMode($0) : nil }
             if mode == nil { logInvalid("automation.socketControlMode", sourcePath: sourcePath) }
             snapshot.managedUserDefaults[SocketControlSettings.appStorageKey] = .string(
-                (mode ?? Self.failClosedSocketMode()).rawValue
+                (mode ?? Self.failClosedSocketMode(defaults: userDefaults)).rawValue
             )
         }
         if section.keys.contains("socketPassword") {
@@ -871,6 +930,16 @@ final class CmuxSettingsFileStore {
         snapshot: inout ResolvedSettingsSnapshot
     ) {
         let browserSearchSettings = BrowserSearchSettingsStore()
+
+        if section.keys.contains("defaultZoomLevel") {
+            if let rawZoom = jsonDouble(section["defaultZoomLevel"]), rawZoom.isFinite {
+                snapshot.managedUserDefaults[BrowserZoomSettings.userDefaultsKey] = .double(
+                    BrowserZoomSettings().normalized(rawZoom)
+                )
+            } else {
+                logInvalid("browser.defaultZoomLevel", sourcePath: sourcePath)
+            }
+        }
 
         if let raw = jsonString(section["defaultSearchEngine"]) {
             guard let engine = BrowserSearchEngine(rawValue: raw) else {
@@ -1124,7 +1193,10 @@ final class CmuxSettingsFileStore {
         }
 
         if updateBackups {
-            for (defaultsKey, value) in snapshot.managedUserDefaults where backups[defaultsKey] == nil {
+            // Skip MDM-forced keys: reads return the profile's value, so a
+            // backup would capture the forced value as if the user chose it.
+            for (defaultsKey, value) in snapshot.managedUserDefaults
+            where backups[defaultsKey] == nil && !isUserDefaultsKeyForcedByProfile(defaultsKey) {
                 backups[defaultsKey] = backupValueForUserDefaultsKey(defaultsKey, managedValue: value)
             }
             if snapshot.managedCustomSettings.socketPassword != nil,
@@ -1135,6 +1207,15 @@ final class CmuxSettingsFileStore {
 
         for identifier in currentManagedIdentifiers.subtracting(nextManagedIdentifiers) {
             guard let backup = backups[identifier] else { continue }
+            // While an MDM profile forces the key, restoring is impossible
+            // (writes cannot change the effective value), so retain the
+            // backup instead of dropping it: when the profile is later
+            // removed, a subsequent apply pass restores the user's original
+            // value rather than leaving the last imported one behind.
+            if identifier != Self.socketPasswordBackupIdentifier,
+               isUserDefaultsKeyForcedByProfile(identifier) {
+                continue
+            }
             sideEffects.merge(
                 restoreBackup(
                     backup,
@@ -1235,7 +1316,7 @@ final class CmuxSettingsFileStore {
     }
 
     private func backupValueForUserDefaultsKey(_ defaultsKey: String, managedValue: ManagedSettingsValue) -> BackupValue {
-        let defaults = UserDefaults.standard
+        let defaults = userDefaults
         switch managedValue {
         case .bool:
             guard defaults.object(forKey: defaultsKey) != nil else { return .absent }
@@ -1247,6 +1328,14 @@ final class CmuxSettingsFileStore {
             guard defaults.object(forKey: defaultsKey) != nil else { return .absent }
             return .double(defaults.double(forKey: defaultsKey))
         case .string, .nullableString:
+            // `browserExternalOpenPatterns` was persisted as an array by
+            // older releases. Preserve the raw array in the backup instead
+            // of routing it through the bounded runtime matcher; the catalog
+            // still decodes that array as a newline string when it is active.
+            if defaultsKey == BrowserExternalURLPolicy.userDefaultsKey,
+               let legacyArray = defaults.array(forKey: defaultsKey) as? [String] {
+                return .stringArray(legacyArray)
+            }
             guard let value = defaults.string(forKey: defaultsKey) else { return .absent }
             return .string(value)
         case .stringArray:
@@ -1277,7 +1366,11 @@ final class CmuxSettingsFileStore {
         _ backup: BackupValue,
         for defaultsKey: String
     ) -> ManagedDefaultBatchSideEffects {
-        let defaults = UserDefaults.standard
+        // Never write under an MDM-forced key (see applyManagedUserDefaultsValue).
+        guard !isUserDefaultsKeyForcedByProfile(defaultsKey) else {
+            return ManagedDefaultBatchSideEffects()
+        }
+        let defaults = userDefaults
         if defaultsKey == WorkspaceTabColorSettings.paletteKey {
             switch backup {
             case .absent:
@@ -1343,7 +1436,13 @@ final class CmuxSettingsFileStore {
         isDerivedFromLegacyWarnBeforeQuit: Bool = false,
         importedLegacyWarnBeforeQuitDefault: ManagedSettingsValue? = nil
     ) -> ManagedDefaultBatchSideEffects {
-        let defaults = UserDefaults.standard
+        // MDM-forced keys are tier 0: writing under a forced value can never
+        // change the effective value and would re-fire on every defaults
+        // change, so skip them entirely.
+        guard !isUserDefaultsKeyForcedByProfile(defaultsKey) else {
+            return ManagedDefaultBatchSideEffects()
+        }
+        let defaults = userDefaults
         guard shouldApplyManagedUserDefaultsValue(
             value,
             for: defaultsKey,
@@ -1526,12 +1625,15 @@ final class CmuxSettingsFileStore {
     private func applyManagedDefaultBatchSideEffects(_ sideEffects: ManagedDefaultBatchSideEffects) {
         guard !sideEffects.isEmpty else { return }
         let notificationCenter = notificationCenter
+        let userDefaults = userDefaults
+        let languageSettingsStore = languageSettingsStore
         let changes = sideEffects.changes
         let apply = {
             var agentSessionAutoResumeDidChange = false
             var agentHibernationDidChange = false
             var rendererRealizationDidChange = false
             var paneChromeDidChange = false
+            var adaptiveDefaultThemeDidChange = false
             for change in changes {
                 if change.defaultsKey == TerminalScrollBarSettings.showScrollBarKey {
                     TerminalScrollBarSettings.notifyDidChange(notificationCenter: notificationCenter)
@@ -1544,6 +1646,11 @@ final class CmuxSettingsFileStore {
 
                 if change.defaultsKey == TerminalCopyOnSelectSettings.copyOnSelectKey {
                     TerminalCopyOnSelectSettings.notifyDidChange(notificationCenter: notificationCenter)
+                }
+
+                if change.defaultsKey ==
+                    TerminalAdaptiveDefaultThemeSettings.userDefaultsKey {
+                    adaptiveDefaultThemeDidChange = true
                 }
 
                 if change.defaultsKey == AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey {
@@ -1562,10 +1669,10 @@ final class CmuxSettingsFileStore {
                 }
 
                 if change.defaultsKey == AppCatalogSection().language.userDefaultsKey {
-                    let rawValue = UserDefaults.standard.string(forKey: change.defaultsKey) ?? ""
-                    LanguageSettingsStore(defaults: .standard).applyLanguageOverride(AppLanguage(rawValue: rawValue) ?? .system)
+                    let rawValue = userDefaults.string(forKey: change.defaultsKey) ?? ""
+                    languageSettingsStore?.applyLanguageOverride(AppLanguage(rawValue: rawValue) ?? .system)
                 } else if change.defaultsKey == AppIconSettings.modeKey {
-                    AppIconSettings.applyIcon(AppIconSettings.resolvedMode())
+                    AppIconSettings.applyIcon(AppIconSettings.resolvedMode(defaults: userDefaults))
                 } else if change.defaultsKey == GlobalFontMagnification.percentKey {
                     notificationCenter.post(name: GlobalFontMagnification.didChangeNotification, object: nil)
                 }
@@ -1583,6 +1690,11 @@ final class CmuxSettingsFileStore {
             if paneChromeDidChange {
                 PaneChromeSettings.notifyDidChange(notificationCenter: notificationCenter)
             }
+            if adaptiveDefaultThemeDidChange {
+                TerminalAdaptiveDefaultThemeSettings.notifyDidChange(
+                    notificationCenter: notificationCenter
+                )
+            }
         }
         if Thread.isMainThread {
             apply()
@@ -1591,8 +1703,7 @@ final class CmuxSettingsFileStore {
         }
     }
 
-    private static func loadImportedManagedDefaults() -> [String: ManagedSettingsValue] {
-        let defaults = UserDefaults.standard
+    private static func loadImportedManagedDefaults(defaults: UserDefaults) -> [String: ManagedSettingsValue] {
         var imported: [String: ManagedSettingsValue]
         if let data = defaults.data(forKey: importedManagedDefaultsDefaultsKey),
            let decoded = try? JSONDecoder().decode([String: ManagedSettingsValue].self, from: data) {
@@ -1617,18 +1728,34 @@ final class CmuxSettingsFileStore {
     }
 
     private func saveImportedManagedDefaults(_ imported: [String: ManagedSettingsValue]) {
-        let defaults = UserDefaults.standard
-        defaults.removeObject(forKey: SidebarMatchTerminalBackgroundSettings.legacyAppliedSettingsFileDefaultKey)
+        let defaults = userDefaults
+        // Only write on a real change. UserDefaults posts didChangeNotification even when the
+        // value is unchanged and even when the key being removed is absent, and observers of that
+        // notification registered with `queue: .main` run synchronously on the posting thread. One
+        // of them re-registers the system-wide hotkeys, which reads the whole shortcut table back
+        // through this very store -- while this store may still be inside its own initializer.
+        // Reload runs on every settings load and on every file-watcher edit, so an unconditional
+        // write also wakes every UserDefaults observer and walks the action table twice for
+        // nothing. `restoreUserDefaultsBackup` already follows this rule.
+        let legacyKey = SidebarMatchTerminalBackgroundSettings.legacyAppliedSettingsFileDefaultKey
+        if defaults.object(forKey: legacyKey) != nil {
+            defaults.removeObject(forKey: legacyKey)
+        }
         guard !imported.isEmpty else {
-            defaults.removeObject(forKey: Self.importedManagedDefaultsDefaultsKey)
+            if defaults.object(forKey: Self.importedManagedDefaultsDefaultsKey) != nil {
+                defaults.removeObject(forKey: Self.importedManagedDefaultsDefaultsKey)
+            }
             return
         }
-        guard let data = try? JSONEncoder().encode(imported) else { return }
+        guard let data = canonicalEncodingIfSemanticallyChanged(
+            imported,
+            storedData: defaults.data(forKey: Self.importedManagedDefaultsDefaultsKey)
+        ) else { return }
         defaults.set(data, forKey: Self.importedManagedDefaultsDefaultsKey)
     }
 
     private func loadBackups() -> [String: BackupValue] {
-        let defaults = UserDefaults.standard
+        let defaults = userDefaults
         guard let data = defaults.data(forKey: Self.backupsDefaultsKey),
               let backups = try? JSONDecoder().decode([String: BackupValue].self, from: data) else {
             return [:]
@@ -1637,13 +1764,37 @@ final class CmuxSettingsFileStore {
     }
 
     private func saveBackups(_ backups: [String: BackupValue]) {
-        let defaults = UserDefaults.standard
+        let defaults = userDefaults
+        // Same rule as saveImportedManagedDefaults: an unchanged write still posts.
         if backups.isEmpty {
-            defaults.removeObject(forKey: Self.backupsDefaultsKey)
+            if defaults.object(forKey: Self.backupsDefaultsKey) != nil {
+                defaults.removeObject(forKey: Self.backupsDefaultsKey)
+            }
             return
         }
-        guard let data = try? JSONEncoder().encode(backups) else { return }
+        guard let data = canonicalEncodingIfSemanticallyChanged(
+            backups,
+            storedData: defaults.data(forKey: Self.backupsDefaultsKey)
+        ) else { return }
         defaults.set(data, forKey: Self.backupsDefaultsKey)
+    }
+
+    private func canonicalEncodingIfSemanticallyChanged<Value: Codable & Equatable>(
+        _ value: Value,
+        storedData: Data?
+    ) -> Data? {
+        // Older releases encoded dictionaries in process-dependent key order. Decode before
+        // comparing so upgrading does not rewrite equivalent legacy bytes and post a notification.
+        if let storedData,
+           let storedValue = try? JSONDecoder().decode(Value.self, from: storedData),
+           storedValue == value {
+            return nil
+        }
+
+        // Changed and repaired values use a deterministic representation for future persistence.
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        return try? encoder.encode(value)
     }
 
     private func applyBooleanSettings(
@@ -1705,7 +1856,7 @@ final class CmuxSettingsFileStore {
         return number.boolValue
     }
 
-    private func jsonInt(_ rawValue: Any?) -> Int? {
+    func jsonInt(_ rawValue: Any?) -> Int? {
         guard let number = rawValue as? NSNumber else { return nil }
         guard CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
         let doubleValue = number.doubleValue

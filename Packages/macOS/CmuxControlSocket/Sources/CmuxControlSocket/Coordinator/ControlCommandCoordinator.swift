@@ -211,6 +211,21 @@ public final class ControlCommandCoordinator {
         handles.removeRef(kind: kind, uuid: uuid)
     }
 
+    /// Returns whether an opaque-handle topology refresh is needed.
+    public var needsHandleTopologyRefresh: Bool {
+        handles.needsTopologyRefresh
+    }
+
+    /// Records completion of the current opaque-handle topology refresh.
+    public func markHandleTopologyRefreshCompleted() {
+        handles.markTopologyRefreshCompleted()
+    }
+
+    /// Reopens opaque-handle refresh after an external topology mutation.
+    public func invalidateHandleTopologyRefresh() {
+        handles.invalidateTopologyRefresh()
+    }
+
     // MARK: - Wire helpers
 
     /// The `kind:N` ref for an optional id as a JSON value: the ref string, or

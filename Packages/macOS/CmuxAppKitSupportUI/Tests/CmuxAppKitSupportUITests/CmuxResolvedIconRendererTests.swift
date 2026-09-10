@@ -184,6 +184,163 @@ import Testing
         #expect(renderedImage(in: view) == nil)
     }
 
+    /// A concrete fallback keeps an icon visible when the primary provider
+    /// returns a transparent bitmap during its first AppKit draw.
+    @Test func rendererUsesFallbackAfterBlankPrimaryOutput() throws {
+        let renderer = CmuxResolvedIconRenderer()
+        let blankSource = NSImage(size: NSSize(width: 16, height: 16))
+        blankSource.addRepresentation(transparentBitmapRepresentation(pixels: 16))
+        let visibleFallback = NSImage(size: NSSize(width: 16, height: 16))
+        visibleFallback.addRepresentation(solidBitmapRepresentation(color: .systemBlue, pixels: 16))
+        let appearance = try #require(NSAppearance(named: .aqua))
+
+        let result = renderer.render(
+            for: CmuxResolvedIconRequest(
+                source: .image(blankSource),
+                size: NSSize(width: 16, height: 16),
+                fallbackSource: .image(visibleFallback)
+            ),
+            appearance: appearance
+        )
+
+        guard case .success(let image) = result else {
+            Issue.record("A visible fallback should recover a blank primary icon")
+            return
+        }
+        #expect(visiblePixelCount(in: image) > 0)
+    }
+
+    /// A missing asset falls back to a concrete SF Symbol instead of clearing the icon.
+    @Test func rendererUsesSystemSymbolFallbackAfterMissingAsset() throws {
+        let renderer = CmuxResolvedIconRenderer()
+        let appearance = try #require(NSAppearance(named: .aqua))
+
+        let result = renderer.render(
+            for: CmuxResolvedIconRequest(
+                source: .asset(name: "missing-icon", bundle: .main),
+                size: NSSize(width: 16, height: 16),
+                fallbackSource: .systemSymbol(
+                    name: "person.crop.circle.fill",
+                    accessibilityDescription: nil
+                )
+            ),
+            appearance: appearance
+        )
+
+        guard case .success(let image) = result else {
+            Issue.record("A missing asset should recover with the system-symbol fallback")
+            return
+        }
+        #expect(visiblePixelCount(in: image) > 0)
+    }
+
+    /// A fallback tint applies only after the primary source is unavailable.
+    @Test func rendererAppliesFallbackTintOnlyToFallbackSource() throws {
+        let renderer = CmuxResolvedIconRenderer()
+        let appearance = try #require(NSAppearance(named: .aqua))
+        let fallbackImage = NSImage(size: NSSize(width: 16, height: 16))
+        fallbackImage.addRepresentation(solidBitmapRepresentation(color: .white, pixels: 16))
+
+        let result = renderer.render(
+            for: CmuxResolvedIconRequest(
+                source: .asset(name: "missing-icon", bundle: .main),
+                size: NSSize(width: 16, height: 16),
+                fallbackSource: .image(fallbackImage),
+                fallbackTintColor: .systemBlue
+            ),
+            appearance: appearance
+        )
+
+        guard case .success(let image) = result else {
+            Issue.record("A fallback tint request should render the fallback image")
+            return
+        }
+        let center = try #require(centerPixelColor(in: image))
+        #expect(center.blueComponent > center.redComponent)
+    }
+
+    @Test func translucentTintMasksMulticolorSourceToOneHue() throws {
+        let renderer = CmuxResolvedIconRenderer()
+        let appearance = try #require(NSAppearance(named: .aqua))
+        let multicolorSource = NSImage(size: NSSize(width: 16, height: 16))
+        multicolorSource.addRepresentation(
+            solidBitmapRepresentation(color: .systemRed, pixels: 16)
+        )
+
+        let result = renderer.render(
+            for: CmuxResolvedIconRequest(
+                source: .image(multicolorSource),
+                size: NSSize(width: 16, height: 16),
+                tintColor: NSColor.systemBlue.withAlphaComponent(0.55)
+            ),
+            appearance: appearance
+        )
+
+        guard case .success(let image) = result else {
+            Issue.record("A tinted multicolor source should render successfully")
+            return
+        }
+        let center = try #require(centerPixelColor(in: image))
+        // The output keeps the tint's alpha, but its RGB must no longer carry
+        // the source image's red channel.
+        #expect(center.blueComponent > center.redComponent)
+        #expect(center.greenComponent > center.redComponent)
+        #expect(center.alphaComponent > 0.5)
+    }
+
+    /// Workspace-backed fallbacks resolve lazily in the renderer and retain
+    /// Finder's concrete folder artwork without sharing a mutable NSImage.
+    @Test func rendererUsesWorkspaceIconFallback() throws {
+        let workspaceImage = NSImage(size: NSSize(width: 16, height: 16))
+        workspaceImage.addRepresentation(solidBitmapRepresentation(color: .systemBlue, pixels: 16))
+        let renderer = CmuxResolvedIconRenderer { _ in workspaceImage }
+        let appearance = try #require(NSAppearance(named: .aqua))
+
+        let result = renderer.render(
+            for: CmuxResolvedIconRequest(
+                source: .systemSymbol(name: "not.a.real.symbol", accessibilityDescription: nil),
+                size: NSSize(width: 16, height: 16),
+                tintColor: .secondaryLabelColor,
+                fallbackSource: .workspaceIcon(.folder)
+            ),
+            appearance: appearance
+        )
+
+        guard case .success(let image) = result else {
+            Issue.record("The workspace folder fallback should render visible pixels")
+            return
+        }
+        #expect(visiblePixelCount(in: image) > 0)
+    }
+
+    /// A mutable fallback is re-read instead of being hidden behind a stable
+    /// primary-source cache key.
+    @Test func imageViewRerendersWhenFallbackImageChangesInPlace() throws {
+        let view = CmuxResolvedIconImageView(frame: NSRect(x: 0, y: 0, width: 16, height: 16))
+        view.appearance = NSAppearance(named: .aqua)
+        let fallbackImage = NSImage(size: NSSize(width: 16, height: 16))
+        let representation = solidBitmapRepresentation(color: .systemRed, pixels: 16)
+        fallbackImage.addRepresentation(representation)
+        let request = CmuxResolvedIconRequest(
+            source: .asset(name: "missing-icon", bundle: .main),
+            size: NSSize(width: 16, height: 16),
+            fallbackSource: .image(fallbackImage)
+        )
+
+        view.apply(request)
+        let firstImage = try #require(renderedImage(in: view))
+        let firstPixel = try #require(centerPixelColor(in: firstImage))
+        #expect(firstPixel.redComponent > firstPixel.blueComponent)
+
+        fill(representation, color: .systemBlue, operation: .copy)
+        view.apply(request)
+        let updatedImage = try #require(renderedImage(in: view))
+        let updatedPixel = try #require(centerPixelColor(in: updatedImage))
+
+        #expect(updatedImage !== firstImage)
+        #expect(updatedPixel.blueComponent > updatedPixel.redComponent)
+    }
+
     private func solidBitmapRepresentation(color: NSColor, pixels: Int) -> NSBitmapImageRep {
         let representation = NSBitmapImageRep(
             bitmapDataPlanes: nil,

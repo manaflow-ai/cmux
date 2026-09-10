@@ -1,7 +1,7 @@
 import Sentry
 import Testing
 
-import CmuxMobileAnalytics
+import CMUXMobileCore
 @testable import CmuxMobileCrashReporting
 
 private struct FixedConsent: AnalyticsConsentProviding {
@@ -50,10 +50,28 @@ private struct FixedConsent: AnalyticsConsentProviding {
         #expect(capturedOptions?.shutdownTimeInterval == 0)
     }
 
+    @Test func localePreparationPrecedesSentryStartup() {
+        var sequence: [String] = []
+
+        MobileCrashReporter().startIfEnabled(
+            consent: FixedConsent(isTelemetryEnabled: true),
+            arguments: ["cmux"],
+            environment: [:],
+            revocationWatcher: MobileCrashReporter.RevocationWatcher(),
+            prepareLocale: { sequence.append("locale") },
+            start: { _ in sequence.append("sentry") },
+            close: {},
+            purgeCache: {},
+            crash: {}
+        )
+
+        #expect(sequence == ["locale", "sentry"])
+    }
+
     @Test func optionsFactoryMatchesMobileContract() {
         let options = MobileCrashReporter().makeOptions()
 
-        #expect(options.dsn == "https://ecba1ec90ecaee02a102fba931b6d2b3@o4507547940749312.ingest.us.sentry.io/4510796264636416")
+        #expect(options.dsn == "https://834d19a3077c4adbff534dca1e93de4f@o4507547940749312.ingest.us.sentry.io/4510604800491520")
         #expect(options.tracesSampleRate?.doubleValue == 0.0)
         #expect(options.sendDefaultPii == false)
         #expect(options.attachStacktrace == true)
@@ -67,7 +85,7 @@ private struct FixedConsent: AnalyticsConsentProviding {
         #expect(options.enableAutoBreadcrumbTracking == false)
         #expect(options.tracePropagationTargets.isEmpty)
         #expect(options.enableAutoSessionTracking == false)
-        #expect(options.enableLogs == true)
+        #expect(options.enableLogs == false)
         #expect(options.beforeBreadcrumb != nil)
         #if canImport(MetricKit) && !os(tvOS) && !os(visionOS)
         #expect(options.enableMetricKit == true)

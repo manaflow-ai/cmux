@@ -56,11 +56,13 @@ extension CMUXMobileShellStore {
     /// workspace ids across paired Macs do not resolve to the first visible row.
     public func workspaceID(
         matchingRemoteWorkspaceID remoteWorkspaceID: String,
-        macDeviceID: String?
+        macDeviceID: String?,
+        instanceTag: String? = nil
     ) -> MobileWorkspacePreview.ID? {
         rowWorkspaceID(
             forRemoteWorkspaceID: MobileWorkspacePreview.ID(rawValue: remoteWorkspaceID),
-            macDeviceID: macDeviceID
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
         )
     }
 
@@ -71,14 +73,28 @@ extension CMUXMobileShellStore {
 
     /// Whether the visible selection matches a Mac-local workspace id owned by
     /// a specific Mac.
-    public func selectedWorkspaceMatches(remoteWorkspaceID: String, macDeviceID: String?) -> Bool {
+    public func selectedWorkspaceMatches(
+        remoteWorkspaceID: String,
+        macDeviceID: String?,
+        instanceTag: String? = nil
+    ) -> Bool {
         guard let selectedWorkspaceID,
               let selectedWorkspace = workspaces.first(where: { $0.id == selectedWorkspaceID }),
               selectedWorkspace.rpcWorkspaceID.rawValue == remoteWorkspaceID else {
             return false
         }
-        guard let macDeviceID, !macDeviceID.isEmpty else { return true }
-        return selectedWorkspace.macDeviceID == macDeviceID
+        guard let macDeviceID, !macDeviceID.isEmpty else {
+            return selectedWorkspace.macDeviceID == nil
+                && selectedWorkspace.macInstanceTag == nil
+                && instanceTag == nil
+        }
+        guard let selectedMacDeviceID = selectedWorkspace.macDeviceID else {
+            return false
+        }
+        return MacPairingKey(
+            macDeviceID: selectedMacDeviceID,
+            instanceTag: selectedWorkspace.macInstanceTag
+        ) == MacPairingKey(macDeviceID: macDeviceID, instanceTag: instanceTag)
     }
 
     /// The workspace whose terminal list contains `surfaceID`, if any. Used by
@@ -90,10 +106,18 @@ extension CMUXMobileShellStore {
     }
 
     /// The workspace owned by `macDeviceID` whose terminal list contains
-    /// `surfaceID`, if any. Legacy payloads without a Mac id keep the historical
-    /// first-match behavior.
-    public func workspaceID(containingSurfaceID surfaceID: String, macDeviceID: String?) -> MobileWorkspacePreview.ID? {
-        workspaceID(forTerminalID: surfaceID, macDeviceID: macDeviceID)
+    /// `surfaceID`, if any. A payload without owner identity can resolve only
+    /// an unowned bootstrap row.
+    public func workspaceID(
+        containingSurfaceID surfaceID: String,
+        macDeviceID: String?,
+        instanceTag: String? = nil
+    ) -> MobileWorkspacePreview.ID? {
+        workspaceID(
+            forTerminalID: surfaceID,
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        )
     }
 
     /// Whether `surfaceID` is a terminal of the workspace `workspaceID`.
@@ -113,6 +137,25 @@ extension CMUXMobileShellStore {
     /// a global search could resolve a sibling's retained snapshot and route
     /// terminal commands to the wrong build's workspace id.
     func workspaceID(forTerminalID terminalID: String) -> MobileWorkspacePreview.ID? {
+        // Demonstration surfaces resolve to their demo-owned row regardless
+        // of the foreground pairing: the demo Mac is never foreground, and
+        // this resolver gates the terminal view's OUTPUT-START viewport
+        // preparation — a nil here keeps the mounted canvas blank forever.
+        // Surface ids are unique by construction (cmux-demo- prefixed), so
+        // the sibling-build ambiguity this scoping defends against cannot
+        // involve a demo surface.
+        if MobileDemoContentCatalog.ownsIdentifier(terminalID) {
+            // Self-heal first: a teardown can remove the seeded rows under a
+            // still-presented detail, and this resolver must keep answering
+            // for the remount to paint.
+            _ = demonstrationSessionForInteraction()
+            return workspaces.first { row in
+                demonstrationOwnsMac(
+                    deviceID: row.macDeviceID,
+                    instanceTag: row.macInstanceTag
+                ) && row.terminals.contains { $0.id.rawValue == terminalID }
+            }?.id
+        }
         guard let foregroundMacDeviceID else {
             return workspaceID(forTerminalID: terminalID, macDeviceID: nil)
         }
@@ -148,12 +191,19 @@ extension CMUXMobileShellStore {
         instanceTag: String?
     ) -> MobileWorkspacePreview.ID? {
         func matches(_ workspace: MobileWorkspacePreview) -> Bool {
-            if let macDeviceID, !macDeviceID.isEmpty, workspace.macDeviceID != macDeviceID {
-                return false
-            }
-            if let instanceTag, !instanceTag.isEmpty,
-               workspace.macInstanceTag != instanceTag {
-                return false
+            if let macDeviceID, !macDeviceID.isEmpty {
+                guard let workspaceMacDeviceID = workspace.macDeviceID,
+                      MacPairingKey(
+                          macDeviceID: workspaceMacDeviceID,
+                          instanceTag: workspace.macInstanceTag
+                      ) == MacPairingKey(
+                          macDeviceID: macDeviceID,
+                          instanceTag: instanceTag
+                      ) else { return false }
+            } else {
+                guard instanceTag?.isEmpty != false,
+                      workspace.macDeviceID == nil,
+                      workspace.macInstanceTag == nil else { return false }
             }
             return workspace.terminals.contains(where: { $0.id.rawValue == terminalID })
         }

@@ -40,7 +40,11 @@ struct SidebarWidthFrameModifier: ViewModifier {
     @ObservedObject var layout: SidebarLayoutModel
 
     func body(content: Content) -> some View {
-        content.frame(width: layout.width)
+        // A sidebar row may be wider than the pane (for example an authored
+        // custom row using `.fixedSize()`). Keep that overflow attached to
+        // the leading edge so the pane clips/truncates only at its trailing
+        // edge instead of shifting every sibling left by the same amount.
+        content.frame(width: layout.width, alignment: .leading)
     }
 }
 

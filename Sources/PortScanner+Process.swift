@@ -5,12 +5,112 @@ import Foundation
 
 extension PortScanner {
     static let processScanTimeout: TimeInterval = 3
+    /// Bounds the retry loop that drops terminals `ps` reports as gone, so a
+    /// pty churning during a scan cannot spin the scanner.
+    static let maximumProcessScanAttempts = 3
+    private static let deviceDirectoryPrefix = "/dev/"
+    private static let missingDeviceDiagnosticSuffix = ": No such file or directory"
 
     static func combinedCompleteness(
         _ lhs: PortScanCompleteness,
         _ rhs: PortScanCompleteness
     ) -> PortScanCompleteness {
         lhs == .complete && rhs == .complete ? .complete : .incomplete
+    }
+
+    /// Computes missing-port evidence from the identities that owned each
+    /// previously published port. A process-tree scan may be incomplete for an
+    /// unrelated child, but a listener PID that is still in the current
+    /// ownership graph and whose own lsof result is complete still provides
+    /// authoritative negative evidence. A live owner that fell out of an
+    /// incomplete ownership graph remains incomplete rather than being
+    /// mistaken for an exited listener.
+    func missingPortCompletenessByKey<Key: Hashable & Sendable>(
+        previousOwnersByKey: [Key: [Int: Set<AgentPIDProcessIdentity>]],
+        observedOwnersByKey: [Key: [Int: Set<AgentPIDProcessIdentity>]],
+        currentProcessIdentitiesByKey: [Key: Set<AgentPIDProcessIdentity>],
+        processScopeCompletenessByKey: [Key: PortScanCompleteness],
+        scannedKeys: Set<Key>,
+        lsofScan: PortLsofScanResult,
+        inspectedPIDs: Set<Int>
+    ) -> [Key: [Int: PortScanCompleteness]] {
+        var result: [Key: [Int: PortScanCompleteness]] = [:]
+        var ownerEvidenceByKey: [Key: [AgentPIDProcessIdentity: PortScanCompleteness]] = [:]
+        for key in scannedKeys {
+            guard let previousOwners = previousOwnersByKey[key] else { continue }
+            let observedOwners = observedOwnersByKey[key] ?? [:]
+            let currentProcessIdentities = currentProcessIdentitiesByKey[key] ?? []
+            let processScopeCompleteness = processScopeCompletenessByKey[key, default: .incomplete]
+            for (port, owners) in previousOwners where observedOwners[port] == nil {
+                guard !owners.isEmpty else { continue }
+                let isAuthoritative = owners.allSatisfy { owner in
+                    if let cached = ownerEvidenceByKey[key]?[owner] {
+                        return cached == .complete
+                    }
+                    let pid = Int(owner.pid)
+                    let evidence: PortScanCompleteness
+                    if let currentIdentity = processIdentityProvider(pid_t(pid)) {
+                        if currentIdentity != owner {
+                            // A PID that now represents another process no
+                            // longer owns this port, even if that replacement
+                            // is not part of this scan's ownership graph.
+                            evidence = .complete
+                        } else {
+                            // lsof can only prove a negative for a live PID
+                            // when that PID is still in the current ownership
+                            // scope. If the process graph dropped it, defer
+                            // to the graph's completeness instead of allowing
+                            // an incomplete fence to retire an active badge.
+                            if currentProcessIdentities.contains(owner) {
+                                evidence = inspectedPIDs.contains(pid)
+                                    && lsofScan.completeness(for: [pid]) == .complete
+                                    ? .complete
+                                    : .incomplete
+                            } else {
+                                evidence = processScopeCompleteness == .complete
+                                    ? .complete
+                                    : .incomplete
+                            }
+                        }
+                    } else {
+                        evidence = processPresenceProvider(pid_t(pid)) == .absent
+                            ? .complete
+                            : .incomplete
+                    }
+                    ownerEvidenceByKey[key, default: [:]][owner] = evidence
+                    return evidence == .complete
+                }
+                result[key, default: [:]][port] = isAuthoritative
+                    ? .complete
+                    : .incomplete
+            }
+        }
+        return result
+    }
+
+    /// Merges trusted listener identities from a scan and discards identities
+    /// for ports that the reconciler no longer publishes.
+    static func updatePortOwners<Key: Hashable & Sendable>(
+        _ ownersByKey: inout [Key: [Int: Set<AgentPIDProcessIdentity>]],
+        observedOwnersByKey: [Key: [Int: Set<AgentPIDProcessIdentity>]],
+        scannedKeys: Set<Key>,
+        trackedKeys: Set<Key>,
+        publishedSnapshot: [Key: [Int]]
+    ) {
+        ownersByKey = ownersByKey.filter { trackedKeys.contains($0.key) }
+        for key in scannedKeys.intersection(trackedKeys) {
+            var owners = ownersByKey[key] ?? [:]
+            for (port, identities) in observedOwnersByKey[key] ?? [:] where !identities.isEmpty {
+                owners[port] = identities
+            }
+            let publishedPorts = Set(publishedSnapshot[key] ?? [])
+            owners = owners.filter { publishedPorts.contains($0.key) }
+            if owners.isEmpty {
+                ownersByKey.removeValue(forKey: key)
+            } else {
+                ownersByKey[key] = owners
+            }
+        }
     }
 
     /// Computes panel completeness from the process snapshot and only the PIDs owned by each TTY.
@@ -21,10 +121,10 @@ extension PortScanner {
         lsofScan: PortLsofScanResult?
     ) -> [PanelKey: PortScanCompleteness] {
         let pidsByTTY = pidToTTY.reduce(into: [String: Set<Int>]()) { result, item in
-            result[item.value, default: []].insert(item.key)
+            result[canonicalTTYName(item.value), default: []].insert(item.key)
         }
         return panelTTYs.reduce(into: [:]) { result, item in
-            let panelPIDs = pidsByTTY[item.value] ?? []
+            let panelPIDs = pidsByTTY[canonicalTTYName(item.value)] ?? []
             let lsofCompleteness: PortScanCompleteness
             if panelPIDs.isEmpty {
                 lsofCompleteness = .complete
@@ -130,12 +230,14 @@ extension PortScanner {
         return (validRootsByWorkspace, completenessByWorkspace)
     }
 
+    /// Captures stable identities and workspace completeness for the agent process graph.
     func captureAgentPIDIdentities(
         ownershipByPID: [Int: Set<UUID>],
         workspaceIds: Set<UUID>
     ) -> (
         ownershipByPID: [Int: Set<UUID>],
         identitiesByPID: [Int: AgentPIDProcessIdentity],
+        incompletePIDs: Set<Int>,
         completenessByWorkspace: [UUID: PortScanCompleteness]
     ) {
         let capture = capturePIDIdentities(Set(ownershipByPID.keys))
@@ -152,7 +254,12 @@ extension PortScanner {
             }
             retainedOwnership[pid] = workspaceOwnership
         }
-        return (retainedOwnership, capture.identitiesByPID, completenessByWorkspace)
+        return (
+            retainedOwnership,
+            capture.identitiesByPID,
+            capture.incompletePIDs,
+            completenessByWorkspace
+        )
     }
 
     func revalidateAgentPIDIdentities(
@@ -307,25 +414,99 @@ extension PortScanner {
     }
 
     func runPS(ttyList: String) async -> (values: [Int: String], completeness: PortScanCompleteness) {
-        let result = await commandRunner.run(
-            directory: "/",
-            executable: "/bin/ps",
-            arguments: ["-t", ttyList, "-o", "pid=,tty="],
-            timeout: Self.processScanTimeout
-        )
+        var remaining = Self.orderedTTYNames(in: ttyList)
+        guard !remaining.isEmpty else { return ([:], .complete) }
 
-        var mapping: [Int: String] = [:]
-        var parsedEveryRow = true
-        for line in (result.stdout ?? "").split(separator: "\n") {
-            let parts = line.split(whereSeparator: \.isWhitespace)
-            guard parts.count == 2, let pid = Int(parts[0]), pid > 0 else {
-                parsedEveryRow = false
-                continue
+        for attempt in 0..<Self.maximumProcessScanAttempts {
+            let result = await commandRunner.run(
+                directory: "/",
+                executable: "/bin/ps",
+                arguments: ["-t", remaining.joined(separator: ","), "-o", "pid=,tty="],
+                timeout: Self.processScanTimeout
+            )
+
+            var mapping: [Int: String] = [:]
+            var parsedEveryRow = true
+            for line in (result.stdout ?? "").split(separator: "\n") {
+                let parts = line.split(whereSeparator: \.isWhitespace)
+                guard parts.count == 2, let pid = Int(parts[0]), pid > 0 else {
+                    parsedEveryRow = false
+                    continue
+                }
+                mapping[pid] = Self.canonicalTTYName(String(parts[1]))
             }
-            mapping[pid] = String(parts[1])
+            if Self.isCompletePSResult(result) && parsedEveryRow {
+                return (mapping, .complete)
+            }
+
+            let vanished = Self.vanishedTTYNames(
+                inStderr: result.stderr,
+                requested: Set(remaining)
+            )
+            guard !vanished.isEmpty else { return (mapping, .incomplete) }
+            remaining.removeAll { vanished.contains($0) }
+            // Every terminal is gone, which is authoritative emptiness rather
+            // than a failed scan: no process can be attached to a freed pty.
+            // Emptiness outranks the retry budget so the verdict does not
+            // depend on which attempt the last pty happened to close during.
+            guard !remaining.isEmpty else { return ([:], .complete) }
+            guard attempt < Self.maximumProcessScanAttempts - 1 else {
+                return (mapping, .incomplete)
+            }
         }
-        let complete = Self.isCompletePSResult(result) && parsedEveryRow
-        return (mapping, complete ? .complete : .incomplete)
+        return ([:], .incomplete)
+    }
+
+    private static func orderedTTYNames(in ttyList: String) -> [String] {
+        var seen: Set<String> = []
+        return ttyList.split(separator: ",").compactMap { field in
+            let name = String(field)
+            guard !name.isEmpty, seen.insert(name).inserted else { return nil }
+            return name
+        }
+    }
+
+    /// Terminals that `ps` reported as no longer present on the filesystem.
+    ///
+    /// BSD `ps` abandons the whole `-t` query when any listed device is gone,
+    /// naming each one on stderr and writing nothing to stdout. Retrying
+    /// without them keeps one closed pty from erasing every other panel's
+    /// evidence. Only ENOENT is treated as absence; any other diagnostic
+    /// leaves the scan incomplete so ports are retained rather than dropped.
+    ///
+    /// Matching the English `strerror(ENOENT)` suffix is safe regardless of the
+    /// user's locale: Darwin libc ships no localized message catalogs, so
+    /// `ps` emits this exact text even under a non-English `LC_ALL`.
+    static func vanishedTTYNames(inStderr stderr: String?, requested: Set<String>) -> Set<String> {
+        guard let stderr, !stderr.isEmpty else { return [] }
+        // Direct callers can supply either `ttys1` or `/dev/ttys1`; match on
+        // the canonical device name either form names.
+        let requestedByDeviceName = requested.reduce(into: [String: Set<String>]()) { result, name in
+            result[Self.canonicalTTYName(name), default: []].insert(name)
+        }
+        var vanished: Set<String> = []
+        for line in stderr.split(separator: "\n") {
+            guard line.hasSuffix(Self.missingDeviceDiagnosticSuffix) else { continue }
+            let paths = String(line.dropLast(Self.missingDeviceDiagnosticSuffix.count))
+            // For a name that does not already start with `tty`, `ps` stats
+            // both candidate devices and names them in one diagnostic:
+            // "ps: /dev/ttyfoo and /dev/foo: No such file or directory".
+            for path in paths.components(separatedBy: " and ") {
+                guard let devicePrefix = path.range(of: Self.deviceDirectoryPrefix) else { continue }
+                let deviceName = String(path[devicePrefix.upperBound...])
+                if let names = requestedByDeviceName[deviceName] {
+                    vanished.formUnion(names)
+                }
+            }
+        }
+        return vanished
+    }
+
+    /// Canonicalizes the shell's full device path and `ps`'s abbreviated TTY
+    /// field to one identity used by every scan join.
+    static func canonicalTTYName(_ ttyName: String) -> String {
+        guard ttyName.hasPrefix(Self.deviceDirectoryPrefix) else { return ttyName }
+        return String(ttyName.dropFirst(Self.deviceDirectoryPrefix.count))
     }
 
     func runAllProcesses() async -> (values: [Int: Int], completeness: PortScanCompleteness) {
@@ -355,10 +536,58 @@ extension PortScanner {
     }
 
     func runLsof(pidsCsv: String) async -> PortLsofScanResult {
+        let pids = pidsCsv.split(separator: ",").compactMap { Int($0) }
+        guard pids.count > 256 else { return await runLsofChunk(pidsCsv: pidsCsv) }
+        var values: [Int: Set<Int>] = [:]
+        var incomplete: Set<Int> = []
+        var complete = true
+        for chunk in Self.lsofPIDChunks(pids) {
+            let result = await runLsofChunk(pidsCsv: chunk.map(String.init).joined(separator: ","))
+            for (pid, ports) in result.values { values[pid, default: []].formUnion(ports) }
+            incomplete.formUnion(result.incompletePIDs)
+            complete = complete && result.globallyComplete
+        }
+        return PortLsofScanResult(values: values, globallyComplete: complete, incompletePIDs: incomplete)
+    }
+
+    // Keep the complete argv entry below the platform's practical exec limit.
+    // The chunk builder below accounts for separators as it appends, so it
+    // never copies or re-serializes the growing prefix.
+    static let lsofArgumentByteBudget = 32 * 1024
+    static let lsofArgumentOverhead = 256
+
+    static func lsofPIDChunks(_ pids: [Int]) -> [[Int]] {
+        guard !pids.isEmpty else { return [] }
+        var chunks: [[Int]] = []
+        var chunk: [Int] = []
+        var chunkBytes = 0
+        for pid in pids {
+            let pidBytes = String(pid).utf8.count
+            let additionalBytes = chunk.isEmpty ? pidBytes : pidBytes + 1
+            if !chunk.isEmpty,
+               chunkBytes + additionalBytes + lsofArgumentOverhead > lsofArgumentByteBudget
+            {
+                chunks.append(chunk)
+                chunk = []
+                chunkBytes = 0
+            }
+            let separatorBytes = chunk.isEmpty ? 0 : 1
+            chunk.append(pid)
+            chunkBytes += pidBytes + separatorBytes
+        }
+        if !chunk.isEmpty { chunks.append(chunk) }
+        return chunks
+    }
+
+    private func runLsofChunk(pidsCsv: String) async -> PortLsofScanResult {
         let result = await commandRunner.run(
             directory: "/",
             executable: "/usr/sbin/lsof",
-            arguments: ["-nP", "-a", "-p", pidsCsv, "-iTCP", "-sTCP:LISTEN", "-Fpn"],
+            // A PID-scoped TCP query does not depend on filesystem mount
+            // metadata. Suppress warning-class diagnostics such as lsof's
+            // Time Machine `can't stat()` warning so unrelated mounts cannot
+            // make every port miss permanently incomplete.
+            arguments: ["-nP", "-w", "-a", "-p", pidsCsv, "-iTCP", "-sTCP:LISTEN", "-Fpn"],
             timeout: Self.processScanTimeout
         )
 

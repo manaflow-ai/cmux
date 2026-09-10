@@ -124,6 +124,13 @@ impl KeyboardInput {
         self.key_event.kind == KeyEventKind::Release
     }
 
+    /// Kitty can report a modifier transition as its own key event. The
+    /// modifier mask on the following semantic key is authoritative, so this
+    /// transport-only event must not participate in UI or shortcut routing.
+    pub fn is_modifier_only(&self) -> bool {
+        matches!(self.key_event.code, KeyCode::Modifier(_))
+    }
+
     pub fn suppresses_alt_shortcut(&self) -> bool {
         self.suppress_alt_shortcut
     }
@@ -482,6 +489,20 @@ fn key_input_from_parts(
 mod tests {
     use super::*;
     use ghostty_vt::{Callbacks, KeyEncoder, Terminal};
+
+    #[test]
+    fn ctrl_d_encodes_the_posix_eof_byte() {
+        let event = KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL);
+        let input = key_input_from(&event).unwrap();
+        let terminal = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        let mut encoder = KeyEncoder::new().unwrap();
+        encoder.sync_from_terminal(&terminal);
+        let mut encoded = Vec::new();
+
+        encoder.encode(&input, &mut encoded).unwrap();
+
+        assert_eq!(encoded, b"\x04");
+    }
 
     #[test]
     fn ctrl_shift_letter_keeps_shift_in_kitty_forwarding() {

@@ -2,19 +2,205 @@ import CMUXAgentLaunch
 import Foundation
 
 extension CMUXCLI {
+    private static let codexSettledStopMaximumRetries = 3
+
+    /// Schedules the normal Codex Stop path after the final child exits.
+    ///
+    /// Native child hooks must acknowledge the lifecycle write quickly, so the
+    /// larger notification/store projection runs in a detached CLI process.
+    /// The child-stop marker lets that process skip legacy prompt-depth
+    /// inference; the ledger itself remains the single settlement authority.
+    func spawnDetachedCodexSettledStop(
+        payload: String,
+        environment: [String: String],
+        telemetry: CLISocketSentryTelemetry,
+        turnID: String? = nil
+    ) {
+        let retryCount = max(0, Int(environment["CMUX_CODEX_SETTLED_STOP_RETRY_COUNT"] ?? "0") ?? 0)
+        guard retryCount < Self.codexSettledStopMaximumRetries else {
+            telemetry.breadcrumb("codex-hook.settled-stop.retry-limit-reached")
+            return
+        }
+        let retryDelay = [0.0, 0.5, 1.0][min(retryCount, 2)]
+        let selfPath: String = {
+            if let first = ProcessInfo.processInfo.arguments.first,
+               first.hasPrefix("/"),
+               FileManager.default.isExecutableFile(atPath: first) {
+                return first
+            }
+            if let bundled = normalizedHookValue(environment["CMUX_BUNDLED_CLI_PATH"]),
+               FileManager.default.isExecutableFile(atPath: bundled) {
+                return bundled
+            }
+            return "cmux"
+        }()
+        let payloadURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-codex-settled-stop-\(UUID().uuidString).json"
+            )
+        let payloadData = Data(payload.utf8)
+        guard FileManager.default.createFile(
+            atPath: payloadURL.path,
+            contents: payloadData,
+            attributes: [.posixPermissions: NSNumber(value: Int16(0o600))]
+        ) else {
+            telemetry.breadcrumb("codex-hook.settled-stop.payload-write-failed")
+            return
+        }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = [
+            "-c",
+            "nohup /bin/sh -c 'sleep \"$2\"; \"$0\" hooks codex stop < \"$1\" >/dev/null 2>&1; rm -f \"$1\"' \"$0\" \"$1\" \"$2\" >/dev/null 2>&1 &",
+            selfPath,
+            payloadURL.path,
+            String(retryDelay),
+        ]
+        var childEnvironment = environment
+        childEnvironment["CMUX_CODEX_SETTLED_CHILD_STOP"] = "1"
+        childEnvironment["CMUX_CODEX_SETTLED_STOP_RETRY_COUNT"] = String(retryCount + 1)
+        if let turnID = turnID?.trimmingCharacters(in: .whitespacesAndNewlines), !turnID.isEmpty {
+            childEnvironment["CMUX_CODEX_SETTLED_STOP_TURN_ID"] = turnID
+        } else {
+            childEnvironment.removeValue(forKey: "CMUX_CODEX_SETTLED_STOP_TURN_ID")
+        }
+        process.environment = childEnvironment
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+        } catch {
+            try? FileManager.default.removeItem(at: payloadURL)
+            telemetry.breadcrumb("codex-hook.settled-stop.spawn-failed")
+        }
+    }
+
+    /// Resolves Codex's own thread title in a detached process and sends the
+    /// plain title to the app. The stop hook must stay short and the app socket
+    /// handler must not perform Codex database I/O on the main actor.
+    func runCodexNativeTitleSyncHook(
+        commandArgs: [String],
+        environment: [String: String],
+        client: SocketClient,
+        telemetry: CLISocketSentryTelemetry
+    ) {
+        guard let sessionId = optionValue(commandArgs, name: "--session"),
+              let workspaceId = optionValue(commandArgs, name: "--workspace"),
+              let surfaceId = optionValue(commandArgs, name: "--surface"),
+              !sessionId.isEmpty, !workspaceId.isEmpty, !surfaceId.isEmpty else {
+            telemetry.breadcrumb("codex-hook.native-title-sync.invalid-target")
+            return
+        }
+        let titleStore = CodexNativeTitleStore(
+            codexHome: normalizedHookValue(environment["CODEX_HOME"])
+        )
+        guard let title = titleStore.title(forSessionId: sessionId) else {
+            telemetry.breadcrumb("codex-hook.native-title-sync.no-title")
+            return
+        }
+        let turnLedger = CodexTurnLedger(environment: environment)
+        guard (try? turnLedger.isCurrent(sessionID: sessionId, surfaceID: surfaceId)) ?? true else {
+            telemetry.breadcrumb("codex-hook.native-title-sync.stale")
+            return
+        }
+        do {
+            _ = try client.sendV2(method: "surface.sync_codex_native_title", params: [
+                "workspace_id": workspaceId,
+                "panel_id": surfaceId,
+                "title": title
+            ])
+            telemetry.breadcrumb("codex-hook.native-title-sync.sent")
+        } catch {
+            telemetry.breadcrumb("codex-hook.native-title-sync.send-failed")
+        }
+    }
+
+    /// Starts the title lookup after the synchronous Codex Stop hook returns.
+    /// The title is already authoritative in Codex's state database, so this
+    /// path does not invoke a summarizer or depend on Workspace Auto-Naming.
+    func spawnDetachedCodexNativeTitleSync(
+        sessionId: String,
+        workspaceId: String,
+        surfaceId: String,
+        environment: [String: String],
+        telemetry: CLISocketSentryTelemetry
+    ) {
+        guard !sessionId.isEmpty, !workspaceId.isEmpty, !surfaceId.isEmpty else { return }
+        let selfPath: String = {
+            if let first = ProcessInfo.processInfo.arguments.first,
+               first.hasPrefix("/"),
+               FileManager.default.isExecutableFile(atPath: first) {
+                return first
+            }
+            if let bundled = normalizedHookValue(environment["CMUX_BUNDLED_CLI_PATH"]),
+               FileManager.default.isExecutableFile(atPath: bundled) {
+                return bundled
+            }
+            return "cmux"
+        }()
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = [
+            "-c",
+            "nohup \"$0\" hooks codex sync-native-title --session \"$1\" --workspace \"$2\" --surface \"$3\" </dev/null >/dev/null 2>&1 &",
+            selfPath,
+            sessionId,
+            workspaceId,
+            surfaceId
+        ]
+        process.environment = environment
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+        } catch {
+            telemetry.breadcrumb("codex-hook.native-title-sync.spawn-failed")
+        }
+    }
+
     /// Emit, NUL-separated to stdout, the exact codex arg list the wrapper must
-    /// splice ahead of the user's args to enable + inject cmux's fire-and-forget
-    /// hooks for one codex invocation. Returns the arg list:
+    /// splice ahead of the user's args to enable cmux hooks for one Codex
+    /// invocation without rewriting the user's Codex configuration. Returns
+    /// activation flags followed by one `-c` pair for every event that is not
+    /// already supplied by a cmux-owned persistent hook:
     ///   --enable\0hooks\0--dangerously-bypass-hook-trust\0
-    ///   -c\0hooks.SessionStart=[{hooks=[{type="command",command='''<ff>''',timeout=10000}]}]\0
+    ///   -c\0hooks.SessionStart=[{hooks=[{type="command",command='''<hook>''',timeout=10000}]}]\0
     ///   -c\0hooks.UserPromptSubmit=...\0 ... (one `-c` pair per event)
-    /// where `<ff>` is `codexFireAndForgetAgentHookShellCommand(...)` so each
-    /// hook returns `{}` to codex instantly and backgrounds the real cmux call.
-    /// Requires no live socket: pure string construction from the agent def.
+    /// Turn/status hooks use `codexFireAndForgetAgentHookShellCommand(...)`;
+    /// native child lifecycle hooks synchronously commit their ledger event and
+    /// then return. All larger socket delivery remains non-blocking.
+    ///
+    /// Layering contract (verified against codex-cli 0.146.0 and 0.153.4;
+    /// tests/test_codex_wrapper_hook_append.py repeats it against the
+    /// installed codex): Codex discovers hooks per configuration layer and
+    /// appends them from lowest to highest, so the user's `hooks.json` and
+    /// `[hooks]` in `config.toml` and a trusted project's `.codex/hooks.json`
+    /// are all registered ahead of these session-flag entries. Codex dispatches
+    /// an event's handlers together and orders only their results, so nothing
+    /// may depend on cmux's handler running first or last. A `-c hooks.<event>=`
+    /// value only defines the session-flags layer; it never replaces a lower
+    /// layer, and copying lower layers into it would make Codex discover and
+    /// run every user handler twice. Each value therefore carries exactly one
+    /// cmux group.
+    /// Persistent hooks are inventoried read-only so the wrapper does not add a
+    /// duplicate cmux producer. Only explicit `cmux hooks codex install` or
+    /// `uninstall` commands mutate `CODEX_HOME`. No live socket is required.
     func emitCodexWrapperInjectArgs() throws {
         guard let codexDef = Self.agentDef(named: "codex") else {
             throw CLIError(message: "Codex hook integration is unavailable.")
         }
+        let persistentEvents = codexPersistentHookEventNamesForWrapper()
+        let eventsToInject = CodexHookInjectionSchema.current.events.filter {
+            !persistentEvents.contains($0.agentEvent)
+        }
+        // A complete persistent channel is already the user's selected Codex
+        // configuration. Do not even pass an activation override in that case;
+        // this preserves an intentional `features.hooks = false` choice. A
+        // partial or legacy channel still gets only its missing events below.
+        guard !eventsToInject.isEmpty else { return }
         // Prefer a #!/bin/sh SCRIPT FILE as the hook command over an inline shell
         // snippet. Some codex-compatible runtimes (subrouters, proxies) exec the
         // `command` string directly as a program instead of via a shell, so an
@@ -25,19 +211,17 @@ extension CMUXCLI {
         // invocations, so they are written once into a cmux-owned dir (~/.cmux/
         // hooks), not the user's ~/.codex. Any write failure falls back to the
         // inline snippet so the working path can never regress.
-        let hooksDir = Self.codexHookScriptsDirectory()
+        let hooksDir = eventsToInject.isEmpty ? nil : Self.codexHookScriptsDirectory()
         var args: [String] = ["--enable", "hooks", "--dangerously-bypass-hook-trust"]
-        for event in CodexHookInjectionSchema.current.events {
-            let ff = Self.codexFireAndForgetAgentHookShellCommand(
-                "cmux hooks codex \(event.cmuxSubcommand)", for: codexDef
-            )
+        for event in eventsToInject {
+            let hookBody = Self.codexWrapperHookBody(event: event, for: codexDef)
             let command: String
             if let scriptPath = hooksDir.flatMap({
-                Self.writeCodexHookScript(subcommand: event.cmuxSubcommand, body: ff, in: $0)
+                Self.writeCodexHookScript(subcommand: event.cmuxSubcommand, body: hookBody, in: $0)
             }), !scriptPath.contains("'''") {
                 command = scriptPath
             } else {
-                command = ff
+                command = hookBody
             }
             // TOML multi-line literal string ('''...''') preserves bytes verbatim
             // and may contain single quotes, so the embedded `echo '{}'` / `sh -c
@@ -67,16 +251,20 @@ extension CMUXCLI {
     /// `~/.cmux/hooks` (NOT the user's `~/.codex`), created on demand. Returns
     /// nil if it cannot be created, so the caller falls back to inline commands.
     static func codexHookScriptsDirectory() -> URL? {
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        let dir = home
-            .appendingPathComponent(".cmux", isDirectory: true)
-            .appendingPathComponent("hooks", isDirectory: true)
+        let dir = codexHookScriptsURL()
         do {
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             return dir
         } catch {
             return nil
         }
+    }
+
+    /// The hook-script directory path without creating it.
+    static func codexHookScriptsURL() -> URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".cmux", isDirectory: true)
+            .appendingPathComponent("hooks", isDirectory: true)
     }
 
     /// Writes (idempotently) a `#!/bin/sh` hook script for one event into `dir`
@@ -114,15 +302,117 @@ extension CMUXCLI {
         }
     }
 
+    /// Names that the current wrapper schema may reference from a live session.
+    static func currentCodexWrapperHookScriptFilenames(for def: AgentHookDef) -> Set<String> {
+        Set(CodexHookInjectionSchema.current.events.compactMap { event in
+            let body = codexWrapperHookBody(event: event, for: def)
+            return CodexHookScriptName(
+                contents: "#!/bin/sh\n\(body)\n",
+                subcommand: event.cmuxSubcommand
+            )?.filename
+        })
+    }
+
+    private static func codexWrapperHookBody(
+        event: CodexHookInjectionEvent,
+        for def: AgentHookDef
+    ) -> String {
+        let command = "cmux hooks codex \(event.cmuxSubcommand)"
+        if event.isSynchronous {
+            return codexSynchronousAgentHookShellCommand(command, for: def)
+        }
+        return codexFireAndForgetAgentHookShellCommand(command, for: def)
+    }
+
+    /// Cmux-generated script names referenced by the active persistent config.
+    static func installedCodexHookScriptFilenames(for def: AgentHookDef) -> Set<String> {
+        let fileURL = URL(fileURLWithPath: def.resolvedConfigDir(), isDirectory: true)
+            .appendingPathComponent(def.configFile, isDirectory: false)
+        guard let data = try? Data(contentsOf: fileURL),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let hooks = root["hooks"] as? [String: Any] else {
+            return []
+        }
+        let hooksDirectory = codexHookScriptsURL().standardizedFileURL
+
+        var filenames = Set<String>()
+        for value in hooks.values {
+            guard let groups = value as? [[String: Any]] else { continue }
+            for group in groups {
+                guard let handlers = group["hooks"] as? [[String: Any]] else { continue }
+                for handler in handlers {
+                    guard let command = handler["command"] as? String else { continue }
+                    let url = URL(fileURLWithPath: command, isDirectory: false)
+                    guard url.deletingLastPathComponent().standardizedFileURL == hooksDirectory,
+                          CodexHookScriptName(filename: url.lastPathComponent) != nil else {
+                        continue
+                    }
+                    filenames.insert(url.lastPathComponent)
+                }
+            }
+        }
+        return filenames
+    }
+
+    /// Removes obsolete regular files only when their names prove cmux ownership.
+    /// Live Codex sessions may still hold paths from another tagged build, and
+    /// concurrent launches can briefly overlap script generation, so collection
+    /// waits until no Codex process is running and leaves recent files alone.
+    static func garbageCollectCodexHookScripts(retaining filenames: Set<String>) {
+        guard !hasRunningCodexProcess(),
+              let directory = codexHookScriptsDirectory(),
+              let contents = try? FileManager.default.contentsOfDirectory(
+                  at: directory,
+                  includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
+                  options: [.skipsHiddenFiles]
+              ) else {
+            return
+        }
+
+        let newestRemovableDate = Date().addingTimeInterval(-60)
+        for url in contents where !filenames.contains(url.lastPathComponent) {
+            let values = try? url.resourceValues(forKeys: [
+                .contentModificationDateKey,
+                .isRegularFileKey,
+            ])
+            guard CodexHookScriptName(filename: url.lastPathComponent) != nil,
+                  values?.isRegularFile == true,
+                  let modificationDate = values?.contentModificationDate,
+                  modificationDate < newestRemovableDate else {
+                continue
+            }
+            try? FileManager.default.removeItem(at: url)
+        }
+    }
+
+    /// Conservatively detects sessions that may still reference an older hook generation.
+    private static func hasRunningCodexProcess() -> Bool {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
+        process.arguments = ["-x", "codex"]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+            process.waitUntilExit()
+            return process.terminationStatus == 0
+        } catch {
+            return true
+        }
+    }
+
     static func codexFireAndForgetAgentHookShellCommand(_ command: String, for def: AgentHookDef) -> String {
         let routedArguments = command.hasPrefix("cmux ") ? String(command.dropFirst("cmux ".count)) : command
-        let runner = "payload=\"$1\"; shift; \"$@\" <\"$payload\" >/dev/null 2>&1 & child=\"$!\"; ( sleep 30; kill \"$child\" 2>/dev/null || true ) & watchdog=\"$!\"; wait \"$child\" 2>/dev/null || true; kill \"$watchdog\" 2>/dev/null || true; rm -f \"$payload\""
+        let runner = "payload=\"$1\"; shift; \"$@\" <\"$payload\" >/dev/null 2>&1 & child=\"$!\"; ( timer=; trap \"kill \\$timer 2>/dev/null || true; wait \\$timer 2>/dev/null || true; exit 0\" HUP INT TERM; sleep 30 & timer=\"$!\"; wait \"$timer\" 2>/dev/null || true; timer=; kill \"$child\" 2>/dev/null || true ) & watchdog=\"$!\"; wait \"$child\" 2>/dev/null || true; kill \"$watchdog\" 2>/dev/null || true; wait \"$watchdog\" 2>/dev/null || true; rm -f \"$payload\""
         let noOp = stdinDrainingHookNoOpShellCommand
         return [
             "cmux_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"",
             "if [ -z \"$cmux_cli\" ] || [ ! -x \"$cmux_cli\" ]; then cmux_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi",
             "agent_pid=\"${CMUX_CODEX_PID:-${PPID:-}}\"",
-            "if [ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && [ -n \"$cmux_cli\" ]; then payload=\"$(mktemp \"${TMPDIR:-/tmp}/cmux-codex-hook.XXXXXX\" 2>/dev/null || mktemp -t cmux-codex-hook 2>/dev/null)\" || { \(noOp); exit 0; }; cat >\"$payload\" || true; if [ -n \"${CMUX_SOCKET_PATH:-}\" ]; then CMUX_CODEX_PID=\"$agent_pid\" nohup sh -c '\(runner)' cmux-codex-hook \"$payload\" \"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" \(routedArguments) >/dev/null 2>&1 & else CMUX_CODEX_PID=\"$agent_pid\" nohup sh -c '\(runner)' cmux-codex-hook \"$payload\" \"$cmux_cli\" \(routedArguments) >/dev/null 2>&1 & fi; echo '{}'; else \(noOp); fi",
+            // The hook shell's immediate parent is the callback owner. Do not
+            // reuse an inherited observation from an outer Codex process.
+            "hook_pid=\"${PPID:-}\"",
+            "if [ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && [ -n \"$cmux_cli\" ]; then payload=\"$(mktemp \"${TMPDIR:-/tmp}/cmux-codex-hook.XXXXXX\" 2>/dev/null || mktemp -t cmux-codex-hook 2>/dev/null)\" || { \(noOp); exit 0; }; cat >\"$payload\" || true; if [ -n \"${CMUX_SOCKET_PATH:-}\" ]; then CMUX_CODEX_PID=\"$agent_pid\" CMUX_CODEX_HOOK_PID=\"$hook_pid\" nohup sh -c '\(runner)' cmux-codex-hook \"$payload\" \"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" \(routedArguments) >/dev/null 2>&1 & else CMUX_CODEX_PID=\"$agent_pid\" CMUX_CODEX_HOOK_PID=\"$hook_pid\" nohup sh -c '\(runner)' cmux-codex-hook \"$payload\" \"$cmux_cli\" \(routedArguments) >/dev/null 2>&1 & fi; echo '{}'; else \(noOp); fi",
         ].joined(separator: "; ")
     }
 }

@@ -63,6 +63,10 @@ public struct CommandPaletteContextKeys: Hashable, Sendable {
     public static let panelIsTerminal = CommandPaletteContextKeys(rawValue: "panel.isTerminal")
     /// Whether the focused panel sits in a pane.
     public static let panelHasPane = CommandPaletteContextKeys(rawValue: "panel.hasPane")
+    /// Whether pane and surface deep links can resolve the focused panel.
+    public static let panelSupportsDeepLinks = CommandPaletteContextKeys(
+        rawValue: "panel.supportsDeepLinks"
+    )
     /// Whether the focused panel hosts a forkable agent.
     public static let panelHasForkableAgent = CommandPaletteContextKeys(rawValue: "panel.hasForkableAgent")
     /// Whether the focused panel has a custom name.
@@ -81,6 +85,12 @@ public struct CommandPaletteContextKeys: Hashable, Sendable {
     public static let defaultTerminalIsDefault = CommandPaletteContextKeys(rawValue: "defaultTerminal.isDefault")
     /// Whether the browser surface is disabled.
     public static let browserDisabled = CommandPaletteContextKeys(rawValue: "browser.disabled")
+    /// Whether an MDM configuration profile disables the browser (locked:
+    /// the enable/disable commands are hidden because they cannot take effect).
+    public static let browserManagedByPolicy = CommandPaletteContextKeys(rawValue: "browser.managedByPolicy")
+    /// Whether an MDM configuration profile disables iOS remote control
+    /// (hides pairing commands that cannot take effect).
+    public static let mobileRemoteControlManagedByPolicy = CommandPaletteContextKeys(rawValue: "mobile.remoteControlManagedByPolicy")
     /// Whether the user is signed in.
     public static let authSignedIn = CommandPaletteContextKeys(rawValue: "auth.signedIn")
     /// Whether an auth operation is in flight.

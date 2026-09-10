@@ -16,6 +16,8 @@ public struct RemoteSessionStrings: Sendable, Equatable {
     public let reverseRelayPortUnavailableRetrying: String
     /// Detail when another cmux process temporarily owns the SSH master.
     public let controlMasterOwnershipUnavailable: String
+    /// Safe product-facing detail for a non-retryable proxy failure.
+    public let remoteProxyUnavailable: String
 
     /// Creates the app-resolved strings bundle.
     ///
@@ -30,7 +32,8 @@ public struct RemoteSessionStrings: Sendable, Equatable {
         suspendedDetailFormat: String,
         reverseRelayUnavailableRetrying: String,
         reverseRelayPortUnavailableRetrying: String,
-        controlMasterOwnershipUnavailable: String
+        controlMasterOwnershipUnavailable: String,
+        remoteProxyUnavailable: String = "Remote proxy unavailable"
     ) {
         self.connectedVMNoProxyFormat = connectedVMNoProxyFormat
         self.suspendedDetailFormat = suspendedDetailFormat
@@ -40,5 +43,6 @@ public struct RemoteSessionStrings: Sendable, Equatable {
             reverseRelayPortUnavailableRetrying
         self.controlMasterOwnershipUnavailable =
             controlMasterOwnershipUnavailable
+        self.remoteProxyUnavailable = remoteProxyUnavailable
     }
 }

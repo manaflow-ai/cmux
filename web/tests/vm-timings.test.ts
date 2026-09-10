@@ -25,6 +25,16 @@ describe("VM timing helpers", () => {
     expect(recorded[0]?.durationMs).toBeGreaterThanOrEqual(0);
   });
 
+  test("Server-Timing lists every recorded stage in milliseconds", () => {
+    const attributes: Array<{ key: string; value: unknown }> = [];
+    const span = { setAttribute: (key: string, value: unknown) => attributes.push({ key, value }) } as unknown as Span;
+    const recorder = new VmTimingRecorder(span, "create", { debugTimings: false });
+    recorder.record("auth", 12.345);
+    recorder.record("provider_create", 250);
+    recorder.record("provider_create", 50);
+    expect(recorder.serverTimingHeader()).toBe("auth;dur=12.35, provider_create;dur=300");
+  });
+
   test("finish is idempotent", () => {
     const attributes: Array<{ key: string; value: unknown }> = [];
     const span = {

@@ -6,6 +6,7 @@ import {
 import {
   fallbackContentLocales,
   featureWorkflowContentLocales,
+  managedPoliciesDocsLocales,
   remoteTmuxDocsLocales,
 } from "../../../i18n/locale-availability";
 
@@ -90,6 +91,12 @@ export const navItems: NavEntry[] = [
   { titleKey: "ssh", href: "/docs/ssh" },
   { titleKey: "ios", href: "/docs/ios" },
   { titleKey: "remoteTmux", href: "/docs/remote-tmux", locales: remoteTmuxDocsLocales },
+  {
+    titleKey: "managedPolicies",
+    href: "/docs/managed-policies",
+    locales: managedPoliciesDocsLocales,
+    contentLocales: managedPoliciesDocsLocales,
+  },
   {
     sectionKey: "agentIntegrations",
     children: [

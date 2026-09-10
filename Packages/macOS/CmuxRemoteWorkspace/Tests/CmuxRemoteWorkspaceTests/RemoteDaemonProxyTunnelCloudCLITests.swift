@@ -1,9 +1,22 @@
 import Foundation
 import Testing
+import CmuxRemoteDaemon
 @testable import CmuxRemoteWorkspace
 
 @Suite("RemoteDaemonProxyTunnel cloud CLI bridge")
 struct RemoteDaemonProxyTunnelCloudCLITests {
+    private let strings = RemoteDaemonStrings(
+        missingPersistentPTYCapability: "persistent-pty",
+        missingRequiredFunctionality: "generic",
+        cloudNotificationClearWorkspaceInvalid: "clear workspace invalid",
+        cloudNotificationClearWorkspaceDenied: "clear workspace denied",
+        cloudNotificationClearSurfaceInvalid: "clear surface invalid",
+        cloudNotificationClearCallerInvalid: "clear caller invalid",
+        cloudNotificationClearCallerSelectorsRequireCaller: "clear caller selectors require caller",
+        cloudNotificationClearCallerScopeConflict: "clear caller scope conflict",
+        cloudNotificationClearEncodingFailed: "clear encoding failed"
+    )
+
     @Test("notify for caller is rewritten to an explicit workspace and surface target")
     func notifyForCallerIsScopedAndForwarded() throws {
         let workspaceID = UUID()
@@ -21,7 +34,11 @@ struct RemoteDaemonProxyTunnelCloudCLITests {
             ],
         ])
 
-        let validation = RemoteDaemonProxyTunnel.validateCloudCLIRequest(request, ownerWorkspaceID: workspaceID)
+        let validation = RemoteDaemonProxyTunnel.validateCloudCLIRequest(
+            request,
+            ownerWorkspaceID: workspaceID,
+            strings: strings
+        )
 
         guard case .forward(let forwarded) = validation else {
             Issue.record("expected request to be forwarded")
@@ -51,7 +68,11 @@ struct RemoteDaemonProxyTunnelCloudCLITests {
             ],
         ])
 
-        let validation = RemoteDaemonProxyTunnel.validateCloudCLIRequest(request, ownerWorkspaceID: workspaceID)
+        let validation = RemoteDaemonProxyTunnel.validateCloudCLIRequest(
+            request,
+            ownerWorkspaceID: workspaceID,
+            strings: strings
+        )
 
         guard case .reject(let response) = validation else {
             Issue.record("expected request to be rejected")
@@ -79,7 +100,11 @@ struct RemoteDaemonProxyTunnelCloudCLITests {
             ],
         ])
 
-        let validation = RemoteDaemonProxyTunnel.validateCloudCLIRequest(request, ownerWorkspaceID: ownerWorkspaceID)
+        let validation = RemoteDaemonProxyTunnel.validateCloudCLIRequest(
+            request,
+            ownerWorkspaceID: ownerWorkspaceID,
+            strings: strings
+        )
 
         guard case .reject(let response) = validation else {
             Issue.record("expected request to be rejected")
@@ -90,6 +115,179 @@ struct RemoteDaemonProxyTunnelCloudCLITests {
         #expect(envelope["ok"] as? Bool == false)
         let error = try #require(envelope["error"] as? [String: Any])
         #expect(error["code"] as? String == "remote_cli_workspace_denied")
+    }
+
+    @Test("surface-scoped notification clear is forwarded only for the owner workspace")
+    func surfaceScopedNotificationClearIsForwarded() throws {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let request = try jsonData([
+            "id": "clear-1",
+            "method": "notification.clear",
+            "params": [
+                "caller": true,
+                "preferred_workspace_id": workspaceID.uuidString,
+                "preferred_surface_id": surfaceID.uuidString,
+            ],
+        ])
+
+        let validation = RemoteDaemonProxyTunnel.validateCloudCLIRequest(
+            request,
+            ownerWorkspaceID: workspaceID,
+            strings: strings
+        )
+
+        guard case .forward(let forwarded) = validation else {
+            Issue.record("expected scoped clear to be forwarded")
+            return
+        }
+        let envelope = try jsonObject(forwarded)
+        #expect(envelope["method"] as? String == "notification.clear")
+        let params = try #require(envelope["params"] as? [String: Any])
+        #expect(params["workspace_id"] as? String == workspaceID.uuidString)
+        #expect(params["surface_id"] as? String == surfaceID.uuidString)
+        #expect(params["caller"] == nil)
+    }
+
+    @Test("workspace-wide notification clear is rejected by the cloud bridge")
+    func workspaceWideNotificationClearIsRejected() throws {
+        let workspaceID = UUID()
+        let request = try jsonData([
+            "id": "clear-2",
+            "method": "notification.clear",
+            "params": ["workspace_id": workspaceID.uuidString],
+        ])
+
+        let validation = RemoteDaemonProxyTunnel.validateCloudCLIRequest(
+            request,
+            ownerWorkspaceID: workspaceID,
+            strings: strings
+        )
+
+        guard case .reject(let response) = validation else {
+            Issue.record("expected workspace-wide clear to be rejected")
+            return
+        }
+        let envelope = try jsonObject(response)
+        let error = try #require(envelope["error"] as? [String: Any])
+        #expect(error["code"] as? String == "invalid_params")
+        #expect(error["message"] as? String == strings.cloudNotificationClearSurfaceInvalid)
+    }
+
+    @Test("invalid surface notification clear uses the injected localized message")
+    func invalidSurfaceNotificationClearUsesLocalizedMessage() throws {
+        let workspaceID = UUID()
+        let request = try jsonData([
+            "id": "clear-3",
+            "method": "notification.clear",
+            "params": [
+                "workspace_id": workspaceID.uuidString,
+                "surface_id": "not-a-surface",
+            ],
+        ])
+
+        let validation = RemoteDaemonProxyTunnel.validateCloudCLIRequest(
+            request,
+            ownerWorkspaceID: workspaceID,
+            strings: strings
+        )
+        guard case .reject(let response) = validation else {
+            Issue.record("expected invalid surface clear to be rejected")
+            return
+        }
+        let envelope = try jsonObject(response)
+        let error = try #require(envelope["error"] as? [String: Any])
+        #expect(error["code"] as? String == "invalid_params")
+        #expect(error["message"] as? String == strings.cloudNotificationClearSurfaceInvalid)
+    }
+
+    @Test("notification clear rejects a non-boolean caller selector")
+    func notificationClearRejectsInvalidCallerType() throws {
+        let workspaceID = UUID()
+        let request = try jsonData([
+            "id": "clear-invalid-caller",
+            "method": "notification.clear",
+            "params": [
+                "caller": ["unexpected": true],
+                "workspace_id": workspaceID.uuidString,
+                "surface_id": UUID().uuidString,
+            ],
+        ])
+
+        let validation = RemoteDaemonProxyTunnel.validateCloudCLIRequest(
+            request,
+            ownerWorkspaceID: workspaceID,
+            strings: strings
+        )
+
+        guard case .reject(let response) = validation else {
+            Issue.record("invalid caller value must be rejected")
+            return
+        }
+        let envelope = try jsonObject(response)
+        let error = try #require(envelope["error"] as? [String: Any])
+        #expect(error["code"] as? String == "invalid_params")
+        #expect(error["message"] as? String == strings.cloudNotificationClearCallerInvalid)
+    }
+
+    @Test("notification clear rejects conflicting caller and explicit selectors")
+    func notificationClearRejectsConflictingSelectors() throws {
+        let workspaceID = UUID()
+        for selector in ["workspace_id", "tab_id", "surface_id"] {
+            let request = try jsonData([
+                "id": "clear-conflict-\(selector)",
+                "method": "notification.clear",
+                "params": [
+                    "caller": true,
+                    "preferred_workspace_id": workspaceID.uuidString,
+                    "preferred_surface_id": UUID().uuidString,
+                    selector: workspaceID.uuidString,
+                ],
+            ])
+
+            let validation = RemoteDaemonProxyTunnel.validateCloudCLIRequest(
+                request,
+                ownerWorkspaceID: workspaceID,
+                strings: strings
+            )
+
+            guard case .reject(let response) = validation else {
+                Issue.record("caller plus \(selector) must be rejected")
+                continue
+            }
+            let envelope = try jsonObject(response)
+            let error = try #require(envelope["error"] as? [String: Any])
+            #expect(error["code"] as? String == "invalid_params")
+            #expect(error["message"] as? String == strings.cloudNotificationClearCallerScopeConflict)
+        }
+    }
+
+    @Test("notification clear rejects caller-only selectors without caller mode")
+    func notificationClearRejectsCallerOnlySelectorsWithoutCaller() throws {
+        let workspaceID = UUID()
+        let request = try jsonData([
+            "id": "clear-caller-only",
+            "method": "notification.clear",
+            "params": [
+                "preferred_workspace_id": workspaceID.uuidString,
+                "preferred_surface_id": UUID().uuidString,
+            ],
+        ])
+
+        let validation = RemoteDaemonProxyTunnel.validateCloudCLIRequest(
+            request,
+            ownerWorkspaceID: workspaceID,
+            strings: strings
+        )
+
+        guard case .reject(let response) = validation else {
+            Issue.record("caller-only selectors without caller=true must be rejected")
+            return
+        }
+        let envelope = try jsonObject(response)
+        let error = try #require(envelope["error"] as? [String: Any])
+        #expect(error["code"] as? String == "invalid_params")
+        #expect(error["message"] as? String == strings.cloudNotificationClearCallerSelectorsRequireCaller)
     }
 
     @Test("non-notification methods are rejected before the local socket")
@@ -104,7 +302,11 @@ struct RemoteDaemonProxyTunnelCloudCLITests {
             ],
         ])
 
-        let validation = RemoteDaemonProxyTunnel.validateCloudCLIRequest(request, ownerWorkspaceID: UUID())
+        let validation = RemoteDaemonProxyTunnel.validateCloudCLIRequest(
+            request,
+            ownerWorkspaceID: UUID(),
+            strings: strings
+        )
 
         guard case .reject(let response) = validation else {
             Issue.record("expected request to be rejected")

@@ -96,21 +96,31 @@ public final class CmuxResolvedIconImageView: NSView {
 
     private struct RenderKey: Equatable {
         private let source: SourceKey
+        private let fallbackSource: SourceKey?
         private let canReuseRenderedImage: Bool
         private let width: CGFloat
         private let height: CGFloat
         private let tint: NSColor?
+        private let fallbackTint: NSColor?
         private let symbolWeight: CGFloat
+        private let symbolPointSize: CGFloat?
         private let appearanceName: NSAppearance.Name
         private let appearanceIdentity: ObjectIdentifier
 
         init(request: CmuxResolvedIconRequest, appearance: NSAppearance) {
             self.source = SourceKey(request.source)
+            self.fallbackSource = request.fallbackSource.map(SourceKey.init)
+            // Any mutable source disables key reuse. This applies to the
+            // fallback as well: the public request can carry an NSImage whose
+            // representations change in place between updates.
             self.canReuseRenderedImage = source.canReuseRenderedImage
+                && (fallbackSource?.canReuseRenderedImage ?? true)
             self.width = request.size.width
             self.height = request.size.height
             self.tint = request.tintColor
+            self.fallbackTint = request.fallbackTintColor
             self.symbolWeight = request.symbolWeight.rawValue
+            self.symbolPointSize = request.symbolPointSize
             self.appearanceName = appearance.name
             self.appearanceIdentity = ObjectIdentifier(appearance)
         }
@@ -121,12 +131,15 @@ public final class CmuxResolvedIconImageView: NSView {
 
         func matchesRequestAndAppearance(_ other: RenderKey) -> Bool {
             source == other.source &&
+                fallbackSource == other.fallbackSource &&
                 width == other.width &&
                 height == other.height &&
                 symbolWeight == other.symbolWeight &&
+                symbolPointSize == other.symbolPointSize &&
                 appearanceName == other.appearanceName &&
                 appearanceIdentity == other.appearanceIdentity &&
-                Self.colorsEqual(tint, other.tint)
+                Self.colorsEqual(tint, other.tint) &&
+                Self.colorsEqual(fallbackTint, other.fallbackTint)
         }
 
         func shouldSkipBlankRetry(for other: RenderKey) -> Bool {
@@ -148,6 +161,7 @@ public final class CmuxResolvedIconImageView: NSView {
             case systemSymbol(name: String, accessibilityDescription: String?)
             case asset(name: String, bundle: ObjectIdentifier)
             case image(ObjectIdentifier)
+            case workspaceIcon(String)
 
             init(_ source: CmuxResolvedIconSource) {
                 switch source {
@@ -157,12 +171,16 @@ public final class CmuxResolvedIconImageView: NSView {
                     self = .asset(name: name, bundle: ObjectIdentifier(bundle))
                 case .image(let image):
                     self = .image(ObjectIdentifier(image))
+                case .workspaceIcon(let type):
+                    self = .workspaceIcon(type.identifier)
                 }
             }
 
             var canReuseRenderedImage: Bool {
                 switch self {
                 case .systemSymbol, .asset:
+                    return true
+                case .workspaceIcon:
                     return true
                 case .image:
                     return false

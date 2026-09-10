@@ -10,6 +10,18 @@ import Testing
 
 @MainActor
 extension RemoteTmuxMirrorCLIObservabilityTests {
+    @Test func mirrorRoutedCreationRejectsInitialInput() {
+        let unsupported = TerminalController.shared.mirrorRoutedUnsupportedOptions(
+            workingDirectory: nil,
+            initialCommand: nil,
+            initialInput: "echo ready\r",
+            tmuxStartCommand: nil,
+            startupEnvironment: [:]
+        )
+
+        #expect(unsupported == ["initial_input"])
+    }
+
     @Test func unresolvedMirrorMutationsFailClosed() throws {
         do {
             let harness = try Harness(addPeerSurface: true, activeTmuxPaneID: nil)
@@ -30,7 +42,8 @@ extension RemoteTmuxMirrorCLIObservabilityTests {
 
             let result = TerminalController.shared.controlSurfaceClose(
                 routing: harness.routing(),
-                surfaceID: nil
+                surfaceID: nil,
+                hasSurfaceIDParam: false
             )
 
             #expect(result == .noFocusedSurface)
@@ -93,7 +106,8 @@ extension RemoteTmuxMirrorCLIObservabilityTests {
             defer { harness.tearDown() }
             let result = TerminalController.shared.controlSurfaceClose(
                 routing: harness.routing(),
-                surfaceID: harness.outerPanelID
+                surfaceID: harness.outerPanelID,
+                hasSurfaceIDParam: true
             )
 
             #expect(result == .surfaceNotFound(harness.outerPanelID))
@@ -253,7 +267,8 @@ extension RemoteTmuxMirrorCLIObservabilityTests {
 
             let result = TerminalController.shared.controlSurfaceClose(
                 routing: harness.routing(paneID: firstPaneID),
-                surfaceID: nil
+                surfaceID: nil,
+                hasSurfaceIDParam: false
             )
 
             #expect(result == .closeFailed(firstSurfaceID))

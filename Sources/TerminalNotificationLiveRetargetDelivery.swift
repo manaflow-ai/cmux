@@ -1,3 +1,5 @@
+import CmuxNotifications
+import CmuxSettings
 import Foundation
 
 /// Live-retargeting delivery and clear semantics for agent notifications
@@ -8,14 +10,19 @@ import Foundation
 /// from `TerminalNotificationQueue.swift` for the file-length budget.
 
 extension TerminalController {
+    @discardableResult
     func deliverNotificationSynchronously(
         tabId: UUID,
         surfaceId: UUID?,
         title: String,
         subtitle: String,
         body: String,
+        replyShape: TerminalNotificationReplyShape = .none,
+        agent: TerminalNotificationPolicyAgentContext? = nil,
+        soundContext: NotificationSoundOverrideContext? = nil,
+        correlationKey: String? = nil,
         retargetsToLiveSurfaceOwner: Bool = true
-    ) {
+    ) -> UUID? {
         let target: (tabId: UUID, surfaceId: UUID?)
         if retargetsToLiveSurfaceOwner {
             // Trusted local delivery follows the surface's CURRENT workspace.
@@ -24,7 +31,7 @@ extension TerminalController {
             guard let liveTarget = AppDelegate.shared?.agentNotificationDeliveryTarget(
                 claimedTabId: tabId,
                 surfaceId: surfaceId
-            ) else { return }
+            ) else { return nil }
             target = liveTarget
         } else {
             // `notification.create_for_target` is relay-reachable and already
@@ -49,13 +56,17 @@ extension TerminalController {
             "notification.sync.deliver workspace=\(target.tabId.uuidString.prefix(8)) surface=\(target.surfaceId?.uuidString.prefix(8) ?? "nil") claimedWorkspace=\(tabId.uuidString.prefix(8)) titleLen=\(title.count) subtitleLen=\(subtitle.count) bodyLen=\(body.count)"
         )
 #endif
-        TerminalNotificationStore.shared.addNotification(
+        return TerminalNotificationStore.shared.addNotification(
             tabId: target.tabId,
             surfaceId: target.surfaceId,
             title: title,
             subtitle: subtitle,
             body: body,
-            retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner
+            replyShape: replyShape,
+            retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
+            correlationKey: correlationKey,
+            agent: agent,
+            soundContext: soundContext
         )
     }
 }
@@ -72,7 +83,11 @@ extension TerminalNotificationStore {
         title: String,
         subtitle: String,
         body: String,
-        notificationGeneration: UInt64
+        replyShape: TerminalNotificationReplyShape,
+        agent: TerminalNotificationPolicyAgentContext? = nil,
+        correlationKey: String? = nil,
+        notificationGeneration: UInt64,
+        soundContext: NotificationSoundOverrideContext? = nil
     ) {
         guard let target = AppDelegate.shared?.agentNotificationDeliveryTarget(
             claimedTabId: claimedTabId,
@@ -96,8 +111,12 @@ extension TerminalNotificationStore {
             title: title,
             subtitle: subtitle,
             body: body,
+            replyShape: replyShape,
             retargetsToLiveSurfaceOwner: true,
-            notificationGeneration: notificationGeneration
+            correlationKey: correlationKey,
+            notificationGeneration: notificationGeneration,
+            agent: agent,
+            soundContext: soundContext
         )
     }
 
@@ -120,9 +139,12 @@ extension TerminalNotificationStore {
             title: request.title,
             subtitle: request.subtitle,
             body: request.body,
+            replyShape: request.replyShape,
             cwd: request.cwd,
             isAppFocused: request.isAppFocused,
-            isFocusedPanel: request.isFocusedPanel
+            isFocusedPanel: request.isFocusedPanel,
+            agent: request.agent,
+            soundContext: request.soundContext
         )
     }
 }

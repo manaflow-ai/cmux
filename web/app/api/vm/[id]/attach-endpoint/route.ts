@@ -1,19 +1,25 @@
+import { preconnectFreestyle } from "../../../../../services/vms/drivers/freestyle";
 import {
   jsonResponse,
-  notFoundVm,
   resolveVmRouteAccountScope,
   withAuthedVmApiRoute,
 } from "../../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../../services/telemetry";
-import { isVmNotFoundError } from "../../../../../services/vms/errors";
-import { openAttachEndpoint, runVmWorkflow } from "../../../../../services/vms/workflows";
-
-export const dynamic = "force-dynamic";
+import { runVmRoute } from "../../../../../services/vms/routeWorkflow";
+import { openAttachEndpoint, openVmCmuxRemote } from "../../../../../services/vms/workflows";
+import {
+  capabilityList,
+  optionalClientIdentifier,
+  optionalString,
+  parseLenientObjectBody,
+} from "../../../../../services/vms/routeInput";
 
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ): Promise<Response> {
+  // Warm the Freestyle connection while the caller is being verified.
+  preconnectFreestyle();
   return withAuthedVmApiRoute(
     request,
     "/api/vm/[id]/attach-endpoint",
@@ -21,7 +27,7 @@ export async function POST(
     "/api/vm/[id]/attach-endpoint failed",
     async ({ user, span }) => {
       const { id } = await params;
-      const body = await parseAttachBody(request);
+      const body = await parseLenientObjectBody(request);
       const requireDaemon = body.requireDaemon === true || body.require_daemon === true;
       let sessionId: string | undefined;
       let attachmentId: string | undefined;
@@ -38,49 +44,58 @@ export async function POST(
       const account = resolveVmRouteAccountScope(user, request);
       if (!account.ok) return account.response;
       setSpanAttributes(span, { "cmux.vm.id": id });
-      setSpanAttributes(span, { "cmux.vm.attach.require_daemon": requireDaemon });
-      if (sessionId) setSpanAttributes(span, { "cmux.vm.attach.session_id": sessionId });
-      try {
-        const endpoint = await runVmWorkflow(openAttachEndpoint({
+      // Transport selection: "cmux-remote" is the cmux-tui remote daemon, the only
+      // transport current Cloud machines serve. Clients that do not ask may use a
+      // legacy WebSocket PTY/RPC endpoint only if a future provider advertises one;
+      // a cmux-tui-only machine answers 409 vm_attach_transport_unsupported.
+      const transport = optionalString(body.transport);
+      if (transport === "cmux-remote") {
+        let deviceFingerprint: string | undefined;
+        try {
+          deviceFingerprint = optionalClientIdentifier(body.deviceFingerprint ?? body.device_fingerprint, "deviceFingerprint");
+        } catch (err) {
+          return jsonResponse({
+            error: "invalid_request",
+            message: err instanceof Error ? err.message : "Invalid Cloud VM attach request.",
+          }, 400);
+        }
+        const clientCapabilities = capabilityList(body.clientCapabilities ?? body.client_capabilities);
+        setSpanAttributes(span, { "cmux.vm.attach.transport": "cmux-remote" });
+        const run = await runVmRoute(openVmCmuxRemote({
           userId: user.id,
           billingTeamId: account.entitlements.billingTeamId,
+          maxActiveVms: account.entitlements.maxActiveVms,
           teamIds: user.teamIds,
           providerVmId: id,
-          sessionTitle,
-          options: { requireDaemon, sessionId, attachmentId },
-        }));
-        setSpanAttributes(span, { "cmux.vm.attach.transport": endpoint.transport });
-        return jsonResponse(endpoint);
-      } catch (err) {
-        if (isVmNotFoundError(err)) return notFoundVm(id);
-        throw err;
+          deviceFingerprint,
+          clientCapabilities,
+          callerPlanId: account.entitlements.planId,
+        }), { request });
+        if (!run.ok) return run.response;
+        return jsonResponse(run.value);
       }
+      if (transport && transport !== "websocket") {
+        return jsonResponse({
+          error: "invalid_request",
+          message: `Unknown attach transport "${transport}". Use "websocket" or "cmux-remote".`,
+        }, 400);
+      }
+      setSpanAttributes(span, { "cmux.vm.attach.require_daemon": requireDaemon });
+      if (sessionId) setSpanAttributes(span, { "cmux.vm.attach.session_id": sessionId });
+      const run = await runVmRoute(openAttachEndpoint({
+        userId: user.id,
+        billingTeamId: account.entitlements.billingTeamId,
+        maxActiveVms: account.entitlements.maxActiveVms,
+        callerPlanId: account.entitlements.planId,
+        teamIds: user.teamIds,
+        providerVmId: id,
+        sessionTitle,
+        options: { requireDaemon, sessionId, attachmentId },
+      }), { request });
+      if (!run.ok) return run.response;
+      const endpoint = run.value;
+      setSpanAttributes(span, { "cmux.vm.attach.transport": endpoint.transport });
+      return jsonResponse(endpoint);
     },
   );
-}
-
-function optionalString(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed || null;
-}
-
-function optionalClientIdentifier(value: unknown, fieldName: string): string | undefined {
-  const trimmed = optionalString(value);
-  if (!trimmed) return undefined;
-  if (!/^[A-Za-z0-9._:-]{1,128}$/.test(trimmed)) {
-    throw new Error(`${fieldName} must be 1-128 characters of letters, numbers, dot, underscore, colon, or dash`);
-  }
-  return trimmed;
-}
-
-async function parseAttachBody(request: Request): Promise<Record<string, unknown>> {
-  try {
-    const body = await request.json();
-    return body && typeof body === "object" && !Array.isArray(body)
-      ? body as Record<string, unknown>
-      : {};
-  } catch {
-    return {};
-  }
 }

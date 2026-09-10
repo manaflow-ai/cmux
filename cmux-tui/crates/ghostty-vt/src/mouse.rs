@@ -39,6 +39,36 @@ pub struct MouseInput {
     pub any_button_pressed: bool,
 }
 
+/// The active mouse coordinate wire format of a terminal.
+///
+/// xterm semantics: the extended-coordinate DEC modes (1005 UTF-8, 1006 SGR,
+/// 1015 urxvt, 1016 SGR-pixels) are a single last-set-wins selector, not
+/// independent flags. Ghostty tracks it that way internally; this mirrors
+/// that value so replay serialization and re-encoding can reproduce the
+/// semantic instead of a numeric flag dump.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MouseWireFormat {
+    #[default]
+    X10,
+    Utf8,
+    Sgr,
+    Urxvt,
+    SgrPixels,
+}
+
+impl MouseWireFormat {
+    /// The DEC private mode number selecting this format, if any.
+    pub fn dec_mode(self) -> Option<u16> {
+        match self {
+            MouseWireFormat::X10 => None,
+            MouseWireFormat::Utf8 => Some(1005),
+            MouseWireFormat::Sgr => Some(1006),
+            MouseWireFormat::Urxvt => Some(1015),
+            MouseWireFormat::SgrPixels => Some(1016),
+        }
+    }
+}
+
 /// Encodes normalized pointer events with the mouse mode and wire format
 /// requested by the application running in a terminal.
 pub struct MouseEncoder {
@@ -232,9 +262,59 @@ impl MouseModeProbe {
         signature
     }
 
+    /// Classify the terminal's active coordinate wire format by encoding one
+    /// synthetic press through Ghostty's own encoder. Tracking is forced to
+    /// "normal" on the probe encoder so the format is observable even while
+    /// the application has tracking disabled; the wire format itself still
+    /// comes from Ghostty's parsed last-set-wins terminal state.
+    pub(crate) fn classify_wire_format(
+        &mut self,
+        terminal: sys::GhosttyTerminal,
+    ) -> Option<MouseWireFormat> {
+        self.encoder.sync_from_raw_terminal(terminal);
+        self.encoder.force_normal_tracking();
+        self.encoder.reset_motion_dedupe();
+        let mut bytes: Vec<u8> = Vec::with_capacity(32);
+        self.encoder
+            .encode(
+                MouseInput {
+                    action: MouseAction::Press,
+                    button: Some(MouseButton::Left),
+                    mods: Mods::default(),
+                    // Cell (151, 13) one-based, pixel ~(1201, 201): the cell
+                    // and pixel X coordinates are far apart so SGR and
+                    // SGR-pixels are distinguishable, and the X10 byte for
+                    // column 151 (183) needs two UTF-8 bytes, separating
+                    // X10 from UTF-8 by length.
+                    position: (1200.5, 200.5),
+                    screen_size: (2400, 600),
+                    cell_size: (8, 16),
+                    any_button_pressed: true,
+                },
+                &mut bytes,
+            )
+            .ok()?;
+        classify_probe_press(&bytes)
+    }
+
     #[cfg(test)]
     pub(crate) fn signature_calls(&self) -> u64 {
         self.signature_calls
+    }
+}
+
+fn classify_probe_press(bytes: &[u8]) -> Option<MouseWireFormat> {
+    match bytes {
+        [0x1b, b'[', b'<', rest @ ..] => {
+            let text = std::str::from_utf8(rest).ok()?;
+            let x: u32 = text.split(';').nth(1)?.parse().ok()?;
+            Some(if x >= 600 { MouseWireFormat::SgrPixels } else { MouseWireFormat::Sgr })
+        }
+        [0x1b, b'[', b'M', ..] => {
+            Some(if bytes.len() == 6 { MouseWireFormat::X10 } else { MouseWireFormat::Utf8 })
+        }
+        [0x1b, b'[', digit, ..] if digit.is_ascii_digit() => Some(MouseWireFormat::Urxvt),
+        _ => None,
     }
 }
 
@@ -270,6 +350,20 @@ impl MouseEncoder {
 
     fn sync_from_raw_terminal(&mut self, terminal: sys::GhosttyTerminal) {
         unsafe { sys::ghostty_mouse_encoder_setopt_from_terminal(self.encoder, terminal) };
+    }
+
+    /// Force the tracking mode to "normal" so a press encodes regardless of
+    /// the terminal's tracking state. Probe-only: the wire format set by
+    /// [`Self::sync_from_raw_terminal`] is left untouched.
+    fn force_normal_tracking(&mut self) {
+        let tracking: sys::GhosttyMouseTrackingMode = sys::GHOSTTY_MOUSE_TRACKING_NORMAL;
+        unsafe {
+            sys::ghostty_mouse_encoder_setopt(
+                self.encoder,
+                sys::GHOSTTY_MOUSE_ENCODER_OPT_EVENT,
+                &tracking as *const _ as *const c_void,
+            );
+        }
     }
 
     /// Forget the last encoded motion cell so an event that was not delivered

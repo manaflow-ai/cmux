@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import Foundation
 import Observation
 import PostHog
@@ -45,11 +46,6 @@ final class CmuxFeatureFlags {
     private static let mobileConnectButtonDefault = false
     private static let sidebarAccountButtonDefault = true
 
-    #if DEBUG
-    private static let cloudVMUIDefault = true
-    #else
-    private static let cloudVMUIDefault = false
-    #endif
     private static let agentChatUIDefault = false
     #if DEBUG
     private nonisolated static let mobileWorkspaceChangesDefault = true
@@ -57,9 +53,12 @@ final class CmuxFeatureFlags {
     private nonisolated static let mobileWorkspaceChangesDefault = false
     #endif
     private static let sidebarWorkspaceAgentSpinnerDefault = false
-    private static let simulatorDefault = true
+    private static let computerUseUXDefault = true
+    private nonisolated static let simulatorDefault = true
     private static let workspaceTodoControlsDefault = false
     private static let appKitSidebarListDefault = true
+    private static let mobileTerminalFilesChipDefault = true
+    private nonisolated static let mobileTaskComposerDefault = true
 
     private static let overrideKeyPrefix = "cmux.flags.override."
     private static let remoteCacheKeyPrefix = "cmux.flags.remote."
@@ -68,6 +67,7 @@ final class CmuxFeatureFlags {
     private static let releaseControlDistinctIDPrefix =
         releaseControlProductWideDistinctID + "-"
     private nonisolated static let maximumPostHogControlPlaneResponseBytes = 1_048_576
+    private nonisolated static let releaseControlRetryAfterGate = CmxRetryAfterGate()
 
     // FLAG(key: sidebar-appkit-list-experiment, owner: lawrencecchen,
     //      reviewBy: 2026-10-01, defaultWhenUnavailable: true)
@@ -109,6 +109,63 @@ final class CmuxFeatureFlags {
         defaultWhenUnavailable: CmuxFeatureFlags.mobileWorkspaceChangesDefault
     )
 
+    // FLAG(key: ios-artifact-chip-enabled-release, owner: lawrencecchen,
+    //      reviewBy: 2027-02-01, defaultWhenUnavailable: true)
+    // Controls the fully integrated terminal Files chip on iOS. The enabled
+    // fallback preserves the shipping behavior when PostHog is unavailable;
+    // a remote false value is the emergency kill switch.
+    static let mobileTerminalFilesChipFlag = CmuxFeatureFlagDefinition(
+        key: "ios-artifact-chip-enabled-release",
+        title: String(
+            localized: "featureFlags.mobileTerminalFilesChip.title",
+            defaultValue: "Mobile terminal Files chip"
+        ),
+        flagDescription: String(
+            localized: "featureFlags.mobileTerminalFilesChip.description",
+            defaultValue: "Shows the Files chip over iOS terminals and runs its visible-path count scan."
+        ),
+        defaultWhenUnavailable: CmuxFeatureFlags.mobileTerminalFilesChipDefault
+    )
+
+    // FLAG(key: simulator-enabled-release, owner: lawrencecchen,
+    //      reviewBy: 2026-10-01, defaultWhenUnavailable: true)
+    // Controls every Simulator entrypoint and active pane. The enabled
+    // fallback preserves access when PostHog is unavailable, while the
+    // remote value provides a release kill switch. Declared nonisolated so
+    // the mobile host's off-main capability list can gate the advertised
+    // simulator capabilities on the same flag as RPC dispatch.
+    nonisolated static let simulatorFlag = CmuxFeatureFlagDefinition(
+        key: "simulator-enabled-release",
+        title: String(
+            localized: "featureFlags.simulator.title",
+            defaultValue: "Simulator"
+        ),
+        flagDescription: String(
+            localized: "featureFlags.simulator.description",
+            defaultValue: "Enables iPhone and iPad Simulator panes, commands, and automation."
+        ),
+        defaultWhenUnavailable: CmuxFeatureFlags.simulatorDefault
+    )
+
+    // FLAG(key: mobile-task-composer-enabled-release, owner: lawrencecchen,
+    //      reviewBy: 2026-10-01, defaultWhenUnavailable: true)
+    // Controls the iOS Task Composer from the Mac host. When off, the Mac stops
+    // advertising task-create/model/directory/attachment capabilities and
+    // task-specific RPCs fail with capability_disabled, so paired phones hide
+    // the composer without needing a user-visible Beta toggle.
+    nonisolated static let mobileTaskComposerFlag = CmuxFeatureFlagDefinition(
+        key: "mobile-task-composer-enabled-release",
+        title: String(
+            localized: "featureFlags.mobileTaskComposer.title",
+            defaultValue: "Mobile Task Composer"
+        ),
+        flagDescription: String(
+            localized: "featureFlags.mobileTaskComposer.description",
+            defaultValue: "Enables the iOS New Task composer, including task model discovery, directory picking, and attachment staging."
+        ),
+        defaultWhenUnavailable: CmuxFeatureFlags.mobileTaskComposerDefault
+    )
+
     // Order is load-bearing for the positional typed accessors below. Flags
     // that need a stable public definition are declared independently and
     // included here without repeating their key literal.
@@ -131,15 +188,15 @@ final class CmuxFeatureFlags {
 
             // FLAG(key: mobile-connect-button-enabled-release, owner: lawrencecchen,
             //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
-            // Shows the bottom-left sidebar iPhone button that opens the Mobile
-            // Connect workspace. It stays hidden until the remote flag or a
+            // Shows the bottom-left sidebar iPhone button that opens the Tailscale
+            // Pairing workspace. It stays hidden until the remote flag or a
             // local debug override enables it.
             CmuxFeatureFlagDefinition(
                 key: "mobile-connect-button-enabled-release",
-                title: String(localized: "featureFlags.mobileConnect.title", defaultValue: "Mobile Connect button"),
+                title: String(localized: "featureFlags.mobileConnect.title", defaultValue: "Tailscale Pairing button"),
                 flagDescription: String(
                     localized: "featureFlags.mobileConnect.description",
-                    defaultValue: "Shows Mobile Connect entrypoints that open the iPhone pairing workspace."
+                    defaultValue: "Shows the Tailscale Pairing button in the sidebar footer."
                 ),
                 defaultWhenUnavailable: CmuxFeatureFlags.mobileConnectButtonDefault
             ),
@@ -156,23 +213,6 @@ final class CmuxFeatureFlags {
                     defaultValue: "Shows the profile and sign-in control in the sidebar footer."
                 ),
                 defaultWhenUnavailable: CmuxFeatureFlags.sidebarAccountButtonDefault
-            ),
-
-            // FLAG(key: cloud-vm-ui-enabled-release, owner: lawrencecchen,
-            //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
-            // Shows the Cloud VM entrypoints: the new-workspace dropdown section
-            // (Open/Fork/Checkpoint/Restore/Advanced), the caret's direct Cloud
-            // VM menu, and the command-palette Cloud VM commands. Release builds
-            // hide them until the PostHog flag is enabled; DEBUG keeps them
-            // visible for dogfood.
-            CmuxFeatureFlagDefinition(
-                key: "cloud-vm-ui-enabled-release",
-                title: String(localized: "featureFlags.cloudVM.title", defaultValue: "Cloud VM UI"),
-                flagDescription: String(
-                    localized: "featureFlags.cloudVM.description",
-                    defaultValue: "Shows Cloud VM entrypoints in the new-workspace dropdown and command palette."
-                ),
-                defaultWhenUnavailable: CmuxFeatureFlags.cloudVMUIDefault
             ),
 
             // FLAG(key: agent-chat-ui-enabled-release, owner: lawrencecchen,
@@ -207,23 +247,22 @@ final class CmuxFeatureFlags {
                 defaultWhenUnavailable: CmuxFeatureFlags.sidebarWorkspaceAgentSpinnerDefault
             ),
 
-            // FLAG(key: simulator-enabled-release, owner: lawrencecchen,
+            // FLAG(key: computer-use-ux-enabled-release, owner: austinwang,
             //      reviewBy: 2026-10-01, defaultWhenUnavailable: true)
-            // Controls every Simulator entrypoint and active pane. The enabled
-            // fallback preserves access when PostHog is unavailable, while the
-            // remote value provides a release kill switch.
+            // Shows the computer-use status item and allows automatic onboarding.
+            // The settings and terminal kill switch remain available if this UI
+            // flag is remotely disabled.
             CmuxFeatureFlagDefinition(
-                key: "simulator-enabled-release",
-                title: String(
-                    localized: "featureFlags.simulator.title",
-                    defaultValue: "Simulator"
-                ),
+                key: "computer-use-ux-enabled-release",
+                title: String(localized: "featureFlags.computerUseUX.title", defaultValue: "Computer Use UX"),
                 flagDescription: String(
-                    localized: "featureFlags.simulator.description",
-                    defaultValue: "Enables iPhone and iPad Simulator panes, commands, and automation."
+                    localized: "featureFlags.computerUseUX.description",
+                    defaultValue: "Shows the Computer Use menu-bar item and automatic onboarding."
                 ),
-                defaultWhenUnavailable: CmuxFeatureFlags.simulatorDefault
+                defaultWhenUnavailable: CmuxFeatureFlags.computerUseUXDefault
             ),
+
+            CmuxFeatureFlags.simulatorFlag,
 
             // FLAG(key: workspace-todo-controls-enabled-release, owner: lawrencecchen,
             //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
@@ -246,6 +285,9 @@ final class CmuxFeatureFlags {
             CmuxFeatureFlags.appKitSidebarListFlag,
 
             CmuxFeatureFlags.mobileWorkspaceChangesFlag,
+
+            CmuxFeatureFlags.mobileTerminalFilesChipFlag,
+            CmuxFeatureFlags.mobileTaskComposerFlag,
         ]
     }()
 
@@ -257,12 +299,8 @@ final class CmuxFeatureFlags {
         effectiveValue(for: Self.allFlags[1])
     }
 
-    var isCloudVMUIEnabled: Bool {
-        effectiveValue(for: Self.allFlags[3])
-    }
-
     var isAgentChatUIEnabled: Bool {
-        effectiveValue(for: Self.allFlags[4])
+        effectiveValue(for: Self.allFlags[3])
     }
 
     var isSidebarAccountButtonEnabled: Bool {
@@ -270,11 +308,15 @@ final class CmuxFeatureFlags {
     }
 
     var isSidebarWorkspaceAgentSpinnerEnabled: Bool {
+        effectiveValue(for: Self.allFlags[4])
+    }
+
+    var isComputerUseUXEnabled: Bool {
         effectiveValue(for: Self.allFlags[5])
     }
 
     var isSimulatorEnabled: Bool {
-        effectiveValue(for: Self.allFlags[6])
+        effectiveValue(for: Self.simulatorFlag)
     }
 
     var isWorkspaceTodoControlsEnabled: Bool {
@@ -287,6 +329,14 @@ final class CmuxFeatureFlags {
 
     var isMobileWorkspaceChangesEnabled: Bool {
         effectiveValue(for: Self.mobileWorkspaceChangesFlag)
+    }
+
+    var isMobileTerminalFilesChipEnabled: Bool {
+        effectiveValue(for: Self.mobileTerminalFilesChipFlag)
+    }
+
+    var isMobileTaskComposerEnabled: Bool {
+        effectiveValue(for: Self.mobileTaskComposerFlag)
     }
 
     /// Effective values mirrored for nonisolated readers: the mobile host
@@ -369,7 +419,7 @@ final class CmuxFeatureFlags {
     func start() {
         guard refreshTimer == nil else { return }
         refreshRemoteFlags()
-        refreshTimer = Timer.scheduledTimer(withTimeInterval: 5 * 60, repeats: true) { [weak self] _ in
+        refreshTimer = Timer.scheduledTimer(withTimeInterval: 30 * 60, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refreshRemoteFlags() }
         }
     }
@@ -495,6 +545,7 @@ final class CmuxFeatureFlags {
         distinctID: String,
         personProperties: [String: String]
     ) async -> [String: Bool]? {
+        guard (try? await releaseControlRetryAfterGate.wait()) != nil else { return nil }
         guard let request = postHogControlPlaneRequest(
             distinctID: distinctID,
             personProperties: personProperties
@@ -505,8 +556,16 @@ final class CmuxFeatureFlags {
         let session = URLSession(configuration: configuration)
         defer { session.invalidateAndCancel() }
         guard let (bytes, response) = try? await session.bytes(for: request),
-              let http = response as? HTTPURLResponse,
-              (200..<300).contains(http.statusCode),
+              let http = response as? HTTPURLResponse else { return nil }
+        if http.statusCode == 429 {
+            let seconds = CmxRetryAfterPolicy.seconds(
+                from: http,
+                defaultSeconds: CmxRetryAfterPolicy.defaultRateLimitSeconds
+            ) ?? CmxRetryAfterPolicy.defaultRateLimitSeconds
+            await releaseControlRetryAfterGate.extend(by: seconds)
+            return nil
+        }
+        guard (200..<300).contains(http.statusCode),
               response.expectedContentLength < 0
                 || response.expectedContentLength <= maximumPostHogControlPlaneResponseBytes,
               let data = try? await boundedPostHogControlPlaneData(

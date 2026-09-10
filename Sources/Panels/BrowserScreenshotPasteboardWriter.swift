@@ -25,8 +25,12 @@ struct BrowserScreenshotPasteboardWriter: Sendable {
     @MainActor
     func write(_ image: NSImage, to pasteboard: NSPasteboard = .general) async throws {
         let item = try await pasteboardItem(for: image)
-        pasteboard.clearContents()
-        guard pasteboard.writeObjects([item]) else {
+        let result = await GhosttyApp.terminalPasteboard
+            .replaceContentsAndWait(
+                of: pasteboard,
+                with: [item]
+            )
+        guard result.didWrite else {
             throw BrowserScreenshotError.pasteboardWriteFailed
         }
     }

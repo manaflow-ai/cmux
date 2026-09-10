@@ -50,8 +50,21 @@ cmux notify --title "Build Complete"
 # With subtitle and body
 cmux notify --title "Claude Code" --subtitle "Permission" --body "Approval needed"
 
-# Notify specific tab/panel
+# Notify a specific workspace/surface
+cmux notify --title "Done" --workspace workspace:1 --surface surface:1
+
+# Compatibility form for older scripts
 cmux notify --title "Done" --tab 0 --panel 1
+
+# Capture the returned id and dismiss exactly that notification
+notification_id="$(cmux notify --title "Done" --body "Task complete" --id-format uuids | awk '$1 == "OK" {print $2}')"
+cmux dismiss-notification --id "$notification_id"
+
+# Clear notifications for the posting surface (same caller resolution as notify)
+cmux notify --clear
+
+# Clear a workspace or surface in a specific window
+cmux clear-notifications --window window:1 --workspace workspace:1 --surface surface:1
 ```
 
 ## Navigation
@@ -109,6 +122,12 @@ Hook input and output use this shape:
     "appFocused": false,
     "focusedPanel": false
   },
+  "agent": {
+    "kind": "claude",
+    "category": "turn-complete",
+    "pending": false,
+    "isSubagent": true
+  },
   "effects": {
     "record": true,
     "markUnread": true,
@@ -122,6 +141,36 @@ Hook input and output use this shape:
 ```
 
 Global hooks from `~/.config/cmux/cmux.json` run first. Project hooks from parent directories to the current workspace append after that. Project hooks use the same trust prompt as other project `cmux.json` commands before they run. Feed approval banners also pass through these hooks; disabling `desktop` suppresses the native banner while keeping the Feed item available in cmux. Set `"hooksMode": "replace"` in a project `notifications` section to ignore inherited hooks. If any hook fails, times out, or returns invalid JSON, cmux uses the default notification behavior and posts a hook failure alert.
+
+### Agent-event context
+
+Notifications that originate from an agent completion signal (agent hooks installed by `cmux hooks setup`, or cmux's built-in prompt-turn detection) carry an additional read-only `agent` object so hooks can implement their own per-agent notification policy:
+
+| Field | Description |
+|----------|-------------|
+| `kind` | Stable lowercase agent slug (`claude`, `codex`, `grok`, `antigravity`, …) |
+| `category` | `turn-complete`, `needs-permission`, or `idle-reminder` |
+| `pending` | `true` when the turn ended with background work still running |
+| `isSubagent` | `true` when the event came from a nested subagent session |
+
+The `agent` object is omitted entirely for non-agent notifications (plain `cmux notify`, OSC 9/99/777 escape sequences, notifications from older cmux CLIs), and individual fields are omitted when unknown. Hooks cannot modify it — patches to `agent` in hook output are ignored. The same context is exported to the hook process environment as `CMUX_NOTIFICATION_AGENT_KIND`, `CMUX_NOTIFICATION_AGENT_CATEGORY`, `CMUX_NOTIFICATION_AGENT_PENDING` (`0`/`1`), and `CMUX_NOTIFICATION_AGENT_IS_SUBAGENT` (`0`/`1`); each variable is set only when the corresponding field is present.
+
+With no hooks configured, notification behavior is exactly cmux's built-in default — configuring a hook is the explicit opt-in that hands the delivery decision to your script. For example, to keep every built-in behavior except the banner/sound/flash for subagent completions:
+
+```json
+{
+  "notifications": {
+    "hooks": [
+      {
+        "id": "mute-subagent-completions",
+        "command": "if [ \"${CMUX_NOTIFICATION_AGENT_IS_SUBAGENT-0}\" = \"1\" ] && [ \"$CMUX_NOTIFICATION_AGENT_CATEGORY\" = \"turn-complete\" ]; then printf '{\"effects\":{\"desktop\":false,\"sound\":false,\"paneFlash\":false}}'; fi"
+      }
+    ]
+  }
+}
+```
+
+A hook can also route events into an entirely custom notification system: disable every effect (`record`, `desktop`, `sound`, `command`, `paneFlash`, …) and call your own notifier from the hook script using the JSON on stdin. Note that cmux's built-in subagent suppression (`automation.suppressSubagentNotifications`, on by default) drops subagent completion events before they reach hooks; turn it off if your hook should see subagent events and make its own decision.
 
 ## Integration Examples
 
@@ -225,6 +274,34 @@ export const CmuxNotificationPlugin = async ({ $, }) => {
 };
 ```
 
+## Cloud machines
+
+Notifications from a cmux Cloud machine are owned by the machine. The
+cmux-tui daemon inside it posts a durable notification when an agent finishes
+a turn, needs approval, asks a question, requests plan review, or reports an
+error, and for `cmux-tui notify`. Every attached Mac receives those rows on the
+same state feed the Cloud tree uses, so a notification posted while the link
+was down arrives on reconnect, and a daemon restart does not lose it.
+
+Inside a machine, `cmux notify` takes the same flags as the local command
+(`--title`, `--subtitle`, `--body`, `--clear`, `--surface`, `--workspace`,
+`--json`) and posts to the machine's own ledger, so scripts and hooks written
+for a local terminal work unchanged. `--reply` is not available there.
+
+Read state is per client. Each row carries `read_by`, the client ids that
+acknowledged it. Reading the notification on this Mac (focusing the pane,
+marking it read, dismissing it) sends `notification.ack` under this Mac's
+client id. A second Mac attached to the same machine keeps its own unread
+state, and the machine's own TUI keeps its shared console marker.
+
+Locally these notifications behave like any other: they light the workspace
+and tab, appear in the notifications list and `cmux list-notifications`, post
+a system notification when cmux is in the background, and the Cloud tree
+shows a dot on the terminal until this Mac reads it. When no pane on this Mac
+shows the terminal, the notification lands on the local workspace bound to
+the machine; when no local workspace is bound, only the Cloud tree dot shows
+and delivery waits for a placement.
+
 ## Environment Variables
 
 cmux sets these in child shells:
@@ -238,13 +315,13 @@ cmux sets these in child shells:
 ## CLI Commands
 
 ```
-cmux notify --title <text> [--subtitle <text>] [--body <text>] [--tab <id|index>] [--panel <id|index>]
+cmux notify [--title <text>] [--subtitle <text>] [--body <text>] [--reply] [--clear] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
 cmux list-notifications
-cmux dismiss-notification (--id <notification-id> | --all-read)
-cmux mark-notification-read (--id <notification-id> | --workspace <id|ref> [--surface <id|ref>] | --all)
-cmux open-notification --id <notification-id>
+cmux dismiss-notification (--id <uuid|notification:<uuid>> | --all-read)
+cmux mark-notification-read (--id <uuid|notification:<uuid>> | --workspace <id|ref> [--surface <id|ref>] | --all)
+cmux open-notification --id <uuid|notification:<uuid>>
 cmux jump-to-unread
-cmux clear-notifications
+cmux clear-notifications [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
 cmux set-status <key> <value>
 cmux clear-status <key>
 cmux ping

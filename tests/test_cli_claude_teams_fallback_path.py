@@ -6,6 +6,7 @@ Regression test: `cmux claude-teams` preserves fallback provider dirs in PATH.
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -45,13 +46,27 @@ def main() -> int:
             managed_bin / "claude",
             "#!/usr/bin/env bash\necho managed-claude-shim-must-not-run >&2\nexit 42\n",
         )
-        make_executable(
-            live_managed_bin / "claude",
-            "#!/usr/bin/env bash\necho managed-claude-shim-must-not-run >&2\nexit 42\n",
+        wrapper_source = (
+            Path(__file__).resolve().parents[1]
+            / "Resources"
+            / "bin"
+            / "cmux-claude-wrapper"
         )
+        shutil.copyfile(wrapper_source, live_managed_bin / "claude")
+        (live_managed_bin / "claude").chmod(0o755)
+        # The production wrapper probes this sibling CLI to verify that the
+        # live surface socket is still owned by cmux. Keep that probe live in
+        # the fixture while leaving the provider itself under our control.
+        make_executable(live_managed_bin / "cmux", "#!/usr/bin/env bash\nexit 0\n")
 
         claude_log = tmp / "claude.log"
         codex_log = tmp / "codex.log"
+        login_shell = tmp / "login-shell"
+
+        make_executable(
+            login_shell,
+            "#!/bin/sh\nprintf '%s' \"$PATH\"\n",
+        )
 
         make_executable(
             fallback_bin / "claude-node-helper",
@@ -85,6 +100,7 @@ exit 86
         env = os.environ.copy()
         env["HOME"] = str(home)
         env["PATH"] = "/usr/bin:/bin"
+        env["SHELL"] = str(login_shell)
         env["TMPDIR"] = str(tmp)
         env["CMUX_CLAUDE_WRAPPER_SHIM"] = str(managed_bin / "claude")
         env["CMUX_CLAUDE_WRAPPER_SHIM_ROOT"] = str(managed_bin)
@@ -142,6 +158,9 @@ exit 86
         )
         if codex_version.returncode != 0 or codex_version.stdout.strip() != "codex fake 1.0":
             print("FAIL: unmanaged Codex Teams version invocation required a live surface")
+            print(f"exit={codex_version.returncode}")
+            print(f"stdout={codex_version.stdout.strip()}")
+            print(f"stderr={codex_version.stderr.strip()}")
             return 1
         if codex_log.exists():
             print("FAIL: Codex Teams version invocation started a real team")

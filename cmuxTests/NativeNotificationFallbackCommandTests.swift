@@ -1,3 +1,5 @@
+import CmuxNotifications
+import CmuxSettings
 import Foundation
 import os
 import Testing
@@ -56,6 +58,20 @@ struct NativeNotificationFallbackCommandTests {
         }
     }
 
+    private final class SoundContextRecorder: Sendable {
+        private let valueLock = OSAllocatedUnfairLock<NotificationSoundOverrideContext?>(
+            initialState: nil
+        )
+
+        var value: NotificationSoundOverrideContext? {
+            valueLock.withLock { $0 }
+        }
+
+        func record(_ value: NotificationSoundOverrideContext?) {
+            valueLock.withLock { $0 = value }
+        }
+    }
+
     @Test
     func deniedNativeNotificationAuthorizationDoesNotRunCustomCommandFallback() {
         let store = TerminalNotificationStore.shared
@@ -66,7 +82,9 @@ struct NativeNotificationFallbackCommandTests {
         let didAttemptSchedule = BoolRecorder()
         let commands = CommandInvocationRecorder()
         store.configureNotificationAuthorizationHandlerForTesting { completion in
-            completion(false, .denied)
+            MainActor.assumeIsolated {
+                completion(false, .denied)
+            }
         }
         store.configureUserNotificationSchedulerForTesting { _, completion in
             didAttemptSchedule.setTrue()
@@ -97,7 +115,9 @@ struct NativeNotificationFallbackCommandTests {
 
         let commands = CommandInvocationRecorder()
         store.configureNotificationAuthorizationHandlerForTesting { completion in
-            completion(true, .authorized)
+            MainActor.assumeIsolated {
+                completion(true, .authorized)
+            }
         }
         store.configureUserNotificationSchedulerForTesting { _, completion in
             completion(NSError(domain: "cmuxTests.NotificationScheduling", code: 1))
@@ -106,57 +126,71 @@ struct NativeNotificationFallbackCommandTests {
             commands.append(title: title, subtitle: subtitle, body: body)
         }
 
-        store.addNotification(
-            tabId: UUID(),
-            surfaceId: nil,
-            title: "Real title",
-            subtitle: "",
-            body: "Real message"
-        )
-        await Task.yield()
+        // The failed-scheduling branch plays unavailable feedback instead of
+        // the command fallback; resuming from that seam proves the branch ran
+        // to completion before the absence assertion below.
+        await withCheckedContinuation { continuation in
+            store.configureUnavailableFeedbackPlayerForTesting { _, _ in
+                continuation.resume()
+            }
+            store.addNotification(
+                tabId: UUID(),
+                surfaceId: nil,
+                title: "Real title",
+                subtitle: "",
+                body: "Real message",
+                retargetsToLiveSurfaceOwner: false
+            )
+        }
 
         #expect(commands.invocations.isEmpty)
     }
 
     @Test
-    func sourceConfinedNativeNotificationSerializesRetargetingProvenance() {
+    func sourceConfinedNativeNotificationSerializesRetargetingProvenance() async {
         let store = TerminalNotificationStore.shared
         let originalAppFocusOverride = AppFocusState.overrideIsFocused
         resetState(originalAppFocusOverride: false)
         defer { resetState(originalAppFocusOverride: originalAppFocusOverride) }
 
-        let retargetingValues = BoolValuesRecorder()
         store.configureNotificationAuthorizationHandlerForTesting { completion in
-            completion(true, .authorized)
-        }
-        store.configureUserNotificationSchedulerForTesting { request, completion in
-            if let value = request.content.userInfo["retargetsToLiveSurfaceOwner"] as? Bool {
-                retargetingValues.append(value)
+            MainActor.assumeIsolated {
+                completion(true, .authorized)
             }
-            completion(nil)
         }
         store.configureNotificationCommandRunnerForTesting { _, _, _ in }
 
-        store.addNotification(
-            tabId: UUID(),
-            surfaceId: UUID(),
-            title: "Relay",
-            subtitle: "Completed",
-            body: "Must stay confined",
-            retargetsToLiveSurfaceOwner: false
-        )
+        // Delivery now hops through the bounded notification-center service,
+        // so the scheduled request is observed via continuation instead of a
+        // synchronous recorder.
+        let retargetingValue: Bool? = await withCheckedContinuation { continuation in
+            store.configureUserNotificationSchedulerForTesting { request, completion in
+                completion(nil)
+                continuation.resume(
+                    returning: request.content.userInfo["retargetsToLiveSurfaceOwner"] as? Bool
+                )
+            }
+            store.addNotification(
+                tabId: UUID(),
+                surfaceId: UUID(),
+                title: "Relay",
+                subtitle: "Completed",
+                body: "Must stay confined",
+                retargetsToLiveSurfaceOwner: false
+            )
+        }
 
-        #expect(retargetingValues.values == [false])
+        #expect(retargetingValue == false)
     }
 
     @Test
-    func sharedNativeUnavailableFeedbackSuppressesCommandRunner() {
+    func sharedNativeUnavailableFeedbackSuppressesCommandRunner() async {
         var effects = TerminalNotificationPolicyEffects()
         effects.sound = false
         effects.command = true
         let commands = CommandInvocationRecorder()
 
-        NativeNotificationDeliveryHooks.runLocalFeedback(
+        await NativeNotificationDeliveryHooks.runLocalFeedback(
             title: "Real title",
             subtitle: "",
             body: "Real message",
@@ -170,14 +204,14 @@ struct NativeNotificationFallbackCommandTests {
     }
 
     @Test
-    func sharedDesktopDisabledFeedbackAllowsCommandRunner() {
+    func sharedDesktopDisabledFeedbackAllowsCommandRunner() async {
         var effects = TerminalNotificationPolicyEffects()
         effects.desktop = false
         effects.sound = false
         effects.command = true
         let commands = CommandInvocationRecorder()
 
-        NativeNotificationDeliveryHooks.runLocalFeedback(
+        await NativeNotificationDeliveryHooks.runLocalFeedback(
             title: "Real title",
             subtitle: "",
             body: "Real message",
@@ -191,6 +225,58 @@ struct NativeNotificationFallbackCommandTests {
         ])
     }
 
+    @Test
+    func storeOwnedFeedbackDropsResolvedRequestBeforeRunningEffects() async {
+        let store = TerminalNotificationStore.shared
+        let commands = CommandInvocationRecorder()
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+        resetState(originalAppFocusOverride: false)
+        defer { resetState(originalAppFocusOverride: originalAppFocusOverride) }
+
+        store.configureNotificationCommandRunnerForTesting { title, subtitle, body in
+            commands.append(title: title, subtitle: subtitle, body: body)
+        }
+        var effects = TerminalNotificationPolicyEffects()
+        effects.sound = false
+        effects.command = true
+
+        await store.runLocalNotificationFeedback(
+            ownerID: "feed.resolved-\(UUID().uuidString)",
+            title: "Resolved title",
+            subtitle: "",
+            body: "Resolved body",
+            effects: effects,
+            runCommand: true,
+            playbackAdmission: { false }
+        )
+
+        #expect(commands.invocations.isEmpty)
+    }
+
+    @Test
+    func unavailableFeedbackPlayerReceivesSoundContext() async {
+        var hooks = NativeNotificationDeliveryHooks(
+            userNotificationCenter: UserNotificationCenterService(
+                center: .current()
+            )
+        )
+        let recorder = SoundContextRecorder()
+        let context = NotificationSoundOverrideContext(
+            agentID: "codex",
+            alertType: .errorStalled
+        )
+        hooks.unavailableFeedbackPlayer = { _, soundContext in
+            recorder.record(soundContext)
+        }
+
+        await hooks.playUnavailableFeedback(
+            effects: TerminalNotificationPolicyEffects(),
+            soundContext: context
+        )
+
+        #expect(recorder.value == context)
+    }
+
     private func resetState(originalAppFocusOverride: Bool?) {
         let store = TerminalNotificationStore.shared
         store.replaceNotificationsForTesting([])
@@ -198,7 +284,53 @@ struct NativeNotificationFallbackCommandTests {
         store.resetNotificationAuthorizationHandlerForTesting()
         store.resetUserNotificationSchedulerForTesting()
         store.resetNotificationCommandRunnerForTesting()
+        store.resetUnavailableFeedbackPlayerForTesting()
         store.resetSuppressedNotificationFeedbackHandlerForTesting()
         AppFocusState.overrideIsFocused = originalAppFocusOverride
+    }
+}
+
+extension AgentNotificationRegressionTests {
+    @Test("An unresponsive notification center never blocks its calling executor")
+    func unresponsiveNativeNotificationCenterDoesNotBlockCallingExecutor() async {
+        var hooks = NativeNotificationDeliveryHooks(
+            userNotificationCenter: UserNotificationCenterService(
+                center: .current()
+            )
+        )
+        let schedulerEntered = DispatchSemaphore(value: 0)
+        let releaseScheduler = DispatchSemaphore(value: 0)
+        // Safety: written by the wedged scheduler thread, read by the test
+        // after schedule() returns.
+        let schedulerFinished = OSAllocatedUnfairLock(initialState: false)
+        hooks.scheduler = { _, completion in
+            schedulerEntered.signal()
+            // Stand-in for the framework blocking before it wires up its
+            // completion. The deadline exists only so a regression fails the
+            // test instead of wedging a runner thread indefinitely.
+            _ = releaseScheduler.wait(timeout: .now() + 5)
+            schedulerFinished.withLock { $0 = true }
+            completion(nil)
+        }
+        let hooksSnapshot = hooks
+        let scheduleTask = Task.detached(priority: .utility) {
+            let request = UNNotificationRequest(
+                identifier: "never-completes",
+                content: UNMutableNotificationContent(),
+                trigger: nil
+            )
+            await hooksSnapshot.schedule(request)
+        }
+
+        // Causal ordering: schedule() must hand back control while the wedged
+        // framework call still has not finished (it cannot finish until the
+        // release below).
+        #expect(
+            !schedulerFinished.withLock { $0 },
+            "schedule must return before the wedged center call completes"
+        )
+        #expect(schedulerEntered.wait(timeout: .now() + 5) == .success)
+        releaseScheduler.signal()
+        _ = await scheduleTask.value
     }
 }

@@ -8,6 +8,7 @@ extension DockSplitStore {
         includeScrollback: Bool,
         restorableAgentIndex: RestorableAgentSessionIndex? = nil,
         surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil,
+        downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable: Bool = false,
         currentAgentProcessIdentity: (Int) -> AgentPIDProcessIdentity? = {
             guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
             return AgentPIDProcessIdentity(pid: pid_t($0))
@@ -17,6 +18,8 @@ extension DockSplitStore {
             return PIDPresence.current(pid: pid_t($0))
         }
     ) -> SessionSplitContainerSnapshot {
+        flushPendingTerminalTitleUpdates()
+        let notificationStore = resolvedNotificationStore()
         let layoutCodec = SessionSplitContainerLayoutCodec(controller: bonsplitController)
         let rawLayout = layoutCodec.snapshot(panelIdForTabId: { [self] in surfaceIdToPanelId[$0] })
         let orderedPanelIds = orderedSessionPanelIds()
@@ -44,21 +47,32 @@ extension DockSplitStore {
         let panelSnapshots = orderedPanelIds
             .prefix(SessionPersistencePolicy.maxPanelsPerWorkspace)
             .compactMap { panelId in
-                let transfer = detachedSurfaceTransfersByPanelId[panelId]
-                let observationWorkspaceId = transfer?.sessionRestoreWorkspaceId ?? workspaceId
+                // A Dock's owner UUID can change when its window/workspace is restored or
+                // when the panel moves between containers. The panel UUID is persisted,
+                // so select the newest safe record for that stable surface while preserving
+                // live process evidence for the current owner.
+                let observationWorkspaceId = detachedSurfaceTransfersByPanelId[panelId]?
+                    .sessionRestoreWorkspaceId ?? workspaceId
                 return sessionPanelSnapshot(
                     panelId: panelId,
                     includeScrollback: includeScrollback,
-                    observation: restorableAgentIndex?.entry(
+                    observation: restorableAgentIndex?.entryForStablePanel(
+                        workspaceId: observationWorkspaceId,
+                        panelId: panelId,
+                        processIdentityProvider: currentAgentProcessIdentity,
+                        processPresenceProvider: agentProcessPresence,
+                        revalidateProcessEvidence: false
+                    ),
+                    detectedResumeBinding: surfaceResumeBindingIndex?.bindingForStablePanel(
                         workspaceId: observationWorkspaceId,
                         panelId: panelId
                     ),
-                    detectedResumeBinding: surfaceResumeBindingIndex?.binding(
-                        workspaceId: observationWorkspaceId,
-                        panelId: panelId
-                    ),
+                    downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable:
+                        downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable,
+                    detectedResumeBindingIsAmbiguous: surfaceResumeBindingIndex?.hasAmbiguousPanel(panelId) == true,
                     terminalFontSizeSnapshotProjection:
                         terminalFontSizeSnapshotProjection,
+                    notificationStore: notificationStore,
                     currentAgentProcessIdentity: currentAgentProcessIdentity,
                     agentProcessPresence: agentProcessPresence
                 )
@@ -86,6 +100,97 @@ extension DockSplitStore {
         )
     }
 
+    /// Hashes the manual unread bits persisted for this global Dock's panels.
+    func sessionManualUnreadAutosaveFingerprint(
+        notificationStore: TerminalNotificationStore?
+    ) -> Int {
+        self.notificationStore = notificationStore
+        var hasher = Hasher()
+        let panelIds = Array(
+            orderedSessionPanelIds()
+                .prefix(SessionPersistencePolicy.maxPanelsPerWorkspace)
+        )
+        hasher.combine(panelIds.count)
+        for panelId in panelIds {
+            hasher.combine(panelId)
+            hasher.combine(notificationStore?.hasManualUnread(
+                forTabId: workspaceId,
+                surfaceId: panelId
+            ) ?? false)
+        }
+        return hasher.finalize()
+    }
+
+    /// Captures one Dock panel for the Dock-local closed-item history without
+    /// walking every other panel in the split tree.
+    func closedPanelSessionSnapshot(
+        panelId: UUID,
+        restorableAgentIndex: RestorableAgentSessionIndex?
+    ) -> SessionPanelSnapshot? {
+        flushPendingTerminalTitleUpdate(panelId: panelId)
+        let transfer = detachedSurfaceTransfersByPanelId[panelId]
+        let observationWorkspaceId =
+            transfer?.sessionRestoreWorkspaceId ?? workspaceId
+        let terminalFontSizeSnapshotProjection:
+            WorkspaceTerminalFontSizeSnapshotProjection?
+        if panels[panelId] is TerminalPanel {
+            if let workspace = terminalFontSizeOwningWorkspace {
+                terminalFontSizeSnapshotProjection =
+                    terminalFontSizeChangeArbiter?
+                        .snapshotProjection(
+                            for: workspace,
+                            panelIds: [panelId]
+                        )
+            } else {
+                terminalFontSizeSnapshotProjection =
+                    terminalFontSizeChangeArbiter?
+                        .snapshotProjection(
+                            for: self,
+                            panelIds: [panelId]
+                        )
+            }
+        } else {
+            terminalFontSizeSnapshotProjection = nil
+        }
+
+        return sessionPanelSnapshot(
+            panelId: panelId,
+            includeScrollback: true,
+            observation: restorableAgentIndex?.entryForStablePanel(
+                workspaceId: observationWorkspaceId,
+                panelId: panelId,
+                processIdentityProvider: {
+                    guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
+                    return AgentPIDProcessIdentity(pid: pid_t($0))
+                },
+                processPresenceProvider: {
+                    guard $0 > 0, $0 <= Int(Int32.max) else {
+                        return .absent
+                    }
+                    return PIDPresence.current(pid: pid_t($0))
+                },
+                revalidateProcessEvidence: false
+            ),
+            detectedResumeBinding: nil,
+            downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable: false,
+            detectedResumeBindingIsAmbiguous:
+                surfaceResumeBindingsByPanelId[panelId]?.isProcessDetected == true,
+            terminalFontSizeSnapshotProjection:
+                terminalFontSizeSnapshotProjection,
+            notificationStore: resolvedNotificationStore(),
+            currentAgentProcessIdentity: {
+                guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
+                return AgentPIDProcessIdentity(pid: pid_t($0))
+            },
+            agentProcessPresence: {
+                guard $0 > 0, $0 <= Int(Int32.max) else {
+                    return .absent
+                }
+                return PIDPresence.current(pid: pid_t($0))
+            }
+        )
+    }
+
     private func orderedSessionPanelIds() -> [UUID] {
         var result: [UUID] = []
         var seen: Set<UUID> = []
@@ -109,43 +214,66 @@ extension DockSplitStore {
         includeScrollback: Bool,
         observation: RestorableAgentSessionIndex.Entry?,
         detectedResumeBinding: SurfaceResumeBindingSnapshot?,
+        downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable: Bool,
+        detectedResumeBindingIsAmbiguous: Bool = false,
         terminalFontSizeSnapshotProjection:
             WorkspaceTerminalFontSizeSnapshotProjection?,
+        notificationStore: TerminalNotificationStore?,
         currentAgentProcessIdentity: (Int) -> AgentPIDProcessIdentity?,
         agentProcessPresence: (Int) -> PIDPresence
     ) -> SessionPanelSnapshot? {
         guard let panel = panels[panelId] else { return nil }
         let transfer = detachedSurfaceTransfersByPanelId[panelId]
         let tab = surfaceId(forPanelId: panelId).flatMap { bonsplitController.tab($0) }
-        let tabTitle = tab?.title
-        let customTitle = transfer?.customTitle ?? (tab?.hasCustomTitle == true ? tabTitle : nil)
+        let titleMetadata = resolvedDockTitleMetadata(
+            panel: panel,
+            transfer: transfer,
+            tab: tab
+        )
         let directory = sessionWorkingDirectory(panel: panel, transfer: transfer)
+        let isManuallyUnread = scope == .global
+            ? notificationStore?.hasManualUnread(
+                forTabId: workspaceId,
+                surfaceId: panelId
+            ) == true
+            : manualUnreadPanelIds.contains(panelId)
 
         let terminalSnapshot: SessionTerminalPanelSnapshot?
         let browserSnapshot: SessionBrowserPanelSnapshot?
+        let filePreviewSnapshot: SessionFilePreviewPanelSnapshot?
         switch panel.panelType {
         case .terminal:
             guard let terminal = panel as? TerminalPanel else { return nil }
+            let policy = Workspace.makeSessionRestorePolicyService()
+            let localTmuxStartCommand = policy
+                .localTmuxStartCommand(terminal.surface.debugTmuxStartCommand())
             let managedResumeBinding = managedAgentResumeBinding(panelId: panelId)
             let resumeBinding = effectiveSessionResumeBinding(
                 panelId: panelId,
-                detected: detectedResumeBinding
+                detected: detectedResumeBinding,
+                downgradeStoredProcessDetectedResumeBindingWhenDetectionUnavailable:
+                    downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable,
+                detectedIsAmbiguous: detectedResumeBindingIsAmbiguous
             )
-            let restorableAgent = effectiveSessionRestorableAgent(
-                panelId: panelId,
-                observation: observation,
-                resumeBinding: resumeBinding,
-                managedResumeBinding: managedResumeBinding,
-                terminal: terminal,
-                transfer: transfer
-            )
+            let restorableAgent = localTmuxStartCommand == nil
+                ? effectiveSessionRestorableAgent(
+                    panelId: panelId,
+                    observation: observation,
+                    resumeBinding: resumeBinding,
+                    managedResumeBinding: managedResumeBinding,
+                    terminal: terminal,
+                    transfer: transfer
+                )
+                : nil
             let agentCompatibilityBinding = managedResumeBinding ?? resumeBinding
-            let hibernation = terminal.agentHibernationState.flatMap { state in
-                Workspace.restorableAgentForSessionRestore(
-                    state.agent,
-                    resumeBinding: agentCompatibilityBinding
-                ) == nil ? nil : state
-            }
+            let hibernation = localTmuxStartCommand == nil
+                ? terminal.agentHibernationState.flatMap { state in
+                    Workspace.restorableAgentForSessionRestore(
+                        state.agent,
+                        resumeBinding: agentCompatibilityBinding
+                    ) == nil ? nil : state
+                }
+                : nil
             let agentWasRunning = sessionAgentWasRunning(
                 restorableAgent: restorableAgent,
                 resumeBinding: resumeBinding,
@@ -156,18 +284,20 @@ extension DockSplitStore {
                 currentAgentProcessIdentity: currentAgentProcessIdentity,
                 agentProcessPresence: agentProcessPresence
             )
-            let policy = Workspace.makeSessionRestorePolicyService()
-            let tmuxStartCommand = restorableAgent == nil
-                ? policy.restorableTmuxStartCommand(terminal.surface.debugTmuxStartCommand())
+            let tmuxStartCommand = localTmuxStartCommand
+                ?? (restorableAgent == nil
+                    ? policy.restorableTmuxStartCommand(terminal.surface.debugTmuxStartCommand())
+                    : nil)
+            let resumeStartupInput = localTmuxStartCommand == nil
+                ? policy.surfaceResumeStartupInput(
+                    resumeBinding,
+                    autoResumeAgentSessions: AgentSessionAutoResumeSettings.isEnabled(
+                        defaults: agentSessionAutoResumeDefaults
+                    ) && (agentWasRunning ?? true),
+                    promptForApproval: false,
+                    approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
+                )
                 : nil
-            let resumeStartupInput = policy.surfaceResumeStartupInput(
-                resumeBinding,
-                autoResumeAgentSessions: AgentSessionAutoResumeSettings.isEnabled(
-                    defaults: agentSessionAutoResumeDefaults
-                ) && (agentWasRunning ?? true),
-                promptForApproval: false,
-                approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
-            )
             let shouldPersistScrollback = policy.shouldPersistSessionScrollback(
                 closeConfirmationRequired: Workspace.resolveCloseConfirmation(
                     shellActivityState: terminal.shellActivity.state,
@@ -217,40 +347,56 @@ extension DockSplitStore {
                 scrollback: scrollback,
                 agent: restorableAgent,
                 tmuxStartCommand: tmuxStartCommand,
-                hibernation: hibernation.map {
+                hibernation: localTmuxStartCommand == nil ? hibernation.map {
                     SessionAgentHibernationSnapshot(
                         hibernatedAt: $0.hibernatedAt.timeIntervalSince1970,
                         lastActivityAt: $0.lastActivityAt.timeIntervalSince1970
                     )
-                },
-                resumeBinding: resumeBinding,
-                managedAgentResumeBinding: managedResumeBinding,
+                } : nil,
+                resumeBinding: localTmuxStartCommand == nil ? resumeBinding : nil,
+                managedAgentResumeBinding: localTmuxStartCommand == nil ? managedResumeBinding : nil,
                 textBoxDraft: terminal.sessionTextBoxDraftSnapshot(),
                 isRemoteTerminal: transfer?.isRemoteTerminal ?? false,
                 remotePTYSessionID: transfer?.remotePTYSessionID,
-                wasAgentRunning: agentWasRunning
+                wasAgentRunning: localTmuxStartCommand == nil ? agentWasRunning : nil
             )
             browserSnapshot = nil
+            filePreviewSnapshot = nil
         case .browser:
-            guard let browser = panel as? BrowserPanel, browser.shouldPersistSessionSnapshot() else {
+            terminalSnapshot = nil
+            if let browser = panel as? BrowserPanel {
+                guard browser.shouldPersistSessionSnapshot() else { return nil }
+                let history = browser.sessionNavigationHistorySnapshot()
+                let diffViewer = browser.diffViewerSessionComponents()
+                browserSnapshot = SessionBrowserPanelSnapshot(
+                    urlString: browser.preferredURLStringForSessionSnapshot(),
+                    profileID: browser.profileID,
+                    shouldRenderWebView: browser.shouldRenderWebViewForSessionSnapshot(),
+                    pageZoom: Double(browser.currentPageZoomFactor()),
+                    developerToolsVisible: browser.isDeveloperToolsVisible(),
+                    isMuted: browser.isMuted,
+                    chromeVisibility: browser.chromeVisibility,
+                    omnibarVisible: browser.isOmnibarVisible,
+                    backHistoryURLStrings: history.backHistoryURLStrings,
+                    forwardHistoryURLStrings: history.forwardHistoryURLStrings,
+                    transparentBackground: browser.sessionSnapshotTransparentBackground,
+                    diffViewerToken: diffViewer?.token,
+                    diffViewerRequestPath: diffViewer?.requestPath
+                )
+            } else if let deferred = panel as? DeferredBrowserPanel {
+                browserSnapshot = deferred.sessionPanelSnapshot.browser
+            } else {
                 return nil
             }
-            let history = browser.sessionNavigationHistorySnapshot()
-            let diffViewer = browser.diffViewerSessionComponents()
+            filePreviewSnapshot = nil
+        case .filePreview:
+            guard let filePreview = panel as? FilePreviewPanel else {
+                return nil
+            }
             terminalSnapshot = nil
-            browserSnapshot = SessionBrowserPanelSnapshot(
-                urlString: browser.preferredURLStringForSessionSnapshot(),
-                profileID: browser.profileID,
-                shouldRenderWebView: browser.shouldRenderWebViewForSessionSnapshot(),
-                pageZoom: Double(browser.currentPageZoomFactor()),
-                developerToolsVisible: browser.isDeveloperToolsVisible(),
-                isMuted: browser.isMuted,
-                omnibarVisible: browser.isOmnibarVisible,
-                backHistoryURLStrings: history.backHistoryURLStrings,
-                forwardHistoryURLStrings: history.forwardHistoryURLStrings,
-                transparentBackground: browser.sessionSnapshotTransparentBackground,
-                diffViewerToken: diffViewer?.token,
-                diffViewerRequestPath: diffViewer?.requestPath
+            browserSnapshot = nil
+            filePreviewSnapshot = SessionFilePreviewPanelSnapshot(
+                filePath: filePreview.filePath
             )
         default:
             return nil
@@ -260,19 +406,20 @@ extension DockSplitStore {
             id: panelId,
             stableSurfaceId: panel.stableSurfaceId,
             type: panel.panelType,
-            title: tabTitle ?? panel.displayTitle,
-            customTitle: customTitle,
-            customTitleSource: transfer?.customTitleSource ?? (customTitle == nil ? nil : .user),
+            title: titleMetadata.title,
+            customTitle: titleMetadata.customTitle,
+            customTitleSource: titleMetadata.customTitleSource == .remote ? .user : titleMetadata.customTitleSource,
+            customTitleWasRemote: titleMetadata.customTitleSource == .remote ? true : nil,
             directory: directory,
             directoryIsTrustedRemoteReport: transfer?.directoryIsTrustedRemoteReport,
-            isPinned: false,
-            isManuallyUnread: transfer?.manuallyUnread ?? false,
+            isPinned: tab?.isPinned ?? transfer?.isPinned ?? false,
+            isManuallyUnread: isManuallyUnread,
             listeningPorts: [],
             ttyName: transfer?.ttyName,
             terminal: terminalSnapshot,
             browser: browserSnapshot,
             markdown: nil,
-            filePreview: nil,
+            filePreview: filePreviewSnapshot,
             rightSidebarTool: nil
         )
     }
@@ -300,7 +447,9 @@ extension DockSplitStore {
 
     private func effectiveSessionResumeBinding(
         panelId: UUID,
-        detected: SurfaceResumeBindingSnapshot?
+        detected: SurfaceResumeBindingSnapshot?,
+        downgradeStoredProcessDetectedResumeBindingWhenDetectionUnavailable: Bool,
+        detectedIsAmbiguous: Bool
     ) -> SurfaceResumeBindingSnapshot? {
         let stored = surfaceResumeBindingsByPanelId[panelId]
         if let stored,
@@ -313,14 +462,32 @@ extension DockSplitStore {
             effective = stored.shouldYieldToDetectedSurfaceResumeBinding(detected) ? detected : stored
         } else if let detected {
             effective = detected
+        } else if var stored,
+                  stored.isProcessDetected,
+                  downgradeStoredProcessDetectedResumeBindingWhenDetectionUnavailable {
+            // Recovery cannot synchronously scan processes before its owner is
+            // torn down. Retain the command for explicit recovery, but never
+            // treat the unverified cached binding as safe to auto-run.
+            stored.autoResume = false
+            stored.approvalPolicy = .manual
+            stored.approvalRecordId = nil
+            effective = stored
         } else if stored?.isProcessDetected == true {
-            effective = nil
+            effective = detectedIsAmbiguous
+                ? stored?.disablingAutomaticResume()
+                : nil
         } else {
             effective = stored
         }
         if let effective {
+            guard surfaceResumeBindingMutationAllowed(effective, panelId: panelId) else {
+                return stored
+            }
             surfaceResumeBindingsByPanelId[panelId] = effective
         } else {
+            guard surfaceResumeBindingRemovalAllowed(panelId: panelId) else {
+                return stored
+            }
             surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
         }
         return effective
@@ -363,7 +530,7 @@ extension DockSplitStore {
             }
             return candidate
         }()
-        let compatible = [
+        let compatibleCandidate = [
             terminal.agentHibernationState?.agent,
             observed,
             coordinated,
@@ -378,8 +545,12 @@ extension DockSplitStore {
                 resumeBinding: agentCompatibilityBinding
             )
         }.first
+        let compatible = restoredAgentLifecycle.reconcileSnapshotWithQueuedRestoreIntent(
+            panelId: panelId,
+            proposedSnapshot: compatibleCandidate
+        )
         if let compatible {
-            restoredAgentLifecycle.snapshotsByPanelId[panelId] = compatible
+            restoredAgentLifecycle.setSnapshot(compatible, panelId: panelId)
         }
         return compatible
     }
@@ -397,6 +568,12 @@ extension DockSplitStore {
         let managedBinding = managedResumeBinding
             ?? resumeBinding.flatMap { $0.isAgentHookBinding ? $0 : nil }
         guard restorableAgent != nil || managedBinding != nil else { return nil }
+        if restoredAgentLifecycle.hasQueuedRestoreIntent(
+            panelId: terminal.id,
+            matching: restorableAgent
+        ) {
+            return true
+        }
         let expectedKind = managedBinding != nil
             ? managedBinding?.kind.flatMap {
                 RestorableAgentKind(
@@ -408,18 +585,14 @@ extension DockSplitStore {
         let expectedSessionId = managedBinding != nil
             ? managedBinding?.checkpointId
             : restorableAgent?.sessionId
-        let relevantObservation = observation.flatMap { entry -> RestorableAgentSessionIndex.Entry? in
-            guard let expectedKind,
-                  let expectedSessionId,
-                  entry.snapshot.kind.rawValue == expectedKind.rawValue,
-                  ManagedAgentSessionIdentity.sessionIDsMatch(
-                      kind: expectedKind.rawValue,
-                      lhs: entry.snapshot.sessionId,
-                      rhs: expectedSessionId
-                  ) else {
-                return nil
-            }
-            return entry
+        let relevantObservation: RestorableAgentSessionIndex.Entry?
+        if let expectedKind, let expectedSessionId {
+            relevantObservation = observation?.matchingAgentSession(
+                kind: expectedKind.rawValue,
+                sessionId: expectedSessionId
+            )
+        } else {
+            relevantObservation = nil
         }
         let confirmedRuntimeIdentities: Set<AgentPIDProcessIdentity> = {
             guard let expectedKind, expectedKind != .claude,

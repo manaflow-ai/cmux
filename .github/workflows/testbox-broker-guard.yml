@@ -1,0 +1,62 @@
+name: Testbox broker guard
+
+# The main CI suite is dispatch-only right now, so the trust-boundary guard for
+# the Blacksmith Testbox lane gets its own always-on workflow. It must run on
+# every pull request, with no path filter: a path filter is exactly the thing a
+# change that moves the guard could slip past.
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions: {}
+
+concurrency:
+  group: testbox-broker-guard-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  guard:
+    name: Testbox broker trust boundary
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: "3.12"
+
+      - name: Install guard dependencies
+        run: python3 -m pip install --disable-pip-version-check --no-input PyYAML==6.0.3
+
+      - name: Validate Blacksmith Testbox broker trust boundary
+        run: python3 tests/test_ci_testbox_broker_guard.py
+
+      - name: Validate receipt-bound cleanup ownership check
+        run: ./tests/test_testbox_cleanup_receipt_ref.sh
+
+      - name: Lint the Testbox lane helpers
+        run: shellcheck scripts/blacksmith-bounded-command.sh scripts/blacksmith-cmux-tui-testbox-stage.sh scripts/blacksmith-testbox-cleanup.sh scripts/blacksmith-testbox-keepalive.sh
+
+      - name: Lint the Testbox warmup workflow
+        env:
+          ACTIONLINT_VERSION: "1.7.7"
+          ACTIONLINT_SHA256: "023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757"
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/actionlint.tar.gz"
+          curl -fsSL -o "$archive" \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          echo "${ACTIONLINT_SHA256}  ${archive}" | sha256sum --check --strict
+          tar -xzf "$archive" -C "$RUNNER_TEMP" actionlint
+          "$RUNNER_TEMP/actionlint" \
+            .github/workflows/cmux-tui-testbox-warmup.yml \
+            .github/workflows/testbox-broker-guard.yml

@@ -239,8 +239,10 @@ extension RemoteTmuxControlConnection {
                 // (see ``PostAttachAction``).
                 switch pendingPostAttachAction {
                 case .reseed:
+                    pushMirrorSessionEnvironment()
                     reseedAfterReconnect()
                 case .applyClientSize:
+                    pushMirrorSessionEnvironment()
                     // A surface that hasn't computed a grid yet is covered by the
                     // debounced `setClientSize` instead.
                     if let size = lastClientSize {

@@ -41,7 +41,7 @@ struct AuthEnvironmentTests {
     @Test("explicit Stack values override the selected auth channel")
     func explicitStackValuesOverrideSelectedAuthChannel() {
         let environment = [
-            "CMUX_AUTH_ENVIRONMENT": "production",
+            "CMUX_AUTH_ENVIRONMENT": "development",
             "CMUX_STACK_PROJECT_ID": "test-project",
             "CMUX_STACK_PUBLISHABLE_CLIENT_KEY": "test-key",
         ]
@@ -82,6 +82,72 @@ struct AuthEnvironmentTests {
             environment: ["CMUX_IROH_BROKER_BASE_URL": ":// malformed"],
             isDebugBuild: true
         ) == nil)
+    }
+
+    @Test("production auth cannot be redirected to a staging Iroh broker")
+    func productionAuthCannotBeRedirectedToStagingIrohBroker() {
+        let staging = AuthEnvironment.resolvedIrohBrokerBaseURL(
+            environment: [
+                "CMUX_AUTH_ENVIRONMENT": "production",
+                "CMUX_IROH_BROKER_BASE_URL": "https://cmux-staging.vercel.app",
+            ],
+            isDebugBuild: true
+        )
+        #expect(staging?.absoluteString == "https://cmux.com")
+
+        let release = AuthEnvironment.resolvedIrohBrokerBaseURL(
+            environment: [
+                "CMUX_IROH_BROKER_BASE_URL": "https://cmux-staging.vercel.app",
+            ],
+            isDebugBuild: false
+        )
+        #expect(release?.absoluteString == "https://cmux.com")
+    }
+
+    @Test("production auth pins the authenticated API origin")
+    func productionAuthPinsAuthenticatedAPIOrigin() {
+        let debugProduction = AuthEnvironment.resolvedAPIBaseURL(
+            environment: [
+                "CMUX_AUTH_ENVIRONMENT": "production",
+                "CMUX_API_BASE_URL": "https://cmux-staging.vercel.app",
+            ],
+            isDebugBuild: true
+        )
+        #expect(debugProduction.absoluteString == "https://cmux.com")
+
+        let release = AuthEnvironment.resolvedAPIBaseURL(
+            environment: ["CMUX_API_BASE_URL": "https://cmux-staging.vercel.app"],
+            isDebugBuild: false
+        )
+        #expect(release.absoluteString == "https://cmux.com")
+    }
+
+    @Test("production auth pins Stack project and client key")
+    func productionAuthPinsStackCredentials() {
+        let environment = [
+            "CMUX_AUTH_ENVIRONMENT": "production",
+            "CMUX_STACK_PROJECT_ID": "staging-project",
+            "CMUX_STACK_PUBLISHABLE_CLIENT_KEY": "staging-key",
+        ]
+        #expect(AuthEnvironment.resolvedStackProjectID(
+            environment: environment,
+            isDebugBuild: true
+        ) == "9790718f-14cd-4f7e-824d-eaf527a82b82")
+        #expect(AuthEnvironment.resolvedStackPublishableClientKey(
+            environment: environment,
+            isDebugBuild: true
+        ) == "pck_kzj80gx4mh2jrzn1cx6y5e8jk0kwa01vkevh2p9zd4twr")
+    }
+
+    @Test("device registry publishes to shared staging in debug so dev phones read fresh routes")
+    func deviceRegistryPublishesToSharedStagingInDebug() {
+        let localVMAPI = URL(string: "http://localhost:9450")!
+        #expect(AuthEnvironment.resolvedDeviceRegistryAPIBaseURL(
+            isDebugBuild: true, vmAPIBaseURL: localVMAPI
+        ).absoluteString == "https://cmux-staging.vercel.app")
+        #expect(AuthEnvironment.resolvedDeviceRegistryAPIBaseURL(
+            isDebugBuild: false, vmAPIBaseURL: localVMAPI
+        ) == localVMAPI)
     }
 
     @Test("debug callback scheme uses sanitized tag")
@@ -427,6 +493,42 @@ struct AuthEnvironmentTests {
         #expect(debugLoopback.absoluteString == "http://localhost:4347")
     }
 
+    @Test("debug app session handoff accepts the tagged Tailscale Serve origin")
+    func debugAppSessionHandoffAcceptsTaggedTailscaleOrigin() {
+        let environment = [
+            "CMUX_WWW_ORIGIN": "https://cmux-dev-backend-1.tail137216.ts.net:3916/",
+            "CMUX_DEV_BACKEND_TRANSPORT": "direct",
+            "CMUX_DEV_BACKEND_TAILSCALE_HOST": "cmux-dev-backend-1.tail137216.ts.net",
+        ]
+        let origin = AuthEnvironment.resolvedAppSessionHandoffOrigin(
+            environment: environment,
+            isDebugBuild: true
+        )
+        #expect(origin.absoluteString == environment["CMUX_WWW_ORIGIN"])
+    }
+
+    @Test("debug app session handoff rejects an untrusted Tailscale host or port")
+    func debugAppSessionHandoffRejectsUntrustedTailscaleHostOrPort() {
+        let baseEnvironment = [
+            "CMUX_WWW_ORIGIN": "https://cmux-dev-backend-1.tail137216.ts.net:3916/",
+            "CMUX_DEV_BACKEND_TRANSPORT": "direct",
+            "CMUX_DEV_BACKEND_TAILSCALE_HOST": "cmux-dev-backend-1.tail137216.ts.net",
+        ]
+        var wrongHost = baseEnvironment
+        wrongHost["CMUX_WWW_ORIGIN"] = "https://other.tail137216.ts.net:3916/"
+        #expect(AuthEnvironment.resolvedAppSessionHandoffOrigin(
+            environment: wrongHost,
+            isDebugBuild: true
+        ).absoluteString == "https://cmux.com")
+
+        var wrongPort = baseEnvironment
+        wrongPort["CMUX_WWW_ORIGIN"] = "https://cmux-dev-backend-1.tail137216.ts.net:8443/"
+        #expect(AuthEnvironment.resolvedAppSessionHandoffOrigin(
+            environment: wrongPort,
+            isDebugBuild: true
+        ).absoluteString == "https://cmux.com")
+    }
+
     @Test("Pro upgrade workspace reuse keeps a live tracked workspace")
     func proUpgradeWorkspaceReuseKeepsLiveTrackedWorkspace() {
         var state = ProUpgradeWorkspaceReuseState()
@@ -585,5 +687,66 @@ private func isLocalePathSegment(_ segment: String) -> Bool {
     }
     return parts.dropFirst().allSatisfy { subtag in
         (2...4).contains(subtag.count) && subtag.allSatisfy(\.isLetter)
+    }
+}
+
+@Suite("Checkout attribution")
+struct CheckoutAttributionTests {
+    @Test
+    func queryItemsCarrySourceClientChannelAndVersion() throws {
+        let items = CheckoutAttribution.queryItems(
+            source: .sidebarBadge,
+            flavor: .nightly,
+            infoDictionary: ["CFBundleShortVersionString": "0.65.1", "CFBundleVersion": "2026090101"]
+        )
+        let values = Dictionary(uniqueKeysWithValues: items.compactMap { item in item.value.map { (item.name, $0) } })
+
+        #expect(values["cmux_source"] == "mac_sidebar_badge")
+        #expect(values["cmux_client"] == "mac")
+        #expect(values["cmux_channel"] == "nightly")
+        #expect(values["cmux_app_version"] == "0.65.1")
+        #expect(values["cmux_app_build"] == "2026090101")
+    }
+
+    @Test
+    func applyingReplacesStaleAttributionAndKeepsOtherQuery() throws {
+        let base = try #require(URL(string: "https://cmux.com/app-pricing?cmux_app=1&cmux_source=mac_help_menu&cmux_channel=stable"))
+        let url = CheckoutAttribution.applying(
+            to: base,
+            source: .commandPalette,
+            flavor: .dev,
+            infoDictionary: [:]
+        )
+        let items = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems)
+
+        #expect(items.filter { $0.name == "cmux_source" }.map(\.value) == ["mac_command_palette"])
+        #expect(items.filter { $0.name == "cmux_channel" }.map(\.value) == ["dev"])
+        #expect(items.contains { $0.name == "cmux_app" && $0.value == "1" })
+        #expect(!items.contains { $0.name == "cmux_app_version" })
+    }
+
+    @Test
+    func everySourceIsAServerSafeToken() {
+        for source in ProUpgradeSource.allCases {
+            let token = source.rawValue
+            #expect(token.hasPrefix("mac_"), "\(token)")
+            #expect(token.count <= 64, "\(token)")
+            #expect(token.unicodeScalars.allSatisfy { ("a"..."z").contains($0) || ("0"..."9").contains($0) || $0 == "_" }, "\(token)")
+        }
+    }
+
+    @Test
+    func vmRequiresProErrorTextLinksWithATypedSource() {
+        let text = defaultCloudVMAction(status: 402, errorCode: "vm_requires_pro")
+        #expect(text.contains("cmux_source=\(ProUpgradeSource.vmRequiresProError.rawValue)"))
+        #expect(text.contains("cmux_client=mac"))
+    }
+
+    @Test
+    func intentPropertiesNameSurfaceAndChannel() {
+        let properties = CheckoutAttribution.intentProperties(source: .helpMenu, flavor: .stable)
+        #expect(properties["source"] as? String == "mac_help_menu")
+        #expect(properties["client"] as? String == "mac")
+        #expect(properties["channel"] as? String == "stable")
     }
 }

@@ -7,10 +7,12 @@ public struct CmxIrohBrokerBindingMetadata: Codable, Equatable, Sendable {
         case bindingID
         case deviceID
         case appInstanceID
+        case clientNamespace
         case tag
         case platform
         case endpointID
         case identityGeneration
+        case pathHints
     }
 
     /// The broker-owned binding UUID.
@@ -21,6 +23,9 @@ public struct CmxIrohBrokerBindingMetadata: Codable, Equatable, Sendable {
 
     /// The installation's broker-facing app-instance UUID.
     public let appInstanceID: String
+
+    /// The exact app namespace that owns the binding.
+    public let clientNamespace: String
 
     /// The build tag registered with the broker.
     public let tag: String
@@ -34,40 +39,50 @@ public struct CmxIrohBrokerBindingMetadata: Codable, Equatable, Sendable {
     /// The monotonically increasing endpoint identity generation.
     public let identityGeneration: Int
 
+    /// Broker-validated route hints that accelerate reconnect to this endpoint.
+    public let pathHints: [CmxIrohPathHint]
+
     /// Creates validated broker binding metadata.
     ///
     /// - Parameters:
     ///   - bindingID: The broker-owned lowercase binding UUID.
     ///   - deviceID: The account device's lowercase UUID.
     ///   - appInstanceID: The installation's lowercase app-instance UUID.
+    ///   - clientNamespace: The exact bundle-derived app namespace.
     ///   - tag: The safe build tag sent during registration.
     ///   - platform: The endpoint's platform role.
     ///   - endpointID: The registered Iroh endpoint identity.
     ///   - identityGeneration: The positive endpoint identity generation.
+    ///   - pathHints: Broker-validated route hints for the endpoint.
     /// - Throws: ``CmxIrohBrokerCredentialRepositoryError/invalidBinding`` for malformed input.
     public init(
         bindingID: String,
         deviceID: String,
         appInstanceID: String,
+        clientNamespace: String = "legacy",
         tag: String,
         platform: CmxIrohPlatform,
         endpointID: CmxIrohPeerIdentity,
-        identityGeneration: Int
+        identityGeneration: Int,
+        pathHints: [CmxIrohPathHint] = []
     ) throws {
         guard Self.isCanonicalUUID(bindingID),
               Self.isCanonicalUUID(deviceID),
               Self.isCanonicalUUID(appInstanceID),
-              Self.isSafeTag(tag),
+              cmxIrohIsSafeToken(clientNamespace, maximumUTF8ByteCount: 255),
+              cmxIrohIsSafeToken(tag),
               (1 ... Int(Int32.max)).contains(identityGeneration) else {
             throw CmxIrohBrokerCredentialRepositoryError.invalidBinding
         }
         self.bindingID = bindingID
         self.deviceID = deviceID
         self.appInstanceID = appInstanceID
+        self.clientNamespace = clientNamespace
         self.tag = tag
         self.platform = platform
         self.endpointID = endpointID
         self.identityGeneration = identityGeneration
+        self.pathHints = pathHints
     }
 
     /// Copies the exact recovery tuple from a validated broker response.
@@ -77,10 +92,12 @@ public struct CmxIrohBrokerBindingMetadata: Codable, Equatable, Sendable {
         bindingID = binding.bindingID
         deviceID = binding.deviceID
         appInstanceID = binding.appInstanceID
+        clientNamespace = binding.clientNamespace
         tag = binding.tag
         platform = binding.platform
         endpointID = binding.endpointID
         identityGeneration = binding.identityGeneration
+        pathHints = binding.pathHints
     }
 
     /// Decodes and revalidates persisted broker binding metadata.
@@ -93,10 +110,18 @@ public struct CmxIrohBrokerBindingMetadata: Codable, Equatable, Sendable {
             bindingID: container.decode(String.self, forKey: .bindingID),
             deviceID: container.decode(String.self, forKey: .deviceID),
             appInstanceID: container.decode(String.self, forKey: .appInstanceID),
+            clientNamespace: container.decodeIfPresent(
+                String.self,
+                forKey: .clientNamespace
+            ) ?? "legacy",
             tag: container.decode(String.self, forKey: .tag),
             platform: container.decode(CmxIrohPlatform.self, forKey: .platform),
             endpointID: container.decode(CmxIrohPeerIdentity.self, forKey: .endpointID),
-            identityGeneration: container.decode(Int.self, forKey: .identityGeneration)
+            identityGeneration: container.decode(Int.self, forKey: .identityGeneration),
+            pathHints: container.decodeIfPresent(
+                [CmxIrohPathHint].self,
+                forKey: .pathHints
+            ) ?? []
         )
     }
 
@@ -104,13 +129,4 @@ public struct CmxIrohBrokerBindingMetadata: Codable, Equatable, Sendable {
         UUID(uuidString: value)?.uuidString.lowercased() == value
     }
 
-    private static func isSafeTag(_ value: String) -> Bool {
-        guard (1 ... 64).contains(value.utf8.count) else { return false }
-        return value.utf8.allSatisfy { byte in
-            (48 ... 57).contains(byte)
-                || (65 ... 90).contains(byte)
-                || (97 ... 122).contains(byte)
-                || [45, 46, 58, 95].contains(byte)
-        }
-    }
 }

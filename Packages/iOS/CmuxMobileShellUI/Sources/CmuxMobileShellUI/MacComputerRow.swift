@@ -23,9 +23,10 @@ struct MacComputerRow: View {
     }
 
     let computer: MacComputerSnapshot
-    /// Hides this computer on the current iPhone. When `nil`, hide affordances
-    /// are omitted.
-    var hide: ((String) -> Void)? = nil
+    /// Changes whether this computer appears on the current iPhone. When `nil`,
+    /// the visibility switch is omitted.
+    var setVisible: ((Bool) -> Void)? = nil
+    var isVisibilityMutating = false
     var style: Style = .computers
     /// Reconnect action for `.reconnect` rows; tapping the row calls this with
     /// the device id instead of navigating.
@@ -35,23 +36,33 @@ struct MacComputerRow: View {
     /// button, so the row does not flash a dimmed state.
     var isConnecting: Bool = false
 
+    @State private var showListAuthInfo = false
+
     var body: some View {
-        rowContainer
-        .contextMenu { hideMenuButton }
-        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-            hideSwipeButton
+        HStack(spacing: 8) {
+            rowContainer
+            if let setVisible {
+                ComputerVisibilityToggle(
+                    computerID: computer.id,
+                    computerName: computer.title,
+                    isVisible: true,
+                    isDisabled: isVisibilityMutating,
+                    setVisible: setVisible
+                )
+            }
         }
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("MobileComputerRow-\(computer.id)")
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("MobileComputerRow-\(computer.connectionRef.automationID)")
     }
 
     @ViewBuilder
     private var rowContainer: some View {
         switch style {
         case .computers:
-            NavigationLink(value: computer.id) {
+            NavigationLink(value: computer.connectionRef) {
                 rowLabel
             }
+            .accessibilityElement(children: .combine)
         case .reconnect:
             Button {
                 connect?(computer.id)
@@ -59,6 +70,7 @@ struct MacComputerRow: View {
                 rowLabel
             }
             .buttonStyle(.plain)
+            .accessibilityElement(children: .combine)
         }
     }
 
@@ -87,6 +99,9 @@ struct MacComputerRow: View {
                     if let buildLabel = computer.buildLabel {
                         ComputerBuildBadge(label: buildLabel)
                     }
+                    if showsListAuthWarning {
+                        listAuthWarningButton
+                    }
                 }
                 Text(connectionLine)
                     .font(.caption)
@@ -98,39 +113,29 @@ struct MacComputerRow: View {
                     .lineLimit(1)
             }
             Spacer(minLength: 8)
+            caffeineIndicator
             badge
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
     }
 
+    /// Small cup marking a Mac that cmux is keeping awake. The snapshot only
+    /// carries the state over a live connection, so a stale cup can't linger
+    /// on an unreachable Mac.
     @ViewBuilder
-    private var hideSwipeButton: some View {
-        if let hide {
-            Button {
-                hide(computer.id)
-            } label: {
-                Label(
-                    L10n.string("mobile.computers.hide", defaultValue: "Hide"),
-                    systemImage: "eye.slash"
+    private var caffeineIndicator: some View {
+        if computer.caffeineEnabled == true {
+            Image(systemName: "cup.and.saucer.fill")
+                .font(.caption)
+                .foregroundStyle(.orange)
+                .accessibilityLabel(L10n.string(
+                    "mobile.computers.keepAwake.active",
+                    defaultValue: "Keeping Mac awake"
+                ))
+                .accessibilityIdentifier(
+                    "MobileComputerCaffeine-\(computer.connectionRef.automationID)"
                 )
-            }
-            .accessibilityIdentifier("MobileComputerHideSwipeButton-\(computer.id)")
-        }
-    }
-
-    @ViewBuilder
-    private var hideMenuButton: some View {
-        if let hide {
-            Button {
-                hide(computer.id)
-            } label: {
-                Label(
-                    L10n.string("mobile.computers.hide", defaultValue: "Hide"),
-                    systemImage: "eye.slash"
-                )
-            }
-            .accessibilityIdentifier("MobileComputerHideMenuButton-\(computer.id)")
         }
     }
 
@@ -150,8 +155,77 @@ struct MacComputerRow: View {
                 .font(.caption2)
                 .foregroundStyle(dotColor)
                 .accessibilityLabel(primaryStatusPhrase)
-                .accessibilityIdentifier("MobileComputerStatus-\(computer.id)-\(statusIdentifierSuffix)")
+                .accessibilityIdentifier(
+                    "MobileComputerStatus-\(computer.connectionRef.automationID)-\(statusIdentifierSuffix)"
+                )
         }
+    }
+
+    /// Whether the account device list has a compatibility warning for this
+    /// Mac. A row with no remembered version warns until its first hello
+    /// records the build version in the durable overlay.
+    private var showsListAuthWarning: Bool {
+        MobileMacListAuthState.shared.entry(deviceID: computer.deviceId)?.isOutdated == true
+    }
+
+    /// Outdated rows carry a compact warning triangle beside the name; the
+    /// explanation lives in a popover so the row itself stays one avatar tall.
+    /// Borderless keeps the tap target separate from the row's navigation.
+    private var listAuthWarningButton: some View {
+        Button {
+            showListAuthInfo = true
+        } label: {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.caption)
+                .foregroundStyle(.orange)
+        }
+        .buttonStyle(.borderless)
+        .accessibilityLabel(listAuthWarningTitle)
+        .accessibilityIdentifier(
+            "MobileComputerListAuthWarning-\(computer.connectionRef.automationID)"
+        )
+        .popover(isPresented: $showListAuthInfo, arrowEdge: .top) {
+            VStack(alignment: .leading, spacing: 8) {
+                Label {
+                    Text(listAuthWarningTitle)
+                        .font(.subheadline.weight(.semibold))
+                } icon: {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                }
+                Text(listAuthWarningMessage)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding()
+            .frame(idealWidth: 300, maxWidth: 340)
+            .presentationCompactAdaptation(.popover)
+        }
+    }
+
+    private var listAuthWarningTitle: String {
+        return L10n.string(
+            "computers.version.outdated.title",
+            defaultValue: "Mac update required"
+        )
+    }
+
+    private var listAuthWarningMessage: String {
+        guard let entry = MobileMacListAuthState.shared.entry(deviceID: computer.deviceId),
+              entry.isOutdated,
+              let required = entry.requiredVersionDisplay
+        else {
+            return ""
+        }
+        let requirement = "cmux \(required) or later"
+        return String(
+            format: L10n.string(
+                "mobile.macUpdate.requiredOnMacFormat",
+                defaultValue: "Requires %@ on your Mac."
+            ),
+            requirement
+        )
     }
 
     private var dotColor: Color {
@@ -177,7 +251,8 @@ struct MacComputerRow: View {
     /// connection on the Computers screen, presence on the reconnect list.
     private var statusIdentifierSuffix: String {
         switch style {
-        case .computers: return isConnected ? "connected" : "disconnected"
+        case .computers:
+            return isConnected ? "connected" : "disconnected"
         case .reconnect: return computer.presence == .online ? "online" : "offline"
         }
     }

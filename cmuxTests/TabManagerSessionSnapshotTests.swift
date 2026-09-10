@@ -23,7 +23,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
     }
 
     private func reserveRemoteRestoreSocket() -> String {
-        TerminalController.shared.stop()
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
         let requestedPath = "/tmp/cmux-restore-\(UUID().uuidString).sock"
         let reservedPath = TerminalController.shared.reserveStartupSocketPath(requestedPath)
         XCTAssertEqual(TerminalController.shared.currentSocketPathForRemoteRestore(), reservedPath)
@@ -31,7 +31,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
     }
 
     private func cleanupRemoteRestoreSocket(_ path: String) {
-        TerminalController.shared.stop()
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
         try? FileManager.default.removeItem(atPath: path)
         try? FileManager.default.removeItem(atPath: path + ".lock")
     }
@@ -528,20 +528,23 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
     }
 
     func testFocusHistoryMenuSnapshotCarriesFocusedTimestamp() throws {
-        let manager = TabManager()
-        let startedAt = Date()
+        let initialWorkspaceFocusedAt = Date(timeIntervalSince1970: 1_000)
+        var now = initialWorkspaceFocusedAt
+        let manager = TabManager(focusHistoryNow: { now })
 
+        now = Date(timeIntervalSince1970: 2_000)
         _ = manager.addWorkspace(select: true)
+        // Focus records are written from the `.ghosttyDidFocusSurface` broadcast, which
+        // `FocusSurfaceBroadcaster` always delivers on a later main-queue turn. Let both the
+        // initial and the added workspace's focus land before snapshotting.
+        drainMainQueue()
 
         let snapshot = manager.focusHistoryMenuSnapshot(direction: .back)
-        let endedAt = Date()
         let item = try XCTUnwrap(snapshot.items.first)
 
-        // The recorded focus timestamp is stamped while `addWorkspace` runs, so it must fall
-        // within the causal interval bounded by the reads before and after that call. Asserting
-        // the closed [startedAt, endedAt] interval removes the prior ±1s wall-clock fudge.
-        XCTAssertGreaterThanOrEqual(item.focusedAt.timeIntervalSince1970, startedAt.timeIntervalSince1970)
-        XCTAssertLessThanOrEqual(item.focusedAt.timeIntervalSince1970, endedAt.timeIntervalSince1970)
+        // A `.back` snapshot lists where focus would return to, so its first item carries the
+        // timestamp recorded for the initial workspace rather than the later workspace.
+        XCTAssertEqual(item.focusedAt, initialWorkspaceFocusedAt)
     }
 
     func testReopenClosedItemRestoresClosedPanelSnapshot() throws {
@@ -1999,7 +2002,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
                 inPane: paneId,
                 url: url,
                 focus: false,
-                omnibarVisible: false
+                chromeVisibility: .hidden
             )
         )
 
@@ -2117,6 +2120,134 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(restored.tabs.map(\.customTitle), ["Cloud VM", "Local"])
         XCTAssertEqual(restored.tabs.first?.remoteConfiguration?.managedCloudVMID, "vm-kept-cloud")
         XCTAssertEqual(restored.selectedTabId, restored.tabs.last?.id)
+    }
+
+    /// `DisableCloud` (MDM): no Cloud workspace restores through either
+    /// transport, the selection follows a surviving local workspace, and the
+    /// existing one-machine normalization is untouched without the policy.
+    func testManagedCloudPolicyDropsEveryCloudWorkspaceFromRestore() {
+        let localPanelId = UUID()
+        var boundWorkspace = Self.localWorkspaceSnapshot(title: "vm:bound", panelId: UUID())
+        boundWorkspace.cloudVM = SessionCloudVMBindingSnapshot(vmID: "bound", isBase: true)
+        let snapshots = [
+            Self.cloudVMWorkspaceSnapshot(panelId: UUID(), managedCloudVMID: "vm-managed"),
+            Self.localWorkspaceSnapshot(title: "Local", panelId: localPanelId),
+            boundWorkspace,
+        ]
+
+        let (kept, selection) = TabManager.normalizedCloudVMSessionRestoreWorkspaces(
+            snapshots,
+            selectedWorkspaceIndex: 2,
+            cloudDisabledByPolicy: true
+        )
+        XCTAssertEqual(kept.map(\.customTitle), ["Local"])
+        XCTAssertEqual(selection, 0)
+
+        let (_, localSelection) = TabManager.normalizedCloudVMSessionRestoreWorkspaces(
+            snapshots,
+            selectedWorkspaceIndex: 1,
+            cloudDisabledByPolicy: true
+        )
+        XCTAssertEqual(localSelection, 0)
+
+        // Nothing survives: restore falls through to its fresh-workspace path.
+        let (none, noneSelection) = TabManager.normalizedCloudVMSessionRestoreWorkspaces(
+            [snapshots[0], snapshots[2]],
+            selectedWorkspaceIndex: 0,
+            cloudDisabledByPolicy: true
+        )
+        XCTAssertTrue(none.isEmpty)
+        XCTAssertNil(noneSelection)
+
+        let (unmanaged, unmanagedSelection) = TabManager.normalizedCloudVMSessionRestoreWorkspaces(
+            snapshots,
+            selectedWorkspaceIndex: 2,
+            cloudDisabledByPolicy: false
+        )
+        XCTAssertEqual(unmanaged.map(\.customTitle), ["Cloud VM", "Local", "vm:bound"])
+        XCTAssertEqual(unmanagedSelection, 2)
+    }
+
+    func testRestoreSessionSnapshotKeepsCmuxTuiCloudVMBinding() throws {
+        let panelId = UUID()
+        var workspace = Self.localWorkspaceSnapshot(title: "vm:vivid-gecko", panelId: panelId)
+        workspace.cloudVM = SessionCloudVMBindingSnapshot(vmID: "vivid-gecko", isBase: true)
+        let snapshot = SessionTabManagerSnapshot(selectedWorkspaceIndex: 0, workspaces: [workspace])
+
+        let restored = TabManager()
+        restored.restoreSessionSnapshot(snapshot)
+
+        let restoredWorkspace = try XCTUnwrap(restored.tabs.first { $0.customTitle == "vm:vivid-gecko" })
+        XCTAssertEqual(restoredWorkspace.cloudVMBinding, WorkspaceCloudVMBinding(vmID: "vivid-gecko", isBase: true))
+        XCTAssertEqual(restoredWorkspace.cloudVMID, "vivid-gecko")
+        XCTAssertNil(restoredWorkspace.remoteConfiguration)
+
+        // The binding round-trips through the next save too.
+        let resaved = restored.sessionSnapshot(includeScrollback: false)
+        XCTAssertEqual(
+            resaved.workspaces.first { $0.customTitle == "vm:vivid-gecko" }?.cloudVM,
+            SessionCloudVMBindingSnapshot(vmID: "vivid-gecko", isBase: true)
+        )
+    }
+
+    func testSessionSnapshotPersistsRemoteSurfaceProjectionsAndRestoreRelinksThem() throws {
+        let panelId = UUID()
+        let remote = SurfaceResourceID(machine: .cloud("vivid-newt"), kind: .terminal, key: "term_abc")
+        var workspace = Self.localWorkspaceSnapshot(title: "vm:vivid-newt", panelId: panelId)
+        workspace.surfaceProjections = [SurfaceProjectionRecord(panelID: panelId, resource: remote)]
+        let snapshot = SessionTabManagerSnapshot(selectedWorkspaceIndex: 0, workspaces: [workspace])
+
+        let restored = TabManager()
+        restored.restoreSessionSnapshot(snapshot)
+        let restoredWorkspace = try XCTUnwrap(restored.tabs.first { $0.customTitle == "vm:vivid-newt" })
+        let restoredPanelId = try XCTUnwrap(restoredWorkspace.panels.first { $0.value is TerminalPanel }?.key)
+        let catalog = SurfaceCatalog.shared
+
+        // Until the machine's provider reports the terminal, the pane is a plain local shell.
+        XCTAssertEqual(catalog.projection(forPanel: restoredPanelId)?.resource.machine.isLocal, true)
+        catalog.upsert(SurfaceResource(id: remote, title: "root@vivid-newt", detail: "/root", lifecycle: .running, agent: nil, remoteWorkspace: nil, port: nil, url: nil))
+        XCTAssertEqual(catalog.projection(forPanel: restoredPanelId)?.resource, remote, "the restored pane re-links to the remote terminal")
+        XCTAssertEqual(catalog.projection(forPanel: restoredPanelId)?.workspaceID, restoredWorkspace.id)
+
+        // The projection round-trips through the next save with the live panel id.
+        let resaved = restored.sessionSnapshot(includeScrollback: false)
+        XCTAssertEqual(
+            resaved.workspaces.first { $0.customTitle == "vm:vivid-newt" }?.surfaceProjections,
+            [SurfaceProjectionRecord(panelID: restoredPanelId, resource: remote)]
+        )
+        catalog.remove(remote)
+        restored.closeWorkspace(restoredWorkspace, recordHistory: false)
+    }
+
+    func testWorkspaceSnapshotWithoutSurfaceProjectionsDecodesAndRestoresLocalOnly() throws {
+        let legacy = Self.localWorkspaceSnapshot(title: "Local", panelId: UUID())
+        let data = try JSONEncoder().encode(legacy)
+        XCTAssertFalse(try XCTUnwrap(String(data: data, encoding: .utf8)).contains("surfaceProjections"))
+        XCTAssertNil(try JSONDecoder().decode(SessionWorkspaceSnapshot.self, from: data).surfaceProjections)
+    }
+
+    func testWorkspaceSnapshotWithoutCloudVMBindingRestoresUnbound() throws {
+        // Manifests written before the Cloud tree have no `cloudVM` key.
+        let panelId = UUID()
+        let legacy = Self.localWorkspaceSnapshot(title: "Local", panelId: panelId)
+        let data = try JSONEncoder().encode(legacy)
+        let json = try XCTUnwrap(String(data: data, encoding: .utf8))
+        XCTAssertFalse(json.contains("\"cloudVM\""))
+        let decoded = try JSONDecoder().decode(SessionWorkspaceSnapshot.self, from: data)
+        XCTAssertNil(decoded.cloudVM)
+
+        let restored = TabManager()
+        restored.restoreSessionSnapshot(SessionTabManagerSnapshot(selectedWorkspaceIndex: 0, workspaces: [decoded]))
+        let restoredWorkspace = try XCTUnwrap(restored.tabs.first { $0.customTitle == "Local" })
+        XCTAssertNil(restoredWorkspace.cloudVMBinding)
+        XCTAssertNil(restoredWorkspace.cloudVMID)
+
+        // A malformed machine id in a snapshot never becomes a binding.
+        XCTAssertNil(Workspace.restoredCloudVMBinding(from: SessionCloudVMBindingSnapshot(vmID: "bad id!", isBase: false)))
+        XCTAssertEqual(
+            Workspace.restoredCloudVMBinding(from: SessionCloudVMBindingSnapshot(vmID: " coral-gecko ", isBase: false)),
+            WorkspaceCloudVMBinding(vmID: "coral-gecko", isBase: false)
+        )
     }
 
     func testRestoreSessionSnapshotKeepsSingleManagedCloudVMInSavedOrder() throws {
@@ -3244,8 +3375,8 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
     }
 
     func testSessionSnapshotFallsBackWhenPersistentSSHPTYRestoreHasNoSocketPath() throws {
-        TerminalController.shared.stop()
-        defer { TerminalController.shared.stop() }
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
+        defer { TerminalController.shared.stop(cleanupDiscoveryState: true) }
 
         let manager = TabManager()
         let remoteWorkspace = manager.addWorkspace(select: true)

@@ -92,7 +92,11 @@ extension TerminalController {
 
         let targetIndex: Int
         if let index = inputs.index {
-            targetIndex = index
+            // The CLI sends a final tab position; reorderSurface takes a bonsplit insertion gap.
+            // Moving a tab to a higher slot must target index + 1 so the gap lands after the tab
+            // currently occupying that slot; otherwise a move to sourceIndex + 1 is a silent no-op.
+            guard let currentIndex = ws.indexInPane(forPanelId: sourcePanelID) else { return .reorderFailed }
+            targetIndex = index > currentIndex ? index + 1 : index
         } else if let beforeSurfaceID = inputs.beforeSurfaceID {
             guard let anchorPanelID = ws.controlReorderContainerPanelID(for: beforeSurfaceID),
                   let anchorPane = ws.paneId(forPanelId: anchorPanelID),

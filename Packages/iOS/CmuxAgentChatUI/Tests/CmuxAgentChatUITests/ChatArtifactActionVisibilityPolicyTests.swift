@@ -32,10 +32,18 @@ struct ChatArtifactActionVisibilityPolicyTests {
     @Test
     func loadingAndErrorStatesOfferNoActions() {
         #expect(ChatArtifactActionVisibilityPolicy(inlineState: .loading).actions.isEmpty)
-        #expect(ChatArtifactActionVisibilityPolicy(inlineState: .fileMissing).actions.isEmpty)
-        #expect(ChatArtifactActionVisibilityPolicy(inlineState: .macUnreachable).actions.isEmpty)
-        #expect(ChatArtifactActionVisibilityPolicy(inlineState: .forbidden).actions.isEmpty)
-        #expect(ChatArtifactActionVisibilityPolicy(inlineState: .unsupportedMedia).actions.isEmpty)
+        #expect(ChatArtifactActionVisibilityPolicy(
+            inlineState: .failure(error: .fileNotFound, actualSize: nil)
+        ).actions.isEmpty)
+        #expect(ChatArtifactActionVisibilityPolicy(
+            inlineState: .failure(error: .macUnreachable, actualSize: nil)
+        ).actions.isEmpty)
+        #expect(ChatArtifactActionVisibilityPolicy(
+            inlineState: .failure(error: .forbidden, actualSize: nil)
+        ).actions.isEmpty)
+        #expect(ChatArtifactActionVisibilityPolicy(
+            inlineState: .failure(error: .unsupportedMedia, actualSize: nil)
+        ).actions.isEmpty)
     }
 
     @Test
@@ -44,7 +52,7 @@ struct ChatArtifactActionVisibilityPolicyTests {
         #expect(ChatArtifactActionVisibilityPolicy(inlineState: .text).actions.isEmpty)
         #expect(ChatArtifactActionVisibilityPolicy(inlineState: .markdown).actions.isEmpty)
         #expect(ChatArtifactActionVisibilityPolicy(
-            inlineState: .tooLarge(actualSize: 10, limit: 5)
+            inlineState: .failure(error: .tooLarge(limitBytes: 5), actualSize: 10)
         ).actions.isEmpty)
     }
 

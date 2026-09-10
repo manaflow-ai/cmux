@@ -103,6 +103,37 @@ public struct TeamScopedPairedMacStore: MobilePairedMacStoring {
         )
     }
 
+    @discardableResult
+    public func removeRouteIfAuthorized(
+        macDeviceID: String,
+        route: CmxAttachRoute,
+        condition: MobilePairedMacRouteWriteCondition,
+        stackUserID: String?,
+        teamID: String?,
+        now: Date
+    ) async throws -> Bool {
+        let team = await resolvedTeam(teamID)
+        let instanceTag: String?
+        switch condition {
+        case .matchingInstanceTag(let tag): instanceTag = tag
+        case .unclaimed: instanceTag = nil
+        }
+        let scope = try await visibleScope(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
+            stackUserID: stackUserID,
+            teamID: team
+        )
+        return try await inner.removeRouteIfAuthorized(
+            macDeviceID: macDeviceID,
+            route: route,
+            condition: condition,
+            stackUserID: scope.stackUserID,
+            teamID: scope.teamID,
+            now: now
+        )
+    }
+
     /// Load paired Macs scoped to the explicit team when present or the
     /// currently-selected team otherwise.
     public func loadAll(stackUserID: String?, teamID: String?) async throws -> [MobilePairedMac] {
@@ -125,9 +156,10 @@ public struct TeamScopedPairedMacStore: MobilePairedMacStoring {
             teamID: team,
             requiresExactInstanceTag: false
         )
+        guard let visible else { return }
         try await setActive(
             macDeviceID: macDeviceID,
-            instanceTag: visible?.instanceTag,
+            instanceTag: visible.instanceTag,
             stackUserID: stackUserID,
             teamID: team
         )
@@ -181,9 +213,10 @@ public struct TeamScopedPairedMacStore: MobilePairedMacStoring {
             teamID: team,
             requiresExactInstanceTag: false
         )
+        guard let visible else { return }
         try await setCustomization(
             macDeviceID: macDeviceID,
-            instanceTag: visible?.instanceTag,
+            instanceTag: visible.instanceTag,
             customName: customName,
             customColor: customColor,
             customIcon: customIcon,
@@ -223,6 +256,52 @@ public struct TeamScopedPairedMacStore: MobilePairedMacStoring {
         )
     }
 
+    public func setDirectAddresses(
+        macDeviceID: String,
+        instanceTag: String?,
+        rawJSON: String?,
+        stackUserID: String?,
+        teamID: String?
+    ) async throws {
+        let team = await resolvedTeam(teamID)
+        let scope = try await visibleScope(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
+            stackUserID: stackUserID,
+            teamID: team
+        )
+        try await inner.setDirectAddresses(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
+            rawJSON: rawJSON,
+            stackUserID: scope.stackUserID,
+            teamID: scope.teamID
+        )
+    }
+
+    public func setConnectionMethod(
+        macDeviceID: String,
+        instanceTag: String?,
+        rawValue: String?,
+        stackUserID: String?,
+        teamID: String?
+    ) async throws {
+        let team = await resolvedTeam(teamID)
+        let scope = try await visibleScope(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
+            stackUserID: stackUserID,
+            teamID: team
+        )
+        try await inner.setConnectionMethod(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
+            rawValue: rawValue,
+            stackUserID: scope.stackUserID,
+            teamID: scope.teamID
+        )
+    }
+
     /// Remove one paired Mac in the selected team scope.
     public func remove(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
         let team = await resolvedTeam(teamID)
@@ -233,9 +312,10 @@ public struct TeamScopedPairedMacStore: MobilePairedMacStoring {
             teamID: team,
             requiresExactInstanceTag: false
         )
+        guard let visible else { return }
         try await remove(
             macDeviceID: macDeviceID,
-            instanceTag: visible?.instanceTag,
+            instanceTag: visible.instanceTag,
             stackUserID: stackUserID,
             teamID: team
         )
@@ -375,10 +455,20 @@ public struct TeamScopedPairedMacStore: MobilePairedMacStoring {
         teamID: String?,
         requiresExactInstanceTag: Bool
     ) async throws -> MobilePairedMac? {
-        try await inner.loadAll(stackUserID: stackUserID, teamID: teamID)
-            .first {
-                $0.macDeviceID == macDeviceID
-                    && (!requiresExactInstanceTag || $0.instanceTag == instanceTag)
+        let matches = try await inner.loadAll(stackUserID: stackUserID, teamID: teamID)
+            .filter {
+                cmxCanonicalDeviceID($0.macDeviceID)
+                    == cmxCanonicalDeviceID(macDeviceID)
+                    && (!requiresExactInstanceTag
+                        || MacPairingKey(
+                            macDeviceID: $0.macDeviceID,
+                            instanceTag: $0.instanceTag
+                        ) == MacPairingKey(
+                            macDeviceID: macDeviceID,
+                            instanceTag: instanceTag
+                        ))
             }
+        guard requiresExactInstanceTag || matches.count == 1 else { return nil }
+        return matches.first
     }
 }

@@ -17,10 +17,10 @@ import urllib.request
 
 IMMUTABLE_ASSET_PATTERNS = [
     re.compile(r"^cmux-nightly-macos-(?P<build>\d+)\.dmg$"),
+    re.compile(r"^cmux-nightly-macos-(?:arm64|x86_64|universal)-(?P<build>\d+)\.dmg$"),
+    # Sparkle delta from an older build to <build>; pruned together with <build>.
+    re.compile(r"^cmux-nightly-macos-(?:arm64|x86_64|universal)-(?P<build>\d+)-\d+\.delta$"),
     re.compile(r"^cmux-nightly-universal-macos-(?P<build>\d+)\.dmg$"),
-    re.compile(r"^cmuxd-remote-(?:darwin-arm64|darwin-amd64|linux-arm64|linux-amd64)-(?P<build>\d+)$"),
-    re.compile(r"^cmuxd-remote-checksums-(?P<build>\d+)\.txt$"),
-    re.compile(r"^cmuxd-remote-manifest-(?P<build>\d+)\.json$"),
 ]
 
 
@@ -46,6 +46,12 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=100,
         help="Number of newest immutable nightly builds to keep",
+    )
+    parser.add_argument(
+        "--max-assets",
+        type=int,
+        default=950,
+        help="Maximum total assets to leave before uploading the next build",
     )
     parser.add_argument(
         "--execute",
@@ -158,17 +164,31 @@ def collect_immutable_assets(release: dict) -> tuple[list[ReleaseAsset], int]:
     return immutable_assets, ignored_assets
 
 
-def partition_assets(assets: list[ReleaseAsset], keep_builds: int) -> tuple[list[ReleaseAsset], list[int]]:
+def partition_assets(
+    assets: list[ReleaseAsset], keep_builds: int, total_assets: int, max_assets: int
+) -> tuple[list[ReleaseAsset], list[int]]:
     assets_by_build: dict[int, list[ReleaseAsset]] = defaultdict(list)
     for asset in assets:
         assets_by_build[asset.build].append(asset)
 
     ordered_builds = sorted(assets_by_build, reverse=True)
-    builds_to_keep = set(ordered_builds[:keep_builds])
-
     to_delete: list[ReleaseAsset] = []
     for build in ordered_builds[keep_builds:]:
         to_delete.extend(sorted(assets_by_build[build], key=lambda asset: asset.name))
+
+    assets_after_prune = total_assets - len(to_delete)
+    for build in reversed(ordered_builds[:keep_builds]):
+        if assets_after_prune <= max_assets:
+            break
+        build_assets = sorted(assets_by_build[build], key=lambda asset: asset.name)
+        to_delete.extend(build_assets)
+        assets_after_prune -= len(build_assets)
+
+    if assets_after_prune > max_assets:
+        raise RuntimeError(
+            f"Cannot reduce release from {total_assets} to {max_assets} assets "
+            f"without deleting the newest immutable build"
+        )
 
     return to_delete, ordered_builds
 
@@ -185,6 +205,9 @@ def main() -> int:
     if args.keep_builds < 1:
         print("--keep-builds must be at least 1", file=sys.stderr)
         return 2
+    if args.max_assets < 1:
+        print("--max-assets must be at least 1", file=sys.stderr)
+        return 2
 
     release = load_release(args.repo, args.release_tag)
     if release is None:
@@ -192,9 +215,11 @@ def main() -> int:
         return 0
 
     immutable_assets, ignored_assets = collect_immutable_assets(release)
-    to_delete, ordered_builds = partition_assets(immutable_assets, args.keep_builds)
-
     total_assets = len(release.get("assets", []))
+    to_delete, ordered_builds = partition_assets(
+        immutable_assets, args.keep_builds, total_assets, args.max_assets
+    )
+
     kept_builds = min(args.keep_builds, len(ordered_builds))
     log(
         f"Release {args.release_tag!r} has {total_assets} assets total, "
@@ -202,7 +227,8 @@ def main() -> int:
         f"and {ignored_assets} non-immutable alias assets."
     )
     log(
-        f"Keeping the newest {kept_builds} builds and "
+        f"Keeping the newest {kept_builds} builds where possible, limiting the release to "
+        f"{args.max_assets} assets, and keeping "
         f"{len(immutable_assets) - len(to_delete)} immutable assets."
     )
 

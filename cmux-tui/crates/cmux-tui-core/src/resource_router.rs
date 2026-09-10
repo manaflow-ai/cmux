@@ -1,4 +1,4 @@
-//! Shared `cmux.protocol/1` request parsing and dispatch.
+//! Shared `cmux.protocol/2` request parsing and dispatch.
 //!
 //! Unix sockets and WebSockets both call this module. The operation catalog is
 //! embedded as the one validation source so transport handlers cannot drift.
@@ -24,7 +24,46 @@ use crate::resource_api::{ResourceMachineRequest, operation_failed, public_sessi
 use crate::workspace_registry::{ResourceEffectOutcome, ResourceEffectPreparation};
 use crate::{Mux, ResolvedResourcePath, ResourceSelectors, ResourceTarget};
 
-const CATALOG_JSON: &str = include_str!("../../../spec/resource-operations-v1.json");
+const CATALOG_JSON: &str = include_str!("../../../spec/resource-operations-v2.json");
+
+/// Resolve a live terminal path or an unscoped durable terminal receipt.
+/// Nested selectors keep normal topology containment, so a detached receipt
+/// cannot satisfy a stale workspace, screen, pane, or tab path.
+pub(crate) fn resolve_terminal_wait_exit_id(
+    mux: &Mux,
+    selectors: &ResourceSelectors,
+) -> Result<TerminalPublicId, ResourceError> {
+    match mux.resolve_resource_path(ResourceTarget::Terminal, selectors) {
+        Ok(path) => path.terminal.ok_or_else(|| ResourceError::not_found("terminal", "<resolved>")),
+        Err(error) => {
+            if selectors.workspace.is_some()
+                || selectors.screen.is_some()
+                || selectors.pane.is_some()
+                || selectors.tab.is_some()
+            {
+                return Err(error);
+            }
+            let Some(raw) = selectors.terminal.as_deref() else {
+                return Err(error);
+            };
+            let Ok(terminal_id) = TerminalPublicId::parse(raw) else {
+                return Err(error);
+            };
+            let session_selectors = ResourceSelectors {
+                machine: selectors.machine.clone(),
+                session: selectors.session.clone(),
+                ..ResourceSelectors::default()
+            };
+            mux.resolve_resource_path(ResourceTarget::Session, &session_selectors)?;
+            match mux.has_durable_terminal_receipt(&terminal_id) {
+                Ok(true) => {}
+                Ok(false) => return Err(error),
+                Err(registry_error) => return Err(resource_operation_error(registry_error)),
+            }
+            Ok(terminal_id)
+        }
+    }
+}
 
 fn operation_catalog() -> &'static Value {
     static CATALOG: OnceLock<Value> = OnceLock::new();
@@ -605,6 +644,14 @@ fn validate_operation_constraints(
                 ],
             )?;
         }
+        ResourceOperation::SessionJournalSubscribe
+            if supplied.contains_key("cursor") && supplied.contains_key("start") =>
+        {
+            return Err(validation_error(
+                "journal cursor and start are mutually exclusive",
+                json!({"operation":operation_name(operation),"parameters":["cursor","start"]}),
+            ));
+        }
         ResourceOperation::PaneSplitRatioSet | ResourceOperation::PaneSplit => {
             if let Some(ratio) = fields.get("ratio").and_then(Value::as_f64)
                 && !(0.0 < ratio && ratio < 1.0)
@@ -834,6 +881,8 @@ fn dispatch_resource_request(
                 ))
             }
             ResourceOperation::NotificationCreate => create_notification(mux, request),
+            ResourceOperation::NotificationAck => ack_notifications(mux, request),
+            ResourceOperation::NotificationClear => clear_notifications(mux, request),
             _ => unreachable!("operation_owner classifies snapshot operations exhaustively"),
         },
         OperationOwner::Connection => Err(ResourceError::operation_failed(
@@ -874,7 +923,9 @@ const fn operation_owner(operation: ResourceOperation) -> OperationOwner {
         | ResourceOperation::BrowserList
         | ResourceOperation::BrowserGet
         | ResourceOperation::NotificationList
-        | ResourceOperation::NotificationCreate => OperationOwner::Snapshot,
+        | ResourceOperation::NotificationCreate
+        | ResourceOperation::NotificationAck
+        | ResourceOperation::NotificationClear => OperationOwner::Snapshot,
         ResourceOperation::WorkspaceList
         | ResourceOperation::WorkspaceGet
         | ResourceOperation::WorkspaceCreate
@@ -922,12 +973,14 @@ const fn operation_owner(operation: ResourceOperation) -> OperationOwner {
         | ResourceOperation::TerminalStateRead
         | ResourceOperation::TerminalHistoryRead
         | ResourceOperation::TerminalHistoryClear
+        | ResourceOperation::TerminalOutputRead
         | ResourceOperation::TerminalWait
         | ResourceOperation::TerminalWaitExit
         | ResourceOperation::TerminalCopy
         | ResourceOperation::TerminalProcessGet
         | ResourceOperation::TerminalViewportScroll
         | ResourceOperation::TerminalMove
+        | ResourceOperation::TerminalProject
         | ResourceOperation::TerminalClose
         | ResourceOperation::BrowserNavigate
         | ResourceOperation::BrowserBack
@@ -949,6 +1002,17 @@ const fn operation_owner(operation: ResourceOperation) -> OperationOwner {
         | ResourceOperation::SidebarViewResize
         | ResourceOperation::SidebarViewReload => OperationOwner::Auxiliary,
         ResourceOperation::SessionEvents
+        | ResourceOperation::SessionJournalSubscribe
+        | ResourceOperation::SessionJournalProducerList
+        | ResourceOperation::SessionJournalProducerPut
+        | ResourceOperation::SessionJournalAppend
+        | ResourceOperation::SessionJournalHookList
+        | ResourceOperation::SessionJournalHookPut
+        | ResourceOperation::SessionJournalCheckpointCreate
+        | ResourceOperation::SessionJournalCheckpointList
+        | ResourceOperation::SessionJournalRestorePreview
+        | ResourceOperation::SessionJournalSegmentList
+        | ResourceOperation::SessionJournalSegmentSeal
         | ResourceOperation::SessionShutdown
         | ResourceOperation::PairingRequestList
         | ResourceOperation::PairingRequestResolve
@@ -1160,6 +1224,7 @@ fn create_notification(mux: &Mux, request: ParsedResourceRequest) -> Result<Valu
     let intent = json!({
         "notification_id": notification_id,
         "title": required_string(&request.fields, "title")?,
+        "subtitle": request.fields.get("subtitle").and_then(Value::as_str),
         "body": required_string(&request.fields, "body")?,
         "level": required_string(&request.fields, "level")?,
         "terminal_id": terminal_id,
@@ -1286,29 +1351,31 @@ fn execute_notification_effect(
         )
     })?;
     let session_id = mux.local_resource_context().map_err(resource_operation_error)?.session_id;
+    let subtitle = intent.get("subtitle").and_then(Value::as_str).map(str::to_string);
     mux.post_resource_notification(
         notification_id.clone(),
         title.to_string(),
+        subtitle.clone(),
         body.to_string(),
         level,
         surface,
         terminal_id.clone(),
         created_at_ms,
     );
-    let mut value = json!({
-        "id":notification_id,
-        "session_id":session_id,
-        "title":title,
-        "body":body,
-        "level":level.as_str(),
-        "created_at_ms":created_at_ms.to_string(),
-        "unread":surface
-            .and_then(|surface| mux.surface_notification(surface))
-            .is_some_and(|notification| notification.unread),
-    });
-    if let Some(terminal_id) = terminal_id {
-        value["terminal_id"] = json!(terminal_id);
-    }
+    let value = mux.notification_snapshot_value(
+        &crate::ResourceNotification {
+            id: notification_id.clone(),
+            title: title.to_string(),
+            subtitle,
+            body: body.to_string(),
+            level,
+            terminal_id,
+            created_at_ms,
+            surface,
+        },
+        &session_id,
+        &[],
+    );
     let outcome = ResourceEffectOutcome::Success(value.clone());
     let deltas = json!([{
         "kind":"upsert",
@@ -1330,7 +1397,90 @@ fn execute_notification_effect(
             return Err(indeterminate_error(idempotency_key, "notification.create"));
         }
     };
+    mux.prune_evicted_notification_reads();
     mutation_result(mux, value, revision, false)
+}
+
+fn ack_notifications(mux: &Mux, request: ParsedResourceRequest) -> Result<Value, ResourceError> {
+    ensure_session_route(mux, &request.selectors)?;
+    let client_id = required_string(&request.fields, "client_id")?.to_string();
+    crate::mux::validate_client_id(&client_id)
+        .map_err(|error| validation_error(&error.to_string(), json!({"client_id":client_id})))?;
+    let notifications = request
+        .fields
+        .get("notifications")
+        .and_then(Value::as_array)
+        .ok_or_else(|| validation_error("notifications must be an array", json!({})))?
+        .iter()
+        .map(|value| {
+            NotificationPublicId::parse(
+                value
+                    .as_str()
+                    .ok_or_else(|| validation_error("notification id must be a string", json!({})))?
+                    .to_string(),
+            )
+        })
+        .collect::<Result<Vec<_>, ResourceError>>()?;
+    let mutation = crate::workspace_registry::WorkspaceMutation::new(
+        request
+            .envelope
+            .idempotency_key
+            .clone()
+            .expect("catalog-validated mutations have an idempotency key"),
+        "resource-api",
+    )
+    .map_err(resource_operation_error)?;
+    let ack = mux
+        .ack_notifications(
+            &mutation,
+            expected_revision(&request.fields)?,
+            &client_id,
+            &notifications,
+        )
+        .map_err(resource_operation_error)?;
+    mutation_result(mux, ack.result, ack.revision, ack.replayed)
+}
+
+fn clear_notifications(mux: &Mux, request: ParsedResourceRequest) -> Result<Value, ResourceError> {
+    ensure_session_route(mux, &request.selectors)?;
+    let terminal_id = request
+        .fields
+        .get("terminal_id")
+        .map(|value| {
+            TerminalPublicId::parse(
+                value.as_str().expect("catalog resource-id validation").to_string(),
+            )
+        })
+        .transpose()?;
+    let mutation = crate::workspace_registry::WorkspaceMutation::new(
+        request
+            .envelope
+            .idempotency_key
+            .clone()
+            .expect("catalog-validated mutations have an idempotency key"),
+        "resource-api",
+    )
+    .map_err(resource_operation_error)?;
+    let commit = mux
+        .clear_notifications(&mutation, expected_revision(&request.fields)?, terminal_id.as_ref())
+        .map_err(|error| {
+            // Revision conflicts keep their typed error; anything else is an
+            // internal failure whose raw cause stays in the daemon log.
+            let mapped = resource_operation_error(error);
+            if mapped.code == "revision.conflict" {
+                return mapped;
+            }
+            mux.report_internal_diagnostic(format!(
+                "notification.clear failed: {}",
+                mapped.message
+            ));
+            ResourceError::operation_failed(
+                "notification.clear",
+                "the machine could not clear notifications; retry after the next state refresh",
+                json!({}),
+            )
+        })?;
+    mutation_result(mux, commit.result, commit.revision, commit.replayed)
 }
 
 fn indeterminate_error(idempotency_key: &str, operation: &str) -> ResourceError {
@@ -1424,6 +1574,14 @@ pub(super) fn resource_operation_error(error: anyhow::Error) -> ResourceError {
     if let Some(resource) = error.downcast_ref::<ResourceError>() {
         return resource.clone();
     }
+    if let Some(failure) = error.downcast_ref::<crate::terminal_host_protocol::HostLaunchFailure>()
+    {
+        return ResourceError::operation_failed(
+            "terminal.launch",
+            failure.message.clone(),
+            json!({"reason_code":failure.kind.reason_code()}),
+        );
+    }
     let message = error.to_string();
     if message.starts_with("idempotency.conflict:") {
         let fields = message.split_whitespace().collect::<Vec<_>>();
@@ -1443,11 +1601,7 @@ pub(super) fn resource_operation_error(error: anyhow::Error) -> ResourceError {
 }
 
 pub(super) fn operation_name(operation: ResourceOperation) -> String {
-    serde_json::to_value(operation)
-        .expect("resource operations serialize")
-        .as_str()
-        .expect("resource operations serialize as strings")
-        .to_string()
+    operation.wire_name().to_owned()
 }
 
 pub(super) fn validation_error(message: &str, details: Value) -> ResourceError {
@@ -1463,6 +1617,18 @@ pub(super) fn validation_error(message: &str, details: Value) -> ResourceError {
 mod tests {
     use super::*;
     use crate::SurfaceOptions;
+
+    #[test]
+    fn terminal_host_launch_failures_keep_their_machine_readable_reason() {
+        let failure = crate::terminal_host_protocol::HostLaunchFailure::bounded(
+            crate::terminal_host_protocol::HostLaunchFailureKind::PtyCapacityExhausted,
+            "terminal launch failed: PTY capacity exhausted".into(),
+        );
+        let error = resource_operation_error(anyhow::Error::new(failure));
+        assert_eq!(error.code, "operation.failed");
+        assert_eq!(error.details["operation"], "terminal.launch");
+        assert_eq!(error.details["extra"]["reason_code"], "pty_capacity_exhausted");
+    }
 
     fn catalog_fixture(descriptor: &Value, parameters: &HashMap<String, Value>) -> Value {
         match descriptor["kind"].as_str().expect("fixture descriptor kind") {
@@ -1554,7 +1720,7 @@ mod tests {
     #[test]
     fn every_catalog_operation_has_one_concrete_owner() {
         let operations = operation_catalog()["operations"].as_object().unwrap();
-        assert_eq!(operations.len(), 112);
+        assert_eq!(operations.len(), 127);
         for name in operations.keys() {
             let operation: ResourceOperation =
                 serde_json::from_value(Value::String(name.clone())).unwrap();
@@ -1573,7 +1739,7 @@ mod tests {
     #[test]
     fn every_catalog_operation_accepts_its_result_and_declared_error_fixtures() {
         let operations = operation_catalog()["operations"].as_object().unwrap();
-        assert_eq!(operations.len(), 112);
+        assert_eq!(operations.len(), 127);
         for (name, descriptor) in operations {
             let operation: ResourceOperation =
                 serde_json::from_value(Value::String(name.clone())).unwrap();
@@ -1655,7 +1821,7 @@ mod tests {
 
     fn request(id: &str, operation: &str, params: Value, idempotency_key: Option<&str>) -> String {
         let mut envelope = json!({
-            "protocol": "cmux.protocol/1",
+            "protocol": "cmux.protocol/2",
             "type": "request",
             "id": id,
             "operation": operation,

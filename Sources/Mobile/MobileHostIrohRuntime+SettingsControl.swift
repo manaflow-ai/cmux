@@ -163,6 +163,33 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
         }
     }
 
+    func runIrohConnectionCheck() async -> CmxIrohConnectionCheckReport {
+        await refreshIrohSettings()
+        let snapshot = await irohSettingsSnapshot()
+        let diagnostics = await irohDiagnosticReport()
+        let relayReachability: CmxIrohConnectionCheckReport.RelayReachability
+        if transportVerificationMode == .directOnly {
+            // Relays are administratively excluded by the transport mode; a
+            // failed relay probe here must not send users to corporate IT.
+            relayReachability = .notConfigured
+        } else if let profile = await relayPolicyService?.effectivePolicy()?.endpointRelayProfile,
+                  !profile.allowedRelayURLs.isEmpty {
+            if let isReachable = await runtime?.hasReachableRelay(in: profile.allowedRelayURLs) {
+                relayReachability = isReachable ? .reachable : .unreachable
+            } else {
+                relayReachability = .unavailable
+            }
+        } else {
+            relayReachability = .notConfigured
+        }
+        return CmxIrohConnectionCheckReport(
+            role: .macHost,
+            snapshot: snapshot,
+            diagnostics: diagnostics,
+            relayReachability: relayReachability
+        )
+    }
+
     func refreshIrohSettings() async {
         guard let context = try? relaySettingsContext() else {
             publishIrohSettingsUpdate()
@@ -352,11 +379,13 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
                         self.relayPolicyDiagnostics = await service.diagnosticsSnapshot()
                         self.publishIrohSettingsUpdate()
                     }
-                    let retryDelay = CmxIrohRetrySchedule().delay(
+                    let retryDelay = CmxIrohRetrySchedule.relayPolicy(
+                        for: Self.diagnosticFailureKind(for: error)
+                    ).delay(
                         failureCount: failureCount,
                         retryAfterSeconds: (error as? any CmxRetryAfterProviding)?
                             .retryAfterSeconds,
-                        jitterUnitInterval: Double.random(in: 0 ... 1)
+                        jitterUnitInterval: self.relayPolicyRetryJitter()
                     )
                     failureCount = min(failureCount + 1, 20)
                     retryAt = failureDate.addingTimeInterval(retryDelay)

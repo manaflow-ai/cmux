@@ -7,33 +7,51 @@ export function assertVmCreateEnabled(
   provider: ProviderId,
   env: VmRuntimeEnv = process.env,
 ): void {
-  if (isFalseFlag(env.CMUX_VM_CREATE_ENABLED)) {
-    throw new VmCreateDisabledError({
-      provider,
-      reason: "Cloud VM creation is disabled",
-    });
+  const reason = vmCreateDisabledReason(provider, env);
+  if (reason) {
+    throw new VmCreateDisabledError({ provider, reason });
   }
+}
 
-  const providerKey = providerEnabledEnvKey(provider);
-  if (isFalseFlag(env[providerKey])) {
-    throw new VmCreateDisabledError({
-      provider,
-      reason: `${provider} VM creation is disabled`,
-    });
+/**
+ * Why creating a machine on `provider` is disabled, or null when creation is
+ * allowed. Workflow code (Effect) uses this instead of the throwing assert so
+ * a flipped kill switch is a typed failure, not a thrown defect.
+ */
+export function vmCreateDisabledReason(
+  provider: ProviderId,
+  env: VmRuntimeEnv = process.env,
+): string | null {
+  if (isFalseFlag(env.CMUX_VM_CREATE_ENABLED)) {
+    return "Cloud VM creation is disabled";
   }
+  if (isFalseFlag(env[providerEnabledEnvKey(provider)])) {
+    return `${provider} VM creation is disabled`;
+  }
+  if (!vmPrivateNetworkEnabled(env)) {
+    return "Cloud VM creation requires private networking";
+  }
+  return null;
 }
 
 export function providerEnabledEnvKey(provider: ProviderId): string {
   switch (provider) {
-    case "e2b":
-      return "CMUX_VM_E2B_ENABLED";
     case "freestyle":
       return "CMUX_VM_FREESTYLE_ENABLED";
-    case "daytona":
-      return "CMUX_VM_DAYTONA_ENABLED";
     default:
       return assertNever(provider);
   }
+}
+
+/**
+ * Whether private-network operations are enabled.
+ *
+ * This is a fail-closed kill switch. Turning it off disables new Cloud VM
+ * creation and tunnel enrollment. It never changes a machine to public ingress
+ * and it never selects a public route for an existing machine.
+ */
+export function vmPrivateNetworkEnabled(env: VmRuntimeEnv = process.env): boolean {
+  return !isFalseFlag(env.CMUX_VM_PRIVATE_NETWORK_ENABLED);
 }
 
 export function isDeployedRuntime(env: VmRuntimeEnv = process.env): boolean {

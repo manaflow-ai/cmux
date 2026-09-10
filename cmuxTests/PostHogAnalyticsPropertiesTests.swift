@@ -186,8 +186,8 @@ struct PostHogAnalyticsPropertiesTests {
     }
 
     @MainActor
-    @Test("Mobile Connect button defaults hidden without a flag value")
-    func mobileConnectButtonDefaultsHidden() throws {
+    @Test("Tailscale Pairing button defaults hidden without a flag value")
+    func tailscalePairingButtonDefaultsHidden() throws {
         let suiteName = "cmux.feature.flags.mobile-connect.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer {
@@ -246,6 +246,29 @@ struct PostHogAnalyticsPropertiesTests {
 
         offlineRelaunch.applyLoadedFlags()
         #expect(!offlineRelaunch.isSimulatorEnabled)
+    }
+
+    @MainActor
+    @Test("Mobile terminal Files chip defaults enabled and accepts a remote disable")
+    func mobileTerminalFilesChipFeatureFlagKillSwitch() throws {
+        let suiteName = "cmux.feature.flags.mobile-terminal-files-chip.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        var remoteValues: [String: Any] = [:]
+        let flags = CmuxFeatureFlags(defaults: defaults) { key in
+            remoteValues[key]
+        }
+        #expect(flags.isMobileTerminalFilesChipEnabled)
+
+        remoteValues[CmuxFeatureFlags.mobileTerminalFilesChipFlag.key] = false
+        flags.applyLoadedFlags()
+        #expect(!flags.isMobileTerminalFilesChipEnabled)
+
+        let offlineRelaunch = CmuxFeatureFlags(defaults: defaults) { _ in nil }
+        #expect(!offlineRelaunch.isMobileTerminalFilesChipEnabled)
     }
 
     @MainActor

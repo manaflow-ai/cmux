@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxAgentChat
 import SwiftUI
 
@@ -8,6 +9,11 @@ import AppKit
 #endif
 
 struct ChatArtifactFolderView: View {
+    private struct LoadIdentity: Hashable {
+        let path: String
+        let sourceIdentity: String?
+    }
+
     let path: String
     let scope: ChatArtifactViewerScope
     let onDone: () -> Void
@@ -17,7 +23,7 @@ struct ChatArtifactFolderView: View {
 
     var body: some View {
         content
-            .task(id: path) {
+            .task(id: LoadIdentity(path: path, sourceIdentity: loader.sourceIdentity)) {
                 await load()
             }
     }
@@ -65,19 +71,29 @@ struct ChatArtifactFolderView: View {
                     }
                 }
             }
-        case .failed:
+        case .failed(let error):
+            let failure = ChatArtifactFailurePresentation(error: error, scope: scope)
             VStack(spacing: 10) {
-                Text(String(localized: "chat.artifact.folder.load_failed", defaultValue: "Couldn't load this folder", bundle: .module))
+                Image(systemName: failure.systemImage)
+                    .font(.title2)
+                    .foregroundStyle(.secondary)
+                Text(failure.title)
                     .font(.headline)
-                Button {
-                    Task { await load() }
-                } label: {
-                    Label(
-                        String(localized: "chat.artifact.retry", defaultValue: "Retry", bundle: .module),
-                        systemImage: "arrow.clockwise"
-                    )
+                Text(failure.message)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                if failure.allowsRetry {
+                    Button {
+                        Task { await load() }
+                    } label: {
+                        Label(
+                            String(localized: "chat.artifact.retry", defaultValue: "Retry", bundle: .module),
+                            systemImage: "arrow.clockwise"
+                        )
+                    }
+                    .buttonStyle(.bordered)
                 }
-                .buttonStyle(.bordered)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding()
@@ -119,8 +135,11 @@ struct ChatArtifactFolderView: View {
             let listing = try await loader.list(path: path)
             guard !Task.isCancelled else { return }
             await MainActor.run { state = .listing(listing) }
+        } catch is CancellationError {
+            return
         } catch {
-            await MainActor.run { state = .failed }
+            let failure = (error as? ChatArtifactError) ?? .loadFailed
+            await MainActor.run { state = .failed(failure) }
         }
     }
 
@@ -146,16 +165,22 @@ struct ChatArtifactFolderView: View {
     private enum LoadState: Equatable {
         case loading
         case listing(ChatArtifactDirectoryListing)
-        case failed
+        case failed(ChatArtifactError)
     }
 }
 
 private struct ChatArtifactFolderThumbnail: View {
+    private struct LoadIdentity: Hashable {
+        let path: String
+        let sourceIdentity: String?
+    }
+
     let path: String
     let entry: ChatArtifactDirectoryEntry
 
     @Environment(\.chatArtifactLoader) private var loader
     @State private var thumbnailData: Data?
+    @State private var thumbnailLoadIdentity: LoadIdentity?
 
     var body: some View {
         Group {
@@ -169,9 +194,20 @@ private struct ChatArtifactFolderThumbnail: View {
         .frame(width: 34, height: 34)
         .background(.quaternary, in: .rect(cornerRadius: 6))
         .clipShape(.rect(cornerRadius: 6))
-        .task(id: path) {
+        .task(id: LoadIdentity(path: path, sourceIdentity: loader.sourceIdentity)) {
+            guard !Task.isCancelled else { return }
+            let loadIdentity = LoadIdentity(path: path, sourceIdentity: loader.sourceIdentity)
+            thumbnailLoadIdentity = loadIdentity
+            thumbnailData = nil
             guard entry.kind == .image, loader.supportsArtifacts else { return }
-            thumbnailData = try? await loader.thumbnail(path: path, maxDimension: 96).data
+            do {
+                let data = try await loader.thumbnail(path: path, maxDimension: 96).data
+                guard !Task.isCancelled, thumbnailLoadIdentity == loadIdentity else { return }
+                thumbnailData = data
+            } catch {
+                guard !Task.isCancelled, thumbnailLoadIdentity == loadIdentity else { return }
+                thumbnailData = nil
+            }
         }
     }
 

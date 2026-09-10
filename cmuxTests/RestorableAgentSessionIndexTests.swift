@@ -443,9 +443,15 @@ struct RestorableAgentSessionIndexTests {
             oldSessionId
         )
         XCTAssertEqual(
+            index.exactEntry(workspaceId: oldWorkspaceId, panelId: panelId)?
+                .snapshot.sessionId,
+            oldSessionId
+        )
+        XCTAssertEqual(
             index.snapshot(workspaceId: movedWorkspaceId, panelId: panelId)?.sessionId,
             latestSessionId
         )
+        XCTAssertNil(index.exactEntry(workspaceId: movedWorkspaceId, panelId: panelId))
     }
 
     // A Claude session can start in one directory and `cd` into another (e.g. a repo root then a

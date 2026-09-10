@@ -21,21 +21,27 @@ public struct MobileBrowserPane: View {
 
     /// Invoked when the user closes the browser pane.
     private let onClose: () -> Void
+    private let onDiagnosticEvent: @MainActor (BrowserSurfaceDiagnosticEvent) -> Void
 
     /// Creates a browser pane.
     /// - Parameters:
     ///   - state: The browser surface state to host.
     ///   - onClose: Invoked when the user dismisses the pane.
-    public init(state: BrowserSurfaceState, onClose: @escaping () -> Void) {
+    public init(
+        state: BrowserSurfaceState,
+        onClose: @escaping () -> Void,
+        onDiagnosticEvent: @escaping @MainActor (BrowserSurfaceDiagnosticEvent) -> Void = { _ in }
+    ) {
         _state = State(initialValue: state)
         self.onClose = onClose
+        self.onDiagnosticEvent = onDiagnosticEvent
     }
 
     public var body: some View {
         VStack(spacing: 0) {
             chromeBar
             progressLine
-            MobileBrowserView(state: state)
+            MobileBrowserView(state: state, onDiagnosticEvent: onDiagnosticEvent)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(Color(.systemBackground))
@@ -44,6 +50,7 @@ public struct MobileBrowserPane: View {
     private var chromeBar: some View {
         HStack(spacing: 12) {
             Button {
+                onDiagnosticEvent(.backRequested)
                 state.request(.goBack)
             } label: {
                 Image(systemName: "chevron.backward")
@@ -53,6 +60,7 @@ public struct MobileBrowserPane: View {
             .accessibilityIdentifier("MobileBrowserBackButton")
 
             Button {
+                onDiagnosticEvent(.forwardRequested)
                 state.request(.goForward)
             } label: {
                 Image(systemName: "chevron.forward")
@@ -65,7 +73,10 @@ public struct MobileBrowserPane: View {
 
             reloadOrStopButton
 
-            Button(action: onClose) {
+            Button {
+                onDiagnosticEvent(.closed)
+                onClose()
+            } label: {
                 Image(systemName: "xmark")
             }
             .accessibilityLabel(L10n.string("mobile.browser.close", defaultValue: "Close Browser"))
@@ -104,6 +115,7 @@ public struct MobileBrowserPane: View {
     private var reloadOrStopButton: some View {
         if state.isLoading {
             Button {
+                onDiagnosticEvent(.stopRequested)
                 state.request(.stopLoading)
             } label: {
                 Image(systemName: "xmark.circle")
@@ -112,6 +124,7 @@ public struct MobileBrowserPane: View {
             .accessibilityIdentifier("MobileBrowserStopButton")
         } else {
             Button {
+                onDiagnosticEvent(.reloadRequested)
                 state.request(.reload)
             } label: {
                 Image(systemName: "arrow.clockwise")

@@ -231,4 +231,6 @@ private actor TestRevisionedHostBroker:
     }
 
     func revoke(bindingID _: String) {}
+
+    func revokeStale(bindingID _: String) {}
 }

@@ -124,9 +124,37 @@ describe("billing portal route", () => {
     );
     expect(createPortalSession).toHaveBeenCalledWith({
       customer: "cus_123",
-      return_url: "https://cmux.test/pricing",
+      return_url: "https://cmux.test/dashboard/billing",
     });
     expect(getUser).toHaveBeenCalledWith({ or: "return-null" });
+  });
+
+  test("App Store portal block redirects to the direct dev-backend origin", async () => {
+    const previousTransport = process.env.CMUX_DEV_BACKEND_TRANSPORT;
+    const previousOrigin = process.env.CMUX_WWW_ORIGIN;
+    const previousHost = process.env.CMUX_DEV_BACKEND_TAILSCALE_HOST;
+    process.env.CMUX_DEV_BACKEND_TRANSPORT = "direct";
+    process.env.CMUX_DEV_BACKEND_TAILSCALE_HOST = "cmux-dev-backend-1.tail137216.ts.net";
+    process.env.CMUX_WWW_ORIGIN = "https://cmux-dev-backend-1.tail137216.ts.net:3916/";
+    try {
+      const response = await GET(
+        new NextRequest(
+          "https://0.0.0.0:3916/api/billing/portal?interval=year&cmux_distribution=appstore&cmux_scheme=cmux",
+        ),
+      );
+
+      expect(response.status).toBe(302);
+      expect(response.headers.get("location")).toBe(
+        "https://cmux-dev-backend-1.tail137216.ts.net:3916/app-pricing?cmux_app=1&cmux_distribution=appstore&billing=unavailable&interval=year",
+      );
+    } finally {
+      if (previousTransport === undefined) delete process.env.CMUX_DEV_BACKEND_TRANSPORT;
+      else process.env.CMUX_DEV_BACKEND_TRANSPORT = previousTransport;
+      if (previousOrigin === undefined) delete process.env.CMUX_WWW_ORIGIN;
+      else process.env.CMUX_WWW_ORIGIN = previousOrigin;
+      if (previousHost === undefined) delete process.env.CMUX_DEV_BACKEND_TAILSCALE_HOST;
+      else process.env.CMUX_DEV_BACKEND_TAILSCALE_HOST = previousHost;
+    }
   });
 
   test("blocks direct portal requests from the iOS App Store distribution", async () => {
@@ -162,7 +190,7 @@ describe("billing portal route", () => {
     expect(getUser).toHaveBeenCalledWith({ or: "anonymous-if-exists[deprecated]" });
     expect(createPortalSession).toHaveBeenCalledWith({
       customer: "cus_anonymous",
-      return_url: "https://cmux.test/pricing",
+      return_url: "https://cmux.test/dashboard/billing",
     });
   });
 
@@ -194,7 +222,7 @@ describe("billing portal route", () => {
     expect(response.status).toBe(302);
     expect(createPortalSession).toHaveBeenCalledWith({
       customer: "cus_user",
-      return_url: "https://cmux.test/pricing",
+      return_url: "https://cmux.test/dashboard/billing",
     });
   });
 

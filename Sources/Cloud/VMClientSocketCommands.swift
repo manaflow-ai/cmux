@@ -1,4 +1,5 @@
 import CmuxControlSocket
+import CmuxSettings
 import Foundation
 
 extension TerminalController {
@@ -7,16 +8,196 @@ extension TerminalController {
         id: Any?,
         params: [String: Any]
     ) -> String {
+        if let tunnelResponse = socketWorkerCloudTunnelResponse(method: method, id: id, params: params) {
+            return tunnelResponse
+        }
+        // `DisableCloud`: every remaining `vm.*` verb fails closed here, before
+        // any control-plane call, with a stable error code. `VMClient` refuses
+        // as well, so this gate is the CLI's error surface, not the only line
+        // of defense.
+        if ManagedDevicePolicy().isEnforced(.disableCloud) {
+            return v2Error(
+                id: id,
+                code: "cloud_disabled",
+                message: String(localized: "cloud.managed.disabled", defaultValue: "Cloud Machines are disabled by your administrator.")
+            )
+        }
         switch method {
         case "vm.list":
             return v2VmCall(id: id) {
-                let items = try await VMClient.shared.list()
-                return [
-                    "vms": items.map(Self.socketWorkerVMSummaryPayload),
+                let page = try await VMClient.shared.listPage()
+                var payload: [String: Any] = [
+                    "vms": page.vms.map(Self.socketWorkerVMSummaryPayload),
                 ]
+                if let limits = page.limits {
+                    payload["limits"] = [
+                        "maxActiveVms": limits.maxActiveVms.map { $0 as Any } ?? NSNull(),
+                        "planId": limits.planId,
+                        "freeAccessWindowDays": limits.freeAccessWindowDays,
+                        "freeAccessExpiresAt": limits.freeAccessExpiresAt.map { $0 as Any } ?? NSNull(),
+                        "imageKinds": limits.imageKinds.map { ["kind": $0.kind.rawValue, "image": $0.image] },
+                        "memoryOptionsMb": limits.memoryOptionsMb,
+                    ]
+                }
+                return payload
+            }
+        case "vm.publication_list":
+            return v2VmCall(id: id) {
+                let publications = try await VMClient.shared.listPublications()
+                return ["publications": publications.map(\.foundationObject)]
+            }
+        case "vm.domain_list":
+            return v2VmCall(id: id) {
+                let domains = try await VMClient.shared.listPublicationDomains()
+                return ["domains": domains.map(\.foundationObject)]
+            }
+        case "vm.domain_verify":
+            guard let name = Self.socketWorkerString(
+                params["name"] ?? params["hostname"] ?? params["domain"] ?? params["id"]
+            ), !name.isEmpty else {
+                return v2Error(
+                    id: id,
+                    code: "invalid_params",
+                    message: String(
+                        localized: "socket.cloudVM.domain.nameRequired",
+                        defaultValue: "vm.domain_verify requires `name` (a domain)."
+                    )
+                )
+            }
+            return v2VmCall(id: id) {
+                let domain = try await VMClient.shared.verifyPublicationDomain(name: name)
+                return ["domain": domain.foundationObject]
+            }
+        case "vm.publication_create":
+            guard let vmID = Self.socketWorkerString(params["vmId"] ?? params["vm_id"]),
+                  !vmID.isEmpty else {
+                return v2Error(
+                    id: id,
+                    code: "invalid_params",
+                    message: String(
+                        localized: "socket.cloudVM.publication.create.missingVM",
+                        defaultValue: "vm.publication_create requires `vmId`."
+                    )
+                )
+            }
+            guard let port = Self.socketWorkerInt(params["port"]), (1...65_535).contains(port) else {
+                return v2Error(
+                    id: id,
+                    code: "invalid_params",
+                    message: String(
+                        localized: "socket.cloudVM.publication.create.invalidPort",
+                        defaultValue: "vm.publication_create requires `port` between 1 and 65535."
+                    )
+                )
+            }
+            let hasAccess = params["accessMode"] != nil || params["access_mode"] != nil
+            var validationParams = params
+            if !hasAccess { validationParams["accessMode"] = "personal" }
+            let accessResult = Self.socketWorkerPublicationAccess(
+                params: validationParams,
+                method: "vm.publication_create"
+            )
+            guard case .success(let access) = accessResult else {
+                guard case .failure(let error) = accessResult else { preconditionFailure() }
+                return v2Error(id: id, code: "invalid_params", message: error.message)
+            }
+            let hostname = Self.socketWorkerString(params["hostname"] ?? params["domain"])
+            let organizationSlug = Self.socketWorkerString(params["organizationSlug"])
+            let confirmPublic = Self.socketWorkerBool(params["confirmPublic"]) ?? false
+            return v2VmCall(id: id) {
+                let publication = try await VMClient.shared.createPublication(
+                    vmID: vmID,
+                    port: port,
+                    hostname: hostname,
+                    accessMode: hasAccess ? access.mode : nil,
+                    teamID: access.teamID,
+                    organizationSlug: organizationSlug,
+                    confirmPublic: confirmPublic
+                )
+                return ["publication": publication.foundationObject]
+            }
+        case "vm.publication_verify":
+            guard let publicationID = Self.socketWorkerString(params["id"]),
+                  !publicationID.isEmpty else {
+                return v2Error(
+                    id: id,
+                    code: "invalid_params",
+                    message: String(
+                        localized: "socket.cloudVM.publication.idRequired",
+                        defaultValue: "A publication id is required."
+                    )
+                )
+            }
+            return v2VmCall(id: id) {
+                let publication = try await VMClient.shared.verifyPublication(id: publicationID)
+                return ["publication": publication.foundationObject]
+            }
+        case "vm.publication_update":
+            guard let publicationID = Self.socketWorkerString(params["id"]),
+                  !publicationID.isEmpty else {
+                return v2Error(
+                    id: id,
+                    code: "invalid_params",
+                    message: String(
+                        localized: "socket.cloudVM.publication.idRequired",
+                        defaultValue: "A publication id is required."
+                    )
+                )
+            }
+            let accessResult = Self.socketWorkerPublicationAccess(
+                params: params,
+                method: "vm.publication_update"
+            )
+            guard case .success(let access) = accessResult else {
+                guard case .failure(let error) = accessResult else { preconditionFailure() }
+                return v2Error(id: id, code: "invalid_params", message: error.message)
+            }
+            let confirmPublic = Self.socketWorkerBool(params["confirmPublic"]) ?? false
+            return v2VmCall(id: id) {
+                let publication = try await VMClient.shared.updatePublicationAccess(
+                    id: publicationID,
+                    accessMode: access.mode,
+                    teamID: access.teamID,
+                    confirmPublic: confirmPublic
+                )
+                return ["publication": publication.foundationObject]
+            }
+        case "vm.publication_grants", "vm.publication_grant", "vm.publication_ungrant":
+            guard let publicationID = Self.socketWorkerString(params["id"]), !publicationID.isEmpty else {
+                return v2Error(id: id, code: "invalid_params", message: String(localized: "socket.cloudVM.publication.idRequired", defaultValue: "A publication id is required."))
+            }
+            let verb = method == "vm.publication_grants" ? "GET" : (method == "vm.publication_grant" ? "POST" : "DELETE")
+            let email = Self.socketWorkerString(params["email"])
+            let expiresAt = Self.socketWorkerString(params["expiresAt"])
+            return v2VmCall(id: id) {
+                let data = try await VMClient.shared.publicationGrants(id: publicationID, method: verb, email: email, expiresAt: expiresAt)
+                return (try JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
+            }
+        case "vm.publication_delete":
+            guard let publicationID = Self.socketWorkerString(params["id"]),
+                  !publicationID.isEmpty else {
+                return v2Error(
+                    id: id,
+                    code: "invalid_params",
+                    message: String(
+                        localized: "socket.cloudVM.publication.idRequired",
+                        defaultValue: "A publication id is required."
+                    )
+                )
+            }
+            return v2VmCall(id: id) {
+                try await VMClient.shared.deletePublication(id: publicationID)
+                return ["deleted": true, "id": publicationID]
             }
         case "vm.create":
             let image = Self.socketWorkerString(params["image"])
+            let kind: VMMachineKind?
+            switch Self.socketWorkerMachineKind(params["kind"], method: "vm.create") {
+            case .success(let parsed):
+                kind = parsed
+            case .failure(let error):
+                return v2Error(id: id, code: "invalid_params", message: error.message)
+            }
             let provider = Self.socketWorkerString(params["provider"])
             let idempotencyKey = Self.socketWorkerString(params["idempotency_key"])
             guard let idempotencyKey, !idempotencyKey.isEmpty else {
@@ -26,21 +207,38 @@ extension TerminalController {
                     message: "vm.create requires `idempotency_key`. Use `cmux vm new` instead of calling the socket method directly."
                 )
             }
+            let persistentHome = Self.socketWorkerBool(params["persistent_home"]) ?? false
+            let perMachineHome = Self.socketWorkerBool(params["per_machine_home"]) ?? false
+            let memoryMb = Self.socketWorkerInt(params["memory_mb"])
             return v2VmCall(id: id) {
-                let vm = try await VMClient.shared.create(image: image, provider: provider, idempotencyKey: idempotencyKey)
+                let vm = try await VMClient.shared.create(image: image, kind: kind, provider: provider, persistentHome: persistentHome, perMachineHome: perMachineHome, memoryMb: memoryMb, idempotencyKey: idempotencyKey)
                 return Self.socketWorkerVMSummaryPayload(vm)
             }
         case "vm.base_open":
             let name = Self.socketWorkerString(params["name"])
+            let kind: VMMachineKind?
+            switch Self.socketWorkerMachineKind(params["kind"], method: "vm.base_open") {
+            case .success(let parsed):
+                kind = parsed
+            case .failure(let error):
+                return v2Error(id: id, code: "invalid_params", message: error.message)
+            }
             return v2VmCall(id: id) {
-                let vm = try await VMClient.shared.openBase(name: name)
+                let vm = try await VMClient.shared.openBase(name: name, kind: kind)
                 return Self.socketWorkerVMSummaryPayload(vm)
             }
         case "vm.base_reset":
             let name = Self.socketWorkerString(params["name"])
             let reason = Self.socketWorkerString(params["reason"])
+            let kind: VMMachineKind?
+            switch Self.socketWorkerMachineKind(params["kind"], method: "vm.base_reset") {
+            case .success(let parsed):
+                kind = parsed
+            case .failure(let error):
+                return v2Error(id: id, code: "invalid_params", message: error.message)
+            }
             return v2VmCall(id: id) {
-                let vm = try await VMClient.shared.resetBase(name: name, reason: reason)
+                let vm = try await VMClient.shared.resetBase(name: name, kind: kind, reason: reason)
                 return Self.socketWorkerVMSummaryPayload(vm)
             }
         case "vm.status":
@@ -50,6 +248,59 @@ extension TerminalController {
             return v2VmCall(id: id) {
                 let vm = try await VMClient.shared.status(id: vmId)
                 return Self.socketWorkerVMSummaryPayload(vm)
+            }
+        case "vm.stats":
+            guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
+                return v2Error(id: id, code: "invalid_params", message: "vm.stats requires `id`. Run `cmux vm ls` to find one.")
+            }
+            return v2VmCall(id: id) {
+                let stats = try await VMClient.shared.stats(id: vmId)
+                var payload: [String: Any] = [
+                    "id": vmId,
+                    "state": stats.state.rawValue,
+                    "sampled_at_unix": Int(stats.sampledAt.timeIntervalSince1970),
+                ]
+                payload["cpus"] = stats.cpus
+                payload["cpu_percent"] = stats.cpuPercent
+                payload["load_average_1m"] = stats.loadAverage1m
+                payload["memory_total_mb"] = stats.memoryTotalMb
+                payload["memory_used_mb"] = stats.memoryUsedMb
+                payload["disk_total_mb"] = stats.diskTotalMb
+                payload["disk_used_mb"] = stats.diskUsedMb
+                return payload.compactMapValues { $0 }
+            }
+        case "vm.resize":
+            guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
+                return v2Error(id: id, code: "invalid_params", message: "vm.resize requires `id`. Run `cmux vm ls` to find one.")
+            }
+            guard let diskMb = Self.socketWorkerInt(params["storage_mb"]) ?? Self.socketWorkerInt(params["disk_mb"]), diskMb > 0 else {
+                return v2Error(id: id, code: "invalid_params", message: "vm.resize requires a positive `storage_mb` value.")
+            }
+            return v2VmCall(id: id) {
+                let stats = try await VMClient.shared.resizeDisk(id: vmId, diskMb: diskMb)
+                var payload: [String: Any] = [
+                    "id": vmId,
+                    "state": stats.state.rawValue,
+                    "sampled_at_unix": Int(stats.sampledAt.timeIntervalSince1970),
+                ]
+                if let diskTotalMb = stats.diskTotalMb { payload["disk_total_mb"] = diskTotalMb }
+                if let diskUsedMb = stats.diskUsedMb { payload["disk_used_mb"] = diskUsedMb }
+                return payload
+            }
+        case "vm.rename":
+            guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
+                return v2Error(id: id, code: "invalid_params", message: "vm.rename requires `id`. Run `cmux vm ls` to find one.")
+            }
+            let displayName = Self.socketWorkerString(params["display_name"])
+            return v2VmCall(id: id) {
+                let stored = try await VMClient.shared.rename(
+                    id: vmId,
+                    displayName: displayName?.isEmpty == false ? displayName : nil
+                )
+                return [
+                    "id": vmId,
+                    "displayName": stored ?? NSNull(),
+                ]
             }
         case "vm.snapshot":
             guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
@@ -92,7 +343,30 @@ extension TerminalController {
                 return v2Error(id: id, code: "invalid_params", message: "vm.destroy requires `id`. Run `cmux vm ls` to find one, then `cmux vm rm <id>`.")
             }
             return v2VmCall(id: id) {
-                try await VMClient.shared.destroy(id: vmId)
+                do {
+                    try await VMClient.shared.destroy(id: vmId)
+                } catch let error as VMClientError {
+                    // Delete is idempotent from the person's perspective. A
+                    // stale sidebar row can point at a machine the backend has
+                    // already forgotten; treat that 404 as success so the
+                    // normal CLI completion path dismisses the operation and
+                    // never traps the person in an error sheet.
+                    if case .httpStatus(404, _) = error {
+                        await MainActor.run {
+                            AppDelegate.shared?.closeWorkspaces(forManagedCloudVMID: vmId)
+                        }
+                        return ["ok": true, "already_gone": true]
+                    }
+                    throw error
+                }
+                // Same cleanup as the Machines panel's delete confirm. Every
+                // entrypoint (panel, tree, CLI, socket) funnels through this
+                // handler, so this is the one place the app learns a machine
+                // died before the next 45 s list poll: close its workspaces
+                // and its URL-backed panes now, not up to 45 s later.
+                await MainActor.run {
+                    AppDelegate.shared?.closeWorkspaces(forManagedCloudVMID: vmId)
+                }
                 return ["ok": true]
             }
         case "vm.exec":
@@ -106,6 +380,35 @@ extension TerminalController {
             return v2VmCall(id: id) {
                 let result = try await VMClient.shared.exec(id: vmId, command: command, timeoutMs: timeoutMs)
                 return ["exit_code": result.exitCode, "stdout": result.stdout, "stderr": result.stderr]
+            }
+        case "vm.open_port":
+            guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
+                return v2Error(id: id, code: "invalid_params", message: "vm.open_port requires `id`. Run `cmux vm ls` to find one.")
+            }
+            guard let port = Self.socketWorkerInt(params["port"]), (1...65535).contains(port) else {
+                return v2Error(id: id, code: "invalid_params", message: "vm.open_port requires `port` between 1 and 65535. From the CLI, use `cmux vm open <id> <port>`.")
+            }
+            return v2VmCall(id: id) {
+                let endpoint = try await VMClient.shared.openPort(id: vmId, port: port)
+                return ["url": endpoint.url, "token": endpoint.token, "open_url": endpoint.openUrl]
+            }
+        case "vm.cloud_agent_open":
+            // Shared entrypoint with the Machines panel's cloud-agent menu:
+            // both call CloudAgentSkillLauncher.openAgent, which installs the
+            // bundled skill file and opens a local terminal running the agent.
+            guard let agentRaw = Self.socketWorkerString(params["agent"]),
+                  let agent = CloudAgentSkillLauncher.CodingAgent(rawValue: agentRaw.lowercased())
+            else {
+                let names = CloudAgentSkillLauncher.CodingAgent.allCases.map(\.rawValue).joined(separator: "|")
+                return v2Error(id: id, code: "invalid_params", message: "vm.cloud_agent_open requires `agent` (\(names)).")
+            }
+            return v2VmCall(id: id, timeoutSeconds: 60) {
+                try await CloudAgentSkillLauncher.openAgent(agent)
+            }
+        case "vm.cloud_prompt":
+            return v2VmCall(id: id) {
+                let payload = try CloudAgentSkillLauncher.promptPayload()
+                return ["prompt": payload.prompt, "skill_path": payload.skillPath]
             }
         case "vm.ssh_info":
             guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
@@ -125,6 +428,90 @@ extension TerminalController {
             return v2VmCall(id: id) {
                 let endpoint = try await VMClient.shared.openAttach(id: vmId, requireDaemon: requireDaemon)
                 return Self.socketWorkerAttachInfoPayload(endpoint)
+            }
+        case "vm.cmux_remote_info":
+            guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
+                return v2Error(id: id, code: "invalid_params", message: "vm.cmux_remote_info requires `id`. Run `cmux vm ls` to find one, then `cmux vm tui <id>`.")
+            }
+            let deviceFingerprint = Self.socketWorkerString(params["device_fingerprint"])
+                ?? Self.socketWorkerString(params["deviceFingerprint"])
+            // What the local cmux-tui client can do (`remote-probe --json` capabilities);
+            // VMClient validates the tokens before they reach the control plane.
+            let clientCapabilities = Self.socketWorkerStringArray(
+                params["client_capabilities"] ?? params["clientCapabilities"]
+            )
+            return v2VmCall(id: id) {
+                let registry = await MainActor.run { CmuxTuiSurfaceProviderRegistry.shared }
+                guard clientCapabilities.contains(CloudTuiCommandLine.wireGuardHubCapability) else {
+                    throw CloudMachineLinkManager.ManagerError.wireGuardHubUnsupported
+                }
+                var payload: [String: Any]
+                if let deviceFingerprint {
+                    guard let knownRoute = await registry.privateRoute(machineID: vmId) else {
+                        throw CloudMachineLinkManager.ManagerError.privateRouteRequired(vmId)
+                    }
+                    // This Mac has linked to the machine before: reuse the private
+                    // VPC route without a Vercel request or a Freestyle exec. The
+                    // carrier marker means dial the trusted listener again; a real
+                    // fingerprint means present the stored device key.
+                    payload = [
+                        "transport": "cmux-remote",
+                        "route": knownRoute,
+                        "token": "",
+                        "expires_at_unix": 0,
+                        "session": "cmux",
+                        "trusted_carrier": deviceFingerprint == CloudTuiClientPaths.carrierDeviceMarker,
+                    ]
+                } else {
+                    let endpoint = try await VMClient.shared.openCmuxRemote(
+                        id: vmId,
+                        deviceFingerprint: deviceFingerprint,
+                        clientCapabilities: clientCapabilities
+                    )
+                    payload = [
+                        "transport": "cmux-remote",
+                        "route": endpoint.route,
+                        "token": endpoint.token,
+                        "expires_at_unix": endpoint.expiresAtUnix,
+                        "session": endpoint.session,
+                        "trusted_carrier": endpoint.trustedCarrier,
+                    ]
+                    if let build = endpoint.daemonBuild {
+                        var raw: [String: Any] = [:]
+                        if let commit = build.commit { raw["commit"] = commit }
+                        if let remoteProtocol = build.remoteProtocol { raw["remote_protocol"] = remoteProtocol }
+                        if let version = build.version { raw["version"] = version }
+                        payload["daemon_build"] = raw
+                    }
+                    if let addresses = endpoint.networkAddresses {
+                        payload["network_addresses"] = [
+                            "ipv4": addresses.ipv4.map { $0 as Any } ?? NSNull(),
+                            "ipv6": addresses.ipv6.map { $0 as Any } ?? NSNull(),
+                        ]
+                    }
+                }
+                // A `vm tui` pane execs its own client, which the app cannot watch, so a
+                // private-network route pins the hub for the rest of the app session.
+                let route = payload["route"] as? String ?? ""
+                guard CloudMachineLinkManager.usesWireGuardHub(
+                    route: route,
+                    clientCapabilities: clientCapabilities,
+                    enrolledRoutes: []
+                ) else {
+                    throw CloudMachineLinkManager.ManagerError.privateRouteRequired(route)
+                }
+                let hub = await MainActor.run { CmuxTuiSurfaceProviderRegistry.shared.wireGuardHub }
+                guard let hub else { throw CloudMachineLinkManager.ManagerError.wireGuardHubMissing }
+                let ready = try await hub.pinForExternalClient()
+                guard CloudMachineLinkManager.usesWireGuardHub(
+                    route: route,
+                    clientCapabilities: clientCapabilities,
+                    enrolledRoutes: ready.routes
+                ) else {
+                    throw CloudMachineLinkManager.ManagerError.privateRouteRequired(route)
+                }
+                payload["wireguard_hub_socket"] = ready.socketPath
+                return payload
             }
         case "vm.sessions":
             guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
@@ -153,6 +540,43 @@ extension TerminalController {
                     "session": result.session.map(Self.socketWorkerCloudSessionPayload) ?? NSNull(),
                 ]
             }
+        // The cloud tree verbs (`cmux vm tree|open|agent`, the sidebar) are thin wrappers
+        // over the surface catalog now; see SurfaceSocketCommands.swift. They stay on the
+        // socket worker like every other vm verb and await the main-actor catalog.
+        case "vm.tree":
+            return socketWorkerVMTreeResponse(id: id, params: params)
+        case "vm.terminal_open":
+            return socketWorkerVMTerminalOpenResponse(id: id, params: params)
+        case "vm.terminal_new":
+            return socketWorkerVMTerminalNewResponse(id: id, params: params)
+        case "vm.workspace_new":
+            return socketWorkerVMWorkspaceNewResponse(id: id, params: params)
+        case "vm.desktop_open":
+            return socketWorkerVMDesktopOpenResponse(id: id, params: params)
+        case "vm.port_open":
+            return socketWorkerVMPortOpenResponse(id: id, params: params)
+        case "vm.link_socket":
+            return socketWorkerVMLinkSocketResponse(id: id, params: params)
+        case "vm.workspace_open":
+            return socketWorkerVMWorkspaceOpenResponse(id: id, params: params)
+        case "vm.workspace_close":
+            return socketWorkerVMWorkspaceCloseResponse(id: id, params: params)
+        case "vm.workspace_delete":
+            return socketWorkerVMWorkspaceDeleteResponse(id: id, params: params)
+        case "vm.workspace_rename":
+            return socketWorkerVMWorkspaceRenameResponse(id: id, params: params)
+        case "vm.terminal_close":
+            return socketWorkerVMTerminalCloseResponse(id: id, params: params)
+        case "vm.terminal_write":
+            return socketWorkerVMTerminalWriteResponse(id: id, params: params)
+        case "vm.terminal_read":
+            return socketWorkerVMTerminalReadResponse(id: id, params: params)
+        case "vm.terminal_wait":
+            return socketWorkerVMTerminalWaitResponse(id: id, params: params)
+        case "vm.terminal_rename":
+            return socketWorkerVMTerminalRenameResponse(id: id, params: params)
+        case "vm.tab_rename":
+            return socketWorkerVMTabRenameResponse(id: id, params: params)
         default:
             return v2Error(id: id, code: "method_not_found", message: "Unknown method")
         }
@@ -166,6 +590,14 @@ extension TerminalController {
         id: Any?,
         params: [String: Any]
     ) -> String {
+        // The remote registry is both a Cloud control-plane resource and a
+        // remote-connection surface: either MDM key fails it closed.
+        guard ManagedCloudPolicy.isEnabled else {
+            return v2Error(id: id, code: ManagedCloudPolicy.socketErrorCode, message: ManagedCloudPolicy.disabledMessage)
+        }
+        guard ManagedRemoteConnectionsPolicy.isEnabled else {
+            return v2Error(id: id, code: "remote_connections_disabled", message: ManagedRemoteConnectionsPolicy.disabledMessage)
+        }
         switch method {
         case "remotes.list":
             return v2VmCall(id: id) {
@@ -209,14 +641,48 @@ extension TerminalController {
         ]
     }
 
+    /// `kind` is optional; when present it must be a known machine kind.
+    private nonisolated static func socketWorkerMachineKind(_ raw: Any?, method: String) -> Result<VMMachineKind?, SocketWorkerKindError> {
+        guard let rawKind = socketWorkerString(raw), !rawKind.isEmpty else { return .success(nil) }
+        guard let kind = VMMachineKind(rawValue: rawKind.lowercased()) else {
+            let known = VMMachineKind.allCases.map(\.rawValue).joined(separator: "|")
+            return .failure(SocketWorkerKindError(message: "\(method): `kind` must be one of \(known), got `\(rawKind)`."))
+        }
+        return .success(kind)
+    }
+
     private nonisolated static func socketWorkerVMSummaryPayload(_ vm: VMSummary) -> [String: Any] {
         var payload: [String: Any] = [
             "id": vm.id,
             "provider": vm.provider,
             "image": vm.image,
+            "kind": vm.resolvedKind.rawValue,
+            // What the provider can honor; the list response is authoritative and
+            // older action responses retain the model's compatibility defaults.
+            "capabilities": [
+                "snapshot": vm.capabilities.snapshot,
+                "restore": vm.capabilities.restore,
+                "fork": vm.capabilities.fork,
+                "ports": vm.capabilities.ports,
+            ],
             "status": vm.status,
             "createdAt": vm.createdAt,
         ]
+        if let displayName = vm.displayName, !displayName.isEmpty {
+            payload["displayName"] = displayName
+        }
+        if let slug = vm.slug, !slug.isEmpty {
+            payload["slug"] = slug
+        }
+        if let freeAccessExpiresAt = vm.freeAccessExpiresAt {
+            payload["freeAccessExpiresAt"] = freeAccessExpiresAt
+        }
+        if vm.addressIPv4 != nil || vm.addressIPv6 != nil {
+            var address: [String: Any] = [:]
+            address["ipv4"] = vm.addressIPv4.map { $0 as Any } ?? NSNull()
+            address["ipv6"] = vm.addressIPv6.map { $0 as Any } ?? NSNull()
+            payload["address"] = address
+        }
         if let base = vm.base {
             payload["base"] = [
                 "id": base.id,
@@ -249,6 +715,12 @@ extension TerminalController {
         id: Any?,
         params: [String: Any]
     ) -> String {
+        // `DisableCloud` (MDM): AI accounts exist to provision Cloud machines
+        // and `upload` ships local credentials to the tenant, so the family
+        // fails closed with the same code as `vm.*`.
+        guard ManagedCloudPolicy.isEnabled else {
+            return v2Error(id: id, code: ManagedCloudPolicy.socketErrorCode, message: ManagedCloudPolicy.disabledMessage)
+        }
         switch method {
         case "aiAccounts.list":
             let teamID = Self.socketWorkerString(params["teamId"]) ?? Self.socketWorkerString(params["team_id"])
@@ -257,6 +729,11 @@ extension TerminalController {
                 return ["accounts": accounts.map(\.foundationObject)]
             }
         case "aiAccounts.upload":
+            // `DisableAICredentialUpload` (MDM): the one verb that reads local
+            // credential files and ships them to the tenant.
+            guard ManagedAICredentialUploadPolicy.isEnabled else {
+                return v2Error(id: id, code: ManagedAICredentialUploadPolicy.socketErrorCode, message: ManagedAICredentialUploadPolicy.disabledMessage)
+            }
             guard let rawProvider = Self.socketWorkerString(params["provider"]),
                   let provider = AIAccountProvider(rawValue: rawProvider) else {
                 return v2Error(
@@ -383,16 +860,62 @@ extension TerminalController {
         return nil
     }
 
-    private nonisolated static func socketWorkerString(_ raw: Any?) -> String? {
+    nonisolated static func socketWorkerString(_ raw: Any?) -> String? {
         guard let string = raw as? String else { return nil }
         let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    private nonisolated static func socketWorkerInt(_ raw: Any?) -> Int? {
+    nonisolated static func socketWorkerInt(_ raw: Any?) -> Int? {
         if let int = raw as? Int { return int }
         if let number = raw as? NSNumber { return number.intValue }
         if let string = raw as? String { return Int(string) }
         return nil
     }
+
+    private nonisolated static func socketWorkerPublicationAccess(
+        params: [String: Any],
+        method: String
+    ) -> Result<SocketWorkerPublicationAccess, SocketWorkerPublicationAccessError> {
+        let rawAccess = socketWorkerString(params["accessMode"] ?? params["access_mode"])?
+            .lowercased()
+        guard let rawAccess,
+              let mode = VMPublicationAccessMode(rawValue: rawAccess) else {
+            let format = String(
+                localized: "socket.cloudVM.publication.invalidAccess",
+                defaultValue: "%@ requires `accessMode` to be personal, team, or public."
+            )
+            return .failure(.init(message: String(format: format, method)))
+        }
+        let teamID = socketWorkerString(params["teamId"] ?? params["team_id"])
+        if mode == .team, teamID == nil {
+            let format = String(
+                localized: "socket.cloudVM.publication.teamRequired",
+                defaultValue: "%@ requires `teamId` when `accessMode` is team."
+            )
+            return .failure(.init(message: String(format: format, method)))
+        }
+        if mode != .team, teamID != nil {
+            let format = String(
+                localized: "socket.cloudVM.publication.teamOnly",
+                defaultValue: "%@ accepts `teamId` only when `accessMode` is team."
+            )
+            return .failure(.init(message: String(format: format, method)))
+        }
+        return .success(.init(mode: mode, teamID: teamID))
+    }
+}
+
+/// A rejected `kind` parameter on a machine-creating socket command.
+private struct SocketWorkerKindError: Error {
+    let message: String
+}
+
+private struct SocketWorkerPublicationAccess {
+    let mode: VMPublicationAccessMode
+    let teamID: String?
+}
+
+private struct SocketWorkerPublicationAccessError: Error {
+    let message: String
 }

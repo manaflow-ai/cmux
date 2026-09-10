@@ -26,14 +26,12 @@ struct MobilePairingScannerPreview: View {
                 .frame(maxWidth: 280, maxHeight: 280)
                 .aspectRatio(1, contentMode: .fit)
 
-                Text(L10n.string(
-                    "mobile.pairing.scannerInstruction",
-                    defaultValue: "Position the Mac's QR code in the frame."
-                ))
+                Text(MobilePairingScannerSheet.guidanceText)
                 .font(.headline)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.white)
                 .padding(.horizontal, 32)
+                .accessibilityIdentifier("MobilePairingScannerGuidance")
 
                 Spacer(minLength: 24)
             }

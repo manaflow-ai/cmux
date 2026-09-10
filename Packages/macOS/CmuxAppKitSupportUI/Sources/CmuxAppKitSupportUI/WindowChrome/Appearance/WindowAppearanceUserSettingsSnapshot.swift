@@ -5,7 +5,9 @@ public struct WindowAppearanceUserSettingsSnapshot {
     /// Whether sidebars share the terminal root backdrop.
     public let unifySurfaceBackdrops: Bool
 
-    /// Color scheme selected for sidebar tint resolution.
+    /// Ambient color-scheme fallback retained for settings compatibility.
+    /// ``WindowAppearanceSnapshot`` resolves chrome from the terminal backdrop
+    /// instead, so this value never overrides the shared authority.
     public let colorScheme: ColorScheme
 
     /// Raw `sidebarMaterial` value.

@@ -53,7 +53,7 @@ struct SSHForegroundAuthenticationMarkerCleanupTests {
                 sshOptions: ["ControlMaster=no"],
                 token: "foreground-auth-token"
             )
-        )
+        ).replacingOccurrences(of: "/usr/bin/ssh", with: fakeSSH.path)
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
         process.arguments = ["-c", "exec \(command)"]
@@ -155,7 +155,7 @@ struct SSHForegroundAuthenticationMarkerCleanupTests {
                 sshOptions: ["ControlMaster=no"],
                 token: "foreground-auth-token"
             )
-        )
+        ).replacingOccurrences(of: "/usr/bin/ssh", with: fakeSSH.path)
         let result = try Self.runProcess(command: command, environment: environment)
 
         #expect(result.status == 253, Comment(rawValue: result.stderr))
@@ -251,7 +251,7 @@ struct SSHForegroundAuthenticationMarkerCleanupTests {
                 sshOptions: sshOptions,
                 token: "foreground-auth-token"
             )
-        )
+        ).replacingOccurrences(of: "/usr/bin/ssh", with: fakeSSH.path)
         let result = try Self.runProcess(command: command, environment: environment)
 
         #expect(result.status == 253, Comment(rawValue: result.stderr))
@@ -318,7 +318,7 @@ struct SSHForegroundAuthenticationMarkerCleanupTests {
                     sshOptions: ["ControlMaster=no"],
                     token: "foreground-auth-token"
                 )
-            ),
+            ).replacingOccurrences(of: "/usr/bin/ssh", with: fakeSSH.path),
             environment: environment
         )
 

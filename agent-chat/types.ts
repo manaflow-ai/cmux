@@ -25,6 +25,8 @@ export interface OptionChoice {
   description?: string;
   disabled?: boolean;
   disabledReason?: string;
+  efforts?: OptionChoice[];
+  defaultEffort?: string;
 }
 
 export interface SessionOption {

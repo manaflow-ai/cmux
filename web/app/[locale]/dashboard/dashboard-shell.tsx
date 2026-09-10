@@ -1,9 +1,7 @@
 "use client";
 
-import { UserButton } from "@stackframe/stack";
 import { useTranslations } from "next-intl";
 import { useState } from "react";
-import { ThemeToggle } from "@/app/[locale]/theme";
 import { Link, usePathname } from "@/i18n/navigation";
 
 type DashboardNavGroup = {
@@ -15,13 +13,23 @@ type DashboardNavGroup = {
   }>;
 };
 
-export function DashboardShell({ children }: { children: React.ReactNode }) {
+export function DashboardShell({
+  children,
+  vaultEnabled,
+  account,
+}: {
+  children: React.ReactNode;
+  vaultEnabled: boolean;
+  /** The identity row, streamed by the layout once the session resolves. */
+  account?: React.ReactNode;
+}) {
   const t = useTranslations("dashboard.nav");
   const common = useTranslations("common");
   const pathname = usePathname();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const groups: DashboardNavGroup[] = [
-    {
+  const groups: DashboardNavGroup[] = [];
+  if (vaultEnabled) {
+    groups.push({
       label: t("vaultGroup"),
       items: [
         {
@@ -34,20 +42,37 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           label: t("vaultSessions"),
           active: pathname.startsWith("/dashboard/vault/sessions"),
         },
+      ],
+    });
+  }
+  groups.push(
+    {
+      label: t("cloudGroup"),
+      items: [
         {
-          href: "/dashboard/vault/cli-auth",
-          label: t("vaultCliSetup"),
-          active: pathname.startsWith("/dashboard/vault/cli-auth"),
+          href: "/dashboard/cloud",
+          label: t("cloudDevices"),
+          active: pathname.startsWith("/dashboard/cloud"),
         },
       ],
     },
     {
-      label: t("subrouterGroup"),
+      label: t("coderouterGroup"),
       items: [
         {
-          href: "/dashboard/subrouter",
-          label: t("subrouterOverview"),
-          active: pathname.startsWith("/dashboard/subrouter"),
+          href: "/dashboard/coderouter",
+          label: t("coderouterOverview"),
+          active: pathname.startsWith("/dashboard/coderouter"),
+        },
+      ],
+    },
+    {
+      label: t("iosGroup"),
+      items: [
+        {
+          href: "/dashboard/testflight",
+          label: t("testflight"),
+          active: pathname.startsWith("/dashboard/testflight"),
         },
       ],
     },
@@ -60,16 +85,19 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           active: pathname.startsWith("/dashboard/billing"),
         },
         {
-          href: "/dashboard/testflight",
-          label: t("testflight"),
-          active: pathname.startsWith("/dashboard/testflight"),
+          href: "/dashboard/team",
+          label: t("team"),
+          active: pathname.startsWith("/dashboard/team"),
         },
       ],
     },
-  ];
+  );
 
   return (
-    <div className="min-h-screen bg-background text-sm text-foreground sm:grid sm:grid-cols-[13rem_minmax(0,1fr)]">
+    <div
+      data-testid="dashboard-shell"
+      className="min-h-screen bg-background text-sm text-foreground sm:grid sm:grid-cols-[13rem_minmax(0,1fr)]"
+    >
       <aside className="sticky top-0 hidden h-screen flex-col border-r border-border bg-background sm:flex">
         <div className="flex h-11 shrink-0 items-center border-b border-border px-3">
           <Link
@@ -79,19 +107,22 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
             {t("brand")}
           </Link>
         </div>
-        <DashboardNav groups={groups} className="flex-1 overflow-y-auto px-2 py-3 pb-14" />
+        <DashboardNav
+          groups={groups}
+          className="flex-1 overflow-y-auto px-2 py-3 pb-28"
+        />
       </aside>
 
       <div className="min-w-0">
         <header className="sticky top-0 z-30 border-b border-border bg-background sm:fixed sm:inset-x-auto sm:bottom-0 sm:left-0 sm:top-auto sm:w-[13rem] sm:border-b-0 sm:border-r sm:border-t">
-          <div className="flex h-11 items-center justify-between px-3">
+          <div className="flex min-h-11 items-center justify-between px-3 py-1.5 sm:px-2">
             <Link
               href="/dashboard"
               className="font-medium focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground sm:hidden"
             >
               {t("brand")}
             </Link>
-            <div className="flex items-center gap-2">
+            <div className="flex min-w-0 items-center gap-1 sm:w-full">
               <button
                 type="button"
                 aria-controls="dashboard-mobile-nav"
@@ -102,8 +133,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
               >
                 <DashboardMenuIcon open={mobileNavOpen} />
               </button>
-              <ThemeToggle />
-              <UserButton />
+              {account}
             </div>
           </div>
           <DashboardNav
@@ -111,7 +141,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
             groups={groups}
             hidden={!mobileNavOpen}
             onNavigate={() => setMobileNavOpen(false)}
-            className="max-h-[calc(100vh-2.75rem)] overflow-y-auto border-t border-border px-2 py-3 sm:hidden"
+            className="max-h-[calc(100vh-6rem)] overflow-y-auto border-t border-border px-2 py-3 sm:hidden"
           />
         </header>
         <main className="min-w-0">{children}</main>
@@ -137,31 +167,43 @@ function DashboardNav({
     <nav id={id} className={className} hidden={hidden}>
       <div className="space-y-4">
         {groups.map((group) => (
-          <div key={group.label}>
-            <p className="px-2 text-[11px] font-semibold text-foreground">
-              {group.label}
-            </p>
-            <div className="mt-1 space-y-0.5">
-              {group.items.map((item) => (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  onClick={onNavigate}
-                  aria-current={item.active ? "page" : undefined}
-                  className={`block border-l px-2 py-1.5 focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground ${
-                    item.active
-                      ? "border-foreground bg-code-bg text-foreground"
-                      : "border-transparent text-muted hover:border-border hover:text-foreground"
-                  }`}
-                >
-                  {item.label}
-                </Link>
-              ))}
-            </div>
-          </div>
+          <DashboardNavGroupView key={group.label} group={group} onNavigate={onNavigate} />
         ))}
       </div>
     </nav>
+  );
+}
+
+export function DashboardNavGroupView({
+  group,
+  onNavigate,
+}: {
+  group: DashboardNavGroup;
+  onNavigate?: () => void;
+}) {
+  return (
+    <div>
+      <p className="px-2 text-[11px] font-semibold text-foreground">
+        {group.label}
+      </p>
+      <div className="mt-1 space-y-0.5">
+        {group.items.map((item) => (
+          <Link
+            key={item.href}
+            href={item.href}
+            onClick={onNavigate}
+            aria-current={item.active ? "page" : undefined}
+            className={`block border-l px-2 py-1.5 focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground ${
+              item.active
+                ? "border-foreground bg-code-bg text-foreground"
+                : "border-transparent text-muted hover:border-border hover:text-foreground"
+            }`}
+          >
+            {item.label}
+          </Link>
+        ))}
+      </div>
+    </div>
   );
 }
 

@@ -194,12 +194,19 @@ public struct SocketListenerPolicy: Sendable {
         return currentIdentity == boundIdentity
     }
 
-    /// The fallback socket path after a bind failure at the stable default
-    /// path, or nil when no fallback applies.
+    /// The fallback socket path after a bind failure at a stable path, or nil
+    /// when no fallback applies.
     ///
-    /// Only the shared stable default path falls back (to the user-scoped
-    /// stable path) and only for permission/lock/occupancy failures another
-    /// user's listener can cause. Tagged and explicit paths never fall back.
+    /// Only the stable paths fall back, and only to an alternative that can
+    /// actually succeed. Permission/lock/occupancy failures another user's
+    /// listener can cause move the shared stable default to the user-scoped
+    /// stable path. Failures creating the state directory itself
+    /// (`create_directory`, `create_lock_directory` — e.g. `~/.local/state`
+    /// owned by root after a past `sudo` install, or an I/O-erroring home
+    /// volume) escape both stable paths to the legacy `/tmp` per-user path,
+    /// because the user-scoped path is a sibling inside the same uncreatable
+    /// directory and fails identically. Tagged and explicit paths never fall
+    /// back.
     ///
     /// - Parameters:
     ///   - requestedPath: The path the bind attempted.
@@ -214,19 +221,26 @@ public struct SocketListenerPolicy: Sendable {
         errnoCode: Int32,
         currentUserID: uid_t = getuid()
     ) -> String? {
-        guard requestedPath == SocketControlSettings.stableDefaultSocketPath else {
+        let userScopedPath = SocketControlSettings.userScopedStableSocketPath(
+            currentUserID: currentUserID
+        )
+        let isStableDefaultPath = requestedPath == SocketControlSettings.stableDefaultSocketPath
+        guard isStableDefaultPath || requestedPath == userScopedPath else {
             return nil
         }
 
         switch stage {
-        case "unlink" where errnoCode == EACCES || errnoCode == EPERM:
-            return SocketControlSettings.userScopedStableSocketPath(currentUserID: currentUserID)
-        case "create_lock_directory", "open_lock", "lock":
-            return SocketControlSettings.userScopedStableSocketPath(currentUserID: currentUserID)
-        case "existing_path", "stat_existing_path":
-            return SocketControlSettings.userScopedStableSocketPath(currentUserID: currentUserID)
-        case "bind" where errnoCode == EACCES || errnoCode == EPERM || errnoCode == EADDRINUSE:
-            return SocketControlSettings.userScopedStableSocketPath(currentUserID: currentUserID)
+        case "create_directory", "create_lock_directory":
+            return SocketControlSettings.legacyUserScopedStableSocketPath(
+                currentUserID: currentUserID
+            )
+        case "unlink" where isStableDefaultPath && (errnoCode == EACCES || errnoCode == EPERM):
+            return userScopedPath
+        case "open_lock", "lock", "existing_path", "stat_existing_path":
+            return isStableDefaultPath ? userScopedPath : nil
+        case "bind" where isStableDefaultPath
+            && (errnoCode == EACCES || errnoCode == EPERM || errnoCode == EADDRINUSE):
+            return userScopedPath
         default:
             return nil
         }

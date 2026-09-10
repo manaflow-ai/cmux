@@ -1,11 +1,8 @@
 import Foundation
 
-/// The seam between chat surfaces and whatever produces conversation data.
-///
-/// ``ChatConversationStore`` depends only on this protocol. On iOS the
-/// implementation adapts the mobile RPC client; a future macOS surface can
-/// implement it in-process against the host's own transcript service. Test
-/// and preview surfaces use ``FixtureChatEventSource``.
+/// The seam between session/artifact consumers and whatever produces the
+/// data. On iOS the implementation adapts the mobile RPC client; the artifact
+/// loaders consume only the artifact members.
 public protocol ChatEventSource: Sendable {
     /// Whether this source supports Mac-hosted artifact preview RPCs.
     var supportsArtifacts: Bool { get }

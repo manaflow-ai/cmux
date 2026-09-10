@@ -4,11 +4,12 @@ import SwiftUI
 @MainActor
 public struct SidebarSection: View {
     private let catalog: SettingCatalog
-    private let hostActions: SettingsHostActions
+    let hostActions: SettingsHostActions
+    @State var rightSidebarTabs: [RightSidebarTabSettingsItem]
     private let rightSidebarWidthSettings = RightSidebarWidthSettings()
     @State private var sidebarFont: SettingsFontSize
     @State private var fontSaveFailed = false
-    @State private var fontSaveTask: Task<Void, Never>?
+    @State private var tasks = MainActorTaskStore<String>()
     @State private var matchTerminal: DefaultsValueModel<Bool>
     @State var hideAll: DefaultsValueModel<Bool>
     @State private var wrapTitles: DefaultsValueModel<Bool>
@@ -37,6 +38,7 @@ public struct SidebarSection: View {
     public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog, hostActions: SettingsHostActions) {
         self.catalog = catalog
         self.hostActions = hostActions
+        _rightSidebarTabs = State(initialValue: hostActions.rightSidebarTabs())
         _sidebarFont = State(initialValue: hostActions.sidebarFontSize())
         _matchTerminal = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebarAppearance.matchTerminalBackground))
         _hideAll = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.hideAllDetails))
@@ -69,8 +71,14 @@ public struct SidebarSection: View {
         Group {
             SettingsSectionHeader(String(localized: "settings.section.sidebarAppearance", defaultValue: "Sidebar"), section: .sidebarAppearance)
             mainCard
+            rightSidebarTabsCard
         }
         .task { startObservingSettings() }
+        .task {
+            for await tabs in hostActions.rightSidebarTabsUpdates() {
+                rightSidebarTabs = tabs
+            }
+        }
     }
 
     private func startObservingSettings() {
@@ -104,8 +112,7 @@ public struct SidebarSection: View {
     /// rapid sequence of slider releases only reflects the latest value (the
     /// host serializes the underlying writes; this keeps the UI state in step).
     private func saveSidebarFontSize(_ points: Double) {
-        fontSaveTask?.cancel()
-        fontSaveTask = Task {
+        tasks.replaceOnMainActor("fontSave") {
             let saved = await hostActions.setSidebarFontSize(points)
             if !Task.isCancelled { fontSaveFailed = !saved }
         }

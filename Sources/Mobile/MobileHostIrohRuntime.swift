@@ -11,8 +11,9 @@ let mobileHostIrohLog = Logger(
     category: "mobile-host-iroh"
 )
 
-/// Publishes live binding state synchronously while secure persistence drains
-/// on a lifecycle-cancellable, latest-value serial lane.
+/// Stages binding state synchronously while secure persistence drains on a
+/// lifecycle-cancellable, latest-value serial lane. Live route publication is
+/// owned separately by `MobileHostIrohRuntime` after endpoint activation.
 @MainActor
 final class MobileHostIrohPersistenceQueue {
     typealias Operation = @MainActor @Sendable () async -> Void
@@ -62,6 +63,12 @@ final class MobileHostIrohPersistenceQueue {
 /// macOS composition root for the account-scoped Iroh host runtime.
 @MainActor
 final class MobileHostIrohRuntime {
+    enum RoutePublicationPhase: Equatable {
+        case unavailable
+        case starting(revision: UInt64)
+        case active(revision: UInt64, binding: CmxIrohBrokerBindingMetadata)
+    }
+
     enum SettingsError: Error, Equatable {
         case unavailable
         case incompleteCustomRelay
@@ -69,7 +76,11 @@ final class MobileHostIrohRuntime {
     }
     static let shared = MobileHostIrohRuntime()
 
-    static let capabilities = ["mobile-rpc-v1", "multistream-v1"]
+    static let capabilities = [
+        "mobile-rpc-v1",
+        "multistream-v1",
+        MobileHostService.irohPrivatePathsCapability,
+    ]
     #if DEBUG
     static let debugRelayOnlyDefaultsKey = "cmux.iroh.debug.relay-only"
     #endif
@@ -111,6 +122,12 @@ final class MobileHostIrohRuntime {
     var lastKnownAccountID: String?
     var lastKnownTag: String?
     var lastKnownBindingID: String?
+    var pendingIrohRouteBinding: (
+        revision: UInt64,
+        binding: CmxIrohBrokerBindingMetadata,
+        pathHints: [CmxIrohPathHint]
+    )?
+    var routePublicationPhase: RoutePublicationPhase = .unavailable
     var preparedSignOut: CmxIrohHostSignOutPreparation?
     var signOutIntentActive = false
     var signOutPreparationTask: Task<Void, Never>?
@@ -123,6 +140,12 @@ final class MobileHostIrohRuntime {
     var failureRecoveryFailureCount = 0
     var failureRecoveryClock: any CmxIrohRelayClock = CmxIrohSystemRelayClock()
     var failureRecoverySchedule = CmxIrohRetrySchedule()
+    var failureRecoveryJitter: @Sendable () -> Double = {
+        Double.random(in: 0 ... 1)
+    }
+    var relayPolicyRetryJitter: @Sendable () -> Double = {
+        Double.random(in: 0 ... 1)
+    }
     /// Single-flight owner for revision reconciliation: one task in flight,
     /// later signals coalesce at the greatest observed revision.
     var serverSignalRefreshTask: Task<Void, Never>?
@@ -212,11 +235,7 @@ final class MobileHostIrohRuntime {
     )
 
     private nonisolated static var diagnosticBuildStamp: String {
-        let info = Bundle.main.infoDictionary ?? [:]
-        let name = info["CFBundleName"] as? String ?? "cmux"
-        let version = info["CFBundleShortVersionString"] as? String ?? "?"
-        let build = info["CFBundleVersion"] as? String ?? "?"
-        return "\(name) \(version) (\(build))"
+        DiagnosticBuildStamp.make(infoDictionary: Bundle.main.infoDictionary)
     }
 
     @discardableResult
@@ -260,12 +279,14 @@ final class MobileHostIrohRuntime {
         // deactivating transition ends the need for it.
         cancelFailureRecovery(resetBackoff: false)
         if eraseAccountState {
+            clearIrohRoutePublication(revision: revision)
             await quarantineForSignOut()
         } else if restartActiveRuntime
                     || activeAccountID != targetAccountID
                     || targetAccountID == nil {
             let previousRuntime = runtime
             runtime = nil
+            clearIrohRoutePublication(revision: revision)
             selectedPathObservationTask?.cancel()
             selectedPathObservationTask = nil
             activeAccountID = nil
@@ -298,13 +319,15 @@ final class MobileHostIrohRuntime {
         } catch is CancellationError {
             return
         } catch {
+            let failureKind = Self.diagnosticFailureKind(for: error)
+            let failureType = String(reflecting: type(of: error))
             diagnosticLog.record(DiagnosticEvent(
                 .endpointFailed,
                 a: DiagnosticTransportKind.iroh.rawValue,
-                b: Self.diagnosticFailureKind(for: error).rawValue
+                b: failureKind.rawValue
             ))
             mobileHostIrohLog.error(
-                "Iroh host activation failed: \(String(describing: error), privacy: .private)"
+                "Iroh host activation failed kind=\(failureKind.rawValue, privacy: .public) type=\(failureType, privacy: .public) detail=\(String(describing: error), privacy: .private)"
             )
             scheduleFailureRecovery()
         }

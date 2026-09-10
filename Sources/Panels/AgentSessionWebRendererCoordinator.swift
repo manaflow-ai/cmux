@@ -11,7 +11,7 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
     private var initialProviderID: AgentSessionProviderID = .codex
     private var workingDirectory: String?
     private var theme: AgentSessionWebTheme = .resolve(
-        appearance: .fromConfig(GhosttyConfig.load())
+        appearance: .fromConfig(GhosttyConfig.loadForCmux())
     )
     private var loadedRendererKind: AgentSessionRendererKind?
     private var trustedShellURL: URL?
@@ -217,6 +217,12 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         decidePolicyFor navigationAction: WKNavigationAction,
         decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
     ) {
+        let decisionHandler = BrowserNavigationActionDecisionHandler(
+            decisionHandler,
+            fallbackPolicy: WKNavigationActionPolicy.cancel,
+            label: "AgentSessionWebRendererCoordinator.navigationAction"
+        ).closure
+
         guard let url = navigationAction.request.url else {
             decisionHandler(.allow)
             return

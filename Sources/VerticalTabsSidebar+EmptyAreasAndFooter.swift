@@ -197,9 +197,9 @@ struct SidebarFooterCircularIcon: View {
         CmuxSystemSymbolImage(
             systemName: systemName,
             pointSize: style.pointSize,
-            weight: style.weight
+            weight: style.weight,
+            tint: .secondary
         )
-        .foregroundStyle(Color(nsColor: .secondaryLabelColor))
     }
 }
 
@@ -373,7 +373,7 @@ private struct SidebarAccountPopover: View {
                 }
                 Button {
                     dismiss()
-                    accountFlow?.openProUpgrade()
+                    accountFlow?.openProUpgrade(source: .sidebarAccountMenu)
                 } label: {
                     Label(
                         String(localized: "menu.help.upgradeToPro", defaultValue: "Upgrade to cmux Pro…"),
@@ -446,7 +446,7 @@ struct SidebarAccountAvatar: View {
 
 struct SidebarMobileConnectButton: View {
     @EnvironmentObject private var tabManager: TabManager
-    private let title = String(localized: "command.mobileConnect.title", defaultValue: "Connect iPhone/iPad")
+    private let title = String(localized: "command.mobileConnect.title", defaultValue: "Open Tailscale Pairing")
 #if DEBUG
     @AppStorage(SidebarFooterMobileIconDebugSettings.sizeKey)
     private var debugIconSize = SidebarFooterMobileIconDebugSettings.defaultSize
@@ -461,27 +461,31 @@ struct SidebarMobileConnectButton: View {
     }
 
     var body: some View {
-        Button {
-            _ = AppDelegate.shared?.performMobileConnectWorkspaceAction(
-                tabManager: tabManager,
-                debugSource: "sidebar.mobileConnect"
-            )
-        } label: {
-            CmuxSystemSymbolImage(systemName: "iphone", pointSize: iconSize, weight: .medium)
-                .foregroundStyle(Color(nsColor: .secondaryLabelColor))
-                .frame(
-                    width: SidebarFooterButtonMetrics.buttonSize,
-                    height: SidebarFooterButtonMetrics.buttonSize
+        // Hidden under a managed remote-control disable: pairing cannot open
+        // (chokepoint in performMobileConnectWorkspaceAction), so showing the
+        // button would be a dead affordance.
+        if MobileRemoteControlPolicy.isEnabled {
+            Button {
+                _ = AppDelegate.shared?.performMobileConnectWorkspaceAction(
+                    tabManager: tabManager,
+                    debugSource: "sidebar.mobileConnect"
                 )
+            } label: {
+                CmuxSystemSymbolImage(systemName: "iphone", pointSize: iconSize, weight: .medium, tint: .secondary)
+                    .frame(
+                        width: SidebarFooterButtonMetrics.buttonSize,
+                        height: SidebarFooterButtonMetrics.buttonSize
+                    )
+            }
+            .buttonStyle(SidebarFooterIconButtonStyle())
+            .frame(
+                width: SidebarFooterButtonMetrics.buttonSize,
+                height: SidebarFooterButtonMetrics.buttonSize
+            )
+            .safeHelp(title)
+            .accessibilityLabel(title)
+            .accessibilityIdentifier("SidebarMobileConnectButton")
         }
-        .buttonStyle(SidebarFooterIconButtonStyle())
-        .frame(
-            width: SidebarFooterButtonMetrics.buttonSize,
-            height: SidebarFooterButtonMetrics.buttonSize
-        )
-        .safeHelp(title)
-        .accessibilityLabel(title)
-        .accessibilityIdentifier("SidebarMobileConnectButton")
     }
 }
 
@@ -603,7 +607,7 @@ struct SidebarEmptyArea: View {
                         debugSource: "sidebar.emptyArea.remoteTmux"
                     )
                 } else {
-                    tabManager.addWorkspace(placementOverride: .end)
+                    tabManager.addWorkspaceIfActive(placementOverride: .end)
                 }
                 if let selectedId = tabManager.selectedTabId {
                     selectedTabIds = [selectedId]
@@ -624,6 +628,9 @@ struct SidebarEmptyArea: View {
     @ViewBuilder
     private var hitTarget: some View {
         if expandsVertically {
+            // This full-height background extends behind the rows. Keep it
+            // SwiftUI-only so native hit testing cannot steal row presses;
+            // the AppKit table and clip view own native-sidebar window drags.
             Color.clear
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .contentShape(Rectangle())

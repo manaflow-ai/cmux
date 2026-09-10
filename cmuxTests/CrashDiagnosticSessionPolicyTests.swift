@@ -27,13 +27,34 @@ struct CrashDiagnosticSessionPolicyTests {
 
     @Test
     func terminalDefaultFileOpenIgnoresSymlinkedGhosttyCrashReportsInCmuxCrashDirectory() throws {
-        let crashReport = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".local/state/cmux/crash/cmux.ghosttycrash", isDirectory: false)
-        let symlink = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-symlinked-crash-\(UUID().uuidString).ghosttycrash", isDirectory: false)
+        // The fixture owns its crash directory instead of borrowing the real one.
+        // resolvingSymlinksInPath() only resolves a symlink whose target exists, so the report has
+        // to be created, and planting one in ~/.local/state/cmux/crash would look like a pending
+        // crash on the next launch. XDG_STATE_HOME is the product's own second crash location.
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-symlinked-crash-\(UUID().uuidString)", isDirectory: true)
+        let stateHome = root.appendingPathComponent("state", isDirectory: true)
+        let crashReport = stateHome
+            .appendingPathComponent("cmux/crash/cmux.ghosttycrash", isDirectory: false)
+        try FileManager.default.createDirectory(
+            at: crashReport.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("MDMP".utf8).write(to: crashReport)
+        let symlink = root.appendingPathComponent("crash-link.ghosttycrash", isDirectory: false)
         try FileManager.default.createSymbolicLink(at: symlink, withDestinationURL: crashReport)
+        // Read the live value with getenv: ProcessInfo caches the environment at first
+        // access, so if an earlier test setenv'd this variable at runtime, restoring the
+        // ProcessInfo snapshot in the defer below would clobber that test's state.
+        let previousStateHome = getenv("XDG_STATE_HOME").map { String(cString: $0) }
+        setenv("XDG_STATE_HOME", stateHome.path(percentEncoded: false), 1)
         defer {
-            try? FileManager.default.removeItem(at: symlink)
+            if let previousStateHome {
+                setenv("XDG_STATE_HOME", previousStateHome, 1)
+            } else {
+                unsetenv("XDG_STATE_HOME")
+            }
+            try? FileManager.default.removeItem(at: root)
         }
 
         #expect(
@@ -355,6 +376,76 @@ struct CrashDiagnosticSessionPolicyTests {
         AppDelegate.clearCrashOnlyPrimarySnapshotRemovalMarker(defaults: defaults)
 
         #expect(!AppDelegate.hasCrashOnlyPrimarySnapshotRemovalMarker(defaults: defaults))
+    }
+
+    @Test
+    func missingPrimaryRecoveryRequiresAnUncleanLaunchSignal() {
+        #expect(
+            !AppDelegate.shouldRecoverMissingPrimarySessionSnapshot(
+                previousLaunchWasUnclean: false,
+                crashOnlyPrimarySnapshotRemovalMarker: false
+            )
+        )
+        #expect(
+            AppDelegate.shouldRecoverMissingPrimarySessionSnapshot(
+                previousLaunchWasUnclean: true,
+                crashOnlyPrimarySnapshotRemovalMarker: false
+            )
+        )
+        #expect(
+            AppDelegate.shouldRecoverMissingPrimarySessionSnapshot(
+                previousLaunchWasUnclean: false,
+                crashOnlyPrimarySnapshotRemovalMarker: true
+            )
+        )
+    }
+
+    @Test
+    func sessionLaunchSentinelClassifiesAndClearsUncleanRuns() throws {
+        let homeDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-launch-state-\(UUID().uuidString)", isDirectory: true)
+        let environment = ["CMUX_BUNDLE_ID": "com.cmux.tests.sentinel"]
+        defer { try? FileManager.default.removeItem(at: homeDirectory) }
+
+        #expect(
+            !GhosttyCrashBreadcrumb.priorSessionLaunchWasUnclean(
+                homeDirectory: homeDirectory,
+                environment: environment
+            )
+        )
+        #expect(
+            !GhosttyCrashBreadcrumb.captureSessionLaunchState(
+                homeDirectory: homeDirectory,
+                environment: environment
+            )
+        )
+        #expect(
+            GhosttyCrashBreadcrumb.priorSessionLaunchWasUnclean(
+                homeDirectory: homeDirectory,
+                environment: environment
+            )
+        )
+
+        // A second process would observe the first process's sentinel as an
+        // unclean prior run. This is the launch classification used by startup
+        // snapshot recovery.
+        #expect(
+            GhosttyCrashBreadcrumb.captureSessionLaunchState(
+                homeDirectory: homeDirectory,
+                environment: environment
+            )
+        )
+
+        GhosttyCrashBreadcrumb.markSessionCleanExit(
+            homeDirectory: homeDirectory,
+            environment: environment
+        )
+        #expect(
+            !GhosttyCrashBreadcrumb.priorSessionLaunchWasUnclean(
+                homeDirectory: homeDirectory,
+                environment: environment
+            )
+        )
     }
 
     private func emptyWorkspaceSnapshot(currentDirectory: String) -> SessionWorkspaceSnapshot {

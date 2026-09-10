@@ -104,6 +104,18 @@ public protocol ControlSystemContext: AnyObject {
         moveParams: [String: JSONValue]
     ) -> ControlTabActionResolution
 
+    /// Returns the app-localized generic surface-not-found message for tab-action
+    /// routing failures.
+    ///
+    /// - Returns: The localized surface-not-found message.
+    func controlSystemSurfaceNotFoundMessage() -> String
+
+    /// Returns the app-localized generic tab-not-found message for tab-action
+    /// routing failures.
+    ///
+    /// - Returns: The localized tab-not-found message.
+    func controlSystemTabNotFoundMessage() -> String
+
     /// Splits a surface off into its own pane for `surface.split_off` /
     /// `surface.drag_to_split`, delegating to the shared app-side
     /// `v2SurfaceSplitOff` (also driven by the v1 `drag_surface_to_split`

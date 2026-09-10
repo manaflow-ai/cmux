@@ -106,9 +106,9 @@ struct SimulatorHIDFailureContainmentTests {
         #expect(sleeper.durations == [.milliseconds(50)])
     }
 
-    @Test("App switcher sends one paced double-Home sequence")
+    @Test("App switcher uses a forced legacy double-Home sequence")
     @MainActor
-    func appSwitcherUsesDoubleHome() async {
+    func appSwitcherUsesForcedLegacyDoubleHomeSequence() async {
         let script = HIDSendScript(outcomes: [true, true, true, true])
         let sleeper = RecordingHIDSleeper()
         let transport = SimulatorHIDTransport(
@@ -120,13 +120,18 @@ struct SimulatorHIDFailureContainmentTests {
         )
 
         #expect(await transport.press(.appSwitcher))
+        #expect(script.buttons == [
+            .legacy(eventSource: 0),
+            .legacy(eventSource: 0),
+            .legacy(eventSource: 0),
+            .legacy(eventSource: 0),
+        ])
         #expect(script.buttonDirections == [true, false, true, false])
         #expect(sleeper.durations == [
             .milliseconds(50),
-            .milliseconds(50),
+            .milliseconds(150),
             .milliseconds(50),
         ])
-        #expect(transport.heldConvenienceButtons.isEmpty)
     }
 
     @Test("Text transmission preserves order and uses cancellable pacing")

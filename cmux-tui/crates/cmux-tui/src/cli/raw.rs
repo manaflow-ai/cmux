@@ -31,7 +31,13 @@ pub(super) fn run(global: GlobalArgs, plan: RawCommandPlan) -> i32 {
             return 2;
         }
     };
-    let socket = resolve_socket(&global);
+    let socket = match resolve_socket(&global) {
+        Ok(socket) => socket,
+        Err(_) => {
+            eprintln!("{}", crate::localization::catalog().startup.invalid_session_name);
+            return 2;
+        }
+    };
     let stream = match transport::connect(&socket) {
         Ok(stream) => stream,
         Err(error) => {
@@ -132,18 +138,8 @@ fn read_line_limited(
         .map_err(|error| format!("protocol error: raw response is not UTF-8: {error}"))
 }
 
-fn resolve_socket(global: &GlobalArgs) -> PathBuf {
-    if let Some(path) = &global.socket {
-        return path.clone();
-    }
-    for name in ["CMUX_TUI_SOCKET", "CMUX_MUX_SOCKET"] {
-        if let Some(path) = std::env::var_os(name)
-            && !path.is_empty()
-        {
-            return PathBuf::from(path);
-        }
-    }
-    cmux_tui_core::server::default_socket_path(global.session.as_deref().unwrap_or("main"))
+fn resolve_socket(global: &GlobalArgs) -> anyhow::Result<PathBuf> {
+    Ok(super::wire::resolve_socket_with_origin(global)?.0)
 }
 
 #[cfg(test)]
@@ -155,5 +151,20 @@ mod tests {
         let request = json!({"id": 7, "cmd": "private-operation", "opaque": {"x": true}});
         let plan = RawCommandPlan { request: request.clone() };
         assert_eq!(plan.request, request);
+    }
+
+    #[test]
+    fn explicit_session_precedes_ambient_socket_fallbacks() {
+        let global = GlobalArgs { session: Some("session-alpha".into()), ..GlobalArgs::default() };
+        let socket = super::super::wire::resolve_socket_with_env(&global, |_| {
+            Some("/tmp/stale.sock".into())
+        })
+        .expect("session socket path should resolve");
+
+        assert_eq!(
+            socket.0,
+            cmux_tui_core::server::try_default_socket_path("session-alpha")
+                .expect("session socket path should resolve")
+        );
     }
 }

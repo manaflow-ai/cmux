@@ -22,6 +22,8 @@ actor MobileCoreRPCSession {
         lease: MobileRPCConnectAttemptLease?,
         task: Task<any CmxByteTransport, any Error>,
         cancellationClose: MobileRPCConnectCancellationClose,
+        diagnosticAttemptID: Int?,
+        diagnosticStartedAt: ContinuousClock.Instant?,
         waiters: Set<UUID>,
         completed: Bool
     )
@@ -91,8 +93,14 @@ actor MobileCoreRPCSession {
     /// budget as an abandoned connect.
     private var installedConnectLease: MobileRPCConnectAttemptLease?
     private var connectionTask: ConnectingTask?
+    private var recordedConnectCancellationAttemptIDs: Set<Int> = []
     private var installedConnectionID: UUID?
     private var readerTask: Task<Void, Never>?
+    /// Watches the complete native connection, separately from the control
+    /// lane reader. IROH can close the shared QUIC session without making a
+    /// blocked application-lane read return, so relying on `readLoop` alone
+    /// leaves event listeners attached to a dead generation.
+    private var transportClosureTask: Task<Void, Never>?
     var independentEventPreparation: IndependentEventPreparation?
     var independentEventReader: IndependentEventReader?
     /// Subscription stream IDs that already made their one optional-lane
@@ -153,6 +161,19 @@ actor MobileCoreRPCSession {
 
     deinit {
         let connecting = connectionTask
+        if let connecting,
+           let attemptID = connecting.diagnosticAttemptID,
+           let diagnosticTransport,
+           let transportConnectObserver {
+            transportConnectObserver(.cancelled(
+                attemptID: attemptID,
+                transport: diagnosticTransport,
+                reason: .sessionDeinitialized,
+                elapsedMilliseconds: Self.elapsedMilliseconds(
+                    since: connecting.diagnosticStartedAt ?? ContinuousClock.now
+                )
+            ))
+        }
         connecting?.task.cancel()
         let installedTransport = transport
         let installedLease = installedConnectLease
@@ -188,6 +209,7 @@ actor MobileCoreRPCSession {
             }
         }
         readerTask?.cancel()
+        transportClosureTask?.cancel()
         independentEventPreparation?.task.cancel()
         independentEventReader?.task.cancel()
         activeWrite?.task.cancel()
@@ -323,6 +345,17 @@ actor MobileCoreRPCSession {
         listeners.removeValue(forKey: id)
     }
 
+    /// Snapshot whether the complete native transport has closed. A control
+    /// request can stall while an Iroh session and its terminal lane continue
+    /// to carry traffic, so application stream failures must consult this
+    /// before replacing the shared session.
+    public func isTransportClosed() async -> Bool? {
+        guard let transport = transport as? any CmxByteTransportLivenessObserving else {
+            return nil
+        }
+        return await transport.isTransportClosed()
+    }
+
     func updateTransportSessionPurpose(
         _ purpose: CmxTransportSessionPurpose
     ) async {
@@ -402,6 +435,9 @@ actor MobileCoreRPCSession {
         writerTask?.cancel()
         writerTask = nil
         let connecting = connectionTask
+        if let connecting {
+            recordConnectCancellation(connecting, reason: .sessionTeardown)
+        }
         connecting?.task.cancel()
         connectionTask = nil
         installedConnectionID = nil
@@ -411,6 +447,8 @@ actor MobileCoreRPCSession {
         transport = nil
         readerTask?.cancel()
         readerTask = nil
+        transportClosureTask?.cancel()
+        transportClosureTask = nil
         independentEventPreparation?.task.cancel()
         independentEventPreparation = nil
         independentEventReader?.task.cancel()
@@ -470,7 +508,7 @@ actor MobileCoreRPCSession {
         // their cooperative-cancellation retry semantics.
         if connectAttemptKey != nil,
            !abandonedConnectionCleanupTasks.isEmpty {
-            throw MobileShellConnectionError.requestTimedOut
+            throw MobileShellConnectionError.routeCleanupBlocked
         }
         let waiterID = UUID()
         let connectionID: UUID
@@ -502,6 +540,20 @@ actor MobileCoreRPCSession {
             let diagnosticTransport = diagnosticTransport
             let transportConnectObserver = transportConnectObserver
             let initialSessionPurpose = transportSessionPurpose
+            let reportCancelledConnect: @Sendable () -> Void = {
+                if let diagnosticTransport, let transportConnectObserver {
+                    transportConnectObserver(
+                        .failed(
+                            attemptID: connectAttemptID,
+                            transport: diagnosticTransport,
+                            failure: .cancelled,
+                            elapsedMilliseconds: Self.elapsedMilliseconds(
+                                since: connectStartedAt
+                            )
+                        )
+                    )
+                }
+            }
             if let diagnosticTransport, let transportConnectObserver {
                 transportConnectObserver(
                     .attempt(
@@ -520,6 +572,7 @@ actor MobileCoreRPCSession {
                     await rejected.task.value
                 }
                 if Task.isCancelled {
+                    reportCancelledConnect()
                     throw CancellationError()
                 }
                 let error = MobileShellConnectionError.connectionClosed
@@ -540,6 +593,7 @@ actor MobileCoreRPCSession {
             } catch {
                 await connectAttemptRegistry.finishConnect(lease: connectLease)
                 if error is CancellationError || Task.isCancelled {
+                    reportCancelledConnect()
                     throw CancellationError()
                 }
                 if let diagnosticTransport, let transportConnectObserver {
@@ -583,18 +637,21 @@ actor MobileCoreRPCSession {
                     // A cancellation-ignoring transport must still return its
                     // late candidate to the existing abandoned-connect cleanup
                     // path so that path can close it again after completion.
-                    // Suppress the success event without replacing that result
-                    // with `CancellationError`.
-                    if !Task.isCancelled,
-                       let diagnosticTransport,
-                       let transportConnectObserver {
+                    // Report the abandoned attempt as cancelled without
+                    // replacing that result with `CancellationError`.
+                    if Task.isCancelled {
+                        reportCancelledConnect()
+                    } else if let diagnosticTransport,
+                              let transportConnectObserver {
                         transportConnectObserver(
                             .connected(
                                 attemptID: connectAttemptID,
                                 transport: diagnosticTransport,
-                                elapsedMilliseconds: Self.elapsedMilliseconds(
-                                    since: connectStartedAt
-                                )
+                                elapsedMilliseconds:
+                                    Self.elapsedMilliseconds(since: connectStartedAt),
+                                sessionID: await (
+                                    candidate as? any CmxByteTransportDiagnosticSessionIdentifying
+                                )?.transportDiagnosticSessionID()
                             )
                         )
                     }
@@ -605,14 +662,17 @@ actor MobileCoreRPCSession {
                     } else {
                         await cancellationClose.finishWithoutClose()
                     }
+                    reportCancelledConnect()
                     throw CancellationError()
                 } catch {
                     // Some transports surface their close error instead of
                     // `CancellationError` after the cancellation handler closes
                     // them. Treat the task's cancellation bit as authoritative
-                    // so an abandoned dial never becomes a false failure event.
+                    // so an abandoned dial reports cancelled, never a false
+                    // transport failure.
                     if Task.isCancelled {
                         _ = await cancellationClose.task()
+                        reportCancelledConnect()
                         throw CancellationError()
                     }
                     await cancellationClose.finishWithoutClose()
@@ -636,6 +696,8 @@ actor MobileCoreRPCSession {
                 lease: connectLease,
                 task: task,
                 cancellationClose: cancellationClose,
+                diagnosticAttemptID: connectAttemptID,
+                diagnosticStartedAt: connectStartedAt,
                 waiters: [waiterID],
                 completed: false
             )
@@ -752,6 +814,34 @@ actor MobileCoreRPCSession {
                 frames: stream
             )
         }
+        let nextTransportClosureTask = Task { [weak self] in
+            var waitedForClosureReadiness = false
+            while !Task.isCancelled {
+                if let observation = await (
+                    candidate as? any CmxByteTransportClosureObserving
+                )?.transportClosureObservation() {
+                    await observation.waitUntilClosed()
+                    guard !Task.isCancelled else { return }
+                    await self?.transportDidClose(connectionID: connectionID)
+                    return
+                }
+                guard let readiness = candidate as?
+                    any CmxByteTransportClosureObservationReadiness else {
+                    return
+                }
+                // Allow exactly one activation transition. If an activated
+                // transport still cannot produce an observation, terminate
+                // this generation instead of actor-hopping forever.
+                guard !waitedForClosureReadiness else { return }
+                waitedForClosureReadiness = true
+                // Deferred transports signal activation once. This avoids a
+                // permanent 100 ms polling task for transports that never
+                // expose native closure observation.
+                guard await readiness.waitUntilTransportClosureObservationIsReady() else {
+                    return
+                }
+            }
+        }
 
         // Publish one coherent installed generation without suspending. Readers
         // use `transport` as the fast-path readiness flag, so it must become
@@ -761,6 +851,7 @@ actor MobileCoreRPCSession {
         readerTask = nextReaderTask
         writeQueue = continuation
         writerTask = nextWriterTask
+        transportClosureTask = nextTransportClosureTask
         transport = candidate
         installedConnectLease = connectLease
 
@@ -804,6 +895,7 @@ actor MobileCoreRPCSession {
             return
         }
         connectionTask = nil
+        recordConnectCancellation(connecting, reason: .requestCancelled)
         connecting.task.cancel()
         startAbandonedConnectionCleanup(
             task: connecting.task,
@@ -833,6 +925,7 @@ actor MobileCoreRPCSession {
             return
         }
         connectionTask = nil
+        recordConnectCancellation(connecting, reason: .requestTimedOut)
         connecting.task.cancel()
         startAbandonedConnectionCleanup(
             task: connecting.task,
@@ -851,10 +944,31 @@ actor MobileCoreRPCSession {
                 lease: current.lease,
                 task: current.task,
                 cancellationClose: current.cancellationClose,
+                diagnosticAttemptID: current.diagnosticAttemptID,
+                diagnosticStartedAt: current.diagnosticStartedAt,
                 waiters: current.waiters,
                 completed: true
             )
         }
+    }
+
+    private func recordConnectCancellation(
+        _ connecting: ConnectingTask,
+        reason: DiagnosticCancellationReason
+    ) {
+        guard let attemptID = connecting.diagnosticAttemptID,
+              let diagnosticTransport,
+              let transportConnectObserver,
+              recordedConnectCancellationAttemptIDs.insert(attemptID).inserted
+        else { return }
+        transportConnectObserver(.cancelled(
+            attemptID: attemptID,
+            transport: diagnosticTransport,
+            reason: reason,
+            elapsedMilliseconds: Self.elapsedMilliseconds(
+                since: connecting.diagnosticStartedAt ?? ContinuousClock.now
+            )
+        ))
     }
 
     private func writeLoop(
@@ -1268,6 +1382,11 @@ actor MobileCoreRPCSession {
     ) async {
         guard installedConnectionID == connectionID else { return }
         await tearDown(error: error)
+    }
+
+    private func transportDidClose(connectionID: UUID) async {
+        guard installedConnectionID == connectionID else { return }
+        await tearDown(error: .connectionClosed)
     }
 
     /// Detaches one installed transport close from session request handling and

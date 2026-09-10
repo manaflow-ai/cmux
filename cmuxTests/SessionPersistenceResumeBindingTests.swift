@@ -80,6 +80,8 @@ import Testing
 
     @Test func localRestoreUsesOneShortCLICommandRegardlessOfBindingSize() throws {
         let sessionId = "a22293b7-bcef-4707-8439-2f538c8517a4"
+
+
         let binding = SurfaceResumeBindingSnapshot(
             kind: "codex",
             command: "codex resume \(sessionId) " + String(repeating: "--config model_provider=subrouter ", count: 80),
@@ -93,6 +95,32 @@ import Testing
         #expect(
             startupInput
                 == " \(AgentRestoreLaunch.cliStartupExecutableToken) restore codex \(sessionId)\n"
+        )
+    }
+
+    /// Regression for the first nushell dogfood round: the compatibility
+    /// inline startup input stays raw POSIX (local callers apply the nushell
+    /// `^/bin/sh -c "…"` envelope only at their typed boundary,
+    /// `restoreStartupInput`), and the local restore verb stays bare words,
+    /// which parse identically in POSIX shells and nushell.
+    @Test func nushellTypingEnvelopeAppliesOnlyAtTheTypedBoundary() throws {
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "claude",
+            command: "'claude' '--resume' 'session-nu-envelope'",
+            checkpointId: "session-nu-envelope",
+            source: "agent-hook",
+            autoResume: true
+        )
+
+        let raw = try #require(binding.inlineStartupInput)
+        #expect(!raw.contains("^/bin/sh"), "inline input must stay raw POSIX: \(raw)")
+
+        let restore = try #require(binding.restoreStartupInput())
+        #expect(restore.hasPrefix(" \(AgentRestoreLaunch.cliStartupExecutableToken) restore"), "\(restore)")
+        #expect(!restore.contains("^/bin/sh"), "the bare-word restore verb needs no dialect envelope: \(restore)")
+        #expect(
+            !restore.contains("&&") && !restore.contains("||") && !restore.contains("'"),
+            "restore input must stay nushell-parseable bare words: \(restore)"
         )
     }
 
@@ -216,7 +244,12 @@ import Testing
 
         #expect(binding.kind == nil)
         #expect(binding.command.contains(executablePath), "\(binding.command)")
-        #expect(startupInput.contains("codex 'resume' 'session-legacy-cli'"), "\(startupInput)")
+        #expect(
+            startupInput.contains("CMUX_CODEX_WRAPPER_SHIM")
+                && startupInput.contains("resume")
+                && startupInput.contains("session-legacy-cli"),
+            "\(startupInput)"
+        )
         #expect(!startupInput.contains(executablePath), "\(startupInput)")
     }
 
@@ -263,7 +296,12 @@ import Testing
             )
 
             let startupInput = try #require(binding.startupInput)
-            #expect(startupInput.contains("codex 'resume' 'session-managed-cli'"), "\(startupInput)")
+            #expect(
+                startupInput.contains("CMUX_CODEX_WRAPPER_SHIM")
+                    && startupInput.contains("resume")
+                    && startupInput.contains("session-managed-cli"),
+                "\(startupInput)"
+            )
             #expect(!startupInput.contains(executablePath), "\(startupInput)")
         }
     }
@@ -287,7 +325,12 @@ import Testing
 
         let startupInput = try #require(binding.startupInput)
 
-        #expect(startupInput.contains("CMUX_TRACE=1 codex 'resume' 'session-env-cli'"), "\(startupInput)")
+        #expect(
+            startupInput.contains("CMUX_TRACE=1")
+                && startupInput.contains("CMUX_CODEX_WRAPPER_SHIM")
+                && startupInput.contains("session-env-cli"),
+            "\(startupInput)"
+        )
         #expect(!startupInput.contains(staleExecutablePath), "\(startupInput)")
     }
 
@@ -309,7 +352,12 @@ import Testing
         )
         let startupInput = try #require(binding.startupInput)
 
-        #expect(startupInput.contains("env 'CMUX_TRACE=1' codex 'resume' 'session-quoted-env-cli'"), "\(startupInput)")
+        #expect(
+            startupInput.contains("env CMUX_TRACE=1")
+                && startupInput.contains("CMUX_CODEX_WRAPPER_SHIM")
+                && startupInput.contains("session-quoted-env-cli"),
+            "\(startupInput)"
+        )
         #expect(!startupInput.contains(staleExecutablePath), "\(startupInput)")
     }
 
@@ -496,7 +544,8 @@ import Testing
         )
         let restoredPanel = try #require(restoredWorkspace.terminalPanel(for: restoredLocalPanel.id))
         #expect(restoredPanel.surface.debugInitialCommand() == nil)
-        let restoredInput = try #require(restoredPanel.surface.debugInitialInputForTesting())
+        let restoredBinding = try #require(restoredLocalPanel.terminal?.resumeBinding)
+        let restoredInput = try #require(restoredBinding.restoreStartupInput())
         #expect(restoredPanel.requestedWorkingDirectory == localDirectory)
         #expect(
             restoredInput

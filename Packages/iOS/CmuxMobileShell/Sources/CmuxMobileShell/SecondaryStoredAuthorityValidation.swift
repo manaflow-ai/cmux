@@ -1,6 +1,6 @@
 import CmuxMobilePairedMac
 
-enum SecondaryStoredAuthorityValidation {
+enum SecondaryStoredAuthorityValidation: Sendable {
     case cached
     case store
 }

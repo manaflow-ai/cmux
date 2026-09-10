@@ -1,8 +1,63 @@
 import Foundation
 import SwiftUI
 
-/// Renders document-level Markdown with Foundation's native syntax support.
+/// Renders document-level Markdown.
+///
+/// Preferred path is the shared cmux markdown-viewer web shell (identical
+/// pipeline to the macOS markdown panel: marked.js + highlight.js + GitHub
+/// CSS + mermaid/vega). When the host bundle lacks the viewer assets
+/// (unit-test hosts, previews) it falls back to the native block renderer.
 struct ChatArtifactMarkdownView: View {
+    let markdown: String
+
+#if canImport(UIKit)
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.openURL) private var openURL
+
+    var body: some View {
+        if MarkdownWebViewerAssets.shared.isUsable {
+            MarkdownWebContentView(
+                markdown: markdown,
+                theme: .resolve(isDark: colorScheme == .dark),
+                pageZoom: Self.pageZoom(for: dynamicTypeSize),
+                openURL: openURL
+            )
+            .ignoresSafeArea(.keyboard)
+        } else {
+            ChatArtifactMarkdownNativeView(markdown: markdown)
+        }
+    }
+
+    /// Maps the reader's Dynamic Type size onto a page zoom so the shell's
+    /// 16px GitHub typography tracks the system body text size (17pt = 1.0).
+    static func pageZoom(for size: DynamicTypeSize) -> CGFloat {
+        let bodyPointSize: CGFloat = switch size {
+        case .xSmall: 14
+        case .small: 15
+        case .medium: 16
+        case .large: 17
+        case .xLarge: 19
+        case .xxLarge: 21
+        case .xxxLarge: 23
+        case .accessibility1: 28
+        case .accessibility2: 33
+        case .accessibility3: 40
+        case .accessibility4: 47
+        case .accessibility5: 53
+        @unknown default: 17
+        }
+        return bodyPointSize / 17
+    }
+#else
+    var body: some View {
+        ChatArtifactMarkdownNativeView(markdown: markdown)
+    }
+#endif
+}
+
+/// Native fallback renderer built on Foundation's inline markdown support.
+struct ChatArtifactMarkdownNativeView: View {
     let markdown: String
 
     var body: some View {

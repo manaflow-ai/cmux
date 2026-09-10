@@ -8,9 +8,11 @@ pub(super) struct RestoredPublicProjections {
     pub(super) default_colors: DefaultColors,
     pub(super) has_terminal_defaults: bool,
     pub(super) next_notification_id: u64,
-    pub(super) agent_records: HashMap<SurfaceId, AgentRecord>,
-    pub(super) surface_notifications: HashMap<SurfaceId, SurfaceNotification>,
+    pub(super) agent_records: HashMap<TerminalPublicId, TerminalAgentRecord>,
+    pub(super) agent_hook_fences: HashMap<TerminalPublicId, HookFence>,
+    pub(super) terminal_notifications: HashMap<TerminalPublicId, SurfaceNotification>,
     pub(super) notification_ledger: VecDeque<ResourceNotification>,
+    pub(super) notification_reads: HashMap<NotificationPublicId, BTreeSet<String>>,
 }
 
 pub(super) fn restore_public_projections(
@@ -20,39 +22,41 @@ pub(super) fn restore_public_projections(
     let has_terminal_defaults = projections.terminal_defaults.is_some();
     let default_colors = projections.terminal_defaults.unwrap_or_default();
     let mut notification_ledger = VecDeque::with_capacity(projections.notifications.len());
-    let mut surface_notifications = HashMap::new();
+    let mut terminal_notifications = HashMap::new();
+    let mut notification_reads = HashMap::new();
     for (index, notification) in projections.notifications.into_iter().enumerate() {
         let numeric_id =
             u64::try_from(index).context("notification count exceeds uint64")?.saturating_add(1);
-        let surface = notification
-            .terminal_id
-            .as_ref()
-            .map(|terminal_id| {
-                state
-                    .resource_indexes
-                    .content
-                    .get(&ContentPublicId::Terminal(terminal_id.clone()))
-                    .copied()
-                    .with_context(|| {
-                        format!(
-                            "durable notification {} references live terminal {} without a runtime slot",
-                            notification.id, terminal_id
-                        )
-                    })
-            })
-            .transpose()?;
+        let surface = notification.terminal_id.as_ref().and_then(|terminal_id| {
+            state
+                .placements_of_content(&ContentPublicId::Terminal(terminal_id.clone()))
+                .first()
+                .copied()
+                .or_else(|| state.terminal_catalog.get(terminal_id).map(|surface| surface.id))
+        });
         let level = notification_level(&notification.level)?;
-        if notification.unread
-            && let Some(surface) = surface
-        {
-            surface_notifications.insert(
-                surface,
-                SurfaceNotification { notification: numeric_id, level, unread: true },
+        if notification.unread {
+            let terminal_id = notification
+                .terminal_id
+                .clone()
+                .context("terminal notification omitted its terminal identity")?;
+            if surface.is_some() {
+                terminal_notifications.insert(
+                    terminal_id,
+                    SurfaceNotification { notification: numeric_id, level, unread: true },
+                );
+            }
+        }
+        if !notification.read_by.is_empty() {
+            notification_reads.insert(
+                notification.id.clone(),
+                notification.read_by.into_iter().collect::<BTreeSet<String>>(),
             );
         }
         notification_ledger.push_back(ResourceNotification {
             id: notification.id,
             title: notification.title,
+            subtitle: notification.subtitle,
             body: notification.body,
             level,
             terminal_id: notification.terminal_id,
@@ -65,31 +69,63 @@ pub(super) fn restore_public_projections(
         .saturating_add(1);
 
     let mut agent_records = HashMap::with_capacity(projections.agents.len());
+    let mut agent_hook_fences = HashMap::new();
+    for hook_state in projections.agent_hook_states {
+        agent_hook_fences.insert(
+            hook_state.terminal_id,
+            HookFence {
+                session_id: hook_state.agent_session_id,
+                sequence: hook_state.applied_sequence,
+                ended: hook_state.ended,
+            },
+        );
+    }
     for agent in projections.agents {
-        let surface = state
-            .resource_indexes
-            .content
-            .get(&ContentPublicId::Terminal(agent.terminal_id.clone()))
-            .copied()
-            .with_context(|| {
-                format!(
-                    "durable agent {} references live terminal {} without a runtime slot",
-                    agent.id, agent.terminal_id
-                )
-            })?;
+        let state = agent_state(&agent.state)?;
+        let internal_marker = agent.source_session.as_deref().is_some_and(|value| {
+            value.starts_with("cmux-hook-sequence:") || value.starts_with("cmux-hook-ended:")
+        });
+        if let Some(source_session) = agent.source_session.as_deref() {
+            let marker = source_session.strip_prefix("cmux-hook-sequence:");
+            let ended = source_session.strip_prefix("cmux-hook-ended:");
+            if let Some(value) = marker.or(ended).and_then(|value| value.parse::<u64>().ok()) {
+                // Marker-only projections predate durable hook state. Use the
+                // marker sequence as their legacy generation token so a
+                // session-less event continues the same lifecycle after a
+                // restart without reusing a terminal-wide identity.
+                agent_hook_fences.entry(agent.terminal_id.clone()).or_insert(HookFence {
+                    session_id: legacy_hook_session_id(&agent.terminal_id, value),
+                    sequence: value,
+                    ended: ended.is_some(),
+                });
+            }
+        }
+        if state == AgentState::Done && agent.source == "hook" {
+            // Older projections predate the internal ended marker. Keep
+            // their terminal fenced after restart so a late socket report
+            // cannot resurrect the completed session. Sequence zero is the
+            // one-release compatibility generation for records without a
+            // marker.
+            agent_hook_fences.entry(agent.terminal_id.clone()).or_insert(HookFence {
+                session_id: legacy_hook_session_id(&agent.terminal_id, 0),
+                sequence: 0,
+                ended: true,
+            });
+            continue;
+        }
         let previous = agent_records.insert(
-            surface,
-            AgentRecord {
-                surface,
-                state: agent_state(&agent.state)?,
+            agent.terminal_id.clone(),
+            TerminalAgentRecord {
+                state,
                 source: agent_source(&agent.source)?,
-                session: agent.source_session,
+                session: (!internal_marker).then_some(agent.source_session).flatten(),
                 updated_at_ms: agent.updated_at_ms,
             },
         );
         anyhow::ensure!(
             previous.is_none(),
-            "multiple durable agents resolve to runtime surface {surface}"
+            "multiple durable agents resolve to terminal {}",
+            agent.terminal_id
         );
     }
 
@@ -98,8 +134,10 @@ pub(super) fn restore_public_projections(
         has_terminal_defaults,
         next_notification_id,
         agent_records,
-        surface_notifications,
+        agent_hook_fences,
+        terminal_notifications,
         notification_ledger,
+        notification_reads,
     })
 }
 
@@ -136,34 +174,16 @@ fn agent_source(value: &str) -> anyhow::Result<AgentSource> {
 mod tests {
     use super::*;
     use crate::resource::{AgentPublicId, NotificationPublicId, TerminalPublicId};
+    #[cfg(unix)]
+    use crate::terminal_host_runtime::TerminalHostIdentity;
     use crate::workspace_registry::{RegistryAgentProjection, RegistryNotificationProjection};
 
-    #[test]
-    fn missing_runtime_slot_fails_closed() {
-        let terminal = TerminalPublicId::parse("term_00000000000000000000000000000001").unwrap();
-        let projections = RegistryPublicProjections {
-            notifications: vec![RegistryNotificationProjection {
-                id: NotificationPublicId::parse("notification_00000000000000000000000000000001")
-                    .unwrap(),
-                title: "build".into(),
-                body: String::new(),
-                level: "info".into(),
-                terminal_id: Some(terminal.clone()),
-                created_at_ms: 1,
-                unread: false,
-            }],
-            agents: vec![RegistryAgentProjection {
-                id: AgentPublicId::parse("agent_00000000000000000000000000000001").unwrap(),
-                terminal_id: terminal,
-                state: "working".into(),
-                source: "hook".into(),
-                updated_at_ms: 1,
-                source_session: None,
-            }],
-            terminal_defaults: None,
-            frontend_projections: Vec::new(),
-        };
-        let state = State {
+    fn terminal_id(value: u8) -> TerminalPublicId {
+        TerminalPublicId::parse(format!("term_{value:032x}")).unwrap()
+    }
+
+    fn empty_state() -> State {
+        State {
             workspaces: Vec::new(),
             workspace_index_by_id: HashMap::new(),
             workspace_id_by_key: HashMap::new(),
@@ -174,10 +194,185 @@ mod tests {
             active_workspace: 0,
             panes: HashMap::new(),
             surfaces: HashMap::new(),
+            terminal_catalog: HashMap::new(),
+            terminal_catalog_by_runtime: HashMap::new(),
             split_screens: HashMap::new(),
             resource_indexes: PublicSlotIndexes::default(),
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn zero_view_terminal_projections_restore_by_stable_content_identity() {
+        let terminal = TerminalPublicId::parse("term_00000000000000000000000000000001").unwrap();
+        let mux = Mux::new_for_test("projection-restore", SurfaceOptions::default());
+        let runtime = Surface::exited_terminal_placeholder_with_terminal_public_id(
+            77,
+            SurfaceOptions::default(),
+            Arc::downgrade(&mux),
+            TerminalHostIdentity {
+                terminal_id: "host-1".into(),
+                incarnation: "incarnation-1".into(),
+            },
+            terminal.clone(),
+        )
+        .unwrap();
+        let projections = RegistryPublicProjections {
+            notifications: vec![RegistryNotificationProjection {
+                id: NotificationPublicId::parse("notification_00000000000000000000000000000001")
+                    .unwrap(),
+                title: "build".into(),
+                subtitle: None,
+                body: String::new(),
+                level: "info".into(),
+                terminal_id: Some(terminal.clone()),
+                created_at_ms: 1,
+                unread: true,
+                read_by: vec![],
+            }],
+            agents: vec![RegistryAgentProjection {
+                id: AgentPublicId::parse("agent_00000000000000000000000000000001").unwrap(),
+                terminal_id: terminal.clone(),
+                state: "working".into(),
+                source: "hook".into(),
+                updated_at_ms: 1,
+                source_session: None,
+            }],
+            agent_hook_states: Vec::new(),
+            terminal_defaults: None,
+            frontend_projections: Vec::new(),
         };
-        let error = restore_public_projections(&state, projections).unwrap_err().to_string();
-        assert!(error.contains("without a runtime slot"), "{error}");
+        let mut state = empty_state();
+        state.terminal_catalog.insert(terminal.clone(), runtime.clone());
+        state.terminal_catalog_by_runtime.insert(runtime.terminal_runtime_id().unwrap(), terminal);
+        let restored = restore_public_projections(&state, projections).unwrap();
+        let terminal = TerminalPublicId::parse("term_00000000000000000000000000000001").unwrap();
+        assert_eq!(restored.agent_records.get(&terminal).unwrap().state, AgentState::Working);
+        assert_eq!(restored.notification_ledger[0].terminal_id.as_ref(), Some(&terminal));
+        assert_eq!(restored.notification_ledger[0].surface, Some(runtime.id));
+        assert!(restored.terminal_notifications[&terminal].unread);
+        mux.shutdown();
+    }
+
+    #[test]
+    fn unread_projection_without_terminal_identity_is_rejected() {
+        let projections = RegistryPublicProjections {
+            notifications: vec![RegistryNotificationProjection {
+                id: NotificationPublicId::parse("notification_00000000000000000000000000000002")
+                    .unwrap(),
+                title: "orphan".into(),
+                subtitle: None,
+                body: String::new(),
+                level: "warning".into(),
+                terminal_id: None,
+                created_at_ms: 2,
+                unread: true,
+                read_by: vec![],
+            }],
+            agents: Vec::new(),
+            agent_hook_states: Vec::new(),
+            terminal_defaults: None,
+            frontend_projections: Vec::new(),
+        };
+
+        let error = restore_public_projections(&empty_state(), projections).unwrap_err();
+        assert!(error.to_string().contains("omitted its terminal identity"));
+    }
+
+    #[test]
+    fn orphaned_unread_notification_restores_only_in_the_historical_ledger() {
+        let terminal = TerminalPublicId::parse("term_00000000000000000000000000000003").unwrap();
+        let projections = RegistryPublicProjections {
+            notifications: vec![RegistryNotificationProjection {
+                id: NotificationPublicId::parse("notification_00000000000000000000000000000003")
+                    .unwrap(),
+                title: "finished".into(),
+                subtitle: None,
+                body: String::new(),
+                level: "info".into(),
+                terminal_id: Some(terminal.clone()),
+                created_at_ms: 3,
+                unread: true,
+                read_by: vec![],
+            }],
+            agents: Vec::new(),
+            agent_hook_states: Vec::new(),
+            terminal_defaults: None,
+            frontend_projections: Vec::new(),
+        };
+
+        let restored = restore_public_projections(&empty_state(), projections).unwrap();
+        assert_eq!(restored.notification_ledger.len(), 1);
+        assert_eq!(restored.notification_ledger[0].terminal_id, Some(terminal));
+        assert!(restored.terminal_notifications.is_empty());
+    }
+
+    #[test]
+    fn done_agent_records_are_not_restored_into_live_roster() {
+        let terminal = terminal_id(9);
+        let projections = RegistryPublicProjections {
+            notifications: Vec::new(),
+            agents: vec![RegistryAgentProjection {
+                id: AgentPublicId::parse("agent_00000000000000000000000000000009").unwrap(),
+                terminal_id: terminal.clone(),
+                state: "done".into(),
+                source: "hook".into(),
+                updated_at_ms: 1,
+                source_session: None,
+            }],
+            agent_hook_states: Vec::new(),
+            terminal_defaults: None,
+            frontend_projections: Vec::new(),
+        };
+        let restored = restore_public_projections(&empty_state(), projections).unwrap();
+        assert!(restored.agent_records.is_empty());
+        assert!(restored.agent_hook_fences[&terminal].ended);
+    }
+
+    #[test]
+    fn hook_marker_restores_watermark_without_exposing_session() {
+        let terminal = terminal_id(10);
+        let projections = RegistryPublicProjections {
+            notifications: Vec::new(),
+            agents: vec![RegistryAgentProjection {
+                id: AgentPublicId::parse("agent_00000000000000000000000000000010").unwrap(),
+                terminal_id: terminal.clone(),
+                state: "working".into(),
+                source: "hook".into(),
+                updated_at_ms: 1,
+                source_session: Some("cmux-hook-sequence:12".into()),
+            }],
+            agent_hook_states: Vec::new(),
+            terminal_defaults: None,
+            frontend_projections: Vec::new(),
+        };
+        let restored = restore_public_projections(&empty_state(), projections).unwrap();
+        assert_eq!(restored.agent_hook_fences[&terminal].sequence, 12);
+        assert_eq!(restored.agent_records[&terminal].session, None);
+    }
+
+    #[test]
+    fn socket_done_agent_restores_into_live_record_map() {
+        let terminal = terminal_id(11);
+        let projections = RegistryPublicProjections {
+            notifications: Vec::new(),
+            agents: vec![RegistryAgentProjection {
+                id: AgentPublicId::parse("agent_00000000000000000000000000000011").unwrap(),
+                terminal_id: terminal.clone(),
+                state: "done".into(),
+                source: "socket".into(),
+                updated_at_ms: 3,
+                source_session: Some("socket-session".into()),
+            }],
+            agent_hook_states: Vec::new(),
+            terminal_defaults: None,
+            frontend_projections: Vec::new(),
+        };
+        let restored = restore_public_projections(&empty_state(), projections).unwrap();
+        let record = &restored.agent_records[&terminal];
+        assert_eq!(record.state, AgentState::Done);
+        assert_eq!(record.source, AgentSource::Socket);
+        assert_eq!(record.session.as_deref(), Some("socket-session"));
+        assert!(!restored.agent_hook_fences.contains_key(&terminal));
     }
 }

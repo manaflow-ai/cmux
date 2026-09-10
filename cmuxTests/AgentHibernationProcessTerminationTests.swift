@@ -438,6 +438,93 @@ struct AgentHibernationProcessTerminationTests {
     }
 
     @Test
+    func processScopeRejectsDescendantWithoutSharedTTYEvidence() {
+        let workspaceID = UUID()
+        let panelID = UUID()
+        let ttyDevice = Int64(0x123)
+        let process: (Int, Int, Int64?, Bool) -> CmuxTopProcessInfo = {
+            processID, parentProcessID, processTTYDevice, isAgentProcess in
+            CmuxTopProcessInfo(
+                pid: processID,
+                parentPID: parentProcessID,
+                name: "test-\(processID)",
+                path: "/usr/bin/test-\(processID)",
+                ttyDevice: processTTYDevice,
+                cmuxWorkspaceID: isAgentProcess ? workspaceID : nil,
+                cmuxSurfaceID: isAgentProcess ? panelID : nil,
+                cmuxAttributionReason: isAgentProcess ? "cmux-test" : nil,
+                processGroupID: 100,
+                terminalProcessGroupID: 100,
+                cpuPercent: 0,
+                residentBytes: 0,
+                virtualBytes: 0,
+                threadCount: 1
+            )
+        }
+        let snapshot = CmuxTopProcessSnapshot(
+            processes: [
+                process(100, 1, ttyDevice, false),
+                process(101, 100, ttyDevice, true),
+                process(102, 101, nil, false),
+            ],
+            sampledAt: .now,
+            includesProcessDetails: true
+        )
+
+        let scope = snapshot.agentHibernationProcessScope(
+            panelProcessIDs: [101, 102],
+            agentProcessIDs: [101]
+        )
+
+        #expect(scope.terminationProcessIDs == [100, 101, 102])
+        #expect(scope.containsUnrelatedProcess)
+    }
+
+    @Test
+    func processScopeBoundsOversizedDescendantTree() {
+        let workspaceID = UUID()
+        let panelID = UUID()
+        let ttyDevice = Int64(0x123)
+        let maximumProcessCount = AgentHibernationController.maximumScopedProcessTerminationCount
+        let makeProcess: (Int, Int) -> CmuxTopProcessInfo = {
+            processID, parentProcessID in
+            CmuxTopProcessInfo(
+                pid: processID,
+                parentPID: parentProcessID,
+                name: "test-\(processID)",
+                path: "/usr/bin/test-\(processID)",
+                ttyDevice: processID <= 101 ? ttyDevice : nil,
+                cmuxWorkspaceID: processID == 101 ? workspaceID : nil,
+                cmuxSurfaceID: processID == 101 ? panelID : nil,
+                cmuxAttributionReason: processID == 101 ? "cmux-test" : nil,
+                processGroupID: processID <= 101 ? 100 : nil,
+                terminalProcessGroupID: processID <= 101 ? 100 : nil,
+                cpuPercent: 0,
+                residentBytes: 0,
+                virtualBytes: 0,
+                threadCount: 1
+            )
+        }
+        let processes = [makeProcess(100, 1)] +
+            Array(101...(100 + maximumProcessCount + 8)).map { processID in
+                makeProcess(processID, processID == 101 ? 100 : processID - 1)
+            }
+        let snapshot = CmuxTopProcessSnapshot(
+            processes: processes,
+            sampledAt: .now,
+            includesProcessDetails: true
+        )
+
+        let scope = snapshot.agentHibernationProcessScope(
+            panelProcessIDs: [101],
+            agentProcessIDs: [101]
+        )
+
+        #expect(scope.terminationProcessIDs.count <= maximumProcessCount)
+        #expect(scope.containsUnrelatedProcess)
+    }
+
+    @Test
     func validatesExactProcessGeneration() throws {
         let workspaceID = UUID()
         let panelID = UUID()

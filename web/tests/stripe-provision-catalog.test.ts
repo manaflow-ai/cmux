@@ -1,4 +1,11 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test as bunTest } from "bun:test";
+
+// Every run shells out once per catalog Price (nine, including the
+// grandfathered ones) through a mock curl, so the 5s default is too tight
+// on a loaded machine.
+const PROVISION_TEST_TIMEOUT_MS = 30_000;
+const test = (name: string, fn: () => Promise<void>) =>
+  bunTest(name, fn, PROVISION_TEST_TIMEOUT_MS);
 import {
   chmodSync,
   mkdirSync,
@@ -71,8 +78,8 @@ describe("Stripe catalog provisioning", () => {
         (call) =>
           call.args.includes("https://api.stripe.com/v1/prices") &&
           call.args.includes("POST") &&
-          call.args.includes("lookup_key=cmux-pro-yearly-288") &&
-          call.args.includes("unit_amount=28800"),
+          call.args.includes("lookup_key=cmux-pro-yearly-480") &&
+          call.args.includes("unit_amount=48000"),
       ),
     ).toBe(true);
     expect(
@@ -80,24 +87,19 @@ describe("Stripe catalog provisioning", () => {
         (call) =>
           call.args.includes("https://api.stripe.com/v1/prices") &&
           call.args.includes("POST") &&
-          call.args.includes("lookup_key=cmux-team-yearly-336") &&
-          call.args.includes("unit_amount=33600"),
+          call.args.includes("lookup_key=cmux-team-yearly-576") &&
+          call.args.includes("unit_amount=57600"),
       ),
     ).toBe(true);
   });
 
-  test("finds a canonical product on a later product-list page", async () => {
+  test("finds a canonical product on a later product-search page", async () => {
     const result = await runProvision("test", "canonical-product-second-page");
 
     expect(result.exitCode).toBe(0);
     expect(
-      result.calls.some((call) => call.args.includes("starting_after=prod_attacker")),
+      result.calls.some((call) => call.args.includes("page=page_two")),
     ).toBe(true);
-    expect(
-      result.calls.some((call) =>
-        call.args.includes("https://api.stripe.com/v1/products/search")
-      ),
-    ).toBe(false);
     expect(
       result.calls.some(
         (call) =>
@@ -271,6 +273,7 @@ const valueFor = (prefix) => {
 };
 const lookupKey = valueFor("lookup_keys[]=");
 const startingAfter = valueFor("starting_after=");
+const searchPage = valueFor("page=");
 const expandedProduct = args.includes("expand[]=data.product");
 const dataValue = valueFor("name=");
 const respond = (value) => {
@@ -292,6 +295,30 @@ const products = {
   },
 };
 const prices = {
+  "cmux-pro-monthly-50": {
+    id: "price_pro_month_50",
+    unit_amount: 5000,
+    interval: "month",
+    product: "pro",
+  },
+  "cmux-pro-yearly-480": {
+    id: "price_pro_year_480",
+    unit_amount: 48000,
+    interval: "year",
+    product: "pro",
+  },
+  "cmux-team-monthly-60": {
+    id: "price_team_month_60",
+    unit_amount: 6000,
+    interval: "month",
+    product: "team",
+  },
+  "cmux-team-yearly-576": {
+    id: "price_team_year_576",
+    unit_amount: 57600,
+    interval: "year",
+    product: "team",
+  },
   "cmux-pro-monthly": {
     id: "price_pro_month",
     unit_amount: 3000,
@@ -331,7 +358,8 @@ if (url.endsWith("/prices") && !isPost) {
       scenario === "unrelated-product" &&
       (
         lookupKey?.startsWith("cmux-pro") ||
-        lookupKey === "cmux-team-yearly-336"
+        lookupKey === "cmux-team-yearly-336" ||
+        lookupKey === "cmux-team-yearly-576"
       )
     ) ||
     (
@@ -369,18 +397,18 @@ if (url.endsWith("/prices") && !isPost) {
   } else {
     respond({ data: [] });
   }
-} else if (url.endsWith("/products") && !isPost) {
+} else if (url.endsWith("/products/search") && !isPost) {
   const attacker = {
     id: "prod_attacker",
     name: "cmux Pro",
     active: true,
     metadata: { app: "other", plan: "pro" },
   };
-  if (scenario === "canonical-product-second-page" && !startingAfter) {
-    respond({ data: [attacker], has_more: true });
+  if (scenario === "canonical-product-second-page" && !searchPage) {
+    respond({ data: [attacker], has_more: true, next_page: "page_two" });
   } else if (
     scenario === "canonical-product-second-page" &&
-    startingAfter === "prod_attacker"
+    searchPage === "page_two"
   ) {
     respond({ data: [products.pro], has_more: false });
   } else {

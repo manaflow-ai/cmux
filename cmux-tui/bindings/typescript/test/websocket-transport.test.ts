@@ -802,7 +802,7 @@ test("resource WebSocket transport pairs before flushing requests", () => {
     onPairingCredential: (credential) => credentials.push(credential),
   });
   const socket = FakeWebSocket.instances.at(-1)!;
-  transport.send('{"protocol":"cmux.protocol/1","type":"request"}');
+  transport.send('{"protocol":"cmux.protocol/2","type":"request"}');
   socket.open();
   assert.deepEqual(socket.sent, ['{"pair":{"request":true}}']);
   socket.message(
@@ -816,7 +816,7 @@ test("resource WebSocket transport pairs before flushing requests", () => {
   assert.deepEqual(credentials, ["resource-secret"]);
   assert.deepEqual(socket.sent, [
     '{"pair":{"request":true}}',
-    '{"protocol":"cmux.protocol/1","type":"request"}',
+    '{"protocol":"cmux.protocol/2","type":"request"}',
   ]);
   transport.close();
 });
@@ -1360,7 +1360,7 @@ test("WebSocket resource streams outlive their acknowledged open deadline", asyn
   assert.equal(request.operation, "session.events");
   const streamId = request.params.stream_id as string;
   socket.message(JSON.stringify({
-    protocol: "cmux.protocol/1",
+    protocol: "cmux.protocol/2",
     type: "response",
     id: request.id,
     ok: true,
@@ -1371,7 +1371,7 @@ test("WebSocket resource streams outlive their acknowledged open deadline", asyn
 
   await new Promise((resolve) => setTimeout(resolve, 30));
   socket.message(JSON.stringify({
-    protocol: "cmux.protocol/1",
+    protocol: "cmux.protocol/2",
     type: "stream_item",
     stream_id: streamId,
     sequence: "0",
@@ -1391,14 +1391,14 @@ test("WebSocket resource streams outlive their acknowledged open deadline", asyn
   };
   assert.equal(cancel.operation, "stream.cancel");
   socket.message(JSON.stringify({
-    protocol: "cmux.protocol/1",
+    protocol: "cmux.protocol/2",
     type: "response",
     id: cancel.id,
     ok: true,
     result: {},
   }));
   socket.message(JSON.stringify({
-    protocol: "cmux.protocol/1",
+    protocol: "cmux.protocol/2",
     type: "stream_end",
     stream_id: streamId,
     reason: "canceled",

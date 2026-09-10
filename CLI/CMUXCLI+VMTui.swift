@@ -1,0 +1,1897 @@
+import CmuxCore
+import Foundation
+
+/// Cloud machines attach through their cmux-tui remote daemon
+/// (docs/cloud-cmux-tui-daemon.md). This is the one open path every entrypoint
+/// shares — `cmux vm shell|new|fork|restore|base open|base reset`, the Machines
+/// panel, and the sidebar cloud button all land in `openVMTuiWorkspace`.
+///
+/// The app uses the machine's private `/v1/link` route through its user-space
+/// WireGuard hub. Only a device that has not enrolled with this machine's
+/// daemon asks the control plane for a single-use invitation. A workspace
+/// pane runs the hidden `vm-tui-connect` helper, which hands the terminal to the
+/// local cmux-tui client (`remote connect`) and, while the client claims the
+/// invitation, asks the control plane to approve the pending enrollment through the
+/// app socket. After the first enrollment the device key and private route are
+/// local facts. Later attaches make no connection or approval request.
+extension CMUXCLI {
+    struct VMTuiConnectConfig: Codable {
+        let vmId: String
+        let route: String
+        let session: String
+        /// Dial the machine's trusted-carrier listener (`--carrier`); false presents
+        /// the device key this Mac enrolled with before trusted listeners.
+        let carrier: Bool
+        let clientPath: String
+        let stateDir: String
+        let deviceName: String
+        /// The app's WireGuard hub socket for a private-network route (`--wireguard-hub`);
+        /// Required for every Cloud VM route.
+        var wireguardHubSocket: String? = nil
+    }
+
+    /// How an entrypoint wants the machine's workspace shaped; the session itself is
+    /// the same cmux-tui link in every case.
+    struct VMTuiOpenOptions {
+        /// Sidebar title; nil means `vm:<id>`.
+        var workspaceName: String? = nil
+        /// A workspace the app pre-created with a Cloud VM loading pane (`--workspace`):
+        /// the link replaces that pane instead of opening a new workspace.
+        var targetWorkspaceId: String? = nil
+        /// Base — the single persistent cloud workspace — is pinned to the top and
+        /// bound as base so the sidebar cloud button reuses it.
+        var pinAsBase: Bool = false
+        /// `vm tui` only: the pane execs the full cmux-tui client (its own workspaces and
+        /// panes). Every other open reattaches a plain terminal in the machine's
+        /// active workspace, creating one only for an authoritative empty graph.
+        var fullClient: Bool = false
+        /// Whether the open may take over what the person is looking at: select the
+        /// workspace and put keyboard focus in the new pane. `false` (`--focus false`,
+        /// the New Machine sheet's background create) opens the machine where it
+        /// belongs without switching workspaces; the pane is still focused when the
+        /// target workspace is the one already on screen, so a person who waited in it
+        /// can type straight away.
+        var focus: Bool = true
+    }
+
+    struct VMTuiDeviceRecord: Codable {
+        let deviceFingerprint: String
+        let updatedAtUnix: Int
+    }
+
+    static var vmTuiUsage: String {
+        """
+        Usage: cmux vm tui <id> [--window <id|ref|index>]
+
+        Open the FULL cmux-tui client for a machine (its own workspaces, panes and
+        tabs) in a pane. `cmux vm shell <id>` and every other open give you a plain
+        terminal on the machine instead; use this when you want the client itself.
+        The pane runs the local cmux-tui client against the machine's daemon over
+        the owner's private network; the network is the admission, so no device
+        enrollment or approval happens.
+
+        The client binary is found via CMUX_TUI_CLIENT, then ~/.cmux/bin/cmux, then
+        `cmux-tui` on PATH. Install one with:
+          curl -fsSL https://cmux.com/tui/install-static.sh | sh
+        """
+    }
+
+    // MARK: - local state
+
+    /// Per-Mac cmux-tui client state (device key, known daemons), separate from any
+    /// interactive `cmux-tui` the person uses so machines never share identity.
+    static func vmTuiClientStateDir() -> URL {
+        URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+            .appendingPathComponent(".cmuxterm", isDirectory: true)
+            .appendingPathComponent("cmux-tui-client", isDirectory: true)
+    }
+
+    static func vmTuiDevicesStoreURL() -> URL {
+        URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+            .appendingPathComponent(".cmuxterm", isDirectory: true)
+            .appendingPathComponent("vm-tui-devices.json", isDirectory: false)
+    }
+
+    /// Stored in place of a device fingerprint for a machine reached over its
+    /// trusted-carrier listener: the next open dials `--carrier` again with no
+    /// control-plane call. Mirrors `CloudTuiClientPaths.carrierDeviceMarker`.
+    static let carrierDeviceMarker = "carrier"
+
+    static func loadVMTuiDevices(from url: URL? = nil) -> [String: VMTuiDeviceRecord] {
+        let storeURL = url ?? vmTuiDevicesStoreURL()
+        guard let data = try? Data(contentsOf: storeURL),
+              let store = try? JSONDecoder().decode([String: VMTuiDeviceRecord].self, from: data) else {
+            return [:]
+        }
+        return store
+    }
+
+    static func saveVMTuiDevice(vmId: String, deviceFingerprint: String, to url: URL? = nil) {
+        let storeURL = url ?? vmTuiDevicesStoreURL()
+        var store = loadVMTuiDevices(from: storeURL)
+        store[vmId] = VMTuiDeviceRecord(deviceFingerprint: deviceFingerprint, updatedAtUnix: Int(Date().timeIntervalSince1970))
+        guard let data = try? JSONEncoder().encode(store) else { return }
+        try? FileManager.default.createDirectory(at: storeURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? data.write(to: storeURL, options: [.atomic])
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: storeURL.path)
+    }
+
+    /// The client bundled beside this CLI (`Contents/Resources/bin/cmux-tui`, installed by
+    /// scripts/install-cmux-tui-client.sh) comes first, so the Machines panel needs no
+    /// install; then CMUX_TUI_CLIENT, ~/.cmux/bin/cmux (install-static.sh's target) and
+    /// `cmux-tui` on PATH. Plain `cmux` on PATH is deliberately not probed: that is this
+    /// CLI. Every candidate must answer `remote-probe --json` as cmux-tui —
+    /// ~/.cmux/bin/cmux can also be the SSH-remote bootstrap's shell wrapper, which is
+    /// executable but not a client.
+    func locateCmuxTuiClient(environment: [String: String] = ProcessInfo.processInfo.environment) -> String? {
+        let fm = FileManager.default
+        return cmuxTuiClientCandidates(environment: environment)
+            .first { fm.isExecutableFile(atPath: $0) && Self.cmuxTuiClientProbe(at: $0) != nil }
+    }
+
+    /// Every path `locateCmuxTuiClient` considers, in order — the same list a
+    /// missing-client error reports so the fix is obvious.
+    func cmuxTuiClientCandidates(environment: [String: String] = ProcessInfo.processInfo.environment) -> [String] {
+        var candidates: [String] = []
+        if let bundled = resolvedExecutableURL()?.deletingLastPathComponent().appendingPathComponent("cmux-tui").path {
+            candidates.append(bundled)
+        }
+        if let explicit = environment["CMUX_TUI_CLIENT"]?.trimmingCharacters(in: .whitespacesAndNewlines), !explicit.isEmpty {
+            candidates.append(explicit)
+        }
+        candidates.append(
+            URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+                .appendingPathComponent(".cmux/bin/cmux", isDirectory: false).path
+        )
+        for dir in (environment["PATH"] ?? "").split(separator: ":") where !dir.isEmpty {
+            candidates.append(URL(fileURLWithPath: String(dir), isDirectory: true).appendingPathComponent("cmux-tui").path)
+        }
+        return candidates
+    }
+
+    struct CmuxTuiClientProbe {
+        let buildIdentity: String?
+        let remoteProtocol: Int?
+        let version: String?
+        /// Transport capabilities the client advertises (`direct-ws-user-agent`, …);
+        /// forwarded to the control plane, which picks the machine host by them.
+        let capabilities: [String]
+    }
+
+    /// The `capabilities` array of a probe: lowercase slugs only, in order, deduplicated.
+    static func cmuxTuiProbeCapabilities(_ raw: Any?) -> [String] {
+        guard let entries = raw as? [Any] else { return [] }
+        var seen = Set<String>()
+        return entries.compactMap { entry -> String? in
+            guard let token = (entry as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  token.range(of: "^[a-z0-9-]{1,64}$", options: .regularExpression) != nil,
+                  seen.insert(token).inserted else { return nil }
+            return token
+        }
+    }
+
+    /// `remote-probe --json` of a candidate binary; nil unless it is a cmux-tui client.
+    static func cmuxTuiClientProbe(at path: String) -> CmuxTuiClientProbe? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: path)
+        process.arguments = ["remote-probe", "--json"]
+        let out = Pipe()
+        process.standardOutput = out
+        process.standardError = FileHandle.nullDevice
+        process.standardInput = FileHandle.nullDevice
+        do {
+            try process.run()
+        } catch {
+            return nil
+        }
+        let data = out.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0,
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              (object["app"] as? String) == "cmux-tui" else {
+            return nil
+        }
+        return CmuxTuiClientProbe(
+            buildIdentity: object["build_identity"] as? String,
+            remoteProtocol: (object["remote_protocol"] as? Int) ?? (object["remote_protocol"] as? Double).map(Int.init),
+            version: object["version"] as? String,
+            capabilities: cmuxTuiProbeCapabilities(object["capabilities"])
+        )
+    }
+
+    /// Client and machine daemon must speak the same remote protocol; the daemon rejects a
+    /// mismatch, so say which side is behind up front instead of letting the pane hang.
+    static func checkCmuxTuiCompatibility(client: CmuxTuiClientProbe, daemon: [String: Any]?) throws {
+        guard let daemon,
+              let daemonProtocol = (daemon["remote_protocol"] as? Int) ?? (daemon["remote_protocol"] as? Double).map(Int.init),
+              let clientProtocol = client.remoteProtocol,
+              daemonProtocol != clientProtocol else { return }
+        let daemonCommit = (daemon["commit"] as? String).map { String($0.prefix(10)) } ?? "?"
+        let clientCommit = client.buildIdentity.map { String($0.prefix(10)) } ?? "?"
+        let stale = clientProtocol < daemonProtocol
+            ? CMUXDiffViewerLocalization.string("cli.vm.tui.staleClient", defaultValue: "Update cmux (its bundled cmux-tui client is older than the machine's daemon).")
+            : CMUXDiffViewerLocalization.string("cli.vm.tui.staleDaemon", defaultValue: "The machine's cmux-tui daemon is older than this client; reconnect once the machine has updated.")
+        let template = CMUXDiffViewerLocalization.string(
+            "cli.vm.tui.protocolMismatch",
+            defaultValue: "cmux-tui protocol mismatch: client %1$@ speaks protocol %2$d, the machine daemon %3$@ speaks protocol %4$d. %5$@"
+        )
+        throw CLIError(message: String(format: template, clientCommit, clientProtocol, daemonCommit, daemonProtocol, stale))
+    }
+
+    static func vmTuiDeviceName() -> String {
+        let raw = ProcessInfo.processInfo.hostName.split(separator: ".").first.map(String.init) ?? "mac"
+        let cleaned = raw.map { $0.isLetter || $0.isNumber || $0 == "-" ? $0 : Character("-") }
+        return "cmux-" + String(cleaned).prefix(40)
+    }
+
+    // MARK: - cmux vm tui <id>  (and the default for cmux vm shell)
+
+    struct VMTuiOpenResult {
+        let workspaceId: String
+        let workspaceRef: String?
+        let windowId: String?
+        /// The pane running the cmux-tui client; keyboard focus belongs here even after
+        /// a desktop split opens beside it.
+        let terminalSurfaceId: String?
+        let session: String
+        /// The pane dials the trusted-carrier listener; false means the stored device key.
+        let trustedCarrier: Bool
+        /// The machine-side terminal the pane shows (`term_…`) and its cmux-tui
+        /// workspace (`ws_…`); nil for `vm tui`, whose pane is the whole client.
+        let terminalId: String?
+        let remoteWorkspaceId: String?
+        /// Provider-reported private addresses, preserved for JSON/agent output.
+        let networkAddresses: [String: String]?
+    }
+
+    /// What the placeholder pane runs while the app opens the machine's terminal beside
+    /// it: `surface.new_terminal` splits the workspace's focused pane, so the placeholder has to
+    /// stay alive until that split lands; it is closed right after.
+    static let vmPlainTerminalPlaceholderCommand = "sleep 60"
+
+    /// Backend code the control plane returns when a machine refuses the legacy
+    /// `vm.ssh_info` attach because it runs cmux-tui only. A forced SSH request treats
+    /// it as "use the managed cmux-remote route instead", never as a hard failure
+    /// (`shouldFallbackFromForcedSSH` in cmux.swift).
+    static let vmAttachTransportUnsupportedCode = "vm_attach_transport_unsupported"
+
+    /// True when `workspaceRaw` (a UUID or handle) is the selected workspace of the
+    /// window in question. Unknown (socket error, no such workspace) reads as false:
+    /// when in doubt, do not move focus.
+    func isWorkspaceCurrentlySelected(_ workspaceRaw: String, windowRaw: String?, client: SocketClient) -> Bool {
+        var params: [String: Any] = [:]
+        if let windowRaw, !windowRaw.isEmpty {
+            params["window_id"] = windowRaw
+        }
+        guard let current = try? client.sendV2(method: "workspace.current", params: params) else { return false }
+        let candidates = [current["workspace_id"] as? String, current["workspace_ref"] as? String].compactMap { $0 }
+        return candidates.contains { $0.caseInsensitiveCompare(workspaceRaw) == .orderedSame }
+    }
+
+    func runVMTuiCommand(rest: [String], windowRaw: String?, client: SocketClient, jsonOutput: Bool) throws {
+        if rest.contains("--help") || rest.contains("-h") {
+            print(Self.vmTuiUsage)
+            return
+        }
+        guard let vmId = rest.first(where: { !$0.hasPrefix("-") }), !vmId.isEmpty else {
+            throw CLIError(message: Self.vmTuiUsage)
+        }
+        let opened = try openVMTuiWorkspace(
+            vmId: vmId,
+            windowRaw: windowRaw,
+            options: VMTuiOpenOptions(fullClient: true),
+            client: client
+        )
+        if jsonOutput {
+            print(jsonString([
+                "ok": true,
+                "vm_id": vmId,
+                "workspace_id": opened.workspaceId,
+                "session": opened.session,
+                "trusted_carrier": opened.trustedCarrier,
+            ]))
+            return
+        }
+        let template = CMUXDiffViewerLocalization.string(
+            "cli.vm.tui.opened",
+            defaultValue: "Opened cmux-tui for %1$@ (%2$@)"
+        )
+        let mode = opened.trustedCarrier
+            ? CMUXDiffViewerLocalization.string("cli.vm.tui.mode.carrier", defaultValue: "private network trust")
+            : CMUXDiffViewerLocalization.string("cli.vm.tui.mode.enrolled", defaultValue: "device already enrolled")
+        print(String(format: template, vmId, mode))
+    }
+
+    func openVMTuiWorkspace(
+        vmId: String,
+        windowRaw: String?,
+        options: VMTuiOpenOptions = VMTuiOpenOptions(),
+        client: SocketClient
+    ) throws -> VMTuiOpenResult {
+        let startedAt = Date()
+        let known = Self.loadVMTuiDevices()[vmId]
+        // Probe the local client before asking the app for connection data. Its
+        // WireGuard capability is mandatory for every Cloud VM route.
+        let clientPath = locateCmuxTuiClient()
+        let clientProbe = clientPath.flatMap { Self.cmuxTuiClientProbe(at: $0) }
+        var infoParams: [String: Any] = ["id": vmId]
+        if let known {
+            infoParams["device_fingerprint"] = known.deviceFingerprint
+        }
+        if let capabilities = clientProbe?.capabilities, !capabilities.isEmpty {
+            infoParams["client_capabilities"] = capabilities
+        }
+        let info = try client.sendV2(method: "vm.cmux_remote_info", params: infoParams, responseTimeout: 16 * 60)
+        guard let route = info["route"] as? String, !route.isEmpty else {
+            throw CLIError(message: "vm.cmux_remote_info returned no route")
+        }
+        // The plain-terminal path runs the app's bundled client, so a missing local
+        // client only matters for `vm tui` (the pane execs it).
+        if options.fullClient, clientPath == nil || clientProbe == nil {
+            let searched = cmuxTuiClientCandidates().joined(separator: ", ")
+            let template = CMUXDiffViewerLocalization.string(
+                "cli.vm.tui.clientMissingSearched",
+                defaultValue: "No cmux-tui client found (searched: %1$@). Install one with `curl -fsSL https://cmux.com/tui/install-static.sh | sh`, or point CMUX_TUI_CLIENT at a binary."
+            )
+            throw CLIError(message: String(format: template, searched))
+        }
+        logVMTiming("cmux_remote_info", vmID: vmId, transport: "cmux-remote", startedAt: startedAt)
+        if let clientProbe {
+            try Self.checkCmuxTuiCompatibility(client: clientProbe, daemon: info["daemon_build"] as? [String: Any])
+        }
+        let session = (info["session"] as? String) ?? "cloud"
+        // A known machine dials as it did before (carrier marker or stored key); a
+        // new one must serve the trusted listener, which the app has just proven.
+        let trustedCarrier = (info["trusted_carrier"] as? Bool) ?? false
+        if known == nil {
+            guard trustedCarrier else {
+                throw CLIError(message: String(
+                    localized: "cli.vm.tui.trustedListenerPending",
+                    defaultValue: "The Cloud machine is still preparing remote access. Try again shortly."
+                ))
+            }
+            // Later opens reuse the private route with no control-plane call.
+            Self.saveVMTuiDevice(vmId: vmId, deviceFingerprint: Self.carrierDeviceMarker)
+        }
+        let networkAddresses: [String: String]? = {
+            guard let raw = info["network_addresses"] as? [String: Any] else { return nil }
+            let values = raw.compactMapValues { $0 as? String }
+            return values.isEmpty ? nil : values
+        }()
+
+        let initialCommand: String
+        if options.fullClient, let clientPath {
+            let stateDir = Self.vmTuiClientStateDir()
+            try FileManager.default.createDirectory(at: stateDir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+            let config = VMTuiConnectConfig(
+                vmId: vmId,
+                route: route,
+                session: session,
+                carrier: trustedCarrier,
+                clientPath: clientPath,
+                stateDir: stateDir.path,
+                deviceName: Self.vmTuiDeviceName(),
+                wireguardHubSocket: info["wireguard_hub_socket"] as? String
+            )
+            let configURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-vm-tui-\(UUID().uuidString.lowercased()).json")
+            try JSONEncoder().encode(config).write(to: configURL, options: .atomic)
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: configURL.path)
+            let executablePath = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
+            initialCommand = "\(shellQuote(executablePath)) vm-tui-connect --config \(shellQuote(configURL.path))"
+        } else {
+            initialCommand = Self.vmPlainTerminalPlaceholderCommand
+        }
+        let workspaceId: String
+        let workspaceRef: String?
+        let windowId: String?
+        let terminalSurfaceId: String?
+        let didCreateWorkspace: Bool
+        // Focus inside the workspace the person is already looking at is not
+        // stealing; focus that would switch them to another workspace is. A
+        // freshly created workspace is never the one on screen, so only a
+        // pre-existing target can earn pane focus on a background open. The
+        // same value drives the placeholder replacement AND the real terminal
+        // (`surface.new_terminal`) that takes its place.
+        let requestedTarget = options.targetWorkspaceId?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let paneFocus = options.focus || requestedTarget.map {
+            !$0.isEmpty && isWorkspaceCurrentlySelected($0, windowRaw: windowRaw, client: client)
+        } ?? false
+        if let target = requestedTarget, !target.isEmpty {
+            // The app pre-created this workspace with a loading pane; the link takes
+            // that pane's place (no new workspace, no title change).
+            let ready: [String: Any]
+            do {
+                ready = try client.sendV2(
+                    method: "workspace.cloud_vm_terminal_ready",
+                    params: ["workspace_id": target, "initial_command": initialCommand, "focus": paneFocus]
+                )
+            } catch let error as CLIError where error.message.contains("loading surface not found") {
+                // An ordinary workspace (`--workspace workspace:3` from a person or an agent),
+                // not one the app pre-created with a loading pane: nothing to replace, the
+                // shell opens into it as a new pane — the sidebar's "Open Shell".
+                ready = ["workspace_id": target]
+            }
+            workspaceId = (ready["workspace_id"] as? String) ?? target
+            workspaceRef = ready["workspace_ref"] as? String
+            windowId = (ready["window_id"] as? String) ?? windowRaw
+            terminalSurfaceId = ready["surface_id"] as? String
+            didCreateWorkspace = false
+        } else {
+            let requestedTitle = options.workspaceName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            var params: [String: Any] = [
+                "initial_command": initialCommand,
+                "title": requestedTitle.isEmpty ? "vm:\(vmId)" : requestedTitle,
+            ]
+            try applyWindowOrCallerContext(to: &params, client: client, windowRaw: windowRaw)
+            let created = try client.sendV2(method: "workspace.create", params: params)
+            guard let createdId = created["workspace_id"] as? String, !createdId.isEmpty else {
+                throw CLIError(message: "workspace.create did not return workspace_id")
+            }
+            workspaceId = createdId
+            workspaceRef = created["workspace_ref"] as? String
+            windowId = created["window_id"] as? String
+            terminalSurfaceId = created["surface_id"] as? String
+            didCreateWorkspace = true
+        }
+        do {
+            // The binding is how the app finds this machine's workspace again (Machines
+            // panel Open, `cmux vm desktop`, the sidebar cloud button's Base reuse).
+            _ = try client.sendV2(
+                method: "workspace.cloud_vm_bind",
+                params: ["workspace_id": workspaceId, "vm_id": vmId, "base": options.pinAsBase]
+            )
+            if options.pinAsBase {
+                try pinWorkspaceToTop(workspaceId: workspaceId, windowId: windowId, client: client)
+            }
+        } catch {
+            if didCreateWorkspace {
+                _ = try? client.sendV2(method: "workspace.close", params: ["workspace_id": workspaceId])
+            }
+            throw error
+        }
+        var paneSurfaceId = terminalSurfaceId
+        var terminalId: String?
+        var remoteWorkspaceId: String?
+        if !options.fullClient {
+            // Open the machine's existing terminal. Explicit New Terminal actions
+            // create sessions; opening or reconnecting the machine does not.
+            let terminalStartedAt = Date()
+            do {
+                let catalog = try client.sendV2(method: "surface.catalog", params: ["machine": vmId, "refresh": true], responseTimeout: 180)
+                let opened: [String: Any]
+                switch VMRemoteWorkspaceResolver().resolveVMMachineTerminal(machine: vmId, catalog: catalog) {
+                case .resolved(let remoteWorkspaceID, let terminalID, let tabID):
+                    var params: [String: Any] = ["resource": "\(vmId)/terminal/\(terminalID)", "workspace_id": workspaceId, "remote_workspace_id": remoteWorkspaceID, "focus": paneFocus, "reuse": false]
+                    if let tabID { params["remote_tab_id"] = tabID }
+                    var projected = try client.sendV2(method: "surface.project", params: params, responseTimeout: 180)
+                    projected["terminal_id"] = terminalID
+                    projected["remote_workspace_id"] = remoteWorkspaceID
+                    opened = projected
+                case .empty(let remoteWorkspaceID):
+                    var params: [String: Any] = ["machine": vmId, "open": true, "workspace_id": workspaceId, "focus": paneFocus]
+                    if let remoteWorkspaceID { params["remote_workspace_id"] = remoteWorkspaceID }
+                    opened = try client.sendV2(method: "surface.new_terminal", params: params, responseTimeout: 180)
+                case .unavailable:
+                    throw CLIError(message: String(localized: "cli.vm.open.sessionsUnavailable", defaultValue: "The machine’s sessions are unavailable. Refresh and retry."))
+                }
+                terminalId = opened["terminal_id"] as? String
+                remoteWorkspaceId = opened["remote_workspace_id"] as? String
+                let newSurface = (opened["surface_id"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                if let placeholder = terminalSurfaceId, !placeholder.isEmpty, placeholder != newSurface {
+                    _ = try? client.sendV2(method: "surface.close", params: ["workspace_id": workspaceId, "surface_id": placeholder])
+                }
+                paneSurfaceId = newSurface ?? terminalSurfaceId
+
+                // `workspace.create` runs before the remote terminal exists, so its
+                // first bind cannot include the cmux-tui workspace identity. Persist
+                // the identity returned by `surface.new_terminal` immediately. The
+                // local title rename path then has one exact remote target after a
+                // fresh open, without relying on a later catalog refresh or a
+                // name-based inference.
+                if let remoteWorkspaceId, !remoteWorkspaceId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    _ = try client.sendV2(
+                        method: "workspace.cloud_vm_bind",
+                        params: [
+                            "workspace_id": workspaceId,
+                            "vm_id": vmId,
+                            "base": options.pinAsBase,
+                            "remote_workspace_id": remoteWorkspaceId,
+                        ]
+                    )
+                }
+            } catch {
+                if didCreateWorkspace {
+                    _ = try? client.sendV2(method: "workspace.close", params: ["workspace_id": workspaceId])
+                }
+                throw error
+            }
+            logVMTiming("surface_new_terminal", vmID: vmId, transport: "cmux-remote", startedAt: terminalStartedAt)
+        }
+        if options.focus {
+            var selectParams: [String: Any] = ["workspace_id": workspaceId]
+            if let windowId, !windowId.isEmpty {
+                selectParams["window_id"] = windowId
+            }
+            _ = try? client.sendV2(method: "workspace.select", params: selectParams)
+        }
+        logVMTiming(
+            "complete",
+            vmID: vmId,
+            transport: "cmux-remote",
+            startedAt: startedAt,
+            extra: "workspace=\(String(workspaceId.prefix(8)))"
+        )
+        return VMTuiOpenResult(
+            workspaceId: workspaceId,
+            workspaceRef: workspaceRef,
+            windowId: windowId,
+            terminalSurfaceId: paneSurfaceId,
+            session: session,
+            trustedCarrier: trustedCarrier,
+            terminalId: terminalId,
+            remoteWorkspaceId: remoteWorkspaceId,
+            networkAddresses: networkAddresses
+        )
+    }
+
+    // MARK: - cmux vm-tui-connect --config <file>  (runs inside the pane)
+
+    /// The argv the pane hands to the cmux-tui client. Pure, so the exec line can be
+    /// checked without a pane.
+    static func vmTuiConnectArguments(config: VMTuiConnectConfig) -> [String] {
+        var arguments = ["remote", "connect", config.route, "--device-name", config.deviceName, "--state-dir", config.stateDir]
+        if config.carrier {
+            arguments.append("--carrier")
+        }
+        if let hubSocket = config.wireguardHubSocket, !hubSocket.isEmpty {
+            arguments += ["--wireguard-hub", hubSocket]
+        }
+        return arguments
+    }
+
+    /// Replaces this process with the cmux-tui client. The pane's foreground process is
+    /// the client from its very first tty read: spawning it as a child and moving it to
+    /// the foreground afterwards raced its `tcsetattr` (raw mode) against the handoff,
+    /// which intermittently left the tty cooked — keystrokes line-buffered or swallowed.
+    /// Enrollment approval, which used to poll from a thread here, runs in a detached
+    /// helper (`vm-tui-approve`) so nothing in this process has to outlive the exec.
+    func runVMTuiConnect(commandArgs: [String], client: SocketClient) throws {
+        let (configPath, _) = parseOption(commandArgs, name: "--config")
+        guard let configPath, !configPath.isEmpty else {
+            throw CLIError(message: "Usage: cmux vm-tui-connect --config <file>")
+        }
+        let configURL = URL(fileURLWithPath: configPath)
+        let config = try JSONDecoder().decode(VMTuiConnectConfig.self, from: Data(contentsOf: configURL))
+        // The config is one-shot; it has served its purpose.
+        try? FileManager.default.removeItem(at: configURL)
+
+        cliWriteStderr(String(format: CMUXDiffViewerLocalization.string(
+            "cli.vm.tui.connecting",
+            defaultValue: "Connecting to %1$@ through cmux-tui…"
+        ), config.vmId) + "\n")
+
+        let arguments = Self.vmTuiConnectArguments(config: config)
+        try execInteractiveProgram(launchPath: config.clientPath, arguments: arguments)
+    }
+}
+
+// MARK: - vm tree / vm open <target> (the cloud tree)
+
+extension CMUXCLI {
+    /// Where `cmux vm open <target>` points. Grammar:
+    ///   <machine>                      the machine's shell (the shared vmOpenShell path)
+    ///   <machine>/<workspace>          a cmux-tui workspace on the machine (`ws_…` id or unique name)
+    ///   <machine>/<workspace>/<term>   one terminal in it (`term_…`)
+    ///   <machine>/<workspace>/<term>/<tab>  one tab of that terminal (`tab_…`)
+    ///   <machine>:desktop              the machine's noVNC screen
+    ///   <machine>:port/<n>             a forwarded HTTP port
+    /// The same addresses appear in `cmux vm tree`, so an agent can copy them verbatim.
+    enum VMOpenTarget: Equatable {
+        case machine(String)
+        case workspace(machine: String, workspace: String)
+        case terminal(machine: String, workspace: String, terminal: String, tab: String?)
+        case desktop(String)
+        case port(machine: String, port: Int)
+
+        var machine: String {
+            switch self {
+            case .machine(let id), .desktop(let id):
+                return id
+            case .workspace(let id, _), .terminal(let id, _, _, _), .port(let id, _):
+                return id
+            }
+        }
+    }
+
+    typealias VMRemoteWorkspaceSelectorResolution = VMRemoteWorkspaceResolver.VMRemoteWorkspaceSelectorResolution
+    typealias VMRemoteViewResolution = VMRemoteWorkspaceResolver.VMRemoteViewResolution
+    typealias VMRemoteWorkspaceTerminalResolution = VMRemoteWorkspaceResolver.VMRemoteWorkspaceTerminalResolution
+    typealias VMRemoteTerminalPlacementResolution = VMRemoteWorkspaceResolver.VMRemoteTerminalPlacementResolution
+
+    private static func vmTerminalPlacementResolutionError(
+        _ resolution: VMRemoteTerminalPlacementResolution,
+        machine: String,
+        workspace: String,
+        selector: String
+    ) -> CLIError {
+        switch resolution {
+        case .resolved:
+            preconditionFailure("resolved terminal placement cannot produce an error")
+        case .notFound:
+            return CLIError(message: String(
+                format: String(localized: "cli.vm.open.terminalNotFound", defaultValue: "%1$@ has no terminal '%2$@' in workspace '%3$@'. See: cmux vm tree %1$@"),
+                machine, selector, workspace
+            ))
+        case .ambiguous:
+            return CLIError(message: String(
+                format: String(localized: "cli.vm.open.terminalAmbiguous", defaultValue: "Terminal '%2$@' on %1$@ has no unique tab in workspace '%3$@'. Use cmux vm tree %1$@ and choose an exact placement."),
+                machine, selector, workspace
+            ))
+        case .unavailable:
+            return CLIError(message: String(
+                format: String(localized: "cli.vm.open.terminalUnavailable", defaultValue: "Terminal placement for %1$@ is unavailable. Reconnect and retry."),
+                machine
+            ))
+        }
+    }
+
+    private static func vmWorkspaceResolutionError(
+        _ resolution: VMRemoteWorkspaceSelectorResolution,
+        machine: String,
+        selector: String
+    ) -> CLIError {
+        switch resolution {
+        case .resolved:
+            preconditionFailure("resolved workspace cannot produce an error")
+        case .notFound:
+            return CLIError(message: String(
+                format: String(localized: "cli.vm.open.workspaceNotFound", defaultValue: "%1$@ has no workspace '%2$@'. See: cmux vm tree %1$@"),
+                machine, selector
+            ))
+        case .ambiguous:
+            return CLIError(message: String(
+                format: String(localized: "cli.vm.open.workspaceAmbiguous", defaultValue: "%1$@ has multiple workspaces named '%2$@'. Use a workspace ID from cmux vm tree %1$@."),
+                machine, selector
+            ))
+        case .unavailable:
+            return CLIError(message: String(
+                format: String(localized: "cli.vm.open.workspaceUnavailable", defaultValue: "Workspace state for %1$@ is unavailable. Reconnect and retry."),
+                machine
+            ))
+        }
+    }
+
+    private static func vmRemoteWorkspaceID(
+        _ selector: String,
+        machine: String,
+        catalog: [String: Any]
+    ) throws -> String {
+        guard let machinePayload = VMRemoteWorkspaceResolver().vmMachinePayload(machine, from: catalog) else {
+            throw CLIError(message: String(
+                format: String(localized: "cli.vm.open.workspaceUnavailable", defaultValue: "Workspace state for %1$@ is unavailable. Reconnect and retry."),
+                machine
+            ))
+        }
+        let resolution = VMRemoteWorkspaceResolver().resolveVMRemoteWorkspaceSelector(selector, in: machinePayload)
+        guard case .resolved(let id) = resolution else {
+            throw vmWorkspaceResolutionError(resolution, machine: machine, selector: selector)
+        }
+        return id
+    }
+
+    static func parseVMOpenTarget(_ raw: String) -> VMOpenTarget? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !trimmed.hasPrefix("-") else { return nil }
+        if let colon = trimmed.firstIndex(of: ":") {
+            let machine = String(trimmed[..<colon])
+            let selector = String(trimmed[trimmed.index(after: colon)...])
+            guard !machine.isEmpty, !machine.contains("/") else { return nil }
+            if selector == "desktop" || selector == "vnc" || selector == "screen" || selector == "display" {
+                return .desktop(machine)
+            }
+            if selector.hasPrefix("port/"),
+               let port = Int(selector.dropFirst("port/".count)),
+               (1...65535).contains(port) {
+                return .port(machine: machine, port: port)
+            }
+            return nil
+        }
+        let parts = trimmed.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+        guard parts.allSatisfy({ !$0.isEmpty }) else { return nil }
+        switch parts.count {
+        case 1:
+            return .machine(parts[0])
+        case 2:
+            return .workspace(machine: parts[0], workspace: parts[1])
+        case 3:
+            return .terminal(machine: parts[0], workspace: parts[1], terminal: parts[2], tab: nil)
+        case 4:
+            return .terminal(machine: parts[0], workspace: parts[1], terminal: parts[2], tab: parts[3])
+        default:
+            return nil
+        }
+    }
+
+    /// How `<machine>/<workspace>` resolved against the machine's catalog payload.
+    enum VMOpenWorkspaceResolution {
+        /// Exactly one workspace: its `ws_…` id and the terminals it views.
+        case found(id: String, terminals: [[String: Any]])
+        /// Several workspaces carry the selector as their name; only an id picks one.
+        case ambiguous(ids: [String])
+        case notFound
+    }
+
+    /// `<machine>/<workspace>` resolved against the machine's catalog payload, the
+    /// way the sidebar row and `vm.workspace_open` resolve it: a `ws_…` id first,
+    /// else a workspace name when exactly one workspace carries it. Workspaces come
+    /// from the machine's own list (so an EMPTY workspace resolves and `vm open`
+    /// starts a shell in it) and from every view of every terminal (a terminal
+    /// viewed in two workspaces belongs to both; older apps send only
+    /// `remote_workspace`).
+    static func resolveVMOpenWorkspace(
+        _ selector: String,
+        machine: [String: Any]?,
+        resources: [[String: Any]]
+    ) -> VMOpenWorkspaceResolution {
+        func workspaces(of terminal: [String: Any]) -> [[String: Any]] {
+            if let views = terminal["remote_views"] as? [[String: Any]] {
+                // An explicit empty array is authoritative: the terminal has
+                // left every workspace layout. Fall back to the legacy field
+                // only for payloads that predate remote_views entirely.
+                return views.compactMap { $0["workspace"] as? [String: Any] }
+            }
+            return (terminal["remote_workspace"] as? [String: Any]).map { [$0] } ?? []
+        }
+        // Every workspace the payload knows, id → name, in first-seen order.
+        var nameByID: [String: String] = [:]
+        var order: [String] = []
+        func note(_ workspace: [String: Any]) {
+            guard let id = workspace["id"] as? String, !id.isEmpty else { return }
+            if nameByID[id] == nil { order.append(id) }
+            if let name = workspace["name"] as? String, !name.isEmpty { nameByID[id] = name } else if nameByID[id] == nil { nameByID[id] = "" }
+        }
+        for workspace in (machine?["remote_workspaces"] as? [[String: Any]]) ?? [] { note(workspace) }
+        let terminals = resources.filter { ($0["kind"] as? String) == "terminal" }
+        // Workspace membership is a property of every surface resource. A
+        // browser or display can be the only fresh reference while the daemon's
+        // remote_workspaces list is catching up, so do not limit resolution to
+        // terminals (the terminal filter above remains for opening members).
+        for resource in resources {
+            for workspace in workspaces(of: resource) { note(workspace) }
+        }
+        let resolvedID: String
+        if nameByID[selector] != nil {
+            resolvedID = selector
+        } else {
+            let byName = order.filter { nameByID[$0] == selector }
+            switch byName.count {
+            case 0: return .notFound
+            case 1: resolvedID = byName[0]
+            default: return .ambiguous(ids: byName)
+            }
+        }
+        let inWorkspace = terminals.filter { terminal in
+            workspaces(of: terminal).contains { ($0["id"] as? String) == resolvedID }
+        }
+        return .found(id: resolvedID, terminals: inWorkspace)
+    }
+
+    static var vmTreeUsage: String {
+        CMUXDiffViewerLocalization.string(
+            "cli.vm.tree.usage",
+            defaultValue: """
+        Usage: cmux vm tree [<machine>|local] [--refresh] [--json]
+               cmux surface ls [<machine>|local] [--refresh] [--json]
+
+        The Finder-style view of every surface: This Mac first (its terminals grouped by
+        workspace, and its browsers), then each cloud machine — Workspaces, Ports, VNC
+        Displays (one row per screen), and a final Terminals section containing every
+        machine-owned terminal. Every line carries an address `cmux vm open` or
+        `cmux surface open` accepts.
+
+        Options:
+          <machine>   Only this machine (`local` for This Mac).
+          --refresh   Re-read every provider (machine list, links, local panes) first.
+          --json      Print the catalog payload ({machines, resources, projections}).
+        """
+        )
+    }
+
+    static var surfaceUsage: String {
+        """
+        Usage: cmux surface ls [<machine>|local] [--refresh] [--json]
+               cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>]
+                                 [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>] [--json]
+               cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>]
+                                 [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [--json] [-- <command...>]
+               cmux surface resume …   (restart metadata; see `cmux surface resume --help`)
+
+        Surfaces are terminals, VNC displays and browsers on This Mac or on a cloud machine;
+        panes project them. `surface ls` is the catalog (same as `cmux vm tree`, including
+        This Mac). A resource id reads <machine>/<kind>/<key>, e.g. local/terminal/<uuid>,
+        vivid-newt/terminal/term_2f9c…, vivid-newt/display/display:1, vivid-newt/browser/port:3000.
+
+        open:  puts the surface in a pane. Reuses a pane already showing it unless --new.
+               --pane + a side splits that pane on that side; --tab adds a tab to it; else
+               the workspace's focused pane. A local terminal moves to the destination
+               (it can only be shown once).
+        new-terminal:  creates a terminal on the machine (a cloud one lands in its cmux-tui
+               session, --remote-workspace picks which) and opens it unless --no-open.
+        """
+    }
+
+    static var vmOpenUsage: String {
+        """
+        Usage: cmux vm open <target> [--workspace <id|ref|index>] [--focus <true|false>] [--print]
+               cmux vm open <id> <port> [--print]
+
+        Targets (copy them from `cmux vm tree`):
+          <machine>                      the machine's shell (same as `cmux vm shell <machine>`)
+          <machine>/<workspace>          a cmux-tui workspace on it (`ws_…` id or unique name; ambiguous names fail)
+          <machine>/<workspace>/<term>   one terminal (`term_…`) — focuses the pane that
+                                         already shows it instead of opening a second one
+          <machine>/<workspace>/<term>/<tab>  one tab of that terminal (`tab_…` from `cmux vm tree`)
+          <machine>:desktop              the machine's noVNC screen as a browser pane
+          <machine>:port/<n>             a private tokened URL for an HTTP port, as a browser pane
+          <machine> <port>               same as <machine>:port/<port>
+
+        Options:
+          --workspace <ws>   Put the pane in this local workspace (default: the machine's
+                             open workspace, else where you are).
+          --focus <bool>     Focus the opened pane (default: false — panes open beside you).
+          --print            Ports only: print the URL, do not open a pane.
+
+        Examples:
+          cmux vm open vivid-newt
+          cmux vm open vivid-newt/main
+          cmux vm open vivid-newt/main/term_2f9c…
+          cmux vm open vivid-newt/main/term_2f9c…/tab_a
+          cmux vm open vivid-newt:desktop
+          cmux vm open vivid-newt:port/3000 --print
+        """
+    }
+
+    static let vmWorkspaceUsage = """
+        Usage:
+          cmux vm workspace new <machine> [--name <name>]      Create a workspace on the machine (its ⌘N) and open it here.
+          cmux vm workspace open <machine> <workspace-id>     Open a machine workspace as a new local workspace, one pane per terminal.
+              [--here] [--tabs] [--workspace <local>] [--pane <id|ref> [--left|--right|--up|--down]]
+                                                              --here: into the current (or --workspace) local workspace instead — one pane
+                                                              at the destination, the rest as tabs in it ("Open All Here"); --tabs: all as
+                                                              tabs of the focused (or --pane) pane ("Open All in New Tabs").
+          cmux vm workspace rename <machine> <workspace-id> <name>
+                                                              Rename a machine workspace.
+          cmux vm workspace rm <machine> <workspace-id>       Close a machine workspace AND kill every
+                                                              terminal in it (the sidebar's "Close
+                                                              Workspace…"). Permanent.
+          cmux vm workspace close <machine> <workspace-id>    CLI-only: close the workspace but keep its
+                                                              terminals running in the Terminals pool.
+
+        Workspace ids come from `cmux vm tree`. Add --json for the raw result.
+        """
+
+    static let vmTerminalUsage = """
+        Usage:
+          cmux vm terminal send <machine> <terminal-id> [text] [--keys <k1,k2,…>]
+                                                              Type text into the terminal (as-is, no newline), then press
+                                                              named keys: enter, tab, escape, up, down, ctrl+c (chords join with +)… Nothing is
+                                                              attached or focused. `--keys enter` alone presses Enter.
+                                                              Put `--` before text that contains this command's own flags.
+          cmux vm terminal read <machine> <terminal-id>       Print the terminal's visible screen (--json adds cursor/size).
+          cmux vm terminal wait <machine> <terminal-id> --pattern <regex> [--timeout <seconds>]
+                                                              Block until the screen matches (default 30 s); exit 1 on timeout.
+          cmux vm terminal close <machine> <terminal-id>      End a terminal on the machine (the process and its tab).
+          cmux vm terminal rename <machine> <terminal-id> <name>   Set or clear a terminal label for every client (use "" to clear).
+
+        Terminal ids come from `cmux vm tree`. Add --json for the raw result.
+        A typical headless loop: `send … 'bun test' --keys enter`, `wait … --pattern 'pass|fail'`, `read …`.
+        """
+
+    static let vmTabUsage = """
+        Usage:
+          cmux vm tab rename <machine> <tab-id> <name>
+                                                              Set or clear exactly one daemon tab placement (use "" to clear).
+                                                              Use the tab id from `cmux vm tree --json`.
+
+        Tab names are local to a placement. Use `vm terminal rename` only when you
+        explicitly want the same name on every view of one terminal.
+        """
+
+    /// `--timeout` for `vm terminal wait`, in seconds: finite, at least one millisecond,
+    /// at most an hour (the daemon/link cap) — out of range is an error, not a silent
+    /// clamp, so the contract reads the same at every entrypoint. nil is the 30 s default.
+    static func vmTerminalWaitSeconds(_ raw: String?) throws -> Double {
+        guard let raw else { return 30 }
+        guard let seconds = Double(raw), seconds.isFinite, seconds >= 0.001, seconds <= 3600 else {
+            throw CLIError(message: "vm terminal wait: --timeout must be a number of seconds between 0.001 and 3600 (got '\(raw)')")
+        }
+        return seconds
+    }
+
+    /// `cmux vm workspace new|open|rename|close|rm`: the sidebar's workspace verbs over the
+    /// same socket methods (`vm.workspace_new|open|rename|close|delete`), so a row and an
+    /// agent cannot disagree.
+    func runVMWorkspaceCommand(rest: [String], client: SocketClient, jsonOutput: Bool) throws {
+        if rest.contains("--help") || rest.contains("-h") || rest.isEmpty {
+            print(Self.vmWorkspaceUsage)
+            return
+        }
+        let verb = rest[0]
+        var positional: [String] = []
+        var nameOpt: String?
+        var localWorkspace: String?
+        var pane: String?
+        var direction: String?
+        var here = false
+        var tabs = false
+        var index = 1
+        while index < rest.count {
+            let arg = rest[index]
+            if let equals = arg.firstIndex(of: "=") {
+                let flag = String(arg[..<equals])
+                let value = String(arg[arg.index(after: equals)...])
+                if ["--name", "--workspace", "--pane"].contains(flag) {
+                    guard !value.isEmpty, !value.hasPrefix("-") else {
+                        throw CLIError(message: "vm workspace \(verb): \(flag) requires a value\n\n\(Self.vmWorkspaceUsage)")
+                    }
+                    if flag == "--name" {
+                        guard verb == "new", nameOpt == nil else { throw CLIError(message: Self.vmWorkspaceUsage) }
+                        nameOpt = value
+                    } else if flag == "--workspace" {
+                        guard verb == "open", localWorkspace == nil else { throw CLIError(message: Self.vmWorkspaceUsage) }
+                        localWorkspace = value
+                    } else {
+                        guard verb == "open", pane == nil else { throw CLIError(message: Self.vmWorkspaceUsage) }
+                        pane = value
+                    }
+                    index += 1
+                    continue
+                }
+            }
+            switch arg {
+            case "--json":
+                index += 1
+            case "--name", "--workspace", "--pane":
+                guard index + 1 < rest.count, !rest[index + 1].hasPrefix("-") else {
+                    throw CLIError(message: "vm workspace \(verb): \(arg) requires a value\n\n\(Self.vmWorkspaceUsage)")
+                }
+                let value = rest[index + 1]
+                if arg == "--name" {
+                    guard verb == "new", nameOpt == nil else { throw CLIError(message: Self.vmWorkspaceUsage) }
+                    nameOpt = value
+                } else if arg == "--workspace" {
+                    guard verb == "open", localWorkspace == nil else { throw CLIError(message: Self.vmWorkspaceUsage) }
+                    localWorkspace = value
+                } else {
+                    guard verb == "open", pane == nil else { throw CLIError(message: Self.vmWorkspaceUsage) }
+                    pane = value
+                }
+                index += 2
+            case "--here":
+                guard verb == "open" else { throw CLIError(message: Self.vmWorkspaceUsage) }
+                here = true
+                index += 1
+            case "--tabs":
+                guard verb == "open" else { throw CLIError(message: Self.vmWorkspaceUsage) }
+                tabs = true
+                index += 1
+            case "--left", "--right", "--up", "--down":
+                guard verb == "open", direction == nil else { throw CLIError(message: Self.vmWorkspaceUsage) }
+                direction = String(arg.dropFirst(2))
+                index += 1
+            default:
+                guard !arg.hasPrefix("-") else {
+                    throw CLIError(message: "vm workspace \(verb): unknown flag '\(arg)'\n\n\(Self.vmWorkspaceUsage)")
+                }
+                positional.append(arg)
+                index += 1
+            }
+        }
+        guard let machine = positional.first, !machine.isEmpty else { throw CLIError(message: Self.vmWorkspaceUsage) }
+        switch verb {
+        case "new":
+            guard positional.count == 1 else { throw CLIError(message: Self.vmWorkspaceUsage) }
+            guard localWorkspace == nil, pane == nil, direction == nil, !here, !tabs else { throw CLIError(message: Self.vmWorkspaceUsage) }
+            if let nameOpt, nameOpt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                throw CLIError(message: Self.vmWorkspaceUsage)
+            }
+            var params: [String: Any] = ["id": machine]
+            if let nameOpt, !nameOpt.isEmpty { params["name"] = nameOpt }
+            let response = try client.sendV2(method: "vm.workspace_new", params: params, responseTimeout: 240)
+            if jsonOutput { print(jsonString(response)); return }
+            let remote = (response["remote_workspace_id"] as? String) ?? "?"
+            let local = (response["workspace_id"] as? String) ?? "?"
+            print("OK workspace=\(local) remote_workspace=\(remote) machine=\(machine)")
+        case "open":
+            guard positional.count == 2 else { throw CLIError(message: Self.vmWorkspaceUsage) }
+            var params: [String: Any] = ["id": machine, "workspace_id": positional[1]]
+            // "Open All Here" / "Open All in New Tabs" / a drop on a pane edge: the same
+            // destination flags `surface open` takes, on top of the remote workspace.
+            here = here || tabs || pane != nil || localWorkspace != nil
+            if direction != nil, pane == nil {
+                throw CLIError(message: "vm workspace open: --left/--right/--up/--down need --pane <id|ref>\n\n\(Self.vmWorkspaceUsage)")
+            }
+            if here {
+                params["here"] = true
+                if let localWorkspace { params["target_workspace_id"] = localWorkspace }
+                if let pane { params["pane_id"] = pane }
+                if let direction { params["direction"] = direction }
+                if tabs { params["placement"] = "tab" }
+            }
+            let response = try client.sendV2(method: "vm.workspace_open", params: params, responseTimeout: 240)
+            if jsonOutput { print(jsonString(response)); return }
+            let local = (response["workspace_id"] as? String) ?? "?"
+            let opened = (response["opened"] as? Int) ?? 0
+            print("OK workspace=\(local) opened=\(opened) machine=\(machine)\(here ? " here" : "")")
+        case "close":
+            guard positional.count == 2 else { throw CLIError(message: Self.vmWorkspaceUsage) }
+            let response = try client.sendV2(method: "vm.workspace_close", params: ["id": machine, "workspace_id": positional[1]], responseTimeout: 120)
+            if jsonOutput { print(jsonString(response)); return }
+            print("OK closed workspace \(positional[1]) on \(machine) (terminals kept; see Terminals pool)")
+        case "rename":
+            guard positional.count == 3 else { throw CLIError(message: Self.vmWorkspaceUsage) }
+            let response = try client.sendV2(
+                method: "vm.workspace_rename",
+                params: ["id": machine, "workspace_id": positional[1], "name": positional[2]],
+                responseTimeout: 120
+            )
+            if jsonOutput { print(jsonString(response)); return }
+            print("OK renamed workspace \(positional[1]) to \"\(positional[2])\" on \(machine)")
+        case "rm", "delete":
+            guard positional.count == 2 else { throw CLIError(message: Self.vmWorkspaceUsage) }
+            let response = try client.sendV2(method: "vm.workspace_delete", params: ["id": machine, "workspace_id": positional[1]], responseTimeout: 240)
+            if jsonOutput { print(jsonString(response)); return }
+            let killed = (response["terminals_closed"] as? Int) ?? 0
+            print("OK deleted workspace \(positional[1]) on \(machine) (\(killed) terminal\(killed == 1 ? "" : "s") closed)")
+        default:
+            throw CLIError(message: "vm workspace: unknown verb '\(verb)'\n\n\(Self.vmWorkspaceUsage)")
+        }
+    }
+
+    /// `cmux vm terminal close|rename|send|read|wait`: the sidebar's terminal verbs over
+    /// the shared socket methods, plus headless agent primitives that do not project a pane.
+    func runVMTerminalCommand(rest: [String], client: SocketClient, jsonOutput: Bool) throws {
+        if rest.contains("--help") || rest.contains("-h") || rest.isEmpty {
+            print(Self.vmTerminalUsage)
+            return
+        }
+        let verb = rest[0]
+        let isSend = verb == "send" || verb == "write"
+        var tail = Array(rest.dropFirst())
+        // `--` ends option parsing: for `send`, everything after it is text, verbatim —
+        // including tokens that look like this command's own flags.
+        var literal: [String] = []
+        if let terminator = tail.firstIndex(of: "--") {
+            literal = Array(tail[(terminator + 1)...])
+            tail = Array(tail[..<terminator])
+        }
+        let (keysOpt, r1) = parseOption(tail, name: "--keys")
+        // `--pattern` / `--timeout` belong to `wait`; for `send` they are just text.
+        let (patternOpt, r2): (String?, [String]) = isSend ? (nil, r1) : parseOption(r1, name: "--pattern")
+        let (timeoutOpt, r3): (String?, [String]) = isSend ? (nil, r2) : parseOption(r2, name: "--timeout")
+        let args = r3.filter { $0 != "--json" }
+        // The two ids are never flags. After them, `send` types dash tokens verbatim
+        // (`ls -la`, `git log --oneline`); the other verbs reject unknown flags anywhere.
+        let misplaced = args.prefix(2).first(where: { $0.hasPrefix("-") })
+        if let unknown = misplaced ?? (isSend ? nil : args.first(where: { $0.hasPrefix("-") })) {
+            throw CLIError(message: "vm terminal: unknown flag '\(unknown)'\n\n\(Self.vmTerminalUsage)")
+        }
+        guard args.count >= 2 else { throw CLIError(message: Self.vmTerminalUsage) }
+        if !isSend, keysOpt != nil {
+            throw CLIError(message: "vm terminal \(verb): --keys belongs to `send`\n\n\(Self.vmTerminalUsage)")
+        }
+        if verb != "wait", patternOpt != nil || timeoutOpt != nil {
+            throw CLIError(message: "vm terminal \(verb): --pattern/--timeout belong to `wait`\n\n\(Self.vmTerminalUsage)")
+        }
+        let machine = args[0]
+        let terminalID = args[1]
+        switch verb {
+        case "close":
+            guard args.count == 2, literal.isEmpty else { throw CLIError(message: Self.vmTerminalUsage) }
+            let response = try client.sendV2(method: "vm.terminal_close", params: ["id": machine, "terminal_id": terminalID], responseTimeout: 120)
+            if jsonOutput { print(jsonString(response)); return }
+            print("OK closed terminal \(terminalID) on \(machine)")
+        case "send", "write":
+            let text = (Array(args.dropFirst(2)) + literal).joined(separator: " ")
+            let keys = (keysOpt ?? "").split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+            guard !text.isEmpty || !keys.isEmpty else {
+                throw CLIError(message: "vm terminal send: give text and/or --keys (e.g. --keys enter)\n\n\(Self.vmTerminalUsage)")
+            }
+            var params: [String: Any] = ["id": machine, "terminal_id": terminalID]
+            if !text.isEmpty { params["text"] = text }
+            if !keys.isEmpty { params["keys"] = keys }
+            let response = try client.sendV2(method: "vm.terminal_write", params: params, responseTimeout: 120)
+            if jsonOutput { print(jsonString(response)); return }
+            let wrote = (response["wrote"] as? Int) ?? 0
+            print("OK sent \(wrote) char\(wrote == 1 ? "" : "s")\(keys.isEmpty ? "" : " + keys " + keys.joined(separator: ",")) to \(terminalID) on \(machine)")
+        case "read", "screen":
+            guard args.count == 2, literal.isEmpty else { throw CLIError(message: Self.vmTerminalUsage) }
+            let response = try client.sendV2(method: "vm.terminal_read", params: ["id": machine, "terminal_id": terminalID], responseTimeout: 120)
+            if jsonOutput { print(jsonString(response)); return }
+            print((response["text"] as? String) ?? "")
+        case "wait":
+            guard args.count == 2, literal.isEmpty else { throw CLIError(message: Self.vmTerminalUsage) }
+            guard let pattern = patternOpt, !pattern.isEmpty else {
+                throw CLIError(message: "vm terminal wait: --pattern <regex> is required\n\n\(Self.vmTerminalUsage)")
+            }
+            let seconds = try Self.vmTerminalWaitSeconds(timeoutOpt)
+            let timeoutMs = max(1, Int((seconds * 1000).rounded()))
+            let response = try client.sendV2(
+                method: "vm.terminal_wait",
+                params: ["id": machine, "terminal_id": terminalID, "pattern": pattern, "timeout_ms": timeoutMs],
+                responseTimeout: TimeInterval(seconds + 20)
+            )
+            let matched = (response["matched"] as? Bool) ?? false
+            if jsonOutput {
+                print(jsonString(response))
+            } else if matched {
+                print("OK matched /\(pattern)/ on \(terminalID)")
+            }
+            // A timeout is a failure in every output mode: the JSON still prints, and the
+            // exit code says the pattern never appeared.
+            if !matched {
+                // Screen contents can contain source code, credentials, or other private
+                // terminal output. Keep the timeout diagnostic bounded to request context.
+                throw CLIError(message: "timed out after \(seconds)s waiting for /\(pattern)/ on \(terminalID)")
+            }
+        case "rename":
+            // A quoted shell argument is already one token. Requiring one token prevents
+            // accidental unquoted words from being silently reassembled into a different
+            // name and keeps the command grammar positional and unambiguous.
+            guard args.count == 3, literal.isEmpty else { throw CLIError(message: Self.vmTerminalUsage) }
+            // The socket is the canonical app boundary for rename semantics.
+            // Trim here only so CLI output and the wire value match; an empty
+            // string remains the explicit daemon clear value.
+            let name = args[2].trimmingCharacters(in: .whitespacesAndNewlines)
+            let response = try client.sendV2(
+                method: "vm.terminal_rename",
+                params: ["id": machine, "terminal_id": terminalID, "name": name],
+                responseTimeout: 120
+            )
+            if jsonOutput { print(jsonString(response)); return }
+            print(name.isEmpty
+                ? "OK cleared terminal \(terminalID) label on \(machine)"
+                : "OK renamed terminal \(terminalID) to \"\(name)\" on \(machine)")
+        default:
+            throw CLIError(message: "vm terminal: unknown verb '\(verb)'\n\n\(Self.vmTerminalUsage)")
+        }
+    }
+
+    /// The unambiguous placement-local rename path. A terminal can occur in more
+    /// than one daemon tab, so this command requires the tab id.
+    func runVMTabCommand(rest: [String], client: SocketClient, jsonOutput: Bool) throws {
+        if rest.contains("--help") || rest.contains("-h") || rest.isEmpty {
+            print(Self.vmTabUsage)
+            return
+        }
+        let args = rest.filter { $0 != "--json" }
+        if let unknown = args.first(where: { $0.hasPrefix("-") }) {
+            throw CLIError(message: "vm tab: unknown flag '\(unknown)'\n\n\(Self.vmTabUsage)")
+        }
+        guard args.count == 4, args[0] == "rename" else {
+            throw CLIError(message: Self.vmTabUsage)
+        }
+        let machine = args[1]
+        let tabID = args[2]
+        // The socket owns the shared rename policy. CLI trims for a stable
+        // display and preserves an empty string as the explicit clear value.
+        let name = args[3].trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !machine.isEmpty, !tabID.isEmpty else {
+            throw CLIError(message: Self.vmTabUsage)
+        }
+        let response = try client.sendV2(
+            method: "vm.tab_rename",
+            params: ["id": machine, "tab_id": tabID, "name": name],
+            responseTimeout: 120
+        )
+        if jsonOutput {
+            print(jsonString(response))
+        } else {
+            print(name.isEmpty
+                ? "OK cleared tab \(tabID) label on \(machine)"
+                : "OK renamed tab \(tabID) to \"\(name)\" on \(machine)")
+        }
+    }
+
+    func runVMTreeCommand(rest: [String], client: SocketClient, jsonOutput: Bool) throws {
+        if rest.contains("--help") || rest.contains("-h") {
+            print(Self.vmTreeUsage)
+            return
+        }
+        let refresh = hasFlag(rest, name: "--refresh")
+        if let unknown = rest.first(where: { $0.hasPrefix("-") && !["--refresh", "--json"].contains($0) }) {
+            throw CLIError(message: "vm tree: unknown flag '\(unknown)'\n\n\(Self.vmTreeUsage)")
+        }
+        let positional = rest.filter { !$0.hasPrefix("-") }
+        guard positional.count <= 1 else {
+            throw CLIError(message: Self.vmTreeUsage)
+        }
+        var params: [String: Any] = [:]
+        if let machine = positional.first { params["machine"] = machine }
+        if refresh { params["refresh"] = true }
+        let response = try client.sendV2(method: "surface.catalog", params: params, responseTimeout: 180)
+        if jsonOutput {
+            print(jsonString(response))
+            return
+        }
+        let machines = (response["machines"] as? [[String: Any]]) ?? []
+        let resources = (response["resources"] as? [[String: Any]]) ?? []
+        guard !machines.isEmpty else {
+            print(String(localized: "cli.vm.tree.empty", defaultValue: "No cloud machines. Try: cmux vm new"))
+            return
+        }
+        // Local terminals group by the workspace that shows them; titles come from the
+        // workspace list (best effort — an id stands in when the list is unavailable).
+        var workspaceTitles: [String: String] = [:]
+        if machines.contains(where: { ($0["local"] as? Bool) == true }),
+           let list = try? client.sendV2(method: "workspace.list"),
+           let workspaces = list["workspaces"] as? [[String: Any]] {
+            for workspace in workspaces {
+                guard let id = workspace["id"] as? String else { continue }
+                let title = (workspace["title"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                let ref = (workspace["ref"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                workspaceTitles[id.uppercased()] = [title, ref].compactMap { $0 }.joined(separator: "  ")
+            }
+        }
+        for (index, machine) in machines.enumerated() {
+            if index > 0 { print("") }
+            let machineId = (machine["id"] as? String) ?? ""
+            let own = resources.filter { ($0["machine"] as? String) == machineId }
+            for line in Self.vmTreeLines(machine: machine, resources: own, workspaceTitles: workspaceTitles) {
+                print(line)
+            }
+        }
+    }
+
+    private static func vmTreeNumber(_ value: Any?) -> Double? {
+        if let v = value as? Double { return v }
+        if let v = value as? Int { return Double(v) }
+        if let v = value as? Int64 { return Double(v) }
+        return nil
+    }
+
+    /// The human rendering of one catalog machine with its resources. Pure, so the shape is
+    /// testable and the same lines can back other surfaces. `workspaceTitles` maps local
+    /// workspace ids (uppercased) to their sidebar title for This Mac's grouping.
+    static func vmTreeLines(machine: [String: Any], resources: [[String: Any]], workspaceTitles: [String: String] = [:]) -> [String] {
+        let id = (machine["id"] as? String) ?? "?"
+        let isLocal = (machine["local"] as? Bool) == true || id == "local"
+        let terminals = resources.filter { ($0["kind"] as? String) == "terminal" }
+        let browsers = resources.filter { ($0["kind"] as? String) == "browser" }
+        // "display" is the wire form; "screen" is what a pre-rename app still says.
+        let displays = resources.filter { ($0["kind"] as? String) == "display" || ($0["kind"] as? String) == "screen" }
+        var lines: [String] = []
+
+        if isLocal {
+            let name = (machine["name"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            var header = String(localized: "cli.vm.tree.thisMac", defaultValue: "This Mac")
+            if let name { header += "  \(name)" }
+            header += "  · " + String(
+                format: String(localized: "cli.vm.tree.localSummary", defaultValue: "%1$d terminals · %2$d browsers"),
+                terminals.count, browsers.count
+            )
+            lines.append(header)
+            lines.append("  " + String(localized: "cli.vm.tree.terminals", defaultValue: "terminals/"))
+            if terminals.isEmpty {
+                lines.append("    " + String(localized: "cli.vm.tree.noLocal", defaultValue: "(no terminals open)"))
+            }
+            // Group by the local workspace that projects each terminal, keeping first-seen order.
+            var groups: [(key: String, label: String, items: [[String: Any]])] = []
+            for terminal in terminals {
+                let workspaceId = ((terminal["open_workspace_ids"] as? [String])?.first ?? "").uppercased()
+                let label = workspaceTitles[workspaceId]
+                    ?? (workspaceId.isEmpty
+                        ? String(localized: "cli.vm.tree.unknownWorkspace", defaultValue: "(not in a workspace)")
+                        : String(workspaceId.prefix(8)))
+                if let index = groups.firstIndex(where: { $0.key == workspaceId }) {
+                    groups[index].items.append(terminal)
+                } else {
+                    groups.append((key: workspaceId, label: label, items: [terminal]))
+                }
+            }
+            for group in groups {
+                lines.append("    \(group.label)")
+                for terminal in group.items {
+                    lines.append("      " + vmTreeResourceCell(terminal, openHint: "cmux surface open"))
+                }
+            }
+            if !browsers.isEmpty {
+                lines.append("  " + String(localized: "cli.vm.tree.browsers", defaultValue: "browsers/"))
+                for browser in browsers {
+                    let resourceId = (browser["id"] as? String) ?? "?"
+                    let title = (browser["title"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                    let url = (browser["url"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                    lines.append("    " + [title, url].compactMap { $0 }.joined(separator: "  ") + "  (cmux surface open \(resourceId))")
+                }
+            }
+            return lines
+        }
+
+        let status = (machine["status"] as? String) ?? "unknown"
+        var facts: [String] = []
+        if let memoryMb = vmTreeNumber(machine["memory_mb"]), memoryMb > 0 {
+            facts.append(String(format: "%.0f GB", memoryMb / 1024))
+        }
+        if let diskMb = vmTreeNumber(machine["disk_mb"]), diskMb > 0 {
+            facts.append(String(format: String(localized: "cli.vm.tree.disk", defaultValue: "%.0f GB disk"), diskMb / 1024))
+        }
+        let linkState = (machine["link_state"] as? String) ?? ((machine["link"] as? [String: Any])?["state"] as? String) ?? ""
+        let linkError = ((machine["link_error"] as? String) ?? ((machine["link"] as? [String: Any])?["error"] as? String))
+            .flatMap { $0.isEmpty ? nil : $0 }
+        if !linkState.isEmpty, linkState != "n/a" {
+            facts.append(String(format: String(localized: "cli.vm.tree.link", defaultValue: "link %@"), linkState))
+        }
+        lines.append(facts.isEmpty ? "\(id)  \(status)" : "\(id)  \(status)  · " + facts.joined(separator: " · "))
+
+        lines.append("  " + String(localized: "cli.vm.tree.workspaces", defaultValue: "workspaces/"))
+        // Remote workspaces, in cmux-tui index order: the machine payload lists them all
+        // (so an empty workspace still shows), and resource views fill their layout.
+        var workspaces: [(
+            id: String,
+            name: String,
+            index: Int,
+            focused: Bool,
+            placements: [VMTreePlacement]
+        )] = []
+        // Terminal views can be numerous; keep membership assignment O(1)
+        // instead of scanning every workspace for every view.
+        var workspaceIndexByID: [String: Int] = [:]
+        for raw in (machine["remote_workspaces"] as? [[String: Any]]) ?? [] {
+            guard let workspaceId = raw["id"] as? String, !workspaceId.isEmpty else { continue }
+            if let index = workspaceIndexByID[workspaceId] {
+                // A defensive merge keeps malformed/replayed machine lists from
+                // rendering the same workspace twice.
+                if workspaces[index].name.isEmpty {
+                    workspaces[index].name = (raw["name"] as? String) ?? ""
+                }
+                workspaces[index].focused = workspaces[index].focused || (raw["focused"] as? Bool) == true
+            } else {
+                workspaceIndexByID[workspaceId] = workspaces.count
+                workspaces.append((
+                    id: workspaceId,
+                    name: (raw["name"] as? String) ?? "",
+                    index: vmTreeNumber(raw["index"]).map { Int($0) } ?? Int.max,
+                    focused: (raw["focused"] as? Bool) == true,
+                    placements: []
+                ))
+            }
+        }
+        for resource in resources {
+            // Every workspace view contributes a pointer row: one placement per daemon
+            // tab, the same partition the sidebar draws (grouped by pane below).
+            let kind = resource["kind"] as? String
+            guard ["terminal", "browser", "display", "screen"].contains(kind ?? "") else { continue }
+            var placements: [(workspace: [String: Any], view: [String: Any]?)] = []
+            if let views = resource["remote_views"] as? [[String: Any]] {
+                for view in views {
+                    guard let workspace = view["workspace"] as? [String: Any] else { continue }
+                    placements.append((workspace, view))
+                }
+            } else if let workspace = resource["remote_workspace"] as? [String: Any] {
+                // Only pre-multi-view payloads fall back to this field. An
+                // explicit empty `remote_views` is authoritative.
+                placements.append((workspace, nil))
+            }
+            for placement in placements {
+                guard let workspaceId = placement.workspace["id"] as? String, !workspaceId.isEmpty else { continue }
+                let member = VMTreePlacement(resource: resource, view: placement.view)
+                if let index = workspaceIndexByID[workspaceId] {
+                    workspaces[index].placements.append(member)
+                } else {
+                    workspaceIndexByID[workspaceId] = workspaces.count
+                    workspaces.append((
+                        id: workspaceId,
+                        name: (placement.workspace["name"] as? String) ?? "",
+                        index: vmTreeNumber(placement.workspace["index"]).map { Int($0) } ?? Int.max,
+                        focused: (placement.workspace["focused"] as? Bool) == true,
+                        placements: [member]
+                    ))
+                }
+            }
+        }
+        workspaces.sort {
+            $0.index != $1.index ? $0.index < $1.index : $0.id < $1.id
+        }
+        // The link state decides what an empty workspace list means: a machine that is
+        // asleep, still connecting, or whose link failed has workspaces the tree simply
+        // cannot see yet, and hiding that behind "none yet" hides the failure.
+        switch linkState {
+        case "connecting":
+            lines.append("    " + String(localized: "cli.vm.tree.link.connecting", defaultValue: "connecting…"))
+        case "asleep":
+            lines.append("    " + String(
+                format: String(localized: "cli.vm.tree.link.asleep", defaultValue: "asleep — cmux vm open %@ wakes it"),
+                id
+            ))
+        case "error", "unavailable":
+            lines.append("    " + String(
+                format: String(localized: "cli.vm.tree.link.error", defaultValue: "⚠ link %@: %@"),
+                linkState,
+                linkError ?? linkState
+            ))
+            lines.append("    " + String(
+                format: String(localized: "cli.vm.tree.link.retry", defaultValue: "retry: cmux vm tree %@ --refresh"),
+                id
+            ))
+        default:
+            if workspaces.isEmpty {
+                lines.append("    " + String(
+                    format: String(localized: "cli.vm.tree.noWorkspaces", defaultValue: "(none yet — cmux vm open %@ starts one)"),
+                    id
+                ))
+            }
+        }
+        for workspace in workspaces {
+            let workspaceId = workspace.id
+            let name = workspace.name.isEmpty ? workspaceId : workspace.name
+            lines.append("    \(name)  \(workspaceId)\(workspace.focused ? "  *" : "")  (cmux vm open \(id)/\(workspaceId))")
+            // Rows follow the layout, as in the sidebar, with every tab as a
+            // sibling leaf. Pane grouping is retained only for ordering.
+            for placement in vmTreeLayoutRows(workspace.placements) {
+                lines.append("      " + vmTreeWorkspaceCell(placement, machineID: id, workspaceID: workspaceId))
+            }
+        }
+        // Ports come before displays, matching the Cloud sidebar's group order.
+        let ports = browsers.compactMap { browser -> (Int, String, [String: Any])? in
+            // Snapshot parsing folds localhost browser views into the provider's
+            // canonical `port:<n>` resource. Non-port daemon browsers remain
+            // workspace-only and therefore do not enter this section.
+            guard let key = browser["key"] as? String,
+                  key.hasPrefix("port:"),
+                  let port = Int(key.dropFirst("port:".count)),
+                  (1...65_535).contains(port),
+                  key == "port:\(port)" else { return nil }
+            return (port, key, browser)
+        }.sorted { lhs, rhs in
+            lhs.0 != rhs.0 ? lhs.0 < rhs.0 : lhs.1 < rhs.1
+        }
+        if !ports.isEmpty {
+            lines.append("  " + String(localized: "cli.vm.tree.ports", defaultValue: "ports/"))
+            for (port, _, browser) in ports {
+                let label = (browser["detail"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                let open = (browser["open"] as? Bool) == true
+                var cell = "    \(port)\(label.map { "  \($0)" } ?? "")  (cmux vm open \(id):port/\(port))"
+                if open { cell += "  " + String(localized: "cli.vm.tree.openMarker", defaultValue: "(open)") }
+                lines.append(cell)
+            }
+        }
+
+        // Displays are catalog resources, so emit one addressable row per
+        // screen instead of collapsing several screens into one synthetic desktop.
+        lines.append("  " + String(localized: "cli.vm.tree.displays", defaultValue: "Displays/"))
+        if displays.isEmpty {
+            lines.append("    " + String(localized: "cli.vm.tree.noDisplays", defaultValue: "(none available)"))
+        } else {
+            for display in displays {
+                lines.append("    " + vmTreeResourceCell(display, openHint: "cmux surface open", showFullKey: true))
+            }
+        }
+
+        // Every machine-owned terminal stays in the flat index even while its
+        // link is connecting/asleep/failed. The link-status line above explains
+        // why workspace membership may be stale; hiding the terminals would
+        // make an otherwise addressable resource disappear from the catalog.
+        let terminalsLabel = CMUXDiffViewerLocalization.string(
+            "cli.vm.tree.terminals",
+            defaultValue: "terminals/"
+        )
+        let noTerminalsLabel = CMUXDiffViewerLocalization.string(
+            "cli.vm.tree.noTerminals",
+            defaultValue: "(no terminals)"
+        )
+        lines.append("  " + terminalsLabel)
+        if terminals.isEmpty {
+            lines.append("    " + noTerminalsLabel)
+        } else {
+            var attached: [[String: Any]] = []
+            var detached: [[String: Any]] = []
+            for terminal in terminals {
+                if vmTreeTerminalIsDetached(terminal) {
+                    detached.append(terminal)
+                } else {
+                    attached.append(terminal)
+                }
+            }
+            for terminal in attached {
+                lines.append("    " + vmTreeResourceCell(terminal, openHint: "cmux surface open"))
+            }
+            if !detached.isEmpty {
+                lines.append("    " + String(localized: "cli.vm.tree.detached", defaultValue: "(detached — no tab on the machine shows these)"))
+                for terminal in detached {
+                    lines.append("      " + vmTreeResourceCell(terminal, openHint: "cmux surface open"))
+                }
+            }
+        }
+        return lines
+    }
+
+    /// Whether a catalog terminal is live and has no resolved daemon views.
+    /// Exited records with stale tab ids are intentionally not detached.
+    private static func vmTreeTerminalIsDetached(_ terminal: [String: Any]) -> Bool {
+        let lifecycle = (terminal["lifecycle"] as? String) ?? "running"
+        guard lifecycle == "launching" || lifecycle == "running" else { return false }
+        if let views = terminal["remote_views"] as? [[String: Any]] {
+            return views.isEmpty
+        }
+        if let viewCount = vmTreeNumber(terminal["view_count"]) {
+            return viewCount == 0
+        }
+        return terminal["remote_workspace"] == nil
+    }
+
+    /// One workspace placement as the catalog payload describes it: the resource and the
+    /// daemon tab (`remote_views` entry) showing it in this workspace; nil for payloads
+    /// that predate views.
+    struct VMTreePlacement {
+        let resource: [String: Any]
+        let view: [String: Any]?
+    }
+
+    /// Maps wire placements through the same ``RemoteWorkspaceLayout`` used by the sidebar.
+    /// Formatting stays in the CLI; pane grouping, ordering, and active-tab selection do not.
+    static func vmTreeLayoutRows(_ placements: [VMTreePlacement]) -> [VMTreePlacement] {
+        func position(_ view: [String: Any]?, _ key: String) -> Int? {
+            vmTreeNumber(view?[key]).flatMap { Int(exactly: $0) }
+        }
+        let kindRank: [String: Int] = ["terminal": 0, "browser": 1, "display": 2, "screen": 2]
+        let layout = RemoteWorkspaceLayout(placements: placements.map { placement in
+            RemoteWorkspacePlacement(
+                screenID: placement.view?["screen_id"] as? String,
+                paneID: placement.view?["pane_id"] as? String,
+                screenIndex: position(placement.view, "screen_index"),
+                paneIndex: position(placement.view, "pane_index"),
+                tabIndex: position(placement.view, "index"),
+                focused: placement.view?["focused"] as? Bool == true,
+                kindOrder: kindRank[placement.resource["kind"] as? String ?? ""] ?? 3
+            )
+        })
+        return layout.flatPlacementIndices.map { placements[$0] }
+    }
+
+    /// A workspace pointer cell: terminals address through the workspace (`cmux vm open <m>/<ws>/<term>`),
+    /// and through the tab when the placement names one (`…/<term>/<tab>`). Browsers and displays
+    /// address through `cmux surface open`.
+    private static func vmTreeWorkspaceCell(_ placement: VMTreePlacement, machineID: String, workspaceID: String) -> String {
+        var resource = placement.resource
+        if let name = (placement.view?["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
+            resource["title"] = name
+        }
+        if (resource["kind"] as? String) == "terminal" {
+            let key = (resource["key"] as? String) ?? (resource["id"] as? String) ?? "?"
+            let tabID = (placement.view?["tab_id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let command: String
+            if let tabID, !tabID.isEmpty {
+                command = "cmux vm open \(machineID)/\(workspaceID)/\(key)/\(tabID)"
+            } else {
+                command = "cmux vm open \(machineID)/\(workspaceID)/\(key)"
+            }
+            return vmTreeResourceCell(resource, openHint: command, addressKey: "key", command: command)
+        }
+        return vmTreeResourceCell(resource, openHint: "cmux surface open", showFullKey: true)
+    }
+
+    private static func vmTreeResourceCell(
+        _ terminal: [String: Any],
+        openHint: String,
+        addressKey: String = "id",
+        showFullKey: Bool = false,
+        command: String? = nil
+    ) -> String {
+        let resourceId = (terminal["id"] as? String) ?? "?"
+        let key = (terminal["key"] as? String) ?? resourceId
+        let lifecycle = (terminal["lifecycle"] as? String) ?? "running"
+        let glyph: String
+        switch lifecycle {
+        case "launching": glyph = "…"
+        case "exited": glyph = "○"
+        case "unavailable": glyph = "◌"
+        default: glyph = "●"
+        }
+        let displayKey = addressKey == "key" || showFullKey ? key : String(key.prefix(8))
+        var cell = "\(glyph) \(displayKey)"
+        if let title = terminal["title"] as? String, !title.isEmpty { cell += "  \(title)" }
+        if let cwd = terminal["detail"] as? String, !cwd.isEmpty { cell += "  \(cwd)" }
+        if let agent = terminal["agent"] as? [String: Any], let state = agent["state"] as? String, !state.isEmpty {
+            let source = (agent["source"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            let label = source.map { "\($0) \(state)" } ?? state
+            cell += "  " + String(format: String(localized: "cli.vm.tree.agent", defaultValue: "[agent %@]"), label)
+        }
+        if let open = (terminal["open_surface_ids"] as? [String])?.first, !open.isEmpty {
+            cell += "  " + String(format: String(localized: "cli.vm.tree.open", defaultValue: "(open: %@)"), String(open.prefix(8)))
+        }
+        let address = command ?? (addressKey == "key" ? "\(openHint)/\(key)" : "\(openHint) \(resourceId)")
+        cell += "  (\(address))"
+        return cell
+    }
+
+    /// `vm open <target>` for every form except the bare machine, which cmux.swift routes to
+    /// vmOpenShell itself (that path is file-private there). One resolver, so the sidebar
+    /// tree, the CLI, and agents open a terminal/desktop/port through the same socket methods.
+    func runVMOpenTarget(
+        _ target: VMOpenTarget,
+        workspaceRaw: String?,
+        focus: Bool?,
+        printOnly: Bool,
+        client: SocketClient,
+        jsonOutput: Bool
+    ) throws {
+        switch target {
+        case .machine:
+            throw CLIError(message: Self.vmOpenUsage)
+        case .desktop(let machine):
+            let opened = try openVMDesktopSplit(
+                vmId: machine,
+                client: client,
+                workspaceId: workspaceRaw ?? vmAttachedWorkspaceId(vmId: machine, client: client),
+                focus: focus ?? false,
+                jsonOutput: jsonOutput
+            )
+            guard opened else {
+                throw CLIError(message: String(
+                    format: String(localized: "cli.vm.desktop.unavailable", defaultValue: "%@ has no desktop to show. New machines boot a screen; this one was created shell-only (`--base`)."),
+                    machine
+                ))
+            }
+        case .port(let machine, let port):
+            try openVMPort(vmId: machine, port: port, printOnly: printOnly, workspaceRaw: workspaceRaw, client: client, jsonOutput: jsonOutput)
+        case .terminal(let machine, let remoteWorkspace, let terminal, let tab):
+            // The path contains a remote workspace selector. Resolve it before
+            // opening so the catalog can retain the exact placement instead of
+            // choosing an arbitrary view of a multi-view terminal. The machine row,
+            // rather than a terminal-derived list, is authoritative and includes
+            // empty workspaces.
+            let catalog = try client.sendV2(method: "surface.catalog", params: ["machine": machine], responseTimeout: 120)
+            let remoteWorkspaceID = try Self.vmRemoteWorkspaceID(
+                remoteWorkspace,
+                machine: machine,
+                catalog: catalog
+            )
+            let placement = VMRemoteWorkspaceResolver().resolveVMRemoteTerminalPlacement(
+                terminal,
+                machine: machine,
+                workspaceID: remoteWorkspaceID,
+                in: catalog,
+                tabID: tab
+            )
+            guard case .resolved(let terminalID, let remoteTabID) = placement else {
+                throw Self.vmTerminalPlacementResolutionError(
+                    placement,
+                    machine: machine,
+                    workspace: remoteWorkspace,
+                    selector: terminal
+                )
+            }
+            try openVMTerminal(
+                machine: machine,
+                terminalId: terminalID,
+                remoteWorkspaceID: remoteWorkspaceID,
+                remoteTabID: remoteTabID,
+                workspaceRaw: workspaceRaw,
+                focus: focus,
+                client: client,
+                jsonOutput: jsonOutput
+            )
+        case .workspace(let machine, let workspace):
+            let catalog = try client.sendV2(method: "surface.catalog", params: ["machine": machine], responseTimeout: 120)
+            let remoteWorkspaceID = try Self.vmRemoteWorkspaceID(
+                workspace,
+                machine: machine,
+                catalog: catalog
+            )
+            let resources = (catalog["resources"] as? [[String: Any]]) ?? []
+            switch VMRemoteWorkspaceResolver().resolveVMRemoteWorkspaceTerminal(
+                resources,
+                machine: machine,
+                workspaceID: remoteWorkspaceID
+            ) {
+            case .resolved(let terminalID, let remoteTabID):
+                try openVMTerminal(
+                    machine: machine,
+                    terminalId: terminalID,
+                    remoteWorkspaceID: remoteWorkspaceID,
+                    remoteTabID: remoteTabID,
+                    workspaceRaw: workspaceRaw,
+                    focus: focus,
+                    client: client,
+                    jsonOutput: jsonOutput
+                )
+                return
+            case .ambiguous(let selector):
+                throw Self.vmTerminalPlacementResolutionError(
+                    .ambiguous,
+                    machine: machine,
+                    workspace: workspace,
+                    selector: selector
+                )
+            case .unavailable(let selector):
+                throw Self.vmTerminalPlacementResolutionError(
+                    .unavailable,
+                    machine: machine,
+                    workspace: workspace,
+                    selector: selector
+                )
+            case .none:
+                break
+            }
+            // A remote workspace with nothing running: start a shell in it and show that.
+            var params: [String: Any] = ["machine": machine, "remote_workspace_id": remoteWorkspaceID, "open": true]
+            if let workspaceRaw { params["workspace_id"] = workspaceRaw }
+            if let focus { params["focus"] = focus }
+            let response = try client.sendV2(method: "surface.new_terminal", params: params, responseTimeout: 180)
+            if jsonOutput {
+                print(jsonString(response))
+                return
+            }
+            let terminalId = (response["terminal_id"] as? String) ?? "?"
+            let surfaceId = (response["surface_id"] as? String) ?? ""
+            print("OK terminal=\(terminalId) workspace=\(remoteWorkspaceID)\(surfaceId.isEmpty ? "" : " surface=\(surfaceId)")")
+        }
+    }
+
+    func openVMTerminal(
+        machine: String,
+        terminalId: String,
+        remoteWorkspaceID: String? = nil,
+        remoteTabID: String? = nil,
+        workspaceRaw: String?,
+        focus: Bool?,
+        client: SocketClient,
+        jsonOutput: Bool
+    ) throws {
+        // One terminal is one catalog resource: `<machine>/terminal/<term_…>`. Reuses the
+        // pane already showing it (the catalog's default) instead of opening a second one.
+        var params: [String: Any] = ["resource": "\(machine)/terminal/\(terminalId)"]
+        if let workspaceRaw { params["workspace_id"] = workspaceRaw }
+        if let remoteWorkspaceID { params["remote_workspace_id"] = remoteWorkspaceID }
+        if let remoteTabID { params["remote_tab_id"] = remoteTabID }
+        if let focus { params["focus"] = focus }
+        let response = try client.sendV2(method: "surface.project", params: params, responseTimeout: 180)
+        if jsonOutput {
+            print(jsonString(response))
+            return
+        }
+        let surfaceId = (response["surface_id"] as? String) ?? "?"
+        let workspaceId = (response["workspace_id"] as? String) ?? "?"
+        let reused = (response["reused"] as? Bool) == true
+        print("OK surface=\(surfaceId) workspace=\(workspaceId) terminal=\(terminalId)\(reused ? " reused=true" : "")")
+    }
+
+    /// The one port path: `vm open <id> <port>`, `vm open <id>:port/<n>`, and the tree all
+    /// land here. `--print` only mints the URL (vm.open_port); otherwise the app opens the
+    /// browser pane and reports the surface (vm.port_open).
+    func openVMPort(
+        vmId: String,
+        port: Int,
+        printOnly: Bool,
+        workspaceRaw: String?,
+        client: SocketClient,
+        jsonOutput: Bool
+    ) throws {
+        if printOnly {
+            let payload = try client.sendV2(method: "vm.open_port", params: ["id": vmId, "port": port], responseTimeout: 90)
+            if jsonOutput {
+                print(jsonString(payload))
+                return
+            }
+            print("\(vmId):\(port)")
+            print("  \((payload["open_url"] as? String) ?? "")")
+            return
+        }
+        var params: [String: Any] = ["id": vmId, "port": port]
+        if let workspaceRaw { params["workspace_id"] = workspaceRaw }
+        let payload = try client.sendV2(method: "vm.port_open", params: params, responseTimeout: 120)
+        if jsonOutput {
+            print(jsonString(payload))
+            return
+        }
+        print("\(vmId):\(port)")
+        print("  \((payload["url"] as? String) ?? (payload["open_url"] as? String) ?? "")")
+        if let surfaceId = payload["surface_id"] as? String, !surfaceId.isEmpty {
+            print("OK surface=\(surfaceId)")
+        }
+    }
+
+    // MARK: - cmux surface ls|open|new-terminal
+
+    /// `cmux surface <sub>` for the catalog verbs. `resume` stays in cmux.swift.
+    func runSurfaceCatalogCommand(subcommand: String, rest: [String], client: SocketClient, jsonOutput: Bool) throws {
+        if rest.contains("--help") || rest.contains("-h") {
+            print(Self.surfaceUsage)
+            return
+        }
+        switch subcommand {
+        case "ls", "list", "tree", "catalog":
+            try runVMTreeCommand(rest: rest, client: client, jsonOutput: jsonOutput)
+
+        case "open", "project":
+            let (workspaceOpt, rest1) = parseOption(rest, name: "--workspace")
+            let (paneOpt, rest2) = parseOption(rest1, name: "--pane")
+            let (focusOpt, rest3) = parseOption(rest2, name: "--focus")
+            let sides: [String: String] = ["--left": "left", "--right": "right", "--up": "up", "--down": "down"]
+            let direction = rest3.compactMap { sides[$0] }.first
+            let tab = hasFlag(rest3, name: "--tab")
+            let new = hasFlag(rest3, name: "--new")
+            let known = Set(sides.keys).union(["--tab", "--new", "--json"])
+            if let unknown = rest3.first(where: { $0.hasPrefix("-") && !known.contains($0) }) {
+                throw CLIError(message: "surface open: unknown flag '\(unknown)'\n\n\(Self.surfaceUsage)")
+            }
+            let positional = rest3.filter { !$0.hasPrefix("-") }
+            guard positional.count == 1, let resource = positional.first, resource.split(separator: "/", maxSplits: 2).count == 3 else {
+                throw CLIError(message: Self.surfaceUsage)
+            }
+            if (direction != nil || tab) && paneOpt == nil {
+                throw CLIError(message: "surface open: --left/--right/--up/--down/--tab need --pane <id|ref>\n\n\(Self.surfaceUsage)")
+            }
+            var params: [String: Any] = ["resource": resource]
+            if let workspaceOpt { params["workspace_id"] = workspaceOpt }
+            if let paneOpt { params["pane_id"] = paneOpt }
+            if let direction { params["direction"] = direction }
+            if tab { params["placement"] = "tab" }
+            if new { params["reuse"] = false }
+            switch focusOpt?.lowercased() {
+            case nil: break
+            case "true", "1", "yes": params["focus"] = true
+            case "false", "0", "no": params["focus"] = false
+            default: throw CLIError(message: "surface open: --focus takes true or false\n\n\(Self.surfaceUsage)")
+            }
+            let response: [String: Any]
+            do {
+                response = try client.sendV2(method: "surface.project", params: params, responseTimeout: 180)
+            } catch let error as CLIError where error.message.contains("Unknown surface") {
+                throw CLIError(message: String(
+                    format: String(localized: "cli.surface.open.unknownResource", defaultValue: "Unknown surface '%@'. See: cmux surface ls --json"),
+                    resource
+                ))
+            }
+            if jsonOutput {
+                print(jsonString(response))
+                return
+            }
+            let surfaceId = (response["surface_id"] as? String) ?? "?"
+            let workspaceId = (response["workspace_id"] as? String) ?? "?"
+            let reused = (response["reused"] as? Bool) == true
+            print("OK surface=\(surfaceId) workspace=\(workspaceId) resource=\(resource)\(reused ? " reused=true" : "")")
+
+        case "new-terminal", "new":
+            let (machineOpt, rest1) = parseOption(rest, name: "--machine")
+            let (cwdOpt, rest2) = parseOption(rest1, name: "--cwd")
+            let (nameOpt, rest3) = parseOption(rest2, name: "--name")
+            let (remoteWorkspaceOpt, rest4) = parseOption(rest3, name: "--remote-workspace")
+            let (workspaceOpt, rest5) = parseOption(rest4, name: "--workspace")
+            let noOpen = hasFlag(rest5, name: "--no-open")
+            var command: [String] = []
+            var flags = rest5
+            if let separator = rest5.firstIndex(of: "--") {
+                command = Array(rest5[(separator + 1)...])
+                flags = Array(rest5[..<separator])
+            }
+            if let unknown = flags.first(where: { $0.hasPrefix("-") && !["--no-open", "--json"].contains($0) }) {
+                throw CLIError(message: "surface new-terminal: unknown flag '\(unknown)'\n\n\(Self.surfaceUsage)")
+            }
+            guard let machine = machineOpt, !machine.isEmpty else {
+                throw CLIError(message: "surface new-terminal: --machine <id|local> is required\n\n\(Self.surfaceUsage)")
+            }
+            var params: [String: Any] = ["machine": machine, "open": !noOpen]
+            if !command.isEmpty { params["command"] = command }
+            if let cwdOpt { params["cwd"] = cwdOpt }
+            if let nameOpt { params["name"] = nameOpt }
+            if let remoteWorkspaceOpt { params["remote_workspace_id"] = remoteWorkspaceOpt }
+            if let workspaceOpt { params["workspace_id"] = workspaceOpt }
+            let response = try client.sendV2(method: "surface.new_terminal", params: params, responseTimeout: 240)
+            if jsonOutput {
+                print(jsonString(response))
+                return
+            }
+            let resource = (response["resource"] as? String) ?? "?"
+            let terminalId = (response["terminal_id"] as? String) ?? "?"
+            var line = "OK resource=\(resource) terminal=\(terminalId)"
+            if let surfaceId = response["surface_id"] as? String, !surfaceId.isEmpty { line += " surface=\(surfaceId)" }
+            if let workspaceId = response["workspace_id"] as? String, !workspaceId.isEmpty { line += " workspace=\(workspaceId)" }
+            print(line)
+
+        default:
+            throw CLIError(message: "Unsupported surface subcommand: \(subcommand)\n\n\(Self.surfaceUsage)")
+        }
+    }
+}

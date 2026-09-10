@@ -31,7 +31,7 @@ final class SocketConnectionAuthorizationState: Sendable {
         state.withLock { state in
             let policyChanged = state.accessMode != accessMode
             let passwordChanged = accessMode.requiresPasswordAuth
-                && state.passwordFingerprint != fingerprint
+                && !constantTimeEqual(state.passwordFingerprint, fingerprint)
             state.accessMode = accessMode
             state.passwordFingerprint = fingerprint
             if policyChanged || passwordChanged {
@@ -59,7 +59,7 @@ final class SocketConnectionAuthorizationState: Sendable {
         let fingerprint = fingerprint(effectivePassword)
         return state.withLock { state in
             guard state.accessMode.requiresPasswordAuth,
-                  state.passwordFingerprint != fingerprint else {
+                  !constantTimeEqual(state.passwordFingerprint, fingerprint) else {
                 return nil
             }
             state.passwordFingerprint = fingerprint

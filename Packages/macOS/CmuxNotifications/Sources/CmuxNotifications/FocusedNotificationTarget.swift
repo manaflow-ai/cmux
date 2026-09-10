@@ -1,16 +1,14 @@
 public import Foundation
 
-/// The focused workspace/surface for the focused-mark flow. Mirrors the
-/// app-target `FocusedNotificationTarget`; the marker only sees this value.
-public struct FocusedNotificationTarget: Sendable, Equatable {
-    /// The id of the focused workspace (tab).
-    public let tabId: UUID
-    /// The id of the focused surface within the workspace, if any.
-    public let surfaceId: UUID?
+/// The exact notification owner targeted by a focused unread command.
+///
+/// Workspace IDs and window-Dock owner IDs intentionally occupy separate cases.
+/// This prevents a focused Dock surface from being routed through workspace-only
+/// panel lookup and mutation paths.
+public enum FocusedNotificationTarget: Sendable, Equatable {
+    /// A surface in a workspace, or the workspace itself when `surfaceId` is nil.
+    case workspace(tabId: UUID, surfaceId: UUID?)
 
-    /// Creates a focused-target value.
-    public init(tabId: UUID, surfaceId: UUID?) {
-        self.tabId = tabId
-        self.surfaceId = surfaceId
-    }
+    /// An exact surface in a per-window Dock.
+    case windowDock(WindowDockUnreadTarget)
 }

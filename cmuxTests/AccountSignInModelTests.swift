@@ -35,8 +35,6 @@ struct AccountSignInModelTests {
         await Task.yield()
         flow.isPresentingSignIn = false
 
-        #expect(model.phase == .failed(.cancelled))
-
         model.openSignInInBrowser()
         #expect(model.browserOpenState == .opened)
         model.copySignInLink()
@@ -64,6 +62,48 @@ struct AccountSignInModelTests {
 
         #expect(model.phase == .signedIn(identity))
         #expect(flow.currentIdentity?.avatarURL == identity.avatarURL)
+    }
+
+    @Test
+    func cancelledAttemptReturnsToTheSignInPrompt() async {
+        let flow = FakeAccountSignInFlow()
+        let model = AccountSignInModel(flow: flow)
+        model.presentSignIn()
+        await Task.yield()
+        #expect(model.phase == .loading(.waiting))
+
+        // The popup ended without a recorded failure (user hit Cancel):
+        // the pane offers the Sign In button again instead of parking on
+        // a "Sign-in canceled" error.
+        flow.isPresentingSignIn = false
+
+        #expect(model.phase == .idle)
+    }
+
+    @Test
+    func attemptStartedElsewhereDoesNotHijackAnIdlePane() {
+        let flow = FakeAccountSignInFlow()
+        let model = AccountSignInModel(flow: flow)
+
+        // Another surface (e.g. the Sign In workspace) is presenting the
+        // shared attempt. A gate that never asked keeps its plain prompt.
+        flow.isPresentingSignIn = true
+
+        #expect(model.phase == .idle)
+    }
+
+    @Test
+    func presentSignInAdoptsTheAttemptAlreadyPresenting() {
+        let flow = FakeAccountSignInFlow()
+        flow.isPresentingSignIn = true
+        let model = AccountSignInModel(flow: flow)
+
+        model.presentSignIn()
+
+        // The in-flight popup is reused, not torn down or ignored.
+        #expect(flow.startCount == 0)
+        #expect(model.phase == .loading(.waiting))
+        #expect(model.signInURL == flow.issuedURL)
     }
 
     @Test
@@ -151,6 +191,10 @@ private final class FakeAccountSignInFlow: AccountSignInFlow {
     private(set) var copiedURL: URL?
     var openSucceeds = true
     var copySucceeds = true
+
+    var activeSignInURL: URL? {
+        isPresentingSignIn ? issuedURL : nil
+    }
 
     func startSignInForPane() -> URL? {
         startCount += 1

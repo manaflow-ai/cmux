@@ -63,6 +63,15 @@ public struct MobilePairedMac: Codable, Equatable, Sendable, Identifiable {
     /// User's custom icon override, synced per user. `nil` = the automatic icon.
     /// An SF Symbol name (ASCII, e.g. `"desktopcomputer"`) or an emoji.
     public var customIcon: String?
+    /// THIS iPhone's connection-method choice for this Mac app instance
+    /// ("iroh" or "tailscale"). Device-local like the legacy grants: excluded
+    /// from ``CodingKeys`` so it never rides account backup to another device.
+    /// `nil` = fall back to the app's default method.
+    public var connectionMethodRawValue: String? = nil
+    /// THIS iPhone's Direct-method dial candidates for this Mac app instance,
+    /// stored as JSON. Device-local and excluded from ``CodingKeys`` like the
+    /// connection method.
+    public var directAddressesRawJSON: String? = nil
 
     /// Stable identity of this saved app instance.
     ///
@@ -77,9 +86,10 @@ public struct MobilePairedMac: Codable, Equatable, Sendable, Identifiable {
     ///   - instanceTag: Authenticated app-instance tag, or `nil` for a legacy host.
     /// - Returns: An identifier unique to the physical Mac and app instance.
     public static func pairingID(macDeviceID: String, instanceTag: String?) -> String {
-        let canonicalDeviceID = cmxCanonicalDeviceID(macDeviceID)
-        guard let instanceTag, !instanceTag.isEmpty else { return canonicalDeviceID }
-        return "\(canonicalDeviceID)\u{1F}\(instanceTag)"
+        CmxMacAppInstanceIdentity(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        ).id
     }
 
     /// Splits a pairing identity received from backup into its physical Mac id
@@ -87,15 +97,8 @@ public struct MobilePairedMac: Codable, Equatable, Sendable, Identifiable {
     public static func pairingIdentity(
         from pairingID: String
     ) -> (macDeviceID: String, instanceTag: String?) {
-        let parts = pairingID.split(
-            separator: "\u{1F}",
-            maxSplits: 1,
-            omittingEmptySubsequences: false
-        )
-        guard parts.count == 2, !parts[1].isEmpty else {
-            return (cmxCanonicalDeviceID(pairingID), nil)
-        }
-        return (cmxCanonicalDeviceID(String(parts[0])), String(parts[1]))
+        let identity = CmxMacAppInstanceIdentity(id: pairingID)
+        return (identity.macDeviceID, identity.instanceTag)
     }
 
     /// The name to show: the user's custom override if set, else the Mac-reported
@@ -128,7 +131,9 @@ public struct MobilePairedMac: Codable, Equatable, Sendable, Identifiable {
         customColor: String? = nil,
         customIcon: String? = nil,
         instanceTag: String? = nil,
-        legacyTailscaleRoutes: [CmxAttachRoute]? = nil
+        legacyTailscaleRoutes: [CmxAttachRoute]? = nil,
+        connectionMethodRawValue: String? = nil,
+        directAddressesRawJSON: String? = nil
     ) {
         self.macDeviceID = macDeviceID
         self.displayName = displayName
@@ -143,5 +148,48 @@ public struct MobilePairedMac: Codable, Equatable, Sendable, Identifiable {
         self.customIcon = customIcon
         self.instanceTag = instanceTag
         self.legacyTailscaleRoutes = legacyTailscaleRoutes
+        self.connectionMethodRawValue = connectionMethodRawValue
+        self.directAddressesRawJSON = directAddressesRawJSON
+    }
+}
+
+/// One user-configured Direct dial candidate for a Computer, device-local.
+public struct MobilePairedMacDirectAddress: Codable, Equatable, Sendable, Identifiable {
+    public var id: String { port.map { "\(address):\($0)" } ?? address }
+    /// Host or IP literal the user says this Computer is reachable at.
+    public var address: String
+    /// Optional port override. `nil` = the Mac's advertised listener port.
+    public var port: Int?
+    /// Whether this candidate participates in Direct dialing.
+    public var enabled: Bool
+    /// Optional human-readable label ("Home LAN", "Office WireGuard").
+    public var label: String?
+
+    public init(address: String, port: Int? = nil, enabled: Bool = true, label: String? = nil) {
+        self.address = address
+        self.port = port
+        self.enabled = enabled
+        self.label = label
+    }
+}
+
+extension MobilePairedMac {
+    /// Decoded Direct dial candidates (empty when none configured).
+    public var directAddresses: [MobilePairedMacDirectAddress] {
+        guard let directAddressesRawJSON,
+              let data = directAddressesRawJSON.data(using: .utf8),
+              let decoded = try? JSONDecoder().decode(
+                  [MobilePairedMacDirectAddress].self, from: data
+              ) else { return [] }
+        return decoded
+    }
+
+    /// Encodes Direct dial candidates for the store's device-local column.
+    public static func encodeDirectAddresses(
+        _ addresses: [MobilePairedMacDirectAddress]
+    ) -> String? {
+        guard !addresses.isEmpty,
+              let data = try? JSONEncoder().encode(addresses) else { return nil }
+        return String(data: data, encoding: .utf8)
     }
 }

@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// A coalescing, back-pressured queue of pending terminal input.
 ///
@@ -19,6 +19,8 @@ public struct MobileTerminalInputSendBuffer: Equatable, Sendable {
         public var terminalID: MobileTerminalPreview.ID
         /// The accumulated text for this chunk.
         public var text: String
+        /// The newest Return-terminated send represented by this chunk.
+        public var sendStatusOperationID: UUID?
 
         /// Creates a pending-input chunk.
         /// - Parameters:
@@ -28,11 +30,13 @@ public struct MobileTerminalInputSendBuffer: Equatable, Sendable {
         public init(
             workspaceID: MobileWorkspacePreview.ID,
             terminalID: MobileTerminalPreview.ID,
-            text: String
+            text: String,
+            sendStatusOperationID: UUID? = nil
         ) {
             self.workspaceID = workspaceID
             self.terminalID = terminalID
             self.text = text
+            self.sendStatusOperationID = sendStatusOperationID
         }
     }
 
@@ -56,7 +60,8 @@ public struct MobileTerminalInputSendBuffer: Equatable, Sendable {
     public mutating func enqueue(
         _ text: String,
         workspaceID: MobileWorkspacePreview.ID,
-        terminalID: MobileTerminalPreview.ID
+        terminalID: MobileTerminalPreview.ID,
+        sendStatusOperationID: UUID? = nil
     ) -> MobileTerminalInputEnqueueResult {
         guard !text.isEmpty else { return .queued }
         let byteCount = text.utf8.count
@@ -67,13 +72,17 @@ public struct MobileTerminalInputSendBuffer: Equatable, Sendable {
            last.workspaceID == workspaceID,
            last.terminalID == terminalID {
             last.text += text
+            if let sendStatusOperationID {
+                last.sendStatusOperationID = sendStatusOperationID
+            }
             pendingChunks[pendingChunks.count - 1] = last
         } else {
             pendingChunks.append(
                 Chunk(
                     workspaceID: workspaceID,
                     terminalID: terminalID,
-                    text: text
+                    text: text,
+                    sendStatusOperationID: sendStatusOperationID
                 )
             )
         }
@@ -120,7 +129,10 @@ public struct MobileTerminalInputSendBuffer: Equatable, Sendable {
             return Chunk(
                 workspaceID: pendingChunks[0].workspaceID,
                 terminalID: pendingChunks[0].terminalID,
-                text: prefix
+                text: prefix,
+                // Settle only after the final piece of a split chunk has been
+                // handed to the transport.
+                sendStatusOperationID: nil
             )
         }
         let chunk = pendingChunks.removeFirst()

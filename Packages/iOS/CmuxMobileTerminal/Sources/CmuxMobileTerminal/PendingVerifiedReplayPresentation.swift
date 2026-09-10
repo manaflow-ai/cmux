@@ -7,7 +7,6 @@ struct VerifiedReplayFrozenPresentation {
     let layer: CALayer
     let backgroundLayer: CALayer
     let contentLayer: CALayer?
-    let cursorLayer: CALayer?
     let image: CGImage?
     let viewportRect: CGRect
 }
@@ -16,12 +15,12 @@ struct VerifiedReplayFrozenPresentation {
 /// geometry. A drain render has no observed frame; a replay render carries its
 /// local serialized grid readback. Pixel contents outside that grid contract
 /// are not independently rerasterized by this proof.
-nonisolated struct VerifiedReplayPresentedSubmission: Sendable {
+struct VerifiedReplayPresentedSubmission: Sendable {
     let observedFrame: MobileTerminalRenderGridFrame?
 }
 
 /// One verified replay readback and tokened presentation awaiting completion.
-nonisolated struct PendingVerifiedReplayPresentation: @unchecked Sendable {
+struct PendingVerifiedReplayPresentation: @unchecked Sendable {
     var id: UInt64
     var startedAt: CFTimeInterval
     let surface: ghostty_surface_t
@@ -30,6 +29,10 @@ nonisolated struct PendingVerifiedReplayPresentation: @unchecked Sendable {
     var fence: VerifiedReplayPresentationFence
     var observedFrame: MobileTerminalRenderGridFrame?
     var rearmReadyFenceOnPresent: Bool = false
+    /// A resize can invalidate a token after its GPU work completes. Bound
+    /// event-driven replacement attempts so a permanently unusable surface
+    /// resolves the replay waiter instead of spinning forever.
+    var presentationRetryCount: UInt8 = 0
     let continuation: CheckedContinuation<VerifiedReplayPresentedSubmission?, Never>
 }
 #endif

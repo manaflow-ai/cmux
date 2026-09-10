@@ -4,6 +4,11 @@ import AppKit
 @MainActor
 final class SidebarWorkspaceTableViewImpl: NSTableView {
     weak var workspaceController: SidebarWorkspaceTableController?
+    /// AppKit can retain this table as a native drag source after SwiftUI
+    /// dismantles its representable. Keep the controller alive until the
+    /// terminal source callback arrives.
+    var activeWorkspaceDragController: SidebarWorkspaceTableController?
+    private let emptyAreaWindowDragController = SidebarEmptyAreaWindowDragController()
     private var pointerTrackingArea: NSTrackingArea?
     private(set) var lastPointerWindowLocation: NSPoint?
 
@@ -47,9 +52,17 @@ final class SidebarWorkspaceTableViewImpl: NSTableView {
         workspaceController?.middleClick(row: row)
     }
 
+    /// Preserves row clicks while promoting threshold-crossing empty-area presses to window drags.
     override func mouseDown(with event: NSEvent) {
+        workspaceController?.prepareForMouseDown()
         let point = convert(event.locationInWindow, from: nil)
         let clickedRow = row(at: point)
+        // Below the last row the press is window-drag territory. Single clicks
+        // only: a double-click still belongs to doubleClickEmptyArea().
+        if clickedRow < 0, event.clickCount == 1,
+           emptyAreaWindowDragController.perform(with: event, in: self) != .passThrough {
+            return
+        }
         // No selection paint on press: the highlight applies on down-then-up
         // (owner ruling). The action fires on mouse-up and paints the
         // optimistic treatment there, so a press that becomes a drag or a
@@ -64,34 +77,6 @@ final class SidebarWorkspaceTableViewImpl: NSTableView {
         let row = row(at: convert(event.locationInWindow, from: nil))
         guard row < 0 else { return super.menu(for: event) }
         return workspaceController?.emptyAreaMenu()
-    }
-
-    // The data-source drop callbacks have no exit/cancel counterpart, and a
-    // reorder drag that leaves the sidebar (or is cancelled with Escape while
-    // over it) would otherwise strand the custom drop indicator.
-    override func draggingExited(_ sender: (any NSDraggingInfo)?) {
-        super.draggingExited(sender)
-        workspaceController?.reorderDropDragExited()
-    }
-
-    // SidebarDragAutoScrollController owns drag autoscroll. As a native drag
-    // destination the table also gets AppKit's built-in drag autoscroll,
-    // whose engagement band, speed, and boundary behavior all differ — two
-    // drivers fighting reads as flaky scrolling and scrolling that continues
-    // after the pointer left the cmux edge zone. Decline ONLY while a reorder
-    // drop session is hovering: NSTableView's own mouseDown tracking also
-    // calls autoscroll during drag initiation, and returning false there
-    // makes every row drag die at birth (mouse-up lands as a plain click).
-    override func autoscroll(with event: NSEvent) -> Bool {
-        if workspaceController?.isReorderDropSessionActive == true {
-            return false
-        }
-        return super.autoscroll(with: event)
-    }
-
-    override func draggingEnded(_ sender: any NSDraggingInfo) {
-        super.draggingEnded(sender)
-        workspaceController?.reorderDropSessionEnded()
     }
 
     private func updatePointer(with event: NSEvent) {

@@ -1,3 +1,4 @@
+import CmuxAgentJournal
 import Foundation
 
 extension CMUXCLI {
@@ -31,26 +32,30 @@ extension CMUXCLI {
             printClaudeHookAck()
             return
         }
+        guard let sessionID = parsedInput.sessionId, !sessionID.isEmpty else {
+            telemetry.breadcrumb("claude-hook.push-notification.missing-session")
+            printClaudeHookAck()
+            return
+        }
         let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
         guard let resolvedTarget = try resolveClaudeHookDeliveryTarget(
             mappedSession: mappedSession,
             routing: routing,
             client: client
-        ) else {
+        ), resolvedTarget.isAuthoritative else {
             markFeedTelemetryHandled()
             telemetry.breadcrumb("claude-hook.push-notification.unresolved")
             printClaudeHookAck()
             return
         }
         let workspaceId = resolvedTarget.workspaceId
-        let resolvedSurface = resolvedTarget
-        let surfaceId = resolvedSurface.surfaceId
+        let surfaceId = resolvedTarget.surfaceId
         sendFeedTelemetry(workspaceId, surfaceId)
         guard shouldApplyClaudeHookVisibleMutation(
             sessionStore: sessionStore,
             parsedInput: parsedInput,
             workspaceId: workspaceId,
-            surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
+            surfaceId: surfaceId,
             telemetry: telemetry
         ) else {
             telemetry.breadcrumb("claude-hook.push-notification.stale")
@@ -74,8 +79,10 @@ extension CMUXCLI {
         // meta tag, like legacy untagged payloads). No lifecycle/status
         // change: the agent is usually still running when it fires, and a
         // push must not flip a running pane to "Needs input".
-        let payload = notificationPayload(title: title, subtitle: "", body: pushMessage)
-        _ = try sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
+        let notification = AgentJournalNotification(title: title, subtitle: "", body: pushMessage, category: "other")
+        _ = try sendV1Command(try semanticNotificationCommand(source: "claude", agentKey: Self.claudeCodeStatusKey,
+            sessionId: sessionID, workspaceId: workspaceId, surfaceId: surfaceId,
+            kind: .messagePublished, rawObject: parsedInput.rawObject, notification: notification), client: client)
         printClaudeHookAck()
     }
 

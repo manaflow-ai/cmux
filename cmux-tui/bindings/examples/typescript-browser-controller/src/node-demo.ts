@@ -1,7 +1,7 @@
 import {
   browserId,
   type WebSocketConstructor,
-} from "cmux/browser";
+} from "cmux-sdk/browser";
 import { createWebSocketBrowserController } from "./index.js";
 
 const url = process.env.CMUX_WS_URL;

@@ -15,7 +15,7 @@ extension WorkstreamEvent {
             // These establish authoritative session phase or needs-input state that cannot be
             // reconstructed from a later high-volume tool telemetry event.
             return .sessionCritical
-        case .preToolUse, .postToolUse, .todoWrite,
+        case .preToolUse, .postToolUse, .postToolUseFailure, .todoWrite,
              .subagentStart, .subagentStop, .preCompact, .postCompact:
             // Tool traffic is best-effort; prompt submission establishes working
             // state, while compaction/subagent events preserve the parent state.

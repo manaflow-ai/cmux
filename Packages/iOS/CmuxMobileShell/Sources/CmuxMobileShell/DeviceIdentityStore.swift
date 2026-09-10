@@ -133,17 +133,44 @@ final class SimulatorDeviceIdentityStore: DeviceIdentityStoring, @unchecked Send
 struct KeychainDeviceIdentityStore: DeviceIdentityStoring {
     private let service: String
     private let account: String
+    private let accessGroup: String?
+    private let legacyService: String?
 
     init(
         service: String = "com.cmuxterm.deviceRegistry.iosDeviceID.v1",
-        account: String = "default"
+        account: String = "default",
+        accessGroup: String? = nil,
+        legacyService: String? = nil
     ) {
         self.service = service
         self.account = account
+        self.accessGroup = accessGroup
+        self.legacyService = legacyService == service ? nil : legacyService
     }
 
     func read() -> DeviceIdentityReadResult {
-        var query = baseQuery()
+        let current = read(service: service)
+        guard current == .absent, let legacyService else {
+            return current
+        }
+        switch read(service: legacyService) {
+        case .found(let legacy):
+            guard let winner = createOrAdopt(legacy) else {
+                return .unavailable
+            }
+            _ = SecItemDelete(
+                baseQuery(service: legacyService) as CFDictionary
+            )
+            return .found(winner)
+        case .absent:
+            return .absent
+        case .unavailable:
+            return .unavailable
+        }
+    }
+
+    private func read(service: String) -> DeviceIdentityReadResult {
+        var query = baseQuery(service: service)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
@@ -176,7 +203,7 @@ struct KeychainDeviceIdentityStore: DeviceIdentityStoring {
 
     func createOrAdopt(_ desired: String) -> String? {
         guard let data = desired.data(using: .utf8) else { return nil }
-        var insert = baseQuery()
+        var insert = baseQuery(service: service)
         insert[kSecValueData as String] = data
         insert[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         let addStatus = SecItemAdd(insert as CFDictionary, nil)
@@ -187,7 +214,7 @@ struct KeychainDeviceIdentityStore: DeviceIdentityStoring {
         case errSecDuplicateItem:
             // An item already exists. Resolve what it holds so racing callers
             // converge on one id and a corrupt item cannot wedge minting forever.
-            switch read() {
+            switch read(service: service) {
             case .found(let existing):
                 // A concurrent writer already persisted a usable id. Adopt it so
                 // every racing caller converges on one id, never overwriting the
@@ -208,7 +235,10 @@ struct KeychainDeviceIdentityStore: DeviceIdentityStoring {
                     kSecValueData as String: data,
                     kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
                 ]
-                let updateStatus = SecItemUpdate(baseQuery() as CFDictionary, attributes as CFDictionary)
+                let updateStatus = SecItemUpdate(
+                    baseQuery(service: service) as CFDictionary,
+                    attributes as CFDictionary
+                )
                 return updateStatus == errSecSuccess ? desired : nil
             case .unavailable:
                 // The item exists but the Keychain is locked before first unlock.
@@ -225,13 +255,17 @@ struct KeychainDeviceIdentityStore: DeviceIdentityStoring {
         }
     }
 
-    private func baseQuery() -> [String: Any] {
-        [
+    private func baseQuery(service: String) -> [String: Any] {
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
             kSecAttrSynchronizable as String: false,
             kSecUseDataProtectionKeychain as String: true,
         ]
+        if let accessGroup {
+            query[kSecAttrAccessGroup as String] = accessGroup
+        }
+        return query
     }
 }

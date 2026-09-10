@@ -39,19 +39,24 @@ public struct TransportIncidentPolicy: Sendable {
         /// After an outage fires, another cannot fire until this much time
         /// passes or a success resets the streak.
         public var outageRearmInterval: TimeInterval
+        /// When false, retain breadcrumbs but suppress individual failure
+        /// captures. Outage escalation remains enabled.
+        public var captureIndividualFailures: Bool
 
         public init(
             signatureCooldown: TimeInterval = 600,
             hourlyCaptureLimit: Int = 30,
             outageFailureThreshold: Int = 5,
             outageMinimumDuration: TimeInterval = 60,
-            outageRearmInterval: TimeInterval = 3600
+            outageRearmInterval: TimeInterval = 3600,
+            captureIndividualFailures: Bool = true
         ) {
             self.signatureCooldown = signatureCooldown
             self.hourlyCaptureLimit = hourlyCaptureLimit
             self.outageFailureThreshold = outageFailureThreshold
             self.outageMinimumDuration = outageMinimumDuration
             self.outageRearmInterval = outageRearmInterval
+            self.captureIndividualFailures = captureIndividualFailures
         }
     }
 
@@ -101,11 +106,21 @@ public struct TransportIncidentPolicy: Sendable {
         public let appPhase: DiagnosticAppLifecyclePhase?
     }
 
-    public init(configuration: Configuration = Configuration()) {
+    /// Creates an incident policy with localized titles.
+    ///
+    /// - Parameters:
+    ///   - configuration: Thresholds and budgets used by the policy.
+    ///   - locale: Locale used for human-readable incident titles.
+    public init(
+        configuration: Configuration = Configuration(),
+        locale: Locale = .current
+    ) {
         self.configuration = configuration
+        self.titleFormatter = DiagnosticIncidentTitleFormatter(locale: locale)
     }
 
     private let configuration: Configuration
+    private let titleFormatter: DiagnosticIncidentTitleFormatter
 
     // MARK: Streak and environment state (event-time domain, nanoseconds).
 
@@ -131,16 +146,19 @@ public struct TransportIncidentPolicy: Sendable {
     private var captureWindow: [UInt64] = []
     private var droppedByBudget = 0
 
-    /// Event codes that mark the transport as healthy and reset the streak.
+    /// Event codes that prove a user-usable connection and reset the streak.
+    ///
+    /// Intermediate progress such as discovery, endpoint startup, or a socket
+    /// connect does not reset the streak: those phases can succeed on every
+    /// retry while authentication or RPC readiness keeps failing for the user.
     public static let successCodes: Set<DiagnosticEventCode> = [
-        .pairOk, .transportDialConnected, .hostAuthenticated, .rpcReady,
-        .recoverySucceeded, .endpointActive, .relayPolicyRefreshSucceeded,
-        .discoverySucceeded, .admissionSucceeded,
+        .pairOk, .rpcReady, .recoverySucceeded,
     ]
 
     /// Event codes that are failure candidates (subject to suppression rules).
     public static let failureCodes: Set<DiagnosticEventCode> = [
         .pairFail, .pairUnreachable, .error, .transportDialFailed,
+        .transportDialLegFailed,
         .recoveryFailed, .endpointFailed, .relayPolicyRefreshFailed,
         .sessionClosed, .routeUnavailable, .discoveryFailed, .admissionFailed,
         .hostAuthenticationFailed, .rpcFailed,
@@ -173,7 +191,7 @@ public struct TransportIncidentPolicy: Sendable {
         let failure = failureKind(of: event)
         guard isReportable(event: event, failure: failure) else { return nil }
 
-        let transport = DiagnosticEventPresentation.transportKind(of: event)
+        let transport = DiagnosticEventPresentation().transportKind(of: event)
         let signature = Self.signature(code: event.code, failure: failure, transport: transport)
 
         streakCount += 1
@@ -184,6 +202,8 @@ public struct TransportIncidentPolicy: Sendable {
         if let outage = decideOutage(event: event, signature: signature, failure: failure, transport: transport) {
             return outage
         }
+
+        guard configuration.captureIndividualFailures else { return nil }
 
         return decideFailureCapture(
             event: event,
@@ -199,18 +219,18 @@ public struct TransportIncidentPolicy: Sendable {
         failure: DiagnosticFailureKind?,
         transport: DiagnosticTransportKind?
     ) -> String {
-        var parts = [DiagnosticEventPresentation.name(code)]
+        var parts = [DiagnosticEventPresentation().name(code)]
         if let failure {
-            parts.append(DiagnosticEventPresentation.name(failure))
+            parts.append(DiagnosticEventPresentation().name(failure))
         }
         if let transport {
-            parts.append(DiagnosticEventPresentation.name(transport))
+            parts.append(DiagnosticEventPresentation().name(transport))
         }
         return parts.joined(separator: "/")
     }
 
     private func failureKind(of event: DiagnosticEvent) -> DiagnosticFailureKind? {
-        if let kind = DiagnosticEventPresentation.failureKind(of: event) {
+        if let kind = DiagnosticEventPresentation().failureKind(of: event) {
             return kind
         }
         if event.code == .pairUnreachable {
@@ -260,9 +280,14 @@ public struct TransportIncidentPolicy: Sendable {
         }
         outageFiredTNanos = event.tNanos
         let duration = Int(elapsedSeconds(from: firstTNanos, to: event.tNanos).rounded())
+        let title = titleFormatter.outageTitle(
+            event: event,
+            consecutiveFailures: streakCount,
+            durationSeconds: duration
+        )
         return Incident(
             signature: "transport-outage",
-            title: "Transport outage: \(streakCount) consecutive failures over \(duration)s, latest \(signature)",
+            title: title,
             kind: .outage,
             severity: .error,
             event: event,
@@ -319,10 +344,10 @@ public struct TransportIncidentPolicy: Sendable {
         let dropped = droppedByBudget
         droppedByBudget = 0
 
-        var title = "Transport failure: \(signature)"
-        if coalescedCount > 1 {
-            title += " (\(coalescedCount)x)"
-        }
+        let title = titleFormatter.failureTitle(
+            event: event,
+            occurrenceCount: coalescedCount
+        )
         return Incident(
             signature: signature,
             title: title,

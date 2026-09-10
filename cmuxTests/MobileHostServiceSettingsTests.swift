@@ -27,6 +27,7 @@ struct MobileHostServiceSettingsTests {
 
     @Test func signedInIrohStartsWithoutEnablingTheLegacyListener() {
         let automatic = MobileHostService.startupPlan(
+            remoteControlDisabledByPolicy: false,
             legacyListenerEnabled: false,
             legacyListenerRunning: false
         )
@@ -34,6 +35,7 @@ struct MobileHostServiceSettingsTests {
         #expect(!automatic.startsLegacyListener)
 
         let tailscaleCompatible = MobileHostService.startupPlan(
+            remoteControlDisabledByPolicy: false,
             legacyListenerEnabled: true,
             legacyListenerRunning: false
         )
@@ -41,11 +43,24 @@ struct MobileHostServiceSettingsTests {
         #expect(tailscaleCompatible.startsLegacyListener)
 
         let alreadyListening = MobileHostService.startupPlan(
+            remoteControlDisabledByPolicy: false,
             legacyListenerEnabled: true,
             legacyListenerRunning: true
         )
         #expect(alreadyListening.activatesIroh)
         #expect(!alreadyListening.startsLegacyListener)
+    }
+
+    @Test func managedRemoteControlPolicyOverridesEveryTransport() {
+        // Even a user who explicitly enabled the legacy listener gets no
+        // transport while the MDM policy is enforced.
+        let disabled = MobileHostService.startupPlan(
+            remoteControlDisabledByPolicy: true,
+            legacyListenerEnabled: true,
+            legacyListenerRunning: false
+        )
+        #expect(!disabled.activatesIroh)
+        #expect(!disabled.startsLegacyListener)
     }
 
     @Test func mobileHostListenerPreservesHistoricalExplicitOptIn() throws {
@@ -107,6 +122,7 @@ struct MobileHostServiceSettingsTests {
             buildFlavor: .stable
         )
         let plan = MobileHostService.startupPlan(
+            remoteControlDisabledByPolicy: false,
             legacyListenerEnabled: enabled,
             legacyListenerRunning: false
         )
@@ -126,6 +142,7 @@ struct MobileHostServiceSettingsTests {
             buildFlavor: .stable
         )
         let plan = MobileHostService.startupPlan(
+            remoteControlDisabledByPolicy: false,
             legacyListenerEnabled: enabled,
             legacyListenerRunning: false
         )
@@ -217,6 +234,79 @@ struct MobileHostServiceSettingsTests {
         // Running but the applied port is unknown: restart to reconcile.
         #expect(MobileHostService.syncDecision(enabled: true, listenerRunning: true, desiredPort: 58465, appliedPort: nil) == .restart)
     }
+
+    @Test func mobilePairingSnapshotShowsIrohDirectAddressesAlongsideHostPortRoutes() throws {
+        let now = Date(timeIntervalSince1970: 1_756_000_000)
+        let identity = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "a", count: 64)
+        )
+        let ipv4 = try CmxIrohPathHint(
+            kind: .directAddress,
+            value: "93.184.216.34:58465",
+            source: .native,
+            privacyScope: .publicInternet
+        )
+        let ipv6 = try CmxIrohPathHint(
+            kind: .directAddress,
+            value: "[2606:4700::6810:1]:60001",
+            source: .native,
+            privacyScope: .publicInternet
+        )
+        let expired = try CmxIrohPathHint(
+            kind: .directAddress,
+            value: "93.184.216.35:58465",
+            source: .native,
+            privacyScope: .publicInternet,
+            observedAt: now.addingTimeInterval(-200),
+            expiresAt: now.addingTimeInterval(-100)
+        )
+        let status = MobileHostServiceStatus(
+            isRunning: true,
+            port: 58_465,
+            configuredPort: 58_465,
+            usesEphemeralFallback: false,
+            routes: [
+                try CmxAttachRoute(
+                    id: "tailscale",
+                    kind: .tailscale,
+                    endpoint: .hostPort(host: "100.64.0.1", port: 58_465),
+                    priority: 10
+                ),
+                try CmxAttachRoute(
+                    id: "iroh",
+                    kind: .iroh,
+                    endpoint: .peer(identity: identity, pathHints: [ipv4, ipv6, expired, ipv4]),
+                    priority: 0
+                ),
+            ],
+            activeConnectionCount: 0,
+            lastErrorDescription: nil
+        )
+
+        let snapshot = HostSettingsActions.mobilePairingSnapshot(from: status, now: now)
+
+        // TCP listener routes keep their row; the Iroh endpoint contributes one
+        // row per usable direct-address hint, deduplicated, expired hints dropped.
+        #expect(snapshot.routes.map(\.endpoint) == [
+            "100.64.0.1:58465",
+            "93.184.216.34:58465",
+            "[2606:4700::6810:1]:60001",
+        ])
+        #expect(Set(snapshot.routes.map(\.id)).count == snapshot.routes.count)
+    }
+
+    @Test func splitSocketAddressParsesSocketLiteralsOnly() throws {
+        let v4 = try #require(HostSettingsActions.splitSocketAddress("93.184.216.34:58465"))
+        #expect(v4.host == "93.184.216.34")
+        #expect(v4.port == 58_465)
+        let v6 = try #require(HostSettingsActions.splitSocketAddress("[2606:4700::6810:1]:443"))
+        #expect(v6.host == "2606:4700::6810:1")
+        #expect(v6.port == 443)
+        #expect(HostSettingsActions.splitSocketAddress("no-port")?.host == nil)
+        #expect(HostSettingsActions.splitSocketAddress("2606:4700::6810:1:443")?.host == nil)
+        #expect(HostSettingsActions.splitSocketAddress("[2606:4700::6810:1]443")?.host == nil)
+        #expect(HostSettingsActions.splitSocketAddress("93.184.216.34:0")?.host == nil)
+    }
 }
 
 #if DEBUG
@@ -301,7 +391,12 @@ struct MobileHostTransportRouteCompositionTests {
                   "identity_generation":1,
                   "pairing_enabled":true,
                   "capabilities":["mobile-rpc-v1","multistream-v1"],
-                  "path_hints":[],
+                  "path_hints":[{
+                    "kind":"relay_url",
+                    "value":"https://relay.example.com/",
+                    "source":"native",
+                    "privacy_scope":"public_internet"
+                  }],
                   "last_seen_at":"2026-07-09T12:00:00.000Z"
                 }
                 """.utf8
@@ -316,10 +411,15 @@ struct MobileHostTransportRouteCompositionTests {
 
         MobileHostPublicStatusCache.update(routes: [tailscale])
         MobileHostPublicStatusCache.update(
-            irohIdentity: binding.endpointID,
-            pathHints: binding.pathHints
+            irohBinding: CmxIrohBrokerBindingMetadata(binding: binding)
         )
-        #expect(MobileHostPublicStatusCache.snapshot().map(\.kind) == [.iroh, .tailscale])
+        let routes = MobileHostPublicStatusCache.snapshot()
+        #expect(routes.map(\.kind) == [.iroh, .tailscale])
+        guard case let .peer(_, pathHints) = routes.first?.endpoint else {
+            Issue.record("Expected the cached Iroh route to retain broker path hints")
+            return
+        }
+        #expect(pathHints == binding.pathHints)
 
         MobileHostPublicStatusCache.update(irohIdentity: nil)
         #expect(MobileHostPublicStatusCache.snapshot().map(\.kind) == [.tailscale])

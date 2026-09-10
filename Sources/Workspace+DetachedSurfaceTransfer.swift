@@ -48,8 +48,14 @@ extension Workspace {
         let restorableAgentResumeState: RestoredAgentResumeState?
         let restoredAgentCompletedGeneration: RestoredAgentCompletedGeneration?
         let shellActivityState: PanelShellActivityState?
+        var restoredPanelTitleBoundary: RestoredPanelTitleBoundary? = nil
         let restoredResumeSessionWorkingDirectory: String?
+        /// Typed restore selector still awaiting its shell, carried so the
+        /// idle-prompt replay survives a Workspace/Dock move.
+        var restoredStartupInput: String? = nil
         let resumeBinding: SurfaceResumeBindingSnapshot?
+        /// Deferred ownership resolution carried across a Workspace/Dock transfer.
+        var deferredAgentResumeRestore: DeferredAgentResumeRestore? = nil
         /// Authoritative hook identity when `resumeBinding` is an effective
         /// process-detected binding.
         let managedAgentResumeBinding: SurfaceResumeBindingSnapshot?
@@ -103,8 +109,11 @@ extension Workspace {
                 restorableAgentResumeState: restorableAgentResumeState,
                 restoredAgentCompletedGeneration: restoredAgentCompletedGeneration,
                 shellActivityState: shellActivityState,
+                restoredPanelTitleBoundary: restoredPanelTitleBoundary,
                 restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectory,
+                restoredStartupInput: restoredStartupInput,
                 resumeBinding: resumeBinding,
+                deferredAgentResumeRestore: deferredAgentResumeRestore,
                 managedAgentResumeBinding: managedAgentResumeBinding,
                 agentRuntime: agentRuntime,
                 isRemoteTerminal: isRemoteTerminal,

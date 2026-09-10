@@ -18,6 +18,9 @@ private let hostSettingsLogger = Logger(subsystem: "com.cmuxterm.app", category:
 @MainActor
 final class HostSettingsActions: SettingsHostActions {
     private let configFileURL: URL
+    private let computerUseRuntimeService: ComputerUseRuntimeService
+    private var runComputerUseOnboardingAction:
+        @MainActor (ComputerUseOnboardingWindowController.StartingPoint) -> Void = { _ in }
 
     /// Serializes font-size config writes so rapid slider saves persist in order.
     private let fontConfigWriter = FontConfigWriter()
@@ -43,14 +46,23 @@ final class HostSettingsActions: SettingsHostActions {
     /// window instead of stacking duplicates.
     private var configWindow: NSWindow?
     private var configWindowCloseObserver: WindowCloseObserver?
+    /// Owns the currently requested sound preview so a new selection cancels
+    /// the old one and closing Settings does not leave an untracked playback
+    /// task behind.
+    private var notificationSoundPreviewTask: Task<Void, Never>?
 
-    init(configFileURL: URL) {
+    init(
+        configFileURL: URL,
+        computerUseRuntimeService: ComputerUseRuntimeService
+    ) {
         self.configFileURL = configFileURL
+        self.computerUseRuntimeService = computerUseRuntimeService
         startObservingAppIconMode()
     }
 
     deinit {
         appIconModeObservation?.invalidate()
+        notificationSoundPreviewTask?.cancel()
     }
 
     private func startObservingAppIconMode() {
@@ -89,7 +101,13 @@ final class HostSettingsActions: SettingsHostActions {
     func resetAllSettingsSideEffects() {
         LanguageSettingsStore(defaults: .standard).applyLanguageOverride(.system)
         PaneChromeSettings.notifyDidChange()
+        TerminalAdaptiveDefaultThemeSettings.notifyDidChange()
+        PhonePushClient.shared.reloadConfigurationFromDefaults()
         AppDelegate.shared?.reconcileSocketListenerConfiguration(source: "settings.reset_all")
+    }
+
+    func terminalAdaptiveDefaultThemeDidChange() {
+        TerminalAdaptiveDefaultThemeSettings.notifyDidChange()
     }
 
     func notifyShortcutSettingsDidChange() {
@@ -97,8 +115,8 @@ final class HostSettingsActions: SettingsHostActions {
         // contents changed; posting again here double-notified every
         // listener. Only post when the reload saw no change, so callers
         // still get exactly one notification either way.
-        if !KeyboardShortcutSettings.settingsFileStore.reload() {
-            KeyboardShortcutSettings.notifySettingsFileDidChange()
+        if !KeyboardShortcutSettings.settingsFileStore.reload(notificationSourceURL: configFileURL) {
+            KeyboardShortcutSettings.notifySettingsFileDidChange(sourceURL: configFileURL)
         }
     }
 
@@ -112,6 +130,44 @@ final class HostSettingsActions: SettingsHostActions {
 
     func applyLanguageOverride(_ language: AppLanguage) {
         LanguageSettingsStore(defaults: .standard).applyLanguageOverride(language)
+    }
+
+    func refreshComputerUsePermissions() async {
+        _ = await computerUseRuntimeService.refreshHelperStatus()
+    }
+
+    func computerUseAccessibilityGranted() -> Bool {
+        computerUseRuntimeService.status().accessibility
+    }
+
+    func computerUseScreenRecordingGranted() -> Bool {
+        computerUseRuntimeService.status().screenRecording
+    }
+
+    func computerUsePermissionStatusIsKnown() -> Bool {
+        computerUseRuntimeService.permissionStatusIsKnown
+    }
+
+    func requestComputerUseAccessibility() {
+        runComputerUseOnboardingAction(.accessibility)
+    }
+
+    func requestComputerUseScreenRecording() {
+        runComputerUseOnboardingAction(.screenRecording)
+    }
+
+    func openComputerUseAccessibilitySettings() {
+        runComputerUseOnboardingAction(.accessibility)
+    }
+
+    func openComputerUseScreenRecordingSettings() {
+        runComputerUseOnboardingAction(.screenRecording)
+    }
+
+    func setRunComputerUseOnboardingAction(
+        _ action: @escaping @MainActor (ComputerUseOnboardingWindowController.StartingPoint) -> Void
+    ) {
+        runComputerUseOnboardingAction = action
     }
 
     func openConfigInExternalEditor() {
@@ -179,6 +235,79 @@ final class HostSettingsActions: SettingsHostActions {
 
     func refreshDesktopNotificationAuthorizationStatus() {
         TerminalNotificationStore.shared.refreshAuthorizationStatus()
+    }
+
+    // MARK: - Right sidebar tabs
+
+    func rightSidebarTabs() -> [RightSidebarTabSettingsItem] {
+        Self.rightSidebarTabItems()
+    }
+
+    @discardableResult
+    func setRightSidebarTabVisible(id: String, visible: Bool) -> Bool {
+        guard let mode = RightSidebarMode(rawValue: id) else { return false }
+        return RightSidebarTabPreferences.setHidden(!visible, mode: mode)
+    }
+
+    func moveRightSidebarTab(id: String, offset: Int) {
+        guard let mode = RightSidebarMode(rawValue: id) else { return }
+        RightSidebarTabPreferences.move(mode, offset: offset)
+    }
+
+    func rightSidebarTabsUpdates() -> AsyncStream<[RightSidebarTabSettingsItem]> {
+        AsyncStream { continuation in
+            let (signals, signalContinuation) = AsyncStream<Void>.makeStream(
+                bufferingPolicy: .bufferingNewest(1)
+            )
+            // Shortcut rebinds change the displayed digit labels, so both
+            // notifications refresh the card. Tab-preference mutations post
+            // both; the newest-1 buffer coalesces the pair into one refresh.
+            let observers = [
+                RightSidebarTabPreferences.didChangeNotification,
+                KeyboardShortcutSettings.didChangeNotification,
+            ].map { name in
+                MobileHostStatusObserverToken(
+                    NotificationCenter.default.addObserver(
+                        forName: name,
+                        object: nil,
+                        queue: nil
+                    ) { _ in
+                        signalContinuation.yield(())
+                    }
+                )
+            }
+            let drainTask = Task { @MainActor in
+                continuation.yield(Self.rightSidebarTabItems())
+                for await _ in signals {
+                    if Task.isCancelled { break }
+                    continuation.yield(Self.rightSidebarTabItems())
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in
+                drainTask.cancel()
+                signalContinuation.finish()
+                observers.forEach { $0.remove() }
+            }
+        }
+    }
+
+    private static func rightSidebarTabItems() -> [RightSidebarTabSettingsItem] {
+        let available = RightSidebarMode.availableModes()
+        let hidden = RightSidebarTabPreferences.hiddenModes()
+        return RightSidebarTabPreferences.orderedModes()
+            .filter(available.contains)
+            .map { mode in
+                let shortcut = mode.shortcutAction.map { KeyboardShortcutSettings.shortcut(for: $0) }
+                    ?? .unbound
+                return RightSidebarTabSettingsItem(
+                    id: mode.rawValue,
+                    title: mode.label,
+                    symbolName: mode.symbolName,
+                    isVisible: !hidden.contains(mode),
+                    shortcutLabel: shortcut.isUnbound ? "" : shortcut.displayString
+                )
+            }
     }
 
     func restartApp() {
@@ -259,6 +388,108 @@ final class HostSettingsActions: SettingsHostActions {
         )
     }
 
+    var isCloudMachinesAvailable: Bool {
+        CloudMachinesFeature.isEnabled
+    }
+
+    func cloudMachinesPlanSummary() async -> CloudMachinesPlanSummary? {
+        guard let client = VMClient.shared else { return nil }
+        guard let page = try? await client.listPage(), let limits = page.limits else { return nil }
+        // Same classifier as the Machines panel so Settings and the panel never
+        // disagree about an unknown plan id (both fail closed to "not paid").
+        let isPaid = MachinePlanSnapshot.isPaidPlanID(limits.planId)
+        let planLabel = isPaid
+            ? limits.planId.capitalized
+            : String(localized: "settings.cloudMachines.plan.free", defaultValue: "Free")
+        return CloudMachinesPlanSummary(
+            planLabel: planLabel,
+            activeMachines: page.vms.count,
+            maxMachines: limits.maxActiveVms,
+            isPaidPlan: isPaid
+        )
+    }
+
+    func openCloudMachinesPanel() {
+        _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(mode: .machines)
+    }
+
+    func openCloudMachinesBilling() {
+        ProUpgradePresenter.present(source: .settingsCloudMachines)
+    }
+
+    func mobilePhonePushSettings() -> MobilePhonePushSettingsSnapshot {
+        Self.mobilePhonePushSettingsSnapshot(
+            from: PhonePushClient.shared.configuration()
+        )
+    }
+
+    func mobilePhonePushSettingsUpdates() -> AsyncStream<MobilePhonePushSettingsSnapshot> {
+        AsyncStream { continuation in
+            let (signals, signalContinuation) = AsyncStream<Void>.makeStream(
+                bufferingPolicy: .bufferingNewest(1)
+            )
+            let observer = MobileHostStatusObserverToken(
+                NotificationCenter.default.addObserver(
+                    forName: PhonePushClient.settingsDidChangeNotification,
+                    object: nil,
+                    queue: nil
+                ) { _ in
+                    signalContinuation.yield(())
+                }
+            )
+            let drainTask = Task { @MainActor in
+                continuation.yield(mobilePhonePushSettings())
+                for await _ in signals {
+                    if Task.isCancelled { break }
+                    continuation.yield(mobilePhonePushSettings())
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in
+                drainTask.cancel()
+                signalContinuation.finish()
+                observer.remove()
+            }
+        }
+    }
+
+    func updateMobilePhonePushSettings(
+        _ mutation: MobilePhonePushSettingsMutation
+    ) -> MobilePhonePushSettingsSnapshot {
+        let configuration: PhonePushConfiguration
+        switch mutation {
+        case let .forwardingEnabled(enabled):
+            configuration = PhonePushClient.shared.updateSettings(
+                forwardingEnabled: enabled
+            )
+        case let .mode(mode):
+            let hostMode: PhoneForwardingMode = switch mode {
+            case .onlyWhenAway: .onlyWhenAway
+            case .always: .always
+            }
+            configuration = PhonePushClient.shared.updateSettings(mode: hostMode)
+        case let .hideContent(hidden):
+            configuration = PhonePushClient.shared.updateSettings(
+                hideContent: hidden
+            )
+        }
+        return Self.mobilePhonePushSettingsSnapshot(from: configuration)
+    }
+
+    private static func mobilePhonePushSettingsSnapshot(
+        from configuration: PhonePushConfiguration
+    ) -> MobilePhonePushSettingsSnapshot {
+        let mode: MobilePhonePushSettingsSnapshot.Mode = switch configuration.mode {
+        case .onlyWhenAway: .onlyWhenAway
+        case .always: .always
+        }
+        return MobilePhonePushSettingsSnapshot(
+            forwardingEnabled: configuration.forwardingEnabled,
+            mode: mode,
+            hideContent: configuration.hideContent
+        )
+    }
+
     private func existingConfigWindow() -> NSWindow? {
         if let configWindow, configWindow.isVisible || configWindow.isMiniaturized {
             return configWindow
@@ -277,7 +508,16 @@ final class HostSettingsActions: SettingsHostActions {
     }
 
     func previewNotificationSound(value: String, customFilePath: String) {
-        NotificationSoundSettings.previewSound(value: value, customFilePath: customFilePath)
+        notificationSoundPreviewTask?.cancel()
+        let task = Task { @MainActor [weak self] in
+            _ = await NotificationSoundSettings.previewSound(
+                value: value,
+                customFilePath: customFilePath
+            )
+            guard !Task.isCancelled else { return }
+            self?.notificationSoundPreviewTask = nil
+        }
+        notificationSoundPreviewTask = task
     }
 
     func browserHistoryEntryCount() -> Int? {
@@ -289,7 +529,7 @@ final class HostSettingsActions: SettingsHostActions {
         // Reads the in-memory cache (kept current by config reloads) rather than
         // forcing a synchronous disk read on the main actor when Settings opens.
         SettingsFontSize(
-            points: Double(GhosttyConfig.load().sidebarFontSize),
+            points: Double(GhosttyConfig.loadForCmux().sidebarFontSize),
             minimum: CmuxGhosttyConfigSettingEditor.minSidebarFontSize,
             maximum: CmuxGhosttyConfigSettingEditor.maxSidebarFontSize,
             defaultValue: CmuxGhosttyConfigSettingEditor.defaultSidebarFontSize
@@ -307,7 +547,7 @@ final class HostSettingsActions: SettingsHostActions {
     func surfaceTabBarFontSize() -> SettingsFontSize {
         // See ``sidebarFontSize()`` — uses the cached config to avoid main-actor disk I/O.
         SettingsFontSize(
-            points: Double(GhosttyConfig.load().surfaceTabBarFontSize),
+            points: Double(GhosttyConfig.loadForCmux().surfaceTabBarFontSize),
             minimum: CmuxGhosttyConfigSettingEditor.minSurfaceTabBarFontSize,
             maximum: CmuxGhosttyConfigSettingEditor.maxSurfaceTabBarFontSize,
             defaultValue: CmuxGhosttyConfigSettingEditor.defaultSurfaceTabBarFontSize
@@ -365,21 +605,53 @@ final class HostSettingsActions: SettingsHostActions {
     }
 
     func irohSettingsController() -> (any CmxIrohSettingsControlling)? {
-        MobileHostIrohRuntime.shared
+        // Exactly one runtime owns the transport slot (gated in
+        // MobileHostService.configure); Settings must read the same one, or
+        // the Networking section reports the dormant stack's stale state.
+        if MobileHostIrxRuntime.isEnabled {
+            return MobileHostIrxRuntime.shared
+        }
+        return MobileHostIrohRuntime.shared
     }
 
     /// Maps the host's ``MobileHostServiceStatus`` into the settings package's
     /// Foundation-only ``MobilePairingStatusSnapshot``. Static so the status
-    /// stream's forwarding task does not retain this host bridge.
-    private static func mobilePairingSnapshot(from status: MobileHostServiceStatus) -> MobilePairingStatusSnapshot {
-        let routes = status.routes.compactMap { route -> MobilePairingRoute? in
-            guard case let .hostPort(host, port) = route.endpoint else { return nil }
-            return MobilePairingRoute(
-                id: route.id,
-                kindLabel: routeKindLabel(route.kind),
-                host: host,
-                port: port
-            )
+    /// stream's forwarding task does not retain this host bridge. Internal
+    /// (not private) so the mapping is unit-testable.
+    nonisolated static func mobilePairingSnapshot(
+        from status: MobileHostServiceStatus,
+        now: Date = Date()
+    ) -> MobilePairingStatusSnapshot {
+        var seenEndpoints = Set<String>()
+        let routes = status.routes.flatMap { route -> [MobilePairingRoute] in
+            switch route.endpoint {
+            case let .hostPort(host, port):
+                return [MobilePairingRoute(
+                    id: route.id,
+                    kindLabel: routeKindLabel(route.kind),
+                    host: host,
+                    port: port
+                )]
+            case let .peer(_, pathHints):
+                // The Iroh endpoint's registered UDP socket addresses: the
+                // port Direct addresses actually dial, which can differ from
+                // the configured preference when that UDP port was taken.
+                return pathHints.compactMap { hint in
+                    guard hint.kind == .directAddress,
+                          hint.isUsable(at: now),
+                          seenEndpoints.insert(hint.value).inserted,
+                          let address = splitSocketAddress(hint.value)
+                    else { return nil }
+                    return MobilePairingRoute(
+                        id: "\(route.id):\(hint.value)",
+                        kindLabel: routeKindLabel(route.kind),
+                        host: address.host,
+                        port: address.port
+                    )
+                }
+            case .url:
+                return []
+            }
         }
         return MobilePairingStatusSnapshot(
             isRunning: status.isRunning,
@@ -389,6 +661,30 @@ final class HostSettingsActions: SettingsHostActions {
             activeConnectionCount: status.activeConnectionCount,
             routes: routes
         )
+    }
+
+    /// Splits an Iroh direct-address hint (`203.0.113.7:58465` or
+    /// `[2001:db8::7]:58465`) into the host and port ``MobilePairingRoute``
+    /// renders, or `nil` for anything else. Internal for unit tests.
+    nonisolated static func splitSocketAddress(_ value: String) -> (host: String, port: Int)? {
+        let hostPart: Substring
+        let portPart: Substring
+        if value.hasPrefix("[") {
+            guard let closing = value.firstIndex(of: "]") else { return nil }
+            hostPart = value[value.index(after: value.startIndex)..<closing]
+            let remainder = value[value.index(after: closing)...]
+            guard remainder.first == ":" else { return nil }
+            portPart = remainder.dropFirst()
+        } else {
+            guard let separator = value.lastIndex(of: ":"),
+                  !value[..<separator].contains(":") else { return nil }
+            hostPart = value[..<separator]
+            portPart = value[value.index(after: separator)...]
+        }
+        guard !hostPart.isEmpty,
+              let port = Int(portPart),
+              (1...65535).contains(port) else { return nil }
+        return (String(hostPart), port)
     }
 
     private static func desktopNotificationAuthorizationState(
@@ -430,7 +726,7 @@ final class HostSettingsActions: SettingsHostActions {
     }
 
     /// Localized transport label for a pairing route shown in diagnostics.
-    private static func routeKindLabel(_ kind: CmxAttachTransportKind) -> String {
+    nonisolated private static func routeKindLabel(_ kind: CmxAttachTransportKind) -> String {
         switch kind {
         case .tailscale:
             return String(localized: "settings.mobile.route.tailscale", defaultValue: "Tailscale")

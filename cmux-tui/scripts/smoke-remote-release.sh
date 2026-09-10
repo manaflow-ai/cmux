@@ -26,7 +26,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-"$BIN" daemon \
+"$BIN" server start \
   --session release-smoke \
   --socket "$RUN_DIR/mux.sock" \
   --remote-state-dir "$RUN_DIR/daemon-state" \
@@ -52,7 +52,7 @@ if [[ ! -S "$RUN_DIR/link.sock" ]]; then
   exit 1
 fi
 
-if ! timeout --kill-after=2s 20s "$BIN" rpc \
+if ! timeout --kill-after=2s 20s "$BIN" remote rpc \
   "unix://$RUN_DIR/link.sock" \
   --state-dir "$RUN_DIR/client-state" \
   --lanes single \

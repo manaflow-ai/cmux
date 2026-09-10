@@ -80,7 +80,8 @@ struct CmxIrohConnectionDiagnosticRecorderTests {
         let log = DiagnosticLog(capacity: 8)
         let recorder = CmxIrohConnectionDiagnosticRecorder(
             diagnosticLog: log,
-            sessionID: 23
+            sessionID: 23,
+            peerAlias: 7
         )
 
         recorder.record(CmxIrohConnectionPathEvent(
@@ -105,7 +106,7 @@ struct CmxIrohConnectionDiagnosticRecorderTests {
             failureKind: .connectionClosed
         ))
 
-        #expect(await waitForDiagnosticProcessedCount(log, atLeast: 5))
+        #expect(await waitForDiagnosticProcessedCount(log, atLeast: 6))
         let events = await log.snapshot().events
         #expect(events.map(\.code) == [
             .transportPathEvent,
@@ -113,16 +114,19 @@ struct CmxIrohConnectionDiagnosticRecorderTests {
             .transportPathEvent,
             .transportPathEvent,
             .transportCloseAttribution,
+            .transportCloseReason,
         ])
-        #expect(events.map(\.a) == [1, 2, 3, 4, 2])
+        #expect(events.map(\.a) == [1, 2, 3, 4, 2, DiagnosticRemoteCloseReason.unknown.rawValue])
         #expect(events.map(\.b) == [
             DiagnosticPathKind.privateNetwork.rawValue,
             DiagnosticPathKind.direct.rawValue,
             DiagnosticPathKind.relay.rawValue,
             DiagnosticPathKind.unknown.rawValue,
             DiagnosticFailureKind.connectionClosed.rawValue,
+            nil,
         ])
         #expect(events.allSatisfy { $0.c == 23 })
-        #expect(events.last?.ms == UInt32(Int32.max))
+        #expect(events.allSatisfy { $0.surface == 7 })
+        #expect(events[4].ms == UInt32(Int32.max))
     }
 }

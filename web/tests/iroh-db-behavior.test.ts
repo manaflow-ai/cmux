@@ -205,6 +205,7 @@ describe("Iroh trust broker database behavior", () => {
         identityGeneration: 1,
         payloadSha256: "08".repeat(32),
         nonceHash: "07".repeat(32),
+        minimumSpacingMs: 0,
         now: NOW,
         expiresAt: new Date(NOW.getTime() + 5 * 60 * 1_000),
       }));
@@ -379,6 +380,7 @@ describe("Iroh trust broker database behavior", () => {
       identityGeneration: 1,
       payloadSha256: "30".repeat(32),
       nonceHash,
+      minimumSpacingMs: 0,
       now: NOW,
       expiresAt: new Date(NOW.getTime() + 5 * 60 * 1_000),
     }));
@@ -390,6 +392,7 @@ describe("Iroh trust broker database behavior", () => {
         route_contract_version: 1,
         deviceId,
         appInstanceId,
+        clientNamespace: "legacy",
         tag: "stable",
         platform: "mac",
         endpointId,
@@ -403,21 +406,224 @@ describe("Iroh trust broker database behavior", () => {
     const results = await Promise.allSettled([register(), register()]);
     expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
     expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
-    const [{ bindings, consumed, nextExpiry, pathHints }] = await requiredSql()<Array<{
+    const [{ bindings, challenges, nextExpiry, pathHints }] = await requiredSql()<Array<{
       bindings: string;
-      consumed: string;
+      challenges: string;
       nextExpiry: Date | null;
       pathHints: unknown[];
     }>>`
       select
         (select count(*)::text from iroh_endpoint_bindings) as bindings,
-        (select count(*)::text from iroh_registration_challenges where consumed_at is not null) as consumed,
+        (select count(*)::text from iroh_registration_challenges) as challenges,
         (select path_hints_next_expiry from iroh_endpoint_bindings limit 1) as "nextExpiry",
         (select path_hints from iroh_endpoint_bindings limit 1) as "pathHints"
     `;
-    expect({ bindings, consumed }).toEqual({ bindings: "1", consumed: "1" });
+    // The consumed challenge is deleted with its registration, so the table
+    // holds only in-flight challenges and never grows with heartbeats.
+    expect({ bindings, challenges }).toEqual({ bindings: "1", challenges: "0" });
     expect(nextExpiry).toBeNull();
     expect(pathHints).toEqual([]);
+  });
+
+  dbTest("adopts legacy and tag-only Mac bindings into the bundle namespace", async () => {
+    const repo = requiredRepository();
+    const userId = "user-legacy-namespace-adoption";
+    const deviceId = randomUUID();
+    const endpointId = "35".repeat(32);
+
+    const register = async (
+      appInstanceId: string,
+      clientNamespace: string,
+      nonceHash: string,
+    ) => {
+      const challenge = await Effect.runPromise(repo.issueChallenge({
+        userId,
+        deviceUuid: deviceId,
+        appInstanceId,
+        clientNamespace,
+        tag: "stable",
+        endpointId,
+        identityGeneration: 1,
+        payloadSha256: "36".repeat(32),
+        nonceHash,
+        minimumSpacingMs: 0,
+        now: NOW,
+        expiresAt: new Date(NOW.getTime() + 5 * 60 * 1_000),
+      }));
+      return await Effect.runPromise(repo.consumeChallengeAndRegister({
+        userId,
+        challengeId: challenge.id,
+        nonceHash,
+        payload: {
+          route_contract_version: 1,
+          deviceId,
+          appInstanceId,
+          clientNamespace,
+          tag: "stable",
+          platform: "mac",
+          endpointId,
+          identityGeneration: 1,
+          pairingEnabled: true,
+          capabilities: [],
+          pathHints: [],
+        },
+        now: NOW,
+      }));
+    };
+
+    const legacy = await register(randomUUID(), "legacy", "37".repeat(32));
+    const tagOnly = await register(
+      randomUUID(),
+      "mac:stable",
+      "38".repeat(32),
+    );
+    const adopted = await register(
+      randomUUID(),
+      "mac:com.cmuxterm.app",
+      "39".repeat(32),
+    );
+
+    expect(adopted.binding.id).toBe(legacy.binding.id);
+    expect(tagOnly.binding.id).toBe(legacy.binding.id);
+    expect(adopted.created).toBe(false);
+    const rows = await requiredSql()<Array<{
+      id: string;
+      clientNamespace: string;
+    }>>`
+      select id, client_namespace as "clientNamespace"
+      from iroh_endpoint_bindings
+      where user_id = ${userId}
+    `;
+    expect(rows).toEqual([{
+      id: legacy.binding.id,
+      clientNamespace: "mac:com.cmuxterm.app",
+    }]);
+  });
+
+  dbTest("drains a migrated legacy revocation before namespace adoption", async () => {
+    const repo = requiredRepository();
+    const userId = "user-legacy-namespace-revocation";
+    const [legacy] = await requiredSql()<Array<{ id: string }>>`
+      insert into iroh_endpoint_bindings (
+        user_id,
+        device_uuid,
+        app_instance_id,
+        client_namespace,
+        tag,
+        platform,
+        endpoint_id,
+        identity_generation
+      ) values (
+        ${userId},
+        ${randomUUID()},
+        ${randomUUID()},
+        'legacy',
+        'stable',
+        'ios',
+        ${"39".repeat(32)},
+        1
+      )
+      returning id
+    `;
+    if (!legacy) throw new Error("legacy binding insert failed");
+
+    const revoked = await Effect.runPromise(repo.revokeBinding({
+      userId,
+      bindingId: legacy.id,
+      clientNamespace: "dev.cmux.app.internal",
+      now: NOW,
+    }));
+
+    expect(revoked).toEqual({ revoked: true, accountRevision: 1 });
+    const [stored] = await requiredSql()<Array<{
+      revokedAt: Date | null;
+      revokedReason: string | null;
+    }>>`
+      select
+        revoked_at as "revokedAt",
+        revoked_reason as "revokedReason"
+      from iroh_endpoint_bindings
+      where id = ${legacy.id}
+    `;
+    expect(stored?.revokedAt).toEqual(NOW);
+    expect(stored?.revokedReason).toBe("user_requested");
+  });
+
+  dbTest("isolates iOS discovery while Mac admission sees iOS peers", async () => {
+    const repo = requiredRepository();
+    const userId = "user-namespace-discovery";
+    const rows = await requiredSql()<Array<{
+      id: string;
+      clientNamespace: string;
+    }>>`
+      insert into iroh_endpoint_bindings (
+        user_id,
+        device_uuid,
+        app_instance_id,
+        client_namespace,
+        tag,
+        platform,
+        endpoint_id,
+        identity_generation
+      ) values
+        (
+          ${userId},
+          ${randomUUID()},
+          ${randomUUID()},
+          'dev.cmux.app.internal',
+          'stable',
+          'ios',
+          ${"3a".repeat(32)},
+          1
+        ),
+        (
+          ${userId},
+          ${randomUUID()},
+          ${randomUUID()},
+          'dev.cmux.app.demo',
+          'stable',
+          'ios',
+          ${"3b".repeat(32)},
+          1
+        ),
+        (
+          ${userId},
+          ${randomUUID()},
+          ${randomUUID()},
+          'mac:stable',
+          'stable',
+          'mac',
+          ${"3c".repeat(32)},
+          1
+        )
+      returning id, client_namespace as "clientNamespace"
+    `;
+    const idByNamespace = new Map(
+      rows.map((row) => [row.clientNamespace, row.id]),
+    );
+
+    const demo = await Effect.runPromise(repo.discoverySnapshot({
+      userId,
+      clientNamespace: "dev.cmux.app.demo",
+      callerBindingId: idByNamespace.get("dev.cmux.app.demo")!,
+      callerPlatform: "ios",
+      now: NOW,
+    }));
+    expect(demo.bindings.map((row) => row.id).sort()).toEqual([
+      idByNamespace.get("dev.cmux.app.demo"),
+      idByNamespace.get("mac:stable"),
+    ].sort());
+
+    const mac = await Effect.runPromise(repo.discoverySnapshot({
+      userId,
+      clientNamespace: "mac:stable",
+      callerBindingId: idByNamespace.get("mac:stable")!,
+      callerPlatform: "mac",
+      now: NOW,
+    }));
+    expect(mac.bindings.map((row) => row.id).sort()).toEqual(
+      [...idByNamespace.values()].sort(),
+    );
   });
 
   dbTest("persists account-private path hints already filtered by the trust broker", async () => {
@@ -453,11 +659,13 @@ describe("Iroh trust broker database behavior", () => {
       userId,
       deviceUuid: deviceId,
       appInstanceId,
+      clientNamespace: "legacy",
       tag: "stable",
       endpointId,
       identityGeneration: 1,
       payloadSha256: "42".repeat(32),
       nonceHash,
+      minimumSpacingMs: 0,
       now: NOW,
       expiresAt: new Date(NOW.getTime() + 5 * 60 * 1_000),
     }));
@@ -470,6 +678,7 @@ describe("Iroh trust broker database behavior", () => {
         route_contract_version: 1,
         deviceId,
         appInstanceId,
+        clientNamespace: "legacy",
         tag: "stable",
         platform: "mac",
         endpointId,
@@ -518,6 +727,7 @@ describe("Iroh trust broker database behavior", () => {
         identityGeneration: 1,
         payloadSha256: (sequence + 10).toString(16).padStart(64, "0"),
         nonceHash,
+        minimumSpacingMs: 0,
         now,
         expiresAt: new Date(now.getTime() + 5 * 60 * 1_000),
       }));
@@ -527,6 +737,7 @@ describe("Iroh trust broker database behavior", () => {
         route_contract_version: 1,
         deviceId,
         appInstanceId,
+        clientNamespace: "legacy",
         tag: "stable",
         platform: "mac",
         endpointId,
@@ -603,6 +814,7 @@ describe("Iroh trust broker database behavior", () => {
         identityGeneration: 1,
         payloadSha256: `${suffix}${"0".repeat(63)}`,
         nonceHash,
+        minimumSpacingMs: 0,
         now,
         expiresAt: new Date(now.getTime() + 5 * 60 * 1_000),
       }));
@@ -614,6 +826,7 @@ describe("Iroh trust broker database behavior", () => {
           route_contract_version: 1,
           deviceId,
           appInstanceId,
+          clientNamespace: "legacy",
           tag: "stable",
           platform,
           endpointId,
@@ -734,6 +947,7 @@ describe("Iroh trust broker database behavior", () => {
         identityGeneration: input.identityGeneration,
         payloadSha256: `${input.suffix}${"0".repeat(63)}`,
         nonceHash,
+        minimumSpacingMs: 0,
         now: input.now,
         expiresAt: new Date(input.now.getTime() + 5 * 60 * 1_000),
       }));
@@ -745,6 +959,7 @@ describe("Iroh trust broker database behavior", () => {
           route_contract_version: 1,
           deviceId,
           appInstanceId: input.appInstanceId,
+          clientNamespace: "legacy",
           tag: input.tag,
           platform: "ios",
           endpointId: input.endpointId,
@@ -850,11 +1065,13 @@ describe("Iroh trust broker database behavior", () => {
         userId,
         deviceUuid: deviceId,
         appInstanceId: input.appInstanceId,
+        clientNamespace: "legacy",
         tag,
         endpointId: endpoint,
         identityGeneration: 1,
         payloadSha256: `${input.suffix}${"0".repeat(63)}`,
         nonceHash,
+        minimumSpacingMs: 0,
         now: input.now,
         expiresAt: new Date(input.now.getTime() + 5 * 60 * 1_000),
       }));
@@ -872,6 +1089,7 @@ describe("Iroh trust broker database behavior", () => {
         route_contract_version: 1,
         deviceId,
         appInstanceId: prepared.appInstanceId,
+        clientNamespace: "legacy",
         tag,
         platform: "ios",
         endpointId: endpoint,
@@ -952,6 +1170,7 @@ describe("Iroh trust broker database behavior", () => {
         identityGeneration: 1,
         payloadSha256: `${input.suffix}${"0".repeat(63)}`,
         nonceHash,
+        minimumSpacingMs: 0,
         now: input.now,
         expiresAt: new Date(input.now.getTime() + 5 * 60 * 1_000),
       }));
@@ -969,6 +1188,7 @@ describe("Iroh trust broker database behavior", () => {
         route_contract_version: 1,
         deviceId,
         appInstanceId: prepared.appInstanceId,
+        clientNamespace: "legacy",
         tag,
         platform: "ios",
         endpointId: endpoint,
@@ -1036,6 +1256,7 @@ describe("Iroh trust broker database behavior", () => {
         identityGeneration: 1,
         payloadSha256: `${input.suffix}${"0".repeat(63)}`,
         nonceHash,
+        minimumSpacingMs: 0,
         now: input.now,
         expiresAt: new Date(input.now.getTime() + 5 * 60 * 1_000),
       }));
@@ -1052,6 +1273,7 @@ describe("Iroh trust broker database behavior", () => {
         route_contract_version: 1,
         deviceId,
         appInstanceId: prepared.appInstanceId,
+        clientNamespace: "legacy",
         tag,
         platform: "ios",
         endpointId: endpoint,
@@ -1122,6 +1344,7 @@ describe("Iroh trust broker database behavior", () => {
         identityGeneration: 1,
         payloadSha256: `${input.suffix}${"0".repeat(63)}`,
         nonceHash,
+        minimumSpacingMs: 0,
         now: input.now,
         expiresAt: new Date(input.now.getTime() + 5 * 60 * 1_000),
       }));
@@ -1133,6 +1356,7 @@ describe("Iroh trust broker database behavior", () => {
           route_contract_version: 1,
           deviceId,
           appInstanceId,
+          clientNamespace: "legacy",
           tag: "stable",
           platform: "ios",
           endpointId: input.endpointId,
@@ -1239,6 +1463,7 @@ describe("Iroh trust broker database behavior", () => {
       identityGeneration: 1,
       payloadSha256: `8${"0".repeat(63)}`,
       nonceHash,
+      minimumSpacingMs: 0,
       now: new Date(NOW.getTime() + 301_000),
       expiresAt: new Date(NOW.getTime() + 601_000),
     }));
@@ -1250,6 +1475,7 @@ describe("Iroh trust broker database behavior", () => {
         route_contract_version: 1,
         deviceId,
         appInstanceId,
+        clientNamespace: "legacy",
         tag: "stable",
         platform: "ios",
         endpointId: "c1".repeat(32),
@@ -1279,6 +1505,95 @@ describe("Iroh trust broker database behavior", () => {
 
     expect(pageCounts).toEqual([128, 128, 45]);
     expect(bindingIds.size).toBe(301);
+    const complete = await Effect.runPromise(repo.discoverySnapshot({
+      userId,
+      now: new Date(NOW.getTime() + 302_000),
+    }));
+    expect(complete.bindings).toHaveLength(301);
+    expect(complete.accountRevision).toBe(registration.accountRevision);
+  });
+
+  dbTest("filters scoped discovery in the authoritative SQL snapshot", async () => {
+    const repo = requiredRepository();
+    const userId = "user-scoped-discovery";
+    const deviceId = randomUUID();
+    const appInstanceId = randomUUID();
+    const localId = await insertBinding({
+      userId,
+      deviceUuid: deviceId,
+      appInstanceId,
+      endpointId: "d1".repeat(32),
+      platform: "ios",
+      tag: "stable",
+    });
+    const eligibleMacId = await insertBinding({
+      userId,
+      endpointId: "d2".repeat(32),
+      platform: "mac",
+      tag: "FeatureA",
+      pairingEnabled: true,
+    });
+    await insertBinding({
+      userId,
+      endpointId: "d3".repeat(32),
+      platform: "mac",
+      tag: "other",
+      pairingEnabled: true,
+    });
+    await insertBinding({
+      userId,
+      endpointId: "d4".repeat(32),
+      platform: "mac",
+      tag: "default",
+      pairingEnabled: false,
+    });
+    await insertBinding({
+      userId,
+      endpointId: "d5".repeat(32),
+      platform: "ios",
+      tag: "stable",
+    });
+    const revokedMacId = await insertBinding({
+      userId,
+      endpointId: "d6".repeat(32),
+      platform: "mac",
+      tag: "nightly",
+      pairingEnabled: true,
+    });
+    await requiredSql()`
+      update iroh_endpoint_bindings
+      set revoked_at = ${NOW}, revoked_reason = 'test'
+      where id = ${revokedMacId}
+    `;
+    await insertBinding({
+      userId: "other-user",
+      endpointId: "d7".repeat(32),
+      platform: "mac",
+      tag: "default",
+      pairingEnabled: true,
+    });
+
+    const snapshot = await Effect.runPromise(repo.discoverySnapshot({
+      userId,
+      now: NOW,
+      scope: {
+        localBinding: {
+          deviceId,
+          appInstanceId,
+          tag: "stable",
+          platform: "ios",
+        },
+        peerBindings: {
+          platform: "mac",
+          tags: ["featurea", "nightly"],
+          pairingEnabled: true,
+        },
+      },
+    }));
+
+    expect(snapshot.bindings.map((binding) => binding.id)).toEqual(
+      [localId, eligibleMacId].sort(),
+    );
   });
 
   dbTest("enforces the UDP port range for each direct-address family", async () => {
@@ -1423,7 +1738,7 @@ describe("Iroh trust broker database behavior", () => {
       now: NOW,
     }))).toEqual({ revoked: false, accountRevision: 1 });
 
-    let concurrentDiscovery: ReturnType<typeof Effect.runPromise> | undefined;
+    let concurrentSnapshot: ReturnType<typeof Effect.runPromise> | undefined;
     await requiredSql().begin(async (revocationSql) => {
       await revocationSql`
         select pg_advisory_xact_lock(hashtextextended(${`iroh:binding:${userId}`}, 0))
@@ -1441,17 +1756,17 @@ describe("Iroh trust broker database behavior", () => {
             updated_at = ${NOW}
         where user_id = ${userId}
       `;
-      concurrentDiscovery = Effect.runPromise(repo.discoveryPage({
+      concurrentSnapshot = Effect.runPromise(repo.discoverySnapshot({
         userId,
         now: NOW,
-        pageSize: 256,
       }));
       await waitForAdvisoryLockWaiter();
     });
-    if (!concurrentDiscovery) throw new Error("concurrent discovery was not started");
-    const afterConcurrentRevoke = await concurrentDiscovery;
+    if (!concurrentSnapshot) throw new Error("concurrent discovery was not started");
+    const afterConcurrentRevoke = await concurrentSnapshot;
     expect(afterConcurrentRevoke).toMatchObject({
       lanDiscoveryGeneration: 3,
+      accountRevision: 2,
       bindings: [],
     });
     const otherAfter = await Effect.runPromise(repo.discoveryPage({
@@ -1683,6 +1998,352 @@ describe("Iroh trust broker database behavior", () => {
     });
   });
 
+  dbTest("deletes a consumed challenge and keeps later heartbeats strictly ordered", async () => {
+    const repo = requiredRepository();
+    const userId = "user-heartbeat-order";
+    const deviceId = randomUUID();
+    const appInstanceId = randomUUID();
+    const endpointId = "11".repeat(32);
+    const mint = (nonceHash: string, payloadSha256: string) => Effect.runPromise(repo.issueChallenge({
+      userId,
+      deviceUuid: deviceId,
+      appInstanceId,
+      tag: "stable",
+      endpointId,
+      identityGeneration: 1,
+      payloadSha256,
+      nonceHash,
+      minimumSpacingMs: 0,
+      now: NOW,
+      expiresAt: new Date(NOW.getTime() + 5 * 60 * 1_000),
+    }));
+    const register = (challengeId: string, nonceHash: string) => Effect.runPromise(repo.consumeChallengeAndRegister({
+      userId,
+      challengeId,
+      nonceHash,
+      payload: {
+        route_contract_version: 1,
+        deviceId,
+        appInstanceId,
+        clientNamespace: "legacy",
+        tag: "stable",
+        platform: "mac",
+        endpointId,
+        identityGeneration: 1,
+        pairingEnabled: true,
+        capabilities: [],
+        pathHints: [],
+      },
+      now: NOW,
+    }));
+
+    const first = await mint("21".repeat(32), "31".repeat(32));
+    await register(first.id, "21".repeat(32));
+    const [afterFirst] = await requiredSql()<Array<{ challenges: string; registeredAt: Date }>>`
+      select
+        (select count(*)::text from iroh_registration_challenges where user_id = ${userId}) as challenges,
+        (select registered_at from iroh_endpoint_bindings where user_id = ${userId}) as "registeredAt"
+    `;
+    // Consumption deletes the challenge; the slot remembers its mint time.
+    expect(afterFirst.challenges).toBe("0");
+    expect(afterFirst.registeredAt).toEqual(first.createdAt);
+
+    // A replay of the consumed challenge is an unknown challenge, not a
+    // conflict, because the row is gone.
+    await expect(register(first.id, "21".repeat(32))).rejects.toThrow();
+
+    // A heartbeat minted at the same wall-clock instant must still land
+    // strictly after the slot's registeredAt, or the staleness gate would
+    // reject it as superseded now that the prior challenge row is gone.
+    const heartbeat = await mint("22".repeat(32), "32".repeat(32));
+    expect(heartbeat.createdAt.getTime()).toBeGreaterThan(first.createdAt.getTime());
+    const result = await register(heartbeat.id, "22".repeat(32));
+    expect(result.created).toBe(false);
+    expect(result.binding.registeredAt).toEqual(heartbeat.createdAt);
+    const [afterHeartbeat] = await requiredSql()<Array<{ challenges: string }>>`
+      select count(*)::text as challenges from iroh_registration_challenges where user_id = ${userId}
+    `;
+    expect(afterHeartbeat.challenges).toBe("0");
+  });
+
+  dbTest("spaces same-identity re-registrations and never delays identity rotation", async () => {
+    const repo = requiredRepository();
+    const userId = "user-spacing";
+    const deviceId = randomUUID();
+    const appInstanceId = randomUUID();
+    const endpointId = "13".repeat(32);
+    const mint = (nonceHash: string, at: Date, endpoint = endpointId, generation = 1) => Effect.runPromise(repo.issueChallenge({
+      userId,
+      deviceUuid: deviceId,
+      appInstanceId,
+      tag: "stable",
+      endpointId: endpoint,
+      identityGeneration: generation,
+      payloadSha256: "34".repeat(32),
+      nonceHash,
+      now: at,
+      expiresAt: new Date(at.getTime() + 5 * 60 * 1_000),
+    }));
+    const first = await mint("51".repeat(32), NOW);
+    await Effect.runPromise(repo.consumeChallengeAndRegister({
+      userId,
+      challengeId: first.id,
+      nonceHash: "51".repeat(32),
+      payload: {
+        route_contract_version: 1,
+        deviceId,
+        appInstanceId,
+        clientNamespace: "legacy",
+        tag: "stable",
+        platform: "mac",
+        endpointId,
+        identityGeneration: 1,
+        pairingEnabled: true,
+        capabilities: [],
+        pathHints: [],
+      },
+      now: NOW,
+    }));
+
+    // Same identity, ten seconds later: told to wait for the remainder.
+    const tooSoon = await Effect.runPromiseExit(repo.issueChallenge({
+      userId,
+      deviceUuid: deviceId,
+      appInstanceId,
+      tag: "stable",
+      endpointId,
+      identityGeneration: 1,
+      payloadSha256: "34".repeat(32),
+      nonceHash: "52".repeat(32),
+      now: new Date(NOW.getTime() + 10_000),
+      expiresAt: new Date(NOW.getTime() + 10_000 + 5 * 60 * 1_000),
+    }));
+    expect(tooSoon._tag).toBe("Failure");
+    const failure = tooSoon._tag === "Failure"
+      ? Option.getOrUndefined(Cause.failureOption(tooSoon.cause))
+      : undefined;
+    expect(failure).toMatchObject({
+      _tag: "IrohQuotaExceededError",
+      code: "registration_spacing",
+      retryAfterSeconds: 50,
+    });
+    // A rotated identity on the same slot is never delayed.
+    const rotated = await mint("53".repeat(32), new Date(NOW.getTime() + 10_000), "14".repeat(32), 2);
+    expect(rotated.endpointId).toBe("14".repeat(32));
+    // Same identity after the floor: accepted.
+    const later = await mint("54".repeat(32), new Date(NOW.getTime() + 61_000));
+    expect(later.createdAt.getTime()).toBeGreaterThan(first.createdAt.getTime());
+  });
+
+  dbTest("does not space an irx slot, whose runtime ignores Retry-After", async () => {
+    const repo = requiredRepository();
+    const userId = "user-spacing-irx";
+    const deviceId = randomUUID();
+    const appInstanceId = randomUUID();
+    const endpointId = "16".repeat(32);
+    const namespace = "mac:com.cmuxterm.app.debug.irohhb";
+    const mint = (nonceHash: string, at: Date) => Effect.runPromise(repo.issueChallenge({
+      userId,
+      deviceUuid: deviceId,
+      appInstanceId,
+      clientNamespace: namespace,
+      tag: "stable",
+      endpointId,
+      identityGeneration: 1,
+      payloadSha256: "36".repeat(32),
+      nonceHash,
+      now: at,
+      expiresAt: new Date(at.getTime() + 5 * 60 * 1_000),
+    }));
+    const first = await mint("55".repeat(32), NOW);
+    await Effect.runPromise(repo.consumeChallengeAndRegister({
+      userId,
+      challengeId: first.id,
+      nonceHash: "55".repeat(32),
+      payload: {
+        route_contract_version: 1,
+        deviceId,
+        appInstanceId,
+        clientNamespace: namespace,
+        tag: "stable",
+        platform: "mac",
+        endpointId,
+        identityGeneration: 1,
+        pairingEnabled: true,
+        capabilities: ["cmux.irx.v1", "iroh.private_paths.v1"],
+        pathHints: [],
+      },
+      now: NOW,
+    }));
+    // Ten seconds later, same identity: accepted, because a refused mint
+    // would only make the irx runtime poll every five seconds. The slot's
+    // stored capabilities, not its namespace, identify the runtime.
+    const soon = await mint("56".repeat(32), new Date(NOW.getTime() + 10_000));
+    expect(soon.createdAt.getTime()).toBeGreaterThan(first.createdAt.getTime());
+  });
+
+  dbTest("measures spacing from the newest outstanding mint, not only the last registration", async () => {
+    const repo = requiredRepository();
+    const userId = "user-spacing-outstanding";
+    const deviceId = randomUUID();
+    const appInstanceId = randomUUID();
+    const endpointId = "17".repeat(32);
+    const mint = (nonceHash: string, at: Date) => Effect.runPromiseExit(repo.issueChallenge({
+      userId,
+      deviceUuid: deviceId,
+      appInstanceId,
+      clientNamespace: "mac:com.cmuxterm.app",
+      tag: "stable",
+      endpointId,
+      identityGeneration: 1,
+      payloadSha256: "37".repeat(32),
+      nonceHash,
+      now: at,
+      expiresAt: new Date(at.getTime() + 5 * 60 * 1_000),
+    }));
+    const first = await mint("57".repeat(32), NOW);
+    expect(first._tag).toBe("Success");
+    const firstId = first._tag === "Success" ? first.value.id : "";
+    await Effect.runPromise(repo.consumeChallengeAndRegister({
+      userId,
+      challengeId: firstId,
+      nonceHash: "57".repeat(32),
+      payload: {
+        route_contract_version: 1,
+        deviceId,
+        appInstanceId,
+        clientNamespace: "mac:com.cmuxterm.app",
+        tag: "stable",
+        platform: "mac",
+        endpointId,
+        identityGeneration: 1,
+        pairingEnabled: true,
+        capabilities: ["mobile-rpc-v1", "multistream-v1"],
+        pathHints: [],
+      },
+      now: NOW,
+    }));
+    // 61 s after the registration: accepted but left outstanding.
+    const outstanding = await mint("58".repeat(32), new Date(NOW.getTime() + 61_000));
+    expect(outstanding._tag).toBe("Success");
+    // 9 s after that outstanding mint: refused, measured from the mint, not
+    // from the registration 70 s ago.
+    const banked = await mint("59".repeat(32), new Date(NOW.getTime() + 70_000));
+    expect(banked._tag).toBe("Failure");
+    const failure = banked._tag === "Failure"
+      ? Option.getOrUndefined(Cause.failureOption(banked.cause))
+      : undefined;
+    expect(failure).toMatchObject({ _tag: "IrohQuotaExceededError", code: "registration_spacing", retryAfterSeconds: 51 });
+  });
+
+  dbTest("keeps the route revision on a heartbeat that changes nothing a peer can act on", async () => {
+    const repo = requiredRepository();
+    const userId = "user-noop-heartbeat";
+    const deviceId = randomUUID();
+    const appInstanceId = randomUUID();
+    const endpointId = "15".repeat(32);
+    let counter = 0x60;
+    const registerAt = async (at: Date, pathHints: Parameters<typeof repo.consumeChallengeAndRegister>[0]["payload"]["pathHints"]) => {
+      const nonceHash = (counter++).toString(16).repeat(32);
+      const challenge = await Effect.runPromise(repo.issueChallenge({
+        userId,
+        deviceUuid: deviceId,
+        appInstanceId,
+        tag: "stable",
+        endpointId,
+        identityGeneration: 1,
+        payloadSha256: "35".repeat(32),
+        nonceHash,
+        minimumSpacingMs: 0,
+        now: at,
+        expiresAt: new Date(at.getTime() + 5 * 60 * 1_000),
+      }));
+      return Effect.runPromise(repo.consumeChallengeAndRegister({
+        userId,
+        challengeId: challenge.id,
+        nonceHash,
+        payload: {
+          route_contract_version: 1,
+          deviceId,
+          appInstanceId,
+          clientNamespace: "legacy",
+          tag: "stable",
+          platform: "mac",
+          endpointId,
+          identityGeneration: 1,
+          pairingEnabled: true,
+          capabilities: ["attach"],
+          pathHints,
+        },
+        now: at,
+      }));
+    };
+    const relay = (observedAt: Date) => ({
+      kind: "relay_url" as const,
+      value: "https://use1.relay.cmux.dev/",
+      source: "native" as const,
+      privacy_scope: "public_internet" as const,
+      observed_at: observedAt.toISOString(),
+      expires_at: new Date(observedAt.getTime() + 60 * 60 * 1_000).toISOString(),
+    });
+    const t0 = NOW;
+    const t1 = new Date(NOW.getTime() + 61_000);
+    const t2 = new Date(NOW.getTime() + 122_000);
+
+    const created = await registerAt(t0, [relay(t0)]);
+    expect(created.created).toBe(true);
+    // Same route, fresh timestamps: liveness refreshed, revision untouched.
+    const heartbeat = await registerAt(t1, [relay(t1)]);
+    expect(heartbeat.created).toBe(false);
+    expect(heartbeat.accountRevision).toBe(created.accountRevision);
+    expect(heartbeat.binding.lastSeenAt).toEqual(t1);
+    // A new direct address is news for peers: revision advances.
+    const changed = await registerAt(t2, [relay(t2), {
+      kind: "direct_address" as const,
+      value: "203.0.113.7:4433",
+      source: "native" as const,
+      privacy_scope: "public_internet" as const,
+      observed_at: t2.toISOString(),
+      expires_at: new Date(t2.getTime() + 60 * 60 * 1_000).toISOString(),
+    }]);
+    expect(changed.accountRevision).toBe(created.accountRevision + 1);
+  });
+
+  dbTest("global retention drops legacy consumed challenges of any age and keeps in-flight ones", async () => {
+    const repo = requiredRepository();
+    const userId = "user-challenge-backlog";
+    const deviceId = randomUUID();
+    const insertChallenge = async (nonceHash: string, consumedAt: Date | null, expiresAt: Date) => {
+      const [row] = await requiredSql()<Array<{ id: string }>>`
+        insert into iroh_registration_challenges (
+          user_id, device_uuid, app_instance_id, client_namespace, tag, endpoint_id,
+          identity_generation, payload_sha256, nonce_hash, created_at, expires_at, consumed_at
+        ) values (
+          ${userId}, ${deviceId}, ${randomUUID()}, 'legacy', 'stable', ${"12".repeat(32)},
+          1, ${"33".repeat(32)}, ${nonceHash}, ${new Date(expiresAt.getTime() - 5 * 60 * 1_000)}, ${expiresAt}, ${consumedAt}
+        ) returning id::text
+      `;
+      return row!.id;
+    };
+    // Consumed one minute ago: the pre-fix backlog shape. Must go.
+    const recentConsumed = await insertChallenge("41".repeat(32), new Date(NOW.getTime() - 60_000), new Date(NOW.getTime() + 4 * 60_000));
+    // Expired two hours ago, never consumed: past the grace period. Must go.
+    const staleExpired = await insertChallenge("42".repeat(32), null, new Date(NOW.getTime() - 2 * 60 * 60_000));
+    // Expired ten minutes ago, never consumed: inside the grace period. Stays.
+    const freshExpired = await insertChallenge("43".repeat(32), null, new Date(NOW.getTime() - 10 * 60_000));
+    // In flight. Stays.
+    const inFlight = await insertChallenge("44".repeat(32), null, new Date(NOW.getTime() + 4 * 60_000));
+
+    await Effect.runPromise(repo.pruneExpiredStateGlobally({ now: NOW }));
+
+    const rows = await requiredSql()<Array<{ id: string }>>`
+      select id::text from iroh_registration_challenges where user_id = ${userId}
+    `;
+    expect(rows.map((row) => row.id).sort()).toEqual([freshExpired, inFlight].sort());
+    expect(rows.map((row) => row.id)).not.toContain(recentConsumed);
+    expect(rows.map((row) => row.id)).not.toContain(staleExpired);
+  });
+
   dbTest("global retention clears revoked hints and expired private data from Aurora", async () => {
     const repo = requiredRepository();
     const activeId = await insertBinding({
@@ -1838,6 +2499,8 @@ describe("Iroh trust broker database behavior", () => {
         ${new Date(NOW.getTime() - 2 * 24 * 60 * 60 * 1_000)}
       from generate_series(1, ${IROH_RETENTION_BATCH_SIZE + 1}) as values(value)
     `;
+    // The per-user prune on the request path no longer deletes retention
+    // rows; the scheduled global drain owns that work.
     await Effect.runPromise(requiredRepository().pruneExpiredState({
       userId: "user-retention-scoped",
       now: NOW,
@@ -1847,7 +2510,14 @@ describe("Iroh trust broker database behavior", () => {
       from iroh_registration_challenges
       where user_id = 'user-retention-scoped'
     `;
-    expect(scopedRemaining).toBe("1");
+    expect(scopedRemaining).toBe(String(IROH_RETENTION_BATCH_SIZE + 1));
+    await Effect.runPromise(requiredRepository().pruneExpiredStateGlobally({ now: NOW }));
+    const [{ scopedAfterDrain }] = await requiredSql()<Array<{ scopedAfterDrain: string }>>`
+      select count(*)::text as "scopedAfterDrain"
+      from iroh_registration_challenges
+      where user_id = 'user-retention-scoped'
+    `;
+    expect(scopedAfterDrain).toBe("0");
   });
 
   dbTest("global retention reports backlog when its row budget is exhausted", async () => {
@@ -1983,6 +2653,7 @@ async function insertBinding(input: {
   readonly endpointId: string;
   readonly platform?: "mac" | "ios";
   readonly tag?: string;
+  readonly pairingEnabled?: boolean;
   readonly pathHints?: unknown[];
 }): Promise<string> {
   const [row] = await requiredSql()<Array<{ id: string }>>`
@@ -1992,7 +2663,8 @@ async function insertBinding(input: {
       path_hints_next_expiry
     ) values (
       ${input.userId}, ${input.deviceUuid ?? randomUUID()}, ${input.appInstanceId ?? randomUUID()}, ${input.tag ?? "stable"},
-      ${input.platform ?? "mac"}, ${input.endpointId}, 1, true, '[]'::jsonb,
+      ${input.platform ?? "mac"}, ${input.endpointId}, 1,
+      ${input.pairingEnabled ?? true}, '[]'::jsonb,
       ${requiredSql().json((input.pathHints ?? []) as never)},
       ${earliestStoredHintExpiry(input.pathHints ?? [])}
     ) returning id::text

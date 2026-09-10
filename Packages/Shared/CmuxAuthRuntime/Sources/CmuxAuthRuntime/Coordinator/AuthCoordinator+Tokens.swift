@@ -284,7 +284,7 @@ extension AuthCoordinator {
     /// - the refresh token changed across the reads (a rotation crossed the
     ///   window) or the session generation/identity moved.
     private func storedSessionSnapshot() async -> AuthenticatedSessionSnapshot? {
-        guard !launch.clearStaleAuthOnLaunch else { return nil }
+        guard !launch.shouldClearStoredSessionBeforePriming else { return nil }
         guard activeSignInFlows.isEmpty, !isCapturingSignOutCredentials else { return nil }
         guard isAuthenticated,
               let accountID = currentUser?.id,
@@ -428,4 +428,88 @@ public struct AuthenticatedSessionSnapshot: Sendable, Equatable,
     }
 
     public var debugDescription: String { description }
+}
+
+/// Credential-free identity for synchronously binding queued work to the
+/// current authenticated session.
+public struct AuthenticatedSessionIdentity: Sendable, Equatable,
+    CustomStringConvertible, CustomDebugStringConvertible {
+    public let generation: UInt64
+    public let accountID: String
+
+    public init(generation: UInt64, accountID: String) {
+        self.generation = generation
+        self.accountID = accountID
+    }
+
+    public var description: String {
+        "AuthenticatedSessionIdentity(generation: \(generation), accountID: <redacted>)"
+    }
+
+    public var debugDescription: String { description }
+}
+
+public extension AuthCoordinator {
+    /// The current account plus session generation without either credential.
+    var authenticatedSessionIdentity: AuthenticatedSessionIdentity? {
+        guard isAuthenticated,
+              !sessionTokenTransitionIsActive,
+              let accountID = currentUser?.id,
+              !accountID.isEmpty else { return nil }
+        return AuthenticatedSessionIdentity(
+            generation: authSessionGeneration,
+            accountID: accountID
+        )
+    }
+
+    /// A credential-free lifecycle stream for consumers that must cancel work
+    /// at the exact auth transition instead of discovering stale authority on
+    /// their next request. The first element is always the current state.
+    func authenticatedSessionIdentities()
+        -> AsyncStream<AuthenticatedSessionIdentity?> {
+        let continuationID = UUID()
+        return AsyncStream(bufferingPolicy: .bufferingNewest(1)) {
+            continuation in
+            authenticatedSessionIdentityContinuations[continuationID] =
+                continuation
+            continuation.yield(publishedAuthenticatedSessionIdentity)
+            continuation.onTermination = { @Sendable [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.authenticatedSessionIdentityContinuations[
+                        continuationID
+                    ] = nil
+                }
+            }
+        }
+    }
+
+    /// Whether a credential-free identity still names the published session.
+    /// This stays stable through same-account revalidation but flips false at
+    /// the synchronous start of sign-out.
+    func isAuthenticatedSessionIdentityCurrent(
+        _ identity: AuthenticatedSessionIdentity
+    ) -> Bool {
+        publishedAuthenticatedSessionIdentity == identity
+    }
+}
+
+extension AuthCoordinator {
+    private var publishedAuthenticatedSessionIdentity:
+        AuthenticatedSessionIdentity? {
+        guard isAuthenticated,
+              !isCapturingSignOutCredentials,
+              let accountID = currentUser?.id,
+              !accountID.isEmpty else { return nil }
+        return AuthenticatedSessionIdentity(
+            generation: authSessionGeneration,
+            accountID: accountID
+        )
+    }
+
+    func publishAuthenticatedSessionIdentity() {
+        let identity = publishedAuthenticatedSessionIdentity
+        for continuation in authenticatedSessionIdentityContinuations.values {
+            continuation.yield(identity)
+        }
+    }
 }

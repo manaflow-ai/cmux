@@ -210,10 +210,78 @@ struct MobileBrowserStreamTests {
         pacing.noteDirty(at: 0.040)
         #expect(pacing.recordEmission(format: .jpeg, observedDirtyGeneration: 3, at: 0.066) == 3)
         pacing.noteDirty(at: 0.070)
-        #expect(pacing.decision(at: 1) == .flowControlled)
+        // Window full at 0.066: capture pauses, bounded by the stall deadline.
+        guard case let .wait(stallRemaining) = pacing.decision(at: 1) else {
+            Issue.record("Expected ack-stall deadline while the window is full")
+            return
+        }
+        #expect(abs(stallRemaining - 2.066) < 0.000_001)
         pacing.acknowledge(sequence: 2)
         #expect(pacing.unackedSequences == [3])
         #expect(pacing.decision(at: 1) == .captureJPEG(dirtyGeneration: 4))
+    }
+
+    @Test
+    func fullUnackedWindowRecoversAfterAckStallInsteadOfDeadlocking() {
+        var pacing = MobileBrowserStreamPacing()
+        pacing.noteDirty(at: 0)
+        #expect(pacing.recordEmission(format: .jpeg, observedDirtyGeneration: 1, at: 0) == 1)
+        pacing.noteDirty(at: 0.04)
+        #expect(pacing.recordEmission(format: .jpeg, observedDirtyGeneration: 2, at: 0.04) == 2)
+        pacing.noteDirty(at: 0.08)
+        #expect(pacing.recordEmission(format: .jpeg, observedDirtyGeneration: 3, at: 0.08) == 3)
+        // No acknowledgement ever arrives: the subscriber never saw these
+        // frames (not yet wired, or the connection route swapped). The stream
+        // must not deadlock waiting for acks that cannot come; after the
+        // stall timeout it abandons the window and captures fresh.
+        #expect(pacing.decision(at: 60) == .captureJPEG(dirtyGeneration: 4))
+        #expect(pacing.unackedSequences.isEmpty)
+    }
+
+    @Test
+    func ackProgressReplacesStallDeadlineWithNormalPacing() {
+        var pacing = MobileBrowserStreamPacing()
+        for step in 0..<3 {
+            pacing.noteDirty(at: Double(step) * 0.04)
+            _ = pacing.recordEmission(
+                format: .jpeg,
+                observedDirtyGeneration: UInt64(step + 1),
+                at: Double(step) * 0.04
+            )
+        }
+        pacing.noteDirty(at: 0.12)
+        pacing.acknowledge(sequence: 3)
+        #expect(pacing.unackedSequences.isEmpty)
+        // A drained window must not inherit the old stall anchor: the next
+        // fill measures its own stall from its own fill time.
+        #expect(pacing.decision(at: 0.12) == .captureJPEG(dirtyGeneration: 4))
+    }
+
+    @Test
+    func idleReconciliationEmitsOneSettleFrame() {
+        var pacing = MobileBrowserStreamPacing()
+        pacing.noteDirty(at: 0)
+        _ = pacing.recordEmission(format: .jpeg, observedDirtyGeneration: 1, at: 0)
+        #expect(pacing.decision(at: 0.300) == .capturePNG(dirtyGeneration: 1))
+        _ = pacing.recordEmission(format: .png, observedDirtyGeneration: 1, at: 0.300)
+        pacing.acknowledge(sequence: 2)
+        #expect(pacing.decision(at: 5) == .idle)
+
+        pacing.requestSettleReconciliation()
+
+        #expect(pacing.decision(at: 10.300) == .capturePNG(dirtyGeneration: 1))
+        _ = pacing.recordEmission(format: .png, observedDirtyGeneration: 1, at: 10.300)
+        #expect(pacing.decision(at: 11) == .idle)
+    }
+
+    @Test
+    func settleReconciliationDoesNotPreemptPendingDirtyWork() {
+        var pacing = MobileBrowserStreamPacing()
+        pacing.noteDirty(at: 0)
+
+        pacing.requestSettleReconciliation()
+
+        #expect(pacing.decision(at: 5) == .captureJPEG(dirtyGeneration: 1))
     }
 
     @Test

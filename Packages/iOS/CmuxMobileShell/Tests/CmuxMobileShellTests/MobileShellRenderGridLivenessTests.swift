@@ -33,7 +33,7 @@ import Testing
     let clock = TestClock()
     let router = LivenessHostRouter()
     let box = TransportBox()
-    await router.setHoldSubscribe(true)
+    await router.delaySubscribeRequest(number: 1)
     let store = try await makeConnectedStore(router: router, box: box, clock: clock)
     defer {
         Task { await router.releaseAllHeld() }
@@ -45,13 +45,9 @@ import Testing
 
     let collector = OutputCollector()
     collector.mount(store: store, surfaceID: "live-terminal")
-    let sawReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
-    #expect(sawReplay, "mounting a sink must arm the cold-attach replay")
-    try await waitForReplayResponsesServed(
-        1,
-        router: router,
-        "the cold replay response must settle before testing subscribe buffering"
-    )
+    #expect(try await pollUntil {
+        store.hasTerminalOutputSink(surfaceID: "live-terminal")
+    })
 
     // The Mac pushes a live render-grid event while the subscribe ack is
     // still pending (the server-side subscription from a previous generation
@@ -79,6 +75,58 @@ import Testing
 }
 
 @MainActor
+@Test func connectionHealthWaitsForSuccessfulEventSubscription() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    await router.delaySubscribeRequest(number: 1)
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    defer {
+        Task { await router.releaseAllHeld() }
+    }
+
+    #expect(await router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
+    #expect(store.connectionState == .connected)
+    #expect(
+        store.macConnectionStatus == .reconnecting,
+        "RPC readiness alone must not publish a healthy connection"
+    )
+
+    await router.releaseAllHeld()
+    #expect(try await pollUntil(attempts: 1_000) {
+        store.macConnectionStatus == .connected
+    })
+}
+
+@MainActor
+@Test func replacementListenerMustEarnConnectionHealthAgain() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    #expect(await router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
+    #expect(try await pollUntil { store.macConnectionStatus == .connected })
+
+    await router.delaySubscribeRequest(number: 2)
+    store.resyncTerminalOutput(
+        reason: "test.listenerReplacement",
+        restartEventStream: true
+    )
+    defer {
+        Task { await router.releaseAllHeld() }
+    }
+
+    #expect(await router.waitForCount(of: "mobile.events.subscribe", atLeast: 2))
+    #expect(store.connectionState == .connected)
+    #expect(store.macConnectionStatus == .connected)
+
+    await router.releaseAllHeld()
+    #expect(try await pollUntil(attempts: 1_000) {
+        store.macConnectionStatus == .connected
+    })
+}
+
+@MainActor
 @Test func renderGridCapableHostUsesHybridTerminalOutputSubscription() async throws {
     let clock = TestClock()
     let router = LivenessHostRouter()
@@ -94,7 +142,7 @@ import Testing
 }
 
 @MainActor
-@Test func verifiedReplayCapableHostUsesRenderGridOnlySubscription() async throws {
+@Test func verifiedReplayCapableHostUsesHybridTerminalOutputSubscription() async throws {
     let clock = TestClock()
     let router = LivenessHostRouter()
     await router.setCapabilities([
@@ -107,16 +155,13 @@ import Testing
     let box = TransportBox()
     let store = try await makeConnectedStore(router: router, box: box, clock: clock)
     #expect(store.connectionState == .connected)
-    #expect(store.terminalOutputTransport == .renderGrid)
+    #expect(store.terminalOutputTransport == .hybrid)
 
     let sawSubscribe = try await pollUntil { await router.count(of: "mobile.events.subscribe") >= 1 }
     #expect(sawSubscribe, "listener must request the server-side subscription")
     let topics = await router.topics(for: "mobile.events.subscribe").last ?? []
     #expect(topics.contains("terminal.render_grid"))
-    #expect(
-        topics.contains("terminal.bytes") == false,
-        "verified replay must exclude raw bytes so primary-screen updates cannot bypass render-grid verification"
-    )
+    #expect(topics.contains("terminal.bytes"))
 }
 
 @MainActor
@@ -461,6 +506,11 @@ import Testing
     // Idle past the silence threshold: no events at all, host healthy.
     clock.advance(by: 10)
     store.debugRunRenderGridLivenessCheckForTesting()
+    #expect(await router.waitForCount(of: "mobile.events.probe", atLeast: 1))
+    #expect(
+        await router.count(of: "mobile.events.subscribe") == 1,
+        "a read-only liveness check must not replace a healthy subscription"
+    )
 
     // A teardown would restart the listener, which re-resolves capabilities
     // and re-replays the mounted sink.
@@ -522,16 +572,16 @@ import Testing
 
     // Hold only the first watchdog probe. The follow-up probe can complete,
     // modeling a short stall that resolves without the Iroh session dying.
-    await router.holdSubscribeRequest(number: 2)
+    await router.holdProbeRequest(number: 1)
     clock.advance(by: 10)
     store.debugRunRenderGridLivenessCheckForTesting()
-    #expect(await router.waitForCount(of: "mobile.events.subscribe", atLeast: 2))
+    #expect(await router.waitForCount(of: "mobile.events.probe", atLeast: 1))
     // The second independent probe succeeds and resets the liveness window.
     // Reconnecting makes `.connected` prove that its response was applied.
     store.markMacConnectionReconnecting()
     let followUpSucceeded = try await pollUntil {
         store.debugRunRenderGridLivenessCheckForTesting()
-        return await router.count(of: "mobile.events.subscribe") >= 3
+        return await router.count(of: "mobile.events.probe") >= 2
             && store.macConnectionStatus == .connected
     }
     #expect(followUpSucceeded, "the follow-up probe must complete successfully")
@@ -543,6 +593,120 @@ import Testing
         await router.count(of: "mobile.host.status") == hostStatusCountBeforeFailure,
         "one transient probe miss must not restart the event listener"
     )
+}
+
+/// A pair of failed subscription probes can identify a stalled event lane while
+/// the shared Iroh transport remains healthy. Repair that lane in place so
+/// terminal input and keepalives do not pay for a full session replacement.
+@MainActor
+@Test func watchdogRepairsStalledEventLaneWithoutReplacingLiveTransport() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    defer {
+        Task { await router.releaseAllHeld() }
+    }
+
+    let sawSubscribe = try await pollUntil { await router.count(of: "mobile.events.subscribe") >= 1 }
+    #expect(sawSubscribe, "listener must establish the push subscription")
+    let originalClient = try #require(store.remoteClient)
+    let originalGeneration = store.connectionGeneration
+
+    await router.holdProbeRequest(number: 1)
+    await router.holdProbeRequest(number: 2)
+    clock.advance(by: 10)
+    store.debugRunRenderGridLivenessCheckForTesting()
+    #expect(await router.waitForCount(of: "mobile.events.probe", atLeast: 1))
+
+    let repaired = try await pollUntil(attempts: 600) {
+        store.debugRunRenderGridLivenessCheckForTesting()
+        let probeCount = await router.count(of: "mobile.events.probe")
+        let subscribeCount = await router.count(of: "mobile.events.subscribe")
+        return probeCount >= 2 && subscribeCount >= 2
+    }
+    #expect(repaired, "a live transport must restart only the stalled event listener")
+    #expect(store.remoteClient === originalClient)
+    #expect(store.connectionGeneration == originalGeneration)
+    #expect(store.connectionState == .connected)
+    #expect(store.macConnectionStatus == .connected)
+}
+
+/// A probe timeout is not proof that the control lane is unusable. Retry the
+/// idempotent subscription on that same client before promoting the next
+/// watchdog tick to a replacement dial.
+@MainActor
+@Test func watchdogRepairsSubscriptionAfterProbeTimeoutWithoutReplacingSession() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    defer {
+        Task { await router.releaseAllHeld() }
+    }
+
+    #expect(try await pollUntil {
+        await router.count(of: "mobile.events.subscribe") >= 1
+    })
+    let originalClient = try #require(store.remoteClient)
+    let originalGeneration = store.connectionGeneration
+
+    // The first read-only probe is a transient stall. The subscription
+    // re-assertion must recover the same live session without a redial.
+    await router.holdProbeRequest(number: 1)
+    clock.advance(by: 10)
+    store.debugRunRenderGridLivenessCheckForTesting()
+    #expect(await router.waitForCount(of: "mobile.events.probe", atLeast: 1))
+
+    #expect(try await pollUntil {
+        await router.count(of: "mobile.events.subscribe") >= 2
+    })
+    #expect(try await pollUntil {
+        await router.successfulSubscribeCount() >= 2
+    })
+    #expect(await router.successfulSubscribeStreamIDs().last?.isEmpty == false)
+    #expect(store.remoteClient === originalClient)
+    #expect(store.connectionGeneration == originalGeneration)
+    #expect(store.connectionState == .connected)
+}
+
+/// A transient subscription acknowledgement failure can outlive the probe
+/// timeout during an Iroh path transition. A bounded second repair attempt
+/// must get the existing session back before the watchdog redials it.
+@MainActor
+@Test func watchdogRetriesSubscriptionRepairBeforeReplacingSession() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    defer {
+        Task { await router.releaseAllHeld() }
+    }
+
+    #expect(try await pollUntil {
+        await router.count(of: "mobile.events.subscribe") >= 1
+    })
+    let originalClient = try #require(store.remoteClient)
+    let originalGeneration = store.connectionGeneration
+
+    // The probe times out. The first repair acknowledgement is transiently
+    // rejected, while the bounded follow-up succeeds on the same client.
+    await router.failSubscribeRequest(number: 2, code: "temporarily_unavailable")
+    await router.holdProbeRequest(number: 1)
+    clock.advance(by: 10)
+    store.debugRunRenderGridLivenessCheckForTesting()
+
+    #expect(await router.waitForCount(of: "mobile.events.probe", atLeast: 1))
+    #expect(try await pollUntil {
+        await router.count(of: "mobile.events.subscribe") >= 3
+    })
+    #expect(try await pollUntil {
+        await router.successfulSubscribeCount() >= 2
+    })
+    #expect(await router.successfulSubscribeStreamIDs().last?.isEmpty == false)
+    #expect(store.remoteClient === originalClient)
+    #expect(store.connectionGeneration == originalGeneration)
+    #expect(store.connectionState == .connected)
 }
 
 /// A successful probe that REPAIRED a lost registration (the host reports
@@ -579,6 +743,8 @@ import Testing
     clock.advance(by: 10)
     store.debugRunRenderGridLivenessCheckForTesting()
 
+    #expect(await router.waitForCount(of: "mobile.events.probe", atLeast: 1))
+    #expect(await router.waitForCount(of: "mobile.events.subscribe", atLeast: 2))
     let replayed = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 2 }
     #expect(
         replayed,
@@ -630,16 +796,18 @@ import Testing
     #expect(sawSubscribe, "listener must establish the push subscription")
     let hostStatusCountBeforeFailure = await router.count(of: "mobile.host.status")
 
-    // The host stops answering two independent mobile.events.subscribe probes,
-    // confirming a dead push path rather than a transient stall.
-    await router.holdSubscribeRequest(number: 2)
-    await router.holdSubscribeRequest(number: 3)
+    // The host stops answering two independent read-only subscription probes,
+    // and also stops answering repair attempts, confirming a dead push path
+    // rather than a transient stall.
+    await router.setHoldSubscribe(true)
+    await router.holdProbeRequest(number: 1)
+    await router.holdProbeRequest(number: 2)
     clock.advance(by: 10)
     store.debugRunRenderGridLivenessCheckForTesting()
-    #expect(await router.waitForCount(of: "mobile.events.subscribe", atLeast: 2))
+    #expect(await router.waitForCount(of: "mobile.events.probe", atLeast: 1))
     let secondProbeStarted = try await pollUntil {
         store.debugRunRenderGridLivenessCheckForTesting()
-        return await router.count(of: "mobile.events.subscribe") >= 3
+        return await router.count(of: "mobile.events.probe") >= 2
     }
     #expect(secondProbeStarted, "the first failure must permit a confirmation probe")
     #expect(

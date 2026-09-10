@@ -29,6 +29,46 @@ struct SSHPTYAttachNoProgressRetryTests {
         #expect(!SSHPTYAttachExitCode.hasNoProgressRetryRemaining(currentRetry: 2, limit: 3))
     }
 
+    // Regression for #9423: the loop used to prefix the attach command with env
+    // assignments, which POSIX only allows before a simple command, so a compound
+    // command produced "syntax error near unexpected token `then'" and cmux ssh
+    // failed before attaching.
+    @Test("The no-progress loop is valid POSIX shell for compound attach commands")
+    func noProgressLoopAcceptsCompoundCommands() throws {
+        let compoundCommand = [
+            "if [ \"$cmux_ssh_attach_no_progress_retry\" -gt 0 ]; then : || exit 1; fi",
+            "printf '%s/%s\\n' \"$CMUX_SSH_PTY_ATTACH_NO_PROGRESS_RETRY\" \"$CMUX_SSH_PTY_ATTACH_NO_PROGRESS_LIMIT\" >> \"$CMUX_TEST_POLICY_LOG\"",
+            "exit 0",
+        ].joined(separator: "\n")
+        let script = SSHPTYAttachExitCode.noProgressRetryLoopLines(
+            command: compoundCommand
+        ).joined(separator: "\n")
+
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-no-progress-syntax-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let scriptFile = directory.appendingPathComponent("loop.sh")
+        let policyLog = directory.appendingPathComponent("policy.log")
+        try Self.writeShellFile(at: scriptFile, lines: [script])
+
+        let syntaxCheck = Self.run(
+            command: "/bin/sh -n \(Self.shellQuote(scriptFile.path))",
+            environment: [:]
+        )
+        #expect(!syntaxCheck.timedOut)
+        #expect(syntaxCheck.status == 0, "\(syntaxCheck.stderr)\n\(script)")
+
+        // The loop must still hand the budget to the command it runs.
+        let execution = Self.run(
+            command: "/bin/sh \(Self.shellQuote(scriptFile.path))",
+            environment: ["CMUX_TEST_POLICY_LOG": policyLog.path]
+        )
+        #expect(execution.status == 0, "\(execution.stderr)")
+        let loggedBudget = try String(contentsOf: policyLog, encoding: .utf8)
+        #expect(loggedBudget == "0/3\n")
+    }
+
     @Test("Output or a sustained connection proves bridge progress")
     func bridgeProgressClassification() {
         #expect(

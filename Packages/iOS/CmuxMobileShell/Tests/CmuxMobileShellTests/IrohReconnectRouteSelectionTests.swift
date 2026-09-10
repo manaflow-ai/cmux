@@ -65,7 +65,9 @@ extension ReconnectRouteSelectionTests {
 
         #expect(factory.attemptedKinds() == [.iroh, .iroh])
         #expect(store.connectionState == .connected)
-        #expect(store.workspaceListConnectionStatus == .connected)
+        #expect(try await pollUntil(attempts: 1_000) {
+            store.workspaceListConnectionStatus == .connected
+        })
     }
 
     @Test func reconnectActiveMacUsesPersistedIrohBeforeNetworkFallback() async throws {

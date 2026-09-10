@@ -1,4 +1,5 @@
 import CmuxMobilePairedMac
+import CmuxMobileShellModel
 import Foundation
 import Testing
 @testable import CmuxMobileShell
@@ -38,6 +39,60 @@ import Testing
         )
         #expect(store.selectedWorkspaceID == createdWorkspace.id)
         #expect(createdWorkspace.terminals.first?.isReady == true)
+    }
+
+    @Test func submitTaskComposerSendsSelectedWorkspaceGroup() async throws {
+        let router = RoutingHostRouter()
+        let store = try await makeRoutingConnectedStore(
+            router: router,
+            macScopedWorkspaceMutations: true,
+            hostCapabilities: [
+                "workspace.task_create.v1",
+                "workspace.create_in_group.v1",
+            ]
+        )
+        let groupID: MobileWorkspaceGroupPreview.ID = "test-mac\u{1F}nightly\u{1F}group-a"
+        store.workspaceGroups = [
+            MobileWorkspaceGroupPreview(
+                id: groupID,
+                remoteGroupID: "group-a",
+                macDeviceID: "test-mac",
+                macInstanceTag: "nightly",
+                name: "Group A",
+                anchorWorkspaceID: .init(rawValue: RoutingHostRouter.workspaceID)
+            ),
+        ]
+        let result = await store.submitTaskComposer(
+            macDeviceID: "test-mac",
+            spec: MobileWorkspaceCreateSpec(
+                title: "Grouped task",
+                workspaceGroupID: groupID,
+                operationID: UUID()
+            )
+        )
+
+        guard case .success = result else {
+            return #expect(Bool(false), "grouped task create should succeed, got (String(describing: result))")
+        }
+        #expect(await router.recordedWorkspaceCreates().first?.groupID == "group-a")
+    }
+
+    @Test func workspaceCreateRejectsConflictingExplicitAndSpecGroups() async throws {
+        let router = RoutingHostRouter()
+        let store = try await makeRoutingConnectedStore(
+            router: router,
+            macScopedWorkspaceMutations: true
+        )
+
+        let result = await store.createWorkspaceRequest(
+            inGroup: "group-a",
+            spec: MobileWorkspaceCreateSpec(workspaceGroupID: "group-b")
+        )
+
+        guard case .failure(.rejected) = result else {
+            return #expect(Bool(false), "conflicting group destinations must be rejected")
+        }
+        #expect(await router.recordedWorkspaceCreateCount() == 0)
     }
 
     @Test func taskComposerRejectsResponseWithoutCreatedWorkspaceID() async throws {

@@ -22,13 +22,27 @@ struct MobileIrohTransportVerificationModeTests {
             CmxIrohPathPreference.relayOnly.rawValue,
             forKey: CmxIrohPathPreference.defaultsKey
         )
-        let relayOnly = MobileIrohRuntimeComposition.initialTransportVerificationMode(
+        let retiredRelayOnly = MobileIrohRuntimeComposition.initialTransportVerificationMode(
             defaults: defaults
         )
-        #expect(relayOnly == .relayOnly)
+        #expect(retiredRelayOnly == .automatic)
         #expect(
-            !MobileIrohRuntimeComposition.protocolConfiguration(
-                for: relayOnly
+            MobileIrohRuntimeComposition.protocolConfiguration(
+                for: retiredRelayOnly
+            ).allowsNATTraversalAfterAdmission
+        )
+
+        defaults.set(
+            CmxIrohPathPreference.neverUseRelays.rawValue,
+            forKey: CmxIrohPathPreference.defaultsKey
+        )
+        let neverUseRelays = MobileIrohRuntimeComposition.initialTransportVerificationMode(
+            defaults: defaults
+        )
+        #expect(neverUseRelays == .directOnly)
+        #expect(
+            MobileIrohRuntimeComposition.protocolConfiguration(
+                for: neverUseRelays
             ).allowsNATTraversalAfterAdmission
         )
 

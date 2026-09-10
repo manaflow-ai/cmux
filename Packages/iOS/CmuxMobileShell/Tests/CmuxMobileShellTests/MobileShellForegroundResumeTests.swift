@@ -127,7 +127,9 @@ struct MobileShellForegroundConnectionRecoveryTests {
         store.connectionRecoveryOwner.phase == .idle
     })
     #expect(store.connectionState == .connected)
-    #expect(store.macConnectionStatus == .connected)
+    #expect(try await pollUntil(attempts: 1_000) {
+        store.macConnectionStatus == .connected
+    })
 }
 
 @MainActor
@@ -254,7 +256,7 @@ struct MobileShellForegroundConnectionRecoveryTests {
 }
 
 @MainActor
-@Test func foregroundResumeRedialsFinishedDisconnectedRecovery() async throws {
+@Test func foregroundResumeKeepsDisconnectedRecoveryForegroundOnly() async throws {
     let router = LivenessHostRouter()
     let box = TransportBox()
     let clock = TestClock()
@@ -268,7 +270,7 @@ struct MobileShellForegroundConnectionRecoveryTests {
         try? FileManager.default.removeItem(at: directory)
     }
     store.connectionState = .disconnected
-    store.clearRemoteConnectionContext()
+    await store.releaseRemoteClientForReplacement()
     let failedAttempt = try #require(store.connectionRecoveryOwner.begin(
         trigger: "background-failure",
         sourceConnectionGeneration: store.connectionGeneration,
@@ -278,7 +280,10 @@ struct MobileShellForegroundConnectionRecoveryTests {
     store.applyConnectionRecoveryOwnerState()
     store.didFinishStoredMacReconnectAttempt = true
     let workspaceListCount = await router.count(of: "workspace.list")
+    let attachTicketCount = await router.count(of: "mobile.attach_ticket.create")
 
+    // Clearing the foreground identity must not make its stored Mac eligible
+    // for secondary aggregation while foreground recovery redials that Mac.
     store.resumeForegroundRefresh()
 
     #expect(await router.waitForCount(
@@ -289,6 +294,39 @@ struct MobileShellForegroundConnectionRecoveryTests {
         store.connectionState == .connected
             && store.macConnectionStatus == .connected
     })
+    #expect(
+        await router.count(of: "mobile.attach_ticket.create")
+            == attachTicketCount + 1
+    )
+}
+
+@MainActor
+@Test func foregroundResumeDoesNotAggregateWithoutLiveForegroundClient() async throws {
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let clock = TestClock()
+    let (store, directory) = try await makeForegroundRecoveryStore(
+        router: router,
+        box: box,
+        clock: clock
+    )
+    defer {
+        Task { await router.releaseAllHeld() }
+        try? FileManager.default.removeItem(at: directory)
+    }
+    store.connectionState = .connected
+    store.clearRemoteConnectionContext()
+    let attachTicketCount = await router.count(of: "mobile.attach_ticket.create")
+
+    store.resumeForegroundRefresh()
+
+    let aggregated = await router.waitForCount(
+        of: "mobile.attach_ticket.create",
+        atLeast: attachTicketCount + 1,
+        timeoutNanoseconds: 200_000_000,
+        recordIssueOnTimeout: false
+    )
+    #expect(!aggregated)
 }
 
 @MainActor

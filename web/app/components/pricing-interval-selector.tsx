@@ -18,6 +18,10 @@ import {
   type BillingInterval,
 } from "../../services/billing/plans";
 import { CheckoutButton } from "./checkout-navigation";
+import {
+  CHECKOUT_PLACEMENT_PARAM,
+  withCheckoutAttribution,
+} from "../../services/analytics/checkoutAttribution";
 import type { PricingActionSize } from "./pricing-shared";
 
 type PricingSurface = "public_pricing" | "app_pricing" | "dashboard_billing";
@@ -145,9 +149,11 @@ export function PricingIntervalSelector({
         <span
           className="ml-1.5 text-xs font-medium"
           style={{
+            // Selected pill is bg-foreground/text-background; the label must
+            // match that text, not the accent, to stay readable on the pill.
             color:
               interval === "year"
-                ? "var(--cmux-product-blue-on-foreground, var(--cmux-product-blue, #0088ff))"
+                ? "inherit"
                 : "var(--cmux-product-blue-on-background, var(--cmux-product-blue, #0088ff))",
           }}
         >
@@ -187,9 +193,15 @@ export function PricingCheckoutButton({
     ? PRO_PRICING_USD[interval]
     : TEAM_PRICING_USD[interval];
 
+  // The button position rides to the server as `cmux_placement`, so the
+  // Stripe session and the paid webhook events know which CTA converted.
+  const href = withCheckoutAttribution(hrefs[interval], {
+    [CHECKOUT_PLACEMENT_PARAM]: location,
+  });
+
   return (
     <CheckoutButton
-      href={hrefs[interval]}
+      href={href}
       size={size}
       analytics={{
         event:

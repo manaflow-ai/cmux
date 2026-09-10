@@ -4,7 +4,7 @@ extension CMUXCLI {
     private static let ompExtensionMarker = "cmux-omp-session-extension-marker"
     private static let ompExtensionFilename = "cmux-omp-session.ts"
     private static let ompExtensionSource = #"""
-// cmux-omp-session-extension-marker v1
+// cmux-omp-session-extension-marker v2
 // Bridges OMP session lifecycle events into cmux's restorable session store.
 // Installed by `cmux hooks omp install` or `cmux hooks setup`.
 // DO NOT EDIT MANUALLY. cmux upgrades this file in place.
@@ -316,20 +316,87 @@ function sendHook(subcommand: string, ctx: ExtensionContext, extra: Record<strin
   return Promise.resolve();
 }
 
+// The pane's lifecycle in cmux must be owned by exactly one OMP session: the
+// top-level session driving the terminal. Subagents spawned by the task tool
+// run in the same process and inherit CMUX_SURFACE_ID, but each has its own
+// session id; without an ownership check, every subagent's agent_end reports
+// the whole pane idle while the main agent is still mid-turn, and Agent
+// Hibernation then SIGHUPs the live pane (issue #9591).
+//
+// Ownership must live on globalThis, not in module scope: OMP loads a fresh
+// copy of this module for every session in the process (each extension import
+// uses a unique ?mtime= cache-busting URL), so module state is per-session
+// while the pane is per-process.
+interface CmuxOmpPaneOwnership {
+  sessionId: string | null;
+}
+
+const cmuxOmpGlobals = globalThis as typeof globalThis & {
+  __cmuxOmpPaneOwnership?: CmuxOmpPaneOwnership;
+};
+
+function paneOwnership(): CmuxOmpPaneOwnership {
+  cmuxOmpGlobals.__cmuxOmpPaneOwnership ??= { sessionId: null };
+  return cmuxOmpGlobals.__cmuxOmpPaneOwnership;
+}
+
+function contextSessionId(ctx: ExtensionContext): string | null {
+  return firstString(ctx.sessionManager.getSessionId());
+}
+
+function isOwnerContext(ctx: ExtensionContext): boolean {
+  const sessionId = contextSessionId(ctx);
+  return sessionId !== null && sessionId === paneOwnership().sessionId;
+}
+
 export default function cmuxOmpSessionExtension(api: ExtensionAPI) {
   api.on("session_start", async (_event, ctx) => {
+    // The top-level session bootstraps before any subagent can exist in this
+    // process, so the first session_start pins ownership. Later session_start
+    // events with a different session id are subagent bootstraps.
+    const ownership = paneOwnership();
+    if (ownership.sessionId === null) ownership.sessionId = contextSessionId(ctx);
+    if (!isOwnerContext(ctx)) return;
     await sendHook("session-start", ctx);
   });
 
+  // In-process session transitions (/new, fork, resume, handoff) fire only on
+  // the top-level runtime; subagent sessions never switch or branch. Re-pin
+  // ownership to the new session id and rebind the surface in cmux.
+  const adoptSwitchedSession = async (_event: unknown, ctx: ExtensionContext) => {
+    const sessionId = contextSessionId(ctx);
+    if (!sessionId) return;
+    const ownership = paneOwnership();
+    // OMP's reload() re-emits session_switch for the unchanged session file.
+    // A same-id "switch" is not an ownership transition: a spurious
+    // session-start would mark an idle pane running with no agent_end coming.
+    if (ownership.sessionId === sessionId) return;
+    ownership.sessionId = sessionId;
+    await sendHook("session-start", ctx);
+  };
+  api.on("session_switch", adoptSwitchedSession);
+  api.on("session_branch", adoptSwitchedSession);
+
   api.on("before_agent_start", async (event, ctx) => {
+    if (!isOwnerContext(ctx)) return;
     await sendHook("prompt-submit", ctx, { prompt: boundedHookText(event.prompt) });
   });
 
   api.on("agent_end", async (event, ctx) => {
+    if (!isOwnerContext(ctx)) return;
+    // OMP emits agent_end as the universal terminal settle. willContinue marks
+    // a scheduled automatic continuation (auto-retry, queued messages,
+    // session_stop continuations, background jobs), so the turn is still
+    // logically running and the pane must not report idle yet. Read it
+    // defensively: AgentEndEvent predates the field on older OMP versions.
+    if ((event as { willContinue?: unknown }).willContinue === true) return;
     await sendHook("stop", ctx, { last_assistant_message: boundedHookText(lastAssistantMessage(event)) });
   });
 
-  api.on("session_shutdown", async () => {
+  api.on("session_shutdown", async (_event, ctx) => {
+    // A subagent session's teardown must not drain (and drop queued
+    // prompt-submit entries of) the owner session's hook queue.
+    if (!isOwnerContext(ctx)) return;
     await awaitHookQueueDrain();
   });
 }

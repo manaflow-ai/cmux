@@ -11,13 +11,16 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"sort"
+	"strconv"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 	"unicode/utf8"
+
+	"github.com/manaflow-ai/cmux/cmux-tui/bindings/go/internal/sessionpath"
 )
 
 const (
@@ -43,8 +46,6 @@ var (
 	ErrAuthority        = errors.New("cmux-tui authority denied")
 )
 
-var validSessionName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
-
 type CommandError struct {
 	Message string
 	ID      any
@@ -55,9 +56,13 @@ func (e *CommandError) Is(target error) bool {
 	return target == ErrCommand
 }
 
-type connectionError struct{ msg string }
+type connectionError struct {
+	msg   string
+	cause error
+}
 
 func (e *connectionError) Error() string { return e.msg }
+func (e *connectionError) Unwrap() error { return e.cause }
 func (e *connectionError) Is(target error) bool {
 	return target == ErrConnection
 }
@@ -121,6 +126,10 @@ type Client struct {
 type Options struct {
 	SocketPath string
 	Session    string
+	// SessionSet distinguishes an explicitly supplied Session from omission.
+	// When false, an empty Session selects "main". When true, an empty Session
+	// is invalid if socket discovery needs a session name.
+	SessionSet bool
 	Timeout    time.Duration
 
 	// MaxRequestBytes, MaxResponseBytes, and MaxBufferedStreamEvents set
@@ -143,7 +152,7 @@ type Options struct {
 
 func NewClient(options Options) (*Client, error) {
 	session := options.Session
-	if session == "" {
+	if session == "" && !options.SessionSet {
 		session = "main"
 	}
 	socketPath, err := ResolveSocketPath(options.SocketPath, session)
@@ -181,12 +190,22 @@ func NewClient(options Options) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	conn, err := dialJSON(socketPath, maxRequestBytes, maxResponseBytes)
+	legacy := ""
+	if options.SocketPath == "" && EnvSocketPath() == "" {
+		legacy = legacySocketPathForResolvedSession(socketPath, session)
+	}
+	conn, effective, err := dialJSONWithFallback(
+		socketPath,
+		legacy,
+		maxRequestBytes,
+		maxResponseBytes,
+		timeout,
+	)
 	if err != nil {
 		return nil, err
 	}
 	return &Client{
-		socketPath:              socketPath,
+		socketPath:              effective,
 		timeout:                 timeout,
 		maxRequestBytes:         maxRequestBytes,
 		maxResponseBytes:        maxResponseBytes,
@@ -222,18 +241,18 @@ func ResolveSocketPath(explicit, session string) (string, error) {
 }
 
 // ValidateSession rejects names that could escape the private runtime
-// directory or cannot be used portably by the server.
+// directory or carry control text into the socket path.
 func ValidateSession(session string) error {
-	if !validSessionName.MatchString(session) || session == "." || session == ".." {
-		return fmt.Errorf(
-			"%w: session must match [A-Za-z0-9][A-Za-z0-9._-]{0,63}",
-			ErrInvalidArgument,
-		)
+	if err := sessionpath.Validate(session); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidArgument, err)
 	}
 	return nil
 }
 
 func DefaultSocketPath(session string) string {
+	if err := ValidateSession(session); err != nil {
+		return invalidSessionSocketPath(session)
+	}
 	base := firstNonEmptyEnv("XDG_RUNTIME_DIR", "TMPDIR")
 	if base == "" {
 		base = "/tmp"
@@ -243,7 +262,71 @@ func DefaultSocketPath(session string) string {
 	if unixSocketPathFits(preferred) {
 		return preferred
 	}
-	return filepath.Join("/tmp", fmt.Sprintf("cmux-tui-%d", os.Getuid()), fileName)
+	if base != "/tmp" {
+		fallback := filepath.Join("/tmp", fmt.Sprintf("cmux-tui-%d", os.Getuid()), fileName)
+		if unixSocketPathFits(fallback) {
+			return fallback
+		}
+	}
+	hashed := filepath.Join(
+		base,
+		fmt.Sprintf("cmux-tui-hashed-%d", os.Getuid()),
+		sessionpath.Digest(session)+".sock",
+	)
+	if unixSocketPathFits(hashed) {
+		return hashed
+	}
+	return filepath.Join(
+		"/tmp",
+		fmt.Sprintf("cmux-tui-hashed-%d", os.Getuid()),
+		sessionpath.Digest(session)+".sock",
+	)
+}
+
+func legacySocketPathForSession(session string) string {
+	path := filepath.Join("/tmp", "cmux-tui-"+strconv.Itoa(os.Getuid()), session+".sock")
+	if unixSocketPathFits(path) {
+		return path
+	}
+	return ""
+}
+
+func legacySocketPathForResolvedSession(resolved, session string) string {
+	if runtime.GOOS == "windows" {
+		return ""
+	}
+	base := firstNonEmptyEnv("XDG_RUNTIME_DIR", "TMPDIR")
+	if base == "" {
+		base = "/tmp"
+	}
+	leaf := sessionpath.Digest(session) + ".sock"
+	uid := fmt.Sprintf("cmux-tui-hashed-%d", os.Getuid())
+	preferredHashed := filepath.Join(base, uid, leaf)
+	tmpHashed := filepath.Join("/tmp", uid, leaf)
+	if resolved != preferredHashed && resolved != tmpHashed {
+		return ""
+	}
+	return legacySocketPathForSession(session)
+}
+
+// invalidSessionSocketPath is retained for source-compatible path queries.
+// It is not a connector route. New clients must use ResolveSocketPath, which
+// returns ErrInvalidArgument before any path is opened.
+func invalidSessionSocketPath(session string) string {
+	base := firstNonEmptyEnv("XDG_RUNTIME_DIR", "TMPDIR")
+	if base == "" {
+		base = "/tmp"
+	}
+	leaf := sessionpath.Digest(session) + ".sock"
+	preferred := filepath.Join(
+		base,
+		fmt.Sprintf("cmux-tui-invalid-%d", os.Getuid()),
+		leaf,
+	)
+	if unixSocketPathFits(preferred) {
+		return preferred
+	}
+	return filepath.Join("/tmp", fmt.Sprintf("cmux-tui-invalid-%d", os.Getuid()), leaf)
 }
 
 func EnvSocketPath() string {
@@ -263,11 +346,16 @@ func firstNonEmptyEnv(names ...string) string {
 }
 
 func unixSocketPathFits(path string) bool {
-	capacity := 108
-	if runtime.GOOS == "darwin" {
-		capacity = 104
+	return len([]byte(path)) < unixSocketPathCapacity(runtime.GOOS)
+}
+
+func unixSocketPathCapacity(goos string) int {
+	switch goos {
+	case "darwin", "dragonfly", "freebsd", "netbsd", "openbsd":
+		return 104
+	default:
+		return 108
 	}
-	return len([]byte(path)) < capacity
 }
 
 func (c *Client) Close() error {
@@ -686,10 +774,12 @@ func (c *Client) openStream(
 	ctx context.Context,
 	request map[string]any,
 ) (*Stream, error) {
-	conn, err := dialJSON(
+	conn, _, err := dialJSONWithFallback(
 		c.socketPath,
+		"",
 		c.requestLimit(),
 		c.responseLimit(),
+		c.timeout,
 	)
 	if err != nil {
 		return nil, err
@@ -817,10 +907,26 @@ func dialJSON(
 	socketPath string,
 	maxRequestBytes int,
 	maxResponseBytes int,
+	timeout time.Duration,
 ) (*jsonLineConn, error) {
-	conn, err := net.Dial("unix", socketPath)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	return dialJSONContext(ctx, socketPath, maxRequestBytes, maxResponseBytes)
+}
+
+var dialUnixContext = func(ctx context.Context, socketPath string) (net.Conn, error) {
+	return (&net.Dialer{}).DialContext(ctx, "unix", socketPath)
+}
+
+func dialJSONContext(
+	ctx context.Context,
+	socketPath string,
+	maxRequestBytes int,
+	maxResponseBytes int,
+) (*jsonLineConn, error) {
+	conn, err := dialUnixContext(ctx, socketPath)
 	if err != nil {
-		return nil, &connectionError{msg: fmt.Sprintf(
+		return nil, &connectionError{cause: err, msg: fmt.Sprintf(
 			"cannot connect to session socket %s: %v",
 			socketPath,
 			err,
@@ -832,6 +938,27 @@ func dialJSON(
 		maxRequestBytes:  maxRequestBytes,
 		maxResponseBytes: maxResponseBytes,
 	}, nil
+}
+
+func dialJSONWithFallback(
+	path, legacy string,
+	req, resp int,
+	timeout time.Duration,
+) (*jsonLineConn, string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	conn, err := dialJSONContext(ctx, path, req, resp)
+	if err == nil {
+		return conn, path, nil
+	}
+	if legacy == "" || (!errors.Is(err, syscall.ENOENT) && !errors.Is(err, syscall.ECONNREFUSED)) {
+		return nil, path, err
+	}
+	conn, fallbackErr := dialJSONContext(ctx, legacy, req, resp)
+	if fallbackErr != nil {
+		return nil, path, fallbackErr
+	}
+	return conn, legacy, nil
 }
 
 func (c *jsonLineConn) Close() error {
@@ -1049,6 +1176,9 @@ func readBoundedLine(reader *bufio.Reader, maximum int) ([]byte, error) {
 func writeAll(writer io.Writer, data []byte) error {
 	for len(data) > 0 {
 		written, err := writer.Write(data)
+		if written < 0 || written > len(data) {
+			return errors.New("writer returned an invalid count")
+		}
 		if err != nil {
 			return err
 		}

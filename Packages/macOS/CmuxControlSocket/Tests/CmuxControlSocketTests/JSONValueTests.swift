@@ -50,9 +50,20 @@ struct JSONValueTests {
         #expect(JSONValue(foundationObject: [Date()] as [Any]) == nil)
     }
 
-    @Test func unsignedNumbersBeyondInt64BecomeDoubles() {
-        #expect(JSONValue(foundationObject: NSNumber(value: UInt64.max)) == .double(NSNumber(value: UInt64.max).doubleValue))
+    @Test func unsignedNumbersBeyondInt64RetainDecimalText() {
+        #expect(JSONValue(foundationObject: NSNumber(value: UInt64.max)) == .decimal(String(UInt64.max)))
         #expect(JSONValue(foundationObject: NSNumber(value: UInt64(Int64.max))) == .int(Int64.max))
+    }
+
+    @Test func decimalNumbersRetainExactFoundationSerialization() throws {
+        let text = "12345678901234567890123456789.123456789"
+        let original = NSDecimalNumber(string: text, locale: Locale(identifier: "en_US_POSIX"))
+        let value = try #require(JSONValue(foundationObject: original))
+        #expect(value == .decimal(text))
+        let bridged = value.foundationObject
+        let originalData = try JSONSerialization.data(withJSONObject: [original], options: [.sortedKeys])
+        let bridgedData = try JSONSerialization.data(withJSONObject: [bridged], options: [.sortedKeys])
+        #expect(originalData == bridgedData)
     }
 
     @Test func foundationRoundTripPreservesSerialization() throws {

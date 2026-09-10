@@ -12,6 +12,7 @@ public struct ChatArtifactInlineViewer: View {
     private struct LoadIdentity: Hashable {
         let path: String
         let retryGeneration: Int
+        let sourceIdentity: String?
     }
 
     private let path: String
@@ -37,7 +38,7 @@ public struct ChatArtifactInlineViewer: View {
         let actionDescriptor = inlineActionDescriptor(snapshot: snapshot)
         ChatArtifactViewerRouteView(
             snapshot: snapshot,
-            scope: .terminal,
+            scope: viewerScope,
             actions: pageModel.actions(
                 loader: loader,
                 quickLookCanPreview: { fileURL in
@@ -70,23 +71,19 @@ public struct ChatArtifactInlineViewer: View {
         }
         .chatArtifactFileActionPresentation(fileActionPresentationBinding)
         .alert(
-            String(
-                localized: "chat.artifact.action_failed.title",
-                defaultValue: "Couldn't complete action",
-                bundle: .module
-            ),
+            fileActionFailurePresentation.title,
             isPresented: fileActionErrorBinding
         ) {
             Button(String(localized: "chat.artifact.ok", defaultValue: "OK", bundle: .module)) {}
         } message: {
-            Text(String(
-                localized: "chat.artifact.action_failed.message",
-                defaultValue: "Check the connection to your Mac and try again.",
-                bundle: .module
-            ))
+            Text(fileActionFailurePresentation.message)
         }
         #endif
-        .task(id: LoadIdentity(path: path, retryGeneration: snapshot.retryGeneration)) {
+        .task(id: LoadIdentity(
+            path: path,
+            retryGeneration: snapshot.retryGeneration,
+            sourceIdentity: loader.sourceIdentity
+        )) {
             let activeModel = model(for: path)
             await activeModel.load(
                 loader: loader,
@@ -134,6 +131,7 @@ public struct ChatArtifactInlineViewer: View {
         case .copyImage:
             guard case .image(let data) = pageModel.snapshot.state else { return }
             UIPasteboard.general.image = UIImage(data: data)
+            loader.recordDiagnostic(.artifactCopied)
         case .copyContents, .copyPath:
             break
         }
@@ -152,7 +150,29 @@ public struct ChatArtifactInlineViewer: View {
             set: { pageModel.setShowsFileActionError($0) }
         )
     }
+
+    private var fileActionFailurePresentation: ChatArtifactFailurePresentation {
+        ChatArtifactFailurePresentation(
+            error: pageModel.fileActionState.failure ?? .loadFailed,
+            scope: viewerScope
+        )
+    }
     #endif
+
+    private var viewerScope: ChatArtifactViewerScope {
+        switch loader.scope {
+        case .chat:
+            .chat
+        case .terminal:
+            .terminal
+        case .panel:
+            .panel
+        case .workspaceChanges:
+            .workspaceChanges
+        case .unsupported:
+            .terminal
+        }
+    }
 
     private var imageActionPerformer: (@MainActor (ChatArtifactAction) -> Void)? {
         #if os(iOS)

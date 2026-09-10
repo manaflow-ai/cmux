@@ -9,10 +9,10 @@ struct SimulatorURLMediaClipboardTools: View {
         SimulatorToolSection(simulatorStrings.urlAndMedia) {
             TextField(String(localized: simulatorStrings.url), text: $url)
             HStack {
-                Button(simulatorStrings.openURL) {
+                SimulatorLocalizedButton(simulatorStrings.openURL) {
                     coordinator.scheduleControlAction("open-url") { await $0.openURL(url) }
                 }
-                Button(simulatorStrings.addMedia) {
+                SimulatorLocalizedButton(simulatorStrings.addMedia) {
                     coordinator.scheduleControlAction("add-media") { await $0.addMedia() }
                 }
             }
@@ -32,13 +32,13 @@ struct SimulatorURLMediaClipboardTools: View {
 
     private var clipboardButtons: some View {
         Group {
-            Button(simulatorStrings.readClipboard) {
+            SimulatorLocalizedButton(simulatorStrings.readClipboard) {
                 coordinator.scheduleControlAction("read-clipboard") { await $0.readClipboard() }
             }
-            Button(simulatorStrings.writeClipboard) {
+            SimulatorLocalizedButton(simulatorStrings.writeClipboard) {
                 coordinator.scheduleControlAction("write-clipboard") { await $0.writeClipboard(clipboard) }
             }
-            Button(simulatorStrings.syncClipboard) {
+            SimulatorLocalizedButton(simulatorStrings.syncClipboard) {
                 coordinator.scheduleControlAction("sync-clipboard") { await $0.syncClipboardFromHost() }
             }
         }

@@ -35,6 +35,7 @@ struct Error {
     std::string protocol_code;
     std::shared_ptr<const Json> details;
     bool retryable = false;
+    int system_errno = 0;
     std::shared_ptr<const MutationOutcomeUncertain> uncertain_mutation;
 
     [[nodiscard]] std::string code_name() const;

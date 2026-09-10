@@ -13,6 +13,7 @@ struct IrohAndAgentSessionDebugMenuButtons: View {
             openReact: openReact,
             openSolid: openSolid
         )
+        NotificationDebugMenuButtons()
     }
 }
 

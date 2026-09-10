@@ -10,6 +10,9 @@ if (typeof window !== "undefined") {
     capture_pageview: false,
     capture_pageleave: true,
     advanced_disable_feature_flags: true,
+    // The route tracker opens this gate only after resolving the current
+    // server-authenticated identity.
+    before_send: () => null,
   });
 }
 

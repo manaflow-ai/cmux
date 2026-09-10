@@ -1,6 +1,8 @@
 public import Foundation
 
 public enum SocketPathMarkerFiles {
+    /// The stable release bundle identifier used for machine-wide discovery.
+    public static let stableBundleIdentifier = "com.cmuxterm.app"
     public static let stableMarkerFileName = "last-socket-path"
     public static let stableTmpPath = "/tmp/cmux-last-socket-path"
     public static let nightlyBundleIdentifier = "com.cmuxterm.app.nightly"

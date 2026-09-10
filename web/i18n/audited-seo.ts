@@ -67,7 +67,8 @@ export type AuditedDocsPageKey =
   | "dock"
   | "keyboardShortcuts"
   | "gettingStarted"
-  | "remoteTmux";
+  | "remoteTmux"
+  | "managedPolicies";
 
 const conciseTitleLocales = new Set(["ja", "zh-CN", "zh-TW", "ko"]);
 

@@ -15,7 +15,7 @@
       "expect": {
         "ok": true,
         "value": {
-          "protocol": 10,
+          "protocol": 12,
           "workspace_revision": "0",
           "terminal_revision": "18446744073709551615"
         }
@@ -49,12 +49,7 @@
         "behavior": "terminal-placement",
         "lifecycle": null
       },
-      "expect": {
-        "ok": true,
-        "value": {
-          "lifecycle": null
-        }
-      }
+      "expect_error": "decode"
     },
     {
       "name": "nullable-literal-running",
@@ -678,7 +673,7 @@
         "ok": true,
         "value": {
           "app": "cmux-tui",
-          "protocol": 10
+          "protocol": 12
         }
       }
     },

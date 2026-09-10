@@ -13,7 +13,7 @@ import {
   type BrowserSnapshot,
   type Transport,
   type Unsubscribe,
-} from "cmux/browser";
+} from "cmux-sdk/browser";
 import {
   BrowserController,
   browserTabsFromSnapshots,
@@ -69,7 +69,7 @@ class FakeTransport implements Transport {
 
   respond(request: Record<string, unknown>, result: unknown): void {
     this.emit({
-      protocol: "cmux.protocol/1",
+      protocol: "cmux.protocol/2",
       type: "response",
       id: request.id,
       ok: true,
@@ -83,7 +83,7 @@ class FakeTransport implements Transport {
     item: Record<string, unknown>,
   ): void {
     this.emit({
-      protocol: "cmux.protocol/1",
+      protocol: "cmux.protocol/2",
       type: "stream_item",
       stream_id: streamId,
       sequence,
@@ -97,7 +97,7 @@ class FakeTransport implements Transport {
     recovery?: string,
   ): void {
     this.emit({
-      protocol: "cmux.protocol/1",
+      protocol: "cmux.protocol/2",
       type: "stream_end",
       stream_id: streamId,
       reason,
@@ -152,7 +152,10 @@ class BrowserServer {
       case "browser.attach": {
         this.attachAttempts += 1;
         const streamId = String(params.stream_id);
-        transport.respond(request, { stream_id: streamId });
+        transport.respond(request, {
+          stream_id: streamId,
+          attachment_lease: `browser-lease-${this.attachAttempts}`,
+        });
         if (this.attachmentMode === "hold") {
           transport.stream(streamId, "1", {
             kind: "snapshot",

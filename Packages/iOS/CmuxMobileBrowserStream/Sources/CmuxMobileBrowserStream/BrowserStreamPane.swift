@@ -179,6 +179,8 @@ public struct BrowserStreamPane: View {
                 symbol: "pause.circle"
             )
             .accessibilityIdentifier("BrowserStreamPausedOverlay")
+        } else if state.isBlankPage {
+            newPagePlaceholder
         } else if state.latestFrame == nil {
             statusOverlay(
                 title: L10n.string("mobile.browserStream.waiting", defaultValue: "Waiting for Browser"),
@@ -187,6 +189,33 @@ public struct BrowserStreamPane: View {
             )
             .accessibilityIdentifier("BrowserStreamPlaceholder")
         }
+    }
+
+    /// Deliberate empty state for a browser that has not opened a page yet.
+    ///
+    /// A fresh pane's mirror is an empty white capture, which looks like a
+    /// glitch; this opaque placeholder replaces it until the first navigation.
+    private var newPagePlaceholder: some View {
+        ZStack {
+            Color(red: 0.055, green: 0.063, blue: 0.075)
+            VStack(spacing: 12) {
+                Image(systemName: "globe")
+                    .font(.system(size: 36))
+                    .foregroundStyle(.secondary)
+                Text(L10n.string("mobile.browserStream.newPage", defaultValue: "New Browser"))
+                    .font(.headline)
+                Text(L10n.string(
+                    "mobile.browserStream.newPageDetail",
+                    defaultValue: "Search or enter an address in the bar below."
+                ))
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+            }
+            .foregroundStyle(.white)
+            .padding(28)
+        }
+        .accessibilityIdentifier("BrowserStreamNewPagePlaceholder")
     }
 
     private var disconnectedOverlay: some View {

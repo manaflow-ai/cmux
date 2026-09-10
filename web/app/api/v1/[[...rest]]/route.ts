@@ -3,8 +3,6 @@ import { OpenAPIHandler } from "@orpc/openapi/fetch";
 import { createORPCContext } from "@/orpc/server/base";
 import { router } from "@/orpc/server/router";
 
-export const dynamic = "force-dynamic";
-export const runtime = "nodejs";
 
 const handler = new OpenAPIHandler(router);
 

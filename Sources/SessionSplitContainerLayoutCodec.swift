@@ -78,6 +78,27 @@ struct SessionSplitContainerLayoutCodec {
         return RestoreScaffold(leaves: leaves, placeholderTabIds: placeholders)
     }
 
+    /// Creates one pane-tree placeholder without constructing a live panel.
+    func createRestorePlaceholderSplit(
+        inPane paneId: PaneID,
+        orientation: SplitOrientation,
+        insertFirst: Bool
+    ) -> (paneId: PaneID, tabId: TabID)? {
+        let placeholder = Bonsplit.Tab(title: "", kind: "restoring")
+        guard let newPaneId = controller.splitPane(
+            paneId,
+            orientation: orientation,
+            withTab: placeholder,
+            insertFirst: insertFirst
+        ) else {
+            return nil
+        }
+        return (
+            paneId: newPaneId,
+            tabId: placeholder.id
+        )
+    }
+
     func applyDividerPositions(
         snapshotNode: SessionWorkspaceLayoutSnapshot,
         liveNode: ExternalTreeNode
@@ -157,18 +178,15 @@ struct SessionSplitContainerLayoutCodec {
                 ))
                 return
             }
-            let newPlaceholder = Bonsplit.Tab(title: "", kind: "restoring")
-            placeholders.insert(newPlaceholder.id)
-            guard let secondPaneId = controller.splitPane(
-                paneId,
+            guard let placeholderSplit = createRestorePlaceholderSplit(
+                inPane: paneId,
                 orientation: split.orientation.splitOrientation,
-                withTab: newPlaceholder,
                 insertFirst: false
             ) else {
-                placeholders.remove(newPlaceholder.id)
                 leaves.append(RestoreLeaf(paneId: paneId, snapshot: split.first.paneFallback))
                 return
             }
+            placeholders.insert(placeholderSplit.tabId)
             restoreNode(
                 split.first,
                 inPane: paneId,
@@ -177,7 +195,7 @@ struct SessionSplitContainerLayoutCodec {
             )
             restoreNode(
                 split.second,
-                inPane: secondPaneId,
+                inPane: placeholderSplit.paneId,
                 leaves: &leaves,
                 placeholders: &placeholders
             )

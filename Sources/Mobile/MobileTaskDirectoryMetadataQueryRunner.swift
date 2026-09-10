@@ -4,11 +4,11 @@ import Foundation
 /// `NSMetadataQuery` lifecycle confined to the main actor.
 @MainActor
 final class MobileTaskDirectoryMetadataQueryRunner {
-    nonisolated enum QueryError: Error, Equatable {
+    enum QueryError: Error, Equatable {
         case unavailable
     }
 
-    nonisolated struct Snapshot: Equatable, Sendable {
+    struct Snapshot: Equatable, Sendable {
         let paths: [String]
         let gatheringComplete: Bool
         let totalMatchCount: Int

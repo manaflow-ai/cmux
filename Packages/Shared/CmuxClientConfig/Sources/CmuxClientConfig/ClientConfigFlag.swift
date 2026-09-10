@@ -38,6 +38,22 @@ public extension ClientConfigFlag where Value == Bool {
     static let proUpgradeUIEnabledRelease = Self(booleanKey: "pro-upgrade-ui-enabled-release")
     /// Enables the production mobile connect button.
     static let mobileConnectButtonEnabledRelease = Self(booleanKey: "mobile-connect-button-enabled-release")
+    /// Enables the iOS terminal Files chip. Defaults on so an unavailable
+    /// control plane preserves the fully integrated shipping behavior.
+    static let iosArtifactChipEnabledRelease = Self(
+        booleanKey: "ios-artifact-chip-enabled-release",
+        defaultValue: true
+    )
+    /// Reverts iOS 26-and-earlier terminal keyboard pinning to the rebuilt
+    /// single-constraint dock path. Off by default: the legacy
+    /// notification+transform path ships everywhere (iOS 27 and newer never
+    /// revert because the rebuild misreads that OS's keyboard frames), and an
+    /// unavailable control plane preserves that shipping behavior. Terminal
+    /// hosts snapshot the value at mount, so a remote change applies when the
+    /// workspace is reopened.
+    static let iosKeyboardDockRebuildRevert = Self(
+        booleanKey: "ios-keyboard-dock-rebuild-revert"
+    )
 }
 
 /// Multivariate feature flag declarations.

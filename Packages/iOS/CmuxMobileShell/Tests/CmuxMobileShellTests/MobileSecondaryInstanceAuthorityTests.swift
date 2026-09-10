@@ -373,7 +373,7 @@ import Testing
         } catch {
             Issue.record("Expected requestTimedOut, got \(error)")
         }
-        await closeGate.waitUntilCloseStarted()
+        #expect(await closeGate.waitUntilCloseStarted())
 
         #expect(shell.connectionState == .connected)
         #expect(shell.foregroundMacDeviceID == "mac-a")
@@ -513,7 +513,7 @@ import Testing
         #expect(!shell.liveMacConnections.contains {
             $0.macDeviceID == "mac-b"
         })
-        await closeGate.waitUntilCloseStarted()
+        #expect(await closeGate.waitUntilCloseStarted())
         #expect(shell.secondaryMacDrainReservations[MacPairingKey(macDeviceID: "mac-b", instanceTag: "feature-b")]
             === subscription)
         shell.finishMacSwitchAttempt(switchAttemptID)
@@ -708,7 +708,7 @@ import Testing
         shell.secondaryMacSubscriptions[MacPairingKey(macDeviceID: "mac-b", instanceTag: "feature-b")] = subscription
 
         await shell.retireSecondaryPromotionCandidate(subscription)
-        await closeGate.waitUntilCloseStarted()
+        #expect(await closeGate.waitUntilCloseStarted())
 
         #expect(shell.secondaryMacSubscriptions[MacPairingKey(macDeviceID: "mac-b", instanceTag: "feature-b")] == nil)
         #expect(shell.secondaryMacDrainReservations[MacPairingKey(macDeviceID: "mac-b", instanceTag: "feature-b")]

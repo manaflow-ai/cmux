@@ -47,17 +47,25 @@ func browserOmnibarNormalizedModifierFlags(_ flags: NSEvent.ModifierFlags) -> NS
         .subtracting([.numericPad, .function, .capsLock])
 }
 
+/// Policy decisions shared by the window and text-input shortcut routers.
+enum ShortcutRoutingPolicy {
+    /// Returns whether a key-down event has Option as its only primary modifier.
+    /// Shift may still be present; Command and Control opt the event out of the
+    /// Option-text routing policy.
+    static func isOptionOnly(_ event: NSEvent) -> Bool {
+        guard event.type == .keyDown else { return false }
+        let normalizedFlags = ShortcutStroke.normalizedModifierFlags(from: event.modifierFlags)
+        return normalizedFlags.contains(.option)
+            && !normalizedFlags.contains(.command)
+            && !normalizedFlags.contains(.control)
+    }
+}
+
 func shortcutRoutingShouldBypassForPrintableOptionText(
     event: NSEvent,
     textInputCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.textInputCharacter(forKeyCode:modifierFlags:)
 ) -> Bool {
-    guard event.type == .keyDown else { return false }
-    let normalizedFlags = ShortcutStroke.normalizedModifierFlags(from: event.modifierFlags)
-    guard normalizedFlags.contains(.option),
-          !normalizedFlags.contains(.command),
-          !normalizedFlags.contains(.control) else {
-        return false
-    }
+    guard ShortcutRoutingPolicy.isOptionOnly(event) else { return false }
 
     if shortcutRoutingTextIsPrintable(event.characters) {
         return true
@@ -127,15 +135,16 @@ func shouldDispatchBrowserArrowViaFirstResponderKeyDown(
     guard (123...126).contains(keyCode) else { return false }
 
     let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
-
-    if normalizedFlags.isEmpty {
+    if normalizedFlags.isEmpty || normalizedFlags == [.shift] ||
+        normalizedFlags == [.option] || normalizedFlags == [.option, .shift] {
+        // Selection and word/paragraph navigation need WebKit's native defaults.
         return true
     }
-
-    // Keep modified arrow routing narrow to avoid stealing cmux shortcuts such
-    // as Cmd+Option+Arrow pane focus. Browser document editors own Cmd+Up/Down
-    // as trusted keyDown navigation to the start/end of the document.
-    return normalizedFlags == [.command] && (keyCode == 125 || keyCode == 126)
+    // Cmd+Option+Arrow remains reserved for cmux pane-focus shortcuts.
+    if normalizedFlags == [.command] {
+        return keyCode == 125 || keyCode == 126
+    }
+    return normalizedFlags == [.command, .shift]
 }
 
 func shouldDispatchBrowserOmnibarArrowViaFirstResponderKeyDown(
@@ -948,8 +957,7 @@ func shouldSuppressWindowMoveForFolderDrag(window: NSWindow, event: NSEvent) -> 
         return false
     }
 
-    let contentPoint = contentView.convert(event.locationInWindow, from: nil)
-    let hitView = contentView.hitTest(contentPoint)
+    let hitView = contentView.cmuxHitTest(windowPoint: event.locationInWindow)
     return shouldSuppressWindowMoveForFolderDrag(hitView: hitView)
 }
 

@@ -58,12 +58,16 @@ final class FileExplorerState: ObservableObject {
         let customSidebarName = defaults.string(forKey: Self.customSidebarNameKey)?.nilIfEmpty
         self.storedCustomSidebarName = customSidebarName
         let storedMode = RightSidebarMode(rawValue: defaults.string(forKey: Self.modeKey) ?? "") ?? .files
-        self.storedMode = Self.availableMode(storedMode, defaults: defaults)
+        self.storedMode = Self.visibleMode(storedMode, defaults: defaults)
         defaults.set(self.storedMode.rawValue, forKey: Self.modeKey)
     }
 
+    /// Re-lands the sidebar on a tab the mode bar shows. Unlike an explicit
+    /// `mode` set (which may reveal a user-hidden tab: CLI, palette,
+    /// notification routing), restore and preference changes never resurrect a
+    /// hidden tab.
     func refreshModeAvailability(defaults: UserDefaults = .standard) {
-        setMode(storedMode, defaults: defaults)
+        setMode(Self.visibleMode(storedMode, defaults: defaults), defaults: defaults)
     }
 
     func selectCustomSidebar(name rawName: String, defaults: UserDefaults = .standard) {
@@ -71,6 +75,12 @@ final class FileExplorerState: ObservableObject {
         guard !name.isEmpty else { return }
         storedCustomSidebarName = name
         defaults.set(name, forKey: Self.customSidebarNameKey)
+    }
+
+    /// The persisted right-sidebar custom-sidebar name, readable without an
+    /// instance (mode availability checks run from static contexts).
+    static func persistedCustomSidebarName(defaults: UserDefaults = .standard) -> String? {
+        defaults.string(forKey: customSidebarNameKey)?.nilIfEmpty
     }
 
     func toggle() {
@@ -115,9 +125,16 @@ final class FileExplorerState: ObservableObject {
         _ mode: RightSidebarMode,
         defaults: UserDefaults
     ) -> RightSidebarMode {
-        if mode == .customSidebar {
-            return .files
-        }
-        return mode.isAvailable(defaults: defaults) ? mode : .files
+        mode.isAvailable(defaults: defaults) ? mode : .files
+    }
+
+    private static func visibleMode(
+        _ mode: RightSidebarMode,
+        defaults: UserDefaults
+    ) -> RightSidebarMode {
+        let candidate = availableMode(mode, defaults: defaults)
+        let visible = RightSidebarMode.visibleModes(defaults: defaults)
+        if visible.contains(candidate) { return candidate }
+        return visible.first ?? candidate
     }
 }

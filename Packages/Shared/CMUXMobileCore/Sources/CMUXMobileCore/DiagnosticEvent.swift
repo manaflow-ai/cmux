@@ -21,8 +21,8 @@ public struct DiagnosticEvent: Sendable, Codable, Equatable {
     ///
     /// Sourced from `DispatchTime.now().uptimeNanoseconds` by the convenience
     /// initializer so two events are strictly orderable without depending on
-    /// wall-clock skew. ``DiagnosticLog/export()`` writes one wall-clock anchor
-    /// in its header so a reader can convert these back to absolute time.
+    /// wall-clock skew. ``DiagnosticLog/export()`` converts this through the
+    /// ring's wall-clock anchor before presenting it.
     public var tNanos: UInt64
 
     /// An optional surface identifier the event relates to.

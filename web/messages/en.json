@@ -1,4 +1,52 @@
 {
+  "billingRecovery": {
+    "message": "If we found an account, check your email for next steps",
+    "metaTitle": "Connect Founder's Edition",
+    "metaDescription": "Use the email from your Founder's Edition purchase to create or recover your cmux account.",
+    "eyebrow": "Founder's Edition access",
+    "title": "Connect Founder's Edition",
+    "body": "Use the email from your Founder's Edition purchase. We will send a secure sign-in link that creates or recovers the cmux account for that purchase.",
+    "differentEmail": "Already have a cmux account with another email? Reply to your Founder's Edition welcome email. We will verify both addresses and move access safely.",
+    "formAriaLabel": "Connect Founder's Edition",
+    "emailLabel": "Purchase email",
+    "emailPlaceholder": "you@example.com",
+    "submit": "Send sign-in link",
+    "submitting": "Sending...",
+    "success": "If we found a purchase or account, check your email for next steps.",
+    "error": "We could not send the request. Try again later.",
+    "backToHome": "Back to cmux"
+  },
+  "vmDesktop": {
+    "invalidTitle": "This desktop link isn't valid",
+    "invalidBody": "The link is missing its session or points somewhere cmux won't frame. Reopen the desktop from cmux: right-click {machine} in the Machines panel and choose Open Desktop.",
+    "expiredTitle": "This desktop session expired",
+    "expiredBody": "{machine} and everything on it are fine — only this link's session ended. Reopen the desktop from cmux (right-click the machine, then Open Desktop) to get a fresh one."
+  },
+  "vmErrors": {
+    "unsupported": {
+      "title": "Cloud VM operation unavailable",
+      "reason": "This machine kind does not provide this operation.",
+      "message": {
+        "snapshot": "This Cloud VM does not support saved VM state.",
+        "restore": "This Cloud VM kind does not support restoring saved VM state.",
+        "fork": "This Cloud VM does not support copying to a new VM.",
+        "openPort": "This Cloud VM cannot expose machine ports as preview URLs.",
+        "default": "This Cloud VM does not support the requested operation."
+      },
+      "action": {
+        "snapshot": "Do not retry. Work on this machine kind is kept on its persistent home volume.",
+        "restore": "Do not retry. Work on this machine kind is kept on its persistent home volume.",
+        "fork": "Do not retry. Create a new VM with `cmux vm new`.",
+        "openPort": "Do not retry. Reach the service from inside the machine (`cmux vm exec`), or use a machine kind that can open ports.",
+        "default": "Do not retry. Run `cmux vm ls` to see your machines, or contact support if you believe this is wrong."
+      }
+    },
+    "requiresPro": {
+      "title": "cmux Pro required",
+      "message": "Cloud VMs require a cmux Pro plan.",
+      "action": "Upgrade to cmux Pro at {upgradeUrl} to create Cloud VMs."
+    }
+  },
   "ios": {
     "metaTitle": "cmux iOS — your terminals on iPhone and iPad",
     "metaDescription": "The cmux iOS app mirrors your Mac terminals to iPhone and iPad in realtime, over your own Tailscale or local network. Drive your coding agents from anywhere.",
@@ -32,7 +80,6 @@
     "title": "cmux for {platform}",
     "tagline": "A Chromium browser and agent workspace, built together.",
     "logoAlt": "cmux app icon",
-    "portableCta": "Portable ZIP",
     "featuresTitle": "Built for agentic work",
     "features": {
       "chromium": {
@@ -54,7 +101,7 @@
     },
     "installTitle": "Install",
     "releaseTitle": "Releases and updates",
-    "releaseBody": "These links always point to the latest stable release on <github>GitHub Releases</github>. cmux verifies signed update manifests before installing an update.",
+    "releaseBody": "These links always point to the latest nightly release on <github>GitHub Releases</github>. cmux verifies signed update manifests before installing an update.",
     "sourceLink": "View source on GitHub",
     "otherPlatform": "cmux for {platform}",
     "macLink": "cmux terminal for Mac",
@@ -64,6 +111,7 @@
       "metaDescription": "Download cmux for Windows x64: a free, open-source Chromium browser and agent workspace with task-shaped tabs and terminal surfaces.",
       "subtitle": "A native x64 build with Chromium tabs, cmux workspaces, and familiar Windows keyboard conventions.",
       "primaryCta": "Download installer (.exe)",
+      "secondaryCta": "Portable ZIP",
       "requirements": "Windows 10 or later · x64",
       "installBody": "Run the installer and follow the Windows prompts. Choose the portable ZIP if you prefer to keep cmux in a folder without a system-wide install."
     },
@@ -72,15 +120,32 @@
       "metaTitle": "Download cmux for Linux",
       "metaDescription": "Download cmux for Linux x64: a free, open-source Chromium browser and agent workspace with task-shaped tabs and terminal surfaces.",
       "subtitle": "A native x64 build with Chromium tabs, cmux workspaces, and integrated terminal surfaces.",
-      "primaryCta": "Download .deb",
-      "requirements": "Debian or Ubuntu · x64",
-      "installBody": "Download the Debian package and install it with your package manager. Choose the portable ZIP for a per-user install and in-app updates."
+      "primaryCta": "Download auto-updating installer (.run)",
+      "secondaryCta": "Debian package (.deb)",
+      "requirements": "Linux · x64",
+      "installBody": "Run the per-user installer once. It installs under ~/.local without root and enables signed in-app updates. Choose the Debian package instead if you want updates managed by your package manager."
     }
   },
   "meta": {
     "title": "cmux — The terminal built for multitasking, organization, and programmability",
     "description": "Free and open source native macOS terminal built on Ghostty. Works with Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, and any CLI tool. Vertical tabs, notification rings, split panes, and a socket API.",
     "ogDescription": "Free and open source macOS terminal for AI coding agents. Works with Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, and any CLI tool."
+  },
+  "authError": {
+    "emailUnverifiedTitle": "Verify your email to continue",
+    "emailUnverifiedBody": "Sign in with the method you used originally, then verify your email before using this sign-in method.",
+    "genericTitle": "Sign-in could not be completed",
+    "genericBody": "Please try again. If the problem continues, contact support.",
+    "backToSignIn": "Back to sign in"
+  },
+  "cloudPublicationAccess": {
+    "title": "You don't have access",
+    "signIn": "Sign in to cmux",
+    "signedInAs": "Signed in as {identity}",
+    "switchAccount": "Switch account",
+    "invalidTitle": "This access link isn't valid",
+    "invalidBody": "Return to the site and try again.",
+    "footer": "Access is managed by cmux."
   },
   "common": {
     "downloadForMac": "Download for Mac",
@@ -96,29 +161,167 @@
   "dashboard": {
     "nav": {
       "brand": "cmux",
+      "cloudGroup": "cloud",
+      "cloudDevices": "Mac access",
       "vaultGroup": "vault",
       "vaultOverview": "overview",
       "vaultSessions": "sessions",
-      "vaultCliSetup": "cli setup",
-      "subrouterGroup": "subrouter",
-      "subrouterOverview": "overview",
+      "coderouterGroup": "coderouter",
+      "coderouterOverview": "overview",
+      "iosGroup": "iOS",
       "accountGroup": "account",
       "billing": "billing",
+      "team": "team",
       "testflight": "iOS TestFlight"
     },
     "home": {
       "title": "dashboard",
       "description": "choose a product dashboard.",
+      "cloudName": "Cloud Mac access",
+      "cloudDescription": "review and revoke the Macs that can reach your private Cloud VM network.",
+      "cloudLink": "manage Mac access",
       "vaultName": "vault",
       "vaultDescription": "browse synced agent sessions and manage cli access.",
       "vaultLink": "open vault",
-      "subrouterName": "subrouter",
-      "subrouterDescription": "route llm requests across provider accounts with failover and usage-aware scheduling.",
-      "subrouterLink": "open subrouter"
+      "coderouterName": "coderouter",
+      "coderouterDescription": "route llm requests across provider accounts with failover and usage-aware scheduling.",
+      "coderouterLink": "open coderouter",
+      "iosAppName": "iOS app",
+      "iosAppDescription": "install the cmux iOS app via TestFlight (beta access).",
+      "iosLink": "open iOS app"
     },
-    "subrouter": {
-      "title": "subrouter",
-      "description": "subrouter routes llm requests across provider accounts with failover and usage-aware scheduling."
+    "cloud": {
+      "title": "Cloud Mac access",
+      "description": "These Macs have WireGuard access to your private Cloud VM network. iPhone and Iroh pairing records are separate.",
+      "empty": "No Mac has enrolled for Cloud VM access.",
+      "cmux": "cmux build",
+      "access": "network access",
+      "lastContact": "last control-plane contact",
+      "deviceId": "device ID",
+      "unknown": "unknown",
+      "none": "none",
+      "purpose": {
+        "terminal": "terminal",
+        "browser": "browser VPN"
+      },
+      "rename": "rename",
+      "revoke": "revoke",
+      "renameTitle": "Rename this Mac",
+      "nameLabel": "Name",
+      "cancel": "cancel",
+      "save": "save",
+      "renameError": "Could not rename this Mac.",
+      "revokeTitle": "Revoke {name}?",
+      "revokeBody": "This signs the Mac out and removes all of its Cloud VM network access.",
+      "revokeError": "Could not revoke this Mac."
+    },
+    "coderouter": {
+      "metaTitle": "coderouter — cmux",
+      "metaDescription": "Manage shared AI accounts and route requests with coderouter.",
+      "title": "coderouter",
+      "description": "coderouter routes llm requests across provider accounts with failover and usage-aware scheduling.",
+      "machines": {
+        "title": "Machines",
+        "description": "Per-machine coderouter usage for {team} over the last {days} days.",
+        "machineColumn": "Machine",
+        "tokensColumn": "Total tokens",
+        "apiEquivalentColumn": "API-equivalent value",
+        "unnamed": "Unnamed machine",
+        "empty": "No machines have used coderouter in the last {days} days.",
+        "unavailable": "Machine usage is temporarily unavailable.",
+        "estimateNote": "API-equivalent value is an estimate using public list prices, not actual spend."
+      }
+    },
+    "coderouterAccounts": {
+      "title": "Accounts",
+      "description": "Claude Code, Codex, and OpenCode on this team's Cloud VMs and CLI route through these accounts. Each machine is pinned to one account per provider so prompt caching keeps working. A rate limit or a rejected credential puts that account in cooldown and moves the machine to the next one.",
+      "accountsCount": "{count, plural, one {# account} other {# accounts}}",
+      "emptyTitle": "No accounts yet",
+      "emptyBody": "Requests from this team fail until an account is added.",
+      "notConfiguredTitle": "Accounts shared from the cmux app are not listed here",
+      "notConfiguredBody": "The hosted account service is not configured on this deployment. Accounts added with cr add, and Anthropic and Bedrock accounts, still work.",
+      "migrationPendingTitle": "Shared accounts temporarily unavailable",
+      "migrationPendingBody": "Shared Codex accounts are temporarily unavailable. Try again shortly.",
+      "loadErrorTitle": "Some accounts could not load",
+      "loadErrorBody": "Part of the account list could not be read. The accounts shown are complete for the other providers. Try again shortly.",
+      "pageErrorTitle": "coderouter could not load",
+      "pageErrorBody": "The account service could not be reached. Try again shortly.",
+      "providerColumn": "Provider",
+      "labelColumn": "Label",
+      "statusColumn": "Status",
+      "actionsColumn": "Actions",
+      "unlabeledAccount": "Unlabeled",
+      "kindAnthropicApiKey": "Anthropic API key",
+      "kindClaudeOauth": "Claude Code OAuth",
+      "kindBedrock": "Amazon Bedrock",
+      "kindCodex": "Codex",
+      "kindOpencode": "OpenCode",
+      "kindOpencodeGo": "OpenCode Go",
+      "kindOpenAiApiKey": "OpenAI API key",
+      "kindOpenRouterApiKey": "OpenRouter API key",
+      "kindUnknown": "Unknown provider",
+      "stateActive": "Active",
+      "stateDisabled": "Disabled",
+      "stateRefreshing": "Refreshing",
+      "stateExpired": "Expired",
+      "stateBroken": "Sign-in broken",
+      "stateUnhealthy": "Needs attention",
+      "coolingDown": "Cooling down until {until}",
+      "lastFailure": "last failure {code}",
+      "lastUsed": "last used {at}",
+      "neverUsed": "never used",
+      "createdAt": "added {at}",
+      "activeSessions": "{count, plural, =0 {no active sessions} one {# active session} other {# active sessions}}",
+      "addTitle": "Add account",
+      "kindSelectorLabel": "Account kind",
+      "labelField": "Label",
+      "labelPlaceholder": "Optional, for example work",
+      "apiKeyField": "API key",
+      "oauthTokenField": "OAuth token",
+      "oauthHint": "Create a long-lived token on your own machine with",
+      "openAiKeyHint": "Codex on this team's machines sends Responses API calls to api.openai.com with this key, alongside any Codex sign-ins. Billing goes to the OpenAI project that owns the key.",
+      "openRouterKeyHint": "Codex on this team's machines sends Responses API calls to OpenRouter with this key. Bare OpenAI model ids are sent as openai/<model>.",
+      "regionField": "AWS region",
+      "accessKeyIdField": "Access key ID",
+      "secretAccessKeyField": "Secret access key",
+      "sessionTokenField": "Session token",
+      "optionalPlaceholder": "Optional",
+      "codexBody": "Codex signs in through a browser, so add it from your terminal. Sign in with this team, then run:",
+      "opencodeBody": "OpenCode reads its provider list from coderouter. Sign in with this team, then run:",
+      "copyCommand": "Copy command",
+      "copied": "Copied",
+      "saveAction": "Add account",
+      "savingAction": "Adding",
+      "saveSuccess": "Account added.",
+      "saveError": "Account could not be added.",
+      "validationError": "Check the credential format and try again.",
+      "teamAccessError": "You do not have access to this team.",
+      "enableAction": "Enable",
+      "disableAction": "Disable",
+      "updateError": "Account could not be updated.",
+      "removeAction": "Remove",
+      "removingAction": "Removing",
+      "removeError": "Account could not be removed.",
+      "removeConfirmTitle": "Remove this account?",
+      "removeClaudeConfirmBody": "Machines pinned to it move to the team's other accounts. If it is the last one, Claude requests from this team fail until a new account is added.",
+      "removeNativeConfirmBody": "Sessions pinned to it move to the team's other accounts. Adding it back means signing in again with cr add.",
+      "removeSharedConfirmBody": "This removes the account for the whole team. Adding it back requires signing in again.",
+      "cancelAction": "Cancel"
+    },
+    "accountMenu": {
+      "label": "Account menu",
+      "settings": "Settings",
+      "billing": "Billing",
+      "themeDark": "Dark theme",
+      "themeLight": "Light theme",
+      "signOut": "Sign out",
+      "signingOut": "Signing out…",
+      "signOutError": "Could not sign out. Try again.",
+      "signIn": "Sign in"
+    },
+    "teamSwitcher": {
+      "label": "Team",
+      "personal": "Personal"
     },
     "billing": {
       "eyebrow": "account",
@@ -128,13 +331,14 @@
         "cancelled": "Your plan will cancel at the end of the current billing period.",
         "resumed": "Your plan has been resumed and will renew normally.",
         "nosub": "No active Stripe subscription was found for this account.",
-        "error": "Billing could not be updated. Try again shortly."
+        "error": "Billing could not be updated. Try again shortly.",
+        "pastDue": "Your latest payment failed. Update your payment method to keep your plan active."
       },
       "free": {
         "name": "Free",
         "body": "You are currently on the Free plan. Upgrade when you need Pro limits and hosted features.",
-        "upsellTitle": "Upgrade when you need cloud agents or team billing.",
-        "upsellBody": "Choose Pro for personal cloud features, or Team for shared billing and seats.",
+        "upsellTitle": "Upgrade when you need cloud agents.",
+        "upsellBody": "Choose Pro for personal cloud features, or Team for your whole team with centralized billing.",
         "testflightTitle": "Get the cmux iOS app",
         "testflightBody": "The iOS beta is available through TestFlight for active personal Pro subscribers.",
         "testflightCta": "Join the iOS beta"
@@ -143,17 +347,17 @@
         "name": "cmux Pro",
         "activeBody": "Your plan renews on {date}.",
         "pendingBody": "Your plan is scheduled to end on {date}.",
-        "monthlyPrice": "$30/mo",
-        "annualPrice": "$24/mo, billed annually",
-        "legacyAnnualPrice": "$20/mo, billed annually"
+        "monthlyPrice": "${amount}/mo",
+        "annualPrice": "${monthly}/mo, billed annually",
+        "grantedBody": "Pro access was granted to this account by the cmux team. There is no subscription to manage."
       },
       "team": {
         "name": "cmux Team",
         "fallbackName": "your team",
         "activeBody": "{team} renews on {date}.",
         "pendingBody": "{team} is scheduled to end on {date}.",
-        "price": "$35/seat/mo",
-        "annualPrice": "$28/seat/mo, billed annually"
+        "price": "${amount}/seat/mo",
+        "annualPrice": "${monthly}/seat/mo, billed annually"
       },
       "details": {
         "renewsOn": "Renews on",
@@ -226,56 +430,6 @@
         "join": "Join iOS TestFlight",
         "leave": "Leave TestFlight"
       }
-    },
-    "aiAccounts": {
-      "metaTitle": "AI accounts — cmux",
-      "metaDescription": "Manage team AI provider accounts for cmux.",
-      "section": "dashboard",
-      "title": "AI accounts",
-      "description": "Manage the provider accounts this team can use for cmux AI.",
-      "personalTeam": "Personal",
-      "teamSwitcherLabel": "Team",
-      "notConfiguredTitle": "AI account management isn't available yet",
-      "notConfiguredBody": "Team AI accounts aren't enabled for this deployment. Try again later or contact support.",
-      "loadErrorTitle": "Accounts could not load",
-      "loadErrorBody": "The account service could not be reached. Try again shortly.",
-      "accountsTitle": "Connected accounts",
-      "accountsCount": "{count, plural, one {# account} other {# accounts}}",
-      "emptyTitle": "No accounts yet",
-      "emptyBody": "Add a provider account to make it available to this team.",
-      "providerColumn": "Provider",
-      "labelColumn": "Label",
-      "createdColumn": "Created",
-      "actionsColumn": "Actions",
-      "unlabeledAccount": "Unlabeled",
-      "unknownCreatedAt": "Unknown",
-      "addAccountsTitle": "Add account",
-      "providerClaude": "Claude OAuth",
-      "providerAnthropicApiKey": "Anthropic API key",
-      "providerCodex": "Codex OAuth",
-      "providerOpenAiApiKey": "OpenAI API key",
-      "providerUnknown": "Unknown provider",
-      "labelField": "Label",
-      "labelPlaceholder": "Team default",
-      "oauthJsonField": "OAuth JSON",
-      "apiKeyField": "API key",
-      "addClaude": "Add Claude",
-      "addAnthropic": "Add Anthropic",
-      "addCodex": "Add Codex",
-      "addOpenAi": "Add OpenAI",
-      "addSuccess": "Account added.",
-      "addError": "Account could not be saved.",
-      "deleteError": "Account could not be deleted.",
-      "jsonError": "Paste a valid JSON object.",
-      "validationError": "Check the account details and try again.",
-      "teamAccessError": "You do not have access to this team.",
-      "deletingAction": "Deleting",
-      "deleteAction": "Delete",
-      "deleteConfirmTitle": "Delete this account?",
-      "deleteConfirmBody": "This removes the provider account for the whole team. Adding it back requires the original credentials.",
-      "cancelAction": "Cancel",
-      "anthropicKeyPlaceholder": "sk-ant-...",
-      "openAiKeyPlaceholder": "sk-..."
     }
   },
   "vault": {
@@ -296,9 +450,9 @@
       "eyebrow": "cmux Vault",
       "title": "Approve CLI access",
       "description": "Confirm the code shown by cmux-vault to connect this device to your signed-in cmux account.",
-      "subrouterEyebrow": "Subrouter",
-      "subrouterTitle": "Approve Subrouter access",
-      "subrouterDescription": "Confirm the code shown by sr to connect this device to your signed-in cmux team.",
+      "coderouterEyebrow": "CodeRouter",
+      "coderouterTitle": "Approve CodeRouter access",
+      "coderouterDescription": "Confirm the code shown by cr to connect this device to your signed-in cmux team.",
       "codeLabel": "User code",
       "approveButton": "Approve access",
       "approving": "Approving...",
@@ -367,6 +521,7 @@
     "blog": "Blog",
     "changelog": "Changelog",
     "community": "Community",
+    "jobs": "Jobs",
     "pricing": "Pricing",
     "github": "GitHub"
   },
@@ -377,9 +532,11 @@
     "social": "Social",
     "blog": "Blog",
     "community": "Community",
+    "jobs": "Jobs",
     "pricing": "Pricing",
     "docs": "Docs",
     "changelog": "Changelog",
+    "support": "Support",
     "companyInformation": "Company information",
     "privacy": "Privacy",
     "terms": "Terms",
@@ -396,13 +553,87 @@
     "guides": "Guides",
     "compare": "Compare"
   },
+  "jobs": {
+    "metaTitle": "Founding Engineer jobs at cmux",
+    "metaDescription": "Join cmux as a founding engineer and help build the future of coding with AI across macOS, Windows, Linux, iOS, and Cloud.",
+    "section": "Jobs",
+    "eyebrow": "We're hiring",
+    "title": "Founding Engineer",
+    "tagline": "Help us build the future of coding with AI.",
+    "intro": "cmux is a native macOS terminal built on Ghostty, designed for running multiple AI coding agents in parallel. Hundreds of thousands of developers use cmux to drive their agentic coding workflows.",
+    "hiring": "We're hiring talented engineers to help us build the future of coding with AI.",
+    "whatYoullDo": "What you'll do",
+    "whatYoullDoItems": [
+      "Build frontier devtools across the stack: cmux macOS (Swift/AppKit), cmux Windows/Linux (C++/Chromium), cmux iOS, cmux Cloud, sub-router (Go), chatmux, and more.",
+      "Help invent the most useful product for developers to do work with AI.",
+      "Own products and features end to end, including user feedback loops.",
+      "Dogfood, test, and verify constantly; use cmux to build cmux."
+    ],
+    "excitedLead": "Things that make us extra excited:",
+    "excitedItems": [
+      "Using 10B+ tokens a day.",
+      "All-rounders and creative problem solvers.",
+      "Great design taste and care for the craft.",
+      "Swift/AppKit, C++, Rust, Go, or Chromium experience.",
+      "Open-source maintainers, former founders, people who ship complete products.",
+      "Sending cmux PRs for us to review or demoing custom cmux plugins / workflows."
+    ],
+    "details": "Details",
+    "roleTitle": "Founding Engineer",
+    "compensationLabel": "Compensation",
+    "compensation": "$130k–$170k + 0.5%–1.5% equity",
+    "benefitsLabel": "Benefits",
+    "benefits": "Health, dental, and vision insurance",
+    "locationLabel": "Location",
+    "location": "San Francisco",
+    "applyAriaLabel": "Apply for a founding engineer role by email",
+    "applyEmailSubject": "Founding Engineer at cmux",
+    "applyCta": "Email",
+    "foundingDesigner": {
+      "metaTitle": "Founding Designer jobs at cmux",
+      "metaDescription": "Join cmux as a founding designer and design the future of coding with AI across macOS, TUI, Windows, Linux, iOS, Cloud, cmux.com, and chatmux.",
+      "section": "Jobs",
+      "eyebrow": "About the role",
+      "title": "Founding Designer",
+      "tagline": "Design the future of coding with AI.",
+      "intro": "cmux is a native macOS terminal built on Ghostty, designed for running multiple AI coding agents in parallel. Hundreds of thousands of developers use cmux to drive their agentic coding workflows.",
+      "hiring": "We're hiring a talented designer to help us design the future of coding with AI.",
+      "whatYoullDo": "What you'll do",
+      "whatYoullDoItems": [
+        "Design frontier devtools across the stack: cmux macOS, cmux TUI, cmux Windows/Linux, cmux iOS, cmux Cloud, cmux.com, chatmux, and more.",
+        "Help design the most useful product for developers to do work with AI.",
+        "Own the look, feel, and interaction model end to end, including user feedback loops.",
+        "Dogfood, prototype, and ship constantly."
+      ],
+      "excitedLead": "Things that make us extra excited:",
+      "excitedItems": [
+        "You are a walking encyclopedia of design components from all sorts of apps.",
+        "People come to you for design references all of the time.",
+        "Obsessive taste for native macOS apps and developer tools.",
+        "You prototype in code and ship real UI.",
+        "Typography, motion, and systems thinking; you care about the 1px details, padding, etc."
+      ],
+      "details": "Details",
+      "roleTitle": "Founding Designer",
+      "compensationLabel": "Compensation",
+      "compensation": "$130k–$170k + 0.5%–1.5% equity",
+      "benefitsLabel": "Benefits",
+      "benefits": "Health, dental, and vision insurance",
+      "locationLabel": "Location",
+      "location": "San Francisco",
+      "applyAriaLabel": "Apply for a founding designer role by email",
+      "applyEmailSubject": "Founding Designer at cmux",
+      "applyCta": "Email"
+    }
+  },
   "pricing": {
     "metaTitle": "Pricing — cmux",
-    "metaDescription": "cmux is a free, open source macOS terminal for AI coding agents. Upgrade to Pro for Cloud VMs, cmux Vault session backup, and a model gateway. Enterprise adds SSO and self-hosting.",
-    "metaDescriptionShort": "cmux is a free, open source macOS terminal. Pro adds Cloud VMs, Vault session backup, and a model gateway; Enterprise adds SSO and self-hosting.",
-    "metaDescriptionNoVault": "cmux is a free, open source macOS terminal for AI coding agents. Upgrade to Pro for Cloud VMs and a model gateway. Enterprise adds SSO and self-hosting.",
-    "metaDescriptionNoVaultShort": "cmux is a free, open source macOS terminal. Pro adds Cloud VMs and a model gateway; Enterprise adds SSO and self-hosting.",
+    "metaDescription": "cmux is a free, open source macOS terminal for AI coding agents. Upgrade to Pro for isolated Cloud VMs and cmux Vault session backup. Enterprise adds SSO and self-hosting.",
+    "metaDescriptionShort": "cmux is a free, open source macOS terminal. Pro adds Cloud VMs and Vault session backup; Enterprise adds SSO and self-hosting.",
+    "metaDescriptionNoVault": "cmux is a free, open source macOS terminal for AI coding agents. Upgrade to Pro for isolated Cloud VMs. Enterprise adds SSO and self-hosting.",
+    "metaDescriptionNoVaultShort": "cmux is a free, open source macOS terminal. Pro adds isolated Cloud VMs; Enterprise adds SSO and self-hosting.",
     "title": "Pricing",
+    "alreadyPaid": "Already paid? Connect Founder's Edition",
     "perMonth": "/mo",
     "perMonthBilledYearly": "/mo, billed yearly",
     "perUserMonth": "/user/mo",
@@ -426,19 +657,18 @@
         "Run Claude Code, Codex, Gemini, and any CLI agent with your own keys",
         "Vertical tabs, workspaces, split panes, and completion notifications",
         "Browser panels, a scriptable socket API, and custom skills",
-        "Local session history and a one-time Cloud VM trial",
+        "Local session history",
         "Community support on Discord and GitHub"
       ]
     },
     "pro": {
       "name": "Pro",
-      "price": "$30",
       "cta": "Get Pro",
       "featuresLead": "Everything in Free, plus:",
       "features": [
         "Cloud agents on Cloud VMs in isolated remote sandboxes",
-        "20 active compute-hours per month on a 4 vCPU / 16 GB VM, then usage-based",
-        "Model gateway: route across providers with usage and cost analytics",
+        "Up to 50 Cloud VMs, with 24 GB RAM and 6 vCPUs shared across all VMs",
+        "Unlimited workspaces",
         "The cmux iOS app and email support"
       ],
       "vaultFeatures": [
@@ -451,16 +681,11 @@
     },
     "team": {
       "name": "Team",
-      "price": "$35",
       "cta": "Get Teams",
       "featuresLead": "Everything in Pro, plus:",
       "features": [
-        "Unified billing: one invoice for the whole team",
-        "Centralized seat management: add and remove members anytime",
-        "Pooled Cloud VM compute hours shared across the team",
-        "Shared team rules, settings, and workspace templates",
-        "Team-wide model gateway with per-member usage and cost analytics",
-        "Centralized admin and priority email support"
+        "Centralized billing for your whole team",
+        "Priority support"
       ]
     },
     "enterprise": {
@@ -470,11 +695,10 @@
       "featuresLead": "Everything in Team, plus:",
       "features": [
         "Self-hosted Cloud execution and networking, so nothing leaves your network",
-        "Self-hosted model gateway with org-wide usage and cost analytics",
         "SSO and SAML sign-in",
         "Centralized admin and shared team rules",
         "Audit logs for terminal sessions, network requests, and browser activity",
-        "Committed cloud usage and volume pricing",
+        "Custom VM limits and volume pricing",
         "SOC 2 and an SLA, with dedicated support"
       ]
     },
@@ -528,24 +752,31 @@
         },
         {
           "label": "Cloud agents on Cloud VMs",
-          "free": "1 VM trial",
-          "pro": "20 hrs/mo, then usage-based",
-          "team": "Pooled, usage-based",
-          "enterprise": "Committed usage"
-        },
-        {
-          "label": "Concurrent Cloud VMs",
-          "free": "1",
-          "pro": "Usage-based",
-          "team": "Usage-based",
-          "enterprise": "Custom"
-        },
-        {
-          "label": "Model gateway: routing and usage analytics",
           "free": "false",
           "pro": "true",
           "team": "true",
           "enterprise": "true"
+        },
+        {
+          "label": "Concurrent Cloud VMs",
+          "free": "false",
+          "pro": "50",
+          "team": "50 per user",
+          "enterprise": "Custom"
+        },
+        {
+          "label": "Resources shared across all Cloud VMs",
+          "free": "false",
+          "pro": "24 GB RAM and 6 vCPUs shared across all VMs",
+          "team": "24 GB RAM and 6 vCPUs per user, shared across all their VMs",
+          "enterprise": "Custom"
+        },
+        {
+          "label": "Workspaces",
+          "free": "Unlimited",
+          "pro": "Unlimited",
+          "team": "Unlimited",
+          "enterprise": "Unlimited"
         },
         {
           "label": "iOS app",
@@ -563,13 +794,6 @@
           "hostedNetworking": true
         },
         {
-          "label": "Unified billing and seat management",
-          "free": "false",
-          "pro": "false",
-          "team": "true",
-          "enterprise": "true"
-        },
-        {
           "label": "SSO and SAML sign-in",
           "free": "false",
           "pro": "false",
@@ -584,13 +808,6 @@
           "enterprise": "true"
         },
         {
-          "label": "Centralized admin and shared team rules",
-          "free": "false",
-          "pro": "false",
-          "team": "true",
-          "enterprise": "true"
-        },
-        {
           "label": "Audit logs: sessions, network, browser",
           "free": "false",
           "pro": "false",
@@ -598,7 +815,7 @@
           "enterprise": "true"
         },
         {
-          "label": "Committed usage and volume pricing",
+          "label": "Volume pricing",
           "free": "false",
           "pro": "false",
           "team": "false",
@@ -620,41 +837,17 @@
         }
       ]
     },
-    "sizes": {
-      "title": "Cloud VM sizes",
-      "body": "Pick a VM size per agent. You are billed per active compute-hour, and idle VMs suspend automatically. Pro includes 20 hours per month on the 4 vCPU / 16 GB size.",
-      "colSize": "Size",
-      "colUse": "Best for",
-      "colRate": "Per active hour",
-      "rows": [
-        {
-          "size": "2 vCPU / 8 GB",
-          "use": "Light agents and quick tasks",
-          "rate": "$0.20"
-        },
-        {
-          "size": "4 vCPU / 16 GB",
-          "use": "Standard development",
-          "rate": "$0.40"
-        },
-        {
-          "size": "8 vCPU / 32 GB",
-          "use": "Heavy builds and parallel agents",
-          "rate": "$0.80"
-        }
-      ]
-    },
     "help": "Questions? Join our <discord>Discord</discord>, open a <github>GitHub issue</github>, or <email>email us</email>.",
     "faq": {
       "title": "FAQ",
       "items": [
         {
           "q": "Is the terminal really free?",
-          "a": "Yes. The macOS app is open source and free forever. Local agents run with your own API keys at no cost to you. You only pay when you run agents on Cloud VMs."
+          "a": "Yes. The macOS app is open source and free forever. Local agents run with your own API keys at no cost to you. Cloud VMs are part of the paid plans."
         },
         {
           "q": "What are Cloud VMs?",
-          "a": "Remote Linux sandboxes where agents clone repositories, run commands, and open pull requests in the cloud, without touching your machine. They cover parallel work, background jobs, and PR review. Idle VMs suspend automatically, so you are only billed for active compute-hours."
+          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro includes up to 50 Cloud VMs, with 24 GB RAM and 6 vCPUs shared across all VMs. Team includes the same limits per user. There is no metering or overage billing."
         },
         {
           "q": "What is cmux Vault?",
@@ -662,16 +855,12 @@
           "vault": true
         },
         {
-          "q": "What is the model gateway?",
-          "a": "A hosted gateway that routes each request to a strong model across providers and gives you usage and cost analytics in one place. Bring your own provider keys. Enterprise can self-host the gateway for org-wide control."
-        },
-        {
           "q": "Do I still need Tailscale for the iOS app?",
-          "a": "Yes, for now. Pair your iPhone with your Mac over your own networking, like Tailscale, on any plan; Enterprise can self-host. Hosted networking with zero setup is on the roadmap."
+          "a": "No. The iOS app pairs with your Mac over the built-in cmux iroh network. You can also bring your own networking, like Tailscale. Enterprise can self-host."
         },
         {
           "q": "How does billing work?",
-          "a": "Pro is $30/mo, or $24/mo when billed annually (a 20% savings), and includes 20 active compute-hours per month on the 4 vCPU / 16 GB Cloud VM. Beyond that, cloud usage is billed per active compute-hour by VM size (see Cloud VM sizes above). Idle VMs suspend automatically, and running agents in parallel just uses more hours. The terminal and local agents stay free."
+          "a": "Pro is $50/mo, or $40/mo when billed annually (a 20% savings). Team is $60/user/mo, or $48/user/mo when billed annually. Paid plans include up to 50 Cloud VMs per user, with 24 GB RAM and 6 vCPUs per user shared across all their VMs. There is no metering or overage billing. The terminal and local agents stay free."
         },
         {
           "q": "Can I self-host the cloud?",
@@ -679,7 +868,7 @@
         },
         {
           "q": "Do you have a team plan?",
-          "a": "Yes. Team is $35/user/mo, or $28/user/mo when billed annually: unified billing for the whole team, centralized seat management, pooled Cloud VM hours, and shared team rules. Enterprise adds SSO, self-hosting, and audit logs."
+          "a": "Yes. Team is $60/user/mo, or $48/user/mo when billed annually, with centralized billing for your whole team and priority support."
         }
       ]
     },
@@ -758,9 +947,9 @@
     "faqFeatureQ": "I have a feature request or found a bug",
     "faqFeatureA": "We want to hear it. Open an <issuesLink>issue</issuesLink> or <prLink>pull request</prLink> on GitHub, or <mailLink>email us</mailLink>.",
     "faqIosQ": "Is there an iOS app?",
-    "faqIosA": "Yes, in beta. Pair your iPhone with your Mac from the Mobile Connect window and attach to your terminals from your phone, with optional forwarding of terminal notifications. It ships on TestFlight as cmux BETA. Early access is included with <foundersLink>cmux Founders Edition</foundersLink>.",
+    "faqIosA": "Yes, in beta. Pair your iPhone with your Mac from the Mobile Connect window and attach to your terminals from your phone, with optional forwarding of terminal notifications. It ships on TestFlight as cmux BETA. Early access is included with <foundersLink>cmux Founder's Edition</foundersLink>.",
     "faqSupportQ": "How can I support cmux?",
-    "faqSupportA": "cmux is free and open source, and always will be. If you want to back development and get early access to what's next, including cmux AI, the iOS app, and Cloud VMs, check out <foundersLink>cmux Founders Edition</foundersLink>.",
+    "faqSupportA": "cmux is free and open source, and always will be. If you want to back development and get early access to what's next, including cmux AI, the iOS app, and Cloud VMs, check out <foundersLink>cmux Founder's Edition</foundersLink>.",
     "faqBrowserQ": "What can the built-in browser do?",
     "faqBrowserA": "cmux can split a real browser pane next to your terminal, and it is fully programmable: navigate, snapshot the DOM, click, type, evaluate JavaScript, and read console and network activity over the same socket API. Agents use it to verify their own web changes without leaving cmux. See <link>browser automation</link>."
   },
@@ -1127,7 +1316,7 @@
         "simpleP2": "I do not use a custom agent harness or external orchestration. I do not use <code>/loop</code>, and I rarely use <code>/goal</code>.",
         "economicsTitle": "The economics",
         "economicsP1": "At API prices, this usage would have cost about $85,000. We paid $7,400 for 37 ChatGPT Pro 20x accounts and used the quota resets Tibo issued. <codexBar>CodexBar</codexBar> produced the local token and API-cost estimates.",
-        "economicsP2": "The 367-billion figure still understates the accounts' total usage. <subrouter>Subrouter</subrouter> lets my cofounder share the same account pool, while CodexBar records only the local token usage on my machine.",
+        "economicsP2": "The 367-billion figure still understates the accounts' total usage. <coderouter>CodeRouter</coderouter> lets my cofounder share the same account pool, while CodexBar records only the local token usage on my machine.",
         "closing": "The workflow keeps my attention on decisions. I review completed work and unblock agents; when the queue clears, I start another task."
       },
       "passkeyAuth": {
@@ -1264,16 +1453,16 @@
         "title": "Superrepos and Why Claude Code Is the Best Worktree Manager",
         "summary": "A lot of people have asked why cmux doesn't have a worktree manager yet. The best manager can choose a worktree, second checkout, sandbox, VM, or GPU cluster.",
         "date": "July 23, 2026",
-        "p1": "Different workloads want different forms of parallelism. Worktrees suit ordinary Git changes. Multiple checkouts help when submodules or build tools dislike worktrees. E2B, Freestyle, Daytona, and Modal provide remote sandboxes, while GitHub Actions can be pressed into the same role. Docker, UTM, Lima, and OrbStack cover local isolation. Some teams use Mac minis or Linux boxes. ML experiments often belong on Ray, Modal, or Slurm. Sometimes the fastest answer is to yolo everything on main.",
+        "p1": "Different workloads want different forms of parallelism. Worktrees suit ordinary Git changes. Multiple checkouts help when submodules or build tools dislike worktrees. Freestyle and Modal provide remote sandboxes, while GitHub Actions can be pressed into the same role. Docker, UTM, Lima, and OrbStack cover local isolation. Some teams use Mac minis or Linux boxes. ML experiments often belong on Ray, Modal, or Slurm. Sometimes the fastest answer is to yolo everything on main.",
         "p2": "A useful manager should choose among these execution models from the task context. This follows the <zen>Zen of cmux</zen>: keep the primitive composable, then let project rules decide how to use it.",
         "superRepoTitle": "A superrepo is project headquarters",
-      "superRepoP1": "I want to call this control repo a superrepo. In the context of coding agents, a superrepo sits above one or more source repositories and holds the data, skills, origins, worktrees, and operating rules that turn a prompt into an isolated task environment.",
-      "superRepoP2": "The <code>AGENTS.md</code> file is the control plane. It names the repositories an agent may need, defines where each task worktree belongs, and points to per-repo setup instructions. One task can create matching worktrees for a terminal, browser integration, and router without cloning all three for every task.",
-      "agentsExample": "You are working in cmux-hq. Tasks may involve:\n- manaflow-ai/cmux\n- manaflow-ai/cmux-browser\n- manaflow-ai/subrouter\n\nWhen the user asks for a new task:\n1. Decide which repositories the task needs.\n2. Create matching worktrees in worktrees/[task]/[repo].\n3. Read each worktree's AGENTS.md.\n4. Start its setup scripts immediately, then continue the task.",
-      "agentTitle": "Let the agent choose the topology",
-      "agentP1": "cmux uses this pattern internally. The public source lives in <cmux>manaflow-ai/cmux</cmux>, while our private control repo is <hq>manaflow-ai/cmuxterm-hq</hq>. From the hq root, we can ask Codex or Claude Code to fix a subrouter problem that may touch cmux. The agent creates only the worktrees it needs, reads each repository's AGENTS.md, starts its setup scripts, and begins inspecting code while those scripts run.",
-      "launchCommand": "cd ~/fun/cmux-hq\ncodex --yolo \"fix subrouter xyz issues, might relate to cmux in xyz way\"",
-      "agentP2": "A <code>./scripts/new-worktree.sh</code> command implements one topology. An agent can choose a second checkout for incompatible submodules, a remote sandbox for untrusted setup, a VM for another operating system, or a GPU scheduler for experiments, then reuse scripts for the deterministic pieces.",
+        "superRepoP1": "I want to call this control repo a superrepo. In the context of coding agents, a superrepo sits above one or more source repositories and holds the data, skills, origins, worktrees, and operating rules that turn a prompt into an isolated task environment.",
+        "superRepoP2": "The <code>AGENTS.md</code> file is the control plane. It names the repositories an agent may need, defines where each task worktree belongs, and points to per-repo setup instructions. One task can create matching worktrees for a terminal, browser integration, and router without cloning all three for every task.",
+        "agentsExample": "You are working in cmux-hq. Tasks may involve:\n- manaflow-ai/cmux\n- manaflow-ai/cmux-browser\n- manaflow-ai/coderouter\n\nWhen the user asks for a new task:\n1. Decide which repositories the task needs.\n2. Create matching worktrees in worktrees/[task]/[repo].\n3. Read each worktree's AGENTS.md.\n4. Start its setup scripts immediately, then continue the task.",
+        "agentTitle": "Let the agent choose the topology",
+        "agentP1": "cmux uses this pattern internally. The public source lives in <cmux>manaflow-ai/cmux</cmux>, while our private control repo is <hq>manaflow-ai/cmuxterm-hq</hq>. From the hq root, we can ask Codex or Claude Code to fix a CodeRouter problem that may touch cmux. The agent creates only the worktrees it needs, reads each repository's AGENTS.md, starts its setup scripts, and begins inspecting code while those scripts run.",
+        "launchCommand": "cd ~/fun/cmux-hq\ncodex --yolo \"fix CodeRouter xyz issues, might relate to cmux in xyz way\"",
+        "agentP2": "A <code>./scripts/new-worktree.sh</code> command implements one topology. An agent can choose a second checkout for incompatible submodules, a remote sandbox for untrusted setup, a VM for another operating system, or a GPU scheduler for experiments, then reuse scripts for the deterministic pieces.",
         "limitsTitle": "Why this changes the clock time",
         "limitsP1": "Worktrees are only half the parallelism story for many projects. In ML, one coding agent can write several experiments in one worktree while a scheduler fans the runs out across GPUs. Creating more worktrees would add coordination without adding compute.",
         "limitsP2": "Agent orchestration can also shorten startup. The agent can read and edit code as soon as the checkout exists while dependency installs, builds, and local services continue in the background. A wrapper that finishes every setup step before starting the agent puts the slowest prerequisite on the critical path.",
@@ -1477,14 +1666,14 @@
       "whatSameVm": "Stable identity: the same account scope opens the same Base VM every time.",
       "whatAnywhere": "Reachable from clients: Mac and iOS attach through cmux auth, so the Mac that created the workspace does not need to stay online.",
       "ownershipTitle": "Ownership",
-      "ownershipDesc": "Base is scoped by the Stack account context you are using in cmux.",
+      "ownershipDesc": "Base is scoped by the cmux account context you are using.",
       "ownerType": "Owner",
       "ownerScope": "Scope",
       "personalOwner": "Personal Base",
-      "personalScope": "One persistent VM owned by your Stack user. Only your signed-in clients can attach unless you share access through a product feature.",
+      "personalScope": "One persistent VM owned by your cmux account. Only your signed-in clients can attach unless you share access through a product feature.",
       "teamOwner": "Team Base",
-      "teamScope": "One persistent VM owned by a Stack team. Access follows team membership and team policy, separate from each member's personal Base.",
-      "switchingDesc": "Switching Stack accounts or teams changes which Base opens. A personal Base and a team Base are different VMs even if you use them from the same Mac.",
+      "teamScope": "One persistent VM owned by a cmux team. Access follows team membership and team policy, separate from each member's personal Base.",
+      "switchingDesc": "Switching cmux accounts or teams changes which Base opens. A personal Base and a team Base are different VMs even if you use them from the same Mac.",
       "openCreateTitle": "Open, reset, create, fork",
       "openCreateDesc": "The main button should be Open Base. It is idempotent and safe to press repeatedly.",
       "openMeaning": "Open Base: create the scoped Base VM only if it does not exist, otherwise resume and attach to the existing one.",
@@ -1511,6 +1700,65 @@
       "recoveryRetry": "Retry: ask cmux to resume and reattach to the same Base VM.",
       "recoveryReset": "Reset: explicitly create a new Base generation. cmux keeps the old generation retained; permanent deletion should be a separate confirmation step.",
       "recoverySupport": "Feedback: include the VM id, elapsed time, and last non-secret error so support can tell whether the failure is auth, service readiness, terminal endpoint, or local client state."
+    },
+    "managedPolicies": {
+      "title": "Managed Device Policies (MDM)",
+      "metaTitle": "Managed device policies (MDM)",
+      "metaDescription": "Deploy MDM-enforceable policies for cmux on managed Macs: disable the embedded browser, iOS remote control, cmux Cloud, remote connections, file transfer, relay networking, telemetry, auto-update, automation webhooks, certificate bypass, Computer Use, custom sidebars, and AI credential upload, or restrict the browser to an allowlist, with a configuration profile targeting com.cmuxterm.app.",
+      "intro": "cmux supports MDM-enforceable policies for managed Macs. Administrators deliver them as forced preference values through a macOS configuration profile (a Custom Settings payload). Forced values are tier 0: they win over environment variables, user settings, ~/.config/cmux/cmux.json imports, and built-in defaults.",
+      "lockSummary": "Forced values cannot be changed from inside the app: the Settings UI shows the control as “Managed by your organization”, the command palette hides the matching commands, and the cmux CLI refuses with a managed-policy error.",
+      "domainTitle": "Payload domain",
+      "domainDesc": "Target the preference domain of the release app:",
+      "domainChannels": "Channel builds (debug, nightly, staging) run under their own bundle identifiers but also honor profiles targeting com.cmuxterm.app, so one profile governs every channel. A value forced in the app's own domain wins over the release-domain fallback.",
+      "keysTitle": "Policy keys",
+      "keyHeader": "Key",
+      "typeHeader": "Type",
+      "defaultHeader": "Default",
+      "behaviorHeader": "Behavior when forced to true",
+      "booleanType": "Boolean",
+      "browserKeyDesc": "Disables every embedded-browser surface: browser panes and tabs, terminal-link interception, browser creation from automation, layouts, and session restore. Live browser panes are closed when the policy activates; links open in the system default browser instead. WebKit-based local viewers riding the same gate (the diff viewer, agent-chat pane, in-app upgrade pages) are also unavailable, and the Mac stops advertising browser capabilities to the iOS app.",
+      "remoteKeyDesc": "Disables the Mac acting as a remote view/control host for the cmux iOS app: the Iroh host runtime (including its local-network advertisement), the legacy TCP pairing listener, connection admission, and device pairing. Live phone connections are closed when the policy activates, the pairing trust broker refuses to mint new pair grants, local attach-ticket minting refuses, and relayed phone replies are no longer typed into terminals. Outbound-only notification forwarding, app updates, the local automation socket, and Mac-as-client SSH remain unaffected.",
+      "cloudKeyDesc": "Disables cmux Cloud Machines and cmux-managed private-network access: the Cloud sidebar tab, Settings, palette and new-workspace entries, session restore of Cloud workspaces, every Cloud VM service call (create, open, attach, exec, SSH, desktop, ports, publications), the vm socket/CLI commands, the Cloud control-plane verbs that share that backend (remotes, aiAccounts including credential upload, coderouter, workspace.cloud_vm_*), the cmux vm-pty-connect direct dial, the Cloud tab-bar button, and the cmux.cloudvm cmux.json action fail closed with a managed-policy error. The app never enrolls, starts, or reconnects its private-network tunnel; cmux vpn up fails closed while cmux vpn status, down, and revoke stay available for cleanup. When the policy activates mid-session, live Cloud workspaces and links are torn down and the managed VPN configuration is removed. Local terminals, local automation, and ordinary user-configured SSH are unaffected.",
+      "remoteConnectionsKeyDesc": "Disables cmux-created remote connections: SSH, Mosh, and remote tmux sessions plus the remote registry, from every entry point (command palette, menus, the cmux CLI, socket automation, and session restore). ssh:// links are refused up front, and a profile pushed mid-session disconnects every live cmux-created remote workspace and remote tmux mirror. Cloud Machines attach over the same mechanism, so this key blocks them too. Terminals on this Mac are unaffected, and a user's own ssh typed into a shell is deliberately out of scope: this control governs the connections cmux creates, not the shell.",
+      "fileTransferKeyDesc": "Disables cmux-mediated file transfer: drag-and-drop and pasted-image uploads into a remote terminal (including a configured custom upload command), remote-file previews in the SSH file explorer, phone↔Mac transfers over the iOS app (attachment upload, artifact and changed-file fetch, image paste), and cmux vm push / cmux vm pull. A refused drop or paste shows the policy message. Local drops into local terminals still work, and a user's own scp or rsync typed into a shell is deliberately out of scope.",
+      "irohKeyDesc": "Disables cmux-managed Iroh networking: the host runtime never activates, so no endpoint is created, no relay traffic flows, and no routes are published. Local terminal work, the local automation socket, and ordinary SSH are unaffected. DisableRemoteControl disables the Mac's role as an iOS remote-control host; this key disables the transport itself.",
+      "noteComposition": "The capability keys compose rather than override one another: each is a separate gate, and a capability is unavailable when any key covering it is forced. Every Disable key defaults to false and the two Browser Allow keys default to true, so an unmanaged Mac — and a managed Mac whose profile omits the key — behaves exactly as a standard install.",
+      "noteCloudEntitlement": "An MDM policy cannot remove a signed entitlement from an installed binary. Builds that carry the Network Extension entitlement keep it; DisableCloud instead makes the Cloud and VPN capability unreachable at runtime. Builds without the entitlement continue to use the existing unavailable-backend path.",
+      "noteBoolean": "Values must be Boolean. A key forced to false (or to a non-Boolean value) does not enforce the policy, but the key still counts as managed for write-locking purposes.",
+      "noteForcedOnly": "Only forced (profile-delivered) values are honored as policy. A plain defaults write of these keys has no effect.",
+      "noteTiming": "Policies apply at app launch, on preference changes, on app activation, and on a periodic re-check (about once a minute) while cmux runs — a profile pushed mid-session takes effect within roughly a minute even if the user never leaves the app.",
+      "lockTitle": "Lockability",
+      "lockDesc": "Configuration-profile forced values are locked by macOS itself: no user-level write (including Reset All Settings) can change the effective value, and removing the profile restores normal behavior. cmux additionally suppresses its own writers: the cmux.json importer skips every profile-forced key, and for the browser, remote-control, and Cloud controls the Settings UI shows the managed state, the command palette hides the matching commands, and the CLI refuses with a managed-policy error — including when an administrator forces the user-level browserDisabledOverride key directly.",
+      "supportTitle": "Supported platforms and versions",
+      "supportMacos": "macOS 14 (Sonoma) and later, matching the cmux system requirements.",
+      "supportVersions": "cmux for macOS builds that include this feature (see the changelog entry that shipped it). All release channels honor the release payload domain.",
+      "supportIos": "These are macOS-side controls. The iOS app needs no separate policy: a Mac with DisableRemoteControl enforced refuses admission and pairing, so the phone cannot attach to it.",
+      "sampleTitle": "Sample configuration profile",
+      "sampleDesc": "Deploy via your MDM as a Custom Settings payload for com.cmuxterm.app, or install the profile below manually for testing (System Settings → General → Device Management).",
+      "verifyTitle": "Verifying on a managed Mac",
+      "verifyDesc": "Read the effective forced values and the CLI's managed state:",
+      "verifyUi": "In cmux, Settings → Browser shows the enable toggle disabled with “Managed by your organization”, and Settings → Mobile shows “Remote control from the iOS app is disabled by your organization.”",
+      "allowlistTitle": "Browser allowlist",
+      "allowlistIntro": "BrowserURLAllowlist restricts the embedded browser to the sites you list. By default a managed list still permits localhost and local files, because those never leave the Mac; two allow-style keys turn each of those defaults off. Most deployments only need the list of company domains.",
+      "allowlistBehaviorHeader": "Behavior",
+      "stringArrayType": "Array of strings",
+      "allowlistDefault": "unset (allow all web origins)",
+      "allowlistKeyDesc": "Restricts every embedded-browser top-level navigation (address bar, links, redirects, window.open, automation, deep links, restored panes) to matching rules. A forced empty array denies every external web origin; cmux-owned internal pages, localhost, and local files remain available unless the allow keys below turn them off.",
+      "allowLocalhostKeyDesc": "When true (the default), a managed list permits localhost, *.localhost, 127.0.0.1, ::1, and 0.0.0.0 on any port without a rule, so local development servers keep working. Force false to block loopback origins, even ones the list names.",
+      "allowLocalFilesKeyDesc": "When true (the default), local file: documents opened through cmux, dropped onto a browser pane, or linked from another local file stay available. Force false to block local files, with or without a BrowserURLAllowlist.",
+      "allowlistRules": "Each entry is a host or an HTTP(S) URL pattern:",
+      "allowlistNoteLocal": "localhost and local files do not need entries; add rules only for the web origins your users should reach. If you force BrowserAllowLocalhost to false, list the exact loopback origins you still want to allow with a port-qualified rule.",
+      "allowlistNoteEmpty": "A forced empty array is a valid policy that blocks every external web origin. Paths, queries, fragments, credentials, and non-HTTP(S) schemes are rejected; a list containing only invalid rules fails closed.",
+      "allowlistNoteScope": "The allowlist governs page navigations. It does not filter subresource requests (images, scripts, fetch), and DisableEmbeddedBrowser takes precedence: when the browser is disabled the allowlist is not consulted.",
+      "allowlistNoteBlockedPage": "A blocked navigation shows an in-page explanation with the blocked origin and the next step; Settings → Browser shows the effective rules and whether localhost and local files are allowed, and cmux browser status --json reports the same.",
+      "telemetryKeyDesc": "Disables analytics and crash reporting (PostHog, Sentry) and the remote feature-flag fetch; all three carry the install's anonymous id off the Mac, and flags then use their built-in defaults. Read once at launch like the user opt-in it overrides. Settings → App shows the telemetry toggle locked.",
+      "autoUpdateKeyDesc": "Disables Sparkle: no scheduled or launch-time update checks and no downloads, and Check for Updates explains the managed state. Read at launch. Deploy app versions through your MDM instead.",
+      "webhooksKeyDesc": "Disables the webhook action of automation rules, which posts event payloads with caller-supplied headers to any http(s) URL. The action fails with a managed-policy message in the automation log; run and notify actions are unaffected.",
+      "tlsBypassKeyDesc": "Disables the embedded browser's click-through on certificate errors: the error page offers no bypass and no earlier 24-hour grant is honored.",
+      "computerUseKeyDesc": "Disables Computer Use: new agent launches never receive the computer-use tools, the bundled helper stops (also when the policy is pushed mid-session), and Settings → Computer Use locks the toggle. Lifting the policy re-applies the user's own setting.",
+      "customSidebarsKeyDesc": "Disables interpreted custom sidebars from ~/.config/cmux/sidebars (user- or agent-authored code that can dispatch cmux commands): none are listed or mounted, and Settings → Beta Features locks the toggle.",
+      "aiCredentialUploadKeyDesc": "Disables uploading local AI credentials (Claude/Codex OAuth tokens, Anthropic/OpenAI API keys) to the cmux tenant: cmux ai-accounts upload and cmux coderouter claude add/update fail closed at the socket and inside their clients. Listing and removing accounts still work. Independent of DisableCloud, which refuses these families entirely.",
+      "noteLaunchTimeKeys": "DisableTelemetry and DisableAutoUpdate are the two launch-time reads: Settings shows their managed state within a minute of a push, and the telemetry and updater processes honor them at the next launch. Every other key applies live."
     },
     "remoteTmux": {
       "title": "Remote tmux",
@@ -1718,7 +1966,7 @@
       "anchorNew": "A group's anchor is always a brand new workspace at creation time; grouping a selection or creating a group never promotes one of your existing workspaces into the anchor. (Closing an anchor later does promote the group's first remaining member, see below.) The anchor's working directory is inherited from the first selected workspace when grouping a selection, or from the active workspace when creating via the CLI without --cwd.",
       "anchorClose": "Closing the anchor workspace closes only that workspace and promotes the group's first remaining member (the earliest one still in the group's order) to be the new anchor, so the group and its other members stay intact (the promoted member then shows the group name as the header). When the anchor is the group's only workspace, the group is removed. To flatten a group into ungrouped workspaces use Ungroup; to close every workspace in a group use Delete Group.",
       "identityTitle": "Group identity",
-      "identityDesc": "A group has a name, an icon (an SF Symbol, default folder.fill), and an optional custom color. These are independent of the anchor workspace's own customizations. The anchor's color and icon are seeded from the group on creation, but they can diverge afterwards.",
+      "identityDesc": "A group has a name, an icon (an SF Symbol, default folder.fill), and an optional custom color. Automation can also provide an external_id (or idempotency_key) scoped to the window; repeated creates with that identity return the existing group instead of adding another anchor. Names are not identities, and the current anchor's explicit provenance gates safe cleanup.",
       "pinningTitle": "Pinning",
       "pinningDesc": "Groups can be pinned independently of individual workspace pins. Pinned top-level rows, whether individual workspaces or groups, stay above unpinned rows. Within each tier, groups and workspaces keep the order you drag them into.",
       "layoutIntro": "The sidebar lays out top-level rows top to bottom:",
@@ -1742,8 +1990,8 @@
       "cliTitle": "CLI",
       "cliDesc": "All group operations are scriptable with the cmux workspace-group subcommands. The hyphenated form ships first; once the broader cmux workspace command namespace lands, cmux workspace group becomes the canonical form, with the hyphenated form kept as an alias forever.",
       "cliSubcommandsTitle": "Subcommands",
-      "cliCreateNote": "create returns a group handle (workspace_group:N by default). Omitting --from creates an anchor-only group; existing workspaces are never inferred from selection or caller context. Pass --json for the full structured payload.",
-      "cliFlagsNote": "delete dissolves the group and keeps its workspaces by default. Pass --close-workspaces only to close every member workspace and terminate its processes. The response reports the operation and affected count. Pass set-color or set-icon an empty value to clear the group's color or icon.",
+      "cliCreateNote": "create returns a group handle (workspace_group:N by default). Omitting --from creates an anchor-only group; existing workspaces are never inferred from selection or caller context. Pass --idempotency-key (or --external-id) for atomic create-if-absent retries, and --json for the full structured payload.",
+      "cliFlagsNote": "delete dissolves the group and keeps its workspaces by default. Pass --close-workspaces only to close every member workspace and terminate its processes. For an anchor-only group whose anchor was created by cmux, --remove-generated-anchor removes that anchor during ungroup; user-selected or promoted anchors are rejected. The response reports the operation and affected count. Pass set-color or set-icon an empty value to clear the group's color or icon.",
       "cliExamplesTitle": "Examples",
       "cliExampleGroup": "Group two explicitly chosen workspaces under a name:",
       "cliExampleNew": "Spin up a new workspace inside an existing group, for example wired to a worktree script:",
@@ -1752,7 +2000,7 @@
       "configNote": "Per-group configuration lives under the workspaceGroups key in ~/.config/cmux/cmux.json, keyed by the anchor workspace's working directory. See the configuration reference for the supported keys, including the global new-workspace placement and per-directory color, icon, placement, and context-menu actions.",
       "configLinkText": "workspaceGroups configuration reference",
       "persistenceTitle": "Persistence",
-      "persistenceDesc": "Group name, anchor, pin state, collapse state, color, and icon are saved alongside your workspaces and restored across launches. Group membership is stored on each workspace."
+      "persistenceDesc": "Group name, anchor, pin state, collapse state, color, icon, external identity, and anchor provenance are saved alongside your workspaces and restored across launches. Group membership is stored on each workspace."
     },
     "configuration": {
       "title": "Configuration",
@@ -1791,6 +2039,11 @@
       "settingsFileChords": "Use a string for a single shortcut or a two-item array for a chord. Example: [\"ctrl+b\", \"c\"] means press Ctrl+B, then C.",
       "exampleConfig": "Example config",
       "schemaDescriptions": {
+        "computerUse": {
+          "description": "Local computer-use tools and menu-bar visibility.",
+          "enabled": "Allow supported agent launches in cmux terminals to attach the local computer-use tools.",
+          "showInMenuBar": "Show live computer-use sessions and focus actions in the menu bar."
+        },
         "agentChat": {
           "description": "Agent Chat GUI server settings. The built-in New agent chat action opens this URL in a browser workspace, probes /healthz first, and can run a configured start command when the server is down.",
           "url": "Base URL for the machine-local Agent Chat GUI server. cmux probes <url>/healthz before opening the workspace.",
@@ -1829,6 +2082,7 @@
           "globalFontMagnification": "Scales cmux-owned terminals, tab titles, sidebars, settings, overlays, and app chrome by this percentage. Rendered browser page content is excluded."
         },
         "terminal": {
+          "adaptiveDefaultTheme": "When true (the default), cmux supplies its managed light/dark palette only when the Ghostty config contains no directives. When false, an untouched Ghostty config uses Ghostty's fixed built-in palette. Any Ghostty directive suppresses the managed palette; Ghostty theme = light:X,dark:Y remains appearance-adaptive.",
           "agentHibernation": "Routine Agent Hibernation settings. cmux kills idle background agent processes to free RAM and CPU, then resumes them with their saved session when their tab is visited. Routine hibernation requires a restorable coding agent whose lifecycle reports idle, an off-screen terminal, a live-terminal count above the configured limit, and unchanged output through the idle and confirmation windows. Independently, during critical memory pressure cmux may hibernate a bounded batch of safe idle background agents even when enabled is false; visible, running, needs-input, recently changed, and unprotectable agents remain excluded. The placeholder Resume button is a manual fallback.",
           "agentHibernationEnabled": "Enable routine Agent Hibernation based on the live-terminal limit. Critical-pressure safety hibernation remains active when false.",
           "copyOnSelect": "When true, copy selected terminal text to the system clipboard when the selection is committed. When false, cmux does not emit a Ghostty copy-on-select override; Ghostty config and defaults control selection-clipboard behavior.",
@@ -1853,7 +2107,9 @@
           "defaultSearchEngine": "Default search engine for non-URL browser address bar queries. Use custom with customSearchEngineURLTemplate for arbitrary providers.",
           "customSearchEngineName": "Display name used when defaultSearchEngine is custom.",
           "customSearchEngineURLTemplate": "Search URL used when defaultSearchEngine is custom. Include the query placeholder or %s for the encoded query. If omitted, cmux appends q= to the URL.",
-          "askWhereToSaveDownloads": "Show a save panel for browser downloads instead of saving directly to Downloads."
+          "defaultZoomLevel": "Default page zoom factor applied to newly opened browser pages (1 = 100%). Zoom In, Zoom Out, and Actual Size still adjust each page.",
+          "askWhereToSaveDownloads": "Show a save panel for browser downloads instead of saving directly to Downloads.",
+          "urlAllowlist": "Host or URL patterns that restrict embedded-browser navigation. The Settings UI suggests local development origins; saving a list opts into the optional restriction. Remove entries to block them, or leave the user value empty to disable it when no managed policy applies."
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "Global default for where Cmd-N inside a group, the group header + button, and configured group actions place the new workspace: `afterCurrent` (after the active in-group workspace, falling back to top), `top` (second slot, just after the anchor), or `end` (after the last member).",
@@ -1871,7 +2127,12 @@
           "snappingEnabled": "Snap pane drags and resizes to neighbor edges and the pane gap. Hold Command to suspend snapping for one gesture."
         },
         "fileEditor": {
-          "wordWrap": "Wrap long lines at the editor's right edge instead of scrolling horizontally."
+          "wordWrap": "Wrap long lines at the editor's right edge instead of scrolling horizontally.",
+          "syntaxHighlighting": "Color source tokens in the built-in file editor.",
+          "lineNumbers": "Show a line-number gutter in the built-in file editor.",
+          "indentGuides": "Draw vertical indent guides in the built-in file editor.",
+          "currentLineHighlight": "Highlight the caret's line when the selection is empty.",
+          "tabWidth": "Width of a tab stop, in columns, for indentation and indent guides."
         },
         "sidebar": {
           "notificationMessageLineLimit": "Maximum lines shown for the latest notification below each workspace title.",
@@ -1891,10 +2152,13 @@
         "paneBorderColor": "Override the cmux pane divider color in split workspaces. This affects cmux pane boundaries, not Ghostty internal splits.",
         "activePaneBorderColor": "Optional border color drawn around the focused cmux pane in split workspaces.",
         "notifications": {
+          "paneFlashColor": "Override the pane flash and unread notification ring color. Leave unset to use the built-in system blue.",
           "suppressOnlyFocusedSurface": "When enabled, a notification banner is auto-withdrawn only when its surface is the exact focused surface. A banner delivered for a non-focused surface in the currently visible workspace stays up until you focus that surface (or click/dismiss it), instead of being retracted when the workspace becomes visible. Off preserves the legacy workspace-visibility withdraw.",
           "agentPermissionPrompt": "Notify when an agent (e.g. Claude Code) is blocked waiting for your permission to run a tool. On by default, since this is the alert you must act on to unblock the agent.",
           "agentTurnComplete": "When to notify that an agent finished a turn. whenIdle (default) suppresses the notification while the agent still has a running background task or a pending scheduled wakeup, so you are pinged once work truly drains. always notifies on every turn end; never disables it.",
-          "agentIdleReminder": "Notify when an agent has been idle waiting for your input (about 60s after a turn ends). Suppressed while background work from the last turn is still pending, so a running build or watcher does not trigger a false waiting alert."
+          "agentIdleReminder": "Notify when an agent has been idle waiting for your input (about 60s after a turn ends). Suppressed while background work from the last turn is still pending, so a running build or watcher does not trigger a false waiting alert.",
+          "soundOverrides": "Sparse per-agent and per-alert-type notification sound overrides. Missing cells use notifications.sound.",
+          "soundOverride": "A notification sound override. `default` uses notifications.sound, `none` disables playback, and the remaining values select a built-in or custom sound."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -1907,7 +2171,7 @@
       "shortcutsWhenBooleanKeys": "boolean keys. An unknown or absent key reads as false; the literals true and false are also accepted.",
       "shortcutsWhenTypedKeys": "typed keys for comparisons: the right sidebar's active mode (a string) plus pane and workspace counts (integers).",
       "shortcutsWhenOperators": "boolean operators, typed comparisons, regex match, and list membership. Comparisons bind tighter than && and ||.",
-      "shortcutsWhenExample": "For example, this makes Ctrl+1–9 select workspaces everywhere except when the right sidebar is focused (leaving Ctrl+1–5 free for the sidebar's mode switcher), and scopes surface selection to the Find sidebar when the workspace has multiple panes:"
+      "shortcutsWhenExample": "For example, this makes Ctrl+1–9 select workspaces everywhere except when the right sidebar is focused (leaving the Ctrl+digit tab shortcuts free for the sidebar's mode switcher), and scopes surface selection to the Find sidebar when the workspace has multiple panes:"
     },
     "customCommands": {
       "title": "Custom Commands",
@@ -2133,7 +2397,7 @@
       "currentWorkspaceDesc": "Get the currently active workspace.",
       "closeWorkspaceDesc": "Close a workspace.",
       "splitCommands": "Split commands",
-      "newSplitDesc": "Create a new split pane. Directions: left, right, up, down.",
+      "newSplitDesc": "Create a new split pane. Directions: left, right, up, down. Pass --command <text> to start a command in the new terminal shell; the shell stays open after it exits.",
       "listSurfacesDesc": "List all surfaces in the current workspace.",
       "focusSurfaceDesc": "Focus a specific surface.",
       "inputCommands": "Input commands",
@@ -2237,7 +2501,11 @@
       "hooksIntro": "<config>cmux.json</config> can define notification hooks that receive every notification policy as JSON on stdin. Each hook returns JSON on stdout. Hooks are off by default; cmux only runs them when <hooksMode>notifications.hooks</hooksMode> contains at least one enabled hook. cmux applies the returned notification text and effects, so hooks can filter banners, keep or skip sidebar history, run sounds, or stop later hooks.",
       "hooksJsonTitle": "cmux.json",
       "hooksIOTitle": "Hook input and output",
-      "hooksDetails": "Hooks are inherited from global <globalConfig>~/.config/cmux/cmux.json</globalConfig> and project <projectConfig>.cmux/cmux.json</projectConfig> files from parent directories to the current workspace. Project hooks use the same trust prompt as other project <config>cmux.json</config> commands before they run. Feed approval banners also pass through these hooks; disabling <desktop>desktop</desktop> suppresses the native banner while keeping the Feed item available in cmux. Set <hooksMode>notifications.hooksMode</hooksMode> to <replace>replace</replace> in a project config to ignore inherited hooks. If a hook fails, times out, or returns invalid JSON, cmux uses the default notification behavior and posts a hook failure alert."
+      "hooksDetails": "Hooks are inherited from global <globalConfig>~/.config/cmux/cmux.json</globalConfig> and project <projectConfig>.cmux/cmux.json</projectConfig> files from parent directories to the current workspace. Project hooks use the same trust prompt as other project <config>cmux.json</config> commands before they run. Feed approval banners also pass through these hooks; disabling <desktop>desktop</desktop> suppresses the native banner while keeping the Feed item available in cmux. Set <hooksMode>notifications.hooksMode</hooksMode> to <replace>replace</replace> in a project config to ignore inherited hooks. If a hook fails, times out, or returns invalid JSON, cmux uses the default notification behavior and posts a hook failure alert.",
+      "hooksAgentTitle": "Agent-event context",
+      "hooksAgentIntro": "Notifications that originate from an agent completion signal carry a read-only <agent>agent</agent> object: <kind>kind</kind> is the stable lowercase agent slug (claude, codex, grok, …), <category>category</category> is turn-complete, needs-permission, or idle-reminder, <pending>pending</pending> is true when the turn ended with background work still running, and <isSubagent>isSubagent</isSubagent> is true for nested subagent sessions. The object is omitted for non-agent notifications, and the same values are exported to the hook process as CMUX_NOTIFICATION_AGENT_KIND, CMUX_NOTIFICATION_AGENT_CATEGORY, CMUX_NOTIFICATION_AGENT_PENDING, and CMUX_NOTIFICATION_AGENT_IS_SUBAGENT. For example, this hook silences the banner, sound, and pane flash for subagent completions while leaving everything else untouched:",
+      "hooksAgentExampleTitle": "Silence subagent completions",
+      "hooksAgentDetails": "With no hooks configured, notification behavior is exactly cmux's built-in default — configuring a hook is the explicit opt-in that hands the delivery decision to your script. Note that cmux's built-in subagent suppression (<suppressSetting>automation.suppressSubagentNotifications</suppressSetting>, on by default) drops subagent completion events before they reach hooks; turn it off if your hook should see subagent events and make its own decision."
     },
     "browserAutomation": {
       "title": "Browser Automation",
@@ -2458,7 +2726,16 @@
     "changelog": {
       "title": "Changelog",
       "metaTitle": "Changelog",
-      "metaDescription": "cmux release notes and version history. New features, bug fixes, and changes for the native macOS terminal."
+      "metaDescription": "cmux release notes and version history. New features, bug fixes, and changes for the native macOS terminal.",
+      "versionTitle": "cmux {version} · Changelog",
+      "releaseNavLabel": "Releases near cmux {version}",
+      "sections": {
+        "added": "Added",
+        "changed": "Changed",
+        "fixed": "Fixed",
+        "removed": "Removed",
+        "contributors": "Contributors"
+      }
     },
     "claudeCodeTeams": {
       "title": "Claude Code Teams",
@@ -2470,22 +2747,30 @@
       "usageDesc": "All arguments after claude-teams are forwarded to Claude Code. The command defaults teammate mode to auto and sets the environment so Claude uses cmux splits.",
       "howItWorks": "How it works",
       "howItWorksDesc": "cmux claude-teams creates a tmux shim script and configures the environment so Claude Code thinks it's running inside tmux. When Claude issues tmux commands to manage teammate panes, the shim translates them into cmux socket API calls.",
-      "shimStep1": "Creates a tmux shim at ~/.cmuxterm/claude-teams-bin/tmux that redirects to cmux __tmux-compat",
-      "shimStep2": "Sets TMUX and TMUX_PANE environment variables to simulate a tmux session",
+      "shimStep1": "Creates a tmux shim in the current surface's temporary shim directory. Its path includes the surface UUID and changes per panel and per boot, so no fixed path can be quoted",
+      "shimStep2": "Sets TMUX and TMUX_PANE to simulate tmux for the Claude Teams launch session",
       "shimStep3": "Prepends the shim directory to PATH so Claude finds the shim before real tmux",
       "shimStep4": "Enables CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 and sets teammate mode to auto",
+      "shimDiagnostic": "The shim routes to cmux only when <marker>CMUX_CLAUDE_TEAMS_CMUX_BIN</marker> is set; otherwise it transparently falls through to the next real tmux executable. As a result, <which>which tmux</which> does not tell you whether Claude Teams interception is active.",
       "envVars": "Environment variables",
       "envVarName": "Variable",
       "envVarPurpose": "Purpose",
-      "envTmux": "Fake tmux socket path encoding the current cmux workspace and pane",
-      "envTmuxPane": "Fake tmux pane identifier mapped to the current cmux pane",
+      "envTmux": "Synthetic tmux socket path for the session that ran cmux claude-teams",
+      "envTmuxPane": "Synthetic tmux pane identifier for the session that ran cmux claude-teams; empty in spawned agent panels",
+      "envSurface": "The current surface's UUID; use this as the surface identifier inside a spawned agent panel",
       "envTeams": "Enables Claude Code agent teams feature",
       "envSocket": "Path to the cmux control socket for the shim to connect to",
+      "envScope": "The synthetic <tmux>TMUX</tmux>, <tmuxPane>TMUX_PANE</tmuxPane>, and related tmux-compat values describe the session that ran <command>cmux claude-teams</command>, not the spawned panels. From an agent panel, use <surface>CMUX_SURFACE_ID</surface> and <tree>cmux tree --json</tree>; the output's <caller>caller</caller> object identifies the invoking panel.",
       "directories": "Directories",
       "dirPath": "Path",
       "dirPurpose": "Purpose",
-      "dirShim": "Contains the tmux shim script that translates tmux commands to cmux API calls",
-      "dirStore": "Persistent storage for tmux-compat buffers and hooks",
+      "dirShimPath": "Per-surface directory under the system temporary directory (no fixed path)",
+      "dirShim": "Contains the active tmux shim and is prepended to PATH for that surface",
+      "dirStore": "Persistent storage for tmux-compat buffers, hooks, and split placement/layout state",
+      "storeDetails": "The split-routing keys are:",
+      "storeLastSplitSurface": "Maps each workspace UUID to the surface UUID created by the latest split. It seeds the agent-column anchor used to decide where the next main-vertical split lands.",
+      "storeMainVerticalLayouts": "Maps each workspace UUID to <mainSurfaceId>mainSurfaceId</mainSurfaceId> (the main or leader surface) and <lastColumnSurfaceId>lastColumnSurfaceId</lastColumnSurfaceId> (the bottom-most surface in the agent column). Subsequent teammate splits target that column and stack downward.",
+      "storeTroubleshooting": "These are the routing keys to inspect when a teammate panel appears as a tab behind an existing surface instead of as a split beside it.",
       "tmuxCommands": "Supported tmux commands",
       "tmuxCommandsDesc": "The shim translates these tmux commands into cmux operations:",
       "mapWorkspace": "creates a new cmux workspace",
@@ -2653,6 +2938,7 @@
       "skills": "Skills",
       "notifications": "Notifications",
       "ssh": "SSH",
+      "managedPolicies": "Managed Policies (MDM)",
       "remoteTmux": "Remote tmux",
       "agentIntegrations": "Agent Integrations",
       "claudeCodeTeams": "Claude Code Teams",
@@ -2669,9 +2955,9 @@
     },
     "dock": {
       "metaTitle": "Dock",
-      "metaDescription": "Add custom terminal UI controls to the cmux right sidebar with Dock JSON.",
+      "metaDescription": "Add terminal and browser controls to the cmux right sidebar with Dock JSON.",
       "title": "Dock",
-      "intro": "Dock lets you add terminal UI controls to the right sidebar. Each control is a command from JSON, rendered in its own Ghostty-backed terminal section. Use it for feeds, logs, queues, git status, dev servers, or any TUI your team wants near every workspace.",
+      "intro": "Dock lets you add terminal and browser controls to the right sidebar. Terminal controls run commands in Ghostty-backed sections, while browser controls embed web pages. Use it for feeds, logs, queues, git status, dev servers, dashboards, or reference pages your team wants near every workspace.",
       "configTitle": "Configuration",
       "configIntro": "cmux looks for Dock configuration in this order:",
       "projectConfig": "for the current repo, nearest parent project, and nested project directories.",
@@ -2685,9 +2971,12 @@
       "descriptionHeader": "Description",
       "fieldId": "Stable unique identifier for the control. Keep this short and do not reuse it for another command.",
       "fieldTitle": "Label shown in the Dock header.",
-      "fieldCommand": "Command to run in the Dock terminal. It starts inside your login shell.",
+      "fieldCommand": "Command to run in the Dock terminal. Required for terminal controls; it starts inside your login shell.",
+      "fieldType": "Optional control type: terminal (the default) or browser.",
+      "fieldUrl": "Page to open. Required for browser controls.",
+      "fieldChrome": "Optional browser chrome visibility. Defaults to true; false hides the address bar and toolbar, makes Focus Address Bar a no-op for that pane, and leaves cmux browser goto/reload available.",
       "fieldCwd": "Optional working directory. Relative paths resolve from the project root for project configs, or from your home directory for global configs.",
-      "fieldHeight": "Optional requested terminal height in points. Controls without a height share the remaining space.",
+      "fieldHeight": "Optional requested control height in points. Controls without a height share the remaining space.",
       "fieldEnv": "Optional environment variables passed only to that control.",
       "sharingTitle": "Sharing with a team",
       "sharingIntro": "Dock is designed to be shared with source control when the commands belong to the repo.",
@@ -2697,7 +2986,7 @@
       "agentPromptTitle": "Ask an agent to set it up",
       "agentPromptIntro": "Use this prompt when you want a coding agent to create Dock controls. It tells the agent to run `cmux docs dock`, inspect the project, and ask before guessing.",
       "agentPromptCodeTitle": "Agent prompt",
-      "agentPrompt": "Set up cmux Dock controls for the current context.\n\nFirst, learn the feature before editing:\n1. Run `cmux docs dock` if the cmux CLI is available. If it is not, read https://cmux.com/docs/dock.\n2. Inspect the repository or current directory to understand the project type, scripts, package manager, dev servers, logs, task runners, test commands, and any existing TUI tools.\n3. If the desired Dock is ambiguous, ask the user what they want monitored or controlled before writing files.\n\nDock is cmux's right-sidebar terminal control area. A Dock config is JSON with a top-level `controls` array. Each control runs a command in its own Ghostty-backed terminal section using the user's login shell. Controls are useful for project dashboards, git/status views, dev server or build status, test watchers, log tails, queues, local services, or a custom TUI such as `cmux feed tui --opentui` when that feed is useful.\n\nChoose where to write the config:\n- In a repository or project directory, create or edit `.cmux/dock.json` so teammates can share it.\n- For a personal default outside a repo, create or edit `~/.config/cmux/dock.json`.\n- If both exist, project `.cmux/dock.json` is more specific for that project. Nested project configs apply to that directory tree; use the nearest relevant project config instead of writing unrelated controls globally.\n- If there is no repo and no clear project root, use the global config only after confirming the user wants a personal Dock.\n\nSchema:\n{\n  \"controls\": [\n    {\n      \"id\": \"short-stable-id\",\n      \"title\": \"Human label\",\n      \"command\": \"safe command to run\",\n      \"cwd\": \"optional/path\",\n      \"height\": 220,\n      \"env\": { \"NAME\": \"value\" }\n    }\n  ]\n}\n\nRules:\n- Keep ids stable, lowercase, and unique.\n- Use `cwd` for subdirectories; relative paths resolve from the config base.\n- Use `height` only when a control needs a fixed amount of vertical space.\n- Use `env` only for non-secret values needed by one control.\n- Do not put secrets, tokens, or machine-specific private paths in a shared project config.\n- Prefer commands that are safe to start repeatedly and make sense in a terminal.\n- Do not invent unavailable scripts. Read package files, Makefiles, Procfiles, README docs, config files, and existing tooling first.\n- Keep shared project Docks portable for teammates. Put personal or machine-specific controls in the global Dock.\n\nDeliverable:\n- Create or update the appropriate dock.json.\n- Preserve existing useful controls unless the user asked to replace them.\n- Validate that the JSON parses.\n- Summarize what each control does and any commands the user should review before trusting the Dock config."
+      "agentPrompt": "Set up cmux Dock controls for the current context.\n\nFirst, learn the feature before editing:\n1. Run `cmux docs dock` if the cmux CLI is available. If it is not, read https://cmux.com/docs/dock.\n2. Inspect the repository or current directory to understand the project type, scripts, package manager, dev servers, logs, task runners, test commands, and any existing TUI tools.\n3. If the desired Dock is ambiguous, ask the user what they want monitored or controlled before writing files.\n\nDock is cmux's right-sidebar terminal and browser control area. A Dock config is JSON with a top-level `controls` array. Terminal controls run commands in Ghostty-backed sections using the user's login shell; browser controls embed URLs. Controls are useful for project dashboards, git/status views, dev server or build status, test watchers, log tails, queues, local services, or fixed web dashboards.\n\nChoose where to write the config:\n- In a repository or project directory, create or edit `.cmux/dock.json` so teammates can share it.\n- For a personal default outside a repo, create or edit `~/.config/cmux/dock.json`.\n- If both exist, project `.cmux/dock.json` is more specific for that project. Nested project configs apply to that directory tree; use the nearest relevant project config instead of writing unrelated controls globally.\n- If there is no repo and no clear project root, use the global config only after confirming the user wants a personal Dock.\n\nSchema:\n{\n  \"controls\": [\n    {\n      \"id\": \"short-stable-id\",\n      \"title\": \"Human label\",\n      \"command\": \"safe command to run\",\n      \"cwd\": \"optional/path\",\n      \"height\": 220,\n      \"env\": { \"NAME\": \"value\" }\n    },\n    {\n      \"id\": \"dashboard\",\n      \"title\": \"Dashboard\",\n      \"type\": \"browser\",\n      \"url\": \"http://127.0.0.1:3000\",\n      \"chrome\": false\n    }\n  ]\n}\n\nRules:\n- Keep ids stable, lowercase, and unique.\n- `type` is optional: `terminal` is the default, or use `browser`.\n- Terminal controls require `command`; browser controls require `url`.\n- Browser controls default to `chrome: true`. Set `chrome: false` to hide browser chrome, including the address bar and toolbar; Focus Address Bar then does nothing for that pane, while `cmux browser goto` and `cmux browser reload` remain available.\n- Use `cwd` for subdirectories; relative paths resolve from the config base.\n- Use `height` only when a control needs a fixed amount of vertical space.\n- Use `env` only for non-secret values needed by one control.\n- Do not put secrets, tokens, or machine-specific private paths in a shared project config.\n- Prefer commands that are safe to start repeatedly and make sense in a terminal.\n- Do not invent unavailable scripts. Read package files, Makefiles, Procfiles, README docs, config files, and existing tooling first.\n- Keep shared project Docks portable for teammates. Put personal or machine-specific controls in the global Dock.\n\nDeliverable:\n- Create or update the appropriate dock.json.\n- Preserve existing useful controls unless the user asked to replace them.\n- Validate that the JSON parses.\n- Summarize what each control does and any commands the user should review before trusting the Dock config."
     },
     "textBox": {
       "title": "TextBox (Beta)",
@@ -2721,7 +3010,7 @@
       "intro": "The cmux iOS app is a companion for your Mac. Pair your iPhone or iPad with a Mac running cmux and attach to your terminals from your phone, with optional forwarding of terminal notifications.",
       "betaNote": "The iOS app is in beta. It ships on TestFlight as cmux BETA.",
       "accessTitle": "Getting access",
-      "accessDesc": "The app is distributed through TestFlight. Early access is included with <foundersLink>cmux Founders Edition</foundersLink>, alongside other early features.",
+      "accessDesc": "The app is distributed through TestFlight. Early access is included with <foundersLink>cmux Founder's Edition</foundersLink>, alongside other early features.",
       "prereqTitle": "Prerequisites",
       "prereqIntro": "Before you start, you need:",
       "prereq1": "A Mac running cmux and signed in.",
@@ -2923,6 +3212,9 @@
     "metaTitle": "cmux Pro is active",
     "title": "cmux Pro is active",
     "body": "We created or upgraded your account with {email}. You can open cmux now or add more sign-in methods.",
+    "purchaseComplete": "You're all set",
+    "proLabel": "Pro plan",
+    "dashboardLink": "Go to dashboard",
     "emailLabel": "Purchase email",
     "whatUnlockedTitle": "What you unlocked",
     "openCmux": "Open cmux",
@@ -2936,7 +3228,7 @@
       },
       "modelGateway": {
         "title": "Model gateway",
-        "body": "Route across providers with usage and cost analytics, plus 20 compute-hours a month.",
+        "body": "Hosted model routing across your connected provider accounts.",
         "action": "Open model gateway"
       },
       "aiAccounts": {
@@ -3112,6 +3404,10 @@
       "metaDescription": "Guides comparing cmux with other macOS terminals, how it is built on Ghostty, and how to run Claude Code, Codex, and OpenCode in cmux.",
       "title": "Guides",
       "intro": "Comparisons, background, and use-case guides for cmux. For product documentation, see the docs."
+    },
+    "managedPolicies": {
+      "title": "Managed Device Policies (MDM)",
+      "metaDescription": "MDM-enforceable policies for cmux on managed Macs: disable the embedded browser and iOS remote control with a configuration profile."
     },
     "remoteTmux": {
       "title": "Remote tmux",
@@ -4634,6 +4930,7 @@
       "cursorCli": "A terminal for Cursor CLI",
       "keyboardShortcuts": "Keyboard shortcuts",
       "browserAutomation": "Browser automation",
+      "managedPolicies": "Managed Policies (MDM)",
       "remoteTmux": "Remote tmux",
       "compare": "Compare cmux"
     },
@@ -4838,6 +5135,52 @@
       "error": "Something went wrong. Please try again or email founders@manaflow.com."
     }
   },
+  "support": {
+    "metaTitle": "Support | cmux",
+    "metaDescription": "Get help with cmux. Send us a message and we will reply by email, or reach us on Discord and GitHub.",
+    "section": "Support",
+    "title": "Get help with cmux.",
+    "body": "Send us a message and we will reply by email. Include what you were doing, what you expected, and what happened instead so we can help faster.",
+    "channels": {
+      "docs": {
+        "label": "Documentation",
+        "description": "Guides for getting started, configuration, and troubleshooting."
+      },
+      "discord": {
+        "label": "Discord",
+        "description": "Ask the community and the team in real time."
+      },
+      "github": {
+        "label": "GitHub issues",
+        "description": "Report bugs and request features in the open."
+      },
+      "email": {
+        "label": "founders@manaflow.com",
+        "description": "Prefer email? Write to us directly."
+      }
+    },
+    "formAriaLabel": "Support contact form",
+    "form": {
+      "name": "Name",
+      "email": "Email address",
+      "topic": "Topic",
+      "message": "How can we help?",
+      "selectPlaceholder": "Select one",
+      "topicOptions": [
+        "Bug report",
+        "Billing or subscription",
+        "Account or sign-in",
+        "Cloud VMs",
+        "Feature request",
+        "Other"
+      ],
+      "privacy": "We use your email address only to reply to your support request. We do not sell contact information.",
+      "submit": "Send message",
+      "submitting": "Sending...",
+      "success": "Thanks. We received your message and will reply to your email from founders@manaflow.com.",
+      "error": "Something went wrong. Please try again or email founders@manaflow.com."
+    }
+  },
   "emails": {
     "proWelcome": {
       "subject": "Welcome to cmux Pro 🎉",
@@ -5001,6 +5344,28 @@
         "body": "See your plan, invoices, and cancellation.",
         "action": "Manage plan"
       }
+    }
+  },
+  "PublicationApi": {
+    "invalid_email": {
+      "message": "Enter a valid email address.",
+      "action": "The recipient must sign in with this verified email."
+    },
+    "invalid_expiry": {
+      "message": "The grant expiry must be a future date.",
+      "action": "Use an ISO 8601 date or omit expiresAt."
+    },
+    "public_confirmation_required": {
+      "message": "Public access requires confirmation.",
+      "action": "Review the hostname, VM, and port, then send confirmPublic: true."
+    },
+    "organization_slug": {
+      "message": "The organization slug is invalid or already reserved.",
+      "action": "Use 1 to 19 lowercase letters or digits, with single hyphens. An existing organization keeps its reserved slug."
+    },
+    "grant_body": {
+      "message": "Publication email grant",
+      "action": "Send email and optional expiresAt."
     }
   }
 }

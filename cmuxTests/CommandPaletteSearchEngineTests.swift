@@ -362,8 +362,8 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         let mobileConnect = FixtureEntry(
             id: "palette.mobileConnect",
             rank: 0,
-            title: "Connect iPhone/iPad",
-            searchableTexts: ["Connect iPhone/iPad", "Mobile"]
+            title: "Open Tailscale Pairing",
+            searchableTexts: ["Open Tailscale Pairing", "Tailscale"]
                 + ContentView.commandPaletteMobileConnectKeywords
         )
         // Dense, realistic decoy corpus so the assertion exercises ranking, not a
@@ -378,11 +378,11 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         }
         let corpus = [mobileConnect] + decoys
 
-        for query in ["ios", "ipados", "iphone", "ipad", "pair", "mobile", "phone", "connect"] {
+        for query in ["ios", "ipados", "iphone", "ipad", "pair", "mobile", "phone", "connect", "tailscale"] {
             XCTAssertEqual(
                 optimizedResults(entries: corpus, query: query).first?.id,
                 "palette.mobileConnect",
-                "Expected Connect iPhone/iPad to be the top command palette result for query \"\(query)\""
+                "Expected Open Tailscale Pairing to be the top command palette result for query \"\(query)\""
             )
         }
     }
@@ -1299,21 +1299,14 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 panelChanged: false
             )
         )
-        XCTAssertFalse(
-            ContentView.commandPaletteShouldReuseForkableAgentProbeResult(
-                panelKey: panelKey,
-                supportedPanelKeys: [panelKey],
-                supportedRemoteContextsByPanelKey: [panelKey: false],
-                snapshotFingerprintsByPanelKey: [panelKey: fingerprint],
-                expectedSnapshotFingerprint: nil,
-                isRemoteTerminal: false,
-                cachedResultHadFallback: true,
-                panelChanged: false
-            )
-        )
     }
 
-    func testForkableAgentProbeResultClearBeforeProbeClearsFallbackBackedCache() {
+    // A fallback-backed cache used to be refused here outright. That is no longer this
+    // helper's job: reuse is gated on TTL freshness, and the fallback case is re-verified
+    // against SharedLiveAgentIndex at the call site. Both directions of the freshness gate
+    // are covered by commandPaletteFallbackProbeResultReusesUntilValidationTTL in
+    // WorkspaceForkConversationContextMenuTests, so there is nothing to assert twice.
+    func testForkableAgentProbeResultClearBeforeProbeClearsStaleCache() {
         let workspaceId = UUID()
         let panelId = UUID()
         let panelKey = ContentView.commandPaletteForkableAgentPanelKey(
@@ -1331,18 +1324,6 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 expectedSnapshotFingerprint: fingerprint,
                 isRemoteTerminal: false,
                 cachedResultHadFallback: false,
-                panelChanged: false
-            )
-        )
-        XCTAssertTrue(
-            ContentView.commandPaletteShouldClearForkableAgentProbeResultBeforeProbe(
-                panelKey: panelKey,
-                supportedPanelKeys: [panelKey],
-                supportedRemoteContextsByPanelKey: [panelKey: false],
-                snapshotFingerprintsByPanelKey: [panelKey: fingerprint],
-                expectedSnapshotFingerprint: fingerprint,
-                isRemoteTerminal: false,
-                cachedResultHadFallback: true,
                 panelChanged: false
             )
         )

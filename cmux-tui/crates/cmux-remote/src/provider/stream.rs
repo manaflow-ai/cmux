@@ -16,7 +16,7 @@ pub struct LengthDelimitedLink<R, W> {
     description: String,
     maximum: usize,
     reader: Mutex<R>,
-    writer: Mutex<W>,
+    writer: Mutex<Option<W>>,
 }
 
 impl<R, W> LengthDelimitedLink<R, W> {
@@ -25,7 +25,7 @@ impl<R, W> LengthDelimitedLink<R, W> {
             description: description.into(),
             maximum,
             reader: Mutex::new(reader),
-            writer: Mutex::new(writer),
+            writer: Mutex::new(Some(writer)),
         }
     }
 }
@@ -63,6 +63,7 @@ where
             maximum: u32::MAX as usize,
         })?;
         let mut writer = self.writer.lock().await;
+        let writer = writer.as_mut().ok_or(LinkError::Closed)?;
         writer.write_all(&length.to_be_bytes()).await.map_err(map_io)?;
         writer.write_all(&frame).await.map_err(map_io)?;
         writer.flush().await.map_err(map_io)
@@ -86,7 +87,11 @@ where
     }
 
     async fn close(&self) -> Result<(), LinkError> {
-        self.writer.lock().await.shutdown().await.map_err(map_io)
+        let writer = self.writer.lock().await.take();
+        match writer {
+            Some(mut writer) => writer.shutdown().await.map_err(map_io),
+            None => Ok(()),
+        }
     }
 }
 

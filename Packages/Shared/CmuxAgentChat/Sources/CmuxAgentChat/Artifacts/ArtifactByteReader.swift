@@ -13,11 +13,23 @@ public struct ArtifactByteReader: Sendable {
     private static let utf8SniffByteCount = 8 * 1024
 
     /// Filesystem/decoder failures surfaced by artifact RPC handlers.
-    public enum Error: Swift.Error, Sendable {
+    public enum Error: Swift.Error, Sendable, Equatable {
         /// The scoped path no longer exists or cannot be statted.
         case fileNotFound
+        /// The scoped path exists but cannot be read by cmux.
+        case permissionDenied
+        /// The operation requires a directory, but the path is not one.
+        case notDirectory
+        /// The operation requires a regular file, but the path is another filesystem type.
+        case notRegularFile
         /// The operation does not apply to this media type.
         case unsupportedMedia
+        /// The path has a supported media type, but its bytes cannot be decoded.
+        case corruptMedia
+        /// A decoded image could not be encoded as a thumbnail.
+        case previewFailed
+        /// The path exists, but a filesystem operation failed for another reason.
+        case readFailed
     }
 
     /// Creates a byte reader.
@@ -31,17 +43,18 @@ public struct ArtifactByteReader: Sendable {
 
     /// Reads one clamped byte chunk for an already-authorized file path.
     public func fetch(path: String, offset: Int64, length: Int) throws -> ChatArtifactChunk {
-        let attributes = try attributes(path: path)
-        guard (attributes[.type] as? FileAttributeType) == .typeRegular else {
-            throw Error.unsupportedMedia
-        }
         let opened = try openVerifiedRegularFile(path: path)
         let handle = opened.handle
         defer { try? handle.close() }
         let totalSize = opened.size
         let clampedOffset = min(max(offset, 0), totalSize)
-        try handle.seek(toOffset: UInt64(clampedOffset))
-        let data = try handle.read(upToCount: max(0, length)) ?? Data()
+        let data: Data
+        do {
+            try handle.seek(toOffset: UInt64(clampedOffset))
+            data = try handle.read(upToCount: max(0, length)) ?? Data()
+        } catch {
+            throw filesystemError(error)
+        }
         let endOffset = clampedOffset + Int64(data.count)
         return ChatArtifactChunk(
             data: data,
@@ -83,28 +96,31 @@ public struct ArtifactByteReader: Sendable {
         }
         let url = URL(fileURLWithPath: path)
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else {
-            throw Error.unsupportedMedia
+            _ = try attributes(path: path)
+            throw Error.corruptMedia
         }
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceThumbnailMaxPixelSize: maxDimension,
             kCGImageSourceCreateThumbnailWithTransform: true,
         ]
-        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary),
-              let destinationData = CFDataCreateMutable(nil, 0),
+        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+            throw Error.corruptMedia
+        }
+        guard let destinationData = CFDataCreateMutable(nil, 0),
               let destination = CGImageDestinationCreateWithData(
                 destinationData,
                 UTType.jpeg.identifier as CFString,
                 1,
                 nil
               ) else {
-            throw Error.unsupportedMedia
+            throw Error.previewFailed
         }
         CGImageDestinationAddImage(destination, image, [
             kCGImageDestinationLossyCompressionQuality: 0.82,
         ] as CFDictionary)
         guard CGImageDestinationFinalize(destination) else {
-            throw Error.unsupportedMedia
+            throw Error.previewFailed
         }
         return ChatArtifactThumbnail(
             data: destinationData as Data,
@@ -120,25 +136,38 @@ public struct ArtifactByteReader: Sendable {
     /// read only for the capped entries that the listing actually returns.
     public func list(path: String) throws -> ChatArtifactDirectoryListing {
         let stat = try stat(path: path)
-        guard stat.isDirectory else { throw Error.fileNotFound }
-        let names = try FileManager.default.contentsOfDirectory(atPath: path)
+        guard stat.isDirectory else { throw Error.notDirectory }
+        let names: [String]
+        do {
+            names = try FileManager.default.contentsOfDirectory(atPath: path)
+        } catch {
+            throw filesystemError(error)
+        }
         let sortedNames = names.sorted {
             $0.localizedStandardCompare($1) == .orderedAscending
         }
         let directoryURL = URL(fileURLWithPath: path, isDirectory: true)
-        let listed = try sortedNames
-            .prefix(Self.maximumDirectoryEntryCount)
-            .map { name -> ChatArtifactDirectoryEntry in
+        var listed: [ChatArtifactDirectoryEntry] = []
+        listed.reserveCapacity(min(sortedNames.count, Self.maximumDirectoryEntryCount))
+        for name in sortedNames.prefix(Self.maximumDirectoryEntryCount) {
+            do {
                 let entry = directoryURL.appendingPathComponent(name)
                 let values = try entry.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey])
                 let isDirectory = values.isDirectory ?? false
-                return ChatArtifactDirectoryEntry(
+                listed.append(ChatArtifactDirectoryEntry(
                     name: name,
                     isDirectory: isDirectory,
                     size: Int64(values.fileSize ?? 0),
                     kind: kind(path: entry.path, isDirectory: isDirectory)
-                )
+                ))
+            } catch {
+                let failure = filesystemError(error)
+                if failure == .fileNotFound {
+                    continue
+                }
+                throw failure
             }
+        }
         return ChatArtifactDirectoryListing(
             entries: listed,
             isTruncated: names.count > Self.maximumDirectoryEntryCount
@@ -226,23 +255,25 @@ public struct ArtifactByteReader: Sendable {
     func openVerifiedRegularFile(path: String) throws -> (handle: FileHandle, size: Int64) {
         // Set close-on-exec atomically at open; fcntl afterward cannot close the fork race.
         let descriptor = Darwin.open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC)
-        guard descriptor >= 0 else { throw Error.fileNotFound }
+        guard descriptor >= 0 else { throw filesystemError(errno: Darwin.errno) }
 
         var metadata = Darwin.stat()
         guard Darwin.fstat(descriptor, &metadata) == 0 else {
+            let errorCode = Darwin.errno
             Darwin.close(descriptor)
-            throw Error.fileNotFound
+            throw filesystemError(errno: errorCode)
         }
         guard (metadata.st_mode & S_IFMT) == S_IFREG else {
             Darwin.close(descriptor)
-            throw Error.unsupportedMedia
+            throw Error.notRegularFile
         }
 
         let flags = Darwin.fcntl(descriptor, F_GETFL, 0)
         guard flags >= 0,
               Darwin.fcntl(descriptor, F_SETFL, flags & ~O_NONBLOCK) >= 0 else {
+            let errorCode = Darwin.errno
             Darwin.close(descriptor)
-            throw Error.fileNotFound
+            throw filesystemError(errno: errorCode)
         }
 
         return (
@@ -289,7 +320,50 @@ public struct ArtifactByteReader: Sendable {
         do {
             return try FileManager.default.attributesOfItem(atPath: path)
         } catch {
-            throw Error.fileNotFound
+            throw filesystemError(error)
+        }
+    }
+
+    private func filesystemError(_ error: any Swift.Error) -> Error {
+        if let readerError = error as? Error {
+            return readerError
+        }
+        if let posixError = error as? POSIXError {
+            return filesystemError(errno: posixError.code.rawValue)
+        }
+        let nsError = error as NSError
+        if nsError.domain == NSPOSIXErrorDomain {
+            return filesystemError(errno: Int32(nsError.code))
+        }
+        if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? NSError,
+           underlying !== nsError {
+            return filesystemError(underlying)
+        }
+        if let cocoaError = error as? CocoaError {
+            switch cocoaError.code {
+            case .fileReadNoSuchFile:
+                return .fileNotFound
+            case .fileReadNoPermission:
+                return .permissionDenied
+            default:
+                break
+            }
+        }
+        return .readFailed
+    }
+
+    private func filesystemError(errno errorCode: Int32) -> Error {
+        switch POSIXErrorCode(rawValue: errorCode) {
+        case .ENOENT, .ESTALE:
+            return .fileNotFound
+        case .EACCES, .EPERM:
+            return .permissionDenied
+        case .ENOTDIR:
+            return .notDirectory
+        case .EISDIR:
+            return .notRegularFile
+        default:
+            return .readFailed
         }
     }
 

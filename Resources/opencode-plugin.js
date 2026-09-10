@@ -16,6 +16,7 @@ const MAX_PLAN_BYTES = 128 * 1024;
 export const CMUXFeed = async (ctx) => {
   let client = null;
   let buffered = "";
+  let telemetrySequence = 0;
   const pending = new Map();
   const messageRoles = new Map();
   const sessions = new Map();
@@ -27,6 +28,24 @@ export const CMUXFeed = async (ctx) => {
       if (typeof value === "string" && value.trim().length > 0) return value.trim();
     }
     return null;
+  };
+
+  // OpenCode has emitted both session.idle and session.status events over
+  // time, and the session identifier moved between top-level and nested
+  // properties. Keep the feed bridge tolerant of those wire-shape changes so
+  // completion notifications do not depend on one particular OpenCode build.
+  const sessionIdFromProperties = (props = {}) => firstString(
+    props.info && props.info.id,
+    props.sessionID,
+    props.sessionId,
+    props.session_id,
+    props.session && props.session.id
+  );
+
+  const sessionStatusIsIdle = (status) => {
+    if (typeof status === "string") return status.toLowerCase() === "idle";
+    if (!isObject(status)) return false;
+    return firstString(status.type, status.status, status.state)?.toLowerCase() === "idle";
   };
 
   const normalizeText = (value, max = 1000) => {
@@ -480,8 +499,12 @@ export const CMUXFeed = async (ctx) => {
   };
 
   const pushTelemetry = (event) => {
+    telemetrySequence += 1;
     write({
-      id: `opencode-telemetry-${Date.now()}`,
+      // Date.now() alone collides when OpenCode publishes a burst of events
+      // in one event-loop turn. The monotonic suffix keeps socket request IDs
+      // unique without relying on randomness or a second clock.
+      id: `opencode-telemetry-${Date.now()}-${telemetrySequence}`,
       method: "feed.push",
       params: { event, wait_timeout_seconds: 0 },
     });
@@ -496,17 +519,29 @@ export const CMUXFeed = async (ctx) => {
       }
       switch (event.type) {
         case "session.created": {
-          const info = event.properties?.info || {};
-          const state = sessionState(info.id || "unknown");
+          const props = event.properties || {};
+          const info = props.info || {};
+          const sid = sessionIdFromProperties(props) || "unknown";
+          const state = sessionState(sid);
           state.cwd = info.directory || ctx?.directory || state.cwd;
-          pushTelemetry(base(info.id || "unknown", {
+          pushTelemetry(base(sid, {
             hook_event_name: "SessionStart",
             cwd: state.cwd,
           }));
           break;
         }
+        case "session.status": {
+          const props = event.properties || {};
+          if (!sessionStatusIsIdle(props.status)) break;
+          const sid = sessionIdFromProperties(props);
+          if (!sid) break;
+          pushTelemetry(base(sid, {
+            hook_event_name: "Stop",
+          }));
+          break;
+        }
         case "session.idle": {
-          const sid = event.properties?.sessionID;
+          const sid = sessionIdFromProperties(event.properties || {});
           if (!sid) break;
           pushTelemetry(base(sid, {
             hook_event_name: "Stop",
@@ -514,7 +549,7 @@ export const CMUXFeed = async (ctx) => {
           break;
         }
         case "session.deleted": {
-          const sid = event.properties?.info?.id;
+          const sid = sessionIdFromProperties(event.properties || {});
           if (!sid) break;
           sessions.delete(sid);
           pushTelemetry(base(sid, {

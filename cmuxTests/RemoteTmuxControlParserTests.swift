@@ -147,6 +147,16 @@ import Testing
         #expect(messages == [.sessionChanged(sessionId: 1, name: "my session name")])
     }
 
+    @Test func clientDetachedPreservesClientName() {
+        let messages = parse("%client-detached /dev/pts/22\r\n")
+        #expect(messages == [.clientDetached(client: "/dev/pts/22")])
+    }
+
+    @Test func bareClientDetachedIsUnparsed() {
+        let messages = parse("%client-detached\r\n")
+        #expect(messages == [.unparsed("%client-detached")])
+    }
+
     @Test func sessionRenamedParsesToDistinctMessage() {
         // tmux emits %session-renamed (NOT %session-changed) for `rename-session`;
         // cmux must parse it so a remote rename re-titles the mirror workspace.

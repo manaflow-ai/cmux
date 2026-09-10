@@ -31,7 +31,23 @@ extension TerminalNotificationStore {
 
     func resetUserNotificationSchedulerForTesting() {
         configureNativeNotificationDeliveryHooksForTesting {
-            $0.scheduler = NativeNotificationDeliveryHooks().scheduler
+            // nil routes scheduling back through the production
+            // notification-center service.
+            $0.scheduler = nil
+        }
+    }
+
+    func configureUnavailableFeedbackPlayerForTesting(
+        _ player: @escaping NativeNotificationDeliveryHooks.UnavailableFeedbackPlayer
+    ) {
+        configureNativeNotificationDeliveryHooksForTesting {
+            $0.unavailableFeedbackPlayer = player
+        }
+    }
+
+    func resetUnavailableFeedbackPlayerForTesting() {
+        configureNativeNotificationDeliveryHooksForTesting {
+            $0.unavailableFeedbackPlayer = NativeNotificationDeliveryHooks.defaultUnavailableFeedbackPlayer
         }
     }
 
@@ -45,7 +61,7 @@ extension TerminalNotificationStore {
 
     func resetNotificationCommandRunnerForTesting() {
         configureNativeNotificationDeliveryHooksForTesting {
-            $0.commandRunner = NativeNotificationDeliveryHooks().commandRunner
+            $0.commandRunner = NativeNotificationDeliveryHooks.defaultCommandRunner
         }
     }
 }

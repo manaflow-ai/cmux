@@ -1,3 +1,4 @@
+import CMUXMobileCore
 public import Foundation
 
 /// An immutable notification snapshot ready for presentation by the mobile shell.
@@ -68,13 +69,17 @@ public struct MobileNotificationFeedItem: Identifiable, Equatable, Sendable {
         surfaceTitle: String? = nil,
         connectionStatus: MobileMacConnectionStatus
     ) {
-        self.id = MobileNotificationFeedItemID(
+        let identity = CmxMacAppInstanceIdentity(
             macDeviceID: macDeviceID,
-            macInstanceTag: macInstanceTag,
+            instanceTag: macInstanceTag
+        )
+        self.id = MobileNotificationFeedItemID(
+            macDeviceID: identity.macDeviceID,
+            macInstanceTag: identity.instanceTag,
             notificationID: notificationID
         )
-        self.macDeviceID = macDeviceID
-        self.macInstanceTag = macInstanceTag
+        self.macDeviceID = identity.macDeviceID
+        self.macInstanceTag = identity.instanceTag
         self.notificationID = notificationID
         self.macDisplayName = macDisplayName
         self.remoteWorkspaceID = remoteWorkspaceID

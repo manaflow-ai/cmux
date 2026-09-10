@@ -165,6 +165,11 @@ type StreamOpened struct {
 	Cursor   *Cursor  `json:"cursor,omitempty"`
 }
 
+type ViewAttachmentStreamOpened struct {
+	StreamID        StreamID `json:"stream_id"`
+	AttachmentLease string   `json:"attachment_lease"`
+}
+
 type CreationResolutionState string
 
 const (
@@ -613,7 +618,11 @@ type ProcessInfoResult struct {
 	Executable *string  `json:"executable,omitempty"`
 	Argv       []string `json:"argv"`
 	CWD        *string  `json:"cwd,omitempty"`
-	Children   []uint32 `json:"children"`
+	// ForegroundCWD is the working directory of the process group that owns
+	// the PTY, read at request time. It is nil when the lookup fails or
+	// when an older server omits the field.
+	ForegroundCWD *string  `json:"foreground_cwd,omitempty"`
+	Children      []uint32 `json:"children"`
 }
 
 type CellPixelsResult struct {
@@ -624,13 +633,27 @@ type CellPixelsResult struct {
 }
 
 type ViewerResizeResult struct {
-	Accepted bool `json:"accepted"`
-	Size     Size `json:"size"`
+	Accepted bool                  `json:"accepted"`
+	Size     Size                  `json:"size"`
+	Outcome  ViewAttachmentOutcome `json:"outcome"`
 }
 
 type BrowserViewerResizeResult struct {
-	Accepted bool      `json:"accepted"`
-	Size     PixelSize `json:"size"`
+	Accepted bool                  `json:"accepted"`
+	Size     PixelSize             `json:"size"`
+	Outcome  ViewAttachmentOutcome `json:"outcome"`
+}
+
+type ViewAttachmentOutcome string
+
+const (
+	ViewAttachmentApplied    ViewAttachmentOutcome = "applied"
+	ViewAttachmentPassive    ViewAttachmentOutcome = "passive"
+	ViewAttachmentSuperseded ViewAttachmentOutcome = "superseded"
+)
+
+type ViewerReleaseResult struct {
+	Outcome ViewAttachmentOutcome `json:"outcome"`
 }
 
 type Document map[string]JSONValue
@@ -754,6 +777,70 @@ type SessionEvent struct {
 	Revision         Decimal
 	Changes          []ResourceChange
 	Raw              Document
+}
+
+type JournalClass string
+
+const (
+	JournalClassState       JournalClass = "state"
+	JournalClassObservation JournalClass = "observation"
+	JournalClassEffect      JournalClass = "effect"
+	JournalClassCheckpoint  JournalClass = "checkpoint"
+)
+
+type JournalReplayPolicy string
+
+const (
+	JournalReplayRequired JournalReplayPolicy = "required"
+	JournalReplayAdvisory JournalReplayPolicy = "advisory"
+	JournalReplayNever    JournalReplayPolicy = "never"
+)
+
+type JournalSensitivity string
+
+const (
+	JournalSensitivityPublic    JournalSensitivity = "public"
+	JournalSensitivityMetadata  JournalSensitivity = "metadata"
+	JournalSensitivitySensitive JournalSensitivity = "sensitive"
+	JournalSensitivitySecret    JournalSensitivity = "secret"
+)
+
+type JournalProducer struct {
+	Kind string `json:"kind"`
+	ID   string `json:"id"`
+}
+
+type JournalAuthority struct {
+	PrincipalID string `json:"principal_id"`
+	LeaseID     string `json:"lease_id"`
+	Generation  string `json:"generation"`
+	Role        string `json:"role"`
+}
+
+type JournalSubject struct {
+	Kind string `json:"kind"`
+	ID   string `json:"id"`
+}
+
+type SessionJournalRecord struct {
+	Sequence                 Decimal
+	EventID                  string
+	SchemaVersion            uint32
+	Kind                     string
+	Class                    JournalClass
+	Replay                   JournalReplayPolicy
+	OccurredAtMS             Decimal
+	CommittedAtMS            Decimal
+	Producer                 JournalProducer
+	Authority                *JournalAuthority
+	CausationID              *string
+	CorrelationID            *string
+	CausationDepth           uint16
+	Subjects                 []JournalSubject
+	Sensitivity              JournalSensitivity
+	Payload                  JSONValue
+	ResourceRevision         *Decimal
+	PreviousResourceRevision *Decimal
 }
 
 type TerminalAttachmentItem struct {

@@ -40,10 +40,49 @@ extension CmxIrohClientRuntime {
             throw CmxIrohClientRuntimeError.relayFleetMismatch
         }
         let revision = lifecycleRevision
-        try await connectivityEngine.replaceRelayProfile(
-            profile,
-            expectedIdentity: binding.endpointID
-        )
+
+        await relayCoordinator?.deactivate()
+        relayCoordinator = nil
+        if profile.source == .managed, !profile.allowedRelayURLs.isEmpty {
+            let refreshSchedule = CmxIrohRelayRefreshSchedule(
+                role: .client,
+                endpointIdentity: binding.endpointID
+            )
+            let coordinator = CmxIrohRelayCredentialCoordinator(
+                supervisor: connectivityEngine,
+                broker: broker,
+                managedRelayURLs: replacementManagedURLs,
+                selectedRelayURLs: profile.allowedRelayURLs,
+                jitter: { now, refreshAfter in
+                    refreshSchedule.deadline(now: now, refreshAfter: refreshAfter)
+                },
+                retrySchedule: .foregroundClient,
+                automaticRefreshEnabled: automaticRelayCredentialRefreshEnabled,
+                credentialDidInstall: { [handleRelayCredential] response in
+                    await handleRelayCredential(response, binding)
+                }
+            )
+            relayCoordinator = coordinator
+            do {
+                try await coordinator.activateManagedPolicy(
+                    bindingID: binding.bindingID,
+                    endpointIdentity: binding.endpointID,
+                    profile: profile,
+                    bootstrap: relayBootstrap
+                )
+            } catch {
+                await coordinator.deactivate()
+                if relayCoordinator === coordinator {
+                    relayCoordinator = nil
+                }
+                throw error
+            }
+        } else {
+            try await connectivityEngine.replaceRelayProfile(
+                profile,
+                expectedIdentity: binding.endpointID
+            )
+        }
         try requireCurrent(revision)
 
         managedRelayURLs = replacementManagedURLs
@@ -51,6 +90,7 @@ extension CmxIrohClientRuntime {
         let expectation = try CmxIrohLocalBindingExpectation(
             deviceID: binding.deviceID,
             appInstanceID: binding.appInstanceID,
+            clientNamespace: binding.clientNamespace,
             tag: binding.tag,
             platform: binding.platform,
             endpointID: binding.endpointID,
@@ -92,38 +132,12 @@ extension CmxIrohClientRuntime {
                 offlinePolicy: offlinePolicy,
                 lanFallback: lanFallback,
                 customPrivateFallback: customPrivateFallback,
+                diagnostics: diagnosticLog,
                 now: now
             )
             registryContextProvider = provider
         }
         await contextRouter.install(provider)
         try requireCurrent(revision)
-
-        await relayCoordinator?.deactivate()
-        relayCoordinator = nil
-        guard profile.source == .managed,
-              !profile.allowedRelayURLs.isEmpty else { return }
-        let coordinator = CmxIrohRelayCredentialCoordinator(
-            supervisor: connectivityEngine,
-            broker: broker,
-            managedRelayURLs: replacementManagedURLs,
-            selectedRelayURLs: profile.allowedRelayURLs,
-            retrySchedule: .foregroundClient,
-            automaticRefreshEnabled: automaticRelayCredentialRefreshEnabled,
-            credentialDidInstall: { [handleRelayCredential] response in
-                await handleRelayCredential(response, binding)
-            }
-        )
-        relayCoordinator = coordinator
-        do {
-            try await coordinator.activate(
-                bindingID: binding.bindingID,
-                endpointIdentity: binding.endpointID,
-                bootstrap: relayBootstrap
-            )
-        } catch {
-            // The verified allowlist is already live; direct paths remain usable
-            // while the coordinator retries a managed credential refresh.
-        }
     }
 }

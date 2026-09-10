@@ -8,13 +8,28 @@ import {
   featureWorkflowContentLocales,
   featureWorkflowDocRequestForPathname,
   hasFallbackContent,
+  managedPoliciesDocsLocales,
   remoteTmuxDocsLocales,
 } from "./i18n/locale-availability";
 import { buildAlternateLinkHeader } from "./i18n/seo";
+import { requestOrigin, requestWithOrigin } from "./app/lib/request-origin";
+import {
+  DASHBOARD_RETURN_PATH_HEADER,
+  dashboardReturnPathForRequest,
+} from "./app/lib/dashboard-return-path";
+import { localizedVaultPath, vaultSignInHref } from "./app/lib/vault-auth";
+import { hasStackRefreshCookie } from "./app/lib/stack-session-cookies";
 
 const intlMiddleware = createMiddleware(routing);
+const localeSet = new Set<string>(routing.locales);
 
-export default function middleware(request: NextRequest) {
+export default function middleware(incomingRequest: NextRequest) {
+  const request = requestWithOrigin(incomingRequest);
+  const dashboardReturnPath = dashboardReturnPathForRequest(
+    request.nextUrl.pathname,
+    request.nextUrl.search,
+    routing.locales,
+  );
   const host = request.headers.get("host") ?? "";
 
   // 301 redirect cmux.dev (and www.cmux.dev) to cmux.com, preserving path and query
@@ -26,6 +41,32 @@ export default function middleware(request: NextRequest) {
   }
 
   const { pathname } = request.nextUrl;
+
+  if (
+    (host === "coderouter.dev" || host === "www.coderouter.dev") &&
+    (pathname === "/" || pathname === "/en" || pathname === "/en/")
+  ) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/coderouter";
+    return NextResponse.rewrite(url);
+  }
+
+  // OpenAI-compatible coderouter traffic is a machine endpoint, never a
+  // localized page. Keep this explicit in addition to the matcher exclusion
+  // so direct middleware tests and future matcher edits fail safely.
+  if (
+    pathname === "/v1/responses" ||
+    pathname === "/v1/codex/responses"
+  ) {
+    return NextResponse.next();
+  }
+
+  // coderouter has one hostname-independent landing page. In particular,
+  // cmux.com/coderouter must not be rewritten to /<locale>/coderouter, because
+  // the page deliberately lives outside the localized cmux site tree.
+  if (pathname === "/coderouter" || pathname === "/coderouter/") {
+    return NextResponse.next();
+  }
 
   // cmux consumes this marker before navigation. If an ordinary browser
   // reaches the server, canonicalize the URL while preserving every public
@@ -48,11 +89,14 @@ export default function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Temporary redirect: /changelog → /docs/changelog, preserving any locale prefix.
-  const changelogMatch = pathname.match(/^(\/[a-z]{2}(?:-[A-Z]{2})?)?\/changelog\/?$/);
+  // Temporary redirect: /changelog[/<version>] → /docs/changelog[/<version>],
+  // preserving any locale prefix.
+  const changelogMatch = pathname.match(
+    /^(\/[a-z]{2}(?:-[A-Z]{2})?)?\/changelog(\/[^/]+)?\/?$/,
+  );
   if (changelogMatch) {
     const url = request.nextUrl.clone();
-    url.pathname = `${changelogMatch[1] ?? ""}/docs/changelog`;
+    url.pathname = `${changelogMatch[1] ?? ""}/docs/changelog${changelogMatch[2] ?? ""}`;
     return NextResponse.redirect(url, 307);
   }
 
@@ -69,6 +113,17 @@ export default function middleware(request: NextRequest) {
 
   if (pathname === "/app-pricing" || pathname === "/app-pricing/") {
     return NextResponse.next();
+  }
+
+  // Social crawlers can retain metadata URLs after the page HTML changes.
+  // Serve the hashed paths emitted by the former metadata-file route through
+  // today's stable endpoint without exposing a redirect to the crawler.
+  const legacyOpenGraphImagePath = legacyOpenGraphImageRewritePath(pathname);
+  if (legacyOpenGraphImagePath) {
+    const url = request.nextUrl.clone();
+    url.pathname = legacyOpenGraphImagePath;
+    url.search = "";
+    return NextResponse.rewrite(url);
   }
 
   // This is a localized image endpoint, but the default-locale URL is
@@ -91,9 +146,38 @@ export default function middleware(request: NextRequest) {
     return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
-  // Post-checkout pages live outside the [locale] tree, like /app-pricing.
-  // Without this bypass next-intl rewrites them into /<locale>/billing/...,
-  // which has no route and 404s via the pass-through root layout.
+  // The post-checkout success page uses the dashboard shell while keeping its
+  // stable Stripe return URL. Rewrite it into the localized dashboard tree so
+  // the browser stays on /billing/success and receives the normal sidebar,
+  // theme, and account providers.
+  if (pathname === "/billing/success" || pathname === "/billing/success/") {
+    const locale = preferredAppRouteLocale(request);
+    const url = request.nextUrl.clone();
+    url.pathname = `/${locale}/dashboard/billing/success`;
+    const requestHeaders = new Headers(request.headers);
+    requestHeaders.set("x-next-intl-locale", locale);
+    return NextResponse.rewrite(url, {
+      request: { headers: requestHeaders },
+    });
+  }
+
+  // Founder purchases can be completed before a Stack account exists. Keep
+  // the recovery URL stable in emails and payment-link follow-up while
+  // rendering the localized public page.
+  if (pathname === "/billing/recover" || pathname === "/billing/recover/") {
+    const locale = preferredAppRouteLocale(request);
+    const url = request.nextUrl.clone();
+    url.pathname = `/${locale}/billing/recover`;
+    const requestHeaders = new Headers(request.headers);
+    requestHeaders.set("x-next-intl-locale", locale);
+    return NextResponse.rewrite(url, {
+      request: { headers: requestHeaders },
+    });
+  }
+
+  // Other post-checkout pages still live outside the [locale] tree, like
+  // /app-pricing. Without this bypass next-intl rewrites them into /<locale>/
+  // billing/... which has no route and 404s through the pass-through layout.
   if (pathname === "/billing" || pathname.startsWith("/billing/")) {
     return NextResponse.next();
   }
@@ -105,7 +189,28 @@ export default function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  if (pathname.includes(".")) {
+  // Protected VM domains hand users back to one fixed CMUX origin. Keep the
+  // opaque auth transaction URL stable while still selecting localized copy.
+  if (pathname === "/cloud/access" || pathname === "/cloud/access/") {
+    const requestHeaders = new Headers(request.headers);
+    requestHeaders.set(
+      "x-next-intl-locale",
+      preferredAppRouteLocale(request),
+    );
+    return NextResponse.next({ request: { headers: requestHeaders } });
+  }
+
+  // Machine desktop wrapper panes: the URL lives inside long-lived app panes,
+  // so it must never be rewritten into the locale tree.
+  if (pathname.startsWith("/vm/desktop/")) {
+    return NextResponse.next();
+  }
+
+  const isChangelogVersionPath =
+    /^(?:\/[a-z]{2}(?:-[A-Z]{2})?)?\/docs\/changelog\/[^/]+\/?$/.test(
+      pathname,
+    );
+  if (pathname.includes(".") && !isChangelogVersionPath) {
     return NextResponse.next();
   }
 
@@ -214,6 +319,28 @@ export default function middleware(request: NextRequest) {
     return NextResponse.rewrite(url);
   }
 
+  const managedPoliciesMatch = pathname.match(
+    /^\/([a-z]{2}(?:-[A-Z]{2})?)\/docs\/managed-policies\/?$/,
+  );
+  if (
+    managedPoliciesMatch &&
+    !managedPoliciesDocsLocales.includes(
+      managedPoliciesMatch[1] as (typeof managedPoliciesDocsLocales)[number],
+    )
+  ) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/docs/managed-policies";
+    return NextResponse.redirect(url, 301);
+  }
+  if (
+    pathname === "/docs/managed-policies" ||
+    pathname === "/docs/managed-policies/"
+  ) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/en/docs/managed-policies";
+    return NextResponse.rewrite(url);
+  }
+
   const response = intlMiddleware(request);
   if (featureWorkflowDocRequest) {
     setFeatureWorkflowDocLinkHeader(
@@ -231,7 +358,79 @@ export default function middleware(request: NextRequest) {
     );
   }
 
+  return dashboardReturnPath
+    ? dashboardResponse(request, response, dashboardReturnPath)
+    : response;
+}
+
+/**
+ * A visitor with no Stack session cookie cannot be signed in. Redirect at the
+ * edge so a cold dashboard entry never renders the shell for them, and so the
+ * server components only meet sessions worth verifying. Otherwise forward the
+ * destination for the server-side sign-in redirect.
+ */
+function dashboardResponse(
+  request: NextRequest,
+  response: NextResponse,
+  dashboardReturnPath: string,
+): NextResponse {
+  if (!hasStackSessionCookie(request)) {
+    const url = request.nextUrl.clone();
+    const target = vaultSignInHref(
+      localizedVaultPath(requestPathLocale(request), dashboardReturnPath),
+    );
+    url.pathname = target.slice(0, target.indexOf("?"));
+    url.search = target.slice(target.indexOf("?"));
+    return NextResponse.redirect(url, 307);
+  }
+  setRequestHeaderOverride(
+    response,
+    DASHBOARD_RETURN_PATH_HEADER,
+    dashboardReturnPath,
+  );
   return response;
+}
+
+/** The locale already in the path, else the visitor's preferred locale. */
+function requestPathLocale(
+  request: NextRequest,
+): (typeof routing.locales)[number] {
+  const [, first] = request.nextUrl.pathname.split("/");
+  if (first && localeSet.has(first)) {
+    return first as (typeof routing.locales)[number];
+  }
+  return preferredAppRouteLocale(request);
+}
+
+function hasStackSessionCookie(request: NextRequest): boolean {
+  const projectId = process.env.NEXT_PUBLIC_STACK_PROJECT_ID?.trim();
+  // Without Stack the dashboard redirects home on the server instead.
+  if (!projectId) return true;
+  return hasStackRefreshCookie(request.cookies.getAll(), projectId);
+}
+
+/**
+ * Add a request header to the response's standard middleware override list.
+ * This preserves the original request body, which matters for any future
+ * dashboard server action or form POST.
+ */
+function setRequestHeaderOverride(
+  response: NextResponse,
+  name: string,
+  value: string,
+): void {
+  const overrideHeaders = new Set(
+    (response.headers.get("x-middleware-override-headers") ?? "")
+      .split(",")
+      .map((header) => header.trim())
+      .filter(Boolean),
+  );
+  overrideHeaders.add(name);
+  response.headers.set(
+    "x-middleware-override-headers",
+    [...overrideHeaders].join(","),
+  );
+  response.headers.set(`x-middleware-request-${name}`, value);
 }
 
 function setFallbackContentLinkHeader(
@@ -298,10 +497,34 @@ function setFeatureWorkflowDocLinkHeader(
   );
 }
 
-function requestOrigin(request: NextRequest) {
-  return request.nextUrl.origin;
+function legacyOpenGraphImageRewritePath(pathname: string): string | undefined {
+  const segments = pathname.split("/").filter(Boolean);
+  let locale = routing.defaultLocale;
+  let imageSegment: string;
+
+  if (segments.length === 1) {
+    imageSegment = segments[0];
+  } else if (segments.length === 2 && localeSet.has(segments[0])) {
+    locale = segments[0] as (typeof routing.locales)[number];
+    imageSegment = segments[1];
+  } else {
+    return undefined;
+  }
+
+  if (
+    !imageSegment.startsWith("opengraph-image-") ||
+    imageSegment.length === "opengraph-image-".length
+  ) {
+    return undefined;
+  }
+
+  return locale === routing.defaultLocale
+    ? "/opengraph-image"
+    : `/${locale}/opengraph-image`;
 }
 
 export const config = {
-  matcher: ["/((?!api|_next|_vercel|agent-page-variant|handler).*)"],
+  matcher: [
+    "/((?!api|v1|_next|_vercel|agent-page-variant|authorize|handler).*)",
+  ],
 };

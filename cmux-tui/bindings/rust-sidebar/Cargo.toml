@@ -12,11 +12,10 @@ publish = true
 workspace = true
 
 [dependencies]
-cmux-client = { path = "../rust", version = "1.0.0" }
+cmux-sdk = { path = "../rust", version = "=1.0.0" }
 crossterm = { workspace = true }
 ratatui = { workspace = true }
 serde_json = { workspace = true }
 
 [dev-dependencies]
 base64 = { workspace = true }
-serde_json = { workspace = true }

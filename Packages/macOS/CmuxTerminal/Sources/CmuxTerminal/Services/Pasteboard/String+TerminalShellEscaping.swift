@@ -3,7 +3,7 @@ internal import Foundation
 extension String {
     /// The characters terminal paste paths escape with a backslash before
     /// injecting a path or URL as shell input.
-    private static let terminalShellEscapeCharacters = "\\ ()[]{}<>\"'`!#$&;|*?\t"
+    private static let terminalShellEscapeCharacters = "\\ ()[]{}<>\"'`!#$&;|*?~\t"
 
     /// This string escaped for safe injection as terminal shell input.
     ///

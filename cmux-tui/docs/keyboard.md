@@ -48,6 +48,7 @@ These defaults come from `Keys::default`.
 | `Ctrl-b m` | Toggle the sidebar between compact and full width; shows it when hidden |
 | `Ctrl-b e` | Toggle the built-in sidebar between files and workspaces |
 | `Ctrl-b S` | Focus the built-in sidebar or configured sidebar plugin; a prefixed command returns focus to the pane |
+| `m` | Open the machine provider menu when the machine rail is focused |
 | `Ctrl-b g` | Append a two-thirds-width terminal to the right |
 | `Ctrl-b U` | Undo the latest structural layout action on the focused screen |
 | `Ctrl-b ?` | Open the keyboard shortcut modal |
@@ -73,7 +74,7 @@ When a screen is wider than the viewport, `h`/`l`, Left/Right, and their modeles
 
 On a screen created with `Ctrl-b g`, `Alt-=` and `Alt--` resize the complete horizontal column containing the focused pane in five-percent steps. On an ordinary screen they retain their existing split-resize behavior.
 
-`Ctrl-b U` undoes the latest pane creation, split resize, column resize, swap, zoom, or automatic-layout change on the focused screen. Repeated resize updates to one divider form one undo entry. An undo that closes a created pane opens a confirmation prompt; type `CONFIRM` to close its PTY and commit the undo. Closing a pane directly clears that screen's undo history because a closed process cannot be restored.
+`Ctrl-b U` undoes the latest pane creation, split resize, column resize, swap, zoom, or automatic-layout change on the focused screen. Repeated resize updates to one divider form one undo entry. An undo that removes a created pane opens a confirmation prompt; type `CONFIRM` to remove its tab placements and commit the undo. Session-owned PTY terminals remain alive, while single-view browser tabs close. Closing a pane directly clears that screen's undo history because the journal cannot reconstruct its exact tab membership or a closed browser target.
 
 On a primary screen, `Cmd-k` clears retained scrollback and completed visible rows inside the terminal emulator. OSC 133 prompt metadata preserves the complete active prompt. Without metadata, cmux-tui preserves visible rows because it cannot identify the active input boundary. The edit buffer and cursor stay in place, and cmux-tui sends no input to the shell. In alternate-screen applications, `Cmd-k` is forwarded to the application. `Ctrl-l` remains child-owned on every screen, so shells, REPLs, and other terminal applications keep their standard clear/redraw behavior and custom bindings.
 
@@ -87,11 +88,11 @@ Workspace navigation follows tmux's outer session lane: `(` and `)` move backwar
 
 ## Focused Sidebar
 
-When the built-in sidebar is focused, its header gains an accent background and its divider becomes a bold accent rail. `Tab` toggles files/workspaces without leaving sidebar focus. In the files view, Up/Down and Ctrl-J/Ctrl-K move the selection, Right descends into a directory, Enter descends or opens a file in a new `$EDITOR` tab, and Left or `h` goes to the parent when the machine rail is absent. `c` sends a safely quoted `cd` to the focused pane, `o` opens `.html` and `.md` files in a browser tab, `.` toggles dotfiles, `/` enters filter mode, and `~` follows the focused pane cwd again. Esc clears a nonempty filter before leaving filter mode.
+When the built-in sidebar is focused, its divider becomes a bold accent rail. `Tab` toggles files/workspaces without leaving sidebar focus. In the files view, Up/Down and Ctrl-J/Ctrl-K move the selection, Right descends into a directory, Enter descends or opens a file in a new `$EDITOR` tab, and Left or `h` goes to the parent when the machine rail is absent. `c` sends a safely quoted `cd` to the focused pane, `o` opens `.html` and `.md` files in a browser tab, `.` toggles dotfiles, `/` enters filter mode, and `~` follows the focused pane cwd again. Esc clears a nonempty filter before leaving filter mode.
 
-In the workspaces view, Up/Down move the selection and Enter activates it. Any normal prefixed command leaves sidebar focus and runs through the usual action table; `prefix S` only returns focus to the pane. A configured sidebar plugin keeps its existing PTY forwarding behavior.
+In the workspaces view, Up/Down move the selection and Enter activates it. A one-level `tabs` view follows the highlighted workspace. Multi-level views such as `workspaces → agents` are collapsible trees: Left collapses, Right expands, Space toggles, and Enter activates the exact workspace, pane, tab, or agent surface. Alt/Option with arrows or `hjkl` always navigates, so Alt-Left and Alt-Right traverse views instead of changing tree expansion. Right from the final view or Esc returns to the pane. Any normal prefixed command leaves sidebar focus and runs through the usual action table. A configured sidebar plugin keeps its existing PTY forwarding behavior.
 
-When the optional machine rail is visible, `Ctrl-b S` still enters through the workspace rail. From the built-in workspace or files rail, Left or `h` moves focus to the machine rail. From the machine rail, Right or `l` returns to the workspace rail. Up/Down or `k`/`j` changes the selected machine, Enter connects to it, and Esc returns to the active pane. A mouse click can focus either rail directly. The machine rail swallows other unprefixed keys instead of forwarding them to a remote terminal.
+When the optional machine rail is visible, `Ctrl-b S` enters through the first view containing workspaces. Alt/Option-Left or Alt/Option-`h` at the left pane boundary enters the rightmost visible view. Left or `h` and Right or `l` traverse the ordered native views. Up/Down or `k`/`j` changes the selected machine, Enter connects to it, `m` opens the provider scope/actions menu when the provider offers one, and Esc returns to the active pane. Clicking a view's one-row top pad focuses it without activating a row. Clicking a machine, workspace, pane, tab, or agent activates it and returns keyboard input to the latest terminal. Sidebar views swallow other unprefixed keys instead of forwarding them to a remote terminal.
 
 ## Modeless Alt Layer
 
@@ -118,6 +119,8 @@ Set `keys.super_shortcuts` to `false` to remove the default Command/Super bindin
 Keys are read from `~/.config/cmux/cmux-tui.json`, with legacy `mux.json` used when the new file is absent. `CMUX_TUI_CONFIG` overrides the path; `CMUX_MUX_CONFIG` remains as a legacy fallback.
 
 Each action accepts a string, an array of strings, or `"none"`. Setting an action replaces all default chords for that action before adding the configured chords. `"none"` leaves the action unbound.
+
+User commands from the top-level `commands` config section bind through the same chord grammar and appear in the `Ctrl-b ?` shortcut modal under their configured names. A command chord replaces whatever action previously held that chord. See [Configuration](configuration.md#commands).
 
 ```json
 {
@@ -191,6 +194,7 @@ toggle-sidebar
 toggle-sidebar-compact
 toggle-sidebar-view
 focus-sidebar
+provider-menu
 new-pane-right
 undo-layout
 focus-left

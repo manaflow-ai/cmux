@@ -26,6 +26,7 @@ final class BrowserStreamContentView: UIView, UIScrollViewDelegate, UIGestureRec
     private var panStartOffset = CGPoint.zero
     private var displayLink: CADisplayLink?
     private var viewportPolicy = BrowserStreamViewportEmissionPolicy()
+    private var tapClickCounter = BrowserStreamTapClickCounter()
 
     private lazy var scrollMechanicsView: UIScrollView = {
         let view = UIScrollView()
@@ -68,12 +69,12 @@ final class BrowserStreamContentView: UIView, UIScrollViewDelegate, UIGestureRec
         addSubview(scrollMechanicsView)
         addSubview(inputProxy)
 
+        // One tap recognizer, forwarded immediately with a rising click count
+        // (see BrowserStreamTapClickCounter): double tap means Mac double
+        // click, never local zoom, and single clicks never wait on a
+        // double-tap recognizer to fail. Pinch owns zooming.
         let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
-        let doubleTap = UITapGestureRecognizer(target: self, action: #selector(handleDoubleTap(_:)))
-        doubleTap.numberOfTapsRequired = 2
-        tap.require(toFail: doubleTap)
         addGestureRecognizer(tap)
-        addGestureRecognizer(doubleTap)
 
         let pinch = UIPinchGestureRecognizer(target: self, action: #selector(handlePinch(_:)))
         addGestureRecognizer(pinch)
@@ -260,32 +261,17 @@ final class BrowserStreamContentView: UIView, UIScrollViewDelegate, UIGestureRec
     }
 
     @objc private func handleTap(_ gesture: UITapGestureRecognizer) {
-        guard let point = currentTransform.pagePoint(fromViewPoint: gesture.location(in: self)) else { return }
+        let viewPoint = gesture.location(in: self)
+        guard let point = currentTransform.pagePoint(fromViewPoint: viewPoint) else { return }
         let input = MobileBrowserPointerInput(
             panelID: panelID,
             kind: .click,
             x: Double(point.x),
             y: Double(point.y),
-            clickCount: 1,
+            clickCount: tapClickCounter.register(at: viewPoint, time: CACurrentMediaTime()),
             button: .left
         )
         delegate?.browserStreamContentView(self, didProducePointer: input)
-    }
-
-    @objc private func handleDoubleTap(_ gesture: UITapGestureRecognizer) {
-        if zoomScale > 1.001 {
-            zoomScale = 1
-            viewportOffset = .zero
-        } else {
-            zoomScale = 2
-            let location = gesture.location(in: self)
-            viewportOffset = CGPoint(
-                x: (location.x - bounds.midX) * (zoomScale - 1),
-                y: (location.y - bounds.midY) * (zoomScale - 1)
-            )
-        }
-        updateGestureModes()
-        layoutImageLayer()
     }
 
     @objc private func handlePinch(_ gesture: UIPinchGestureRecognizer) {

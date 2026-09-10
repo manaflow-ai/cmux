@@ -41,6 +41,69 @@ struct CmxIrohClientOfflinePolicyCacheTests {
         #expect(await store.observedAccessibilities() == [.afterFirstUnlockThisDeviceOnly])
     }
 
+    @Test("sibling app instances on one physical Mac retain independent grants")
+    func retainsSiblingAppInstancePolicies() async throws {
+        let primary = try RegistryFixture()
+        let sibling = try RegistryFixture(
+            acceptorSecretKey: Data(repeating: 8, count: 32),
+            acceptorBindingID: "123e4567-e89b-42d3-a456-426614174007",
+            acceptorDeviceID: primary.acceptor.deviceID,
+            acceptorAppInstanceID: "123e4567-e89b-42d3-a456-426614174008",
+            acceptorTag: "mac-2",
+            acceptorIdentityGeneration: 3
+        )
+        let primaryDiscovery = try primary.discovery(targetHints: [])
+        let siblingDiscovery = try sibling.discovery(targetHints: [])
+        let discovery = CmxIrohDiscoveryResponse(
+            routeContractVersion: primaryDiscovery.routeContractVersion,
+            revision: primaryDiscovery.revision,
+            bindings: [
+                primaryDiscovery.bindings[0],
+                primaryDiscovery.bindings[1],
+                siblingDiscovery.bindings[1],
+            ],
+            relayFleet: primaryDiscovery.relayFleet,
+            lanRendezvous: primaryDiscovery.lanRendezvous,
+            grantVerificationKeys: primaryDiscovery.grantVerificationKeys
+        )
+        let expectation = try primary.offlineExpectation()
+        let store = TestSecureCredentialStore()
+        let cache = CmxIrohClientOfflinePolicyCache(secureStore: store)
+
+        try await cache.save(
+            localBinding: discovery.bindings[0],
+            targetBinding: discovery.bindings[1],
+            discovery: discovery,
+            pairGrant: primary.pairGrantResponse(
+                issuedAt: primary.nowSeconds,
+                expiresAt: primary.nowSeconds + 3_600
+            ),
+            for: expectation,
+            now: primary.now
+        )
+        try await cache.save(
+            localBinding: discovery.bindings[0],
+            targetBinding: discovery.bindings[2],
+            discovery: discovery,
+            pairGrant: sibling.pairGrantResponse(
+                issuedAt: sibling.nowSeconds,
+                expiresAt: sibling.nowSeconds + 3_600
+            ),
+            for: expectation,
+            now: sibling.now
+        )
+
+        let bootstrap = try #require(try await cache.loadBootstrap(
+            for: expectation,
+            confirmedLocalBinding: discovery.bindings[0],
+            now: primary.now
+        ))
+        #expect(Set(bootstrap.targetBindings.map(\.bindingID)) == Set([
+            discovery.bindings[1].bindingID,
+            discovery.bindings[2].bindingID,
+        ]))
+    }
+
     @Test("save rejects grants that do not bind the exact target")
     func saveRejectsSubstitutedTarget() async throws {
         let fixture = try RegistryFixture()

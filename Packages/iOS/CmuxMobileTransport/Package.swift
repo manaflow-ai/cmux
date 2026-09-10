@@ -16,11 +16,12 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../../Shared/CMUXMobileCore"),
+        .package(path: "../CmuxMobileDiagnostics"),
     ],
     targets: [
         .target(
             name: "CmuxMobileTransport",
-            dependencies: ["CMUXMobileCore"],
+            dependencies: ["CMUXMobileCore", "CmuxMobileDiagnostics"],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),

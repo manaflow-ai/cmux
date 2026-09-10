@@ -27,6 +27,12 @@ public protocol MobileIdentityProviding: Sendable {
     /// explain that mismatch truthfully instead of telling the user to
     /// re-check emails (https://github.com/manaflow-ai/cmux/issues/7145).
     @MainActor var isDevelopmentAuthEnvironment: Bool { get }
+
+    /// Whether the signed-in account is server-flagged for demonstration
+    /// content (the App Review demo account). The shell reads this to add a
+    /// local demonstration computer with sample workspaces alongside any real
+    /// Macs. `false` when signed out or when the account carries no flag.
+    @MainActor var demonstrationContentEnabled: Bool { get }
 }
 
 public extension MobileIdentityProviding {
@@ -39,4 +45,8 @@ public extension MobileIdentityProviding {
     /// release-channel identities unless they opt in. The app's live provider
     /// overrides this from the resolved auth environment.
     @MainActor var isDevelopmentAuthEnvironment: Bool { false }
+
+    /// Default `false`: only the app's live provider (reading the account's
+    /// server-written flag) opts a session into demonstration content.
+    @MainActor var demonstrationContentEnabled: Bool { false }
 }

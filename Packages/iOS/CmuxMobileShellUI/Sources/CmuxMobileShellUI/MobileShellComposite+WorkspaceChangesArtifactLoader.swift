@@ -36,6 +36,7 @@ extension MobileShellComposite {
                 revision: revision.rawValue,
                 path: resolvedPath
             ),
+            diagnosticLog: diagnosticLog,
             stat: { requestedPath in
                 try await self.workspaceChangesFileStat(
                     workspaceID: workspaceID,

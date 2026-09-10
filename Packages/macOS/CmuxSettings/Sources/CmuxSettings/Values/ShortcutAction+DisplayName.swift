@@ -29,12 +29,17 @@ extension ShortcutAction {
         case .jumpToUnread: return "Jump to Latest Unread"
         case .toggleUnread: return "Toggle Unread"
         case .markOldestUnreadAndJumpNext: return "Mark as Oldest Unread and Jump to Next Latest Unread"
+        case .markAllNotificationsRead:
+            return String(localized: "shortcut.markAllNotificationsRead.label", defaultValue: "Mark All Notifications Read")
+        case .clearAllNotifications:
+            return String(localized: "shortcut.clearAllNotifications.label", defaultValue: "Clear All Notifications")
         case .focusRightSidebar: return "Toggle Right Sidebar Focus"
         case .switchRightSidebarToFiles: return "Show Sidebar Files"
         case .switchRightSidebarToFind: return "Show Sidebar Find"
         case .switchRightSidebarToSessions: return "Show Sidebar Vault"
         case .switchRightSidebarToFeed: return "Show Sidebar Feed"
         case .switchRightSidebarToDock: return "Show Sidebar Dock"
+        case .switchRightSidebarToMachines: return "Show Sidebar Cloud"
         case .triggerFlash: return "Flash Focused Panel"
         case .nextSurface: return "Next Surface"
         case .prevSurface: return "Previous Surface"
@@ -55,6 +60,10 @@ extension ShortcutAction {
         case .selectSurfaceByNumber: return "Select Surface 1…9"
         case .nextSidebarTab: return "Next Workspace"
         case .prevSidebarTab: return "Previous Workspace"
+        case .nextSidebarTabInGroup:
+            return String(localized: "shortcut.nextWorkspaceInGroup.label", defaultValue: "Next Workspace in Group")
+        case .prevSidebarTabInGroup:
+            return String(localized: "shortcut.previousWorkspaceInGroup.label", defaultValue: "Previous Workspace in Group")
         case .moveWorkspaceUp: return String(localized: "shortcut.moveWorkspaceUp.label", defaultValue: "Move Workspace Up")
         case .moveWorkspaceDown: return String(localized: "shortcut.moveWorkspaceDown.label", defaultValue: "Move Workspace Down")
         case .focusHistoryBack: return "Focus Back"

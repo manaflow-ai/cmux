@@ -1,6 +1,6 @@
 public import Foundation
 
-/// An awaitable handle for one serialized native surface teardown.
+/// An awaitable handle for one native surface teardown.
 public struct TerminalSurfaceRuntimeTeardownTicket: Sendable {
     /// Stable identity used by the surface to clear only its current teardown.
     public let id: UUID

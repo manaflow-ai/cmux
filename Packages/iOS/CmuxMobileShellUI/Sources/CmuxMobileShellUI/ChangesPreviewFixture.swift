@@ -33,6 +33,13 @@ struct ChangesPreviewFixture: Sendable {
                 isBinary: false
             ),
             ChangedFileItem(
+                path: "Sources/RenderPipeline.swift",
+                kind: .modified,
+                additions: 400,
+                deletions: 0,
+                isBinary: false
+            ),
+            ChangedFileItem(
                 path: "Sources/LegacySession.swift",
                 kind: .deleted,
                 additions: 0,
@@ -62,12 +69,13 @@ struct ChangesPreviewFixture: Sendable {
                 isBinary: false
             ),
         ]
-        totals = ChangesTotals(filesChanged: 7, additions: 6018, deletions: 10)
+        totals = ChangesTotals(filesChanged: 8, additions: 6418, deletions: 10)
         let parser = UnifiedDiffParser()
         documents = [
             "README.md": parser.parse(Self.addedDiff),
             "Resources/PreviewHero.png": parser.parse("", isBinary: true),
             "Sources/SessionStore.swift": parser.parse(Self.modifiedSwiftDiff),
+            "Sources/RenderPipeline.swift": parser.parse(Self.longScrollDiff),
             "Sources/LegacySession.swift": parser.parse(Self.deletedDiff),
             "Sources/WorkspaceSession.swift": parser.parse(Self.renamedDiff),
             "Sources/Scratchpad.swift": parser.parse(Self.untrackedDiff),
@@ -109,6 +117,20 @@ struct ChangesPreviewFixture: Sendable {
          selectedSession = session
     """
 
+    /// Many-screen diff so flings and scroll deceleration are exercisable in
+    /// the fixture; the short hand-written diffs all fit on one screen.
+    private static let longScrollDiff: String = {
+        var lines = ["@@ -1,4 +1,404 @@"]
+        lines.append(" import Metal")
+        lines.append(" ")
+        lines.append(" final class RenderPipeline {")
+        for index in 1...400 {
+            lines.append("+    func renderPass\(index)() { encoder.dispatch(\(index)) }")
+        }
+        lines.append(" }")
+        return lines.joined(separator: "\n")
+    }()
+
     private static let deletedDiff = """
     @@ -1,5 +0,0 @@
     -import Foundation
@@ -139,7 +161,7 @@ struct ChangesPreviewFixture: Sendable {
 
     private static let truncatedDiff = """
     @@ -1,3 +1,8 @@
-     enum GeneratedSchema {
+     struct GeneratedSchema {
     +    static let field0001 = "value"
     +    static let field0002 = "value"
     +    static let field0003 = "value"

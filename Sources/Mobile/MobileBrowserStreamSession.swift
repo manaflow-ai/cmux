@@ -31,6 +31,24 @@ final class MobileBrowserStreamSession {
     private var isDriving = false
     private var needsDrive = false
     private var isStopped = false
+    /// Whether at least one synchronized (post-commit) capture succeeded for
+    /// the current web view. Until then every capture waits for WebKit's next
+    /// committed render, because an unsynchronized snapshot of a freshly
+    /// (re)hosted or still-loading web view is a blank white bitmap.
+    private var hasCapturedCommittedFrame = false
+    private var hasRecordedFirstDeliveredFrame = false
+    private var synchronizedFirstCaptureFailures = 0
+
+    /// Bound on the synchronized first capture so an occluded render host
+    /// cannot wedge the stream; expiry falls back through the retry path.
+    private static let firstCaptureTimeout: TimeInterval = 1.0
+    /// Bound on every other capture; a synchronized settle snapshot waits on
+    /// WebKit's next commit, which an occluded host may never produce.
+    private static let captureTimeout: TimeInterval = 2.0
+    /// Synchronized first-capture attempts before degrading to unsynchronized.
+    private static let maximumSynchronizedFirstCaptureFailures = 3
+    /// Quiet interval before an idle stream emits one reconciliation frame.
+    private static let idleReconcileInterval: TimeInterval = 10.0
 
     init(
         connectionID: UUID,
@@ -93,12 +111,20 @@ final class MobileBrowserStreamSession {
         case let .dirty(focused):
             if let focused, editableFocused != focused {
                 editableFocused = focused
+                MobileHostIrohRuntime.hostDiagnosticLog.record(DiagnosticEvent(
+                    .browserEditableFocus,
+                    a: focused ? 1 : 0,
+                    b: 3,
+                    c: TerminalController.mobileBrowserPanelCorrelation(panelID)
+                ))
                 scheduleStateEmission()
             }
             noteDirty()
         case .stateChanged:
             scheduleStateEmission()
         case .webViewReplaced:
+            hasCapturedCommittedFrame = false
+            synchronizedFirstCaptureFailures = 0
             noteDirty()
             emitStateImmediately()
         case let .dialog(dialog):
@@ -185,7 +211,14 @@ final class MobileBrowserStreamSession {
             case let .wait(interval):
                 scheduleDeadline(after: interval)
                 return
-            case .flowControlled, .idle:
+            case .flowControlled:
+                // Pacing converts a full window into bounded `.wait`s and then
+                // ack-stall recovery, so this is defensive: re-check rather
+                // than park with no deadline armed.
+                scheduleDeadline(after: pacing.ackStallTimeout)
+                return
+            case .idle:
+                scheduleIdleReconciliation()
                 return
             }
         }
@@ -195,22 +228,41 @@ final class MobileBrowserStreamSession {
         format: MobileBrowserFrameFormat,
         dirtyGeneration: UInt64
     ) async -> Bool {
+        // Captured once so the snapshot, its measured page size, and the
+        // committed-frame bookkeeping all describe the SAME web view even
+        // if the panel replaces its web view while the capture awaits.
+        let capturedWebView = panel.webView
         do {
-            let pageSize = panel.webView.bounds.size
+            let pageSize = capturedWebView.bounds.size
             // Continuous JPEG frames drive motion (scroll, drag, animation). The
             // active dirty loop must not block each snapshot on a synchronized
             // screen-update cycle. `false` captures the currently committed render
             // without that wait, while the rare, correctness-critical lossless PNG
-            // settle frame keeps the synchronized path.
-            let waitForScreenUpdate = (format == .png)
+            // settle frame keeps the synchronized path. The FIRST capture for a
+            // web view is always synchronized: it races the view's first commit
+            // after offscreen rehosting or replacement, and the unsynchronized
+            // snapshot of that state is a blank white bitmap the subscriber
+            // would display until the next dirty signal. Bounded by a timeout
+            // and a fallback so an occluded host cannot wedge the stream.
+            let forceSynchronizedFirstCapture = !hasCapturedCommittedFrame
+                && synchronizedFirstCaptureFailures < Self.maximumSynchronizedFirstCaptureFailures
+            let waitForScreenUpdate = (format == .png) || forceSynchronizedFirstCapture
             #if DEBUG
             let captureStart = DispatchTime.now()
             #endif
             let image = try await BrowserScreenshotWebViewSnapshotter.captureVisibleViewport(
-                from: panel.webView,
-                afterScreenUpdates: waitForScreenUpdate
+                from: capturedWebView,
+                afterScreenUpdates: waitForScreenUpdate,
+                timeout: forceSynchronizedFirstCapture ? Self.firstCaptureTimeout : Self.captureTimeout
             )
             guard !isStopped, !Task.isCancelled else { return false }
+            // A capture that raced a web view replacement proves nothing about
+            // the panel's CURRENT web view: its first synchronized capture is
+            // still owed, or the next first frame is the blank bitmap again.
+            if waitForScreenUpdate, panel.webView === capturedWebView {
+                hasCapturedCommittedFrame = true
+                synchronizedFirstCaptureFailures = 0
+            }
             panel.updateMobileBrowserStreamMirror(image)
             #if DEBUG
             let encodeStart = DispatchTime.now()
@@ -252,11 +304,26 @@ final class MobileBrowserStreamSession {
             if !delivered {
                 pacing.acknowledge(sequence: sequence)
                 pacing.noteDirty(at: clock.now)
+            } else if !hasRecordedFirstDeliveredFrame {
+                // The first-frame stage means the phone actually received a
+                // frame: record it once per session, after delivery succeeds,
+                // never for the capture alone.
+                hasRecordedFirstDeliveredFrame = true
+                MobileHostIrohRuntime.hostDiagnosticLog.record(DiagnosticEvent(
+                    .browserStreamLifecycle,
+                    a: 4,
+                    c: TerminalController.mobileBrowserPanelCorrelation(panelID)
+                ))
             }
             return delivered
         } catch is CancellationError {
             return false
         } catch {
+            // A stale capture's failure must not consume the replacement web
+            // view's bounded synchronized-first-capture attempts.
+            if !hasCapturedCommittedFrame, panel.webView === capturedWebView {
+                synchronizedFirstCaptureFailures += 1
+            }
             return false
         }
     }
@@ -271,6 +338,28 @@ final class MobileBrowserStreamSession {
                 try await clock.sleep(for: max(0, interval))
                 guard !Task.isCancelled else { return }
                 self?.requestDrive()
+            } catch {}
+        }
+    }
+
+    /// Schedules one lossless reconciliation frame after a quiet interval.
+    ///
+    /// An idle stream's correctness otherwise hangs entirely on page-driven
+    /// dirty signals, which are silently lost when WebKit suspends
+    /// `requestAnimationFrame` for the occluded offscreen host. This bounds
+    /// how long the phone can display a stale (or blank first) frame to
+    /// `idleReconcileInterval`. Any real dirty signal cancels it via
+    /// `requestDrive`, and a fresh one is armed when the stream idles again.
+    private func scheduleIdleReconciliation() {
+        guard !isStopped else { return }
+        deadlineTask?.cancel()
+        let clock = clock
+        deadlineTask = Task { @MainActor [weak self, clock] in
+            do {
+                try await clock.sleep(for: Self.idleReconcileInterval)
+                guard !Task.isCancelled, let self, !self.isStopped else { return }
+                self.pacing.requestSettleReconciliation()
+                self.requestDrive()
             } catch {}
         }
     }

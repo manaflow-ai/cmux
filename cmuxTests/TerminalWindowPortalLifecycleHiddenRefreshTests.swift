@@ -158,6 +158,65 @@ extension TerminalWindowPortalLifecycleTests {
         withExtendedLifetime((leftSurface, rightSurface)) {}
     }
 
+    /// Regression: during a live window resize, each `didResize` tick must
+    /// synchronize hosted terminal frames INSIDE the tick — in the same
+    /// transaction that commits the window's new size. The portal's queued
+    /// sync (one main-queue hop) paints every tick with the PREVIOUS tick's
+    /// hosted frames, so the terminal visibly trails the window edge during
+    /// the whole drag (Ghostty hosts surfaces directly in the hierarchy and
+    /// has no such gap).
+    @MainActor
+    func testLiveResizeTickSynchronizesHostedFrameWithinTheSameTick() throws {
+        let window = makeTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 340),
+            styleMask: [.titled, .closable, .resizable]
+        )
+        defer {
+            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+            window.orderOut(nil)
+        }
+        realizeWindowLayout(window)
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let portal = makeTrackedPortal(window: window)
+        let anchor = NSView(frame: NSRect(x: 8, y: 8, width: 240, height: 160))
+        anchor.autoresizingMask = [.width, .height]
+        contentView.addSubview(anchor)
+
+        let surface = makeTrackedTerminalSurface()
+        portal.bind(hostedView: surface.hostedView, to: anchor, visibleInUI: true)
+        portal.synchronizeHostedViewForAnchor(anchor)
+        drainMainQueue()
+        realizeWindowLayout(window)
+        XCTAssertEqual(
+            surface.hostedView.frame.size,
+            NSSize(width: 240, height: 160),
+            "Precondition: the hosted view tracks the anchor at rest"
+        )
+
+        portal.isWindowLiveResizeActiveOverrideForTesting = true
+
+        // One live-resize tick: setFrame posts didResize synchronously and
+        // the anchor grows with the content view through its autoresizing
+        // mask before the notification fires.
+        var frame = window.frame
+        frame.size.width += 100
+        frame.size.height += 60
+        window.setFrame(frame, display: false)
+
+        // No queue drain on purpose: the assertion runs before any queued
+        // portal pass can fire, exactly like the tick's own CA commit does.
+        XCTAssertEqual(
+            surface.hostedView.frame.size,
+            NSSize(width: 340, height: 220),
+            "A live-resize tick must glue hosted frames within the same tick, not a runloop turn later"
+        )
+        withExtendedLifetime(surface) {}
+    }
+
     /// Regression: switching a pane's tab from a terminal to a browser hides
     /// the terminal only through its registry entry — the SwiftUI update that
     /// carries visible=false is dropped by the portal-host ownership gate

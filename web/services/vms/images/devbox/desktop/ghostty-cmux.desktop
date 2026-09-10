@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Name=Ghostty
+Comment=Terminal emulator
+Exec=/usr/bin/ghostty
+Terminal=false
+Icon=/etc/cmux/icons/ghostty.png
+Type=Application
+Categories=System;TerminalEmulator;
+StartupNotify=true

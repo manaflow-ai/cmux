@@ -1,4 +1,4 @@
-"""Deterministic cmux.protocol/1 server for the offline example and tests."""
+"""Deterministic cmux.protocol/2 server for the offline example and tests."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 
-PROTOCOL = "cmux.protocol/1"
+PROTOCOL = "cmux.protocol/2"
 MACHINE_A = "machine_" + "a" * 32
 SESSION_A = "session_" + "b" * 32
 MACHINE_B = "machine_" + "c" * 32
@@ -458,7 +458,7 @@ class FakeCmuxServer:
         terminals = [
             copy.deepcopy(item)
             for item in self.terminals.values()
-            if item["tab_id"] in tab_ids
+            if any(tab_id in tab_ids for tab_id in item["tab_ids"])
         ]
         cursor = {
             "generation": GENERATION,
@@ -1004,7 +1004,7 @@ class FakeCmuxServer:
         }
         terminal = {
             "id": terminal_id,
-            "tab_id": tab_id,
+            "tab_ids": [tab_id],
             "title": name if isinstance(name, str) else "",
             "cols": 100,
             "rows": 30,
@@ -1122,7 +1122,7 @@ class FakeCmuxServer:
         )
 
     def _session_for_terminal(self, terminal_id: str) -> str:
-        tab = self.tabs[self.terminals[terminal_id]["tab_id"]]
+        tab = self.tabs[self.terminals[terminal_id]["tab_ids"][0]]
         pane = self.panes[tab["pane_id"]]
         screen = self.screens[pane["screen_id"]]
         workspace_id = screen["workspace_id"]
@@ -1187,7 +1187,7 @@ class FakeCmuxServer:
         terminal_ids = [
             terminal_id
             for terminal_id, terminal in self.terminals.items()
-            if terminal["tab_id"] in tab_ids
+            if any(tab_id in tab_ids for tab_id in terminal["tab_ids"])
         ]
         for mapping, ids in (
             (self.screens, screen_ids),

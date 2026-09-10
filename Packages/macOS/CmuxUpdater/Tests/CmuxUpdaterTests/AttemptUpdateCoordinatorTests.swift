@@ -106,12 +106,26 @@ import Testing
         }
     }
 
+    /// Regression (issue #9262): being already up to date is the most likely outcome of the fresh
+    /// check this coordinator performs. It must end the attempt quietly so the model's `.notFound`
+    /// state renders normally, instead of being replaced by a "check your internet connection"
+    /// install-failure error.
     @Test func stopsMonitoringWhenFreshCheckFindsNothing() {
         var coordinator = AttemptUpdateCoordinator()
         _ = coordinator.requestInstallLatest(currentState: updateAvailable("0.64.15"))
         coordinator.didStartFreshCheck()
         #expect(coordinator.handleStateChange(.checking(.init(cancel: {}))) == .none)
-        #expect(coordinator.handleStateChange(.notFound(.init(acknowledgement: {}))) == .installFailed)
+        #expect(coordinator.handleStateChange(.notFound(.init(acknowledgement: {}))) == .none)
+        #expect(!coordinator.isMonitoring)
+    }
+
+    /// `.idle` in the same phase is still a genuine failure: the accepted attempt ended with no
+    /// result at all, so it must keep reporting `.installFailed`.
+    @Test func reportsInstallFailedWhenFreshCheckEndsAtIdle() {
+        var coordinator = AttemptUpdateCoordinator()
+        _ = coordinator.requestInstallLatest(currentState: updateAvailable("0.64.15"))
+        coordinator.didStartFreshCheck()
+        #expect(coordinator.handleStateChange(.idle) == .installFailed)
         #expect(!coordinator.isMonitoring)
     }
 

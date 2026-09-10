@@ -22,7 +22,10 @@ struct RemoteDaemonRPCClientTimeoutIsolationTests {
             remotePath: "/fake/cmuxd-remote",
             strings: RemoteDaemonStrings(
                 missingPersistentPTYCapability: "missing persistent PTY",
-                missingRequiredFunctionality: "missing functionality"
+                missingRequiredFunctionality: "missing functionality",
+                cloudNotificationClearWorkspaceInvalid: "invalid workspace",
+                cloudNotificationClearWorkspaceDenied: "workspace denied",
+                cloudNotificationClearSurfaceInvalid: "invalid surface"
             )
         ) { _ in
             unexpectedTermination.signal()
@@ -85,7 +88,10 @@ struct RemoteDaemonRPCClientTimeoutIsolationTests {
             remotePath: "/fake/cmuxd-remote",
             strings: RemoteDaemonStrings(
                 missingPersistentPTYCapability: "missing persistent PTY",
-                missingRequiredFunctionality: "missing functionality"
+                missingRequiredFunctionality: "missing functionality",
+                cloudNotificationClearWorkspaceInvalid: "invalid workspace",
+                cloudNotificationClearWorkspaceDenied: "workspace denied",
+                cloudNotificationClearSurfaceInvalid: "invalid surface"
             )
         ) { _ in
             unexpectedTermination.signal()

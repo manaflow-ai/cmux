@@ -1,8 +1,10 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { stripeSubscriptions } from "../db/schema";
 import enMessages from "../messages/en.json";
+import jaMessages from "../messages/ja.json";
+import { fallbackContentLocales } from "../i18n/locale-availability";
 import { createNextNavigationMock } from "./helpers/next-navigation-mock";
 import { withAccountMutationLeaseSupport } from
   "./helpers/account-mutation-db-mock";
@@ -24,6 +26,7 @@ const getUser = mock(async () => proUser);
 const redirect = mock((href: unknown) => {
   throw Object.assign(new Error("redirect"), { href });
 });
+const originalVaultEnabled = process.env.CMUX_VAULT_ENABLED;
 
 mock.module("next/navigation", () => createNextNavigationMock(redirect));
 
@@ -37,6 +40,17 @@ mock.module("next-intl/server", () => ({
   getTranslations: async (namespace?: string | { namespace?: string }) =>
     translator(typeof namespace === "string" ? namespace : namespace?.namespace),
   setRequestLocale: () => undefined,
+}));
+
+// PricingPage uses the locale-aware Link for the billing-recovery route. Keep
+// this server-render test independent of next-intl's client navigation
+// context, just like the other page tests that render locale-aware links.
+mock.module("../i18n/navigation", () => ({
+  Link: ({ href, children, ...props }: { href: string; children: React.ReactNode }) => (
+    <a href={href} {...props}>
+      {children}
+    </a>
+  ),
 }));
 
 mock.module("../app/[locale]/components/site-header", () => ({
@@ -66,14 +80,91 @@ mock.module("../db/client", () => ({
 const { default: PricingPage } = await import("../app/[locale]/pricing/page");
 
 describe("localized pricing page", () => {
+  test("publishes pricing only in its fully authored English and Japanese catalogs", () => {
+    expect(fallbackContentLocales).toEqual(["en", "ja"]);
+  });
+
+  test("keeps paid-plan copy flat: no metering, trials, or CodeRouter", () => {
+    expect(enMessages.pricing.team.features).toEqual([
+      "Centralized billing for your whole team",
+      "Priority support",
+    ]);
+    expect(jaMessages.pricing.team.features).toEqual([
+      "チーム全体の一元請求",
+      "優先サポート",
+    ]);
+    expect(
+      enMessages.pricing.compare.rows.find(
+        (row) => row.label === "Cloud agents on Cloud VMs",
+      ),
+    ).toEqual({
+      label: "Cloud agents on Cloud VMs",
+      free: "false",
+      pro: "true",
+      team: "true",
+      enterprise: "true",
+    });
+    expect(
+      enMessages.pricing.compare.rows.find(
+        (row) => row.label === "Concurrent Cloud VMs",
+      ),
+    ).toEqual({
+      label: "Concurrent Cloud VMs",
+      free: "false",
+      pro: "50",
+      team: "50 per user",
+      enterprise: "Custom",
+    });
+    expect(enMessages.dashboard.billing.free.upsellTitle).toBe(
+      "Upgrade when you need cloud agents.",
+    );
+    for (const catalog of [enMessages.pricing, jaMessages.pricing]) {
+      const flat = JSON.stringify(catalog);
+      expect(flat).not.toContain("CodeRouter");
+      expect(flat).not.toContain("compute-hour");
+      expect(flat).not.toContain("usage-based");
+      expect(flat).not.toContain("trial");
+      expect(flat).not.toContain("トライアル");
+      expect(flat).not.toContain("アクティブ計算時間");
+      expect(flat).not.toContain("コンピュート時間");
+      expect("sizes" in catalog).toBe(false);
+    }
+  });
+
+  test("shows the Founder's Edition recovery link once, after every card and before comparison", async () => {
+    const element = await PricingPage({ params: Promise.resolve({ locale: "en" }) });
+    const html = renderToStaticMarkup(element);
+    const recoveryIndex = html.indexOf('href="/billing/recover"');
+    expect(html.match(/href="\/billing\/recover"/g)).toHaveLength(1);
+    for (const plan of ["free", "pro", "team", "enterprise"] as const) {
+      const lastFeature = enMessages.pricing[plan].features.at(-1)!;
+      const featureIndex = html.indexOf(lastFeature);
+      expect(featureIndex).toBeGreaterThan(-1);
+      expect(recoveryIndex).toBeGreaterThan(featureIndex);
+    }
+    const comparisonIndex = html.indexOf("<table");
+    expect(comparisonIndex).toBeGreaterThan(-1);
+    expect(recoveryIndex).toBeLessThan(comparisonIndex);
+    expect(html).toContain("Already paid? Connect Founder&#x27;s Edition");
+  });
+
   beforeEach(() => {
+    process.env.CMUX_VAULT_ENABLED = "0";
     stackConfigured = false;
     stripeSubscriptionRows = [];
     getUser.mockClear();
     proUser.update.mockClear();
   });
 
-  test("does not render Manage billing for non-Pro snapshots", async () => {
+  afterEach(() => {
+    if (originalVaultEnabled === undefined) {
+      delete process.env.CMUX_VAULT_ENABLED;
+    } else {
+      process.env.CMUX_VAULT_ENABLED = originalVaultEnabled;
+    }
+  });
+
+  test("defaults public pricing to annual billing with full-size paid-plan CTAs", async () => {
     const element = await PricingPage({ params: Promise.resolve({ locale: "en" }) });
     const html = renderToStaticMarkup(element);
 
@@ -82,13 +173,36 @@ describe("localized pricing page", () => {
     expect(html).toContain("/mo");
     expect(html).toContain("/user/mo");
     expect(html).not.toContain("/mo.");
-    expect(html).toContain("$35/user/mo");
+    expect(html).toContain("$48/user/mo");
     expect(html).toContain(
-      "/api/billing/checkout?plan=team&amp;cmux_external_browser=1&amp;interval=month",
+      "/api/billing/checkout?plan=team&amp;cmux_external_browser=1&amp;cmux_source=pricing_page&amp;interval=year&amp;cmux_placement=pricing_page",
+    );
+    expect(html).toContain(
+      "/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;cmux_source=pricing_page&amp;interval=year&amp;cmux_placement=pricing_page",
+    );
+    expect(html).toMatch(
+      /href="\/api\/billing\/checkout\?plan=pro[^"]*interval=year[^"]*"[^>]*class="[^"]*min-h-12 px-5 py-3 text-\[15px\][^"]*"[^>]*><span>Get Pro/,
+    );
+    expect(html).toMatch(
+      /href="\/api\/billing\/checkout\?plan=team[^"]*interval=year[^"]*"[^>]*class="[^"]*min-h-12 px-5 py-3 text-\[15px\][^"]*"[^>]*><span>Get Teams/,
     );
     expect(html).toContain('<p class="mt-5 text-sm font-medium">Includes:</p>');
     expect(html).not.toContain('style="min-height:4rem"');
     expect(html).toContain("text-3xl font-medium tabular-nums tracking-tight");
+    expect(html).not.toContain("CodeRouter");
+    expect(html).not.toContain("Subrouter");
+    expect(html).not.toContain("cmux Vault");
+  });
+
+  test("only advertises Vault when its release flag is enabled", async () => {
+    process.env.CMUX_VAULT_ENABLED = "1";
+
+    const element = await PricingPage({
+      params: Promise.resolve({ locale: "en" }),
+    });
+    const html = renderToStaticMarkup(element);
+
+    expect(html).toContain("cmux Vault");
   });
 
   test("renders Stack metadata-only Pro snapshots as Free", async () => {
@@ -122,28 +236,72 @@ describe("localized pricing page", () => {
     });
     const html = renderToStaticMarkup(element);
 
-    expect(html).toContain("$24");
+    expect(html).toContain("$40");
     expect(html).toContain("/mo");
-    expect(html).toContain("$24/mo");
-    expect(html).toContain("$28");
+    expect(html).toContain("$40/mo");
+    expect(html).toContain("$48");
     expect(html).toContain("/user/mo");
     expect(html).toContain("/mo, billed yearly");
     expect(html).toContain("/user/mo, billed yearly");
-    expect(html).toContain("$28/user/mo");
-    expect(html).not.toContain("$288/year");
-    expect(html).not.toContain("$336/user/year");
-    expect(html).not.toContain("Billed $288 annually · save 20%");
-    expect(html).not.toContain("Billed $336 annually · save 20%");
+    expect(html).toContain("$48/user/mo");
+    expect(html).not.toContain("$480/year");
+    expect(html).not.toContain("$576/user/year");
+    expect(html).not.toContain("$24");
+    expect(html).not.toContain("$28");
     expect(html).toContain(
-      "/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;interval=year",
+      "/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;cmux_source=pricing_page&amp;interval=year&amp;cmux_placement=pricing_page",
     );
     expect(html).toContain(
-      "/api/billing/checkout?plan=team&amp;cmux_external_browser=1&amp;interval=year",
+      "/api/billing/checkout?plan=team&amp;cmux_external_browser=1&amp;cmux_source=pricing_page&amp;interval=year&amp;cmux_placement=pricing_page",
     );
     expect(html).toContain('role="radiogroup"');
     expect(html).toContain('<button type="button" role="radio" aria-checked="true"');
     expect(html).not.toContain('href="?interval=');
     expect(html).toContain("mx-auto mt-6 flex w-fit");
+  });
+
+  test("forwards an inbound source and campaign tags to checkout", async () => {
+    const element = await PricingPage({
+      params: Promise.resolve({ locale: "en" }),
+      searchParams: Promise.resolve({
+        interval: "month",
+        cmux_source: "cli_free_access_expiry",
+        cmux_client: "cli",
+        utm_source: "newsletter",
+        utm_campaign: "sept",
+      }),
+    });
+    const html = renderToStaticMarkup(element);
+
+    expect(html).toContain(
+      "/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;cmux_source=cli_free_access_expiry&amp;cmux_client=cli&amp;utm_source=newsletter&amp;utm_campaign=sept&amp;interval=month&amp;cmux_placement=pricing_page",
+    );
+    expect(html).not.toContain("cmux_source=pricing_page");
+  });
+
+  test("honors an explicit monthly billing interval", async () => {
+    const element = await PricingPage({
+      params: Promise.resolve({ locale: "en" }),
+      searchParams: Promise.resolve({ interval: "month" }),
+    });
+    const html = renderToStaticMarkup(element);
+
+    expect(html).toContain("$50");
+    expect(html).toContain("$60");
+    expect(html).toContain(
+      "Up to 50 Cloud VMs, with 24 GB RAM and 6 vCPUs shared across all VMs",
+    );
+    expect(html).toContain("Unlimited workspaces");
+    expect(html).not.toContain("Unlimited active Cloud VMs");
+    expect(html).toContain(
+      "/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;cmux_source=pricing_page&amp;interval=month&amp;cmux_placement=pricing_page",
+    );
+    expect(html).toContain(
+      "/api/billing/checkout?plan=team&amp;cmux_external_browser=1&amp;cmux_source=pricing_page&amp;interval=month&amp;cmux_placement=pricing_page",
+    );
+    expect(html).toContain(
+      '<button type="button" role="radio" aria-checked="true" tabindex="0" class="bg-foreground px-3 py-1.5 font-medium text-background">Monthly</button>',
+    );
   });
 });
 
