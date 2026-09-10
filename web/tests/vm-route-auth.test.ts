@@ -534,7 +534,7 @@ describe("VM REST auth", () => {
     expect(runVmWorkflow).not.toHaveBeenCalled();
   });
 
-  test("creates by kind without an image and echoes the resolved kind", async () => {
+  test("legacy Base creates report the actual desktop capability", async () => {
     // The deployed shape: the manifest's defaultForKind entry names the image,
     // and the client only asks for a kind.
     getUser.mockResolvedValue(authedStackUser());
@@ -555,13 +555,34 @@ describe("VM REST auth", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ id: "provider-vm-kind", kind: "base" });
+    expect(await response.json()).toMatchObject({ id: "provider-vm-kind", kind: "desktop" });
     expect(createVm).toHaveBeenCalledWith(expect.objectContaining({
       provider: "freestyle",
       image: MANIFEST_BASE_DEFAULT.imageId,
       imageVersion: MANIFEST_BASE_DEFAULT.version,
     }));
   });
+
+  for (const operation of ["open", "reset"]) {
+  test(`Base ${operation} reports the returned machine capability`, async () => {
+    getUser.mockResolvedValue(authedStackUser());
+    const route = operation === "open" ? baseOpenRoute : baseResetRoute;
+    for (const [image, kind] of [[MANIFEST_DESKTOP_DEFAULT.imageId, "desktop"], ["sh-never-listed", "base"]]) {
+      runVmWorkflow.mockResolvedValue({
+        providerVmId: "provider-vm-base", provider: "freestyle", image,
+        imageVersion: null, status: "running", createdAt: 1_777_000_000_000,
+        baseId: "base-test", baseName: "Base", generation: 1,
+      });
+      const response = await route.POST(new Request(`https://cmux.test/api/vm/base/${operation}`, {
+        method: "POST", headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ kind: "base" }),
+      }));
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ image, kind });
+    }
+  });
+
+  }
 
   test("a plan size the manifest ladder cannot serve fails with an actionable image config error", async () => {
     // Both kinds have a manifest ladder, so the only way nothing resolves is a
@@ -2559,7 +2580,7 @@ describe("VM REST auth", () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ id: "provider-vm-manifest", kind: "desktop" });
-    expect(MANIFEST_DESKTOP_DEFAULT.imageId).not.toBe(MANIFEST_BASE_DEFAULT.imageId);
+    expect(MANIFEST_DESKTOP_DEFAULT.imageId).toBe(MANIFEST_BASE_DEFAULT.imageId);
     expect(createVm).toHaveBeenCalledWith(expect.objectContaining({
       image: MANIFEST_DESKTOP_DEFAULT.imageId,
       imageVersion: MANIFEST_DESKTOP_DEFAULT.version,

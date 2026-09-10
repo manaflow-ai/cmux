@@ -114,12 +114,7 @@ final class NewMachineModel {
     let mode: Mode
     let plan: MachinePlanSnapshot?
     let availableMemoryOptionsMb: [Int]
-    /// The kinds the backend reported it can serve (`limits.imageKinds`).
-    let imageKinds: [VMImageKindOption]
     var memoryMb: Int
-    /// What the machine is for. Desktop (a VNC screen) is the default; Base
-    /// (terminal only) is an explicit pick. See ``defaultKind(imageKinds:)``.
-    var kind: VMMachineKind
     /// Why the create could not be launched; nil once a retry starts. Failures
     /// of the create itself never land here: by then the sheet is gone and the
     /// Machines panel row carries them.
@@ -135,7 +130,6 @@ final class NewMachineModel {
         mode: Mode,
         plan: MachinePlanSnapshot?,
         memoryOptionsMb: [Int] = [],
-        imageKinds: [VMImageKindOption] = [],
         submit: @escaping Submit
     ) {
         self.mode = mode
@@ -144,45 +138,18 @@ final class NewMachineModel {
         // An empty list means an older control plane did not advertise the
         // ladder. Preserve its 20 GiB default and omit --size entirely.
         self.availableMemoryOptionsMb = serverOptions
-        self.imageKinds = imageKinds
         self.submit = submit
         self.memoryMb = serverOptions.isEmpty
             ? Self.legacyPlanMachineMemoryMb
             : Self.defaultMemoryMb(planId: plan?.planId, options: serverOptions)
-        self.kind = Self.defaultKind(imageKinds: imageKinds)
     }
 
-    /// Kinds the sheet offers, in picker order (Desktop first): the kinds the
-    /// backend reports it can provision, or every kind when it reports none (an
-    /// older control plane that predates `limits.imageKinds`).
-    static func selectableKinds(imageKinds: [VMImageKindOption]) -> [VMMachineKind] {
-        let servable = VMMachineKind.allCases.filter { kind in imageKinds.contains { $0.kind == kind } }
-        return servable.isEmpty ? VMMachineKind.allCases : servable
-    }
-
-    /// The kind the sheet opens on: a desktop with a VNC screen whenever the
-    /// backend can serve one (#12239). Only a deployment with no desktop image
-    /// at all opens on Base, and then the sheet says so; Base is never a
-    /// silent default.
-    static func defaultKind(imageKinds: [VMImageKindOption]) -> VMMachineKind {
-        let kinds = selectableKinds(imageKinds: imageKinds)
-        return kinds.contains(VMMachineKind.defaultKind) ? VMMachineKind.defaultKind : (kinds.first ?? VMMachineKind.defaultKind)
-    }
-
-    var selectableKinds: [VMMachineKind] { Self.selectableKinds(imageKinds: imageKinds) }
-
-    /// The one-line explanation under the kind picker: what the picked kind
-    /// gives you, plus why Desktop is missing when this deployment has no
-    /// desktop image.
-    var kindSummaryText: String {
-        guard selectableKinds.contains(.desktop) else {
-            return String(
-                localized: "machines.new.kind.desktopUnavailable",
-                defaultValue: "No desktop image is available in this environment, so this machine is terminal only."
-            )
-        }
-        return kind.summary
-    }
+    /// The one machine cmux Cloud provisions: the devbox with the shell
+    /// tooling, the coding agents and a VNC screen. One snapshot ladder serves
+    /// every kind the backend knows, so the kind is not something the sheet
+    /// asks about; the request carries it so the machine is recorded (and its
+    /// Displays row shown) as what it is.
+    static let machineKind: VMMachineKind = VMMachineKind.defaultKind
 
     static func defaultMemoryMb(planId: String?, options: [Int] = memoryOptionsMb) -> Int {
         let allowed = options.filter { $0 <= maxMemoryMb(planId: planId) }.sorted()
@@ -241,17 +208,17 @@ final class NewMachineModel {
         return String(format: format, mb)
     }
 
-    /// The exact CLI invocation the create runs. The kind always travels as
-    /// `--desktop` / `--base` and the snapshot is selected by kind and size;
-    /// the backend maps them to an image, so no name or image id is user
-    /// input. `--focus false` is what makes the sheet's create a background
-    /// one: the machine still opens (its own workspace, the Base placeholder)
-    /// but the CLI never selects that workspace or moves keyboard focus out
-    /// of the one the person is working in when it lands.
+    /// The exact CLI invocation the create runs. Only the size is user input:
+    /// the machine kind travels as ``machineKind``'s flag and the backend maps
+    /// kind and size to the snapshot, so no name or image id leaves the sheet.
+    /// `--focus false` is what makes the sheet's create a background one: the
+    /// machine still opens (its own workspace, the Base placeholder) but the
+    /// CLI never selects that workspace or moves keyboard focus out of the one
+    /// the person is working in when it lands.
     var cliArguments: [String] {
         switch mode {
         case .newMachine:
-            var arguments = ["vm", "new", kind.cliFlag]
+            var arguments = ["vm", "new", Self.machineKind.cliFlag]
             if supportsSize { arguments += ["--size", String(memoryMb)] }
             arguments += ["--focus", "false"]
             return arguments
@@ -259,7 +226,7 @@ final class NewMachineModel {
             return [
                 "vm", "base", "open",
                 "--workspace", workspaceID.uuidString,
-                kind.cliFlag,
+                Self.machineKind.cliFlag,
                 "--focus", "false",
             ]
         }
@@ -269,7 +236,7 @@ final class NewMachineModel {
     var createRequest: MachineCreateRequest {
         MachineCreateRequest(
             mode: mode,
-            kind: kind,
+            kind: Self.machineKind,
             name: nil,
             arguments: cliArguments
         )
