@@ -2066,14 +2066,15 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               exit 0
             fi
             if [ "$cmux_ssh_auth_cleanup_complete" != 1 ]; then
-              if { [ "$cmux_ssh_auth_dynamic_discovery_failed" != 1 ] ||
-                   [ -z "${cmux_ssh_auth_event_token:-}" ]; } &&
-                 { [ "$cmux_ssh_auth_tree_frozen" = 1 ] ||
+              if { [ "$cmux_ssh_auth_tree_frozen" = 1 ] ||
                    [ "$cmux_ssh_auth_force_frozen" = 1 ]; }; then
                 # The frozen marker is the proof that every journal row was
                 # stopped and identity-fenced. A non-empty journal alone is
                 # insufficient: a failed freeze may already have resumed its
                 # rows, and a later EAGAIN abort must never signal a reused PID.
+                # A dynamic-discovery failure does not invalidate rows that were
+                # already frozen; kill those known identities and keep the root
+                # abort obligation for any replacement that was never claimed.
                 # Use the no-fork backstop only after a confirmed freeze.
                 cmux_ssh_auth_force_confirmed_journal "$cmux_ssh_auth_pending"
                 cmux_ssh_auth_force_confirmed_journal "$cmux_ssh_auth_owned"
