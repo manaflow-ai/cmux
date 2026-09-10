@@ -82,6 +82,48 @@ struct DeviceDirectoryMergeTests {
         DevicePairedDevice(instance: instance, displayName: name, routes: routes, lastSeenAt: lastSeenAt)
     }
 
+    @Test("Unpair removes a local-only Mac and its routes without removing another build's grant")
+    func unpairRemovesLocalOnlyRecord() throws {
+        let studio = SurfaceDeviceInstanceID(deviceID: studioID, tag: "default")
+        let taggedStudio = SurfaceDeviceInstanceID(deviceID: studioID, tag: "dev")
+        let savedRoute = try route("paired")
+        let mainPair = paired(studio, name: "Studio", routes: [savedRoute])
+        let devPair = paired(taggedStudio, name: "Studio Dev", routes: [savedRoute])
+        let before = DeviceDirectoryMerge.merge(.init(
+            paired: [mainPair, devPair], selfInstance: selfInstance, currentUserID: "user_a"
+        ))
+        #expect(before.count == 2)
+        let after = DeviceDirectoryMerge.merge(.init(
+            paired: [devPair], previous: before, selfInstance: selfInstance, currentUserID: "user_a"
+        ))
+        #expect(after.map(\.instance) == [taggedStudio])
+        let refreshed = DeviceDirectoryMerge.merge(.init(
+            paired: [devPair], previous: after, selfInstance: selfInstance, currentUserID: "user_a"
+        ))
+        #expect(refreshed.map(\.instance) == [taggedStudio])
+    }
+
+    @Test("Unpair retains a discovered Mac but drops routes supplied only by its revoked grant")
+    func unpairRetainsDiscoveryWithoutRevokedRoutes() throws {
+        let studio = SurfaceDeviceInstanceID(deviceID: studioID, tag: "default")
+        let discovered = registryDevice(studioID, name: "Studio")
+        let before = DeviceDirectoryMerge.merge(.init(
+            registry: [discovered], paired: [paired(studio, name: "Studio", routes: [try route("paired")])],
+            selfInstance: selfInstance, currentUserID: "user_a"
+        ))
+        let after = DeviceDirectoryMerge.merge(.init(
+            registry: [discovered], previous: before, selfInstance: selfInstance, currentUserID: "user_a"
+        ))
+        let remaining = try #require(after.first)
+        #expect(!remaining.isPaired)
+        #expect(remaining.routes.isEmpty)
+        #expect(!remaining.isDialable)
+        let offline = DeviceDirectoryMerge.merge(.init(
+            previous: after, selfInstance: selfInstance, currentUserID: "user_a"
+        ))
+        #expect(offline.map(\.instance) == [studio])
+    }
+
     @Test("Registry and presence union into one record per instance, never listing this Mac")
     func unionExcludesSelf() throws {
         let liveRoute = try route("live")

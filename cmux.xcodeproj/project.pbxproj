@@ -1292,6 +1292,7 @@
 		B05553C10000000000000001 /* DetachedFolderPathLookupCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = B05553C10000000000000002 /* DetachedFolderPathLookupCache.swift */; };
 		B0555303B0555303B0555303 /* DetachedFolderPathLookupCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0555304B0555304B0555304 /* DetachedFolderPathLookupCacheTests.swift */; };
 		DEC1CE00000000000000000E /* DeviceDirectory.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEC1CE00000000000000000D /* DeviceDirectory.swift */; };
+		DECE17900000000000000002 /* DeviceDirectoryLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DECE17900000000000000001 /* DeviceDirectoryLifecycleTests.swift */; };
 		DEC1CE00000000000000000C /* DeviceDirectoryMerge.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEC1CE00000000000000000B /* DeviceDirectoryMerge.swift */; };
 		DEC1CE000000000000000042 /* DeviceDirectoryMergeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEC1CE000000000000000041 /* DeviceDirectoryMergeTests.swift */; };
 		DEC1CE00000000000000000A /* DeviceDirectoryRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEC1CE000000000000000009 /* DeviceDirectoryRecord.swift */; };
@@ -4746,6 +4747,7 @@
 		B05553C10000000000000002 /* DetachedFolderPathLookupCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetachedFolderPathLookupCache.swift; sourceTree = "<group>"; };
 		B0555304B0555304B0555304 /* DetachedFolderPathLookupCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetachedFolderPathLookupCacheTests.swift; sourceTree = "<group>"; };
 		DEC1CE00000000000000000D /* DeviceDirectory.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DeviceDirectory.swift"; sourceTree = "<group>"; };
+		DECE17900000000000000001 /* DeviceDirectoryLifecycleTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DeviceDirectoryLifecycleTests.swift; sourceTree = "<group>"; };
 		DEC1CE00000000000000000B /* DeviceDirectoryMerge.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DeviceDirectoryMerge.swift"; sourceTree = "<group>"; };
 		DEC1CE000000000000000041 /* DeviceDirectoryMergeTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DeviceDirectoryMergeTests.swift; sourceTree = "<group>"; };
 		DEC1CE000000000000000009 /* DeviceDirectoryRecord.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DeviceDirectoryRecord.swift"; sourceTree = "<group>"; };
@@ -9572,6 +9574,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				DEC1CE00000000000000003D /* SurfaceMachineIDDeviceEncodingTests.swift */,
 				DEC1CE00000000000000003F /* DevicePresenceWireTests.swift */,
 				DEC1CE000000000000000041 /* DeviceDirectoryMergeTests.swift */,
+				DECE17900000000000000001 /* DeviceDirectoryLifecycleTests.swift */,
 				DEC1CE000000000000000043 /* DeviceRouteSelectorTests.swift */,
 				DEC1CE000000000000000045 /* DeviceLinkReconnectPolicyTests.swift */,
 				DEC1CE000000000000000047 /* DeviceWorkspaceProjectionTests.swift */,
@@ -13885,6 +13888,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A54730000000000000000006 /* DeferredAgentResumeIndexFallbackTests.swift in Sources */,
 				C0DE75890000000000000003 /* DeflatedAssetTestSupport.swift in Sources */,
 				B0555303B0555303B0555303 /* DetachedFolderPathLookupCacheTests.swift in Sources */,
+				DECE17900000000000000002 /* DeviceDirectoryLifecycleTests.swift in Sources */,
 				DEC1CE000000000000000042 /* DeviceDirectoryMergeTests.swift in Sources */,
 				DEC1CE000000000000000046 /* DeviceLinkReconnectPolicyTests.swift in Sources */,
 				DEC1CE000000000000000040 /* DevicePresenceWireTests.swift in Sources */,
