@@ -1109,7 +1109,7 @@ mod tests {
         )
         .unwrap();
         let (reply, pending) = oneshot::channel();
-        driver.begin_connect(SocketAddr::new(pair.server_v6.into(), 1337), reply);
+        driver.begin_connect(SocketAddr::new(pair.server_v6, 1337), reply);
         assert_eq!(driver.conns.len(), 1);
         assert_eq!(driver.sockets.iter().count(), 1);
 

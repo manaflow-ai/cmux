@@ -276,7 +276,10 @@ mod tests {
         assert_eq!(greeting, [5, 0]);
         assert_eq!(permits.available_permits(), 0);
         let mut request = vec![5, 1, 0, 4];
-        request.extend_from_slice(&pair.server_v6.octets());
+        let std::net::IpAddr::V6(remote) = pair.server_v6 else {
+            panic!("fixture must provide an IPv6 address");
+        };
+        request.extend_from_slice(&remote.octets());
         request.extend_from_slice(&1337u16.to_be_bytes());
         client.write_all(&request).await.unwrap();
         drop(client);
