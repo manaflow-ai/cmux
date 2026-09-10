@@ -213,12 +213,39 @@ fi
 # accepted assessment must be the one that ends the poll.
 : > "$LOG"
 rm -f "$TMP_DIR/spctl-count"
-if ! CMUX_TEST_SPCTL_COUNT_FILE="$TMP_DIR/spctl-count" CMUX_TEST_SPCTL_REJECTS=2 run_helper >/dev/null 2>&1; then
+if ! CMUX_TEST_SPCTL_COUNT_FILE="$TMP_DIR/spctl-count" CMUX_TEST_SPCTL_REJECTS=2 run_helper >"$TMP_DIR/poll.out" 2>&1; then
   echo "FAIL: helper notarization gave up while the Gatekeeper ticket was still propagating" >&2
   exit 1
 fi
 if [ "$(grep -c '^spctl -a -vv --ignore-cache --no-cache --type execute .*/standalone/cmux Computer Use\.app$' "$LOG")" -ne 3 ]; then
   echo "FAIL: expected three Gatekeeper assessments (two rejected, one accepted)" >&2
+  exit 1
+fi
+
+# The first rejection announces the whole budget so a log reader can tell a
+# propagation wait from a hang.
+if ! grep -Eq '^Gatekeeper propagation budget: [0-9]+ attempts x [0-9]+s \(about [0-9]+ minutes\)$' "$TMP_DIR/poll.out"; then
+  echo "FAIL: Gatekeeper polling must announce its attempt budget on the first rejection" >&2
+  exit 1
+fi
+
+# The default budget must cover Apple's CDN propagation tail for a stable
+# release: nightly run 34208928547 (2026-09-08) was still rejected 4m50s
+# after notarytool reported Accepted and failed on a 20 x 15s budget. Keep the
+# default at twenty minutes or more, polled often enough that a landed ticket
+# is noticed within half a minute, and keep both knobs env-configurable.
+default_attempts="$(sed -n 's/^GATEKEEPER_ASSESS_ATTEMPTS="\${CMUX_GATEKEEPER_ASSESS_ATTEMPTS:-\([0-9][0-9]*\)}"$/\1/p' "$SCRIPT")"
+default_delay="$(sed -n 's/^GATEKEEPER_ASSESS_DELAY_SECONDS="\${CMUX_GATEKEEPER_ASSESS_DELAY_SECONDS:-\([0-9][0-9]*\)}"$/\1/p' "$SCRIPT")"
+if ! [[ "$default_attempts" =~ ^[0-9]+$ && "$default_delay" =~ ^[0-9]+$ ]]; then
+  echo "FAIL: Gatekeeper attempt and delay defaults must be env-configurable numeric literals (got '$default_attempts' x '$default_delay')" >&2
+  exit 1
+fi
+if (( default_attempts * default_delay < 1200 )); then
+  echo "FAIL: default Gatekeeper propagation budget is $((default_attempts * default_delay))s; a stable release needs at least 1200s" >&2
+  exit 1
+fi
+if (( default_delay > 30 )); then
+  echo "FAIL: Gatekeeper poll interval ${default_delay}s is too coarse; poll at least every 30s" >&2
   exit 1
 fi
 
