@@ -5,7 +5,7 @@
 // never deleted: revoking sets revoked_at, and a later invite clears it so the
 // row keeps its id and history.
 
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNotNull } from "drizzle-orm";
 
 import { cloudDb } from "../../db/client";
 import { adminMembers } from "../../db/schema";
@@ -50,6 +50,8 @@ export type AdminMembersStore = {
     readonly invitedByEmail: string | null;
   }): Promise<AdminMemberRecord>;
   update(id: string, patch: AdminMemberPatch): Promise<AdminMemberRecord | null>;
+  /** Applies the patch only while the row is still revoked; null when it is active (or gone). */
+  reopen(id: string, patch: AdminMemberPatch): Promise<AdminMemberRecord | null>;
 };
 
 export class AdminMemberInvalidEmailError extends Error {
@@ -127,14 +129,19 @@ export async function inviteAdminMember(input: {
     return { member: await insertMember(store, email, inviter), created: true };
   }
   if (existing.revokedAt === null) throw new AdminMemberAlreadyActiveError(existing);
-  const reopened = await store.update(existing.id, {
+  // The reopen is conditional on revoked_at so two concurrent re-invites
+  // cannot both succeed: the loser sees no row and reports the conflict.
+  const reopened = await store.reopen(existing.id, {
     ...inviter,
     invitedAt: (input.now ?? (() => new Date()))(),
     acceptedAt: null,
     revokedAt: null,
+    lastSeenAt: null,
   });
-  if (!reopened) throw new AdminMemberNotFoundError(existing.id);
-  return { member: reopened, created: false };
+  if (reopened) return { member: reopened, created: false };
+  const raced = await store.findById(existing.id);
+  if (raced && raced.revokedAt === null) throw new AdminMemberAlreadyActiveError(raced);
+  throw new AdminMemberNotFoundError(existing.id);
 }
 
 async function insertMember(
@@ -233,6 +240,14 @@ export function drizzleAdminMembersStore(db: AdminMembersDb): AdminMembersStore 
     },
     async update(id, patch) {
       const rows = await db.update(adminMembers).set(patch).where(eq(adminMembers.id, id)).returning();
+      return rows[0] ?? null;
+    },
+    async reopen(id, patch) {
+      const rows = await db
+        .update(adminMembers)
+        .set(patch)
+        .where(and(eq(adminMembers.id, id), isNotNull(adminMembers.revokedAt)))
+        .returning();
       return rows[0] ?? null;
     },
   };

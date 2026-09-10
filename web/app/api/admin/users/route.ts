@@ -46,18 +46,17 @@ export async function POST(request: NextRequest) {
   if (!gate.ok) return gate.response;
 
   const parsed = parseGrantBody(await readJsonBody(request));
-  if (!parsed) return adminJsonResponse({ error: "invalid_body" }, 400);
-
+  // Audited from here on: a malformed body from an admin is still recorded.
   return withAdminAudit(
     {
       actor: gate.admin,
       action: "user_grant_set",
       targetKind: "user",
-      targetId: parsed.userId,
-      details: { plan: parsed.plan },
+      targetId: parsed?.userId ?? null,
+      details: parsed ? { plan: parsed.plan } : null,
       requestId: auditRequestId(request),
     },
-    () => applyUserGrant(parsed, gate.admin),
+    async () => (parsed ? applyUserGrant(parsed, gate.admin) : adminJsonResponse({ error: "invalid_body" }, 400)),
   );
 }
 

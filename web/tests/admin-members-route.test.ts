@@ -57,6 +57,11 @@ const store: AdminMembersStore = {
     members[index] = { ...members[index]!, ...patch };
     return members[index]!;
   },
+  async reopen(id, patch) {
+    const current = members.find((member) => member.id === id);
+    if (!current || current.revokedAt === null) return null;
+    return await store.update(id, patch);
+  },
 };
 
 let auditRows: Array<Record<string, unknown>> = [];
@@ -68,7 +73,8 @@ const auditDb = {
   }),
 } as unknown as AdminAuditDb;
 
-const sendInvite = mock(async (): Promise<{ sent: boolean }> => ({ sent: true }));
+let sendResult = { sent: true };
+const sendInvite = mock(async (): Promise<{ sent: boolean }> => sendResult);
 
 const { GET, POST, DELETE } = createAdminMembersHandlers({ store, auditDb, sendInvite, now: () => NOW });
 
@@ -99,6 +105,7 @@ describe("admin members routes", () => {
     members = [];
     nextId = 1;
     auditRows = [];
+    sendResult = { sent: true };
     sendInvite.mockClear();
   });
 
@@ -118,7 +125,8 @@ describe("admin members routes", () => {
         lastSeenAt: null,
       }],
     });
-    currentUser = { id: "user", primaryEmail: "pat@example.com", primaryEmailVerified: true, isAnonymous: false };
+    // An address with no member row and no company domain.
+    currentUser = { id: "user", primaryEmail: "stranger@example.com", primaryEmailVerified: true, isAnonymous: false };
     expect((await GET(new NextRequest("https://cmux.com/api/admin/members"))).status).toBe(403);
   });
 
@@ -143,7 +151,7 @@ describe("admin members routes", () => {
   });
 
   test("POST reports emailSent false when the sender is not configured", async () => {
-    sendInvite.mockImplementationOnce(async () => ({ sent: false }));
+    sendResult = { sent: false };
     const response = await POST(mutation({ email: "pat@example.com" }));
     expect(response.status).toBe(200);
     expect(((await response.json()) as { emailSent: boolean }).emailSent).toBe(false);
@@ -158,17 +166,41 @@ describe("admin members routes", () => {
     expect(sendInvite).toHaveBeenCalledTimes(1);
     expect(auditRows.at(-1)).toMatchObject({ action: "member_invite", outcome: "error", error: "already_member" });
 
+    await store.update(members[0]!.id, { acceptedAt: NOW, lastSeenAt: NOW });
     await DELETE(mutation({ memberId: members[0]!.id }, "DELETE"));
     expect(members[0]?.revokedAt).toEqual(NOW);
     const reinvited = await POST(mutation({ email: "pat@example.com" }));
     expect(reinvited.status).toBe(200);
     expect(members).toHaveLength(1);
-    expect(members[0]).toMatchObject({ revokedAt: null, acceptedAt: null });
+    // A re-invite starts a new tenure: nothing from the old one is shown.
+    expect(members[0]).toMatchObject({ revokedAt: null, acceptedAt: null, lastSeenAt: null });
     expect(sendInvite).toHaveBeenCalledTimes(2);
   });
 
+  test("POST returns 409 when a concurrent invite reopened the row first", async () => {
+    await POST(mutation({ email: "pat@example.com" }));
+    await DELETE(mutation({ memberId: members[0]!.id }, "DELETE"));
+    // Simulate the race: the other request wins between findByEmail and reopen.
+    const original = store.reopen;
+    store.reopen = async (id, patch) => {
+      await store.update(id, { revokedAt: null });
+      return await original(id, patch);
+    };
+    try {
+      const response = await POST(mutation({ email: "pat@example.com" }));
+      expect(response.status).toBe(409);
+      expect(await response.json()).toEqual({ error: "already_member" });
+    } finally {
+      store.reopen = original;
+    }
+    expect(sendInvite).toHaveBeenCalledTimes(1);
+  });
+
   test("POST validates the body and the email, and rejects cross-site browser calls", async () => {
-    expect((await POST(mutation({}))).status).toBe(400);
+    const malformed = await POST(mutation({}));
+    expect(malformed.status).toBe(400);
+    // An authenticated admin's malformed request is still an audited action.
+    expect(auditRows.at(-1)).toMatchObject({ action: "member_invite", targetLabel: null, outcome: "error", error: "invalid_body" });
     expect((await POST(mutation({ email: "   " }))).status).toBe(400);
     const junk = await POST(mutation({ email: "not-an-email" }));
     expect(junk.status).toBe(400);
@@ -195,6 +227,8 @@ describe("admin members routes", () => {
     });
     expect((await DELETE(mutation({ memberId: "00000000-0000-4000-8000-000000000009" }, "DELETE"))).status).toBe(404);
     expect((await DELETE(mutation({ memberId: "1; drop" }, "DELETE"))).status).toBe(400);
+    expect((await DELETE(mutation({ memberId: "------------------------------------" }, "DELETE"))).status).toBe(400);
+    expect(auditRows.at(-1)).toMatchObject({ action: "member_revoke", targetId: null, outcome: "error", error: "invalid_body" });
   });
 
   test("DELETE refuses a self-revoke", async () => {

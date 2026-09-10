@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { PgDialect } from "drizzle-orm/pg-core";
+import type { SQL } from "drizzle-orm";
+
 import { adminAuditLog } from "../db/schema";
 import {
   ADMIN_AUDIT_MAX_LIMIT,
@@ -117,7 +120,7 @@ describe("admin audit log", () => {
     expect(inserted).toEqual([]);
     expect(logged).toHaveLength(1);
     expect(logged[0]?.[0]).toBe("admin.audit.write_failed");
-    expect(logged[0]?.[1]).toMatchObject({ action: "member_invite", message: "connection refused" });
+    expect(logged[0]?.[1]).toEqual({ action: "member_invite", targetKind: "admin_member", outcome: "ok", cause: "Error" });
   });
 
   test("withAdminAudit records ok for 2xx and the error code otherwise", async () => {
@@ -195,7 +198,13 @@ describe("admin audit log", () => {
 
     stored = [stored[1]!];
     const second = await listAdminAudit({ cursor: first.nextCursor, limit: 1, db: fakeDb() });
-    expect(lastWhere).toBeDefined();
+    // The keyset predicate is strictly "before the cursor" on (created_at, id),
+    // with the cursor's own timestamp and id as the bound parameters.
+    const rendered = new PgDialect().sqlToQuery(lastWhere as SQL);
+    expect(rendered.sql).toBe(
+      '(("admin_audit_log"."created_at" < $1::timestamptz) or ((("admin_audit_log"."created_at" = $2::timestamptz) and ("admin_audit_log"."id" < $3))))',
+    );
+    expect(rendered.params).toEqual(["2026-09-09 10:00:01.000+00", "2026-09-09 10:00:01.000+00", ID_B]);
     expect(second.rows.map((row) => [row.id, row.outcome, row.error])).toEqual([[ID_A, "error", "user_not_found"]]);
     expect(second.nextCursor).toBeNull();
   });

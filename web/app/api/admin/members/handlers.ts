@@ -31,7 +31,7 @@ export type AdminMembersRouteDependencies = {
   readonly now?: () => Date;
 };
 
-const UUID_PATTERN = /^[0-9a-f-]{36}$/i;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function createAdminMembersHandlers(deps: AdminMembersRouteDependencies) {
   /** GET /api/admin/members — every member row, newest invite first. */
@@ -49,19 +49,19 @@ export function createAdminMembersHandlers(deps: AdminMembersRouteDependencies) 
     const gate = await requireAdmin(request);
     if (!gate.ok) return gate.response;
 
+    // Audited from here on: a malformed body from an authenticated admin is
+    // still an admin action, recorded with no target.
     const email = readEmail(await readJsonBody(request));
-    if (!email) return adminJsonResponse({ error: "invalid_body" }, 400);
-
     return withAdminAudit(
       {
         actor: gate.admin,
         action: "member_invite",
         targetKind: "admin_member",
-        targetLabel: email.toLowerCase(),
+        targetLabel: email?.toLowerCase() ?? null,
         requestId: auditRequestId(request),
         db: deps.auditDb,
       },
-      () => invite(email, gate.admin),
+      () => (email ? invite(email, gate.admin) : invalidBody()),
     );
   }
 
@@ -90,8 +90,6 @@ export function createAdminMembersHandlers(deps: AdminMembersRouteDependencies) 
     if (!gate.ok) return gate.response;
 
     const memberId = readMemberId(await readJsonBody(request));
-    if (!memberId) return adminJsonResponse({ error: "invalid_body" }, 400);
-
     return withAdminAudit(
       {
         actor: gate.admin,
@@ -101,7 +99,7 @@ export function createAdminMembersHandlers(deps: AdminMembersRouteDependencies) 
         requestId: auditRequestId(request),
         db: deps.auditDb,
       },
-      () => revoke(memberId, gate.admin),
+      () => (memberId ? revoke(memberId, gate.admin) : invalidBody()),
     );
   }
 
@@ -126,6 +124,10 @@ export function createAdminMembersHandlers(deps: AdminMembersRouteDependencies) 
 export const defaultAdminMembersDependencies: AdminMembersRouteDependencies = {
   sendInvite: sendAdminMemberInviteEmail,
 };
+
+async function invalidBody(): Promise<Response> {
+  return adminJsonResponse({ error: "invalid_body" }, 400);
+}
 
 function readEmail(body: unknown): string | null {
   if (!body || typeof body !== "object" || Array.isArray(body)) return null;

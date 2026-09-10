@@ -126,6 +126,7 @@ describe("requireAdmin member rule", () => {
     if (!gate.ok) expect(gate.response.status).toBe(401);
     currentUser = null;
     gate = await requireAdmin(request());
+    expect(gate.ok).toBe(false);
     if (!gate.ok) expect(gate.response.status).toBe(401);
     expect(memberLookups).toBe(0);
   });

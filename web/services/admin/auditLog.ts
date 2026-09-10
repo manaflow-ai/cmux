@@ -78,13 +78,13 @@ export async function recordAdminAudit(input: RecordAdminAuditInput): Promise<vo
       requestId: input.requestId ?? null,
     });
   } catch (error) {
+    // No identifiers or raw database text in the log line: the row that was
+    // lost is described by its shape only.
     console.error(AUDIT_WRITE_FAILED_EVENT, {
       action: input.action,
       targetKind: input.targetKind,
-      targetId: input.targetId ?? null,
-      actorUserId: input.actor.id,
       outcome: input.outcome,
-      message: error instanceof Error ? error.message : String(error),
+      cause: errorCodeForThrown(error),
     });
   }
 }

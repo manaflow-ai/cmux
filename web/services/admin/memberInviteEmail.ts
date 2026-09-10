@@ -64,10 +64,20 @@ export const sendAdminMemberInviteEmail: AdminInviteSender = async (input) => {
     to: input.to,
     inviterEmail: input.inviterEmail,
   });
-  const { error } = await resend.emails.send(payload);
-  if (error) {
-    console.error("admin.members.invite_email_failed", { to: input.to, error });
+  // The member row is already written when this runs, so a transport failure
+  // is reported as "not sent", never as a failed invite.
+  try {
+    const { error } = await resend.emails.send(payload);
+    if (error) {
+      console.error("admin.members.invite_email_failed", { to: input.to, error });
+      return { sent: false };
+    }
+    return { sent: true };
+  } catch (error) {
+    console.error("admin.members.invite_email_failed", {
+      to: input.to,
+      message: error instanceof Error ? error.message : String(error),
+    });
     return { sent: false };
   }
-  return { sent: true };
 };
