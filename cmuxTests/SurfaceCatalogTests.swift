@@ -394,6 +394,13 @@ struct SurfaceCatalogTests {
         catalog.updateMachine(createdInfo, from: provider, createdRemoteWorkspaceID: created.id)
         #expect(catalog.machines[machine]?.remoteWorkspaces?.map(\.id) == ["ws", "created"])
 
+        // A pre-create status response must not erase the committed receipt or
+        // its payload while the daemon graph still trails the create response.
+        catalog.updateMachine(staleInfo, from: provider)
+        #expect(catalog.machines[machine]?.remoteWorkspaces?.last == created)
+        catalog.replaceCloudState(state, resources: [], info: staleInfo)
+        #expect(catalog.machines[machine]?.remoteWorkspaces?.last == created)
+
         var acknowledgedSnapshot = snapshot
         acknowledgedSnapshot["cursor"] = ["generation": "g1", "revision": "2"]
         acknowledgedSnapshot["workspaces"] = [

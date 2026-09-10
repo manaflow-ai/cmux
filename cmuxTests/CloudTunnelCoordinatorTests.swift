@@ -117,6 +117,28 @@ struct CloudTunnelCoordinatorTests {
         await harness.coordinator.requestDown()
     }
 
+    @Test("an up queued at revocation's first suspension starts after the revoked install is cleaned")
+    func queuedUpDuringRevocationOwnsAReplacementStart() async throws {
+        let harness = Harness()
+        harness.controller.holdInstallForApproval = true
+        await harness.coordinator.beginUp(pin: true)
+        try #require(await harness.awaitState(.awaitingApproval) == .awaitingApproval)
+
+        harness.controller.holdInstallForApproval = false
+        try await harness.coordinator.revokeWithNextUpAlreadyQueued()
+        harness.controller.approve()
+        let becameUp = await harness.waitUntil {
+            await harness.coordinator.state == .up
+        }
+        #expect(becameUp)
+        #expect(harness.controller.installedConfigurations.count == 1)
+        let calls = harness.controller.calls
+        let replacementInstall = try #require(calls.lastIndex(of: "install"))
+        let finalRemoval = try #require(calls.lastIndex(of: "remove"))
+        #expect(finalRemoval < replacementInstall)
+        await harness.coordinator.requestDown()
+    }
+
     @Test("the first Cloud use enrolls, installs, starts, and waits for the link")
     func onDemandStart() async {
         let harness = Harness()
@@ -525,6 +547,16 @@ struct CloudTunnelCoordinatorTests {
         await harness.clock.waitUntilSleeping(for: .seconds(600))
         harness.controller.emit(.connected)
         #expect(await waiter.value == .up)
+    }
+}
+
+private extension CloudTunnelCoordinator {
+    /// Queue the replacement on this actor before revoke can enqueue teardown.
+    /// It becomes eligible exactly when revoke first yields the actor.
+    func revokeWithNextUpAlreadyQueued() async throws {
+        let nextUp = Task { await self.beginUp(pin: true) }
+        try await revoke()
+        _ = await nextUp.value
     }
 }
 

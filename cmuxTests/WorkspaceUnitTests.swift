@@ -7502,14 +7502,6 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             workspace.bonsplitController.tabs(inPane: sourcePaneId).first { $0.id == anchorTabId }
         )
 
-        let forkCreated = expectation(description: "Context menu creates the fork panel")
-        let panelChanges = workspace.$panels
-            .dropFirst()
-            .filter { $0.count == 2 }
-            .first()
-            .sink { _ in forkCreated.fulfill() }
-        defer { panelChanges.cancel() }
-
         workspace.splitTabBar(
             workspace.bonsplitController,
             didRequestTabContextAction: .forkConversation,
@@ -7517,7 +7509,10 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             inPane: sourcePaneId
         )
 
-        await fulfillment(of: [forkCreated], timeout: 5)
+        let didCreateFork = await AppKitTestEventPump().waitUntil(timeout: .seconds(5)) {
+            workspace.panels.count == 2
+        }
+        XCTAssertTrue(didCreateFork, "Context menu must create the fork panel")
 
         let forkPanelId = try XCTUnwrap(workspace.focusedPanelId)
         XCTAssertNotEqual(forkPanelId, sourcePanelId, "Codex fork should focus the new split")
@@ -7544,14 +7539,6 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         let tabs = workspace.bonsplitController.tabs(inPane: sourcePaneId)
         let anchorTab = try XCTUnwrap(tabs.first { $0.id == anchorTabId })
 
-        let forkCreated = expectation(description: "Context menu creates the fork panel")
-        let panelChanges = workspace.$panels
-            .dropFirst()
-            .filter { $0.count == 2 }
-            .first()
-            .sink { _ in forkCreated.fulfill() }
-        defer { panelChanges.cancel() }
-
         workspace.splitTabBar(
             workspace.bonsplitController,
             didRequestTabContextAction: .forkConversationNewTab,
@@ -7559,7 +7546,10 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             inPane: sourcePaneId
         )
 
-        await fulfillment(of: [forkCreated], timeout: 5)
+        let didCreateFork = await AppKitTestEventPump().waitUntil(timeout: .seconds(5)) {
+            workspace.panels.count == 2
+        }
+        XCTAssertTrue(didCreateFork, "Context menu must create the fork panel")
 
         XCTAssertEqual(
             workspace.bonsplitController.tabs(inPane: sourcePaneId).count,
@@ -7595,14 +7585,6 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             workspace.bonsplitController.tabs(inPane: sourcePaneId).first { $0.id == anchorTabId }
         )
 
-        let forkCreated = expectation(description: "Context menu creates the fork panel")
-        let panelChanges = workspace.$panels
-            .dropFirst()
-            .filter { $0.count == 2 }
-            .first()
-            .sink { _ in forkCreated.fulfill() }
-        defer { panelChanges.cancel() }
-
         workspace.splitTabBar(
             workspace.bonsplitController,
             didRequestTabContextAction: .forkConversation,
@@ -7610,7 +7592,10 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             inPane: sourcePaneId
         )
 
-        await fulfillment(of: [forkCreated], timeout: 5)
+        let didCreateFork = await AppKitTestEventPump().waitUntil(timeout: .seconds(5)) {
+            workspace.panels.count == 2
+        }
+        XCTAssertTrue(didCreateFork, "Context menu must create the fork panel")
 
         XCTAssertEqual(
             workspace.bonsplitController.tabs(inPane: sourcePaneId).count,
