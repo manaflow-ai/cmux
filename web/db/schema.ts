@@ -1397,6 +1397,24 @@ export const adminAuditLog = pgTable(
   ],
 );
 
+// Invited admins. A verified Stack email that matches an unrevoked row opens
+// the admin surface in addition to the company-domain rule (services/admin/access).
+export const adminMembers = pgTable(
+  "admin_members",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    /** Lower-cased, trimmed email. */
+    email: text("email").notNull(),
+    invitedByUserId: text("invited_by_user_id").notNull(),
+    invitedByEmail: text("invited_by_email"),
+    invitedAt: timestamp("invited_at", { withTimezone: true }).notNull().defaultNow(),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
+  },
+  (table) => [uniqueIndex("admin_members_email_unique").on(table.email)],
+);
+
 export const billingEmailClaims = pgTable(
   "billing_email_claims",
   {
