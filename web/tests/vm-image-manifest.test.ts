@@ -253,6 +253,33 @@ describe("promoteImageManifestEntry", () => {
     ).toThrow(/already listed as freestyle-old-desktop \(desktop\)/);
     expect(() => promoteImageManifestEntry(base, passedEntry(), { kinds: [] })).toThrow(/no kinds/);
   });
+
+  test("adds a kind to an image promoted earlier without re-listing the rows it already has", () => {
+    // One snapshot serving both kinds, promoted in two steps: the desktop
+    // rows first, then `--kinds desktop,base` from the same bake. The desktop
+    // rows are left as they are, the base rows are appended with the `-base`
+    // suffix, and the provider's previous base defaults are demoted.
+    const sizes = [
+      { imageId: "sh-x-sm", size: { name: "sm" as const, cpu: 2, memoryMb: 4096, storageMb: 16384 } },
+      { imageId: "sh-x-md", size: { name: "md" as const, cpu: 4, memoryMb: 8192, storageMb: 32768 } },
+    ];
+    const withDesktop = promoteImageManifestEntry(base, passedEntry({ version: "freestyle-x" }), { kinds: ["desktop"], sizes });
+    const both = promoteImageManifestEntry(withDesktop, passedEntry({ version: "freestyle-x" }), { kinds: ["desktop", "base"], sizes });
+    expect(imageManifestProblems(both)).toEqual([]);
+    expect(both.images.slice(withDesktop.images.length).map((e) => [e.version, e.kind, e.imageId, e.defaultForLocalDev ?? false])).toEqual([
+      ["freestyle-x-sm-base", "base", "sh-x-sm", true],
+      ["freestyle-x-md-base", "base", "sh-x-md", false],
+    ]);
+    expect(both.images.filter((e) => e.provider === "freestyle" && e.defaultForKind).map((e) => [e.version, e.kind])).toEqual([
+      ["freestyle-x-sm", "desktop"],
+      ["freestyle-x-md", "desktop"],
+      ["freestyle-x-sm-base", "base"],
+      ["freestyle-x-md-base", "base"],
+    ]);
+    expect(both.images.find((e) => e.version === "freestyle-old-base")?.defaultForKind).toBe(false);
+    // Nothing left to add: refused, not silently a no-op.
+    expect(() => promoteImageManifestEntry(both, passedEntry({ version: "freestyle-x" }), { kinds: ["desktop", "base"], sizes })).toThrow(/already listed as freestyle-x-sm \(desktop, sm\)/);
+  });
 });
 
 describe("upgradeDevboxSourceRecords (promote --upgrade-source-schema)", () => {

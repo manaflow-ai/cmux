@@ -70,6 +70,17 @@ const legacyDesktopVersion = "freestyle-cmux-devbox-20260902h";
 const retiredBetaSnapshot = "sh-fb3dcf7b47894114889b10186626af5b";
 
 describe("VM image resolver: request by kind", () => {
+  test("every size resolves legacy Base and Desktop requests to one snapshot with displays", () => {
+    for (const memoryMb of [4096, 8192, 16384, 24576, 32768, 65536]) {
+      const desktop = resolveVmImage("freestyle", undefined, {}, { kind: "desktop", memoryMb });
+      const base = resolveVmImage("freestyle", undefined, {}, { kind: "base", memoryMb });
+      const implicit = resolveVmImage("freestyle", undefined, {}, { memoryMb });
+      expect(base.image).toBe(desktop.image);
+      expect(implicit.image).toBe(desktop.image);
+      expect(vmImageKindFor("freestyle", base.image)).toBe("desktop");
+    }
+  });
+
   const deployed = { VERCEL: "1", VERCEL_ENV: "production" };
 
   test("FREESTYLE_SANDBOX_SNAPSHOT is ignored: only the manifest decides", () => {
