@@ -397,13 +397,16 @@ struct CloudTreeNodeActions {
         catalog: SurfaceCatalog,
         name: String?,
         focus: Bool,
-        openLocally: Bool = true
+        openLocally: Bool = true,
+        existingWorkspace: SurfaceRemoteWorkspace? = nil
     ) async throws -> (
         workspace: SurfaceRemoteWorkspace,
         terminal: SurfaceResource,
         opened: (workspaceID: UUID, projections: [SurfaceProjection])?
     ) {
-        let workspace = try await provider.createRemoteWorkspace(name: name)
+        let workspace: SurfaceRemoteWorkspace
+        if let existingWorkspace { workspace = existingWorkspace }
+        else { workspace = try await provider.createRemoteWorkspace(name: name) }
         await provider.refresh()
         let existing = catalog.snapshot.resources(on: machine).first { resource in
             resource.id.kind == .terminal && resource.remoteWorkspaces.contains { $0.id == workspace.id }

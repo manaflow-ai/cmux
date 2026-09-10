@@ -2368,7 +2368,8 @@ final class TerminalNotificationStore: ObservableObject {
                 scrollPosition: notification.scrollPosition,
                 clickAction: notification.clickAction,
                 replyShape: notification.replyShape,
-                soundContext: notification.soundContext
+                soundContext: notification.soundContext,
+                origin: notification.origin
             )
         }
         if didMoveNotification {

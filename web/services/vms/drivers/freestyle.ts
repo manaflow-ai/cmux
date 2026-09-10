@@ -646,11 +646,14 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
           setSpanAttributes(span, { "cmux.vm.network.id": data.id, "cmux.vm.network.created": true });
           return mapFreestyleNetwork(data);
         } catch (err) {
-          // The slug is unique per account: the loser of a race, or a create
-          // for a user whose row was lost, is told the name is taken, and the
-          // existing network is the right answer.
+          // Only the provider's explicit slug conflict permits reconciliation;
+          // auth, transport and server errors retain their original failure.
+          if (!(err instanceof FreestyleApiError && err.status === 409 && err.code === "CONFLICT")) {
+            throw new ProviderError("freestyle", `ensureNetwork(${slug})`, err);
+          }
           const existing = await this.readNetworkBySlug(fs, slug);
           if (existing) {
+            await this.ensureMembersRule(fs, existing.id);
             setSpanAttributes(span, { "cmux.vm.network.id": existing.id, "cmux.vm.network.created": false });
             return existing;
           }
@@ -705,11 +708,12 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
           setSpanAttributes(span, { "cmux.vm.tunnel.id": tunnel.id });
           return { tunnel, created: true, rotated: false };
         } catch (err) {
-          // The provider resource can outlive the local bookkeeping row (for
-          // example after a fresh local-dev database). The device slug is
-          // deterministic, so reconcile that surviving tunnel before turning a
-          // duplicate create into a retryable 502. This also closes the race
-          // where two enrollments create the same slug concurrently.
+          if (!(err instanceof FreestyleApiError && err.status === 409 && err.code === "CONFLICT")) {
+            throw new ProviderError("freestyle", `createTunnel(${options.slug})`, err);
+          }
+          // A duplicate create may reuse only the exact same client identity.
+          // Key rotation belongs to explicit enrollment of an existing row;
+          // recovery must never evict a concurrent client's working key.
           const recovered = await this.recoverExistingTunnel(
             options.slug,
             clientPublicKey,
@@ -744,15 +748,12 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
 
       const tunnelID = existing.tunnelId ?? existing.id;
       let current: TunnelData = existing;
-      // Mirror enrollVmTunnel's lost-key behavior: the slug identifies this
-      // device, so rotate its public key in place rather than pairing a stale
-      // config with the new private key.
-      if (current.clientPublicKey.trim() !== clientPublicKey) {
-        current = await fs.tunnels.rotateKey(tunnelID, { clientPublicKey });
-      }
+      if (current.clientPublicKey.trim() !== clientPublicKey) return null;
       if (!current.attachments.some((attachment) => attachment.vpcId === networkId)) {
         current = await fs.tunnels.attachVpc(tunnelID, networkId);
       }
+      if (current.clientPublicKey.trim() !== clientPublicKey ||
+          !current.attachments.some((attachment) => attachment.vpcId === networkId)) return null;
       return mapFreestyleTunnel(current, networkId);
     } catch {
       // Preserve the original create failure. A failed reconciliation attempt
@@ -822,10 +823,7 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
         description: "cmux: members reach each other (healed)",
       });
     } catch (err) {
-      // Heal is best-effort on the reuse path: a transient listing failure
-      // must not block machine creation on a network that is almost always
-      // already correct.
-      console.error(`[freestyle] members-rule heal failed for ${networkId}`, err);
+      throw new ProviderError("freestyle", `members-rule heal failed for ${networkId}`, err);
     }
   }
 
@@ -887,7 +885,7 @@ export class FreestyleProvider implements VMProvider {
 
   /** ``create`` honors requested memory through the grow-only size ladder. */
   /// Freestyle exposes live resource statistics and grow-only resizing.
-  readonly capabilities = { stats: true, sizing: true } as const;
+  readonly capabilities = { stats: true, sizing: true, desktop: true } as const;
 
   readonly privateNetworking: VMPrivateNetworking;
 

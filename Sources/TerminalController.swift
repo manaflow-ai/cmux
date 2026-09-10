@@ -2825,6 +2825,7 @@ class TerminalController {
         case "notification.create_for_caller":
             return v2Result(id: id, self.v2NotificationCreateForCaller(params: params))
         case "agent.resolve_delivery_target": return v2Result(id: id, self.v2AgentResolveDeliveryTarget(params: params))
+        case "agent.hibernation.session_end": return v2Result(id: id, self.v2AgentHibernationSessionEnd(params: params))
         #if DEBUG
         case "debug.notification.status":
             return v2Ok(id: id, result: notificationDebugStatus())
@@ -3219,7 +3220,7 @@ class TerminalController {
             "pane.join",
             "pane.last",
             "notification.create",
-            "notification.create_for_caller", "agent.resolve_delivery_target",
+            "notification.create_for_caller", "agent.resolve_delivery_target", "agent.hibernation.session_end",
             "notification.create_for_surface",
             "notification.create_for_target",
             "notification.list",
@@ -4134,6 +4135,15 @@ class TerminalController {
         case .failure(let error):
             if case VMClientError.disabledByManagedPolicy = error {
                 return v2Error(id: id, code: "cloud_disabled", message: String(describing: error))
+            }
+            if let deliveryError = error as? CloudFileDelivery.DeliveryError {
+                return v2Error(id: id, code: "vm_file_delivery_failed", message: deliveryError.localizedDescription)
+            }
+            if let combinedError = error as? CloudFileDelivery.OperationAndCleanupError {
+                return v2Error(id: id, code: "vm_file_delivery_failed", message: combinedError.localizedDescription)
+            }
+            if case VMClientError.lifecycleUnsupported = error {
+                return v2Error(id: id, code: "vm_operation_unsupported", message: String(describing: error))
             }
             if let deliveryError = error as? CloudEnvDelivery.DeliveryError {
                 return v2Error(id: id, code: "vm_env_delivery_failed", message: deliveryError.localizedDescription)

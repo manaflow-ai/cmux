@@ -7,6 +7,9 @@ extension TerminalController {
     /// line, or a terminal's visible screen. Backs `cmux vm push --secret`.
     /// Result: `{machine, path, mode, bytes, transport: "link"}`.
     nonisolated func socketWorkerVMFilePutResponse(id: Any?, params: [String: Any]) -> String {
+        guard !ManagedFileTransferPolicy.isDisabled else {
+            return v2Error(id: id, code: "file_transfer_disabled", message: ManagedFileTransferPolicy.disabledMessage)
+        }
         guard let vmId = Self.surfaceString(params["id"]), !vmId.isEmpty else {
             return v2Error(id: id, code: "invalid_params", message: "vm.file_put requires `id`. Run `cmux vm ls` to find one.")
         }
@@ -27,34 +30,18 @@ extension TerminalController {
             return v2Error(id: id, code: "invalid_params", message: "vm.file_put: \(data.count) bytes exceeds the \(CloudFileDelivery.maxPayloadBytes)-byte limit for link delivery; use `cmux vm push` without --secret for large, non-secret files.")
         }
         let request = CloudFileDelivery.Request(path: path, mode: mode, data: data)
-        // `v2VmCall` knows the env delivery errors and the auth/catalog ones; a file
-        // delivery failure would otherwise surface as the generic "request failed".
-        // Capture it here so the CLI prints the receiver's own reason.
-        nonisolated(unsafe) var deliveryFailure: (any Error)?
-        let response = v2VmCall(id: id, timeoutSeconds: 240) {
-            do {
-                let provider = try await Self.cloudTuiProvider(machineID: vmId, catalog: await SurfaceCatalog.shared)
-                let outcome = try await provider.deliverFile(request)
-                var bytes = data.count
-                var reportedPath: Any = path
-                var reportedMode: Any = mode
-                if case .ok(let count, let atPath, let withMode) = outcome {
-                    bytes = count
-                    if let atPath { reportedPath = atPath }
-                    if let withMode { reportedMode = withMode }
-                }
-                return ["machine": vmId, "path": reportedPath, "mode": reportedMode, "bytes": bytes, "transport": "link"]
-            } catch let error as CloudFileDelivery.DeliveryError {
-                deliveryFailure = error
-                throw error
-            } catch let error as CloudFileDelivery.OperationAndCleanupError {
-                deliveryFailure = error
-                throw error
+        return v2VmCall(id: id, timeoutSeconds: 240) {
+            let provider = try await Self.cloudTuiProvider(machineID: vmId, catalog: await SurfaceCatalog.shared)
+            let outcome = try await provider.deliverFile(request)
+            var bytes = data.count
+            var reportedPath: Any = path
+            var reportedMode: Any = mode
+            if case .ok(let count, let atPath, let withMode) = outcome {
+                bytes = count
+                if let atPath { reportedPath = atPath }
+                if let withMode { reportedMode = withMode }
             }
+            return ["machine": vmId, "path": reportedPath, "mode": reportedMode, "bytes": bytes, "transport": "link"]
         }
-        if let deliveryFailure {
-            return v2Error(id: id, code: "vm_file_delivery_failed", message: deliveryFailure.localizedDescription)
-        }
-        return response
     }
 }

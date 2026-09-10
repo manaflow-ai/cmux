@@ -73,7 +73,8 @@ enum NotificationTextSanitizer {
         guard maxBytes > 0 else { return "" }
         guard text.utf8.count > maxBytes else { return text }
         let ellipsis = "\u{2026}"
-        let budget = max(0, maxBytes - ellipsis.utf8.count)
+        guard maxBytes >= ellipsis.utf8.count else { return "" }
+        let budget = maxBytes - ellipsis.utf8.count
         var used = 0
         var prefix = ""
         for character in text {

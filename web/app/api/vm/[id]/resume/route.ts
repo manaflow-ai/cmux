@@ -13,7 +13,7 @@ import { resumeVm } from "../../../../../services/vms/workflows";
 // answers 501 vm_operation_unsupported.
 
 // Resume waits for the provider to report running (the same budget as an attach).
-export const maxDuration = 300;
+export const maxDuration = 960;
 
 export async function POST(
   request: Request,

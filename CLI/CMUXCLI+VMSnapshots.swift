@@ -38,11 +38,14 @@ extension CMUXCLI {
         } catch let error as CLIError {
             throw Self.vmSnapshotWordedError(error, machine: machine, snapshotID: nil, action: "list snapshots")
         }
+        guard let snapshots = response["snapshots"] as? [[String: Any]],
+              snapshots.allSatisfy({ ($0["id"] as? String)?.isEmpty == false }) else {
+            throw CLIError(message: String(localized: "cli.vm.snapshot.invalidList", defaultValue: "The machine returned an invalid snapshot list. Reconnect and retry."))
+        }
         if jsonOutput {
             print(jsonString(response))
             return
         }
-        let snapshots = (response["snapshots"] as? [[String: Any]]) ?? []
         guard !snapshots.isEmpty else {
             print("no snapshots")
             return

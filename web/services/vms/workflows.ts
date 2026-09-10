@@ -1103,6 +1103,7 @@ export function listVmSnapshots(input: {
   readonly providerVmId: string;
 }) {
   return Effect.gen(function* () {
+    const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* requireUserVm(input);
     const providerVmId = vm.providerVmId ?? input.providerVmId;
@@ -1110,8 +1111,24 @@ export function listVmSnapshots(input: {
       return yield* Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "listSnapshots" }));
     }
     const snapshots = yield* providers.listSnapshots(vm.provider, providerVmId);
+    // A provider delete can commit before its final ledger write. Inventory is
+    // authoritative: repair that final write when the pending snapshot is gone.
+    const pending = yield* repo.pendingSnapshotDeletions({ vmId: vm.id, provider: vm.provider });
+    for (const snapshotId of pending) {
+      if (!snapshots.some((snapshot) => snapshot.id === snapshotId)) {
+        yield* repo.recordUsageEvent(snapshotDeletionEvent(vm, snapshotId, "vm.snapshot.deleted")).pipe(Effect.retry({ times: 2 }));
+      }
+    }
     return [...snapshots].sort((a, b) => b.createdAt - a.createdAt);
   });
+}
+
+function snapshotDeletionEvent(vm: CloudVmRow, snapshotId: string, eventType: string) {
+  return {
+    userId: vm.userId, billingTeamId: vm.billingTeamId, billingPlanId: vm.billingPlanId,
+    vmId: vm.id, eventType, provider: vm.provider, imageId: vm.imageId,
+    metadata: { snapshotId },
+  };
 }
 
 export type VmSnapshotDeleteResult = {
@@ -1140,23 +1157,23 @@ export function deleteVmSnapshot(input: {
     if (!providers.deleteSnapshot) {
       return yield* Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "deleteSnapshot" }));
     }
+    const pending = yield* repo.pendingSnapshotDeletions({ vmId: vm.id, provider: vm.provider });
+    if (!pending.includes(input.snapshotId)) {
+      if (!providers.listSnapshots) {
+        return yield* Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "listSnapshots" }));
+      }
+      const snapshots = yield* providers.listSnapshots(vm.provider, providerVmId);
+      if (!snapshots.some((snapshot) => snapshot.id === input.snapshotId)) {
+        return yield* Effect.fail(new VmSnapshotNotFoundError({ snapshotId: input.snapshotId }));
+      }
+      // Persist before the irreversible mutation. A crash or final-write failure
+      // leaves a durable intent that prevents restore and is safe to retry.
+      yield* repo.recordUsageEvent(snapshotDeletionEvent(vm, input.snapshotId, "vm.snapshot.delete_requested")).pipe(Effect.retry({ times: 2 }));
+    }
     yield* providers.deleteSnapshot(vm.provider, providerVmId, input.snapshotId).pipe(
-      Effect.catchAll((err) =>
-        Effect.fail<VmProviderOperationError | VmSnapshotNotFoundError>(
-          isProviderNotFoundError(err) ? new VmSnapshotNotFoundError({ snapshotId: input.snapshotId }) : err,
-        ),
-      ),
+      Effect.catchAll((err) => isProviderNotFoundError(err) ? Effect.void : Effect.fail(err)),
     );
-    yield* repo.recordUsageEvent({
-      userId: vm.userId,
-      billingTeamId: vm.billingTeamId,
-      billingPlanId: vm.billingPlanId,
-      vmId: vm.id,
-      eventType: "vm.snapshot.deleted",
-      provider: vm.provider,
-      imageId: vm.imageId,
-      metadata: { snapshotId: input.snapshotId },
-    });
+    yield* repo.recordUsageEvent(snapshotDeletionEvent(vm, input.snapshotId, "vm.snapshot.deleted")).pipe(Effect.retry({ times: 2 }));
     const result: VmSnapshotDeleteResult = { id: input.snapshotId, deleted: true };
     return result;
   });

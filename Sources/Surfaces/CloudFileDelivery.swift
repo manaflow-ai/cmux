@@ -78,8 +78,8 @@ enum CloudFileDelivery {
                 return "\(machine)'s cmux shim predates `cmux file receive` — reconnect it (cmux vm tree \(machine) --refresh) to heal, then retry"
             case .receiverFailed(let reason):
                 return "the machine refused the file: \(reason)"
-            case .noResult(let screen):
-                return "the machine's `cmux file receive` ended without a result\(Self.detail(screen))"
+            case .noResult:
+                return String(localized: "cloud.fileDelivery.noResult", defaultValue: "The machine's file receiver ended without a result.")
             case .byteCountMismatch(let sent, let reported):
                 return "the machine wrote \(reported) bytes but \(sent) were sent; the file was not left in place"
             case .workspaceCleanupFailed(let workspaceID):
@@ -230,8 +230,13 @@ enum CloudFileDelivery {
                 var mode: String?
                 for field in line[range.upperBound...].split(separator: " ").map(String.init) {
                     if field.hasPrefix("bytes="), let count = Int(field.dropFirst("bytes=".count)) { bytes = count }
-                    if field.hasPrefix("path=") { path = String(field.dropFirst("path=".count)) }
+
                     if field.hasPrefix("mode=") { mode = String(field.dropFirst("mode=".count)) }
+                }
+                if let pathStart = line.range(of: " path="),
+                   let modeStart = line.range(of: " mode=", options: .backwards),
+                   pathStart.upperBound <= modeStart.lowerBound {
+                    path = String(line[pathStart.upperBound..<modeStart.lowerBound])
                 }
                 result = .ok(bytes: bytes, path: path, mode: mode)
             } else if let range = line.range(of: "CMUX-FILE-ERR") {

@@ -309953,6 +309953,72 @@
           }
         }
       }
+    },
+    "cli.vm.output.invalidPage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The machine returned an invalid output page. Reconnect and retry."
+          }
+        }
+      }
+    },
+    "cli.vm.output.incomplete": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The machine's output could not be read completely. Reconnect and retry."
+          }
+        }
+      }
+    },
+    "cli.vm.snapshot.invalidList": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The machine returned an invalid snapshot list. Reconnect and retry."
+          }
+        }
+      }
+    },
+    "cloud.link.inputTooLarge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The machine input chunk is too large. Split it into smaller chunks and retry."
+          }
+        }
+      }
+    },
+    "cloud.workspace.ambiguousName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Several machine workspaces have that name. Use a workspace ID or choose a unique name."
+          }
+        }
+      }
+    },
+    "cloud.fileDelivery.noResult": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The machine's file receiver ended without a result."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -443,6 +443,11 @@ export type VmRepositoryShape = {
     readonly code: string;
     readonly message: string;
   }) => Effect.Effect<void, VmDatabaseError>;
+  /** Durable deletion intents not yet finalized, scoped to their source machine. */
+  readonly pendingSnapshotDeletions: (input: {
+    readonly vmId: string;
+    readonly provider: ProviderId;
+  }) => Effect.Effect<string[], VmDatabaseError>;
   readonly hasOwnedSnapshot: (input: {
     readonly userId: string;
     readonly billingTeamId?: string | null;
@@ -2651,6 +2656,27 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
         .where(eq(cloudVms.id, input.id));
     }),
 
+  pendingSnapshotDeletions: (input) =>
+    dbEffect("pendingSnapshotDeletions", async () => {
+      const rows = await cloudDb().select({ metadata: cloudVmUsageEvents.metadata })
+        .from(cloudVmUsageEvents)
+        .where(and(
+          eq(cloudVmUsageEvents.vmId, input.vmId),
+          eq(cloudVmUsageEvents.provider, input.provider),
+          eq(cloudVmUsageEvents.eventType, "vm.snapshot.delete_requested"),
+          sql`not exists (
+            select 1 from ${cloudVmUsageEvents} as finalized
+            where finalized.event_type = 'vm.snapshot.deleted'
+              and finalized.vm_id = ${cloudVmUsageEvents.vmId}
+              and finalized.provider = ${cloudVmUsageEvents.provider}
+              and finalized.metadata->>'snapshotId' = ${cloudVmUsageEvents.metadata}->>'snapshotId'
+          )`,
+        ));
+      return [...new Set(rows.flatMap(({ metadata }) =>
+        typeof metadata.snapshotId === "string" ? [metadata.snapshotId] : [],
+      ))];
+    }),
+
   hasOwnedSnapshot: (input) =>
     dbEffect("hasOwnedSnapshot", async () => {
       const db = cloudDb();
@@ -2668,7 +2694,8 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
             // accounting, so exclude it here rather than at the provider.
             sql`not exists (
               select 1 from ${cloudVmUsageEvents} as snapshot_deleted
-              where snapshot_deleted.event_type = 'vm.snapshot.deleted'
+              where snapshot_deleted.event_type in ('vm.snapshot.delete_requested', 'vm.snapshot.deleted')
+                and snapshot_deleted.provider = ${cloudVmUsageEvents.provider}
                 and snapshot_deleted.metadata->>'snapshotId' = ${input.snapshotId}
             )`,
           ),

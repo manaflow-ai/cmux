@@ -28,8 +28,8 @@
 // holding any credential — exe.dev's Reflection integration is the model.
 //
 // Installed by the driver at create/heal (see freestyle.ts bootstrap), so it
-// reaches machines created from any existing snapshot. The rendered copy at
-// images/devbox/cmux must stay byte-identical (vm-devbox-image.test.ts).
+// reaches machines created from any existing snapshot. This driver-installed
+// adapter is the sole source; image bakes keep their promoted CLI until healing.
 
 import { GUEST_CMUX_MESSAGE_SHELL } from "./guestCliMessages";
 import { GUEST_CMUX_TOPOLOGY_SHELL } from "./guestTopologyCli";
@@ -1531,6 +1531,10 @@ LAYOUT_PLAN_JQ='
 layout_tui_json() {
   cmux_ltj_label="\$1"
   shift
+  if [ -n "\${cmux_la_first_revision:-}" ]; then
+    set -- --expected-revision "\$cmux_la_first_revision" "\$@"
+    cmux_la_first_revision=""
+  fi
   if cmux_out="\$(tui --json "\$@" 2>&1)"; then :; else die "layout apply: \$cmux_ltj_label failed: \$cmux_out" 1; fi
 }
 
@@ -1630,6 +1634,8 @@ guest_layout_apply() {
   cmux_la_cwd=""
   cmux_la_json=0
   cmux_la_file=""
+  cmux_la_reuse=0
+  cmux_la_first_revision=""
   while [ "\$#" -gt 0 ]; do
     case "\$1" in
       --workspace) [ "\$#" -ge 2 ] || die "layout apply: --workspace needs a value" 2; cmux_la_ws_sel="\$2"; shift 2 ;;
@@ -1639,6 +1645,7 @@ guest_layout_apply() {
       --cwd) [ "\$#" -ge 2 ] || die "layout apply: --cwd needs a value" 2; cmux_la_cwd="\$2"; shift 2 ;;
       --cwd=*) cmux_la_cwd="\${1#--cwd=}"; shift ;;
       --json) cmux_la_json=1; shift ;;
+      --reuse) cmux_la_reuse=1; shift ;;
       --help|-h) layout_usage; return 0 ;;
       -) cmux_la_file=-; shift ;;
       -*) die "layout apply: unknown option \$1" 2 ;;
@@ -1677,11 +1684,20 @@ guest_layout_apply() {
   jq -c --arg base "\$cmux_la_base" --arg home "\$cmux_la_home" "\$LAYOUT_PLAN_JQ" "\$cmux_la_scratch/norm.json" > "\$cmux_la_scratch/plan.jsonl" \\
     || die "layout apply: could not plan the layout" 1
 
+  if [ "\$cmux_la_reuse" = 1 ] && [ -z "\$cmux_la_ws_sel" ]; then
+    cmux_la_created="\$(guest_workspace_get_or_create "\$cmux_la_name" 1)" || return \$?
+    [ "\$(printf '%s\\n' "\$cmux_la_created" | jq -r .existing)" != true ] || die_message 1 workspacePreparationChanged
+    cmux_la_ws_sel="\$(printf '%s\\n' "\$cmux_la_created" | jq -er '(.value // .) | .id // .workspace_id')" || die_message 1 workspaceReuseUnavailable
+  fi
+
   # The target: an existing EMPTY workspace, or a new one.
   cmux_la_root_pane=""
   cmux_la_root_ph=""
   if [ -n "\$cmux_la_ws_sel" ]; then
     layout_snapshot > "\$cmux_la_scratch/snap.json"
+    if [ "\$cmux_la_reuse" = 1 ]; then
+      cmux_la_first_revision="\$(jq -er '(.cursor.revision // .session.revision) | select(type == "string" and test("^[0-9]+\$"))' "\$cmux_la_scratch/snap.json")" || die_message 1 workspaceReuseUnavailable
+    fi
     cmux_la_resolved="\$(layout_resolve_workspace "\$cmux_la_ws_sel" < "\$cmux_la_scratch/snap.json")"
     cmux_la_ws="\$(printf '%s\\n' "\$cmux_la_resolved" | cut -f 1)"
     cmux_la_ws_name="\$(printf '%s\\n' "\$cmux_la_resolved" | cut -f 2-)"
@@ -2187,6 +2203,38 @@ peer_push() {
 }
 
 # \`cmux vm workspace new|rename|close|rm <peer> …\` in the Mac's spelling.
+# Name-based creation is fenced by the authoritative daemon revision. Only a
+# revision conflict retries; a failed mutation is never blindly repeated.
+guest_workspace_get_or_create() {
+  cmux_gc_name="\$1"; cmux_gc_empty="\$2"; cmux_gc_attempt=0
+  [ -n "\$cmux_gc_name" ] || die_message 2 workspaceReuseNeedsName
+  while [ "\$cmux_gc_attempt" -lt 8 ]; do
+    cmux_gc_attempt=\$((cmux_gc_attempt + 1))
+    cmux_gc_snapshot="\$(layout_snapshot)"
+    cmux_gc_plan="\$(printf '%s\\n' "\$cmux_gc_snapshot" | jq -ce --arg name "\$cmux_gc_name" '
+      (.value // .) | select((.workspaces | type) == "array")
+      | {matches: [.workspaces[] | select(.name == \$name)], revision: (.cursor.revision // .session.revision)}
+      | select((.revision | type) == "string" and (.revision | test("^[0-9]+\$")))
+    ')" || die_message 1 workspaceReuseUnavailable
+    cmux_gc_count="\$(printf '%s\\n' "\$cmux_gc_plan" | jq -r '.matches | length')"
+    [ "\$cmux_gc_count" -le 1 ] || die_message 2 workspaceReuseAmbiguous
+    if [ "\$cmux_gc_count" = 1 ]; then
+      printf '%s\\n' "\$cmux_gc_plan" | jq -ce '{value: .matches[0], existing: true}'
+      return
+    fi
+    cmux_gc_revision="\$(printf '%s\\n' "\$cmux_gc_plan" | jq -r .revision)"
+    set -- --json --expected-revision "\$cmux_gc_revision" workspace create --name "\$cmux_gc_name"
+    [ "\$cmux_gc_empty" != 1 ] || set -- "\$@" --empty
+    if cmux_gc_out="\$(tui "\$@" 2>&1)"; then
+      printf '%s\\n' "\$cmux_gc_out" | jq -ce 'select(type == "object") | . + {existing: false}'
+      return
+    fi
+    cmux_gc_code="\$(printf '%s\\n' "\$cmux_gc_out" | jq -r '.code // .error.code // empty' 2>/dev/null)" || cmux_gc_code=""
+    [ "\$cmux_gc_code" = revision.conflict ] || die "\$cmux_gc_out" 1
+  done
+  die_message 1 workspaceReuseUnavailable
+}
+
 workspace_verb() {
   cmux_pw_verb="\$1"
   cmux_pw_peer="\$TARGET_LABEL"
@@ -2195,14 +2243,24 @@ workspace_verb() {
     new)
       cmux_pw_json=""
       cmux_pw_name=""
+      cmux_pw_reuse=0
       while [ "\$#" -gt 0 ]; do
         case "\$1" in
           --name) [ "\$#" -ge 2 ] || die "vm workspace new: --name needs a value" 2; cmux_pw_name="\$2"; shift 2 ;;
           --name=*) cmux_pw_name="\${1#--name=}"; shift ;;
           --json) cmux_pw_json=--json; shift ;;
+          --no-open) shift ;;
+          --reuse) cmux_pw_reuse=1; shift ;;
           *) die "vm workspace new: unknown option \$1" 2 ;;
         esac
       done
+      if [ "\$cmux_pw_reuse" = 1 ]; then
+        cmux_pw_result="\$(guest_workspace_get_or_create "\$cmux_pw_name" 0)" || return \$?
+        if [ -n "\$cmux_pw_json" ]; then printf '%s\\n' "\$cmux_pw_result"; else
+          printf '%s\\n' "\$cmux_pw_result" | jq -r '(.value // .) | .id // .workspace_id'
+        fi
+        return
+      fi
       if [ -n "\$cmux_pw_name" ]; then exec "\$CMUX_TUI_BIN" "\$TARGET_FLAG" "\$TARGET_VALUE" \$cmux_pw_json workspace create --name "\$cmux_pw_name"; fi
       exec "\$CMUX_TUI_BIN" "\$TARGET_FLAG" "\$TARGET_VALUE" \$cmux_pw_json workspace create
       ;;

@@ -83,7 +83,7 @@ extension CmuxTuiSurfaceProvider {
         // Echo is off on the receiver's PTY from here on; the daemon never journals
         // input, so the payload exists on the machine only inside the receiver.
         for chunk in CloudEnvDelivery.chunks(wire) {
-            try await writeBytes(terminalID: terminalID, base64: chunk.base64EncodedString())
+            try await writeBytes(terminalID: terminalID, data: chunk)
         }
         let result = try await waitForScreen(
             terminalID: terminalID,
@@ -93,10 +93,13 @@ extension CmuxTuiSurfaceProvider {
         return try CloudEnvDelivery.requireOutcome(result)
     }
 
-    /// Raw bytes to the remote terminal's PTY (`terminal write --bytes-base64`).
-    func writeBytes(terminalID: String, base64: String) async throws {
+    /// ASCII receiver-wire bytes reach the terminal through stdin, never process argv.
+    func writeBytes(terminalID: String, data: Data) async throws {
         let connected = try await links.connected(machineID: machineID)
         guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
-        _ = try await link.run(arguments: CloudTuiCommandLine.writeBytesArguments(socketPath: connected.socketPath, terminalID: terminalID, base64: base64))
+        _ = try await link.run(
+            arguments: CloudTuiCommandLine.writeBytesArguments(socketPath: connected.socketPath, terminalID: terminalID),
+            input: data
+        )
     }
 }

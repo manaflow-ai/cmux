@@ -1297,10 +1297,15 @@ extension CMUXCLI {
                 }
                 params["max_bytes"] = maxBytes
             }
-            let response = try client.sendV2(method: "vm.terminal_output", params: params, responseTimeout: 120)
-            if jsonOutput { print(jsonString(response)); return }
-            let text = (response["text"] as? String) ?? ""
-            if !text.isEmpty { print(text, terminator: text.hasSuffix("\n") ? "" : "\n") }
+            if jsonOutput {
+                print(jsonString(try client.sendV2(method: "vm.terminal_output", params: params, responseTimeout: 120)))
+                return
+            }
+            let text = try readVMTerminalOutput(
+                machine: machine, terminalID: terminalID, client: client,
+                after: params["after"] as? Int ?? 0, maxBytes: params["max_bytes"] as? Int
+            )
+            print(text, terminator: "")
         case "rename":
             // A quoted shell argument is already one token. Requiring one token prevents
             // accidental unquoted words from being silently reassembled into a different

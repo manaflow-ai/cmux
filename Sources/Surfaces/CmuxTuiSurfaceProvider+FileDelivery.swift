@@ -87,7 +87,7 @@ extension CmuxTuiSurfaceProvider {
         // Echo is off on the receiver's PTY from here on; the daemon never journals
         // input, so the bytes exist on the machine only inside the receiver.
         for chunk in CloudEnvDelivery.chunks(wire) {
-            try await writeBytes(terminalID: terminalID, base64: chunk.base64EncodedString())
+            try await writeBytes(terminalID: terminalID, data: chunk)
         }
         let result = try await waitForScreen(
             terminalID: terminalID,

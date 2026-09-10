@@ -1,6 +1,7 @@
 # Project environments in the cloud: `cmux vm dev`
 
-Status: design. Builds on the shipped primitives (route/push/exec/workspace/terminal,
+Status: design. The command examples below use the shipped grammar; manifest
+replay and automatic machine selection remain proposed. Builds on the shipped primitives (route/push/exec/workspace/terminal,
 per-size snapshots, VPC + tunnel, in-VM `cmux`); nothing here invents a new transport.
 
 ## The user's mental model
@@ -11,8 +12,8 @@ this directory into a running cloud environment with a workspace named after it*
 terminals, deps installed, checks green — and the same verb later is a fast no-op.
 
 ```bash
-cmux vm dev                # this directory, in the cloud, ready to work
-cmux vm dev -- bun test    # …and run this in it once it's ready
+cmux vm dev <machine>                       # prepare this directory on the selected machine
+cmux vm dev <machine> --command "bun test"   # use bun test as the workspace command
 ```
 
 ## What the verb does (all existing primitives)

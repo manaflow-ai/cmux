@@ -315,11 +315,10 @@ extension CMUXCLI {
         let resolver = VMRemoteWorkspaceResolver()
         var unavailableSelector: String?
         for resource in resources {
-            guard (resource["kind"] as? String) == "terminal",
-                  Self.vmDevResourceBelongsToMachine(resource, machine: machine) else { continue }
+            guard Self.vmDevResourceBelongsToMachine(resource, machine: machine) else { continue }
             switch resolver.resolveVMRemoteView(in: resource, workspaceID: workspaceID) {
             case .resolved, .legacy:
-                if resolver.vmTerminalID(in: resource, machine: machine) != nil { return true }
+                return true
             case .ambiguous:
                 // Ambiguity is between views that match this workspace, so it
                 // prevents choosing a tab but still proves the workspace has panes.
@@ -343,7 +342,7 @@ extension CMUXCLI {
             return resourceMachine == machine
         }
         guard let id = resource["id"] as? String else { return false }
-        return id.hasPrefix("\(machine)/terminal/")
+        return id.hasPrefix("\(machine)/")
     }
 
     // MARK: - The command
@@ -547,7 +546,8 @@ extension CMUXCLI {
             params: ["id": machine, "refresh": true],
             responseTimeout: 120
         )
-        guard let machinePayload = VMRemoteWorkspaceResolver().vmMachinePayload(machine, from: catalog) else {
+        guard let resources = catalog["resources"] as? [[String: Any]],
+              let machinePayload = VMRemoteWorkspaceResolver().vmMachinePayload(machine, from: catalog) else {
             throw CLIError(message: "vm dev: workspace state for \(machine) is unavailable; reconnect and retry")
         }
         var remoteWorkspace: String?
@@ -576,7 +576,7 @@ extension CMUXCLI {
         var applyPayload: [String: Any]?
         let existingInfo = existing
             ? try vmDevWorkspaceInfo(
-                resources: (catalog["resources"] as? [[String: Any]]) ?? [],
+                resources: resources,
                 machine: machine,
                 remoteWorkspace: remoteWorkspace ?? ""
             )
@@ -591,7 +591,8 @@ extension CMUXCLI {
                     documentJSON: documentData,
                     workspace: existing ? remoteWorkspace : nil,
                     name: existing ? nil : workspaceName,
-                    cwd: nil
+                    cwd: nil,
+                    reuse: true
                 ),
                 machine: machine,
                 client: client,

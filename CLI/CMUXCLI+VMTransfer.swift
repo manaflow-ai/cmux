@@ -477,6 +477,7 @@ extension CMUXCLI {
     struct VMPushTreeEntry: Equatable {
         let modified: TimeInterval
         let size: Int
+        let permissions: Int
     }
 
     /// True when tar's `--exclude <pattern>` would skip a path with this component: the
@@ -499,7 +500,8 @@ extension CMUXCLI {
                   values.isRegularFile == true else { return nil }
             return VMPushTreeEntry(
                 modified: values.contentModificationDate?.timeIntervalSince1970 ?? 0,
-                size: values.fileSize ?? 0
+                size: values.fileSize ?? 0,
+                permissions: ((try? FileManager.default.attributesOfItem(atPath: url.path)[.posixPermissions]) as? NSNumber)?.intValue ?? 0
             )
         }
         guard isDirectory else {
@@ -1913,24 +1915,27 @@ extension CMUXCLI {
 
     /// The terminal's whole retained output: `vm.terminal_output` paged by `next_offset`
     /// until the daemon reports `complete`.
-    func readVMTerminalOutput(machine: String, terminalID: String, client: SocketClient) throws -> String {
+    func readVMTerminalOutput(machine: String, terminalID: String, client: SocketClient, after initialOffset: Int = 0, maxBytes: Int? = nil) throws -> String {
         var text = ""
-        var after = 0
+        var after = initialOffset
         var pages = 0
         while true {
+            var params: [String: Any] = ["id": machine, "terminal_id": terminalID, "after": after]
+            if let maxBytes { params["max_bytes"] = maxBytes }
             let response = try client.sendV2(
                 method: "vm.terminal_output",
-                params: ["id": machine, "terminal_id": terminalID, "after": after],
+                params: params,
                 responseTimeout: 120
             )
             text += (response["text"] as? String) ?? ""
-            let next = (response["next_offset"] as? Int) ?? after
-            let complete = (response["complete"] as? Bool) ?? true
+            let next = (response["next_offset"] as? Int) ?? (response["next_offset"] as? String).flatMap(Int.init)
+            guard let complete = response["complete"] as? Bool else {
+                throw CLIError(message: String(localized: "cli.vm.output.invalidPage", defaultValue: "The machine returned an invalid output page. Reconnect and retry."))
+            }
             pages += 1
-            // A daemon that never says complete but stops advancing is done too; the page
-            // cap only guards against a pathological one.
-            if complete || next <= after || pages >= 4096 {
-                return text
+            if complete { return text }
+            guard let next, next > after, pages < 4096 else {
+                throw CLIError(message: String(localized: "cli.vm.output.incomplete", defaultValue: "The machine's output could not be read completely. Reconnect and retry."))
             }
             after = next
         }

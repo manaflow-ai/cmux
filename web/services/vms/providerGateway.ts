@@ -304,10 +304,11 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
   revokeSSHIdentity: (provider, identityHandle) => {
     const driver = getProvider(provider);
     // A driver without openSSH never minted an identity; revocation is a no-op.
-    if (!driver.revokeSSHIdentity) return Effect.void;
-    return providerEffect(provider, "revokeSSHIdentity", () =>
-      driver.revokeSSHIdentity!(identityHandle)
-    );
+    if (!driver.openSSH) return Effect.void;
+    return providerEffect(provider, "revokeSSHIdentity", async () => {
+      if (!driver.revokeSSHIdentity) throw new VmOperationUnsupportedError({ provider, operation: "revokeSSHIdentity" });
+      await driver.revokeSSHIdentity(identityHandle);
+    });
   },
   revokeEndpointLeases: (provider, vmId) => {
     const driver = getProvider(provider);

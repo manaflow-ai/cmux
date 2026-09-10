@@ -362,11 +362,22 @@ extension TerminalController {
             let focus = Self.surfaceBool(params["focus"]) ?? true
             // `open: false` stages the workspace on the machine only (`--no-open`).
             let open = Self.surfaceBool(params["open"]) ?? true
+            var precreatedWorkspace: SurfaceRemoteWorkspace?
             if reuse, let name {
-                // A fresh read first: another agent may have created the workspace moments
-                // ago, and the catalog only learns about it from the event feed.
-                await provider.refresh()
-                switch CloudTreeNodeBuilder.lookupRemoteWorkspace(name, on: machine, snapshot: await catalog.snapshot) {
+                let lookup: CloudTreeRemoteWorkspaceLookup
+                if let cloudProvider = provider as? CmuxTuiSurfaceProvider {
+                    let resolved = try await cloudProvider.getOrCreateRemoteWorkspace(name: name)
+                    if resolved.existing {
+                        lookup = .found(resolved.workspace, CloudTreeRemoteWorkspaceMembers(terminals: [], browsers: [], displays: []))
+                    } else {
+                        precreatedWorkspace = resolved.workspace
+                        lookup = .notFound
+                    }
+                } else {
+                    await provider.refresh()
+                    lookup = CloudTreeNodeBuilder.lookupRemoteWorkspace(name, on: machine, snapshot: await catalog.snapshot)
+                }
+                switch lookup {
                 case .found(let workspace, _):
                     if !open {
                         return [
@@ -408,7 +419,8 @@ extension TerminalController {
                 catalog: catalog,
                 name: name,
                 focus: focus,
-                openLocally: open
+                openLocally: open,
+                existingWorkspace: precreatedWorkspace
             )
             return [
                 "machine": machine.rawValue,

@@ -159,11 +159,11 @@ struct CloudTuiCommandLine: Sendable {
         ["--socket", socketPath, "--json", "terminal", terminalID, "write", "--text", text]
     }
 
-    /// `terminal <term_id> write --bytes-base64 <b64>` (spec `terminal.input.write`): raw
-    /// bytes to the PTY, for payloads that must not be re-interpreted as text (the env
-    /// delivery in `CmuxTuiSurfaceProvider+Environment.swift`).
-    static func writeBytesArguments(socketPath: String, terminalID: String, base64: String) -> [String] {
-        ["--socket", socketPath, "--json", "terminal", terminalID, "write", "--bytes-base64", base64]
+    /// `terminal <term_id> write` reads the UTF-8 receiver wire from stdin.
+    /// Keeping payloads out of argv prevents local process inspection from
+    /// exposing file or environment secrets before they enter the link.
+    static func writeBytesArguments(socketPath: String, terminalID: String) -> [String] {
+        ["--socket", socketPath, "--json", "terminal", terminalID, "write"]
     }
 
     /// `terminal <term_id> keys <key>…` (spec `terminal.input.keys`): named keys such as

@@ -473,8 +473,9 @@ extension CMUXCLI {
     /// The document travels as base64 inside the command line and is piped into the
     /// shim's stdin: no temp file on the machine, no quoting of user JSON in a shell,
     /// and the same framing `vm push` uses.
-    static func vmLayoutApplyCommand(documentJSON: Data, workspace: String?, name: String?, cwd: String?) -> String {
+    static func vmLayoutApplyCommand(documentJSON: Data, workspace: String?, name: String?, cwd: String?, reuse: Bool = false) -> String {
         var argv = ["cmux", "layout", "apply", "--json"]
+        if reuse { argv.append("--reuse") }
         if let workspace, !workspace.isEmpty { argv += ["--workspace", workspace] }
         if let name, !name.isEmpty { argv += ["--name", name] }
         if let cwd, !cwd.isEmpty { argv += ["--cwd", cwd] }
@@ -726,7 +727,8 @@ extension CMUXCLI {
             // JSON booleans arrive as NSNumber too; only the CF type id tells them apart.
             guard let number = split as? NSNumber,
                   CFGetTypeID(number) != CFBooleanGetTypeID(),
-                  number.doubleValue.isFinite else {
+                  number.doubleValue.isFinite,
+                  (0.1...0.9).contains(number.doubleValue) else {
                 throw VMLayoutDocumentError(path: "\(path).split", reason: String(localized: "cli.vm.layoutEnv.splitMustBeANumberTheFirstChildSShare", defaultValue: "'split' must be a number (the first child's share, 0.1–0.9)"))
             }
         }

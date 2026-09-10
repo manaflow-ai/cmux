@@ -28,9 +28,9 @@ the machine's shim is older than the server: `cmux vm tree <m> --refresh` reinst
 |---|---|---|
 | 1.1 | `cmux vm workspace new <m> --name dogfood --no-open` | prints the new `<ws>`; nothing opens locally; sidebar shows the row |
 | 1.2 | `cmux vm workspace new <m> --name dogfood --reuse --no-open` | same `<ws>` again with `(existing)`; no second row |
-| 1.3 | `cmux vm layout apply <m> <ws> - <<'EOF2'`<br>`{"layout":{"direction":"horizontal","split":0.35,"children":[{"pane":{"surfaces":[{"type":"terminal","name":"left","command":"htop"}]}},{"pane":{"surfaces":[{"type":"terminal","name":"shell","focus":true},{"type":"browser","url":"https://example.com"}]}}]}}`<br>`EOF2` | `OK`; two panes reported |
+| 1.3 | `cmux vm layout apply <m> --name dogfood-layout - <<'EOF2'`<br>`{"layout":{"direction":"horizontal","split":0.35,"children":[{"pane":{"surfaces":[{"type":"terminal","name":"left","command":"htop"}]}},{"pane":{"surfaces":[{"type":"terminal","name":"shell","focus":true},{"type":"browser","url":"https://example.com"}]}}]}}`<br>`EOF2` | `OK`; two panes reported; use this result's workspace id as `<ws>` below. `--no-open` keeps a starter shell, so the layout needs its own workspace. |
 | 1.4 | `cmux vm layout export <m> <ws>` | the same document back: `horizontal`, split ≈ `0.35`, `htop` in the left pane, a browser tab on the right |
-| 1.5 | click the `dogfood` row in the Cloud sidebar | a new local workspace with the SAME geometry: narrow left pane (about a third), wide right pane, browser as the second tab, focus in `shell` |
+| 1.5 | click the `dogfood-layout` row in the Cloud sidebar | a new local workspace with the SAME geometry: narrow left pane (about a third), wide right pane, browser as the second tab, focus in `shell` |
 | 1.6 | `cmux vm workspace open <m> <ws>` | identical result to 1.5 (one shared open path) |
 | 1.7 | `cmux vm layout apply <m> --name dogfood-2 --open <file>` with the 1.3 document saved to a file | creates and opens with geometry in one step |
 | 1.8 | `cmux vm workspace rename <m> <ws> dogfood-renamed` / `cmux vm tab rename <m> <tab-id> <name>` where a tab exists | the sidebar row and tab title change live |
@@ -97,7 +97,7 @@ Have two running machines `<a>` and `<b>`. Inside `<a>`:
 | 5.1 | `cmux vm exec --timeout 3 <m> -- sleep 10` | times out at ~3 s with a clear message; `--timeout 20` succeeds |
 | 5.2 | `cmux vm terminal wait-exit <m> <t> --timeout 2` on a live shell | `pending`, exit 1 |
 | 5.3 | `cmux vm exec <m> -- sh -c 'exit 7'` | exit code 7 propagated |
-| 5.4 | `cmux vm run <m> -- sh -c 'echo hi; exit 3'` then `cmux vm terminal wait-exit <m> <t>` | `exited code=3` |
+| 5.4 | `cmux surface new-terminal --machine <m> --no-open -- sh -c 'echo hi; exit 3'` then `cmux vm terminal wait-exit <m> <t>` using the returned terminal id | `exited code=3` |
 | 5.5 | `cmux vm terminal output <m> <t>` and again with `--after <next_offset>` | full scrollback, then only the new bytes; `complete: true` |
 | 5.6 | `cmux vm agent <m> --agent claude "print the word done and exit" --wait --output --timeout 300` | the agent's output streams back; exit 0; the workspace shows the agent terminal |
 | 5.7 | `cmux vm run <m> --wait --output -- sh -c 'echo streamed; exit 0'` | prints `streamed`, exit 0 |
@@ -145,6 +145,18 @@ In a folder with a `package.json` whose `dev` script starts a server on a known 
 | 9.2 | `cmux vm layout --help`, `cmux vm env --help`, `cmux vm terminal --help`, `cmux vm agent --help`, `cmux vm dev --help` | per-verb usage |
 | 9.3 | inside a machine: `cmux --help` | sections THIS MACHINE / WHO AM I / OTHER MACHINES / REACH THE HUMAN / MODELS AND AGENTS / AUTH |
 | 9.4 | `cmux vm <verb> --json` for ls, tree, self, terminal output, layout export | valid JSON on stdout only |
+
+## Concurrent preparation and interrupted deletion
+
+Two clients creating the same named workspace use the daemon revision to choose one
+creator. `vm dev` also checks the revision before creating the first pane in an empty
+workspace. A losing preparation reports a retry error; retrying uses the current
+workspace instead of creating another one. `--no-open` still creates a starter shell.
+
+Snapshot deletion records a durable intent before touching the provider. If deletion
+or ledger finalization fails, retry `vm snapshot rm`; pending intents block restore.
+`vm snapshot ls` repairs finalization for pending snapshots absent from the provider.
+A failed deletion that still exists at the provider remains pending until retried.
 
 ## Reporting
 

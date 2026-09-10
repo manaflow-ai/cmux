@@ -11,7 +11,8 @@ extension CmuxTuiSurfaceProvider: SurfaceProjectionLayoutProviding {
         let connected = try await links.connected(machineID: machineID)
         guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
         let data = try await link.run(arguments: CloudTuiCommandLine.snapshotArguments(socketPath: connected.socketPath))
-        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              CmuxTuiSnapshotParser.state(fromSnapshot: object, machine: machine) != nil else {
             throw ProviderError.invalidSnapshot(machineID)
         }
         return CloudWorkspaceLayoutTranslator.projectionLayout(

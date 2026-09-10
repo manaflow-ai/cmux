@@ -346,8 +346,13 @@ export async function mintCmuxTuiInvitation(
   if (typeof uri !== "string" || !uri) {
     throw new ProviderError(provider, `cmux-tui enrollment invitation in ${vmId} returned no uri`);
   }
-  const match = uri.match(/(?:^|[?&])id=([^&]+)/);
-  const invitationId = match?.[1];
+  let parsed: URL;
+  try { parsed = new URL(uri); } catch {
+    throw new ProviderError(provider, `cmux-tui enrollment invitation in ${vmId} returned an invalid uri`);
+  }
+  const invitationId = parsed.protocol === "cmux:" && parsed.hostname === "enroll"
+    ? parsed.pathname.slice(1)
+    : parsed.searchParams.get("id");
   if (!invitationId) {
     throw new ProviderError(provider, `cmux-tui enrollment invitation in ${vmId} returned no id`);
   }
