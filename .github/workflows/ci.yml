@@ -165,6 +165,15 @@ jobs:
       - name: Validate macOS localization parity
         run: python3 scripts/localization_catalog.py check
 
+      - name: Validate cmux-cloud-vm skill covers the vm CLI
+        run: python3 tests/test_cloud_vm_skill_coverage.py
+
+      - name: Test XCStrings catalog lint
+        run: python3 tests/test_lint_xcstrings.py
+
+      - name: Validate XCStrings catalog structure
+        run: python3 scripts/lint-xcstrings.py
+
       - name: Validate TUI npm package artifact transfer
         run: python3 tests/test_tui_npm_package_artifact.py
 
@@ -248,6 +257,9 @@ jobs:
 
       - name: Validate Xcode SourcePackages cache sanitizer
         run: python3 tests/test_ci_sanitize_xcode_source_packages_cache.py
+
+      - name: Validate Xcode compilation cache pruning
+        run: python3 tests/test_ci_prune_xcode_compilation_cache.py
 
       - name: Validate TestFlight notes generator
         run: python3 tests/test_ios_testflight_notes.py
@@ -1268,6 +1280,33 @@ jobs:
             -only-testing:cmuxTests/GhosttyTerminalViewVisibilityPolicyTests \
             test
 
+      - name: Ensure node for app-host wrapper regressions
+        id: detect-node
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: |
+          set -euo pipefail
+          # App-host wrapper regressions, including OpenCode and Claude hooks,
+          # execute JavaScript through `node`. The tart-macos-15 runner image
+          # shipped without node on the runner PATH (2026-07-10), which failed
+          # every branch. Reuse an image-provided node when present; otherwise
+          # install one below before the unit-test batches start.
+          for candidate in "$(command -v node || true)" /opt/homebrew/bin/node /usr/local/bin/node; do
+            if [ -n "$candidate" ] && [ -x "$candidate" ]; then
+              dirname "$candidate" >> "$GITHUB_PATH"
+              "$candidate" --version
+              echo "found=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done
+          echo "no node runtime in the runner image; installing via setup-node"
+          echo "found=false" >> "$GITHUB_OUTPUT"
+
+      - name: Install node (runner image has none)
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) && steps.detect-node.outputs.found == 'false' }}
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "20"
+
       - name: Run Ghostty numeric locale tests
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |
@@ -1452,32 +1491,6 @@ jobs:
           CMUX_SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages" \
             ./tests/test_bundled_ghostty_theme_picker_helper.sh
 
-      - name: Ensure node for wrapper regressions
-        id: detect-node
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
-        run: |
-          set -euo pipefail
-          # The claude wrapper regressions below exec `node` from fake claude
-          # binaries. The tart-macos-15 runner image shipped without node on
-          # the runner PATH (2026-07-10), which failed every branch. Reuse an
-          # image-provided node when present; otherwise install one below.
-          for candidate in "$(command -v node || true)" /opt/homebrew/bin/node /usr/local/bin/node; do
-            if [ -n "$candidate" ] && [ -x "$candidate" ]; then
-              dirname "$candidate" >> "$GITHUB_PATH"
-              "$candidate" --version
-              echo "found=true" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-          done
-          echo "no node runtime in the runner image; installing via setup-node"
-          echo "found=false" >> "$GITHUB_OUTPUT"
-
-      - name: Install node (runner image has none)
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) && steps.detect-node.outputs.found == 'false' }}
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
-        with:
-          node-version: "20"
-
       - name: Set up Bun for Pi extension dispatch regression
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -1553,6 +1566,7 @@ jobs:
 
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_version_memory_guard.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_contract_help.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_vm_transfer_progress.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_layout_focus_contract.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_socket_operation_deadline.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_simulator_contract.py
@@ -2513,13 +2527,22 @@ jobs:
           cache_path="build-universal/CompilationCache.noindex"
           max_cache_kib=$((5 * 1024 * 1024))
           if [ -d "$cache_path" ]; then
+            # A warm build leaves a dead CAS generation behind (the CAS rotates
+            # its primary above half of COMPILATION_CACHE_LIMIT_SIZE), which
+            # doubles the directory and used to trip this bound on every warm
+            # run. See the same step in nightly.yml.
+            python3 scripts/ci/prune-xcode-compilation-cache.py "$cache_path" \
+              || echo "::warning::Xcode compilation cache pruning failed; measuring it unpruned"
             cache_kib=$(du -sk "$cache_path" | awk '{print $1}')
           else
             cache_kib=0
           fi
           echo "Xcode compilation cache size: ${cache_kib} KiB (limit: ${max_cache_kib} KiB)"
           if [ "$cache_kib" -gt "$max_cache_kib" ]; then
-            echo "Xcode compilation cache exceeds 5 GiB; skipping cache save"
+            # Nothing is saved, so the next build restores the same older entry
+            # and lands here again: the cache freezes at its last saved entry
+            # until the bound (and COMPILATION_CACHE_LIMIT_SIZE) is raised.
+            echo "::warning::Xcode compilation cache exceeds 5 GiB; skipping cache save"
             rm -rf "$cache_path"
           fi
 

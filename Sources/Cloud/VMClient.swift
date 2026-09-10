@@ -2455,16 +2455,17 @@ actor MachineUsageClient {
         return nil
     }
 
+    // Date.ISO8601FormatStyle is Sendable, so these can be nonisolated
+    // constants; ISO8601DateFormatter is not and warned here.
+    private nonisolated static let iso8601WithFractions = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
+
+    private nonisolated static let iso8601 = Date.ISO8601FormatStyle()
+
     /// `null`/absent is nil; an unparseable string is nil too, since the date
     /// only labels the readout and must never fail the whole payload.
     private nonisolated static func dateValue(_ raw: Any?) -> Date? {
         guard let text = raw as? String, !text.isEmpty else { return nil }
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = fractional.date(from: text) { return date }
-        let wholeSeconds = ISO8601DateFormatter()
-        wholeSeconds.formatOptions = [.withInternetDateTime]
-        return wholeSeconds.date(from: text)
+        return (try? Date(text, strategy: iso8601WithFractions)) ?? (try? Date(text, strategy: iso8601))
     }
 
     private func request(

@@ -398,7 +398,6 @@ struct AgentHibernationRestoreMonitorTests {
     @Test
     func committedTerminationRecoveryKeepsRestoreMonitorArmedUntilExactExit() async throws {
         let controller = AgentHibernationController.shared
-        defer { resetSharedHibernationState(controller) }
 
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-hibernation-termination-failure-\(UUID().uuidString)")
@@ -416,13 +415,16 @@ struct AgentHibernationRestoreMonitorTests {
             snapshotPath: snapshotURL.path
         )
         let processExit = AsyncStream<Void>.makeStream()
+        defer { processExit.continuation.finish() }
         #expect(controller.armPostTeardownRestoreMonitor(
             snapshot: snapshot,
             processIDs: [101],
             awaitProcessExit: {
                 for await _ in processExit.stream { return true }
                 return false
-            }
+            },
+            initialRetryDelaysNanoseconds: [0],
+            backstopDelaysSeconds: []
         ))
         let monitorKey = AgentHibernationController.postTeardownRestoreTaskKey(
             transcriptPath: live.path
@@ -431,16 +433,17 @@ struct AgentHibernationRestoreMonitorTests {
             controller.postTeardownRestoreTasksByTranscriptPath[monitorKey]?.task
         )
 
+        defer { monitor.cancel() }
         try clobberedContent.write(to: live, atomically: true, encoding: .utf8)
 
-        #expect(controller.postTeardownRestoreTasksByTranscriptPath.isEmpty == false)
+        #expect(controller.postTeardownRestoreTasksByTranscriptPath[monitorKey] != nil)
         #expect(FileManager.default.fileExists(atPath: snapshotURL.path))
 
         processExit.continuation.yield()
         processExit.continuation.finish()
         await monitor.value
 
-        #expect(controller.postTeardownRestoreTasksByTranscriptPath.isEmpty)
+        #expect(controller.postTeardownRestoreTasksByTranscriptPath[monitorKey] == nil)
         #expect(try String(contentsOf: live, encoding: .utf8).hasPrefix(protectedContent))
         #expect(FileManager.default.fileExists(atPath: snapshotURL.path) == false)
     }

@@ -464,6 +464,8 @@ final class MachinesPanelViewModel: ObservableObject {
     private static let statsInterval: Duration = .seconds(20)
 
     init(createCoordinator: MachineCreateCoordinator? = nil) {
+        // `.shared` is main-actor-isolated, so it cannot be a default argument
+        // (default values evaluate in a nonisolated context); resolve it here.
         let createCoordinator = createCoordinator ?? .shared
         self.createCoordinator = createCoordinator
         pendingCreates = createCoordinator.operations
