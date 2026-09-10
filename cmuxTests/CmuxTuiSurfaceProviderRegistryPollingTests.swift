@@ -47,7 +47,8 @@ struct CmuxTuiSurfaceProviderRegistryPollingTests {
         let registry = CmuxTuiSurfaceProviderRegistry(
             links: CloudMachineLinkManager(clientURL: nil, hub: nil, hostThemeColors: { nil }),
             wireGuardHub: nil,
-            allowsBackgroundWork: { allowed.isOn }
+            allowsBackgroundWork: { allowed.isOn },
+            listPage: { nil }
         )
 
         registry.start(catalog: SurfaceCatalog())
@@ -76,7 +77,8 @@ struct CmuxTuiSurfaceProviderRegistryPollingTests {
         let registry = CmuxTuiSurfaceProviderRegistry(
             links: CloudMachineLinkManager(clientURL: nil, hub: nil, hostThemeColors: { nil }),
             wireGuardHub: nil,
-            allowsBackgroundWork: { allowed.isOn }
+            allowsBackgroundWork: { allowed.isOn },
+            listPage: { nil }
         )
         registry.start(catalog: SurfaceCatalog())
         #expect(registry.isPolling)
@@ -95,7 +97,8 @@ struct CmuxTuiSurfaceProviderRegistryPollingTests {
         let registry = CmuxTuiSurfaceProviderRegistry(
             links: CloudMachineLinkManager(clientURL: nil, hub: nil, hostThemeColors: { nil }),
             wireGuardHub: nil,
-            allowsBackgroundWork: { allowed.isOn }
+            allowsBackgroundWork: { allowed.isOn },
+            listPage: { nil }
         )
         registry.start(catalog: SurfaceCatalog())
         #expect(registry.isPolling)

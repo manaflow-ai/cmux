@@ -32,6 +32,8 @@ final class CmuxTuiSurfaceProviderRegistry {
     private var activationObserver: NSObjectProtocol?
     /// Whether the periodic fleet read may run right now.
     private let allowsBackgroundWork: @MainActor () -> Bool
+    private let listPage: @MainActor () async -> VMListPage?
+    private let refreshProvider: @MainActor (CmuxTuiSurfaceProvider, Bool) async -> Void
     private var refreshInFlight: Task<Bool, Never>?
     /// A forced refresh waits for an existing pass instead of starting a second
     /// fleet read. This prevents an older page from unregistering a machine that
@@ -53,11 +55,17 @@ final class CmuxTuiSurfaceProviderRegistry {
     init(
         links: CloudMachineLinkManager,
         wireGuardHub: CloudWireGuardHub?,
-        allowsBackgroundWork: @escaping @MainActor () -> Bool = { true }
+        allowsBackgroundWork: @escaping @MainActor () -> Bool = { true },
+        listPage: @escaping @MainActor () async -> VMListPage?,
+        refreshProvider: @escaping @MainActor (CmuxTuiSurfaceProvider, Bool) async -> Void = { provider, force in
+            await provider.refresh(force: force)
+        }
     ) {
         self.links = links
         self.wireGuardHub = wireGuardHub
         self.allowsBackgroundWork = allowsBackgroundWork
+        self.listPage = listPage
+        self.refreshProvider = refreshProvider
         portForwards = wireGuardHub.map { CloudHubPortForwarder(dialer: CloudWireGuardHubDialer(hub: $0)) }
     }
 
@@ -68,7 +76,11 @@ final class CmuxTuiSurfaceProviderRegistry {
         self.init(
             links: CloudMachineLinkManager(hub: hub),
             wireGuardHub: hub,
-            allowsBackgroundWork: { CloudActivationPolicy.live().allowsBackgroundCloudWork }
+            allowsBackgroundWork: { CloudActivationPolicy.live().allowsBackgroundCloudWork },
+            listPage: {
+                guard let client = VMClient.shared else { return nil }
+                return try? await client.listPage()
+            }
         )
     }
 
@@ -242,8 +254,7 @@ final class CmuxTuiSurfaceProviderRegistry {
     // MARK: - internals
 
     private func performRefresh(force: Bool, generation: UInt64) async -> Bool {
-        guard let catalog, let client = VMClient.shared else { return false }
-        guard let page = try? await client.listPage() else { return false }
+        guard let catalog, let page = await listPage() else { return false }
         guard generation == refreshGeneration else { return false }
         let seen = Set(page.vms.map(\.id))
         // Reconcile both stores. A restored catalog can contain a machine for
@@ -289,7 +300,7 @@ final class CmuxTuiSurfaceProviderRegistry {
         }
         await withTaskGroup(of: Void.self) { group in
             for provider in providers.values {
-                group.addTask { @MainActor in await provider.refresh(force: force) }
+                group.addTask { @MainActor in await self.refreshProvider(provider, force) }
             }
         }
         return true
