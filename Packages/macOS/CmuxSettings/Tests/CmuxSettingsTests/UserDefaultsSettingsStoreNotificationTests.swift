@@ -63,6 +63,11 @@ struct UserDefaultsSettingsStoreNotificationTests {
         await waitForEventCount(1, in: recorder)
 
         await store.set("#LOCAL", for: key, source: firstSource)
+        let localEvent = await waitForEvent(in: recorder) { event in
+            event.value == "#LOCAL" && event.mutationSource == firstSource
+        }
+        #expect(localEvent?.mutationSource == firstSource)
+
         externalDefaults.set("#EXTERNAL", forKey: key.userDefaultsKey)
         NotificationCenter.default.post(
             name: UserDefaults.didChangeNotification,
