@@ -25,6 +25,15 @@ if (noun === "session" && id === "current" && verb === "snapshot") { emit(graph)
 if (expected !== undefined && (expected !== graph.session.revision || process.env.CONFLICT_TAB === id)) {
   process.stderr.write("revision.conflict\\n"); process.exit(7);
 }
+if (noun === "workspace" && id === "create") {
+  if (process.env.CREATE_FAILURE === "1") { process.stderr.write(JSON.stringify({code:"operation.failed"})); process.exit(1); }
+  const created = { id: "ws_created", name: value("--name"), index: graph.workspaces.length };
+  graph.workspaces.push(created);
+  graph.session.revision = (BigInt(graph.session.revision) + 1n).toString();
+  fs.writeFileSync(path, JSON.stringify(graph));
+  if (process.env.CONCURRENT_CREATE === "1") { process.stderr.write(JSON.stringify({code:"revision.conflict"})); process.exit(1); }
+  emit({value: created}); process.exit(0);
+}
 const objects = graph[noun === "workspace" ? "workspaces" : noun + "s"];
 const item = objects?.find(x => x.id === id);
 if (!item) { process.stderr.write("selector.not_found\\n"); process.exit(2); }
@@ -189,4 +198,38 @@ test("topology help is localized and works before daemon installation", () => {
       }
     }
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+describe("guest workspace reuse", () => {
+  test.each([false, true])("local/peer reuse keeps exact names and uses revision-fenced creation (peer=%s)", async (peer) => {
+    const f = await fixture(peer);
+    try {
+      const existing = f.run(["workspace", "new", "--name", "task", "--reuse", "--no-open", "--json"]);
+      expect(existing.status).toBe(0);
+      expect(JSON.parse(existing.stdout)).toMatchObject({value: {id: "ws_task"}, existing: true});
+      const created = f.run(["workspace", "new", "--name", "new", "--reuse", "--json"]);
+      expect(created.status).toBe(0);
+      expect(JSON.parse(created.stdout)).toMatchObject({value: {id: "ws_created"}, existing: false});
+      expect(f.calls().filter(call => call.includes("create"))[0]).toContain("--expected-revision");
+      expect(f.read().workspaces.filter((workspace: {name: string}) => workspace.name === "new")).toHaveLength(1);
+    } finally { await f.cleanup(); }
+  });
+  test("a concurrent creator is discovered after a revision conflict", async () => {
+    const f = await fixture(false);
+    try {
+      const result = f.run(["workspace", "new", "--name", "raced", "--reuse", "--json"], {CONCURRENT_CREATE: "1"});
+      expect(result.status).toBe(0);
+      expect(JSON.parse(result.stdout)).toMatchObject({value: {name: "raced"}, existing: true});
+      expect(f.calls().filter(call => call.includes("create"))).toHaveLength(1);
+    } finally { await f.cleanup(); }
+  });
+  test("non-conflict failures never retry creation", async () => {
+    const f = await fixture(false);
+    try {
+      const result = f.run(["workspace", "new", "--name", "failure", "--reuse"], {CREATE_FAILURE: "1"});
+      expect(result.status).not.toBe(0);
+      expect(f.calls().filter(call => call.includes("create"))).toHaveLength(1);
+      expect(f.read().workspaces).toHaveLength(2);
+    } finally { await f.cleanup(); }
+  });
 });

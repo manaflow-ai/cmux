@@ -499,7 +499,8 @@ describe("VM Effect workflows", () => {
     let createOptions: { memoryMb?: number } | undefined;
     const repo = {
       ...testWorkflowRepo({ vm: provisioning }),
-      hasOwnedSnapshot: () => Effect.succeed(true),
+      pendingSnapshotDeletions: () => Effect.succeed([]),
+    hasOwnedSnapshot: () => Effect.succeed(true),
       ownedSnapshotResourceReservation: () => Effect.succeed({
         vcpus: 1,
         memoryMb: 4096,
@@ -2561,7 +2562,8 @@ describe("VM Effect workflows", () => {
       setDisplayName: () => Effect.succeed(true),
       markCreateRunning: () => Effect.succeed(running),
       markCreateFailed: () => Effect.void,
-      hasOwnedSnapshot: () => Effect.succeed(false),
+      pendingSnapshotDeletions: () => Effect.succeed([]),
+    hasOwnedSnapshot: () => Effect.succeed(false),
       findUserVm: () => Effect.succeed(null),
       markDestroyed: () => Effect.void,
       recordLease: () => Effect.void,
@@ -6397,6 +6399,7 @@ function testWorkflowRepo(input: {
         ? input.vm
         : null,
       ),
+    pendingSnapshotDeletions: () => Effect.succeed([]),
     hasOwnedSnapshot: () => Effect.succeed(false),
     markDestroyed: input.markDestroyed ?? ((id) =>
       Effect.sync(() => {
