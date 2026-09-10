@@ -267,7 +267,17 @@ struct LocalTmuxCommand: SharedLegacyFacadeCommand {
 /// `LocalTmuxInvocation.parse` still requires an action token first and rejects
 /// every such line. Bare `cmux tmux` parses as this command and delegates, which
 /// is what produces the legacy usage error.
+///
+/// The unrecognized-argument sink is what lets both of those hold at once.
+/// Without it ArgumentParser rejects `cmux tmux start` on its own, with
+/// "unexpected arguments" and EX_USAGE, so the legacy attach-only diagnostic
+/// and its exit code of 1 never run. Collecting the verb instead delegates it,
+/// exactly as every other legacy-backed command does. It also swallows
+/// `attach` before the subcommand above can match, which changes nothing at
+/// runtime -- both paths call the same legacy runner on the same raw argv --
+/// and nothing in completion, which is generated from the declared tree.
 struct TmuxAliasCommand: SharedLegacyFacadeCommand {
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(
         commandName: "tmux",
         subcommands: [LocalTmuxAttachCommand.self],
