@@ -244,7 +244,6 @@ struct CloudTreeOneMachineManyWorkspacesTests {
             "machine:brave-otter/ws/ws_main",
             "machine:brave-otter/ws/ws_main/resource:brave-otter/terminal/term_1/tab:tab_term_1_0",
             "machine:brave-otter/ws/ws_main/resource:brave-otter/terminal/term_shared/tab:tab_term_shared_0",
-            "machine:brave-otter/ws/ws_main/resource:brave-otter/display/display:1",
             "machine:brave-otter/ws/ws_side",
             "machine:brave-otter/ws/ws_side/resource:brave-otter/terminal/term_2/tab:tab_term_2_0",
             "machine:brave-otter/ws/ws_side/resource:brave-otter/terminal/term_shared/tab:tab_term_shared_1",
@@ -279,7 +278,7 @@ struct CloudTreeOneMachineManyWorkspacesTests {
         }
         #expect(mainCount == 2)
         #expect(sideCount == 2)
-        // The pinned display travels with its workspace's open/drag group; the implicit one does not.
+        // A display travels with the open/drag group of the workspace that holds it.
         #expect(byID["machine:brave-otter/ws/ws_side"]?.dragGroup?.resources == [
             SurfaceResourceID(machine: machine, kind: .terminal, key: "term_2"), shared.id, desktop.id,
         ])
@@ -289,6 +288,41 @@ struct CloudTreeOneMachineManyWorkspacesTests {
         // Displays is one row per screen; the group is searchable under that name.
         #expect(byID["machine:brave-otter/displays"]?.searchableTitle == "Displays")
         #expect(tree.last?.id == "resource:brave-otter/terminal/term_shared", "Terminals is the machine's last section")
+    }
+
+    /// A desktop machine used to inject its screen into every workspace that did
+    /// not already hold one, so a layout of terminals read as if a Desktop had
+    /// been opened in it. The capability belongs to the machine's Displays
+    /// group; a workspace shows a Desktop only once someone puts one there.
+    @Test("A desktop machine's workspaces list only the displays they hold")
+    func workspaceWithoutADisplayShowsNoDesktop() throws {
+        let bare = workspace("ws_bare", "bare", index: 0, focused: true)
+        let holder = workspace("ws_holder", "holder", index: 1)
+        let snapshot = SurfaceCatalogSnapshot(
+            machines: [info(workspaces: [bare, holder], hasDesktop: true)],
+            resources: [terminal("term_1", in: [bare]), display(in: [holder])],
+            projections: []
+        )
+        let tree = rows(snapshot)
+
+        #expect(tree.map(\.id) == [
+            "machine:brave-otter",
+            "machine:brave-otter/workspaces",
+            "machine:brave-otter/ws/ws_bare",
+            "machine:brave-otter/ws/ws_bare/resource:brave-otter/terminal/term_1/tab:tab_term_1_0",
+            "machine:brave-otter/ws/ws_holder",
+            "machine:brave-otter/ws/ws_holder/resource:brave-otter/display/display:1/tab:tab_desk_0",
+            "machine:brave-otter/ports",
+            "machine:brave-otter/ports/status",
+            "machine:brave-otter/displays",
+            "resource:brave-otter/display/display:1",
+            "machine:brave-otter/terminals",
+            "resource:brave-otter/terminal/term_1",
+        ], "the terminal-only workspace stays terminal-only; Displays still offers the screen")
+        let byID = Dictionary(tree.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        #expect(byID["machine:brave-otter/ws/ws_bare"]?.dragGroup?.resources == [
+            SurfaceResourceID(machine: machine, kind: .terminal, key: "term_1"),
+        ])
     }
 
     @Test("An empty machine still offers Workspaces, Ports, Displays, and Terminals")
