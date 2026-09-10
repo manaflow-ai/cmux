@@ -492,7 +492,7 @@ import Testing
     /// the transition is discarded, so the finished cycle permits a retry.
     @Test func cancellingDelayedUpdateFoundDismissesPromptAndAllowsRetry() async {
         let harness = Harness()
-        let prompt = ChoiceBox()
+        let prompt = PromptReplyChoiceBox()
 
         harness.controller.checkForUpdates()
         harness.controller.driver.showUserInitiatedUpdateCheck(cancellation: {
@@ -514,7 +514,9 @@ import Testing
         harness.controller.driver.showUpdateFound(
             with: item,
             state: sparkleState,
-            reply: { choice in prompt.choice = choice }
+            reply: { choice in
+                MainActor.assumeIsolated { prompt.append(choice) }
+            }
         )
         guard case .checking(let checking) = harness.model.state else {
             Issue.record("found update should remain behind the minimum checking delay")
@@ -522,8 +524,8 @@ import Testing
         }
 
         checking.cancel()
-        #expect(prompt.choice == .dismiss)
-        #expect(prompt.choice == .dismiss, "the buffered Sparkle reply must be consumed once")
+        checking.cancel()
+        #expect(prompt.choices == [.dismiss], "the buffered Sparkle reply must be consumed once")
 
         harness.finishSparkleCycle()
         harness.controller.checkForUpdates()
