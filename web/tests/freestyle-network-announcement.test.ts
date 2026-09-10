@@ -120,4 +120,11 @@ describe("Freestyle private network readiness", () => {
     const vm = { exec: async () => ({ statusCode: 1, stdout: "", stderr: "not assigned" }) };
     await expect(Effect.runPromise(announceFreestyleNetwork(vm as never, ["10.16.0.2"]))).rejects.toThrow();
   });
+
+  test.each([[], ["invalid-address"]])("missing usable addresses fail before guest execution: %j", async (addresses) => {
+    let executed = false;
+    const vm = { exec: async () => { executed = true; return { statusCode: 0, stdout: "", stderr: "" }; } };
+    await expect(Effect.runPromise(announceFreestyleNetwork(vm as never, addresses))).rejects.toThrow();
+    expect(executed).toBe(false);
+  });
 });
