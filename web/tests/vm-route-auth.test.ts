@@ -2,6 +2,7 @@ import * as Exit from "effect/Exit";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import manifestJson from "../services/vms/images/manifest.json";
 import { pickVmImageSizeForMemory } from "../services/vms/images/sizes";
+import { vmCapabilitiesFor } from "../services/vms/drivers";
 
 // The manifest is the only source of truth for images: the desktop default at
 // the plan's memory is what a create with no image (and no kind) resolves to,
@@ -1769,14 +1770,13 @@ describe("VM REST auth", () => {
       { params: Promise.resolve({ id: "provider-vm-status" }) },
     );
     expect(response.status).toBe(200);
-    const payload = await response.json() as { capabilities?: unknown };
-    expect(payload).toMatchObject({
+    expect(await response.json()).toMatchObject({
       id: "provider-vm-status",
       image: MANIFEST_DESKTOP_DEFAULT.imageId,
       kind: "desktop",
+      capabilities: vmCapabilitiesFor("freestyle"),
       address: { ipv4: "10.16.170.11", ipv6: null },
     });
-    expect(typeof payload.capabilities).toBe("object");
   });
 
   test("passes the selected Stack team to VM child route workflows", async () => {
