@@ -70,39 +70,43 @@ class CASInUse(Exception):
 
 
 def prune_cas_dir(cas_dir: Path) -> tuple[list[Path], list[tuple[Path, int]]]:
-    """Remove every generation but the newest two.
+    """Remove every generation but the newest two, holding the CAS lock.
 
     Returns (live, removed) where removed pairs each deleted generation with
     the KiB it occupied. Only generations selected for removal are measured;
     the live ones are left to the caller's single `du` over the whole cache.
+    A directory without a `lock` file is not a CAS directory the toolchain has
+    opened and is left untouched.
     """
     lock_path = cas_dir / LOCK_FILENAME
-    lock_file = None
-    if lock_path.is_file():
-        lock_file = lock_path.open("rb")
+    if not lock_path.is_file():
+        # Every CAS directory the toolchain has opened carries a `lock` file.
+        # Without one there is nothing to lock, so nothing may be deleted.
+        live, stale = split_generations(cas_dir)
+        if live or stale:
+            print(f"{display_path(cas_dir)}: no CAS lock file; leaving it alone")
+        return [], []
+    with lock_path.open("rb") as lock_file:
         try:
             fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError as error:
-            lock_file.close()
             raise CASInUse(str(error)) from error
-    try:
-        live, stale = split_generations(cas_dir)
-        removed: list[tuple[Path, int]] = []
-        for generation in stale:
-            size_kib = allocated_kib(generation)
-            try:
-                shutil.rmtree(generation)
-            except OSError as error:
-                # Pruning is an optimisation; never fail the build over it.
-                print(f"{display_path(generation)}: could not remove ({error}); keeping it")
-                live.append(generation)
-                continue
-            removed.append((generation, size_kib))
-        return live, removed
-    finally:
-        if lock_file is not None:
+        try:
+            live, stale = split_generations(cas_dir)
+            removed: list[tuple[Path, int]] = []
+            for generation in stale:
+                size_kib = allocated_kib(generation)
+                try:
+                    shutil.rmtree(generation)
+                except OSError as error:
+                    # Pruning is an optimisation; never fail the build over it.
+                    print(f"{display_path(generation)}: could not remove ({error}); keeping it")
+                    live.append(generation)
+                    continue
+                removed.append((generation, size_kib))
+            return live, removed
+        finally:
             fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
-            lock_file.close()
 
 
 def main() -> int:

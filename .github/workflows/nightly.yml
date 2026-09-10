@@ -74,12 +74,14 @@ jobs:
         with:
           script: |
             const forceBuild = process.env.FORCE_BUILD === 'true';
-            const fastBuild = process.env.FAST_BUILD === 'true';
-            // A build-only run measures the unsigned app build (cold or warm
-            // cache) and stops there: no helper, signing, notarization, dSYM
-            // upload, or publication, so it is safe to dispatch from a branch.
+            // A build-only run measures the unsigned universal app build (cold
+            // or warm cache) and stops there: no helper, signing, notarization,
+            // dSYM upload, or publication, so it is safe to dispatch from a
+            // branch. It always builds the production workload, so the fast
+            // arm64 path is ignored, and it never depends on the nightly tag.
             const buildOnly = process.env.BUILD_ONLY === 'true';
             const coldCache = buildOnly && process.env.COLD_CACHE === 'true';
+            const fastBuild = !buildOnly && process.env.FAST_BUILD === 'true';
             // Nightly ships one universal DMG for downloads plus one thin DMG per
             // architecture for updates. Browsers cannot tell Apple silicon from
             // Intel, so `cmux-nightly-macos.dmg` and the legacy `appcast.xml`
@@ -128,7 +130,7 @@ jobs:
               }
             }
 
-            const shouldBuild = !isMainRef || forceBuild || nightlySha !== headSha;
+            const shouldBuild = buildOnly || !isMainRef || forceBuild || nightlySha !== headSha;
             core.setOutput('should_build', shouldBuild ? 'true' : 'false');
             core.setOutput('head_sha', headSha);
             core.setOutput('short_sha', headSha.slice(0, 7));
