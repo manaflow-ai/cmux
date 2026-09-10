@@ -92,7 +92,7 @@ struct DeviceDirectoryLifecycleTests {
             }
         }
         defer { NotificationCenter.default.removeObserver(observer); directory.stop() }
-        directory.apply(.snapshot([]))
+        directory.apply(.snapshot(devices: []))
         #expect(directory.records.isEmpty)
         #expect(recorded.states == [.live])
     }
