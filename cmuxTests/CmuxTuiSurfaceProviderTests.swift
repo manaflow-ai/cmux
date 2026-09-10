@@ -1152,6 +1152,12 @@ import Testing
         #expect(await eof.result == nil, "finished without a value reads as nil")
     }
 
+    @Test func linkCommandCarriesSecretInputThroughAPipe() async throws {
+        let link = CloudMachineLink(machineID: "test-machine", clientURL: URL(fileURLWithPath: "/bin/cat"), paths: CloudTuiClientPaths())
+        let payload = Data("private receiver wire\n".utf8)
+        #expect(try await link.run(arguments: [], input: payload) == payload)
+    }
+
     @Test func cancellingLinkCommandStopsItsChildBeforeReturning() async throws {
         let pidFile = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-cloud-command-\(UUID().uuidString.lowercased()).pid")

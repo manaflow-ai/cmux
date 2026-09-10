@@ -103,6 +103,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         // `vm dev` binds the folder to the machine in ~/.cmuxterm; keep that out of the
         // developer's home.
         environment["HOME"] = home.path
+        environment["CFFIXED_USER_HOME"] = home.path
         return environment
     }
 

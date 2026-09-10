@@ -277,8 +277,8 @@ import Testing
                 == ["--socket", "/tmp/l.sock", "--json", "workspace", "ws_1", "run", "--", "bash", "-l"]
         )
         #expect(
-            CloudTuiCommandLine.writeBytesArguments(socketPath: "/tmp/l.sock", terminalID: "term_1", base64: "QUJD")
-                == ["--socket", "/tmp/l.sock", "--json", "terminal", "term_1", "write", "--bytes-base64", "QUJD"]
+            CloudTuiCommandLine.writeBytesArguments(socketPath: "/tmp/l.sock", terminalID: "term_1")
+                == ["--socket", "/tmp/l.sock", "--json", "terminal", "term_1", "write"]
         )
     }
 

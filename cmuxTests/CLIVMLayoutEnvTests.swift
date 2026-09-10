@@ -75,6 +75,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
     private func vmLayoutEnvEnvironment(socketPath: String) -> [String: String] {
         var environment = ProcessInfo.processInfo.environment
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-layout-env-home-\(UUID().uuidString)")
+        // The directory is created by the CLI only if needed; either way this
+        // test owns its whole lifetime, including malformed-input cases.
+        addTeardownBlock { try? FileManager.default.removeItem(at: home) }
+        environment["HOME"] = home.path
+        environment["CFFIXED_USER_HOME"] = home.path
+        environment["XDG_CONFIG_HOME"] = home.appendingPathComponent(".config").path
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         return environment
@@ -647,6 +654,16 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 ["name": "dev", "workspace": ["cwd": "~"]],
                 "$",
                 "no layout found"
+            ),
+            (
+                "split-too-small",
+                ["direction": "horizontal", "split": 0.01, "children": [["pane": ["surfaces": [["type": "terminal"]]]], ["pane": ["surfaces": [["type": "terminal"]]]]]],
+                "$.split", "0.1–0.9"
+            ),
+            (
+                "split-too-large",
+                ["direction": "horizontal", "split": 0.99, "children": [["pane": ["surfaces": [["type": "terminal"]]]], ["pane": ["surfaces": [["type": "terminal"]]]]]],
+                "$.split", "0.1–0.9"
             ),
             (
                 "empty-surfaces",
