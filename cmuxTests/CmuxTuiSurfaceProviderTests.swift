@@ -1128,6 +1128,40 @@ import Testing
         #expect(SurfaceBrowserPlaceholder.escape("a\"b'c") == "a&quot;b&#39;c")
     }
 
+    @Test @MainActor func failedPlaceholderWithTokenOffersRetryInsteadOfReopenInstruction() {
+        let retryable = SurfaceBrowserPlaceholder.failed("m:3000", error: "boom", token: "T", proxyAvailable: true)
+        #expect(retryable.contains("data-action=\"retry\""))
+        #expect(retryable.contains("Try Again"))
+        #expect(retryable.contains("data-action=\"openProxy\""))
+        #expect(!retryable.contains("open it again from the sidebar"))
+        // A permanent capability gap keeps its no-retry wording even with a token.
+        let permanent = SurfaceBrowserPlaceholder.failed("m:3000", error: "HTTP 501", retryable: false, token: "T")
+        #expect(!permanent.contains("data-action="))
+        #expect(permanent.contains("Do not retry"))
+    }
+
+    @Test @MainActor func placeholderBridgeAcceptsOnlyLocalMainFrameMessagesWithLiveTokens() {
+        let bridge = SurfaceBrowserPlaceholderBridge()
+        var received: [SurfaceBrowserPlaceholderAction] = []
+        let token = bridge.register { received.append($0) }
+        let body: [String: Any] = ["token": token, "action": "retry"]
+
+        // What `loadHTMLString(_:baseURL: nil)` produces: a main-frame about:blank document.
+        #expect(SurfaceBrowserPlaceholderBridge.parse(body: body, isMainFrame: true, frameURL: URL(string: "about:blank"))?.action == .retry)
+        #expect(SurfaceBrowserPlaceholderBridge.parse(body: body, isMainFrame: true, frameURL: nil)?.token == token)
+        // A web origin, a subframe, an unknown action, or a malformed body never reaches a pane.
+        #expect(SurfaceBrowserPlaceholderBridge.parse(body: body, isMainFrame: true, frameURL: URL(string: "https://evil.example/")) == nil)
+        #expect(SurfaceBrowserPlaceholderBridge.parse(body: body, isMainFrame: false, frameURL: URL(string: "about:blank")) == nil)
+        #expect(SurfaceBrowserPlaceholderBridge.parse(body: ["token": token, "action": "format"], isMainFrame: true, frameURL: nil) == nil)
+        #expect(SurfaceBrowserPlaceholderBridge.parse(body: "retry", isMainFrame: true, frameURL: nil) == nil)
+
+        // Tokens are single-use secrets: gone after unregister, unknown ones ignored.
+        #expect(bridge.registeredTokenCount == 1)
+        bridge.unregister(token)
+        #expect(bridge.registeredTokenCount == 0)
+        #expect(received.isEmpty)
+    }
+
     @Test func linkPipesReadOnGCDNotCooperativeThreads() async throws {
         // Lines arrive as the child writes them, a trailing CR is dropped, and an
         // unterminated last line is delivered at EOF.

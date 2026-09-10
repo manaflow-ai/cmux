@@ -59,6 +59,9 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     var materializedPanels: Set<UUID> = []
     /// Setup belongs to the local projection and is cancelled when that pane ends.
     var browserPaneTasks: [UUID: Task<Void, Never>] = [:]
+    /// Placeholder tokens of browser panes showing a failure page, by panel id, so the
+    /// page's Try Again / cmux.sh buttons reach this provider and this pane only.
+    var browserPaneRetryTokens: [UUID: String] = [:]
     /// Native cloud terminals own a manual attachment separate from their
     /// catalog projection. The provider retains it for the life of the pane.
     var manualMirrorSessions: [UUID: CloudTuiManualMirrorSession] = [:]
@@ -1606,6 +1609,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// The terminal lives in the machine's session; only the local pane went away.
     func projectionDidEnd(_ projection: SurfaceProjection) {
         browserPaneTasks.removeValue(forKey: projection.panelID)?.cancel()
+        releaseRetryToken(panelID: projection.panelID)
         materializedPanels.remove(projection.panelID)
         manualMirrorSessions.removeValue(forKey: projection.panelID)?.stop()
     }
@@ -1613,6 +1617,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     @discardableResult
     func discardMaterialization(_ projection: SurfaceProjection) -> Bool {
         browserPaneTasks.removeValue(forKey: projection.panelID)?.cancel()
+        releaseRetryToken(panelID: projection.panelID)
         materializedPanels.remove(projection.panelID)
         manualMirrorSessions.removeValue(forKey: projection.panelID)?.stop()
         SurfacePaneFactory.close(panelID: projection.panelID, in: projection.workspaceID)

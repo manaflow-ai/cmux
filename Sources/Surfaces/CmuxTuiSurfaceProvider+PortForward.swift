@@ -56,11 +56,12 @@ extension CmuxTuiSurfaceProvider {
                     try await forward.warmUpHub()
                     try Task.checkCancellation()
                     guard self.isCurrentLifecycleGeneration(generation) else { return }
+                    self.releaseRetryToken(panelID: pane.panelID)
                     SurfacePaneFactory.navigate(panelID: pane.panelID, in: pane.workspaceID, to: localURL)
                 } catch {
                     guard !Task.isCancelled else { return }
                     guard self.isCurrentLifecycleGeneration(generation) else { return }
-                    Self.showFailure(label: label, error: error, pane: pane)
+                    self.showFailure(resource: resource, label: label, error: error, pane: pane)
                 }
             }
             return pane
@@ -76,11 +77,12 @@ extension CmuxTuiSurfaceProvider {
                     let url = try await self.controlPlanePreviewURL(port: port)
                     try Task.checkCancellation()
                     guard self.isCurrentLifecycleGeneration(generation) else { return }
+                    self.releaseRetryToken(panelID: pane.panelID)
                     SurfacePaneFactory.navigate(panelID: pane.panelID, in: pane.workspaceID, to: url)
                 } catch {
                     guard !Task.isCancelled else { return }
                     guard self.isCurrentLifecycleGeneration(generation) else { return }
-                    Self.showFailure(label: label, error: error, pane: pane)
+                    self.showFailure(resource: resource, label: label, error: error, pane: pane)
                 }
             }
             return pane
@@ -118,7 +120,7 @@ extension CmuxTuiSurfaceProvider {
                     } catch {
                         self.browserPaneTasks[pane.panelID] = nil
                         guard !Task.isCancelled, self.isCurrentLifecycleGeneration(generation) else { return }
-                        Self.showFailure(label: resource.title, error: error, pane: pane)
+                        self.showFailure(resource: resource, label: resource.title, error: error, pane: pane)
                     }
                 }
             }
@@ -185,11 +187,70 @@ extension CmuxTuiSurfaceProvider {
         return pane
     }
 
-    private static func showFailure(label: String, error: any Error, pane: (workspaceID: UUID, panelID: UUID)) {
+    /// The failure page, with Try Again (the whole route again, in place) and, for a
+    /// port, "Open through cmux.sh instead": the personal publication, which needs
+    /// neither the hub nor a private address. The desktop never gets the proxy
+    /// button: its VNC page carries a token that must stay on the private route.
+    private func showFailure(resource: SurfaceResource, label: String, error: any Error, pane: (workspaceID: UUID, panelID: UUID)) {
         let text = CloudMachineLink.errorText(error)
-        SurfacePaneFactory.showPlaceholder(SurfaceBrowserPlaceholder.failed(label, error: text), panelID: pane.panelID, in: pane.workspaceID)
+        releaseRetryToken(panelID: pane.panelID)
+        let port = resource.id.forwardedPort ?? resource.port
+        let proxyAvailable = resource.kind == .browser && port != nil && machine.cloudMachineID != nil
+        let token = SurfaceBrowserPlaceholderBridge.shared.register { [weak self] action in
+            self?.handlePlaceholderAction(action, resource: resource, label: label, pane: pane)
+        }
+        browserPaneRetryTokens[pane.panelID] = token
+        SurfacePaneFactory.showPlaceholder(
+            SurfaceBrowserPlaceholder.failed(label, error: text, token: token, proxyAvailable: proxyAvailable),
+            panelID: pane.panelID,
+            in: pane.workspaceID
+        )
         #if DEBUG
         cmuxDebugLog("cloud.provider.endpointFailed label=\(label) error=\(String(reflecting: error))")
         #endif
+    }
+
+    private func handlePlaceholderAction(_ action: SurfaceBrowserPlaceholderAction, resource: SurfaceResource, label: String, pane: (workspaceID: UUID, panelID: UUID)) {
+        guard let paneID = SurfacePaneFactory.paneID(ofPanel: pane.panelID, in: pane.workspaceID) else { return }
+        switch action {
+        case .retry:
+            browserPaneTasks[pane.panelID]?.cancel()
+            browserPaneTasks[pane.panelID] = Task { @MainActor [weak self] in
+                guard let self else { return }
+                do {
+                    _ = try await self.materializeBrowserPane(
+                        resource,
+                        at: .tab(workspaceID: pane.workspaceID, paneID: paneID, index: nil),
+                        focus: false,
+                        reusing: pane
+                    )
+                } catch {
+                    guard !Task.isCancelled else { return }
+                    self.showFailure(resource: resource, label: label, error: error, pane: pane)
+                }
+            }
+        case .openProxy:
+            guard let vmID = machine.cloudMachineID, let port = resource.id.forwardedPort ?? resource.port else { return }
+            browserPaneTasks[pane.panelID]?.cancel()
+            browserPaneTasks[pane.panelID] = Task { @MainActor [weak self] in
+                guard let self else { return }
+                defer { self.browserPaneTasks[pane.panelID] = nil }
+                do {
+                    let url = try await CloudPortProxy.url(vmID: vmID, port: port)
+                    SurfacePaneFactory.showPlaceholder(SurfaceBrowserPlaceholder.connecting(url.host ?? label), panelID: pane.panelID, in: pane.workspaceID)
+                    self.releaseRetryToken(panelID: pane.panelID)
+                    _ = try await CloudPortProxy.open(url, replacing: pane)
+                } catch {
+                    guard !Task.isCancelled else { return }
+                    self.showFailure(resource: resource, label: label, error: error, pane: pane)
+                }
+            }
+        }
+    }
+
+    func releaseRetryToken(panelID: UUID) {
+        if let token = browserPaneRetryTokens.removeValue(forKey: panelID) {
+            SurfaceBrowserPlaceholderBridge.shared.unregister(token)
+        }
     }
 }

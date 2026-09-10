@@ -53,6 +53,10 @@ struct CloudTreeNodeActions {
     /// address is only reachable with `cmux vpn up`, so it is not what "Copy
     /// Link" hands out.
     let copyPortLink: @MainActor (_ resource: SurfaceResourceID) -> Void
+    /// Copy a port's public `cmux.sh` URL (creating the personal publication on first use).
+    let copyProxyURL: @MainActor (_ resource: SurfaceResourceID) -> Void
+    /// Open a port's public `cmux.sh` URL in a browser pane signed in as this account.
+    let openProxyURL: @MainActor (_ resource: SurfaceResourceID) -> Void
     let refresh: @MainActor () -> Void
 
     @MainActor
@@ -92,6 +96,9 @@ struct CloudTreeNodeActions {
         }
         let openingLabel: (SurfaceMachineID) -> String = { machine in
             String(format: String(localized: "cloudTree.operation.project", defaultValue: "Opening on %@\u{2026}"), machineName(machine))
+        }
+        let proxyLabel: (SurfaceMachineID, Int) -> String = { machine, port in
+            String(format: String(localized: "cloudTree.operation.proxy", defaultValue: "Publishing %@:%d on cmux.sh\u{2026}"), machineName(machine), port)
         }
         let startingLabel: (SurfaceMachineID) -> String = { machine in
             String(format: String(localized: "cloudTree.operation.newTerminal", defaultValue: "Starting a terminal on %@\u{2026}"), machineName(machine))
@@ -360,6 +367,24 @@ struct CloudTreeNodeActions {
                     }
                     // The same link the pane loads and `vm.port_open` reports.
                     Self.copyToPasteboard(try await provider.portLinkURL(port: port))
+                }
+            },
+            copyProxyURL: { resource in
+                guard let vmID = resource.machine.cloudMachineID, let port = resource.forwardedPort else { return }
+                run(proxyLabel(resource.machine, port)) { _ in
+                    Self.copyToPasteboard(try await CloudPortProxy.url(vmID: vmID, port: port).absoluteString)
+                }
+            },
+            openProxyURL: { resource in
+                guard let vmID = resource.machine.cloudMachineID, let port = resource.forwardedPort else { return }
+                let capturedWorkspaceID = selectedWorkspaceID()
+                run(proxyLabel(resource.machine, port)) { catalog in
+                    guard let workspaceID = catalog.preferredLocalWorkspaceID(for: resource, fallback: capturedWorkspaceID) else {
+                        throw SurfaceCatalogError.destinationNotFound(SurfaceCatalog.portDestinationUnavailableMessage(machine: resource.machine))
+                    }
+                    let url = try await CloudPortProxy.url(vmID: vmID, port: port)
+                    let opened = try await SurfacePaneFactory.makeAuthenticatedBrowserPane(url: url, at: .workspace(id: workspaceID, placement: .split), focus: true)
+                    SurfacePaneFactory.focus(panelID: opened.panelID, in: opened.workspaceID)
                 }
             },
             refresh: refresh

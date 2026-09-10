@@ -454,3 +454,43 @@ extension CmuxTuiSurfaceProvider {
         }
     }
 }
+
+/// The public route to a machine port: `https://<vm>--<org>--<port>.cmux.sh`, a
+/// managed publication that needs no tunnel. Personal by default (only this
+/// account, after cmux sign-in), so copying or opening it never exposes the port.
+/// Creating it is idempotent server-side: the same port yields the same hostname.
+enum CloudPortProxy {
+    @MainActor
+    static func publication(vmID: String, port: Int) async throws -> VMPublication {
+        guard let client = VMClient.shared else { throw CmuxTuiSurfaceProvider.ProviderError.notSignedIn }
+        return try await client.createPublication(vmID: vmID, port: port, hostname: nil, accessMode: nil, teamID: nil)
+    }
+
+    @MainActor
+    static func url(vmID: String, port: Int) async throws -> URL {
+        let publication = try await publication(vmID: vmID, port: port)
+        guard let url = URL(string: publication.url), url.host != nil else {
+            throw CmuxTuiSurfaceProvider.ProviderError.invalidPreviewURL
+        }
+        return url
+    }
+
+    /// Opens the proxy URL signed in as the cmux account, as a tab where the
+    /// placeholder pane sits, then closes the placeholder. The new pane needs
+    /// its own (isolated, cookie-primed) website data store, which an existing
+    /// pane cannot adopt.
+    @MainActor
+    @discardableResult
+    static func open(_ url: URL, replacing pane: (workspaceID: UUID, panelID: UUID)) async throws -> (workspaceID: UUID, panelID: UUID) {
+        guard let paneID = SurfacePaneFactory.paneID(ofPanel: pane.panelID, in: pane.workspaceID) else {
+            throw SurfacePaneFactory.FactoryError.paneNotFound(pane.panelID.uuidString)
+        }
+        let opened = try await SurfacePaneFactory.makeAuthenticatedBrowserPane(
+            url: url,
+            at: .tab(workspaceID: pane.workspaceID, paneID: paneID, index: nil),
+            focus: true
+        )
+        SurfacePaneFactory.close(panelID: pane.panelID, in: pane.workspaceID)
+        return opened
+    }
+}
