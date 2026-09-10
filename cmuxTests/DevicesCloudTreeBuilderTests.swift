@@ -24,22 +24,7 @@ struct DevicesCloudTreeBuilderTests {
         let suiteName = "DevicesCloudTreeReveal-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
-        let coordinator = CloudTreeOutlineView.Coordinator(
-            machineActions: MachineRowActions(
-                openShell: { _ in }, openDesktop: { _ in }, runCommand: { _, _ in },
-                confirmDelete: { _ in }, promptRename: { _, _ in }, promptUpgrade: {}
-            ),
-            nodeActions: CloudTreeNodeActions(
-                project: { _, _, _ in }, projectRemoteView: { _, _, _, _ in },
-                projectInLocalWorkspace: { _, _ in }, projectRemoteViewInLocalWorkspace: { _, _, _ in },
-                newTerminal: { _, _ in }, openGroup: { _, _, _, _ in }, openGroupAsWorkspace: { _, _, _ in },
-                newWorkspace: { _ in }, closeTerminal: { _ in }, closeWorkspace: { _, _ in },
-                renameWorkspace: { _, _ in }, renameTerminal: { _, _ in },
-                selectLocalWorkspace: { _ in }, copyToPasteboard: { _ in }, copyPortLink: { _ in }, refresh: {}
-            ),
-            expansionStore: CloudTreeExpansionStore(defaults: defaults),
-            tabDragTransferRegistry: { nil }
-        )
+        let coordinator = makeCoordinator(defaults: defaults)
         let container = CloudTreeContainerView(coordinator: coordinator)
         let outline = try #require(coordinator.outlineView)
         let request = CloudTreeRevealRequest.machine(.device(studio))
@@ -71,6 +56,57 @@ struct DevicesCloudTreeBuilderTests {
         coordinator.reveal(.machine(.device(studio)))
         #expect(outline.isItemExpanded(device))
         #expect(outline.selectedRow == outline.row(forItem: device))
+        _ = container
+    }
+
+    @MainActor
+    private func makeCoordinator(defaults: UserDefaults) -> CloudTreeOutlineView.Coordinator {
+        return CloudTreeOutlineView.Coordinator(
+            machineActions: MachineRowActions(
+                openShell: { _ in }, openDesktop: { _ in }, runCommand: { _, _ in },
+                confirmDelete: { _ in }, promptRename: { _, _ in }, promptUpgrade: {}
+            ),
+            nodeActions: CloudTreeNodeActions(
+                project: { _, _, _ in }, projectRemoteView: { _, _, _, _ in },
+                projectInLocalWorkspace: { _, _ in }, projectRemoteViewInLocalWorkspace: { _, _, _ in },
+                newTerminal: { _, _ in }, openGroup: { _, _, _, _ in }, openGroupAsWorkspace: { _, _, _ in },
+                newWorkspace: { _ in }, closeTerminal: { _ in }, closeWorkspace: { _, _ in },
+                renameWorkspace: { _, _ in }, renameTerminal: { _, _ in },
+                selectLocalWorkspace: { _ in }, copyToPasteboard: { _ in }, copyPortLink: { _ in }, refresh: {}
+            ),
+            expansionStore: CloudTreeExpansionStore(defaults: defaults),
+            tabDragTransferRegistry: { nil }
+        )
+    }
+
+    @MainActor
+    @Test("Hover and menu creation actions require a trusted connected device")
+    func deviceCreationActionsRequireConnection() throws {
+        let suite = "DeviceCreationActions-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let coordinator = makeCoordinator(defaults: defaults)
+        let container = CloudTreeContainerView(coordinator: coordinator)
+        let newTerminal = String(localized: "cloudTree.menu.newTerminal", defaultValue: "New Terminal")
+        let newWorkspace = String(localized: "cloudTree.menu.newWorkspace", defaultValue: "New Workspace")
+        let cases: [(SurfaceLinkState, SurfaceDevicePresence.AccountTrust, Bool)] = [
+            (.unavailable, .sameAccount, false), (.connecting, .sameAccount, false),
+            (.offline, .sameAccount, false), (.error, .sameAccount, false),
+            (.connected, .otherAccount, false), (.connected, .sameAccount, true)
+        ]
+        for (state, trust, expected) in cases {
+            let row = CloudTreeDeviceRow(
+                instance: studio, name: "Studio",
+                presence: presence(online: true, tag: "default", trust: trust),
+                linkState: state, linkError: nil, workspaceCount: 0, terminalCount: 0
+            )
+            let node = CloudTreeNode(id: CloudTreeNodeBuilder.nodeID(machine: row.machine), kind: .device(row))
+            coordinator.apply(nodes: [node])
+            #expect(CloudTreeRowHoverButtons.hasButtons(for: node.kind) == expected)
+            let menu = try #require(coordinator.contextMenu(forRow: 0))
+            #expect(menu.items.contains { $0.title == newTerminal } == expected)
+            #expect(menu.items.contains { $0.title == newWorkspace } == expected)
+        }
         _ = container
     }
 
