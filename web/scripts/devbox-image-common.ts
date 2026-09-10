@@ -1076,25 +1076,42 @@ export function devboxImageLadderProblems(
 }
 
 
+/** The devbox Dockerfile as committed at `commit`, or null when the commit or the file is not available here. */
+export function devboxDockerfileAtCommit(commit: string): string | null {
+  try {
+    return execSync(`git show ${commit}:web/services/vms/images/devbox/Dockerfile`, { cwd: repoRoot, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Moves default entries recorded at an older source schema to the current
- * one without a rebake, only where the provenance is already proven by what
- * the entry recorded: its digest at its own schema must equal this checkout's
- * (the verbatim files, pins and epoch are the bake's), and its
- * `builderScriptVersion` must equal this checkout's bake script (the one
- * input the newer schema adds that the older one did not cover; the
- * Dockerfile instructions are covered by the same ARG-derived pins plus the
- * fact that the Freestyle replay reads nothing else from it). Anything else
- * is left alone and reported: a rebake is the only other way up. Pure.
+ * one without a rebake, only where every input the newer schema adds is
+ * proven from what the entry recorded, never synthesized from the checkout:
+ * its digest at its own schema must equal this checkout's (the verbatim
+ * files, pins and epoch are the bake's); its `builderScriptVersion` must
+ * equal this checkout's bake script; and the Dockerfile's instructions at
+ * its `repoCommit` (read from git; a commit or file that is not available
+ * here is not proof) must equal this checkout's. Anything else is left alone
+ * and reported: a rebake is the only other way up. Pure but for the git read,
+ * which `dockerfileAt` replaces in tests.
  */
 export function upgradeDevboxSourceRecords(
   manifest: DevboxImageManifest,
-  options: { provider?: DevboxProvider; dockerfile?: string; bakeScript?: () => string } = {},
+  options: {
+    provider?: DevboxProvider;
+    dockerfile?: string;
+    bakeScript?: () => string;
+    dockerfileAt?: (commit: string) => string | null;
+  } = {},
 ): { manifest: DevboxImageManifest; upgraded: string[]; skipped: Array<{ version: string; reason: string }> } {
   const provider = options.provider ?? "freestyle";
   const dockerfile = options.dockerfile ?? readDevboxDockerfile();
   const bakeScript = options.bakeScript ?? (() => readFileSync(bakeScriptPath, "utf8"));
+  const dockerfileAt = options.dockerfileAt ?? devboxDockerfileAtCommit;
   const bakeScriptSha256 = createHash("sha256").update(bakeScript()).digest("hex");
+  const instructions = normalizedDockerfileInstructions(dockerfile);
   const upgraded: string[] = [];
   const skipped: Array<{ version: string; reason: string }> = [];
   const images = manifest.images.map((entry) => {
@@ -1112,6 +1129,15 @@ export function upgradeDevboxSourceRecords(
     }
     if (entry.builderScriptVersion !== bakeScriptSha256) {
       skipped.push({ version: entry.version, reason: "builderScriptVersion does not match this checkout's bake script" });
+      return entry;
+    }
+    const bakedDockerfile = entry.repoCommit ? dockerfileAt(entry.repoCommit) : null;
+    if (bakedDockerfile === null) {
+      skipped.push({ version: entry.version, reason: `Dockerfile at repoCommit ${entry.repoCommit ?? "(none)"} is not available here; rebake to record schema ${DEVBOX_SOURCE_SCHEMA}` });
+      return entry;
+    }
+    if (normalizedDockerfileInstructions(bakedDockerfile) !== instructions) {
+      skipped.push({ version: entry.version, reason: `Dockerfile instructions changed since repoCommit ${entry.repoCommit}; rebake to record schema ${DEVBOX_SOURCE_SCHEMA}` });
       return entry;
     }
     upgraded.push(entry.version);

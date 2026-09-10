@@ -264,14 +264,17 @@ describe("upgradeDevboxSourceRecords (promote --upgrade-source-schema)", () => {
       kind: layers,
       defaultForKind: true,
       epoch,
+      repoCommit: "bakecommit",
       builderScriptVersion: bakeScriptSha,
       devboxSource: { layers, digest: devboxSourceDigest(layers, dockerfile, 1) },
       ...overrides,
     });
   const manifestOf = (...images: DevboxManifestEntry[]): DevboxImageManifest => ({ schemaVersion: 1, images });
+  // The Dockerfile as committed at the entry's repoCommit, in tests a stand-in for `git show`.
+  const sameDockerfile = (commit: string) => (commit === "bakecommit" ? dockerfile : null);
 
-  test("moves a schema-1 default up only when its digest and builderScriptVersion prove the checkout", () => {
-    const result = upgradeDevboxSourceRecords(manifestOf(recorded("desktop"), recorded("base")));
+  test("moves a schema-1 default up only when its digest, builderScriptVersion and baked Dockerfile prove the checkout", () => {
+    const result = upgradeDevboxSourceRecords(manifestOf(recorded("desktop"), recorded("base")), { dockerfileAt: sameDockerfile });
     expect(result.upgraded).toEqual(["freestyle-desktop-v1", "freestyle-base-v1"]);
     expect(result.skipped).toEqual([]);
     for (const entry of result.manifest.images) {
@@ -279,7 +282,10 @@ describe("upgradeDevboxSourceRecords (promote --upgrade-source-schema)", () => {
     }
     expect(devboxSourceDriftProblems(result.manifest)).toEqual([]);
     // Idempotent: nothing left to upgrade.
-    expect(upgradeDevboxSourceRecords(result.manifest).upgraded).toEqual([]);
+    expect(upgradeDevboxSourceRecords(result.manifest, { dockerfileAt: sameDockerfile }).upgraded).toEqual([]);
+    // A Dockerfile that differs only in comments at the bake commit is the same recipe.
+    const commented = upgradeDevboxSourceRecords(manifestOf(recorded("base")), { dockerfileAt: () => `# a comment\n${dockerfile}\n# another\n` });
+    expect(commented.upgraded).toEqual(["freestyle-base-v1"]);
   });
 
   test("leaves an entry alone when its provenance is not proven, and never touches non-defaults", () => {
@@ -287,16 +293,34 @@ describe("upgradeDevboxSourceRecords (promote --upgrade-source-schema)", () => {
     const drifted = recorded("base", { version: "drifted", devboxSource: { layers: "base", digest: "1".repeat(64) } });
     const demoted = recorded("base", { version: "demoted", defaultForKind: false });
     const legacy = passedEntry({ version: "legacy", kind: "base", defaultForKind: true, epoch });
-    const result = upgradeDevboxSourceRecords(manifestOf(stale, drifted, demoted, legacy));
+    const noCommit = recorded("base", { version: "nocommit", repoCommit: undefined });
+    const result = upgradeDevboxSourceRecords(manifestOf(stale, drifted, demoted, legacy, noCommit), { dockerfileAt: sameDockerfile });
     expect(result.upgraded).toEqual([]);
     expect(result.skipped.map((row) => [row.version, row.reason])).toEqual([
       ["stale", "builderScriptVersion does not match this checkout's bake script"],
       ["drifted", "schema 1 digest does not match this checkout"],
+      ["nocommit", `Dockerfile at repoCommit (none) is not available here; rebake to record schema ${DEVBOX_SOURCE_SCHEMA}`],
     ]);
     expect(result.manifest.images.every((e) => (e.devboxSource?.schema ?? 1) === 1)).toBe(true);
     // A different bake script than the one the entry recorded is not proven either.
-    const other = upgradeDevboxSourceRecords(manifestOf(recorded("base")), { bakeScript: () => "export {};\n" });
+    const other = upgradeDevboxSourceRecords(manifestOf(recorded("base")), { bakeScript: () => "export {};\n", dockerfileAt: sameDockerfile });
     expect(other.upgraded).toEqual([]);
+  });
+
+  test("a Dockerfile-only instruction change since the bake commit is not proven: no upgrade, rebake", () => {
+    // Regression: a schema-1 record carries no Dockerfile instruction hash,
+    // so the checkout's instructions must equal those at repoCommit before
+    // schema 2 may claim them; an unavailable commit is not proof either.
+    const bakedDockerfile = dockerfile.replace(/^    bubblewrap \\$/m, "    bubblewrap \\\n    cowsay \\");
+    expect(bakedDockerfile).not.toBe(dockerfile);
+    const changed = upgradeDevboxSourceRecords(manifestOf(recorded("base")), { dockerfileAt: () => bakedDockerfile });
+    expect(changed.upgraded).toEqual([]);
+    expect(changed.skipped).toEqual([{ version: "freestyle-base-v1", reason: `Dockerfile instructions changed since repoCommit bakecommit; rebake to record schema ${DEVBOX_SOURCE_SCHEMA}` }]);
+    const unavailable = upgradeDevboxSourceRecords(manifestOf(recorded("base")), { dockerfileAt: () => null });
+    expect(unavailable.upgraded).toEqual([]);
+    expect(unavailable.skipped[0]?.reason).toContain("is not available here");
+    // The real reader: the Dockerfile at this PR's bake commit is what the promoted defaults were checked against.
+    expect(upgradeDevboxSourceRecords(manifestOf(recorded("base", { repoCommit: "0000000000000000000000000000000000000000" }))).skipped[0]?.reason).toContain("is not available here");
   });
 });
 

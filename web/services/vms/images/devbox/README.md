@@ -67,9 +67,12 @@ writes):
   checkout's sources. An entry is checked with the schema it was recorded
   with (absent: 1), so a formula change never forces a rebake; new bakes
   record `DEVBOX_SOURCE_SCHEMA`, and `bun run devbox:promote -- freestyle
-  --upgrade-source-schema` moves older defaults up without a bake where
-  their recorded digest and `builderScriptVersion` prove the checkout is
-  what they were baked from (anything else is kept and reported).
+  --upgrade-source-schema` moves older defaults up without a bake only where
+  every input the newer schema adds is proven from what the entry recorded:
+  its digest at its own schema, its `builderScriptVersion` against this
+  checkout's bake script, and the Dockerfile's instructions at its
+  `repoCommit` (read from git) against this checkout's. Anything else is
+  kept and reported; a rebake is the only other way up.
 
 Rollback is therefore a revert of the promotion commit as a whole, never the
 manifest flags alone.
