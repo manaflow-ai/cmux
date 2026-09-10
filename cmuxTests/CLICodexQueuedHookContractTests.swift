@@ -39,6 +39,7 @@ struct CLICodexQueuedHookContractTests {
             let body = try injectedCommandBody(configuration: configuration)
             #expect(configuration.contains("timeout=5000"))
             #expect(body.contains("hooks enqueue codex \(subcommand)"))
+            #expect(body.contains("cmux-codex-hook"))
             #expect(body.contains("CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=0.5"))
             #expect(!body.contains("nohup"))
             #expect(!body.contains("sleep "))
