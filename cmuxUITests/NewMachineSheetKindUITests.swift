@@ -48,45 +48,44 @@ final class NewMachineSheetKindUITests: XCTestCase {
         // A segment's selection shows as its accessibility value (1 = on);
         // the summary under the picker is the user-visible witness of the
         // selection, so it is what the assertions rest on.
-        let desktop = app.radioButtons["Desktop"]
-        let base = app.radioButtons["Base"]
+        // The sheet is attached to the main window (`NSWindow.beginSheet`), and
+        // every query is scoped to it: the window behind it holds a terminal
+        // whose accessibility tree is large, and whole-app text predicates
+        // against it time out. No fallback to the whole app: a picker found
+        // anywhere else would not be this sheet.
+        let scope = app.sheets.firstMatch
+        XCTAssertTrue(scope.waitForExistence(timeout: 8.0), "Expected the New Machine sheet on the main window")
+        let desktop = scope.radioButtons["Desktop"]
+        let base = scope.radioButtons["Base"]
         if !desktop.waitForExistence(timeout: 8.0) {
             print("NewMachineSheetKindUITests hierarchy:\n\(app.debugDescription.prefix(6000))")
         }
         XCTAssertTrue(desktop.exists, "Expected the Desktop segment of the Kind picker in the New Machine sheet")
         XCTAssertTrue(base.exists, "Expected the Base segment of the Kind picker")
         attachScreenshot(of: app, named: "new-machine-sheet-opened")
-        print("NewMachineSheetKindUITests segments: desktop=\(String(describing: desktop.value)) selected=\(desktop.isSelected) base=\(String(describing: base.value)) selected=\(base.isSelected)")
-        let desktopSummary = app.staticTexts.matching(
-            NSPredicate(format: "label CONTAINS[c] %@", "screen you can watch")
-        ).firstMatch
-        let baseSummary = app.staticTexts.matching(
-            NSPredicate(format: "label CONTAINS[c] %@", "terminal only")
-        ).firstMatch
-        XCTAssertTrue(
-            desktopSummary.waitForExistence(timeout: 3.0),
-            "A plain Create must make a machine with a screen: the sheet opens on Desktop"
+        // The segment values are the witness of the selection (1 = on). The
+        // summary text under the picker is SwiftUI text whose accessibility
+        // label is not reliably queryable, so it is logged, not asserted.
+        let summary = scope.descendants(matching: .any)["NewMachineSheet.kindSummary"].firstMatch
+        print("NewMachineSheetKindUITests segments: desktop=\(String(describing: desktop.value)) base=\(String(describing: base.value)) summary=\(summary.exists ? "\(summary.label) / \(String(describing: summary.value))" : "<not exposed>")")
+        XCTAssertEqual(
+            Self.segmentIsOn(desktop), true,
+            "A plain Create must make a machine with a screen: the sheet opens on Desktop (value \(String(describing: desktop.value)))"
         )
-        XCTAssertFalse(baseSummary.exists, "Base must not be the preselected kind")
-        if let desktopOn = Self.segmentIsOn(desktop), let baseOn = Self.segmentIsOn(base) {
-            XCTAssertTrue(desktopOn && !baseOn, "Desktop segment should be the selected one")
-        }
+        XCTAssertEqual(Self.segmentIsOn(base), false, "Base must not be the preselected kind")
         attachScreenshot(of: app, named: "new-machine-sheet-desktop-preselected")
 
         // Base is one click away, never the default.
         base.click()
         XCTAssertTrue(
-            pollUntil(timeout: 4.0) { baseSummary.exists && !desktopSummary.exists },
-            "Expected the picker to select Base and the summary to say terminal only"
+            pollUntil(timeout: 4.0) { Self.segmentIsOn(base) == true && Self.segmentIsOn(desktop) == false },
+            "Expected the picker to select Base after the click (desktop \(String(describing: desktop.value)), base \(String(describing: base.value)))"
         )
-        if let desktopOn = Self.segmentIsOn(desktop), let baseOn = Self.segmentIsOn(base) {
-            XCTAssertTrue(baseOn && !desktopOn, "Base segment should be the selected one after the click")
-        }
         attachScreenshot(of: app, named: "new-machine-sheet-base-explicit")
 
-        let cancel = app.buttons["NewMachineSheet.cancel"].exists
-            ? app.buttons["NewMachineSheet.cancel"]
-            : app.buttons["Cancel"]
+        let cancel = scope.buttons["NewMachineSheet.cancel"].exists
+            ? scope.buttons["NewMachineSheet.cancel"]
+            : scope.buttons["Cancel"]
         XCTAssertTrue(cancel.waitForExistence(timeout: 3.0), "Expected the sheet's Cancel button")
         cancel.click()
         XCTAssertTrue(pollUntil(timeout: 5.0) { !desktop.exists }, "Cancel should close the sheet")
