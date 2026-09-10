@@ -228,15 +228,17 @@ enum CloudFileDelivery {
                 var bytes = 0
                 var path: String?
                 var mode: String?
-                for field in line[range.upperBound...].split(separator: " ").map(String.init) {
-                    if field.hasPrefix("bytes="), let count = Int(field.dropFirst("bytes=".count)) { bytes = count }
-
-                    if field.hasPrefix("mode=") { mode = String(field.dropFirst("mode=".count)) }
+                // Only the leading field and final delimiter are metadata. A
+                // filename may itself contain spaces and words such as bytes=900.
+                if let field = line[range.upperBound...].split(separator: " ", maxSplits: 1).first,
+                   field.hasPrefix("bytes="), let count = Int(field.dropFirst("bytes=".count)) {
+                    bytes = count
                 }
-                if let pathStart = line.range(of: " path="),
-                   let modeStart = line.range(of: " mode=", options: .backwards),
-                   pathStart.upperBound <= modeStart.lowerBound {
-                    path = String(line[pathStart.upperBound..<modeStart.lowerBound])
+                if let modeStart = line.range(of: " mode=", options: .backwards) {
+                    mode = String(line[modeStart.upperBound...])
+                    if let pathStart = line.range(of: " path="), pathStart.upperBound <= modeStart.lowerBound {
+                        path = String(line[pathStart.upperBound..<modeStart.lowerBound])
+                    }
                 }
                 result = .ok(bytes: bytes, path: path, mode: mode)
             } else if let range = line.range(of: "CMUX-FILE-ERR") {
