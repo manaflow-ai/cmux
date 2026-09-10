@@ -92,13 +92,14 @@ struct DeviceDirectoryMergeTests {
         let before = DeviceDirectoryMerge.merge(.init(
             paired: [mainPair, devPair], selfInstance: selfInstance, currentUserID: "user_a"
         ))
-        #expect(before.count == 2)
+        #expect(before.map(\.instance) == [studio])
         let after = DeviceDirectoryMerge.merge(.init(
             paired: [devPair], previous: before, selfInstance: selfInstance, currentUserID: "user_a"
         ))
-        #expect(after.map(\.instance) == [taggedStudio])
+        #expect(after.isEmpty)
         let refreshed = DeviceDirectoryMerge.merge(.init(
-            paired: [devPair], previous: after, selfInstance: selfInstance, currentUserID: "user_a"
+            paired: [devPair], previous: after,
+            selfInstance: SurfaceDeviceInstanceID(deviceID: selfID, tag: "dev"), currentUserID: "user_a"
         ))
         #expect(refreshed.map(\.instance) == [taggedStudio])
     }
@@ -145,7 +146,6 @@ struct DeviceDirectoryMergeTests {
         #expect(records.map(\.instance.wireValue) == [
             "device:\(studioID)@default",
             "device:\(laptopID)@default",
-            "device:\(laptopID)@issue-8001",
         ])
         let studioRecord = try #require(records.first)
         #expect(studioRecord.isOnline)
@@ -157,8 +157,43 @@ struct DeviceDirectoryMergeTests {
         #expect(records[1].presenceState == .offline, "absent from a live presence snapshot means offline")
         #expect(records[1].isPaired == false)
         #expect(records[1].routes.map(\.id) == ["stale"], "an offline instance keeps the registry's durable routes")
-        #expect(records[2].displayName == "Laptop (issue-8001)")
-        #expect(records[2].presence.tag == "issue-8001")
+    }
+
+    @Test("Every directory source shares the viewer's channel or exact dev tag", arguments: ["default", "nightly", "issue-8001"])
+    func matchingBuildInstances(viewerTag: String) throws {
+        let tags = ["default", "nightly", "issue-8001", "unrelated-dev", "rc", "staging"]
+        let saved = try route("saved")
+        let live = Dictionary(uniqueKeysWithValues: tags.flatMap { tag in
+            [presence(studioID, tag: tag, online: true, name: "Mac mini"),
+             presence(selfID, tag: tag, online: true, name: "This Mac")]
+        })
+        let instances = tags.map { SurfaceDeviceInstanceID(deviceID: studioID, tag: $0) }
+        let records = DeviceDirectoryMerge.merge(.init(
+            registry: [
+                registryDevice(studioID.uppercased(), name: "Old name", tags: tags + [viewerTag]),
+                registryDevice(laptopID, name: "Mac mini", tags: tags),
+            ],
+            presence: live,
+            presenceLive: true,
+            paired: instances.map { paired($0, name: "Saved name", routes: [saved]) },
+            previous: instances.map { record($0, name: "Remembered", online: false, trust: .sameAccount) },
+            selfInstance: SurfaceDeviceInstanceID(deviceID: selfID, tag: viewerTag),
+            currentUserID: "user_a"
+        ))
+        #expect(records.map(\.instance) == [
+            SurfaceDeviceInstanceID(deviceID: studioID, tag: viewerTag),
+            SurfaceDeviceInstanceID(deviceID: laptopID, tag: viewerTag),
+        ])
+        #expect(records.map(\.deviceName) == ["Mac mini", "Mac mini"], "Distinct Macs with the same name must remain reachable")
+        #expect(records.first?.routes == [saved])
+
+        let remembered = DeviceDirectoryMerge.merge(.init(
+            previous: records + instances.map { record($0, name: "Stale", online: false, trust: .sameAccount) },
+            selfInstance: SurfaceDeviceInstanceID(deviceID: selfID, tag: viewerTag),
+            currentUserID: "user_a"
+        ))
+        #expect(Set(remembered.map(\.instance)) == Set(records.map(\.instance)))
+        #expect(remembered.count == 2, "Reconnects cannot resurrect other builds or duplicate a device")
     }
 
     @Test("Previous records survive presence forgetting them; manual remotes and phones never appear")

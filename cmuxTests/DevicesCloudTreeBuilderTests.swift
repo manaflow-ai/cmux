@@ -329,6 +329,25 @@ struct DevicesCloudTreeBuilderTests {
         #expect(cloudOnly.count == 1)
     }
 
+    @Test("My Devices follows all fleet and catalog-only cloud machines")
+    func devicesFollowEntireFleet() {
+        let snapshot = SurfaceCatalogSnapshot(
+            machines: [info(studio, name: "Studio", online: true), cloudInfo("catalog-only"), cloudInfo("fleet-a"), cloudInfo("fleet-b")],
+            resources: [], projections: []
+        )
+        let nodes = CloudTreeNodeBuilder.nodes(
+            machines: [fleetRow("fleet-b"), fleetRow("fleet-a")],
+            snapshot: snapshot, localWorkspaces: [], includeLocalMachine: false,
+            source: .cloudWithDevicesSection
+        )
+        #expect(nodes.map(\.id) == [
+            CloudTreeNodeBuilder.nodeID(machine: .cloud("fleet-b")),
+            CloudTreeNodeBuilder.nodeID(machine: .cloud("fleet-a")),
+            CloudTreeNodeBuilder.nodeID(machine: .cloud("catalog-only")),
+            CloudTreeNodeBuilder.devicesSectionNodeID,
+        ])
+    }
+
     @Test("Device rows fold presence and link state into one indicator and status")
     func deviceRowStatus() {
         let now = Date(timeIntervalSince1970: 1_700_000_000)
