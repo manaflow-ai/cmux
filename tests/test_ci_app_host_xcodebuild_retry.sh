@@ -216,6 +216,15 @@ if [ "$ambient_xdg_status" -ne 0 ] \
   exit 1
 fi
 
+if ! awk '
+  previous == "-parallel-testing-enabled" && $0 == "NO" { found = 1 }
+  { previous = $0 }
+  END { exit found ? 0 : 1 }
+' "$TMP_DIR/ambient-xdg-xcodebuild-args.log"; then
+  echo "FAIL: app-host tests must serialize Swift Testing within the shared GUI process"
+  exit 1
+fi
+
 set +e
 /usr/bin/env -u CMUX_APP_HOST_HOME -u CMUX_APP_HOST_XDG_CONFIG_HOME \
   -u CFFIXED_USER_HOME -u XDG_CONFIG_HOME \
