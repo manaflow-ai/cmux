@@ -8115,6 +8115,57 @@ mod tests {
         assert_eq!(received, expected);
     }
 
+    fn bytes_contain(haystack: &[u8], needle: &[u8]) -> bool {
+        haystack.windows(needle.len()).any(|window| window == needle)
+    }
+
+    /// Byte mirrors (the native Cloud pane, `cmux-tui` remote views) render in
+    /// their own libghostty with their own theme. The attach replay must not
+    /// re-author this process's 256-entry palette or default fg/bg as OSC
+    /// state; only PTY-authored colors travel, in the sparse sidecar.
+    #[test]
+    fn byte_attach_replays_are_theme_portable_and_palette_rides_the_sidecar() {
+        let mux = Mux::new("theme-portable-attach", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let pty = surface.as_pty().unwrap();
+        pty.term
+            .lock()
+            .unwrap()
+            .vt_write(b"\x1b]4;1;#112233\x07\x1b]10;#eeeeee\x07\x1b[31mred\x1b[m");
+        let forbidden: [&[u8]; 4] = [b"\x1b]4;", b"\x1b]10;", b"\x1b]11;", b"\x1b]12;"];
+
+        let attach = surface.attach_stream().unwrap();
+        assert!(bytes_contain(&attach.replay, b"red"));
+        for sequence in forbidden {
+            assert!(
+                !bytes_contain(&attach.replay, sequence),
+                "attach replay pinned host colors with {sequence:?}"
+            );
+        }
+        assert_eq!(attach.colors.palette[1], Some(Rgb { r: 0x11, g: 0x22, b: 0x33 }));
+        assert_eq!(attach.colors.fg, Some(Rgb { r: 0xee, g: 0xee, b: 0xee }));
+        assert!(
+            attach.colors.palette.iter().enumerate().all(|(index, entry)| index == 1 || entry.is_none()),
+            "unauthored palette entries must stay unset so the renderer keeps its theme"
+        );
+
+        surface.resize(100, 30).unwrap();
+        let AttachFrame::ResizedWithColors { replay, colors, .. } =
+            attach.stream.recv_timeout(Duration::from_secs(1)).unwrap()
+        else {
+            panic!("expected a resize replay with colors");
+        };
+        assert!(bytes_contain(&replay, b"red"));
+        for sequence in forbidden {
+            assert!(
+                !bytes_contain(&replay, sequence),
+                "resize replay pinned host colors with {sequence:?}"
+            );
+        }
+        assert_eq!(colors.palette[1], Some(Rgb { r: 0x11, g: 0x22, b: 0x33 }));
+    }
+
     #[test]
     fn resized_replay_payload_is_shared_across_attach_taps() {
         let mux = Mux::new("shared-resize-replay", SurfaceOptions::default());
