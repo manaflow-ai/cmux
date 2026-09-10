@@ -35,3 +35,14 @@ the checker, trusted workflow, complexity rule, and Oxlint lock entries
 unchanged in normal pull requests. Policy changes need a separate reviewed
 update. The contributor-side `Web complexity candidate` check is only an early
 local diagnostic.
+
+## Every table has a bound or a drain
+
+`db/retention.ts` maps every table in `db/schema.ts` to `bounded` (one row
+per user, device, team, or VM, deleted with it), `permanent`, or `drain` (a
+timestamp column the hourly `/api/cron/db-retention` deletes past, or a
+table-specific cron route). `tests/db-retention-registry.test.ts` fails on
+a table without an entry, a stale entry, or a drain column that is not a
+timestamp. Rows created per request, command, heartbeat, session, attempt,
+or issuance are drains, and per-command telemetry goes to PostHog, not
+Postgres. State the expected rows per day and the window in the PR.

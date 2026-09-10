@@ -11,6 +11,7 @@ Current rules:
 - `algorithmic-complexity.md`
 - `browser-automation-webkit-waits-off-main.md`
 - `cache-substitution-correctness.md`
+- `db-table-retention.md`
 - `full-internationalization.md`
 - `hot-path-allocating-formatting.md`
 - `no-ambient-global-state.md`

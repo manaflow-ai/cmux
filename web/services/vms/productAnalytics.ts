@@ -41,6 +41,14 @@ export const VM_LEDGER_TO_POSTHOG_EVENT = {
 } as const satisfies Record<string, string>;
 
 export type VmLedgerEventType = keyof typeof VM_LEDGER_TO_POSTHOG_EVENT;
+
+/**
+ * Per-command telemetry that reaches PostHog only. These were 96% of the
+ * `cloud_vm_usage_events` ledger (33,700 of 35,000 rows in four months) and
+ * nothing reads them back from Postgres: billing, the reaper, alerts, and the
+ * snapshot checks all key on lifecycle and credit rows.
+ */
+export const TELEMETRY_ONLY_LEDGER_TYPES: ReadonlySet<string> = new Set(["vm.exec", "vm.attach"]);
 export type VmProductEventName = (typeof VM_LEDGER_TO_POSTHOG_EVENT)[VmLedgerEventType];
 
 export const VM_PRODUCT_EVENT_NAMES: readonly VmProductEventName[] = Object.values(VM_LEDGER_TO_POSTHOG_EVENT);
@@ -200,15 +208,20 @@ export function withVmProductAnalytics(
   return {
     ...repository,
     recordUsageEvent: (input) =>
-      repository.recordUsageEvent(input).pipe(
-        Effect.tap(() => Effect.sync(() => safeCapture(input))),
-      ),
-    recordUsageEvents: (inputs) =>
-      repository.recordUsageEvents(inputs).pipe(
+      TELEMETRY_ONLY_LEDGER_TYPES.has(input.eventType)
+        ? Effect.sync(() => safeCapture(input))
+        : repository.recordUsageEvent(input).pipe(
+          Effect.tap(() => Effect.sync(() => safeCapture(input))),
+        ),
+    recordUsageEvents: (inputs) => {
+      const persisted = inputs.filter((input) => !TELEMETRY_ONLY_LEDGER_TYPES.has(input.eventType));
+      const write = persisted.length === 0 ? Effect.void : repository.recordUsageEvents(persisted);
+      return write.pipe(
         Effect.tap(() => Effect.sync(() => {
           for (const input of inputs) safeCapture(input);
         })),
-      ),
+      );
+    },
   };
 }
 
