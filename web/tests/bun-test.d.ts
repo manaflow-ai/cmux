@@ -16,7 +16,7 @@ declare module "bun:test" {
   type MockFunction<T extends (...args: never[]) => unknown> = T & {
     mock: { calls: Parameters<T>[] };
     mockClear: () => void;
-    mockResolvedValue: (value: Awaited<ReturnType<T>>) => void;
+    mockResolvedValue: (value: unknown) => void;
   };
   type Mock = {
     <T extends (...args: never[]) => unknown>(
