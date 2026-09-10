@@ -1104,6 +1104,7 @@ command  themes set  aliases=-
   arg  --light  kind=option  completion=custom-deprecated
   arg  themes  kind=argument  completion=custom-deprecated
 command  tmux  aliases=-
+  arg  arguments  kind=argument  completion=-
 command  tmux attach  aliases=open
   arg  --focus  kind=option  completion=-
   arg  --headless  kind=flag  completion=-
