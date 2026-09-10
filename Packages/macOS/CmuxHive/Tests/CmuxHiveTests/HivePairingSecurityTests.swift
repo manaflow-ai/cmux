@@ -77,6 +77,18 @@ struct HivePairingSecurityTests {
     }
 
     @Test
+    func blankTicketIdentityUsesTheAuthenticatedHostIdentity() throws {
+        let route = try CmxAttachRoute(id: "tailscale", kind: .tailscale, endpoint: .hostPort(host: "100.64.0.1", port: 7333))
+        let ticket = try CmxAttachTicket(workspaceID: "", terminalID: nil, macDeviceID: " \n ", macDisplayName: nil, routes: [route])
+        let payload = try CmxAttachTicketCompactCoder().encode(ticket, routeDisclosureMode: .legacyPrivateNetworkCompatibility).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
+        let request = try HivePairingRequest(input: "cmux-ios://attach?payload=\(payload)", userID: "owner", email: nil, allowsLoopback: false)
+        #expect(request.expectedDeviceID == nil)
+        let status = try MobileHostStatusResponse.decode(Data(#"{"mac_device_id":"mac-b","mac_instance_tag":"default"}"#.utf8))
+        #expect(try request.verifiedIdentity(status: status, ownDeviceID: "mac-a", ownInstanceTag: "default").macDeviceID == "mac-b")
+    }
+
+    @Test
     func failedEndpointGrantRollsBackPairingMetadata() async throws {
         let fixture = try Fixture()
         defer { fixture.removeFiles() }

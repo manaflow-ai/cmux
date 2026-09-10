@@ -150,7 +150,7 @@ struct DeviceDirectoryMergeTests {
         let studioRecord = try #require(records.first)
         #expect(studioRecord.isOnline)
         #expect(studioRecord.deviceName == "Studio", "the live presence name wins over the registry's")
-        #expect(studioRecord.routes.map(\.id) == ["live"], "an online instance dials its live routes")
+        #expect(studioRecord.routes.map(\.id) == ["live", "stale"], "live routes lead the registry candidates")
         #expect(studioRecord.bundleID == "com.cmuxterm.app")
         #expect(studioRecord.presence.isOnline)
         #expect(records[1].isOnline == false)

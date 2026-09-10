@@ -89,15 +89,16 @@ struct DevicesCloudTreeBuilderTests {
         let container = CloudTreeContainerView(coordinator: coordinator)
         let newTerminal = String(localized: "cloudTree.menu.newTerminal", defaultValue: "New Terminal")
         let newWorkspace = String(localized: "cloudTree.menu.newWorkspace", defaultValue: "New Workspace")
-        let cases: [(SurfaceLinkState, SurfaceDevicePresence.AccountTrust, Bool)] = [
+        let cases: [(SurfaceLinkState, SurfaceDevicePresence.AccountTrust?, Bool)] = [
             (.unavailable, .sameAccount, false), (.connecting, .sameAccount, false),
             (.offline, .sameAccount, false), (.error, .sameAccount, false),
-            (.connected, .otherAccount, false), (.connected, .sameAccount, true)
+            (.connected, .otherAccount, false), (.connected, .unknown, false),
+            (.connected, nil, false), (.connected, .sameAccount, true)
         ]
         for (state, trust, expected) in cases {
             let row = CloudTreeDeviceRow(
                 instance: studio, name: "Studio",
-                presence: presence(online: true, tag: "default", trust: trust),
+                presence: trust.map { presence(online: true, tag: "default", trust: $0) },
                 linkState: state, linkError: nil, workspaceCount: 0, terminalCount: 0
             )
             let node = CloudTreeNode(id: CloudTreeNodeBuilder.nodeID(machine: row.machine), kind: .device(row))
