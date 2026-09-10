@@ -624,7 +624,7 @@ describe("devbox image template", () => {
   });
 
   test("agent PTY readiness handles output, gates, exit, timeout and cancellation", () => {
-    const result = spawnSync("python3", [path.join(import.meta.dir, "devbox-agent-launch-test.py")], {
+    const result = spawnSync("python3", [path.join(import.meta.dirname, "devbox-agent-launch-test.py")], {
       encoding: "utf8", timeout: 30_000,
     });
     expect({ status: result.status, output: result.stderr }).toEqual({ status: 0, output: expect.stringContaining("OK") });
