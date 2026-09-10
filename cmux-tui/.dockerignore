@@ -1,0 +1,6 @@
+.git
+.gitignore
+target
+**/target
+relays/cloudflare-do/node_modules
+**/*.log
