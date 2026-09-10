@@ -762,11 +762,74 @@ function sizeKey(entry: Pick<DevboxManifestEntry, "size">): string {
 }
 
 /**
+ * Appends fully-formed rows (each a promotion's output: `kind`,
+ * `defaultForKind`, `size`, `validationStatus`) to the manifest, demoting the
+ * provider's existing defaults for every kind+size a default row takes over
+ * (a sized row also retires the size-less defaults of its kind: the ladder
+ * replaces the single-shape image; a row carrying `defaultForLocalDev`
+ * retires the previous one). Pure: returns a new manifest and never mutates
+ * the input. Existing entries are only ever flag-flipped, never removed, so
+ * rollback stays a one-line manifest change. This is the one edit a
+ * promotion performs, and `promote --replay <summary.json>` re-applies the
+ * rows an earlier run appended onto a manifest that changed underneath it
+ * (another ladder merged first), so a merge conflict is resolved through the
+ * sanctioned writer and never by hand.
+ */
+export function appendImageManifestEntries(
+  manifest: DevboxImageManifest,
+  rows: readonly DevboxManifestEntry[],
+): DevboxImageManifest {
+  if (rows.length === 0) throw new Error("refusing to append no manifest rows");
+  for (const row of rows) {
+    if (!row.provider || !row.version || !row.imageId) {
+      throw new Error(`refusing to append a row without provider, version and imageId: ${JSON.stringify(row).slice(0, 200)}`);
+    }
+    if (row.defaultForKind && row.validationStatus !== "passed") {
+      throw new Error(
+        `refusing to promote ${row.provider} ${row.imageId}: validationStatus is ` +
+          `${row.validationStatus}, not passed (run verify-devbox-image.ts first)`,
+      );
+    }
+    const clash = manifest.images.find((candidate) =>
+      candidate.provider === row.provider &&
+      candidate.imageId === row.imageId &&
+      (candidate.kind ?? "base") === (row.kind ?? "base") &&
+      sizeKey(candidate) === sizeKey(row)
+    );
+    if (clash) {
+      throw new Error(
+        `refusing to promote ${row.provider} ${row.imageId}: already listed as ${clash.version} (${row.kind ?? "base"}${row.size ? `, ${row.size.name}` : ""})`,
+      );
+    }
+  }
+  // provider/kind -> the size keys its new default rows take over.
+  const takeover = new Map<string, Set<string>>();
+  const localDevProviders = new Set<string>();
+  for (const row of rows) {
+    if (row.defaultForLocalDev) localDevProviders.add(row.provider);
+    if (!row.defaultForKind) continue;
+    const key = `${row.provider}/${row.kind ?? "base"}`;
+    takeover.set(key, new Set([...(takeover.get(key) ?? []), sizeKey(row)]));
+  }
+  const providers = new Set(rows.map((row) => row.provider));
+  const demoted = manifest.images.map((candidate) => {
+    if (!providers.has(candidate.provider)) return candidate;
+    const next: DevboxManifestEntry = { ...candidate };
+    if (localDevProviders.has(next.provider) && next.defaultForLocalDev) next.defaultForLocalDev = false;
+    const sizes = takeover.get(`${next.provider}/${next.kind ?? "base"}`);
+    if (sizes && next.defaultForKind) {
+      const sized = [...sizes].some((size) => size !== "");
+      if (sizes.has(sizeKey(next)) || (sizeKey(next) === "" && sized)) next.defaultForKind = false;
+    }
+    return next;
+  });
+  return { schemaVersion: manifest.schemaVersion, images: [...demoted, ...rows] };
+}
+
+/**
  * Appends a verified image to the manifest as the default for every kind in
  * `kinds` (and every size in `sizes`), demoting the provider's previous
- * defaults for those kind+size pairs. Pure: returns a new manifest and never
- * mutates the input. Existing entries are only ever flag-flipped, never
- * removed, so rollback stays a one-line manifest change.
+ * defaults for those kind+size pairs (appendImageManifestEntries). Pure.
  */
 export function promoteImageManifestEntry(
   manifest: DevboxImageManifest,
@@ -788,32 +851,6 @@ export function promoteImageManifestEntry(
       ? [...options.sizes].sort((a, b) => vmImageSizeRank(a.size.name) - vmImageSizeRank(b.size.name))
       : [{ imageId: entry.imageId }];
   const promotesLocalDevBase = kinds.includes("base") && variants.some((variant) => variant.size?.name === "sm");
-  for (const kind of kinds) {
-    for (const variant of variants) {
-      const clash = manifest.images.find((candidate) =>
-        candidate.provider === entry.provider &&
-        candidate.imageId === variant.imageId &&
-        (candidate.kind ?? "base") === kind &&
-        sizeKey(candidate) === (variant.size?.name ?? "")
-      );
-      if (clash) {
-        throw new Error(
-          `refusing to promote ${entry.provider} ${variant.imageId}: already listed as ${clash.version} (${kind}${variant.size ? `, ${variant.size.name}` : ""})`,
-        );
-      }
-    }
-  }
-  const promotedSizes = new Set<string>(variants.map((variant) => variant.size?.name ?? ""));
-  const demoted = manifest.images.map((candidate) => {
-    if (candidate.provider !== entry.provider) return candidate;
-    const next: DevboxManifestEntry = { ...candidate };
-    if (promotesLocalDevBase && next.provider === entry.provider && next.defaultForLocalDev) next.defaultForLocalDev = false;
-    // A sized promotion demotes the provider's size-less defaults too: the
-    // ladder replaces the single-shape image, not just one row of it.
-    const sameSize = promotedSizes.has(sizeKey(next)) || (sizeKey(next) === "" && promotedSizes.size > 0);
-    if (next.defaultForKind && kinds.includes(next.kind ?? "base") && sameSize) next.defaultForKind = false;
-    return next;
-  });
   const notes = [entry.notes, options.validationNotes].filter(Boolean).join(" ");
   const promoted: DevboxManifestEntry[] = [];
   for (const kind of kinds) {
@@ -833,7 +870,7 @@ export function promoteImageManifestEntry(
       });
     }
   }
-  return { schemaVersion: manifest.schemaVersion, images: [...demoted, ...promoted] };
+  return appendImageManifestEntries(manifest, promoted);
 }
 
 /**

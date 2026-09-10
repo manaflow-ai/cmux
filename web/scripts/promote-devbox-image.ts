@@ -14,6 +14,9 @@
  *   --image     promote an already-baked image (still verified) instead of baking.
  *   --bake-result <json>  adopt a bake script's --out file (its manifest entry
  *               and image id) instead of baking; still verified.
+ *   --sizes-result <json>  adopt a derive-devbox-sizes.ts --out file instead
+ *               of deriving again (the sizes already exist on the account,
+ *               each booted and checked by that run); still verified.
  *   --sizes     ladder sizes to derive from the verified bake (default
  *               sm,md,lg,lgx,xl,2xl; "none" records a single size-less entry):
  *               derive-devbox-sizes.ts boots the bake, resizes, snapshots and
@@ -37,6 +40,13 @@
  *   --skip-verify   record validationStatus "unknown" instead of verifying.
  *               The entry is appended but NOT flagged as any default.
  *   --dry-run   print the manifest diff without writing it.
+ *   --replay <json>  re-apply the rows an earlier promotion appended (the
+ *               `entries` of its --out summary, or those rows copied from
+ *               that PR's manifest diff) onto the current manifest: no bake,
+ *               verify, derive or pointer move, only the manifest edit with
+ *               the same demotion rule and invariants. For a manifest that
+ *               changed underneath a promotion (another ladder merged first):
+ *               merge main, take main's manifest, replay, commit.
  *
  * Steps: bakePreflight (stale checkout guard) -> bake script (--out) ->
  * verify-devbox-image.ts (boots one VM, deletes it) -> manifest write ->
@@ -52,6 +62,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { VM_IMAGE_SIZE_NAMES, isVmImageSizeName, type VmImageSize } from "../services/vms/images/sizes";
 import {
+  appendImageManifestEntries,
   argValue,
   bakeMetadata,
   bakePreflight,
@@ -67,6 +78,7 @@ import {
   writeImageManifest,
   type DevboxBakeResult,
   type DevboxImageKind,
+  type DevboxImageManifest,
   type DevboxManifestEntry,
   type DevboxProvider,
 } from "./devbox-image-common";
@@ -111,6 +123,49 @@ function run(label: string, args: string[]): number {
   const result = spawnSync("bun", args, { cwd: webRoot, stdio: "inherit", env: process.env });
   if (result.error) throw result.error;
   return result.status ?? 1;
+}
+
+/** Re-check the invariants and write (or print) the edited manifest; returns the appended rows. */
+function commitManifest(label: string, manifest: DevboxImageManifest, next: DevboxImageManifest, drift: boolean): DevboxManifestEntry[] {
+  const added = next.images.slice(manifest.images.length);
+  // The rows being written must describe the machine this checkout
+  // describes: they carry its epoch and source digest, so a stale bake (an
+  // --image baked before a Dockerfile change, an epoch bumped after the bake)
+  // is refused here rather than caught by CI after the PR is open. Only the
+  // new rows are judged: the other kind's ladder is promoted by its own run
+  // (desktop and base are two bakes), and CI holds the whole manifest to the
+  // invariant once both have landed.
+  const problems = [...imageManifestProblems(next), ...(drift ? devboxSourceDriftProblems({ ...next, images: added }) : [])];
+  if (problems.length > 0) {
+    throw new Error(`refusing to write an inconsistent manifest:\n  ${problems.join("\n  ")}`);
+  }
+  console.log(`\n===== ${label} =====\n${JSON.stringify(added, null, 2)}`);
+  if (dryRun) {
+    console.log(`--dry-run: not writing ${imageManifestPath}`);
+  } else {
+    writeImageManifest(next);
+    console.log(`wrote ${imageManifestPath} (+${added.length} entries)`);
+  }
+  return added;
+}
+
+// 0. Replay (see the header): only the manifest edit, from rows that already
+// carry their verify outcome and derived ids.
+const replayPath = argValue("--replay");
+if (replayPath) {
+  const parsed = JSON.parse(readFileSync(replayPath, "utf8")) as { entries?: DevboxManifestEntry[] } | DevboxManifestEntry[];
+  const rows = Array.isArray(parsed) ? parsed : (parsed.entries ?? []);
+  if (rows.length === 0) throw new Error(`--replay ${replayPath}: no entries to replay`);
+  for (const row of rows) {
+    if (row.provider !== provider) throw new Error(`--replay ${replayPath}: ${row.version} is a ${row.provider} row, not ${provider}`);
+  }
+  const manifest = readImageManifest();
+  const added = commitManifest(`manifest (replay of ${replayPath})`, manifest, appendImageManifestEntries(manifest, rows), true);
+  const replayResult = { provider, replayedFrom: replayPath, versions: added.map((row) => row.version), entries: added, manifest: dryRun ? null : imageManifestPath };
+  console.log(JSON.stringify(replayResult, null, 2));
+  const replayOut = argValue("--out");
+  if (replayOut) writeFileSync(replayOut, `${JSON.stringify(replayResult, null, 2)}\n`);
+  process.exit(0);
 }
 
 // 1. Bake (or adopt an existing image / a previous bake's result file).
@@ -179,9 +234,22 @@ if (skipVerify) {
     (withDesktop ? " (toolchain, agent pins, daemon contract, desktop on 5901/6901)." : " (toolchain, agent pins, daemon contract).");
 }
 
-// 2b. Sizes: derive the ladder from the verified bake, each booted and checked.
+// 2b. Sizes: derive the ladder from the verified bake, each booted and checked
+// (or adopt a derive run's result: the snapshots exist and were checked then).
 let sizes: Array<{ imageId: string; size: VmImageSize }> | undefined;
-if (!skipVerify && sizeNames.length > 0) {
+const sizesResultPath = argValue("--sizes-result");
+if (!skipVerify && sizesResultPath) {
+  const derived = JSON.parse(readFileSync(sizesResultPath, "utf8")) as { master?: string; sizes: Record<string, { imageId: string; size: VmImageSize }> };
+  if (derived.master !== imageId) {
+    throw new Error(`--sizes-result ${sizesResultPath} was derived from ${derived.master ?? "(unknown)"}, not ${imageId}`);
+  }
+  const rows = Object.values(derived.sizes);
+  const missing = sizeNames.filter((name) => !rows.some((row) => row.size.name === name));
+  if (missing.length > 0) throw new Error(`--sizes-result ${sizesResultPath} lacks sizes ${missing.join(", ")}`);
+  sizes = rows.filter((row) => sizeNames.includes(row.size.name)).map((row) => ({ imageId: row.imageId, size: row.size }));
+  console.log(`adopting derived sizes ${sizesResultPath}: ${sizes.map((row) => `${row.size.name}=${row.imageId}`).join(", ")}`);
+  validationNotes += ` Sizes derived and re-booted by derive-devbox-sizes.ts: ${sizes.map((row) => `${row.size.name}=${row.imageId}`).join(", ")}.`;
+} else if (!skipVerify && sizeNames.length > 0) {
   const sizesOut = path.join(workDir, "sizes.json");
   // "none" means "leave the shared pointer slugs alone", never a literal
   // prefix: a branch bake's sizes are slugged under its own slug.
@@ -210,22 +278,7 @@ const manifest = readImageManifest();
 const next = skipVerify
   ? { ...manifest, images: [...manifest.images, { ...entry, kind: kinds[0], notes: [entry.notes, validationNotes].filter(Boolean).join(" ") }] }
   : promoteImageManifestEntry(manifest, entry, { kinds, sizes, validationNotes });
-// The manifest must keep describing the machine users get: the new defaults
-// carry this checkout's epoch and source digest, so a stale bake (an --image
-// baked before a Dockerfile change, an epoch bumped after the bake) is refused
-// here rather than caught by CI after the PR is open.
-const problems = [...imageManifestProblems(next), ...(skipVerify ? [] : devboxSourceDriftProblems(next))];
-if (problems.length > 0) {
-  throw new Error(`refusing to write an inconsistent manifest:\n  ${problems.join("\n  ")}`);
-}
-const added = next.images.slice(manifest.images.length);
-console.log(`\n===== manifest =====\n${JSON.stringify(added, null, 2)}`);
-if (dryRun) {
-  console.log(`--dry-run: not writing ${imageManifestPath}`);
-} else {
-  writeImageManifest(next);
-  console.log(`wrote ${imageManifestPath} (+${added.length} entries)`);
-}
+const added = commitManifest("manifest", manifest, next, !skipVerify);
 
 // 4. Pointer slug: a readable "current" handle on the platform. With sizes,
 // derive-devbox-sizes.ts already named each snapshot `<pointer>[-<size>]`.
@@ -257,6 +310,8 @@ const result = {
   validationStatus: entry.validationStatus,
   pointerSlug: pointer,
   manifest: dryRun ? null : imageManifestPath,
+  // The exact rows appended, so `--replay` can re-apply this promotion.
+  entries: added,
 };
 console.log(JSON.stringify(result, null, 2));
 const out = argValue("--out");

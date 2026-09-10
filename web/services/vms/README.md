@@ -162,18 +162,24 @@ Image policy:
   before private networking) gets an error rather than a public URL.
 - Baked agent tools are installed at image-build time. They are not auto-updated on VM startup, so
   startup latency stays bounded and the manifest remains the source of truth.
-- To update tool versions, bump the Dockerfile ARG pins and `CMUX_IMAGE_EPOCH`, then promote a new
-  image. `CMUX_CLOUD_IMAGE_<TOOL>_NPM_SPEC` overrides must be exact npm package version pins, for
-  example `@openai/codex@0.130.0`, or `none` to disable a tool. The image builder rejects ranges
-  and tags such as `latest`.
+- To update tool versions, run `bun run devbox:pins:check --write` (web/; it rewrites the Dockerfile
+  ARG pins to the npm registry's current releases and refuses ranges and tags), bump
+  `CMUX_IMAGE_EPOCH`, then promote both ladders. `tests/vm-image-manifest.test.ts` and
+  `devbox:manifest:check` fail while a default is baked at another epoch or from other devbox
+  sources than the checkout (`devboxSourceDriftProblems`), so a pin bump and its promotion land
+  in one PR and never drift apart. `CMUX_CLOUD_IMAGE_<TOOL>_NPM_SPEC` overrides must be exact npm
+  package version pins, for example `@openai/codex@0.130.0`, or `none` to disable a tool. The
+  image builder rejects ranges and tags such as `latest`.
 
 A leftover `FREESTYLE_SANDBOX_SNAPSHOT` in a deployment is ignored; the env audit reports it as
 stale configuration to remove.
 
 Rollback is a manifest change:
 
-1. Revert the promotion PR (or flip `defaultForKind` back to a previous entry with
-   `validationStatus: "passed"`; entries are never removed).
+1. Revert the promotion PR as a whole (entries are never removed). Flipping `defaultForKind` back
+   to a previous `validationStatus: "passed"` entry by hand also means reverting the Dockerfile
+   epoch and pins that entry was baked from, or `devbox:manifest:check` and the manifest test fail
+   on the epoch and source-digest invariants.
 2. Deploy staging, smoke test, then production.
 3. Keep old snapshots until all VMs using them are gone.
 

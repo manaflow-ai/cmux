@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import path from "node:path";
 import {
+  appendImageManifestEntries,
   bakeMetadata,
   devboxImageEpoch,
   devboxImageLadderProblems,
@@ -239,6 +240,73 @@ describe("promoteImageManifestEntry", () => {
       promoteImageManifestEntry(base, passedEntry({ imageId: "sh-old" }), { kinds: ["desktop"] }),
     ).toThrow(/already listed as freestyle-old-desktop \(desktop\)/);
     expect(() => promoteImageManifestEntry(base, passedEntry(), { kinds: [] })).toThrow(/no kinds/);
+  });
+});
+
+describe("appendImageManifestEntries (promote --replay)", () => {
+  // Two promotions in flight append to the same manifest. Whichever merges
+  // second replays the rows its promotion appended (the --out summary's
+  // `entries`) onto the manifest as merged: the other ladder is demoted for
+  // every kind+size the replayed rows take over, nothing is removed, and the
+  // outcome is byte-identical to having promoted after the merge.
+  const size = (name: "sm" | "md", memoryMb: number) => ({ name, cpu: 2, memoryMb, storageMb: 16384 });
+  const ladder = (tag: string, kind: "desktop" | "base", epoch: string): DevboxManifestEntry[] =>
+    (["sm", "md"] as const).map((name, index) =>
+      passedEntry({
+        version: `freestyle-${tag}-${kind}-${name}`,
+        imageId: `sh-${tag}-${kind}-${name}`,
+        kind,
+        defaultForKind: true,
+        size: size(name, index === 0 ? 4096 : 8192),
+        epoch,
+        notes: `cmux devbox epoch ${epoch}`,
+        ...(kind === "base" && name === "sm" ? { defaultForLocalDev: true } : {}),
+      }),
+    );
+  const main: DevboxImageManifest = { schemaVersion: 1, images: [...ladder("old", "desktop", "e1"), ...ladder("old", "base", "e1")] };
+
+  test("replaying a promotion onto a manifest that gained another ladder demotes that ladder and appends", () => {
+    const theirs = appendImageManifestEntries(main, ladder("theirs", "base", "e1"));
+    const mine = ladder("mine", "base", "e2");
+    const replayed = appendImageManifestEntries(theirs, mine);
+    expect(imageManifestProblems(replayed)).toEqual([]);
+    expect(replayed.images.map((e) => [e.version, e.defaultForKind, e.defaultForLocalDev ?? false])).toEqual([
+      ["freestyle-old-desktop-sm", true, false],
+      ["freestyle-old-desktop-md", true, false],
+      ["freestyle-old-base-sm", false, false],
+      ["freestyle-old-base-md", false, false],
+      ["freestyle-theirs-base-sm", false, false],
+      ["freestyle-theirs-base-md", false, false],
+      ["freestyle-mine-base-sm", true, true],
+      ["freestyle-mine-base-md", true, false],
+    ]);
+    // Same result as promoting in the other order, up to row order.
+    const otherOrder = appendImageManifestEntries(appendImageManifestEntries(main, mine), ladder("theirs", "base", "e1"));
+    expect(otherOrder.images.filter((e) => e.defaultForKind).map((e) => e.version)).toEqual(
+      ["freestyle-old-desktop-sm", "freestyle-old-desktop-md", "freestyle-theirs-base-sm", "freestyle-theirs-base-md"],
+    );
+    // Pure: inputs untouched.
+    expect(theirs.images.find((e) => e.version === "freestyle-theirs-base-sm")?.defaultForKind).toBe(true);
+  });
+
+  test("a sized ladder retires size-less defaults of its kind; a size-less row leaves sized defaults alone", () => {
+    const sizeless = passedEntry({ version: "freestyle-flat", imageId: "sh-flat", kind: "desktop", defaultForKind: true });
+    const withFlat: DevboxImageManifest = { schemaVersion: 1, images: [sizeless] };
+    const sized = appendImageManifestEntries(withFlat, ladder("new", "desktop", "e1"));
+    expect(sized.images[0].defaultForKind).toBe(false);
+    const flatOnSized = appendImageManifestEntries(main, [passedEntry({ version: "freestyle-flat2", imageId: "sh-flat2", kind: "desktop", defaultForKind: true })]);
+    expect(flatOnSized.images.filter((e) => e.kind === "desktop" && e.defaultForKind).map((e) => e.version)).toEqual([
+      "freestyle-old-desktop-sm",
+      "freestyle-old-desktop-md",
+      "freestyle-flat2",
+    ]);
+  });
+
+  test("refuses rows that are not promotable", () => {
+    expect(() => appendImageManifestEntries(main, [])).toThrow(/no manifest rows/);
+    expect(() => appendImageManifestEntries(main, [passedEntry({ version: "x", imageId: "sh-old-desktop-sm", kind: "desktop", size: size("sm", 4096) })])).toThrow(/already listed as freestyle-old-desktop-sm \(desktop, sm\)/);
+    expect(() => appendImageManifestEntries(main, [passedEntry({ version: "y", imageId: "sh-y", kind: "base", defaultForKind: true, validationStatus: "unknown" })])).toThrow(/validationStatus is unknown, not passed/);
+    expect(() => appendImageManifestEntries(main, [{ ...passedEntry(), version: "" }])).toThrow(/without provider, version and imageId/);
   });
 });
 

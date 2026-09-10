@@ -423,8 +423,15 @@ describe("devbox image template", () => {
     expect(devboxSourceDigest("base", dockerfile.replace(/^ENV CMUX_IMAGE_EPOCH=.*$/m, "ENV CMUX_IMAGE_EPOCH=1999-01-01-r1"))).not.toBe(devboxSourceDigest("base", dockerfile));
     // Both bake entry points record the digest for the layers they baked.
     expect(readScript("build-devbox-freestyle.ts")).toContain('bakeMetadata(preflight, fileURLToPath(import.meta.url), withDesktop ? "desktop" : "base")');
-    expect(readScript("promote-devbox-image.ts")).toContain("devboxSourceDriftProblems(next)");
+    expect(readScript("promote-devbox-image.ts")).toContain("devboxSourceDriftProblems({ ...next, images: added })");
     expect(readScript("validate-devbox-ladder.ts")).toContain("devboxSourceDriftProblems(manifest)");
+    // A promotion records the rows it appended and can replay them onto a
+    // manifest that changed underneath it (two ladders in flight), through the
+    // same append + demotion rule, never by hand.
+    const promote = readScript("promote-devbox-image.ts");
+    expect(promote).toContain('argValue("--replay")');
+    expect(promote).toContain("appendImageManifestEntries(manifest, rows)");
+    expect(promote).toContain("entries: added,");
   });
 
   test("codex's Linux sandbox prerequisite is installed and the first agent launch is verified", () => {

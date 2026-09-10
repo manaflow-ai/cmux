@@ -21,10 +21,51 @@ Python 3.12, uv, Docker (running from boot), and its own copies of Claude
 Code, Codex and OpenCode. The bake keeps all of that and replaces the agent
 copies with the exact Dockerfile pins (`npm install -g` on the base's npm,
 every agent bin symlinked into `/usr/local/bin` so daemon panes resolve them
-without a login profile). The work user is the base's **`ubuntu`** (uid
-1000, passwordless sudo, the API's default exec user and the SSH default);
-the bake creates no users. A cmux login banner (`cmux-motd`, rendered by
-pam_motd on SSH) replaces the stock Ubuntu and Freestyle motd text.
+without a login profile), and installs `bubblewrap`, codex's Linux sandbox
+prerequisite, so codex runs on the distro's `bwrap` instead of warning on
+every launch that it is falling back to its bundled copy. The work user is
+the base's **`ubuntu`** (uid 1000, passwordless sudo, the API's default exec
+user and the SSH default); the bake creates no users. A cmux login banner
+(`cmux-motd`, rendered by pam_motd on SSH) replaces the stock Ubuntu and
+Freestyle motd text.
+
+## Agent pins: bump, epoch, promote
+
+The coding agents are exact npm releases in the Dockerfile's `ARG
+CMUX_IMAGE_<TOOL>_VERSION` lines, and machines never self-update
+(`DISABLE_AUTOUPDATER=1` for Claude Code, `check_for_update_on_startup =
+false` for codex), so a new Claude Code or Codex reaches cmux Cloud only
+through a rebake:
+
+```bash
+# from web/
+bun run devbox:pins:check            # pins next to the npm registry's current releases; exit 1 when behind
+bun run devbox:pins:check --write    # rewrite the ARG lines to those releases
+```
+
+then bump `CMUX_IMAGE_EPOCH` in the same file and promote both ladders (see
+"Promote" below). `--write` touches only the ARG lines and refuses ranges,
+tags and packages the image does not bake; the chatmux devbox template
+(`chatmux:infra/sandbox-images/Dockerfile`) is bumped by hand in its own
+repo to keep the parity the header describes.
+
+Two invariants keep the checked-in manifest describing the machine users get
+(`devboxSourceDriftProblems` in `devbox-image-common.ts`, run by
+`devbox:manifest:check`, `vm-image-manifest.test.ts` and `promote` before it
+writes):
+
+- every `defaultForKind` entry was baked at the Dockerfile's current
+  `CMUX_IMAGE_EPOCH` (the entry's `epoch`, or the `cmux devbox epoch` prefix
+  of its `notes` on older entries), so an epoch bump lands together with its
+  promotion and a rollback to an older ladder also reverts the sources;
+- an entry that recorded `devboxSource` (`{ layers, digest }`,
+  `devboxSourceDigest()`: sha256 over the files the bake ships verbatim, the
+  agent, cua-driver and Ghostty pins, the desktop apt list and the epoch,
+  per layer set; Dockerfile prose is excluded because a comment cannot change
+  a machine) was baked from exactly this checkout's sources.
+
+Rollback is therefore a revert of the promotion commit as a whole, never the
+manifest flags alone.
 
 `vm-devbox-image.test.ts` pins the shared files (`cmux-bashrc`,
 `agent-config.sh`, `seed-history`, `chrome-managed-policy.json`) to their
@@ -275,10 +316,55 @@ passing verify derives the sizes and writes the manifest, appending one
 entry per kind and size flagged `defaultForKind` while demoting the
 provider's previous defaults for those kind+size pairs (a sized promotion
 also demotes size-less defaults: the ladder replaces the single-shape
-image). Existing entries are never removed, so rollback is a manifest
-revert. The last stdout line is `IMAGE_ID <id>` (the bake); `--out <json>`
-writes the summary with every derived id. Commit the manifest diff in a PR;
-merging it is the promotion.
+image). Before writing it re-checks the manifest invariants and the source
+drift invariants above, so a bake from another epoch or other sources is
+refused rather than caught by CI. Existing entries are never removed, so
+rollback is a manifest revert. The last stdout line is `IMAGE_ID <id>` (the
+bake); `--out <json>` writes the summary with every derived id. Commit the
+manifest diff in a PR; merging it is the promotion.
+
+The desktop and base ladders are two bakes. They can bake, verify and
+derive in parallel, but only one promotion may write the manifest at a time
+(two concurrent writes would lose one ladder), so run the second with
+`--dry-run --out <summary>` and land its rows with `--replay` once the first
+has written:
+
+```bash
+bun run devbox:bake:freestyle cmux-devbox-<tag> --out /tmp/desktop.json
+bun run devbox:bake:freestyle cmux-devbox-<tag>-base --no-desktop --out /tmp/base.json
+bun run devbox:promote -- freestyle --bake-result /tmp/base.json --no-desktop --kinds base --pointer-slug cmux-devbox-<tag>-base
+bun run devbox:promote -- freestyle --bake-result /tmp/desktop.json --kinds desktop --pointer-slug cmux-devbox-<tag> --dry-run --out /tmp/desktop-summary.json
+bun run devbox:promote -- freestyle --replay /tmp/desktop-summary.json
+```
+
+A promotion that verified and derived but did not write (a refused write, a
+crash after `derive-devbox-sizes.ts`) is resumed without re-deriving:
+`--bake-result <json> --sizes-result <derive --out json>` re-verifies the
+bake and adopts the derived ids (they already exist on the account, each
+booted and checked by that run).
+
+Pin the daemon for both with `CMUX_VM_CMUX_TUI_MANIFEST_URL` (one commit's
+`https://files.cmux.com/cmux-tui/<commit>/manifest.json`) so the two ladders
+cannot straddle an artifacts publish.
+
+### Two promotions in flight
+
+Two PRs that each promote a ladder conflict on `manifest.json` (both append
+rows and flip the same defaults). Whichever merges second resolves it through
+the writer, never by hand: merge `main` taking main's manifest wholesale, then
+replay the rows the promotion appended (the `entries` of its `--out` summary,
+or those rows copied from the PR's manifest diff):
+
+```bash
+bun run devbox:promote -- freestyle --replay /tmp/desktop-summary.json
+bun run devbox:promote -- freestyle --replay /tmp/base-summary.json
+```
+
+`--replay` performs only the manifest edit (`appendImageManifestEntries`: the
+same append, clash check and demotion rule as a promotion, followed by the
+invariants), no bake, verify, derive or slug move: the rows already carry
+their verify outcome and derived ids. The other PR's rows stay listed,
+demoted, for rollback.
 
 ## Bake and verify by hand
 
@@ -307,9 +393,14 @@ the artifacts manifest at deploy time (`CMUX_VM_CMUX_TUI_MANIFEST_URL`),
 never from the image.
 
 Each bake prints a `next` command. The verifier boots one VM from the
-snapshot, asserts the toolchain, the exact agent pins, ghost text
-under a tmux PTY, byte-identical baked files, the work user, and (when
-`/etc/cmux/image-stamp` says `desktop`) the desktop contract (both ports,
+snapshot, asserts the toolchain, the exact agent pins, `bwrap`, ghost text
+under a tmux PTY, byte-identical baked files, the work user, the first
+interactive launch of `claude --dangerously-skip-permissions` and of `codex`
+as root and as `ubuntu` reaching the ready composer with no first-run gate
+on screen (onboarding, folder trust, the bypass confirmation, the custom
+API key consent, the root gate, codex's update picker and bubblewrap
+warning; readiness is the composer text itself, polled and bounded), and
+(when `/etc/cmux/image-stamp` says `desktop`) the desktop contract (both ports,
 RFB loopback-only, the session processes, the wallpaper on the root window,
 one supervisor, `DISPLAY` in root's and `ubuntu`'s login shells,
 `cua-driver doctor` seeing the display and the accessibility bus, every
