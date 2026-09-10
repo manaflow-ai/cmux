@@ -1123,16 +1123,16 @@ describe("Iroh trust broker database behavior", () => {
     expect(newerResult.created).toBe(false);
     expect(newerResult.binding.appInstanceId).toBe(newerApp);
 
-    // The superseded response carries the same row id but its old nonce no
-    // longer matches, so it cannot clobber the newer heartbeat.
+    // The superseded response references a deleted challenge, so it cannot
+    // clobber the newer heartbeat.
     const stale = await Effect.runPromiseExit(register(older, new Date(NOW.getTime() + 3_000)));
     expect(stale._tag).toBe("Failure");
     const causeError = stale._tag === "Failure"
       ? Option.getOrUndefined(Cause.failureOption(stale.cause))
       : undefined;
     expect(causeError).toMatchObject({
-      _tag: "IrohForbiddenError",
-      code: "invalid_challenge_nonce",
+      _tag: "IrohNotFoundError",
+      resource: "challenge",
     });
 
     // The slot still reflects the NEWER heartbeat, never the older one.
@@ -1203,7 +1203,7 @@ describe("Iroh trust broker database behavior", () => {
     const older = await prepare({ appInstanceId: olderApp, suffix: "2", now: new Date(NOW.getTime() + 1_000) });
     const newer = await prepare({ appInstanceId: newerApp, suffix: "3", now: new Date(NOW.getTime() + 2_000) });
 
-    expect(older.id).toBe(newer.id);
+    expect(older.id).not.toBe(newer.id);
     const [{ challenges }] = await requiredSql()<Array<{ challenges: string }>>`
       select count(*)::text as challenges
       from iroh_registration_challenges
@@ -1219,8 +1219,8 @@ describe("Iroh trust broker database behavior", () => {
       ? Option.getOrUndefined(Cause.failureOption(stale.cause))
       : undefined;
     expect(staleError).toMatchObject({
-      _tag: "IrohForbiddenError",
-      code: "invalid_challenge_nonce",
+      _tag: "IrohNotFoundError",
+      resource: "challenge",
     });
 
     // The newest challenge creates the slot.
@@ -1305,17 +1305,17 @@ describe("Iroh trust broker database behavior", () => {
     const newer = await prepare({ appInstanceId: newerApp, suffix: "3", now: tieInstant });
 
     expect(newer.createdAt.getTime()).toBeGreaterThan(older.createdAt.getTime());
-    expect(older.id).toBe(newer.id);
+    expect(older.id).not.toBe(newer.id);
 
-    // The old nonce no longer matches the one current row.
+    // The old challenge id no longer addresses the one current row.
     const stale = await Effect.runPromiseExit(register(older, new Date(NOW.getTime() + 2_000)));
     expect(stale._tag).toBe("Failure");
     const causeError = stale._tag === "Failure"
       ? Option.getOrUndefined(Cause.failureOption(stale.cause))
       : undefined;
     expect(causeError).toMatchObject({
-      _tag: "IrohForbiddenError",
-      code: "invalid_challenge_nonce",
+      _tag: "IrohNotFoundError",
+      resource: "challenge",
     });
 
     const newerResult = await Effect.runPromise(register(newer, new Date(NOW.getTime() + 3_000)));
@@ -1329,6 +1329,69 @@ describe("Iroh trust broker database behavior", () => {
         and tag = ${tag} and revoked_at is null
     `;
     expect(row?.appInstanceId).toBe(newerApp);
+  });
+
+  dbTest("serializes concurrent replacement and removes old-server duplicates", async () => {
+    const repo = requiredRepository();
+    const userId = "user-challenge-concurrent";
+    const deviceId = randomUUID();
+    const input = {
+      userId,
+      deviceUuid: deviceId,
+      appInstanceId: randomUUID(),
+      tag: "stable",
+      endpointId: "a".repeat(64),
+      identityGeneration: 1,
+      payloadSha256: "b".repeat(64),
+      now: NOW,
+      expiresAt: new Date(NOW.getTime() + 5 * 60 * 1_000),
+    };
+    const old = await Effect.runPromise(repo.issueChallenge({ ...input, nonceHash: "c".repeat(64) }));
+    // An older server can still insert into the unchanged schema during rollout.
+    await requiredSql()`
+      insert into iroh_registration_challenges (
+        user_id, device_uuid, app_instance_id, tag, endpoint_id,
+        identity_generation, payload_sha256, nonce_hash, created_at, expires_at
+      ) select user_id, device_uuid, app_instance_id, tag, endpoint_id,
+        identity_generation, payload_sha256, ${"d".repeat(64)}, created_at, expires_at
+      from iroh_registration_challenges where id = ${old.id}
+    `;
+    const challenges = await Promise.all(Array.from({ length: 24 }, () =>
+      Effect.runPromise(repo.issueChallenge({
+        ...input,
+        nonceHash: randomUUID().replaceAll("-", "").repeat(2),
+      })),
+    ));
+    const rows = await requiredSql()<Array<{ id: string }>>`
+      select id from iroh_registration_challenges where user_id = ${userId}
+    `;
+    const newest = challenges.reduce((a, b) => a.createdAt > b.createdAt ? a : b);
+    expect(rows).toEqual([{ id: newest.id }]);
+    expect(new Set(challenges.map((c) => c.createdAt.getTime())).size).toBe(24);
+    expect(await Effect.runPromise(repo.findChallenge(userId, old.id))).toBeNull();
+  });
+
+  dbTest("rolls back replacement when the new challenge cannot be inserted", async () => {
+    const repo = requiredRepository();
+    const userId = "user-challenge-rollback";
+    const input = {
+      userId,
+      deviceUuid: randomUUID(),
+      appInstanceId: randomUUID(),
+      tag: "stable",
+      endpointId: "a".repeat(64),
+      identityGeneration: 1,
+      payloadSha256: "b".repeat(64),
+      now: NOW,
+      expiresAt: new Date(NOW.getTime() + 5 * 60 * 1_000),
+    };
+    const old = await Effect.runPromise(repo.issueChallenge({ ...input, nonceHash: "c".repeat(64) }));
+    await Effect.runPromise(repo.issueChallenge({ ...input, tag: "nightly", nonceHash: "d".repeat(64) }));
+    const failed = await Effect.runPromiseExit(repo.issueChallenge({ ...input, nonceHash: "d".repeat(64) }));
+    expect(failed._tag).toBe("Failure");
+    expect(await Effect.runPromise(repo.findChallenge(userId, old.id))).toMatchObject({
+      id: old.id, nonceHash: old.nonceHash,
+    });
   });
 
   dbTest("keeps legacy and namespaced challenge slots independent", async () => {

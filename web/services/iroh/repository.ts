@@ -293,6 +293,17 @@ function makeLiveRepository(): IrohRepositoryShape {
           ? new Date(floor + 1)
           : input.now;
         const clientNamespace = input.clientNamespace ?? "legacy";
+        // All issuers hold the per-user transaction lock above. Replacing the
+        // tuple here keeps one current challenge across server instances and
+        // removes duplicates left by older servers without a schema cutover.
+        // A fresh id also prevents a delayed response from addressing its
+        // replacement. Registration already locks rows before consuming them.
+        await tx.delete(irohRegistrationChallenges).where(and(
+          eq(irohRegistrationChallenges.userId, input.userId),
+          eq(irohRegistrationChallenges.clientNamespace, clientNamespace),
+          eq(irohRegistrationChallenges.deviceUuid, input.deviceUuid),
+          eq(irohRegistrationChallenges.tag, input.tag),
+        ));
         const [challenge] = await tx
           .insert(irohRegistrationChallenges)
           .values({
@@ -307,24 +318,6 @@ function makeLiveRepository(): IrohRepositoryShape {
             nonceHash: input.nonceHash,
             createdAt,
             expiresAt: input.expiresAt,
-          })
-          .onConflictDoUpdate({
-            target: [
-              irohRegistrationChallenges.userId,
-              irohRegistrationChallenges.clientNamespace,
-              irohRegistrationChallenges.deviceUuid,
-              irohRegistrationChallenges.tag,
-            ],
-            set: {
-              appInstanceId: input.appInstanceId,
-              endpointId: input.endpointId,
-              identityGeneration: input.identityGeneration,
-              payloadSha256: input.payloadSha256,
-              nonceHash: input.nonceHash,
-              createdAt,
-              expiresAt: input.expiresAt,
-              consumedAt: null,
-            },
           })
           .returning();
         if (!challenge) throw new Error("challenge insert returned no row");
