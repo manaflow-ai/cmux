@@ -11,8 +11,8 @@ import Testing
 /// app makes, so it must follow the activation policy: never scheduled for a
 /// Mac that has not opted in, started when the Beta Features toggle turns on,
 /// and cancelled again when it turns off, all without a relaunch.
-/// Serialized: every test posts process-global notifications on
-/// `NotificationCenter.default` that any live registry observes.
+/// Each fixture owns its notification center so account changes cannot retire
+/// a registry running in another test suite.
 @Suite(.serialized)
 struct CmuxTuiSurfaceProviderRegistryPollingTests {
     private final class Switch: @unchecked Sendable {
@@ -43,11 +43,13 @@ struct CmuxTuiSurfaceProviderRegistryPollingTests {
     @MainActor
     func pollingFollowsTheActivationPolicy() async {
         let allowed = Switch()
-        let center = NotificationCenter.default
+        let center = NotificationCenter()
         let registry = CmuxTuiSurfaceProviderRegistry(
             links: CloudMachineLinkManager(clientURL: nil, hub: nil, hostThemeColors: { nil }),
             wireGuardHub: nil,
-            allowsBackgroundWork: { allowed.isOn }
+            allowsBackgroundWork: { allowed.isOn },
+            listPage: { nil },
+            notificationCenter: center
         )
 
         registry.start(catalog: SurfaceCatalog())
@@ -72,18 +74,21 @@ struct CmuxTuiSurfaceProviderRegistryPollingTests {
     @MainActor
     func signOutStopsPollingWhenNoLongerAllowed() async {
         let allowed = Switch()
+        let center = NotificationCenter()
         allowed.isOn = true
         let registry = CmuxTuiSurfaceProviderRegistry(
             links: CloudMachineLinkManager(clientURL: nil, hub: nil, hostThemeColors: { nil }),
             wireGuardHub: nil,
-            allowsBackgroundWork: { allowed.isOn }
+            allowsBackgroundWork: { allowed.isOn },
+            listPage: { nil },
+            notificationCenter: center
         )
         registry.start(catalog: SurfaceCatalog())
         #expect(registry.isPolling)
 
         // Sign-out clears the marker and enrollment files (the policy now says no).
         allowed.isOn = false
-        NotificationCenter.default.post(name: .cmuxCloudVMAccessDidEnd, object: nil)
+        center.post(name: .cmuxCloudVMAccessDidEnd, object: nil)
         #expect(await waitUntil { !registry.isPolling })
     }
 
@@ -95,7 +100,8 @@ struct CmuxTuiSurfaceProviderRegistryPollingTests {
         let registry = CmuxTuiSurfaceProviderRegistry(
             links: CloudMachineLinkManager(clientURL: nil, hub: nil, hostThemeColors: { nil }),
             wireGuardHub: nil,
-            allowsBackgroundWork: { allowed.isOn }
+            allowsBackgroundWork: { allowed.isOn },
+            listPage: { nil }
         )
         registry.start(catalog: SurfaceCatalog())
         #expect(registry.isPolling)

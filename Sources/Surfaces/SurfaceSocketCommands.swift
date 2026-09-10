@@ -30,14 +30,8 @@ extension TerminalController {
             if let machine, machine.cloudMachineID != nil, let error = cloudDisabledSocketError(id: id) { return error }
             let refresh = Self.surfaceBool(params["refresh"]) ?? false
             return v2VmCall(id: id, timeoutSeconds: 120) {
-                if refresh {
-                    if let machine {
-                        await SurfaceCatalog.shared.refresh(machine: machine, force: true)
-                    } else {
-                        await SurfaceCatalog.shared.refreshAll(force: true)
-                    }
-                }
-                let export = await SurfaceCatalog.shared.export
+                let query = await Self.surfaceCatalogQuery(catalog: .shared)
+                let export = await query.read(machine: machine, refresh: refresh)
                 return Self.surfaceCatalogPayload(export, machine: machine)
             }
 
@@ -115,17 +109,10 @@ extension TerminalController {
         let vmId = Self.surfaceString(params["id"]) ?? Self.surfaceString(params["machine"])
         let refresh = Self.surfaceBool(params["refresh"]) ?? false
         return v2VmCall(id: id, timeoutSeconds: 120) {
-            if refresh {
-                if let vmId {
-                    let machine = SurfaceMachineID.cloud(vmId)
-                    _ = await CmuxTuiSurfaceProviderRegistry.shared.providerRefreshingIfMissing(machineID: vmId)
-                    await SurfaceCatalog.shared.refresh(machine: machine, force: true)
-                } else {
-                    await SurfaceCatalog.shared.refreshAll(force: true)
-                }
-            }
-            let export = await SurfaceCatalog.shared.export
-            return Self.surfaceCatalogPayload(export, machine: vmId.map { .cloud($0) }, cloudOnly: true)
+            let machine = vmId.map { SurfaceMachineID.cloud($0) }
+            let query = await Self.surfaceCatalogQuery(catalog: .shared)
+            let export = await query.read(machine: machine, refresh: refresh)
+            return Self.surfaceCatalogPayload(export, machine: machine, cloudOnly: true)
         }
     }
 
@@ -736,10 +723,15 @@ extension TerminalController {
     /// The catalog's provider for `machine`; a cloud machine the catalog has not seen yet
     /// (just created) gets one fleet re-read before the caller reports "no provider".
     nonisolated static func surfaceProvider(for machine: SurfaceMachineID, catalog: SurfaceCatalog) async throws -> (any SurfaceProvider)? {
-        if let provider = await catalog.provider(for: machine) { return provider }
-        guard case .cloud(let machineID) = machine else { return nil }
-        _ = await CmuxTuiSurfaceProviderRegistry.shared.providerRefreshingIfMissing(machineID: machineID)
-        return await catalog.provider(for: machine)
+        let query = await surfaceCatalogQuery(catalog: catalog)
+        return await query.provider(for: machine)
+    }
+
+    @MainActor
+    private static func surfaceCatalogQuery(catalog: SurfaceCatalog) -> SurfaceCatalogQueryService {
+        SurfaceCatalogQueryService(catalog: catalog) { machineID in
+            _ = await CmuxTuiSurfaceProviderRegistry.shared.providerRefreshingIfMissing(machineID: machineID)
+        }
     }
 
     /// `vm.workspace_open`'s workspace resolution — the sidebar row's own

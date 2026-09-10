@@ -130,7 +130,9 @@ extension CmuxTuiSurfaceProvider {
 
     private func hubForward(to target: CloudPortForwardTarget) async throws -> CloudLoopbackPortForward {
         guard let portForwards else { throw ProviderError.hubUnavailable }
-        return try await portForwards.forward(machineID: machineID, to: target)
+        var dualStackTarget = target
+        dualStackTarget.fallbackHosts = await links.privateAddresses(for: machineID)
+        return try await portForwards.forward(machineID: machineID, to: dualStackTarget)
     }
 
     private static func makeConnectingPane(
