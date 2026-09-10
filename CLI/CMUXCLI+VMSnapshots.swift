@@ -97,7 +97,7 @@ extension CMUXCLI {
                 vmBackendHTTPStatus: error.vmBackendHTTPStatus
             )
         }
-        if let snapshotID, error.vmBackendCode == "vm_snapshot_not_found" || error.vmBackendHTTPStatus == 404 {
+        if let snapshotID, error.vmBackendCode == "vm_snapshot_not_found" {
             return CLIError(
                 message: "no snapshot \(snapshotID) on \(machine) (it may belong to another machine or be gone already): `cmux vm snapshot ls \(machine)` shows this machine's.",
                 exitCode: error.exitCode,
