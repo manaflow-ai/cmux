@@ -44,23 +44,26 @@ import {
 import { recordSpanError, setSpanAttributes, withVmSpan } from "../telemetry";
 import { GUEST_CMUX_SHIM, GUEST_CMUX_SHIM_PATH } from "../guestCli";
 import {
-  CMUX_TUI_BINARY_PATH,
+  approveCmuxTuiEnrollment,
+  CMUX_TUI_ATTACH_BUNDLE_NOT_READY_EXIT,
   CMUX_TUI_INSTALL_TIMEOUT_MS,
   CMUX_TUI_PORT,
   CMUX_TUI_SESSION,
-  approveCmuxTuiEnrollment,
-  CMUX_TUI_ATTACH_BUNDLE_NOT_READY_EXIT,
+  CMUX_TUI_TRUSTED_CARRIER_ENV,
   cmuxTuiAttachBundleCommand,
   cmuxTuiDaemonBuild,
   cmuxTuiDaemonCommand,
   cmuxTuiInstallCommand,
+  cmuxTuiLayoutSelector,
   cmuxTuiPinCheckCommand,
+  cmuxTuiRunCommand,
   mintCmuxTuiInvitation,
   parseCmuxTuiAttachBundle,
   resolveCmuxTuiSource,
-  type CmuxTuiSource,
+  shellQuote,
   waitForCmuxTuiReady,
   type CmuxTuiInvoke,
+  type CmuxTuiSource,
 } from "./cmuxTuiDaemon";
 
 // The Freestyle driver, on the public platform (api.freestyle.sh /v5, SDK
@@ -93,9 +96,10 @@ import {
 // loopback nor the public NIC.
 //
 // Creates take NO ports field, NO create-time env, and NO systemd injection;
-// `firewall` is mandatory. The model-plane env is the static placeholder file
-// baked at /etc/cmux/model-plane.env; no per-machine credential or create-time
-// env is written into the guest.
+// `firewall` is mandatory. The model-plane env is baked into the snapshot at
+// /etc/cmux/model-plane.env (services/coderouter/vmGuestEnv.ts): the same
+// bytes for every machine, so create writes nothing into the guest, and
+// /etc/cmux/agent-config.sh sources it in every shell whatever user it runs as.
 //
 // Create runs no guest bootstrap. The devbox snapshot carries the pinned
 // cmux-tui build and the cmux-tui-daemon systemd unit, and its supervisor
@@ -133,11 +137,12 @@ const DESKTOP_HEAL_TIMEOUT_MS = 90_000;
 export const FREESTYLE_ATTACH_TRANSPORT: AttachTransport = "cmux-remote";
 
 /**
- * Every guest command runs as root. The 0.2 API's `linuxUser` default is not
- * root but "the account holding uid 1000, or root in an image with no such
- * account", and the cmux devbox image ships a uid-1000 user — so leaving this
- * off would silently move the daemon, its install, and the model-plane write
- * off the root layout they are baked around.
+ * Every guest command the driver runs is administrative — systemd, sudoers, the
+ * daemon install — so it runs as root. The 0.2 API's `linuxUser` default is
+ * "the account holding uid 1000, or root in an image with no such account",
+ * which on a cmux devbox image is the work user; leaving this off would run
+ * the driver's own maintenance unprivileged. Sessions are a different thing:
+ * the daemon drops to the work user itself (cmuxTuiLayoutSelector).
  */
 const GUEST_LINUX_USER = "root";
 
@@ -517,7 +522,8 @@ export function mapFreestyleState(state: VmData["state"] | null | undefined): VM
 export function freestylePinCheckCommand(source: CmuxTuiSource): string {
   return (
     "if [ -s /etc/cmux/cmux-tui-pin ]; then " +
-    `test -x ${CMUX_TUI_BINARY_PATH} && printf '%s  %s\\n' "$(cut -d' ' -f1 /etc/cmux/cmux-tui-pin)" ${CMUX_TUI_BINARY_PATH} | sha256sum -c >/dev/null 2>&1; ` +
+    `${cmuxTuiLayoutSelector()} && ` +
+    `test -x "$CMUX_TUI_BIN" && printf '%s  %s\\n' "$(cut -d' ' -f1 /etc/cmux/cmux-tui-pin)" "$CMUX_TUI_BIN" | sha256sum -c >/dev/null 2>&1; ` +
     `else ${cmuxTuiPinCheckCommand(source)}; fi`
   );
 }
@@ -570,18 +576,20 @@ const REMOTE_WS_BIND_OVERRIDE =
  * dual-stack bind.
  */
 export function freestyleStartDaemonCommand(options?: { replaceExisting?: boolean }): string {
-  const replaceExisting = options?.replaceExisting === true;
-  const fallback = replaceExisting
-    ? `pkill -f 'cmux-tui server [s]tart' >/dev/null 2>&1; sleep 1; (setsid nohup sh -c '${cmuxTuiDaemonCommand(FREESTYLE_REMOTE_WS_BIND)}' >>/tmp/cmux-tui-daemon.log 2>&1 &);`
-    : `pgrep -f 'cmux-tui server [s]tart' >/dev/null 2>&1 || (setsid nohup sh -c '${cmuxTuiDaemonCommand(FREESTYLE_REMOTE_WS_BIND)}' >>/tmp/cmux-tui-daemon.log 2>&1 &);`;
+  const replace = options?.replaceExisting === true;
+  // shellQuote, not a bare '…': the daemon command carries single quotes of
+  // its own (the layout breadcrumb's printf), which would end the string early.
+  const fallbackLaunch = `(setsid nohup sh -c ${shellQuote(cmuxTuiDaemonCommand(FREESTYLE_REMOTE_WS_BIND))} >>/tmp/cmux-tui-daemon.log 2>&1 &)`;
   return [
     "if [ -d /run/systemd/system ] && [ -f /etc/systemd/system/cmux-tui-daemon.service ]; then",
     `mkdir -p ${REMOTE_WS_BIND_OVERRIDE.replace(/\/[^/]+$/, "")};`,
-    `printf '[Service]\\nEnvironment=CMUX_TUI_REMOTE_WS_BIND=${FREESTYLE_REMOTE_WS_BIND}\\nEnvironment=CMUX_TUI_REMOTE_WS_TRUSTED_CARRIER=1\\n' > ${REMOTE_WS_BIND_OVERRIDE};`,
+    `printf '[Service]\\nEnvironment=CMUX_TUI_REMOTE_WS_BIND=${FREESTYLE_REMOTE_WS_BIND}\\nEnvironment=${CMUX_TUI_TRUSTED_CARRIER_ENV}=1\\n' > ${REMOTE_WS_BIND_OVERRIDE};`,
     "systemctl daemon-reload;",
     "systemctl restart cmux-tui-daemon;",
     "else",
-    fallback,
+    replace
+      ? `pkill -f 'cmux-tui server [s]tart' >/dev/null 2>&1; sleep 1; ${fallbackLaunch};`
+      : `pgrep -f 'cmux-tui server [s]tart' >/dev/null 2>&1 || ${fallbackLaunch};`,
     "fi",
   ].join(" ");
 }
@@ -1574,7 +1582,7 @@ export class FreestyleProvider implements VMProvider {
 
   private cmuxTuiInvoke(vm: Vm): CmuxTuiInvoke {
     return async (args, timeoutMs) => {
-      const r = await this.execResult(vm, `env HOME=/root /root/.cmux/bin/cmux-tui ${args}`, timeoutMs ?? EXEC_DEFAULT_TIMEOUT_MS);
+      const r = await this.execResult(vm, cmuxTuiRunCommand(args), timeoutMs ?? EXEC_DEFAULT_TIMEOUT_MS);
       return r ?? { exitCode: 124, stdout: "", stderr: "exec failed" };
     };
   }

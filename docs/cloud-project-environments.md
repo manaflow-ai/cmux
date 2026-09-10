@@ -65,7 +65,7 @@ Setup must be automatic on first contact and deterministic after.
   what the file says is what happens, on every machine, for every teammate.
 - **Secrets** (`env`) are *named*, never valued, in the repo. Values come from
   `cmux vm env set <machine> DATABASE_URL=…` — shipped today as a machine-local
-  file (`/root/.config/cmux/env`, 0600, on the persistent volume, sourced by every
+  file (`~/.config/cmux/env` in the work user's home, 0600, on the persistent volume, sourced by every
   shell cmux starts). Control-plane storage per (user, project) with materialization
   at setup and revocation with access is the next step, and the long game is values
   living at the TLS edge (docs/vm-identity-edge-auth.md), not in the guest at all.

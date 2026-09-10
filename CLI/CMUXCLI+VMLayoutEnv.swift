@@ -33,7 +33,7 @@ extension CMUXCLI {
                                                               after the document (--name overrides); --workspace targets an
                                                               existing EMPTY workspace. Terminal `command`s are typed into
                                                               login shells started in each surface's `cwd` (relative to
-                                                              --cwd, default /root). --open then opens the workspace here
+                                                              --cwd, default: the work user's home). --open then opens the workspace here
                                                               with the same geometry.
 
         Document (one of):

@@ -57,7 +57,7 @@ id=$(cmux vm route --json | jq -r '.machine')
 cmux vm push "$id" . work/app                                         # code (or a git bundle, §3)
 cmux vm env set "$id" --from-file .env.cloud                          # secrets: on the machine, never in the layout
 cat > /tmp/app-layout.json <<'JSON'
-{"name":"app","cwd":"/root/work/app","layout":{"direction":"horizontal","split":0.6,"children":[
+{"name":"app","cwd":"work/app","layout":{"direction":"horizontal","split":0.6,"children":[
   {"pane":{"surfaces":[{"type":"terminal","name":"claude","command":"claude","focus":true}]}},
   {"direction":"vertical","split":0.5,"children":[
     {"pane":{"surfaces":[{"type":"terminal","name":"tests","command":"bun test --watch"},{"type":"terminal","name":"shell"}]}},
@@ -111,10 +111,10 @@ Across machines, an existing peer route lets the source machine speak to the pee
 
 ```bash
 # inside <builder>:
-cmux vm agent reviewer --agent codex --name "review" --cwd /root/work/app -- "review the diff on branch feat/x and write REVIEW.md"
+cmux vm agent reviewer --agent codex --name "review" --cwd work/app -- "review the diff on branch feat/x and write REVIEW.md"
 cmux vm terminal wait-exit reviewer <term> --timeout 1800                     # the agent's process ended
 cmux vm terminal output reviewer <term> | tail -n 40                          # what it said
-cmux vm exec reviewer -- cat /root/work/app/REVIEW.md
+cmux vm exec reviewer -- cat work/app/REVIEW.md
 cmux vm env set reviewer GITHUB_REPO=org/app                       # settings for the peer's shells
 cmux vm push reviewer ./deploy_key ~/.ssh/deploy_key --mode 600    # one file over the link into the peer's `cmux file receive`; never through exec
 cmux vm agent reviewer --agent codex --wait --output -- "summarize REVIEW.md in three lines"   # until-done on the peer

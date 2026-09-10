@@ -119,7 +119,7 @@ cmux vm new --name "build box" --detach # display label; the id stays the addres
 cmux vm wait <id> [--timeout <sec>] [--wake]   # block until ready; --wake also wakes it
 cmux vm rename <id> <label>            # display label; the id stays the address
 cmux vm rename <id> --clear
-cmux vm pause <id>                     # park it: compute stops, /root and the daemon state stay; `cmux vm ls` shows paused
+cmux vm pause <id>                     # park it: compute stops, the home volume and the daemon state stay; `cmux vm ls` shows paused
 cmux vm resume <id>                    # wake a paused machine (the same plan limits as a create apply)
 cmux vm rm <id>                        # PERMANENT delete of machine + data (aliases: destroy, delete)
 ```
@@ -185,7 +185,7 @@ cmux vm push --secret <id> ./id_ed25519 ~/.ssh/id_ed25519 [--mode 600]   # ONE f
 cmux vm push <id> ./site work/site --watch [--interval 1]              # keep copying on change (mtime/size scan, same excludes); remote-only files are preserved; Ctrl-C exits 0
 ```
 
-Aliases: `upload` / `download`. Transfers ride the exec channel (no SSH), chunked base64, 256 MB cap; directories travel as tarballs and merge into the destination. Remote paths are relative to `/root` (the persistent volume). `--secret` is the exception: like `vm env set`, it goes Mac → app → the machine's cmux-tui link → a receiver terminal (`cmux file receive <path>`) that turns echo off before it reads, writes to a temp file next to the destination and moves it into place atomically. Nothing appears in a command line, the control plane, the provider API, a screen or scrollback. It refuses directories and `--exclude`; use it for keys, tokens, kubeconfigs, `.npmrc` and the like.
+Aliases: `upload` / `download`. Transfers ride the exec channel (no SSH), chunked base64, 256 MB cap; directories travel as tarballs and merge into the destination. Remote paths are relative to the work user's home (on the persistent volume). `--secret` is the exception: like `vm env set`, it goes Mac → app → the machine's cmux-tui link → a receiver terminal (`cmux file receive <path>`) that turns echo off before it reads, writes to a temp file next to the destination and moves it into place atomically. Nothing appears in a command line, the control plane, the provider API, a screen or scrollback. It refuses directories and `--exclude`; use it for keys, tokens, kubeconfigs, `.npmrc` and the like.
 
 ## Layouts (the shape of a machine workspace)
 
@@ -199,7 +199,7 @@ cmux vm layout apply <id> --from-saved <name> [--open]        # a Mac saved layo
 Document (identical to `cmux new-workspace --layout`, `cmux layout get`, cmux.json workspaces):
 
 ```json
-{"name": "app", "cwd": "/root/work/app",
+{"name": "app", "cwd": "work/app",
  "layout": {"direction": "horizontal", "split": 0.6, "children": [
    {"pane": {"surfaces": [{"type": "terminal", "name": "agent", "command": "claude"}]}},
    {"direction": "vertical", "split": 0.5, "children": [
@@ -210,7 +210,7 @@ Document (identical to `cmux new-workspace --layout`, `cmux layout get`, cmux.js
 
 - Wrappers accepted: the bare `layout` node, `{"name","cwd","env","layout"}`, or a saved layout `{"name","description","workspace":{…}}`.
 - `horizontal` = side by side (first child left), `vertical` = stacked (first child top); `split` = the first child's share, 0.1–0.9 (default 0.5).
-- Surface: `type` terminal|browser (`project` is Mac-only and skipped with a warning), `name` (tab name), `cwd` (relative to the document `cwd`, default `/root`), `env` (process environment of that shell), `command` (typed into the shell, then Enter — the shell survives it), `url` (browser), `focus`.
+- Surface: `type` terminal|browser (`project` is Mac-only and skipped with a warning), `name` (tab name), `cwd` (relative to the document `cwd`, default: the work user's home), `env` (process environment of that shell), `command` (typed into the shell, then Enter — the shell survives it), `url` (browser), `focus`.
 - Every terminal is a login shell (`bash -l`), so `vm env` values and the agents' PATH apply. Output: `OK workspace=ws_… name=… panes=N surfaces=M` or `--json` `{workspace_id, workspace_name, panes:[{pane_id, surfaces:[{type, terminal_id|browser_id, tab_id, name}]}], warnings}`.
 - The same verb exists inside the machine (`cmux layout export|apply`) and toward linked peers (`cmux vm layout … <peer>`); the Mac form runs that implementation over the exec channel. A machine whose shim predates it says so (reconnect: `cmux vm tree <id> --refresh`).
 - Exit codes: 0 built; 1 daemon refused (message names the op); 2 invalid document (message names the JSON path, e.g. `$.children[1]`) — nothing is created on a 2.
@@ -218,7 +218,7 @@ Document (identical to `cmux new-workspace --layout`, `cmux layout get`, cmux.js
 ## Environment (project secrets and settings on a machine)
 
 ```bash
-cmux vm env set <id> KEY=VALUE [KEY2=VALUE2 …]        # /root/.config/cmux/env (0600) on the persistent volume
+cmux vm env set <id> KEY=VALUE [KEY2=VALUE2 …]        # ~/.config/cmux/env (0600) in the work user's home on the persistent volume
 cmux vm env set <id> --from-file .env                 # dotenv rules: blank and # lines skipped, optional `export `, matching quotes stripped
 cmux vm env set <id> -                                # KEY=VALUE lines on stdin (preferred for scripts: nothing in argv)
 cmux vm env ls <id> [--show] [--json]                 # names; --show adds values; --json {path, keys, values?}
@@ -227,7 +227,7 @@ cmux vm env rm <id> KEY [KEY2 …]
 
 Values are sourced by every login/interactive shell on the machine (a one-line hook in `~/.profile` and `~/.bashrc`, installed on first `set`), so every terminal cmux starts (`vm open`, `surface new-terminal`, `vm agent`, layout panes), `vm exec`, and the in-VM `cmux agent …` see them. Keys must match `[A-Za-z_][A-Za-z0-9_]*`.
 
-Transport: `vm env set` is the one `vm` verb that does **not** ride `vm.exec`. Values go to the app over the local socket and from there over the machine's cmux-tui link (Noise-authenticated end to end, on the private WireGuard network) into the machine's `cmux env receive`: a receiver terminal turns PTY echo off, prints `CMUX-ENV-READY`, reads base64 lines until `CMUX-ENV-END`, writes `~/.config/cmux/env` (0600), and answers `CMUX-ENV-OK keys=<n>`; the sender closes the terminal. So a value is never in a command line, never in the control plane or the provider API, never on a screen or in scrollback (the daemon does not journal input), and `ls` never prints one without `--show`. Inside a machine, `cmux vm env set <peer> …` uses the same handshake toward a linked peer. Snapshots, forks, and templates carry the file (it lives in `/root`): `cmux vm env rm` what must not travel before `vm promote-template`. A machine whose shim predates the verb is reported as such (reconnect: `cmux vm tree <id> --refresh`).
+Transport: `vm env set` is the one `vm` verb that does **not** ride `vm.exec`. Values go to the app over the local socket and from there over the machine's cmux-tui link (Noise-authenticated end to end, on the private WireGuard network) into the machine's `cmux env receive`: a receiver terminal turns PTY echo off, prints `CMUX-ENV-READY`, reads base64 lines until `CMUX-ENV-END`, writes `~/.config/cmux/env` (0600), and answers `CMUX-ENV-OK keys=<n>`; the sender closes the terminal. So a value is never in a command line, never in the control plane or the provider API, never on a screen or in scrollback (the daemon does not journal input), and `ls` never prints one without `--show`. Inside a machine, `cmux vm env set <peer> …` uses the same handshake toward a linked peer. Snapshots, forks, and templates carry the file (it lives in the work user's home): `cmux vm env rm` what must not travel before `vm promote-template`. A machine whose shim predates the verb is reported as such (reconnect: `cmux vm tree <id> --refresh`).
 
 ## Opening things for the human (`vm open`)
 

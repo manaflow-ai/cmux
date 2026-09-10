@@ -63,6 +63,7 @@ import {
   promoteImageManifestEntry,
   readImageManifest,
   webRoot,
+  withImageManifestLock,
   writeImageManifest,
   type DevboxBakeResult,
   type DevboxImageKind,
@@ -205,22 +206,26 @@ if (!skipVerify && sizeNames.length > 0) {
 }
 
 // 3. Manifest: append and flip defaults (pure edit), then re-check invariants.
-const manifest = readImageManifest();
-const next = skipVerify
-  ? { ...manifest, images: [...manifest.images, { ...entry, kind: kinds[0], notes: [entry.notes, validationNotes].filter(Boolean).join(" ") }] }
-  : promoteImageManifestEntry(manifest, entry, { kinds, sizes, validationNotes });
-const problems = imageManifestProblems(next);
-if (problems.length > 0) {
-  throw new Error(`refusing to write an inconsistent manifest:\n  ${problems.join("\n  ")}`);
-}
-const added = next.images.slice(manifest.images.length);
-console.log(`\n===== manifest =====\n${JSON.stringify(added, null, 2)}`);
-if (dryRun) {
-  console.log(`--dry-run: not writing ${imageManifestPath}`);
-} else {
-  writeImageManifest(next);
-  console.log(`wrote ${imageManifestPath} (+${added.length} entries)`);
-}
+// Under the lock, so the desktop and base ladders can be promoted at once.
+const added = await withImageManifestLock(() => {
+  const manifest = readImageManifest();
+  const next = skipVerify
+    ? { ...manifest, images: [...manifest.images, { ...entry, kind: kinds[0], notes: [entry.notes, validationNotes].filter(Boolean).join(" ") }] }
+    : promoteImageManifestEntry(manifest, entry, { kinds, sizes, validationNotes });
+  const problems = imageManifestProblems(next);
+  if (problems.length > 0) {
+    throw new Error(`refusing to write an inconsistent manifest:\n  ${problems.join("\n  ")}`);
+  }
+  const rows = next.images.slice(manifest.images.length);
+  console.log(`\n===== manifest =====\n${JSON.stringify(rows, null, 2)}`);
+  if (dryRun) {
+    console.log(`--dry-run: not writing ${imageManifestPath}`);
+  } else {
+    writeImageManifest(next);
+    console.log(`wrote ${imageManifestPath} (+${rows.length} entries)`);
+  }
+  return rows;
+});
 
 // 4. Pointer slug: a readable "current" handle on the platform. With sizes,
 // derive-devbox-sizes.ts already named each snapshot `<pointer>[-<size>]`.

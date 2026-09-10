@@ -134,12 +134,12 @@ cmux vm layout apply <m> --from-saved dev --open  # a layout saved on the Mac (`
 cmux layout get dev | cmux vm layout apply <m> -  # the same, piped
 ```
 
-The document is the one cmux already uses locally (`cmux new-workspace --layout`, `cmux layout save|get|open`, `cmux.json` workspaces): `{"pane":{"surfaces":[…]}}` leaves and `{"direction":"horizontal"|"vertical","split":0.1–0.9,"children":[a,b]}` splits; `horizontal` = side by side (first child left), `vertical` = stacked (first child top), `split` = the first child's share. A surface is `{"type":"terminal"|"browser","name"?,"cwd"?,"command"?,"env"?,"url"?,"focus"?}`. In the cloud a terminal surface is a login shell in `cwd` (relative to `/root`, or the document's `cwd`) with `env` in its process environment; `command` is typed into that shell and stays reviewable in the scrollback, so the pane survives the command. `project` surfaces are Mac-only and skipped. `vm workspace open` (and the sidebar click) then materializes the same splits, ratios and tabs locally, so the layout an agent arranged in the cloud is the layout the person sees. Export first when you want to reproduce a human's arrangement on another machine or in a fork.
+The document is the one cmux already uses locally (`cmux new-workspace --layout`, `cmux layout save|get|open`, `cmux.json` workspaces): `{"pane":{"surfaces":[…]}}` leaves and `{"direction":"horizontal"|"vertical","split":0.1–0.9,"children":[a,b]}` splits; `horizontal` = side by side (first child left), `vertical` = stacked (first child top), `split` = the first child's share. A surface is `{"type":"terminal"|"browser","name"?,"cwd"?,"command"?,"env"?,"url"?,"focus"?}`. In the cloud a terminal surface is a login shell in `cwd` (relative to the work user's home, or the document's `cwd`) with `env` in its process environment; `command` is typed into that shell and stays reviewable in the scrollback, so the pane survives the command. `project` surfaces are Mac-only and skipped. `vm workspace open` (and the sidebar click) then materializes the same splits, ratios and tabs locally, so the layout an agent arranged in the cloud is the layout the person sees. Export first when you want to reproduce a human's arrangement on another machine or in a fork.
 
 ## Project environment: env vars, files, repos
 
 ```bash
-cmux vm env set <m> DATABASE_URL=… API_KEY=…       # stored 0600 at /root/.config/cmux/env on the machine's persistent volume
+cmux vm env set <m> DATABASE_URL=… API_KEY=…       # stored 0600 at ~/.config/cmux/env in the work user's home on the machine's persistent volume
 cmux vm env set <m> --from-file .env               # dotenv rules: blank/# skipped, optional `export `, quotes stripped
 cat .env | cmux vm env set <m> -                  # same, from stdin (nothing in argv or history)
 cmux vm env ls <m> [--show] [--json]               # names only unless --show
