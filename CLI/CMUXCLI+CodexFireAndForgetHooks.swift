@@ -346,7 +346,8 @@ extension CMUXCLI {
             return queuedAgentHookShellCommand(
                 agent: def.name,
                 subcommand: event.cmuxSubcommand,
-                disableEnvironmentVariable: def.disableEnvVar
+                disableEnvironmentVariable: def.disableEnvVar,
+                identityMarker: "cmux-codex-hook"
             )
         }
         return codexSynchronousAgentHookShellCommand(command, for: def)

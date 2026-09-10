@@ -213,7 +213,8 @@ extension CMUXCLI {
                 inline = queuedAgentHookShellCommand(
                     agent: def.name,
                     subcommand: event.cmuxSubcommand,
-                    disableEnvironmentVariable: def.disableEnvVar
+                    disableEnvironmentVariable: def.disableEnvVar,
+                    identityMarker: def.name == "codex" ? "cmux-codex-hook" : nil
                 )
             }
         } else {
@@ -265,7 +266,8 @@ extension CMUXCLI {
                 inline = queuedAgentHookShellCommand(
                     agent: def.name,
                     subcommand: injectedEvent.cmuxSubcommand,
-                    disableEnvironmentVariable: def.disableEnvVar
+                    disableEnvironmentVariable: def.disableEnvVar,
+                    identityMarker: "cmux-codex-hook"
                 )
             case .direct:
                 inline = codexSynchronousAgentHookShellCommand(
