@@ -422,7 +422,9 @@ describe("FreestyleProvider create with edge rules", () => {
       networkIpv4: "10.4.0.7",
       networkIpv6: "fd00:4::7",
     });
-    expect(JSON.stringify(fake.writes)).not.toContain("crt_");
+    // The guest shim contains a literal `crt_*` rejection guard; the actual
+    // edge token must never be copied into guest files.
+    expect(JSON.stringify(fake.writes)).not.toContain("crt_secret-token");
   });
 
   test("omits the tls block and the probe when no rules are given", async () => {
