@@ -372,8 +372,11 @@ struct SudoProcessLifecycleTests {
         #expect(processIdentifiers.contains(getpid()))
     }
 
-    @Test("Hidden runner parent failure settles the approved request")
-    func runnerSettlesUnexpectedParent() throws {
+    @Test(
+        "An unauthorized hidden runner preserves the approved request",
+        arguments: [false, true]
+    )
+    func runnerRejectsUnexpectedParentWithoutSettlement(bindManifest: Bool) throws {
         let fixture = try SudoTestFixture()
         defer { fixture.remove() }
         let createdAt = Date.now
@@ -386,6 +389,14 @@ struct SudoProcessLifecycleTests {
             now: createdAt,
             executionGraceSeconds: 90
         )
+        let approvedState = try #require(fixture.store.state(id: request.id))
+        let manifest = try #require(fixture.store.manifest(id: request.id))
+        let approvedScriptURL = fixture.store.approvedScriptURL(id: request.id)
+        let approvedScript = try Data(contentsOf: approvedScriptURL)
+        let auditBefore = try? Data(contentsOf: fixture.paths.auditLog)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let manifestData = try encoder.encode(manifest)
         let runner = SudoExecutionRunner(
             paths: fixture.paths,
             expectedParentExecutableURL: URL(fileURLWithPath: "/not/the/test-parent"),
@@ -396,9 +407,38 @@ struct SudoProcessLifecycleTests {
             )
         )
 
-        #expect(runner.run(requestID: request.id) == 126)
-        #expect(fixture.store.result(id: request.id)?.errorCode == .runnerLaunchFailed)
-        #expect(fixture.store.state(id: request.id) == nil)
+        let exitCode = bindManifest
+            ? runner.run(requestID: request.id, expectedManifestData: manifestData)
+            : runner.run(requestID: request.id)
+
+        #expect(exitCode == 126)
+        #expect(fixture.store.result(id: request.id) == nil)
+        #expect(fixture.store.state(id: request.id) == approvedState)
+        #expect(fixture.store.manifest(id: request.id) == manifest)
+        #expect((try? Data(contentsOf: approvedScriptURL)) == approvedScript)
+        #expect((try? Data(contentsOf: fixture.paths.auditLog)) == auditBefore)
+        #expect(try fixture.store.claimApprovedExecution(
+            id: request.id,
+            runner: TestRunnerLauncher.defaultRunnerIdentity,
+            now: createdAt,
+            expectedManifest: manifest
+        ) == manifest)
+    }
+
+    @Test("An unauthorized hidden runner does not initialize the spool")
+    func runnerRejectsUnexpectedParentBeforeSpoolAccess() throws {
+        let fixture = try SudoTestFixture()
+        defer { fixture.remove() }
+        let paths = SudoBrokerPaths(base: fixture.root.appendingPathComponent("uninitialized"))
+        let runner = SudoExecutionRunner(
+            paths: paths,
+            expectedParentExecutableURL: URL(fileURLWithPath: "/not/the/test-parent"),
+            privilegedHelperExecutableURL: URL(fileURLWithPath: "/usr/bin/false"),
+            messages: .testMessages
+        )
+
+        #expect(runner.run(requestID: "unauthorized") == 126)
+        #expect(!FileManager.default.fileExists(atPath: paths.base.path))
     }
 
     @Test("Hidden runner identity failure settles the approved request")
