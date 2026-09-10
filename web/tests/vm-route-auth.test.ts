@@ -515,6 +515,35 @@ describe("VM REST auth", () => {
     expect(runVmWorkflow).toHaveBeenCalled();
   });
 
+  test("a default client create with home-volume flags succeeds on a provider that ignores them", async () => {
+    // Every shipped `cmux vm new` sends `persistentHome` + `perMachineHome`.
+    // Freestyle declares no `persistentHome` capability, so the route must
+    // drop the flags rather than fail the create with `vm_operation_unsupported`.
+    getUser.mockResolvedValue(authedStackUser());
+    runVmWorkflow.mockResolvedValue({
+      providerVmId: "provider-vm-2",
+      provider: "freestyle",
+      image: "snapshot-test",
+      createdAt: 1_777_000_000_000,
+    });
+
+    const response = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: { "idempotency-key": "idem-2", origin: "https://cmux.test" },
+        body: JSON.stringify({ persistentHome: true, perMachineHome: true }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ id: "provider-vm-2", provider: "freestyle" });
+    expect(createVm).toHaveBeenCalledWith(expect.objectContaining({
+      provider: "freestyle",
+      persistentHome: false,
+      perMachineHome: false,
+    }));
+  });
+
   test("rejects an unknown `kind` on create and base open before touching workflows", async () => {
     getUser.mockResolvedValue(authedStackUser());
 
