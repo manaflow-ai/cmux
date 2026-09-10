@@ -20,6 +20,12 @@ struct DevicePresenceWireTests {
         try DevicePresenceFrame.parse(JSONSerialization.data(withJSONObject: object))
     }
 
+    @Test("Credentialed presence rejects cleartext remote service endpoints")
+    func rejectsCleartextRemotePresence() throws {
+        #expect(DevicePresenceSubscriber.subscribeURL(serviceBaseURL: try #require(URL(string: "http://presence.example.test"))) == nil)
+        #expect(DevicePresenceSubscriber.subscribeURL(serviceBaseURL: try #require(URL(string: "ws://presence.example.test"))) == nil)
+    }
+
     @Test("A snapshot lists every instance and drops only the route entries this build cannot decode")
     func snapshotKeepsInstancesWithUnknownRoutes() throws {
         let parsed = try frame([

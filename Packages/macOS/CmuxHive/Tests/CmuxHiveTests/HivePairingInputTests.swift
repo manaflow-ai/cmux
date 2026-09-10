@@ -9,9 +9,14 @@ struct HivePairingInputTests {
         #expect(HivePairingInput("[fd7a:115c:a1e0::2]:9876") == .manual(.init(host: "fd7a:115c:a1e0::2", port: 9876)))
     }
 
-    @Test(arguments: ["", "100.64.0.2", "100.64.0.2:0", "100.64.0.2:65536", "https://example.com:443", "user@100.64.0.2:9876", "100.64.0.2:9876/path", "100.64.0.2:9876?route=other"])
+    @Test(arguments: ["", "100.64.0.2", "100.64.0.2:0", "100.64.0.2:65536", "https://example.com:443", "user@100.64.0.2:9876", "100.64.0.2:9876/path", "100.64.0.2:9876?route=other", "100.64.0.2:9876#fragment"])
     func rejectsAmbiguousDestinations(input: String) {
         #expect(HivePairingInput(input) == nil)
+    }
+
+    @Test(arguments: [1, 65535])
+    func acceptsInclusivePortBoundary(port: Int) {
+        #expect(HivePairingInput("100.64.0.2:\(port)") == .manual(.init(host: "100.64.0.2", port: port)))
     }
 
     @Test func acceptsRecognizedPairingLinkWithoutExecutingIt() {

@@ -13,6 +13,21 @@ import Testing
 /// failure blocks until something about the device changes.
 @Suite("Devices: link reconnect policy")
 struct DeviceLinkReconnectPolicyTests {
+    @Test("Repeated connect-and-close cycles back off after the first immediate retry")
+    func flappingTransportBacksOff() {
+        var policy = DeviceLinkReconnectPolicy()
+        _ = policy.apply(.directory(dialable: true))
+        _ = policy.apply(.connectSucceeded)
+        #expect(policy.apply(.transportLost) == .connecting(attempt: 1))
+        for failure in 1...8 {
+            _ = policy.apply(.connectSucceeded)
+            #expect(policy.apply(.transportLost) == .waiting(
+                attempt: failure, delay: DeviceLinkReconnectPolicy.delay(afterFailures: failure)
+            ))
+            _ = policy.apply(.waitElapsed)
+        }
+    }
+
     @Test("A dialable device connects; a live link that drops redials at once, then backs off")
     func connectLoseRetry() {
         var policy = DeviceLinkReconnectPolicy()

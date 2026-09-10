@@ -226,6 +226,20 @@ struct DeviceDirectoryMergeTests {
         #expect(trust(owners: [:], ownersKnown: false, teamID: "team_x")[studioKey] == .unknown)
     }
 
+    @Test("A complete owner snapshot supersedes remembered ownership")
+    func completeOwnershipSnapshotRevokesRememberedOwner() throws {
+        let (key, live) = presence(studioID, online: true, routes: [try route("ts")])
+        let previous = record(key, name: "Studio", online: true, routes: [try route("ts")], owner: "user_a", trust: .sameAccount)
+        let records = DeviceDirectoryMerge.merge(.init(
+            presence: [key: live], ownersKnown: true, previous: [previous],
+            selfInstance: selfInstance, currentUserID: "user_a", resolvedTeamID: "team_x"
+        ))
+        let current = try #require(records.first)
+        #expect(current.ownerUserID == nil)
+        #expect(current.accountTrust == .unknown)
+        #expect(!current.isDialable)
+    }
+
     @Test("Dialable means routed, this account's, and paired or reported online")
     func dialable() throws {
         let tailscale = try route("ts")

@@ -21,6 +21,40 @@ struct DeviceTerminalMirrorTests {
         MobileEventEnvelope(topic: topic, payloadJSON: try JSONSerialization.data(withJSONObject: object), streamID: nil)
     }
 
+    @Test("Output overflow cannot erase the need to recover a terminal link")
+    func overflowingOutputRetainsRecovery() async {
+        let events = DeviceLinkTerminalEvents()
+        let stream = events.stream(surfaceID: surfaceID)
+        events.broadcast(.linkReconnected)
+        for sequence in 0..<1_024 {
+            events.send(.bytes(sequence: UInt64(sequence), data: Data([65])), surfaceID: surfaceID)
+        }
+        events.finishAll()
+        var received: [DeviceTerminalEvent] = []
+        for await event in stream { received.append(event) }
+        #expect(received.count <= 512)
+        #expect(received.contains {
+            if case .bytes = $0 { return false }
+            return true
+        }, "A control or resynchronization event must survive output overflow")
+    }
+
+    @Test("Input queue overflow reports a delivery failure", .timeLimit(.minutes(1)))
+    func inputOverflowIsReported() async throws {
+        let failures = AsyncStream<String>.makeStream()
+        defer { failures.continuation.finish() }
+        let router = DeviceTerminalInputRouter(send: { _ in
+            Issue.record("Oversized input must not be sent")
+        }, onFailure: { error in
+            failures.continuation.yield(error.localizedDescription)
+        })
+        defer { router.invalidate() }
+        router.enqueue(.bytes(Data(repeating: 65, count: 256 * 1_024 + 1)))
+        var received = failures.stream.makeAsyncIterator()
+        let failure = try #require(await received.next())
+        #expect(!failure.isEmpty)
+    }
+
     @Test("terminal.bytes decodes to a sequenced byte run for its surface")
     func bytesEvent() throws {
         let decoded = try #require(DeviceTerminalEvent.decode(try envelope("terminal.bytes", [
