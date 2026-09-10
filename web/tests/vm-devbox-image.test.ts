@@ -589,8 +589,13 @@ describe("devbox image template", () => {
     expect(verify).toContain('const CLAUDE_LAUNCH_MARKER = "bypass permissions on"');
     expect(verify).toContain('const CODEX_LAUNCH_MARKER = "Ask Codex to do anything"');
     expect(verify).toContain("...AGENT_LAUNCH_CHECKS,");
-    // Readiness is polled on the marker, never a fixed sleep-then-read.
-    expect(verify).toContain("for i in $(seq 1 90); do pane=");
+  });
+
+  test("agent PTY readiness handles output, gates, exit, timeout and cancellation", () => {
+    const result = spawnSync("python3", [path.join(import.meta.dir, "devbox-agent-launch-test.py")], {
+      encoding: "utf8", timeout: 30_000,
+    });
+    expect({ status: result.status, output: result.stderr }).toEqual({ status: 0, output: expect.stringContaining("OK") });
   });
 
   test("one public-platform SDK serves the bake, the verifier, and the driver", () => {
