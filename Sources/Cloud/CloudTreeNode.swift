@@ -892,7 +892,6 @@ enum CloudTreeNodeBuilder {
         snapshot: SurfaceCatalogSnapshot,
         projectionIndex: LocalProjectionIndex
     ) -> CloudTreeNode {
-        let displays = resources.filter { $0.kind == .display }
         var byWorkspace: [String: RemoteWorkspaceRows] = [:]
         for workspace in info.remoteWorkspaces ?? [] {
             byWorkspace[workspace.id] = RemoteWorkspaceRows(workspace: workspace)
@@ -923,15 +922,16 @@ enum CloudTreeNodeBuilder {
                     remoteWorkspaceID: workspace.id
                 )
             }
-            let shownDisplayPlacements: [RemoteResourcePlacement] = displayPlacements.isEmpty
-                ? displays.map { RemoteResourcePlacement(resource: $0, workspace: workspace, view: nil) }
-                : displayPlacements
             let openInLocal = projectionIndex.localWorkspaceShowing(
                 remoteWorkspaceID: workspace.id,
                 placements: realPlacements
             )
             let layout = layoutRows(
-                placements: terminalPlacements + browserPlacements + shownDisplayPlacements,
+                // A workspace lists the displays it actually holds. A machine's
+                // desktop is a capability, not a member of every layout: it
+                // reaches a workspace only once someone puts it there, and the
+                // machine's Displays group is where an unplaced one lives.
+                placements: terminalPlacements + browserPlacements + displayPlacements,
                 workspace: workspace,
                 machine: machine,
                 info: info,
@@ -939,8 +939,7 @@ enum CloudTreeNodeBuilder {
                 projectionIndex: projectionIndex,
                 openInLocal: openInLocal
             )
-            // The group keeps its members (a workspace's own placements; the implicit
-            // pool display stays out) but takes the rows' order.
+            // The group keeps its members but takes the rows' order.
             let realPlacementSet = Set(realPlacements)
             let orderedRealPlacements = layout.placements.map { placement in
                 SurfaceResourcePlacement(
