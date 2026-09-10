@@ -378,6 +378,7 @@ struct CLICodexHookTimeoutRegressionTests {
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
                 "TMPDIR": root.path,
                 "CMUX_SURFACE_ID": "surface-123",
+                "CMUX_SOCKET_PATH": "/tmp/cmux-test.sock",
                 "CMUX_BUNDLED_CLI_PATH": fakeCLI.path,
                 "CMUX_CODEX_PID": "4242",
                 "CMUX_TEST_STDIN": capturedStdin.path,
