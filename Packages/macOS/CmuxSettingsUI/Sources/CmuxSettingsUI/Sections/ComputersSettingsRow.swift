@@ -13,22 +13,17 @@ struct ComputersSettingsRow: View {
                 if let tag = computer.tag { Text(tag).font(.caption).foregroundStyle(.secondary) }
             }
             Spacer()
-            if computer.isThisMac {
-                Text(String(localized: "settings.computers.thisMac", defaultValue: "This Mac"))
-                    .foregroundStyle(.secondary)
-            } else {
-                Text(status).foregroundStyle(.secondary)
-                if computer.isPaired {
-                    Button(String(localized: "settings.computers.open", defaultValue: "Open")) {
-                        Task { await actions.open(computer.id) }
-                    }
-                    Button(String(localized: "settings.computers.unpair", defaultValue: "Unpair"), role: .destructive) {
-                        confirmingUnpair = true
-                    }
-                } else {
-                    Text(String(localized: "settings.computers.notPaired", defaultValue: "Not paired"))
-                        .foregroundStyle(.secondary)
+            Text(status).foregroundStyle(.secondary)
+            if computer.isPaired {
+                Button(String(localized: "settings.computers.open", defaultValue: "Open")) {
+                    Task { await actions.open(computer.id) }
                 }
+                Button(String(localized: "settings.computers.unpair", defaultValue: "Unpair"), role: .destructive) {
+                    confirmingUnpair = true
+                }
+            } else {
+                Text(String(localized: "settings.computers.notPaired", defaultValue: "Not paired"))
+                    .foregroundStyle(.secondary)
             }
         }
         .confirmationDialog(

@@ -54,7 +54,9 @@ final class HiveComputersService {
     func updates() -> AsyncStream<ComputersSettingsSnapshot> {
         let id = UUID()
         let (stream, continuation) = AsyncStream<ComputersSettingsSnapshot>.makeStream(bufferingPolicy: .bufferingNewest(1))
-        continuation.yield(snapshot())
+        let value = snapshot()
+        lastSnapshot = value
+        continuation.yield(value)
         continuations[id] = continuation
         continuation.onTermination = { [weak self] _ in
             Task { @MainActor in self?.continuations.removeValue(forKey: id) }
@@ -183,7 +185,7 @@ final class HiveComputersService {
             ComputersSettingsSnapshot.Computer(
                 id: record.instance.wireValue, title: record.deviceName,
                 tag: record.instance.isDefaultTag ? nil : record.instance.tag,
-                isThisMac: false, isPaired: isPaired(record.instance),
+                isPaired: isPaired(record.instance),
                 isOnline: DeviceSurfaceProviderRegistry.shared.provider(for: record.instance)?.link.isConnected == true
                     ? true : (directory?.presenceState == .live ? record.isOnline : nil)
             )
@@ -194,7 +196,7 @@ final class HiveComputersService {
             guard !existing.contains(instance.wireValue) else { continue }
             computers.append(.init(
                 id: instance.wireValue, title: paired.displayName, tag: instance.isDefaultTag ? nil : instance.tag,
-                isThisMac: false, isPaired: true, isOnline: nil
+                isPaired: true, isOnline: nil
             ))
         }
         return ComputersSettingsSnapshot(
@@ -212,7 +214,6 @@ final class HiveComputersService {
     }
 
     private func publish() {
-        guard !continuations.isEmpty else { return }
         let value = snapshot()
         guard value != lastSnapshot else { return }
         lastSnapshot = value

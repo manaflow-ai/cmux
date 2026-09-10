@@ -1625,16 +1625,6 @@ struct SurfaceRemoteWorkspace: Hashable, Codable, Sendable {
     var unreadCount: Int? = nil
     /// Whether the workspace is pinned on its machine, when the provider reports it.
     var isPinned: Bool? = nil
-
-    init(id: String, name: String, index: Int, focused: Bool, detail: String? = nil, unreadCount: Int? = nil, isPinned: Bool? = nil) {
-        self.id = id
-        self.name = name
-        self.index = index
-        self.focused = focused
-        self.detail = detail
-        self.unreadCount = unreadCount
-        self.isPinned = isPinned
-    }
 }
 
 /// One view of a remote resource: a tab in one of the daemon's workspaces. A resource

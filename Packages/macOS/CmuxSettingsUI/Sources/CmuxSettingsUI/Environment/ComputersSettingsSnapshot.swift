@@ -5,15 +5,13 @@ public struct ComputersSettingsSnapshot: Equatable, Sendable {
         public let id: String
         public let title: String
         public let tag: String?
-        public let isThisMac: Bool
         public let isPaired: Bool
         public let isOnline: Bool?
 
-        public init(id: String, title: String, tag: String?, isThisMac: Bool, isPaired: Bool, isOnline: Bool?) {
+        public init(id: String, title: String, tag: String?, isPaired: Bool, isOnline: Bool?) {
             self.id = id
             self.title = title
             self.tag = tag
-            self.isThisMac = isThisMac
             self.isPaired = isPaired
             self.isOnline = isOnline
         }

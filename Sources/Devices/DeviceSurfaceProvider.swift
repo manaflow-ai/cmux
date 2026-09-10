@@ -76,8 +76,8 @@ final class DeviceSurfaceProvider: SurfaceProvider {
         )
     }
 
-    /// An authenticated live link outranks everything (a Mac that answers is
-    /// online whatever presence says); then account trust; then presence,
+    /// Account trust is checked before a live link (a Mac that answers is
+    /// online whatever presence says); then presence,
     /// which labels an offline Mac while a paired link keeps dialing quietly;
     /// then pairing; then the reconnect phase.
     static func linkState(
@@ -86,11 +86,11 @@ final class DeviceSurfaceProvider: SurfaceProvider {
         lastFailure: String?,
         needsAuthorization: Bool = false
     ) -> (linkState: SurfaceLinkState, linkError: String?) {
-        if phase == .connected {
-            return (.connected, nil)
-        }
         if record.accountTrust == .otherAccount {
             return (.unavailable, String(localized: "devices.link.otherAccount", defaultValue: "Signed in as a different account"))
+        }
+        if phase == .connected {
+            return (.connected, nil)
         }
         if record.presenceState == .offline {
             return (.offline, nil)
@@ -155,7 +155,7 @@ final class DeviceSurfaceProvider: SurfaceProvider {
         }
         let view = remoteView ?? resource.remoteViews?.first
         guard let workspaceID = view?.workspace.id ?? resource.remoteWorkspace?.id else {
-            throw SurfaceCatalogError.unavailable(resource.id, reason: "no remote workspace")
+            throw SurfaceCatalogError.unavailable(resource.id, reason: String(localized: "devices.open.noWorkspace", defaultValue: "This terminal has no remote workspace."))
         }
         let session = DeviceTerminalMirrorSession(link: link, remoteWorkspaceID: workspaceID, remoteSurfaceID: surfaceID)
         let router = session.inputRouter

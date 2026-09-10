@@ -41,18 +41,19 @@ struct SurfaceDevicePresence: Hashable, Codable, Sendable {
     var buildLabel: String? {
         let lowered = (bundleID ?? "").lowercased()
         let taggedName = tag != SurfaceDeviceInstanceID.defaultTag ? tag : nil
+        let channel: String
         if lowered.hasPrefix("dev.cmux") || lowered.contains(".debug") {
-            return taggedName.map { "DEV · \($0)" } ?? "DEV"
+            channel = String(localized: "cloudTree.device.build.dev", defaultValue: "DEV")
+        } else if lowered.hasSuffix(".nightly") || lowered.contains(".nightly.") {
+            channel = String(localized: "cloudTree.device.build.nightly", defaultValue: "Nightly")
+        } else if lowered.hasSuffix(".rc") || lowered.contains(".rc.") {
+            channel = String(localized: "cloudTree.device.build.rc", defaultValue: "RC")
+        } else if lowered.hasSuffix(".staging") || lowered.contains(".staging.") {
+            channel = String(localized: "cloudTree.device.build.staging", defaultValue: "Staging")
+        } else {
+            return taggedName
         }
-        if lowered.hasSuffix(".nightly") || lowered.contains(".nightly.") {
-            return taggedName.map { "Nightly · \($0)" } ?? "Nightly"
-        }
-        if lowered.hasSuffix(".rc") || lowered.contains(".rc.") {
-            return taggedName.map { "RC · \($0)" } ?? "RC"
-        }
-        if lowered.hasSuffix(".staging") || lowered.contains(".staging.") {
-            return taggedName.map { "Staging · \($0)" } ?? "Staging"
-        }
-        return taggedName
+        guard let taggedName else { return channel }
+        return String(format: String(localized: "cloudTree.device.build.tagged", defaultValue: "%1$@ · %2$@"), channel, taggedName)
     }
 }

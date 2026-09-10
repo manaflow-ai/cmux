@@ -12,6 +12,8 @@ enum DeviceTerminalEvent: Equatable, Sendable {
     case linkReconnected
     /// The link is gone for now (transport lost, device offline, link stopped).
     case linkLost
+    /// The bounded event queue overflowed; consult the current link and replay.
+    case resyncRequired
 
     /// Decode a `terminal.bytes` / `terminal.updated` envelope for its surface.
     /// Returns `(surfaceID, event)`; nil for payloads without a surface.
@@ -58,15 +60,23 @@ final class DeviceLinkTerminalEvents {
 
     func send(_ event: DeviceTerminalEvent, surfaceID: UUID) {
         for continuation in continuations[surfaceID]?.values ?? [:].values {
-            continuation.yield(event)
+            deliver(event, to: continuation)
         }
     }
 
     func broadcast(_ event: DeviceTerminalEvent) {
         for surface in continuations.values {
             for continuation in surface.values {
-                continuation.yield(event)
+                deliver(event, to: continuation)
             }
+        }
+    }
+
+    private func deliver(_ event: DeviceTerminalEvent, to continuation: AsyncStream<DeviceTerminalEvent>.Continuation) {
+        if case .dropped = continuation.yield(event) {
+            // Every overflow appends a fresh recovery marker. If a later byte
+            // drops that marker, it appends another, so recovery cannot vanish.
+            continuation.yield(.resyncRequired)
         }
     }
 

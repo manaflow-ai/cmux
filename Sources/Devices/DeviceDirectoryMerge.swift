@@ -80,9 +80,12 @@ struct DeviceDirectoryMerge {
                 }
             }
             append(paired?.routes ?? [])
-            if isOnline { append(presence?.routes ?? []) }
-            append(registry?.instance.routes ?? [])
-            if !isOnline { append(presence?.routes ?? []) }
+            if isOnline, let liveRoutes = presence?.routes, !liveRoutes.isEmpty {
+                append(liveRoutes)
+            } else {
+                append(registry?.instance.routes ?? [])
+                append(presence?.routes ?? [])
+            }
             // An unpair also revokes routes retained from the old grant. A
             // discovered row can remain, but only with its discovery routes.
             if routes.isEmpty, previous?.isPaired != true || paired != nil {
@@ -93,7 +96,7 @@ struct DeviceDirectoryMerge {
             let lastSeenAt = [presenceSeen, registry?.instance.lastSeenAt, registry?.device.lastSeenAt, paired?.lastSeenAt, previous?.lastSeenAt]
                 .compactMap { $0 }
                 .max()
-            let ownerUserID = input.owners[id.deviceID] ?? previous?.ownerUserID
+            let ownerUserID = input.owners[id.deviceID] ?? (input.ownersKnown ? nil : previous?.ownerUserID)
             let trust: SurfaceDevicePresence.AccountTrust
             if paired != nil {
                 // Pairing verified the host's authenticated identity under this

@@ -113,12 +113,12 @@ final class DeviceLink {
     }
 
     func refresh() {
-        transition(policy.apply(.refreshRequested))
+        transition(applyPolicy(.refreshRequested))
         if phase == .connected { scheduleFetch() }
     }
 
     func stop() {
-        transition(policy.apply(.stopped))
+        transition(applyPolicy(.stopped))
         mirror.reset()
         onChange?()
     }
@@ -127,8 +127,12 @@ final class DeviceLink {
     func reportTransportLost(_ error: any Error) {
         deviceLinkLog.error("device link lost \(self.instance.wireValue, privacy: .public): \(String(describing: error), privacy: .public)")
         lastFailure = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
-        transition(policy.apply(.transportLost))
+        transition(applyPolicy(.transportLost))
         onChange?()
+    }
+
+    private func applyPolicy(_ event: DeviceLinkReconnectPolicy.Event) -> Phase {
+        policy.apply(event, now: runtime.now())
     }
 
     private func reevaluate(unblock: Bool) {
@@ -146,7 +150,7 @@ final class DeviceLink {
         if unblock, case .blocked = phase {
             policy = DeviceLinkReconnectPolicy()
         }
-        transition(policy.apply(.directory(dialable: record.isDialable && granted)))
+        transition(applyPolicy(.directory(dialable: record.isDialable && granted)))
         onChange?()
     }
 
@@ -200,7 +204,7 @@ final class DeviceLink {
             waitTask = Task { [weak self] in
                 guard let self else { return }
                 guard (try? await self.clock.sleep(for: delay)) != nil else { return }
-                self.transition(self.policy.apply(.waitElapsed))
+                self.transition(self.applyPolicy(.waitElapsed))
                 self.onChange?()
             }
         case .idle, .blocked:
@@ -240,7 +244,7 @@ final class DeviceLink {
                 }
                 self.client = client
                 self.lastFailure = nil
-                self.transition(self.policy.apply(.connectSucceeded))
+                self.transition(self.applyPolicy(.connectSucceeded))
                 self.startEventConsumer(events, generation: generation)
                 await self.performFetch(generation: generation)
                 self.terminalEvents.broadcast(.linkReconnected)
@@ -252,7 +256,7 @@ final class DeviceLink {
                 let classified = Self.classify(error)
                 self.lastFailure = classified.reason
                 deviceLinkLog.error("device link connect failed \(self.instance.wireValue, privacy: .public) attempt=\(attempt): \(classified.reason, privacy: .public)")
-                self.transition(self.policy.apply(.connectFailed(retryable: classified.retryable, reason: classified.reason)))
+                self.transition(self.applyPolicy(.connectFailed(retryable: classified.retryable, reason: classified.reason)))
                 self.onChange?()
             }
         }

@@ -50,6 +50,12 @@ final class DeviceSurfaceProviderRegistry {
         self.isFeatureEnabled = isFeatureEnabled
     }
 
+    deinit {
+        for observer in [directoryObserver, authorizationObserver, defaultsObserver, accessObserver, policyObserver] {
+            if let observer { NotificationCenter.default.removeObserver(observer) }
+        }
+    }
+
     var isRunning: Bool { directory?.isRunning ?? false }
     var providerCount: Int { providers.count }
 
@@ -66,20 +72,20 @@ final class DeviceSurfaceProviderRegistry {
         self.authorization = authorization
         let center = NotificationCenter.default
         if let authorizationObserver { center.removeObserver(authorizationObserver) }
-        authorizationObserver = center.addObserver(forName: authorization.authorizationDidChangeNotification, object: nil, queue: .main) { _ in
-            MainActor.assumeIsolated { DeviceSurfaceProviderRegistry.shared.authorizationDidChange() }
+        authorizationObserver = center.addObserver(forName: authorization.authorizationDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.authorizationDidChange() }
         }
         if let defaultsObserver { center.removeObserver(defaultsObserver) }
-        defaultsObserver = center.addObserver(forName: UserDefaults.didChangeNotification, object: UserDefaults.standard, queue: .main) { _ in
-            MainActor.assumeIsolated { DeviceSurfaceProviderRegistry.shared.evaluate() }
+        defaultsObserver = center.addObserver(forName: UserDefaults.didChangeNotification, object: UserDefaults.standard, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.evaluate() }
         }
         if let policyObserver { center.removeObserver(policyObserver) }
-        policyObserver = center.addObserver(forName: ManagedDevicePolicy.didChangeNotification, object: nil, queue: .main) { _ in
-            MainActor.assumeIsolated { DeviceSurfaceProviderRegistry.shared.evaluate() }
+        policyObserver = center.addObserver(forName: ManagedDevicePolicy.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.evaluate() }
         }
         if let accessObserver { center.removeObserver(accessObserver) }
-        accessObserver = center.addObserver(forName: .cmuxCloudVMAccessDidEnd, object: nil, queue: .main) { _ in
-            MainActor.assumeIsolated { DeviceSurfaceProviderRegistry.shared.evaluate() }
+        accessObserver = center.addObserver(forName: .cmuxCloudVMAccessDidEnd, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.evaluate() }
         }
         observeAuth()
         evaluate()
@@ -93,10 +99,10 @@ final class DeviceSurfaceProviderRegistry {
         withObservationTracking {
             _ = auth.authenticatedSessionIdentity
             _ = auth.resolvedTeamID
-        } onChange: {
-            Task { @MainActor in
-                DeviceSurfaceProviderRegistry.shared.evaluate()
-                DeviceSurfaceProviderRegistry.shared.observeAuth()
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.evaluate()
+                self?.observeAuth()
             }
         }
     }
@@ -137,8 +143,8 @@ final class DeviceSurfaceProviderRegistry {
             forName: DeviceDirectory.didChangeNotification,
             object: directory,
             queue: .main
-        ) { _ in
-            MainActor.assumeIsolated { DeviceSurfaceProviderRegistry.shared.reconcile() }
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.reconcile() }
         }
         directory.start()
         reconcile()

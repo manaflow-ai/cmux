@@ -11,7 +11,7 @@ public final class HivePairingController {
     /// Called after authoritative local-store results change the visible pairing set.
     public var onChange: (@MainActor () -> Void)?
 
-    private let store: any MobilePairedMacStoring
+    private let store: any MobilePairedMacPairingStoring
     private let runtime: any MobileSyncRuntime
     private let userID: String
     private let teamID: String?
@@ -20,12 +20,13 @@ public final class HivePairingController {
     private let ownInstanceTag: String
     private let allowsLoopback: Bool
     private var client: MobileCoreRPCClient?
+    private var disconnectTask: Task<Void, Never>?
     private var isPairing = false
     private var isStopped = false
     private var loadGeneration: UInt64 = 0
 
     init(
-        store: any MobilePairedMacStoring, runtime: any MobileSyncRuntime,
+        store: any MobilePairedMacPairingStoring, runtime: any MobileSyncRuntime,
         userID: String, teamID: String?, email: String?,
         ownDeviceID: String, ownInstanceTag: String, allowsLoopback: Bool
     ) {
@@ -98,19 +99,13 @@ public final class HivePairingController {
                 status: status, ownDeviceID: ownDeviceID, ownInstanceTag: ownInstanceTag
             )
             do {
-                try await store.upsert(
+                try await store.upsertWithUserTailscaleAuthorization(
                     macDeviceID: identity.macDeviceID, displayName: status.macDisplayName,
                     routes: [request.route], instanceTag: identity.instanceTag,
                     markActive: false, stackUserID: userID, teamID: teamID, now: runtime.now()
                 )
             } catch { throw HivePairingError.storageFailed }
             try checkCurrent()
-            do {
-                try await store.authorizeUserTailscaleRoutes(
-                    macDeviceID: identity.macDeviceID, instanceTag: identity.instanceTag,
-                    stackUserID: userID, teamID: teamID, routes: [request.route]
-                )
-            } catch { throw HivePairingError.storageFailed }
             let loaded = try await load()
             guard let computer = loaded.first(where: { $0.id == identity.id }) else {
                 throw HivePairingError.missingIdentity
@@ -122,6 +117,7 @@ public final class HivePairingController {
         } catch {
             await client.disconnect()
             self.client = nil
+            try checkCurrent()
             throw error
         }
     }
@@ -145,14 +141,18 @@ public final class HivePairingController {
 
     /// Cancels the account's active handshake and clears its in-memory connection authority.
     public func stop() {
+        guard !isStopped else { return }
         isStopped = true
         loadGeneration &+= 1
         computers = []
         let client = client
         self.client = nil
-        Task { await client?.disconnect() }
+        client?.retire()
+        disconnectTask = Task { await client?.disconnect() }
         onChange?()
     }
+
+    deinit { disconnectTask?.cancel() }
 
     private func checkCurrent() throws {
         try Task.checkCancellation()

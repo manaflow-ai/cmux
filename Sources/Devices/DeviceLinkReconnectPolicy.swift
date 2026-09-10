@@ -43,15 +43,22 @@ struct DeviceLinkReconnectPolicy: Equatable, Sendable {
     private(set) var phase: Phase = .idle
     /// The directory's latest verdict, remembered so a wait can re-check it.
     private(set) var isDialable = false
+    private var connectedSince: Date?
+    private var shortLivedLosses = 0
+    static let stableConnectionInterval: TimeInterval = 30
 
-    mutating func apply(_ event: Event) -> Phase {
+    mutating func apply(_ event: Event, now: Date = .distantPast) -> Phase {
         switch event {
         case .stopped:
             phase = .idle
+            connectedSince = nil
+            shortLivedLosses = 0
         case .directory(let dialable):
             isDialable = dialable
             if !dialable {
                 phase = .idle
+                connectedSince = nil
+                shortLivedLosses = 0
             } else {
                 switch phase {
                 case .idle, .blocked:
@@ -61,7 +68,10 @@ struct DeviceLinkReconnectPolicy: Equatable, Sendable {
                 }
             }
         case .connectSucceeded:
-            if case .connecting = phase { phase = .connected }
+            if case .connecting = phase {
+                phase = .connected
+                connectedSince = now
+            }
         case .connectFailed(let retryable, let reason):
             guard case .connecting(let attempt) = phase else { return phase }
             guard isDialable else { phase = .idle; return phase }
@@ -69,13 +79,18 @@ struct DeviceLinkReconnectPolicy: Equatable, Sendable {
                 ? .waiting(attempt: attempt, delay: Self.delay(afterFailures: attempt))
                 : .blocked(reason: reason)
         case .transportLost:
-            switch phase {
-            case .connected, .connecting:
-                // The first retry after a live link is immediate: a remote app
-                // restart or a network blip usually resolves within the dial.
-                phase = isDialable ? .connecting(attempt: 1) : .idle
-            case .idle, .waiting, .blocked:
-                break
+            guard phase == .connected else { return phase }
+            guard isDialable else { phase = .idle; return phase }
+            if let connectedSince, now.timeIntervalSince(connectedSince) >= Self.stableConnectionInterval {
+                shortLivedLosses = 0
+            }
+            connectedSince = nil
+            shortLivedLosses += 1
+            if shortLivedLosses == 1 {
+                phase = .connecting(attempt: 1)
+            } else {
+                let failures = shortLivedLosses - 1
+                phase = .waiting(attempt: failures, delay: Self.delay(afterFailures: failures))
             }
         case .waitElapsed:
             guard case .waiting(let attempt, _) = phase else { return phase }
@@ -84,6 +99,7 @@ struct DeviceLinkReconnectPolicy: Equatable, Sendable {
             guard isDialable else { phase = .idle; return phase }
             switch phase {
             case .idle, .waiting, .blocked:
+                shortLivedLosses = 0
                 phase = .connecting(attempt: 1)
             case .connecting, .connected:
                 break

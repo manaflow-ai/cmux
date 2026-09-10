@@ -42,7 +42,7 @@ struct HivePairingRequest: Sendable {
                 email.trimmingCharacters(in: .whitespacesAndNewlines)
                ) != .orderedSame { throw HivePairingError.accountMismatch }
             routes = decoded.routes
-            expectedDeviceID = decoded.macDeviceID.isEmpty ? nil : cmxCanonicalDeviceID(decoded.macDeviceID)
+            expectedDeviceID = decoded.macDeviceID.isEmpty ? nil : cmxCanonicalDeviceID(decoded.macDeviceID.trimmingCharacters(in: .whitespacesAndNewlines))
         case .manual(let entry):
             let endpoint = CmxAttachEndpoint.hostPort(host: entry.host, port: entry.port)
             let candidate = try CmxAttachRoute(id: "tailscale", kind: .tailscale, endpoint: endpoint)
@@ -78,14 +78,14 @@ struct HivePairingRequest: Sendable {
     func verifiedIdentity(
         status: MobileHostStatusResponse, ownDeviceID: String, ownInstanceTag: String
     ) throws -> CmxMacAppInstanceIdentity {
-        guard let deviceID = status.macDeviceID, !deviceID.isEmpty,
+        guard let deviceID = status.macDeviceID?.trimmingCharacters(in: .whitespacesAndNewlines), !deviceID.isEmpty,
               let tag = status.macInstanceTag?.trimmingCharacters(in: .whitespacesAndNewlines),
               !tag.isEmpty else { throw HivePairingError.missingIdentity }
         if let expectedDeviceID, cmxCanonicalDeviceID(deviceID) != expectedDeviceID {
             throw HivePairingError.identityMismatch
         }
         let identity = CmxMacAppInstanceIdentity(macDeviceID: deviceID, instanceTag: tag)
-        guard identity != CmxMacAppInstanceIdentity(macDeviceID: ownDeviceID, instanceTag: ownInstanceTag) else {
+        guard identity != CmxMacAppInstanceIdentity(macDeviceID: ownDeviceID.trimmingCharacters(in: .whitespacesAndNewlines), instanceTag: ownInstanceTag) else {
             throw HivePairingError.thisMac
         }
         return identity

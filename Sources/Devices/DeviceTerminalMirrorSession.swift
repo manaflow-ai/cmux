@@ -53,7 +53,7 @@ final class DeviceTerminalMirrorSession {
         ]
         inputRouter = DeviceTerminalInputRouter(
             send: { data in
-                guard let text = String(data: data, encoding: .utf8) else { return }
+                guard let text = String(data: data, encoding: .utf8) else { throw DeviceTerminalInputRouter.InputError.invalidEncoding }
                 var input = params
                 input["text"] = text
                 _ = try await link.request("mobile.terminal.input", params: input)
@@ -149,6 +149,13 @@ final class DeviceTerminalMirrorSession {
             // viewer pinned a smaller grid): repaint at the new geometry.
             pin(columns: columns, rows: rows)
             scheduleAttach()
+        case .resyncRequired:
+            if link.isConnected {
+                reportedGrid = nil
+                scheduleAttach()
+            } else if phase == .attached || phase == .attaching {
+                phase = .detached
+            }
         case .linkReconnected:
             reportedGrid = nil
             scheduleAttach()

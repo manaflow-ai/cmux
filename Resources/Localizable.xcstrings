@@ -1,6 +1,142 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "devices.open.noWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This terminal has no remote workspace."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このターミナルにはリモートワークスペースがありません。"
+          }
+        }
+      }
+    },
+    "devices.input.queueFull": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Some terminal input was not sent because the connection could not keep up. Wait and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続が追いつかず、一部のターミナル入力を送信できませんでした。しばらく待ってから再試行してください。"
+          }
+        }
+      }
+    },
+    "devices.input.invalidEncoding": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Some terminal input was not sent because this Mac requires UTF-8 text."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac には UTF-8 テキストが必要なため、一部のターミナル入力を送信できませんでした。"
+          }
+        }
+      }
+    },
+    "cloudTree.device.build.dev": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DEV"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DEV"
+          }
+        }
+      }
+    },
+    "cloudTree.device.build.nightly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nightly"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nightly"
+          }
+        }
+      }
+    },
+    "cloudTree.device.build.rc": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RC"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RC"
+          }
+        }
+      }
+    },
+    "cloudTree.device.build.staging": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Staging"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Staging"
+          }
+        }
+      }
+    },
+    "cloudTree.device.build.tagged": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        }
+      }
+    },
     "devices.manage": {
       "extractionState": "manual",
       "localizations": {
@@ -286,23 +422,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "ペアリング済みコンピュータのデータを開けませんでした。ディスクの空き容量を確認し、cmux を再起動してください。"
-          }
-        }
-      }
-    },
-    "settings.computers.thisMac": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This Mac"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "この Mac"
           }
         }
       }

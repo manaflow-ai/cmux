@@ -9,6 +9,20 @@ import Foundation
 /// while a request is in flight are coalesced into the next request, so fast
 /// typing over a slow link costs one round trip per burst, not per key.
 final class DeviceTerminalInputRouter: @unchecked Sendable {
+    enum InputError: Error, LocalizedError {
+        case queueFull
+        case invalidEncoding
+
+        var errorDescription: String? {
+            switch self {
+            case .queueFull:
+                return String(localized: "devices.input.queueFull", defaultValue: "Some terminal input was not sent because the connection could not keep up. Wait and try again.")
+            case .invalidEncoding:
+                return String(localized: "devices.input.invalidEncoding", defaultValue: "Some terminal input was not sent because this Mac requires UTF-8 text.")
+            }
+        }
+    }
+
     // @unchecked Sendable: `pending` and `draining` are only touched under
     // `queue`; callers cross the boundary with immutable Data values.
     private let queue = DispatchQueue(label: "dev.cmux.devices.terminal-input", qos: .userInitiated)
@@ -33,7 +47,10 @@ final class DeviceTerminalInputRouter: @unchecked Sendable {
         guard case .bytes(let data) = input, !data.isEmpty else { return }
         queue.async { [self] in
             guard !invalidated else { return }
-            guard pending.count + data.count <= pendingByteLimit else { return }
+            guard pending.count + data.count <= pendingByteLimit else {
+                onFailure(InputError.queueFull)
+                return
+            }
             pending.append(data)
             guard !draining else { return }
             draining = true

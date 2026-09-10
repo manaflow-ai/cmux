@@ -303,31 +303,31 @@ struct DevicesCloudTreeBuilderTests {
             linkError: nil, workspaceCount: 0, terminalCount: 0
         )
         #expect(connectedWithoutPresence.indicator == .online)
-        #expect(connectedWithoutPresence.statusLabel(now: now) == "Online")
-        #expect(row(online: true, link: .connected).statusLabel(now: now) == "Online")
+        #expect(connectedWithoutPresence.statusLabel(now: now) == String(localized: "cloudTree.device.status.online", defaultValue: "Online"))
+        #expect(row(online: true, link: .connected).statusLabel(now: now) == String(localized: "cloudTree.device.status.online", defaultValue: "Online"))
         #expect(row(online: true, link: .error, error: "Handshake failed").statusLabel(now: now) == "Handshake failed")
-        #expect(row(online: true, link: .unavailable, trust: .otherAccount).statusLabel(now: now) == "Another account")
-        #expect(row(online: false, link: .offline).statusLabel(now: now) == "Offline")
-        #expect(row(online: false, link: .offline, seen: now.addingTimeInterval(-300)).statusLabel(now: now) == "Offline \u{00B7} seen 5m ago")
-        #expect(row(online: false, link: .connected).statusLabel(now: now) == "Online")
+        #expect(row(online: true, link: .unavailable, trust: .otherAccount).statusLabel(now: now) == String(localized: "cloudTree.device.status.otherAccount", defaultValue: "Another account"))
+        #expect(row(online: false, link: .offline).statusLabel(now: now) == String(localized: "cloudTree.device.status.offline", defaultValue: "Offline"))
+        #expect(row(online: false, link: .offline, seen: now.addingTimeInterval(-300)).statusLabel(now: now) == String(format: String(localized: "cloudTree.device.status.offlineSince", defaultValue: "Offline \u{00B7} seen %@"), String(format: String(localized: "cloudTree.device.age.minutes", defaultValue: "%dm ago"), 5)))
+        #expect(row(online: false, link: .connected).statusLabel(now: now) == String(localized: "cloudTree.device.status.online", defaultValue: "Online"))
         let unknown = CloudTreeDeviceRow(
             instance: studio, name: "Studio",
             presence: SurfaceDevicePresence(state: .unknown, lastSeenAt: now.addingTimeInterval(-3_600), tag: "default", bundleID: nil, accountTrust: .sameAccount),
             linkState: .offline, linkError: nil, workspaceCount: 0, terminalCount: 0
         )
-        #expect(unknown.statusLabel(now: now) == "Last seen 1h ago")
+        #expect(unknown.statusLabel(now: now) == String(format: String(localized: "cloudTree.device.status.unknownSince", defaultValue: "Last seen %@"), String(format: String(localized: "cloudTree.device.age.hours", defaultValue: "%dh ago"), 1)))
         #expect(unknown.indicator == .offline)
     }
 
     @Test("Relative age and tag-qualified names")
     func ageAndNames() {
         let now = Date(timeIntervalSince1970: 1_700_000_000)
-        #expect(CloudTreeDeviceRow.relativeAge(from: now.addingTimeInterval(-10), now: now) == "just now")
-        #expect(CloudTreeDeviceRow.relativeAge(from: now.addingTimeInterval(-90), now: now) == "1m ago")
-        #expect(CloudTreeDeviceRow.relativeAge(from: now.addingTimeInterval(-7_200), now: now) == "2h ago")
-        #expect(CloudTreeDeviceRow.relativeAge(from: now.addingTimeInterval(-47 * 3_600), now: now) == "47h ago")
-        #expect(CloudTreeDeviceRow.relativeAge(from: now.addingTimeInterval(-3 * 86_400), now: now) == "3d ago")
-        #expect(CloudTreeDeviceRow.relativeAge(from: now.addingTimeInterval(60), now: now) == "just now", "clock skew never yields a negative age")
+        #expect(CloudTreeDeviceRow.relativeAge(from: now.addingTimeInterval(-10), now: now) == String(localized: "cloudTree.device.age.justNow", defaultValue: "just now"))
+        #expect(CloudTreeDeviceRow.relativeAge(from: now.addingTimeInterval(-90), now: now) == String(format: String(localized: "cloudTree.device.age.minutes", defaultValue: "%dm ago"), 1))
+        #expect(CloudTreeDeviceRow.relativeAge(from: now.addingTimeInterval(-7_200), now: now) == String(format: String(localized: "cloudTree.device.age.hours", defaultValue: "%dh ago"), 2))
+        #expect(CloudTreeDeviceRow.relativeAge(from: now.addingTimeInterval(-47 * 3_600), now: now) == String(format: String(localized: "cloudTree.device.age.hours", defaultValue: "%dh ago"), 47))
+        #expect(CloudTreeDeviceRow.relativeAge(from: now.addingTimeInterval(-3 * 86_400), now: now) == String(format: String(localized: "cloudTree.device.age.days", defaultValue: "%dd ago"), 3))
+        #expect(CloudTreeDeviceRow.relativeAge(from: now.addingTimeInterval(60), now: now) == String(localized: "cloudTree.device.age.justNow", defaultValue: "just now"), "clock skew never yields a negative age")
         #expect(CloudTreeDeviceRow.displayName(baseName: "Studio", instance: studio) == "Studio")
         #expect(CloudTreeDeviceRow.displayName(baseName: "Laptop", instance: laptop) == "Laptop (issue-8001)")
         #expect(CloudTreeDeviceRow.displayName(baseName: "Laptop (issue-8001)", instance: laptop) == "Laptop (issue-8001)")

@@ -46,8 +46,14 @@ actor DevicePresenceSubscriber {
         guard var comps = URLComponents(url: serviceBaseURL, resolvingAgainstBaseURL: false) else { return nil }
         switch comps.scheme?.lowercased() {
         case "https": comps.scheme = "wss"
-        case "http": comps.scheme = "ws"
-        case "wss", "ws": break
+        case "wss": break
+        case "http", "ws":
+            #if DEBUG
+            guard let host = comps.host?.lowercased(), ["localhost", "127.0.0.1", "::1", "[::1]"].contains(host) else { return nil }
+            comps.scheme = "ws"
+            #else
+            return nil
+            #endif
         default: return nil
         }
         let basePath = comps.path.hasSuffix("/") ? String(comps.path.dropLast()) : comps.path

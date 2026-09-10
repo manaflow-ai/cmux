@@ -12,7 +12,7 @@ let pairedMacStoreLog = Logger(subsystem: "com.cmuxterm.app", category: "PairedM
 /// SQLite connection, so it is genuinely `Sendable` without opting out of
 /// concurrency checking. Construct it once at the app composition root and
 /// inject it as `any MobilePairedMacStoring`.
-public actor MobilePairedMacStore: MobilePairedMacStoring {
+public actor MobilePairedMacStore: MobilePairedMacPairingStoring {
     /// The schema version this build creates and migrates to.
     public static let currentSchemaVersion: Int32 = 12
 
