@@ -329,6 +329,29 @@ struct CloudTreeCreateAffordanceTests {
         #expect(selections.isEmpty)
     }
 
+    @Test("Denied machine access prompts before any terminal or workspace creation")
+    func deniedCreationNeverStartsAMutation() {
+        let catalog = SurfaceCatalog()
+        var upgradeRequests: [SurfaceMachineID] = []
+        var catalogReads = 0
+        var operations = 0
+        let actions = CloudTreeNodeActions.bound(
+            catalog: { catalogReads += 1; return catalog },
+            selectedWorkspaceID: { nil }, selectLocalWorkspace: { _ in },
+            onWillMutate: { _ in operations += 1 }, onDidMutate: {},
+            onFailure: { _ in }, refresh: {},
+            authorizeCreation: { machine in upgradeRequests.append(machine); return false }
+        )
+        let empty = SurfaceResourceGroup(title: "empty", resources: [])
+        actions.newWorkspace(machine)
+        actions.newTerminal(machine, "ws_main")
+        actions.openGroup(machine, empty, .tab, "ws_main")
+        actions.openGroupAsWorkspace(machine, empty, "ws_main")
+        #expect(upgradeRequests == [machine, machine, machine, machine])
+        #expect(operations == 0)
+        #expect(catalogReads == 0)
+    }
+
     private func makeCoordinator(
         onSelectionChange: @escaping @MainActor (CloudTreeCreateSelection?) -> Void = { _ in }
     ) -> CloudTreeOutlineView.Coordinator {
