@@ -58741,6 +58741,23 @@
         }
       }
     },
+    "cli.restore.admission.waiting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: waiting for cmux to verify that this agent session is not already running…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: このエージェントセッションがすでに実行中でないことを cmux が確認するのを待っています…"
+          }
+        }
+      }
+    },
     "cli.restore.codexCheckpointUnavailable": {
       "extractionState": "manual",
       "localizations": {

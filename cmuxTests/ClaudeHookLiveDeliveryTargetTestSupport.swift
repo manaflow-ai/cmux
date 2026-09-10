@@ -7,6 +7,15 @@ import Foundation
 /// `agent.resolve_delivery_target` probes, plus process/session-store
 /// helpers. Kept out of the test suite file for the 500-line file budget.
 enum ClaudeHookLiveDeliveryHarness {
+    /// Wall-clock bound for one hook CLI invocation in these harnesses.
+    ///
+    /// A hook that prints its verdict and exits normally still needs a few
+    /// socket round-trips through a mock server scheduled on the test
+    /// process's global queues, and loaded CI runners have taken over ten
+    /// seconds for that. The CLI's own non-actionable client deadlines are
+    /// far shorter than this, so a hook that genuinely hangs still fails.
+    static let processWallBound: TimeInterval = 30
+
     struct Context {
         let cliPath: String
         let socketPath: String
@@ -238,7 +247,7 @@ enum ClaudeHookLiveDeliveryHarness {
             process.waitUntilExit()
             exitSignal.signal()
         }
-        let timedOut = exitSignal.wait(timeout: .now() + 10) == .timedOut
+        let timedOut = exitSignal.wait(timeout: .now() + processWallBound) == .timedOut
         if timedOut {
             process.terminate()
             if exitSignal.wait(timeout: .now() + 1) == .timedOut {

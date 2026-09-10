@@ -4072,18 +4072,18 @@ final class SocketClient {
             let code = (error["code"] as? String) ?? "error"
             let message = (error["message"] as? String) ?? "Unknown v2 error"
             let action = error["action"] as? String
-            let reason = error["reason"] as? String
             let data = error["data"] as? [String: Any]
             throw CLIError(
                 message: formatV2Error(
                     code: code,
                     message: message,
                     action: action,
-                    reason: reason,
+                    reason: error["reason"] as? String,
                     details: safeV2Details(error["details"])
                 ),
                 v2Code: error["code"] as? String,
                 isStructuredProtocolResponse: true,
+                v2Retryable: data?["retryable"] as? Bool == true,
                 vmBackendCode: data?["backend_code"] as? String,
                 vmBackendHTTPStatus: (data?["http_status"] as? NSNumber)?.intValue
             )
