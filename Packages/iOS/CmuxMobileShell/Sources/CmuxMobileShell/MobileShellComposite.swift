@@ -11649,10 +11649,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         macCompatPolicy = policy
         let tier = policy.tier(forIOSVersion: versionGateIOSAppVersion)
         let buildType = versionGateBuildType
-        let requirement = tier?.buildKinds[buildType.token]
-        let requiredStableMacVersion = (requirement?.stableMinVersion ?? tier?.stableMinVersion)?.description
-        let nightlyRequirement = tier == nil ? nil : (requirement != nil ? requirement?.nightly : tier?.nightly)
-        let requiredNightlyMacVersion = nightlyRequirement.map {
+        let requirement: MobileMacCompatPolicy.Requirement? = {
+            guard let tier else { return nil }
+            return tier.buildKinds[buildType.token]
+                ?? MobileMacCompatPolicy.Requirement(
+                    stableMinVersion: tier.stableMinVersion,
+                    nightly: tier.nightly
+                )
+        }()
+        let requiredStableMacVersion = requirement?.stableMinVersion.description
+        let requiredNightlyMacVersion = requirement?.nightly.map {
             "\($0.minBaseVersion)-nightly.\($0.minBuild)"
         }
         MobileMacListAuthState.shared.applyPolicyMinimumSupportedMacVersions(

@@ -156,8 +156,13 @@ extension MobileMacCompatPolicy {
                     buildKinds[kind] = Requirement(stableMinVersion: stable, nightly: nightly)
                 }
             }
-            let stableMin = entry.stableMinVersion.flatMap(MobileMacAppVersion.init(parsing:))
-                ?? buildKinds[MobileBuildType.prod.token]?.stableMinVersion
+            let legacyStable = entry.stableMinVersion.flatMap(MobileMacAppVersion.init(parsing:))
+            if entry.buildKinds != nil,
+               let legacyStable,
+               legacyStable != buildKinds[MobileBuildType.prod.token]?.stableMinVersion {
+                return nil
+            }
+            let stableMin = legacyStable ?? buildKinds[MobileBuildType.prod.token]?.stableMinVersion
             guard let stableMin else { return nil }
             // The server publishes ascending, non-overwriting tiers. Reject
             // malformed responses at the trust boundary rather than caching a
@@ -177,6 +182,10 @@ extension MobileMacCompatPolicy {
             if let remoteNightly = entry.nightly {
                 guard let base = MobileMacAppVersion(parsing: remoteNightly.minBaseVersion), let build = UInt64(remoteNightly.minBuild) else { return nil }
                 nightly = NightlyRequirement(minBaseVersion: base, minBuild: build)
+            }
+            if entry.buildKinds != nil {
+                guard let prod = buildKinds[MobileBuildType.prod.token] else { return nil }
+                if let nightly, nightly != prod.nightly { return nil }
             }
             tiers.append(Tier(minIOSVersion: minIOS, maxIOSVersion: maxIOS, stableMinVersion: stableMin, nightly: nightly, buildKinds: buildKinds))
             previousMinIOSVersion = minIOS

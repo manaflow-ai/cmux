@@ -78,6 +78,9 @@ function validateEntry(entry: MobileMacCompatEntry, path: string): void {
     }
   }
   if (entry.buildKinds !== undefined) {
+    if (entry.buildKinds.prod === undefined && entry.stableMinVersion === undefined) {
+      throw new Error(`${path}.buildKinds must include a prod requirement`);
+    }
     for (const [kind, requirement] of Object.entries(entry.buildKinds)) {
       const requirementPath = `${path}.buildKinds.${kind}`;
       version(requirement.stableMinVersion, `${requirementPath}.stableMinVersion`);
