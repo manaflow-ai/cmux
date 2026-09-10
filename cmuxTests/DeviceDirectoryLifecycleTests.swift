@@ -101,9 +101,55 @@ struct DeviceDirectoryLifecycleTests {
         var states: [DeviceDirectory.PresenceState] = []
     }
 
+    @Test("A reconnect discards interrupted owner pages and commits only the new snapshot", arguments: [false, true])
+    func reconnectReplacesIncompleteOwnershipSnapshot(includeNewOwner: Bool) throws {
+        let suite = "DeviceDirectoryReconnect-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let directory = makeDirectory(
+            defaults: defaults, clock: SidebarTestManualClock(), teamID: "shared-team", serviceURL: { nil }
+        )
+        defer { directory.stop() }
+        let staleID = "11111111-1111-4111-8111-111111111111"
+        let currentID = "22222222-2222-4222-8222-222222222222"
+        let devices = [staleID, currentID].map { id in
+            DevicePresenceDevice(deviceId: id, instances: [
+                DevicePresenceInstance(deviceId: id, tag: "default", online: true, lastSeenAt: 1)
+            ])
+        }
+        let staleOwner = DeviceSyncRecord(
+            id: staleID, deleted: false,
+            device: DeviceSyncDeviceRecord(deviceId: staleID, ownerUserId: "test")
+        )
+        directory.apply(.snapshot(devices: devices))
+        directory.apply(.syncSnapshot(records: [staleOwner], complete: false))
+        #expect(directory.records.allSatisfy { $0.accountTrust == .unknown })
+
+        // Every new socket starts with presence's snapshot, even when the
+        // previous socket closed halfway through the ownership page set.
+        directory.apply(.snapshot(devices: devices))
+        if includeNewOwner {
+            directory.apply(.syncSnapshot(records: [DeviceSyncRecord(
+                id: currentID, deleted: false,
+                device: DeviceSyncDeviceRecord(deviceId: currentID, ownerUserId: "test")
+            )], complete: false))
+            #expect(directory.records.allSatisfy { $0.accountTrust == .unknown })
+        }
+        directory.apply(.syncSnapshot(records: [], complete: true))
+
+        let stale = try #require(directory.records.first { $0.instance.deviceID == staleID })
+        #expect(stale.ownerUserID == nil)
+        #expect(stale.accountTrust == .unknown)
+        #expect(!stale.isDialable)
+        let current = try #require(directory.records.first { $0.instance.deviceID == currentID })
+        #expect(current.ownerUserID == (includeNewOwner ? "test" : nil))
+        #expect(current.accountTrust == (includeNewOwner ? .sameAccount : .unknown))
+    }
+
     private func makeDirectory(
         defaults: UserDefaults,
         clock: SidebarTestManualClock,
+        teamID: String? = nil,
         serviceURL: @escaping @MainActor @Sendable () -> URL?,
         makeSubscriber: @escaping @Sendable (URL, @escaping @Sendable () async throws -> DevicePresenceSubscriber.Credentials?) -> DevicePresenceSubscriber = {
             DevicePresenceSubscriber(serviceBaseURL: $0, credentials: $1)
@@ -124,7 +170,7 @@ struct DeviceDirectoryLifecycleTests {
         )
         return DeviceDirectory(
             auth: auth, identity: AuthenticatedSessionIdentity(generation: 0, accountID: "test"),
-            teamID: nil, pairing: UnpairedDevices(),
+            teamID: teamID, pairing: UnpairedDevices(),
             registryClient: DeviceRegistryDirectoryClient(session: { throw DeviceRegistryDirectoryClient.ListError.notSignedIn }, teamID: nil),
             serviceURL: serviceURL, makeSubscriber: makeSubscriber,
             selfInstance: SurfaceDeviceInstanceID(deviceID: "self", tag: "test"), clock: clock
