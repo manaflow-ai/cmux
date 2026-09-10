@@ -299,6 +299,7 @@ def main() -> int:
             shard_selectors = output.read_text(encoding="utf-8").splitlines()
             repo_assigned_selectors.extend(shard_selectors)
             for focused_selector in (
+                "-only-testing:cmuxTests/AgentRestoreLiveOwnerAdmissionTests",
                 "-only-testing:cmuxTests/BrowserSystemProxyMirrorTests",
                 "-only-testing:cmuxTests/CLISSHSessionAttachAnchorTests",
                 "-only-testing:cmuxTests/GhosttyTerminalViewVisibilityPolicyTests",

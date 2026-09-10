@@ -35,10 +35,12 @@ LARGE_SUITE_METHOD_THRESHOLD = 40
 DEFAULT_TIMINGS_PATH = Path(__file__).resolve().parent / "cmux-unit-test-timings.json"
 FALLBACK_TEST_MS = 200
 FOCUSED_GATE_SELECTORS = {
+    "cmuxTests/AgentRestoreLiveOwnerAdmissionTests",
     "cmuxTests/BrowserSystemProxyMirrorTests",
     "cmuxTests/CLISSHSessionAttachAnchorTests",
     "cmuxTests/GhosttyTerminalViewVisibilityPolicyTests",
     "cmuxTests/GhosttyOptionAsAltModsTests",
+    "cmuxTests/GhosttyNumericLocaleTests",
     "cmuxTests/KeyboardShortcutSettingsFileStoreNoOpPersistenceTests",
     "cmuxTests/RemoteTmuxMirrorLayoutIdentityTests",
     "cmuxTests/SidebarWorkspaceSwitchLayoutFaultTests",

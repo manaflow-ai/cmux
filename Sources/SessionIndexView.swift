@@ -612,7 +612,8 @@ private struct GroupingButton: View {
                 CmuxSystemSymbolImage(
                     magnified: mode.symbolName,
                     pointSize: RightSidebarChromeControlStyle.secondaryIconSize,
-                    weight: RightSidebarChromeControlStyle.iconWeight
+                    weight: RightSidebarChromeControlStyle.iconWeight,
+                    tint: RightSidebarChromeControlStyle.pillForegroundColor(isSelected: isSelected, isHovered: isHovered)
                 )
                 .frame(width: RightSidebarChromeMetrics.contentIconFrameSize)
                 Text(mode.label)
@@ -847,8 +848,7 @@ struct IndexSectionView: View, Equatable {
                     .cmuxFont(size: 11, weight: .medium, monospacedDigit: true)
                     .foregroundStyle(.tertiary)
                     .fixedSize()
-                CmuxSystemSymbolImage(magnified: "chevron.down", pointSize: 9, weight: .semibold)
-                    .foregroundColor(.secondary.opacity(0.6))
+                CmuxSystemSymbolImage(magnified: "chevron.down", pointSize: 9, weight: .semibold, tint: .secondary.opacity(0.6))
                     .rotationEffect(.degrees(isCollapsed ? -90 : 0))
                 Spacer(minLength: 0)
             }
@@ -1227,8 +1227,7 @@ struct SessionTranscriptPreviewView: View {
                 }
             }
             Spacer(minLength: 8)
-            CmuxSystemSymbolImage(magnified: "xmark", pointSize: 11, weight: .semibold)
-                .foregroundColor(closeIsHovered ? .primary : .secondary)
+            CmuxSystemSymbolImage(magnified: "xmark", pointSize: 11, weight: .semibold, tint: closeIsHovered ? .primary : .secondary)
                 .frame(width: 20, height: 20)
                 .background(
                     RoundedRectangle(cornerRadius: 4, style: .continuous)
@@ -1304,8 +1303,7 @@ struct SessionTranscriptPreviewView: View {
 
     private func statusRow(systemImage: String, text: String) -> some View {
         HStack(spacing: 8) {
-            CmuxSystemSymbolImage(magnified: systemImage, pointSize: 12, weight: .medium)
-                .foregroundColor(.secondary)
+            CmuxSystemSymbolImage(magnified: systemImage, pointSize: 12, weight: .medium, tint: .secondary)
             Text(text)
                 .cmuxFont(size: 12)
                 .foregroundColor(.secondary)
@@ -2477,8 +2475,7 @@ struct SectionPopoverView: View {
             .padding(.bottom, 6)
 
             HStack(spacing: 6) {
-                CmuxSystemSymbolImage(magnified: "magnifyingglass", pointSize: 11, weight: .medium)
-                    .foregroundColor(.secondary)
+                CmuxSystemSymbolImage(magnified: "magnifyingglass", pointSize: 11, weight: .medium, tint: .secondary)
                 TextField(
                     String(localized: "sessionIndex.popover.searchPlaceholder",
                            defaultValue: "Search Vault"),
@@ -2491,8 +2488,7 @@ struct SectionPopoverView: View {
                     Button {
                         query = ""
                     } label: {
-                        CmuxSystemSymbolImage(magnified: "xmark.circle.fill", pointSize: 11)
-                            .foregroundColor(.secondary)
+                        CmuxSystemSymbolImage(magnified: "xmark.circle.fill", pointSize: 11, tint: .secondary)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(String(localized: "historyPane.search.clear", defaultValue: "Clear search"))
@@ -2513,8 +2509,7 @@ struct SectionPopoverView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(errorMessages, id: \.self) { msg in
                         HStack(alignment: .top, spacing: 6) {
-                            CmuxSystemSymbolImage(magnified: "exclamationmark.triangle.fill", pointSize: 10)
-                                .foregroundColor(.orange)
+                            CmuxSystemSymbolImage(magnified: "exclamationmark.triangle.fill", pointSize: 10, tint: .orange)
                             Text(msg)
                                 .cmuxFont(size: 11)
                                 .foregroundColor(.primary.opacity(0.85))

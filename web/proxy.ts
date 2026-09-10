@@ -17,6 +17,8 @@ import {
   DASHBOARD_RETURN_PATH_HEADER,
   dashboardReturnPathForRequest,
 } from "./app/lib/dashboard-return-path";
+import { localizedVaultPath, vaultSignInHref } from "./app/lib/vault-auth";
+import { hasStackRefreshCookie } from "./app/lib/stack-session-cookies";
 
 const intlMiddleware = createMiddleware(routing);
 const localeSet = new Set<string>(routing.locales);
@@ -356,15 +358,55 @@ export default function middleware(incomingRequest: NextRequest) {
     );
   }
 
-  if (dashboardReturnPath) {
-    setRequestHeaderOverride(
-      response,
-      DASHBOARD_RETURN_PATH_HEADER,
-      dashboardReturnPath,
-    );
-  }
+  return dashboardReturnPath
+    ? dashboardResponse(request, response, dashboardReturnPath)
+    : response;
+}
 
+/**
+ * A visitor with no Stack session cookie cannot be signed in. Redirect at the
+ * edge so a cold dashboard entry never renders the shell for them, and so the
+ * server components only meet sessions worth verifying. Otherwise forward the
+ * destination for the server-side sign-in redirect.
+ */
+function dashboardResponse(
+  request: NextRequest,
+  response: NextResponse,
+  dashboardReturnPath: string,
+): NextResponse {
+  if (!hasStackSessionCookie(request)) {
+    const url = request.nextUrl.clone();
+    const target = vaultSignInHref(
+      localizedVaultPath(requestPathLocale(request), dashboardReturnPath),
+    );
+    url.pathname = target.slice(0, target.indexOf("?"));
+    url.search = target.slice(target.indexOf("?"));
+    return NextResponse.redirect(url, 307);
+  }
+  setRequestHeaderOverride(
+    response,
+    DASHBOARD_RETURN_PATH_HEADER,
+    dashboardReturnPath,
+  );
   return response;
+}
+
+/** The locale already in the path, else the visitor's preferred locale. */
+function requestPathLocale(
+  request: NextRequest,
+): (typeof routing.locales)[number] {
+  const [, first] = request.nextUrl.pathname.split("/");
+  if (first && localeSet.has(first)) {
+    return first as (typeof routing.locales)[number];
+  }
+  return preferredAppRouteLocale(request);
+}
+
+function hasStackSessionCookie(request: NextRequest): boolean {
+  const projectId = process.env.NEXT_PUBLIC_STACK_PROJECT_ID?.trim();
+  // Without Stack the dashboard redirects home on the server instead.
+  if (!projectId) return true;
+  return hasStackRefreshCookie(request.cookies.getAll(), projectId);
 }
 
 /**

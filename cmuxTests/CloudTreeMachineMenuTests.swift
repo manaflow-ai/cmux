@@ -131,6 +131,7 @@ struct CloudTreeMachineMenuTests {
             renameTerminal: { _, _ in },
             selectLocalWorkspace: { _ in },
             copyToPasteboard: { _ in },
+            copyPortLink: { _ in },
             refresh: {}
         )
     }

@@ -7,15 +7,15 @@ import Foundation
 /// lifecycle nor any AppKit/WebKit object. Specifically it builds the JavaScript
 /// strings for the semantic element locators (`find.role`, `find.text`, and the
 /// other `find.*` actions), canonical keyboard events, the not-found diagnostics
-/// probe, and the `find.first`/`find.last`/`find.nth` selector scripts; it
-/// normalizes raw JavaScript results into JSON-serializable values; it classifies
-/// JavaScript failures; and it composes the human-readable element-not-found
-/// message.
+/// probe, the browser-eval bridge wrapper, and the `find.first`/`find.last`/`find.nth`
+/// selector scripts; it normalizes raw JavaScript results into JSON-serializable
+/// values; it classifies JavaScript failures; and it composes the human-readable
+/// element-not-found message.
 ///
 /// The owning `@MainActor` controller keeps the per-surface mutable state
 /// (element-ref table, dialog queue, init scripts) and the WebKit evaluation seam;
-/// it forwards into this service for the stateless work, so the RPC wire output is
-/// byte-for-byte identical to the previous inlined implementation.
+/// it forwards into this service for the stateless work and retains the RPC
+/// envelope format.
 public struct BrowserControlService: Sendable {
     /// Envelope constants for the `browser eval` undefined/value distinction.
     public let evalEnvelope: BrowserEvalEnvelope

@@ -52,8 +52,8 @@ describe("devbox desktop contract (services/vms/images/desktop.ts)", () => {
     expect(DEVBOX_DESKTOP_NOVNC_PORT).toBe(6901);
     expect(DEVBOX_DESKTOP_RFB_PORT).toBe(5901);
     expect(DEVBOX_DESKTOP_DISPLAY).toBe(":1");
-    expect(DEVBOX_DESKTOP_USER).toBe("ubuntu");
-    expect(DEVBOX_DESKTOP_HOME).toBe("/home/ubuntu");
+    expect(DEVBOX_DESKTOP_USER).toBe("cmux");
+    expect(DEVBOX_DESKTOP_HOME).toBe("/home/cmux");
     expect(DEVBOX_DESKTOP_UNIT).toBe("cmux-desktop");
     expect(DEVBOX_DESKTOP_RUNTIME_DIR).toBe("/run/cmux-desktop");
     expect(DEVBOX_DESKTOP_ENV_FILE).toBe("/run/cmux-desktop/env");
@@ -202,7 +202,10 @@ describe("devbox desktop layer", () => {
     expect(devboxBoot).toContain("[ -d /run/systemd/system ] && return 0");
     expect(devboxBoot).toContain("desktop_user=$(getent passwd 1000 | cut -d: -f1)");
     expect(devboxBoot).toContain('runuser -u "$desktop_user" -- env HOME="$desktop_home" USER="$desktop_user" DISPLAY="$DESKTOP_DISPLAY"');
-    expect(devboxBoot).toContain("start_desktop\n  if [ -x \"$BIN\" ]");
+    // The desktop is started at the top of every supervisor tick, before the
+    // daemon branch, so one never gates the other.
+    expect(devboxBoot).toContain('start_desktop\n  # A driver can install the binary after boot');
+    expect(devboxBoot).toContain('[ -x "$BIN" ] || cmux_tui_layout\n  if [ -x "$BIN" ]');
     expect(freestyleBake).toContain('[ "$(pgrep -u ${WORK_USER} -f ${DEVBOX_DESKTOP_SUPERVISOR} | wc -l)" = 1 ]');
     expect(verify).toContain("single-desktop-supervisor");
     // The Dockerfile proves the container path at build time through the

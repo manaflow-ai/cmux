@@ -9,6 +9,7 @@ import {
 import {
   inferVmProviderForImage,
   resolveVmImage,
+  vmImageKindFor,
 } from "../../../../services/vms/images/resolver";
 import {
   reportVmImageConfigError,
@@ -120,7 +121,7 @@ export async function runBaseRoute(input: {
     provider: entry.provider,
     image: entry.image,
     imageVersion: entry.imageVersion,
-    kind: imageSelection.kind,
+    kind: vmImageKindFor(entry.provider, entry.image),
     status: entry.status,
     createdAt: entry.createdAt,
     base: {

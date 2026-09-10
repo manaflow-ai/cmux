@@ -98,24 +98,27 @@ The active snapshot and its provenance are recorded in
 `web/services/vms/images/manifest.json`. There is no provider-specific daemon
 protocol or alternate image selector.
 
-The daemon's remote state dir must live on the persistent volume (the machine's
-home; Freestyle runs the daemon as root with `HOME=/root`, so the
-HOME-derived default `~/.local/state/cmux/remote` already qualifies. The
-non-root layout described below (`CMUX_CLOUD_LAYOUT`) is retained as a seam
-but no driver selects it today. This is what lets daemon identity and enrolled
-devices survive sandbox resurrection. Session state (`--state`) lives there
-too, so workspace layout restores from the journal checkpoint after a daemon
-restart. Running processes do not survive a restart, and clients see the
-generation change instead of a silent new shell.
+The daemon runs as the image's work user, `cmux` (uid 1000, passwordless
+sudo, `HOME=/home/cmux`), so every terminal pane it opens is a non-root shell:
+coding agents refuse to run as root, and `claude
+--dangerously-skip-permissions` exits before it starts there. Its remote state
+dir is the HOME-derived default `~/.local/state/cmux/remote`, on the machine's
+durable disk, which is what lets daemon identity and enrolled devices survive
+resurrection. Session state (`--state`) lives there too, so workspace layout
+restores from the journal checkpoint after a daemon restart. Running processes
+do not survive a restart, and clients see the generation change instead of a
+silent new shell.
 
-On a layout machine, the daemon watches the bindfs home view for mount events.
-If the view disappears, the supervisor stops the user daemon and exits with a
-restartable failure code. The provider starts the command again, which reruns
-the idempotent user setup and repairs the view before selecting the non-root
-daemon. If repair fails, it detects the still-mounted `/cmux/home` backing path
-and runs the daemon there as root. Active terminals therefore do not continue
-writing into the disposable rootfs directory. No provider selects this layout
-today; it is kept for a future non-root cloud home.
+Machines created from an image baked before that work user existed have no
+`cmux` account and carry their binary, daemon and state under `/root`. The
+install command, the pin check, the daemon launch and every driver-side
+`cmux-tui` call run one shared selector (`cmuxTuiLayoutSelector`) that reads
+the layout off the machine, so both kinds of machine are served by one driver
+and neither can end up with its binary in a home its sessions cannot reach
+(`/root` is 0700). The chosen layout is written to `/etc/cmux/daemon-layout`.
+A machine whose work user exists but cannot use its home or cannot `sudo -n`
+takes the root layout too: a degraded machine that works beats a
+crash-looping daemon or a session trapped unprivileged.
 
 ## State model and synchronization invariants
 
@@ -514,19 +517,22 @@ Socket methods (the CLI, the sidebar tree, and agents all go through them):
 
 | Method | Params | Result |
 | --- | --- | --- |
-| `vm.tree` | `{id?, refresh?}` | `{machines: [{id, status, image, has_desktop, memory_mb?, disk_mb?, link_state, remote_workspaces?}], cloud_states: [{machine, sync_mode, cursor?, freshness, pending_writes?}], resources: [{id, machine, kind: terminal\|display\|browser, key, title, detail?, lifecycle, agent?, remote_workspace?, remote_views: [{tab_id, workspace: {id, name, index, focused}, screen_id?, pane_id?, name?, index?, focused?}], port?, url?, open_surface_ids}], projections: [{resource, workspace_id, panel_id}]}`. The renderer orders each machine as Workspaces, Ports, VNC Displays, then Terminals; empty workspaces and exact multi-tab placements remain visible. |
+| `vm.tree` | `{id?, refresh?}` | `{machines: [{id, status, image, has_desktop, memory_mb?, disk_mb?, link_state, remote_workspaces?}], cloud_states: [{machine, sync_mode, cursor?, freshness, pending_writes?}], resources: [{id, machine, kind: terminal\|display\|browser, key, title, detail?, lifecycle, agent?, remote_workspace?, remote_views: [{tab_id, workspace: {id, name, index, focused}, screen_id?, pane_id?, name?, index?, focused?, screen_index?, pane_index?}], port?, url?, open_surface_ids}], projections: [{resource, workspace_id, panel_id}]}`. The renderer orders each machine as Workspaces, Ports, VNC Displays, then Terminals; empty workspaces and exact multi-tab placements remain visible. |
+| | | `screen_index` is the screen's position in its workspace and `pane_index` the pane's depth-first position in that screen's layout document (`screens[].layout`); both are additive and absent for daemons that send no layout, in which case rows keep arrival order. |
 | `vm.terminal_open` | `{id, terminal_id, remote_workspace_id?, remote_tab_id?, workspace_id?, placement?, focus?}` | `{surface_id, workspace_id, reused}` — exact remote placement is preserved; an existing pane with the same IDs is focused instead of duplicated |
 | `vm.terminal_new` | `{id, workspace_id?: ws_…, command?: [string], cwd?, name?, open?}` | `{terminal_id, workspace_id, surface_id?}` — a detached terminal in the machine's session |
 | `vm.desktop_open` | `{id, workspace_id?, focus?}` | `{surface_id, url}` |
-| `vm.port_open` | `{id, port, workspace_id?}` | `{surface_id, url}` |
+| `vm.port_open` | `{id, port, workspace_id?}` | `{surface_id, url, private_url}`: `url` is the link the pane loads: the loopback forward (works from any app on this Mac), or, for a machine without a private address, the control plane's preview URL, `private_url` the machine's `http://<private ip>:<port>` |
 | `vm.link_socket` | `{id}` | `{socket_path, session}` — the headless link's local mux socket |
 | `vm.tab_rename` | `{id, tab_id, name}` | Renames one exact remote tab placement and publishes the resulting daemon event. `name: ""` clears its custom label. |
 | `vm.terminal_rename` | `{id, terminal_id, name}` | Explicit compatibility fan-out that renames every tab view of one terminal. `name: ""` clears the custom label on every view. |
 
 CLI addresses are the tree's lines: `cmux vm tree`, then
-`cmux vm open <machine>[/<ws>[/<term>]]`, `cmux vm open <machine>:desktop`,
+`cmux vm open <machine>[/<ws>[/<term>[/<tab>]]]`, `cmux vm open <machine>:desktop`,
 `cmux vm open <machine>:port/<n>`. A workspace name is accepted only when it
-is unique; IDs always win. A terminal opens locally as a pane running
+is unique; IDs always win. The `/<tab>` suffix (a `tab_…` id from the tree)
+picks one exact tab of a terminal that occupies several. A terminal opens
+locally as a pane running
 `cmux-tui attach --terminal <term_…>` against the link socket, with the exact
 remote workspace and tab IDs retained in the projection.
 
