@@ -1205,7 +1205,10 @@ extension CMUXCLI {
     /// rather than failing to launch.
     func vmAgentShellCommand(argv: [String], workDirectory: String? = nil) -> [String] {
         let joined = argv.map(shellQuote).joined(separator: " ")
-        let enter = workDirectory.map { "cd \(shellQuote($0)) 2>/dev/null || true; " } ?? ""
+        // Not `|| true`: a push reported this directory as the agent's cwd, so
+        // starting in $HOME instead would run the agent against the wrong tree
+        // while the JSON still claims it synced.
+        let enter = workDirectory.map { "cd \(shellQuote($0)) || exit 1; " } ?? ""
         return [
             "bash", "-lc",
             "cd \"$HOME\"; \(enter)export PATH=\"$HOME/.npm-global/bin:$HOME/.bun/bin:$HOME/.local/bin:$PATH\"; exec \(joined)",

@@ -230,13 +230,29 @@ async function deriveSize(name: VmImageSizeName): Promise<void> {
 const concurrency = Math.max(1, Number(process.env.CMUX_DEVBOX_DERIVE_CONCURRENCY ?? sizes.length) || 1);
 const queue = [...sizes];
 const t0All = Date.now();
-await Promise.all(
+// allSettled, not all: a rejecting `Promise.all` would let the script exit
+// while the other workers still hold VMs, leaking them. Every worker runs to
+// completion (each cleans up in its own finally), then the first failure is
+// rethrown. A failed worker also drains the queue so the rest stop early.
+let failure: unknown;
+const outcomes = await Promise.allSettled(
   Array.from({ length: Math.min(concurrency, queue.length) }, async () => {
     for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
-      await deriveSize(next);
+      try {
+        await deriveSize(next);
+      } catch (error) {
+        failure ??= error;
+        queue.length = 0;
+        throw error;
+      }
     }
   }),
 );
+if (failure !== undefined) {
+  const failed = outcomes.filter((o) => o.status === "rejected").length;
+  console.error(`${failed} of ${outcomes.length} derive workers failed; all VMs have been cleaned up`);
+  throw failure;
+}
 console.log(`derived ${sizes.length} sizes in ${((Date.now() - t0All) / 1000).toFixed(0)}s (concurrency ${concurrency})`);
 
 const out = { master, sizes: result };

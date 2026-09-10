@@ -14,7 +14,7 @@
  * cmux-devbox-boot supervisor.
  */
 import { execSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { Buffer } from "node:buffer";
 import { existsSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -359,15 +359,30 @@ export function bakePreflight(options: { desktop?: boolean } = {}): { sha: strin
     }
   }
   const allowBranch = process.env.CMUX_BAKE_ALLOW_BRANCH === "1";
-  // Advisory: two promotions running at once (one ladder each) race here and
-  // one loses the ref lock. The fetch only refreshes the ref the staleness
-  // check reads, so a lost race falls back to the ref already on disk rather
-  // than failing a bake that has nothing wrong with it.
-  try {
-    execSync("git fetch --quiet origin main", { cwd: repoRoot, stdio: "pipe" });
-  } catch (error) {
-    console.warn(`bake-preflight: could not refresh origin/main (${String(error).split("\n")[0]}); using the ref on disk`);
+  // Two promotions running at once (one ladder each) race on the ref lock, so
+  // a lost race is retried rather than fatal. What must NOT happen is blessing
+  // a stale ref: the whole point of the check below is to refuse a bake from
+  // an obsolete checkout, and `HEAD === origin/main` can pass against a ref
+  // that predates main. So an unrefreshed ref is only tolerated for a
+  // deliberate branch bake, which is not making that claim anyway.
+  let fetched = false;
+  let fetchError = "";
+  for (let attempt = 0; attempt < 3 && !fetched; attempt += 1) {
+    try {
+      execSync("git fetch --quiet origin main", { cwd: repoRoot, stdio: "pipe" });
+      fetched = true;
+    } catch (error) {
+      fetchError = String(error).split("\n")[0];
+      if (attempt < 2) execSync("sleep 2", { cwd: repoRoot });
+    }
   }
+  if (!fetched && !allowBranch) {
+    throw new Error(
+      `bake refused: could not refresh origin/main (${fetchError}), so the staleness check below cannot be trusted. ` +
+        "Retry, or set CMUX_BAKE_ALLOW_BRANCH=1 for a deliberate branch bake.",
+    );
+  }
+  if (!fetched) console.warn(`bake-preflight: could not refresh origin/main (${fetchError}); branch bake, continuing`);
   const head = git("rev-parse HEAD", repoRoot);
   const main = git("rev-parse origin/main", repoRoot);
   if (head !== main && !allowBranch) {
@@ -514,7 +529,13 @@ export const DEVBOX_INSTANCE_ID_COMMAND =
 export function devboxDaemonReadyCondition(): string {
   return (
     `${cmuxTuiRunCommand(`server status --session ${CMUX_TUI_SESSION}`)} >/dev/null 2>&1 && ` +
-    `grep -qi ':0539 ' /proc/net/tcp6 && test -s /etc/cmux/daemon-instance-id`
+    `grep -qi ':0539 ' /proc/net/tcp6 && ` +
+    // Not just "a marker exists": a machine cloned from a snapshot resumes the
+    // SOURCE machine's daemon, which answers and listens with the source's
+    // identity until cmux-devbox-boot notices the instance id changed and
+    // re-keys it. A ready check that accepted the stale marker would hand the
+    // next phase a daemon that is about to be stopped and rebuilt.
+    `[ "$(cat /etc/cmux/daemon-instance-id 2>/dev/null)" = "$(${DEVBOX_INSTANCE_ID_COMMAND})" ]`
   );
 }
 
@@ -708,9 +729,10 @@ export async function withImageManifestLock<T>(run: () => Promise<T> | T): Promi
   const lockPath = `${imageManifestPath}.lock`;
   const deadline = Date.now() + 180_000;
   const staleAfterMs = 10 * 60 * 1000;
+  const token = `${process.pid}:${randomUUID()}`;
   for (;;) {
     try {
-      writeFileSync(lockPath, `${process.pid}\n`, { flag: "wx" });
+      writeFileSync(lockPath, `${token}\n`, { flag: "wx" });
       break;
     } catch {
       let age = 0;
@@ -733,7 +755,17 @@ export async function withImageManifestLock<T>(run: () => Promise<T> | T): Promi
   try {
     return await run();
   } finally {
-    rmSync(lockPath, { force: true });
+    // Only remove the lock if it is still ours: a stale takeover (or an
+    // operator clearing it) may have handed it to another promotion, and
+    // deleting that one would let a third in beside it.
+    let held = "";
+    try {
+      held = readFileSync(lockPath, "utf8").trim();
+    } catch {
+      held = "";
+    }
+    if (held === token) rmSync(lockPath, { force: true });
+    else if (held !== "") console.warn(`manifest lock was taken over by ${held}; leaving it in place`);
   }
 }
 

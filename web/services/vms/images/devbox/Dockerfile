@@ -80,6 +80,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # it holds passwordless sudo so root stays one word away. Renamed rather than
 # added: a provider whose exec default is "the account holding uid 1000" then
 # lands in the same home as cmux's terminals.
+# Ubuntu's user-private-group rule would give the account a 002 umask, so
+# every directory it creates is group-writable and cmux-tui refuses to store
+# its Noise identity under one. Kept byte-for-byte in step with
+# devboxWorkUserSetupCommand, which does the same on the VM bake.
 # (A container's hostname belongs to whoever runs it; the VM bake sets `cmux`.)
 RUN if ! id -u cmux >/dev/null 2>&1; then \
       old="$(getent passwd 1000 | cut -d: -f1)" && test -n "$old" \
@@ -87,7 +91,11 @@ RUN if ! id -u cmux >/dev/null 2>&1; then \
     fi \
   && for f in /etc/sudoers.d/*; do [ -f "$f" ] || continue; grep -q '^cmux[[:space:]]' "$f" || rm -f "$f"; done \
   && echo "cmux ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/91-cmux-work-user && chmod 0440 /etc/sudoers.d/91-cmux-work-user \
+  && sed -i 's/^USERGROUPS_ENAB.*/USERGROUPS_ENAB no/' /etc/login.defs \
+  && find /home/cmux -type d -exec chmod g-w,o-w {} + \
   && [ "$(id -u cmux)" = 1000 ] && [ "$(getent passwd cmux | cut -d: -f6)" = /home/cmux ] \
+  && [ "$(find /home/cmux -type d \( -perm -g+w -o -perm -o+w \) | wc -l)" = 0 ] \
+  && [ "$(sudo -n -u cmux sh -c umask)" = 0022 ] \
   && sudo -n -u cmux sudo -n true
 
 # GitHub CLI from the official apt repo (not in the Ubuntu archive).

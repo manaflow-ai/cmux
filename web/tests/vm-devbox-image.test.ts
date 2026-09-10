@@ -251,7 +251,11 @@ describe("devbox image template", () => {
     const wait = devboxWaitForDaemonCommand(120);
     expect(wait).toContain("server status --session cloud");
     expect(wait).toContain("grep -qi ':0539 ' /proc/net/tcp6");
-    expect(wait).toContain("test -s /etc/cmux/daemon-instance-id");
+    // Bound to THIS machine, not merely present: a clone resumes the source
+    // machine's daemon, which answers with the source's identity until the
+    // supervisor re-keys it.
+    expect(wait).toContain('[ "$(cat /etc/cmux/daemon-instance-id 2>/dev/null)" = "$(');
+    expect(wait).toContain("latest/meta-data/instance-id");
     // Bounded and fails closed.
     expect(wait).toContain("seq 1 240");
     expect(wait).toContain("exit 1");
