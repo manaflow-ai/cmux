@@ -973,7 +973,10 @@ def test_global_search_gate_requires_nonempty_successful_execution() -> None:
         assert result.returncode == expected_status, result.stdout + result.stderr
         assert invocations == 1, result.stdout
         assert "-only-testing:cmuxTests/GlobalSearchShortcutBehaviorTests" in result.stdout
-        assert "test-without-building" in result.stdout
+        # A plain `xcodebuild test` gate, like the other focused gates: the
+        # build-for-testing + test-without-building pair ahead of the batches
+        # left the following sharded xcodebuild silent until the job cap.
+        assert "test-without-building" not in result.stdout
 
 
 def test_app_host_rejects_failed_or_empty_shard_generation() -> None:
