@@ -6,9 +6,9 @@ import Foundation
 /// work. Dispatch supplies timer events only, never synchronization or UI hops.
 @MainActor
 final class ExternalWindowSamplingService {
-    private var timer: DispatchSourceTimer?
     private var task: Task<Void, Never>?
-    private var ticks: AsyncStream<Void>.Continuation?
+
+    deinit { task?.cancel() }
 
     func start(
         interval: DispatchTimeInterval,
@@ -16,15 +16,20 @@ final class ExternalWindowSamplingService {
         deliver: @escaping @MainActor @Sendable (ExternalWindowSample) -> Void
     ) {
         stop()
-        let (events, continuation) = AsyncStream<Void>.makeStream(
-            bufferingPolicy: .bufferingNewest(1)
-        )
-        let timer = DispatchSource.makeTimerSource(queue: .global(qos: .userInteractive))
-        timer.setEventHandler { continuation.yield() }
-        timer.schedule(deadline: .now(), repeating: interval, leeway: .microseconds(250))
-        self.timer = timer
-        ticks = continuation
         task = Task.detached(priority: .userInitiated) {
+            guard !Task.isCancelled else { return }
+            let (events, continuation) = AsyncStream<Void>.makeStream(
+                bufferingPolicy: .bufferingNewest(1)
+            )
+            let timer = DispatchSource.makeTimerSource(queue: .global(qos: .userInteractive))
+            timer.setEventHandler { continuation.yield() }
+            timer.schedule(deadline: .now(), repeating: interval, leeway: .microseconds(250))
+            timer.resume()
+            defer {
+                timer.setEventHandler {}
+                timer.cancel()
+                continuation.finish()
+            }
             for await _ in events {
                 guard !Task.isCancelled else { return }
                 let startedAt = DispatchTime.now().uptimeNanoseconds
@@ -33,15 +38,9 @@ final class ExternalWindowSamplingService {
                 await deliver(ExternalWindowSample(startedAt: startedAt, snapshot: next))
             }
         }
-        timer.resume()
     }
 
     func stop() {
-        timer?.setEventHandler {}
-        timer?.cancel()
-        timer = nil
-        ticks?.finish()
-        ticks = nil
         task?.cancel()
         task = nil
     }

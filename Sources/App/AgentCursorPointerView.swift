@@ -21,49 +21,12 @@ private enum ComputerUseCursorArtwork {
     static func draw(
         in context: CGContext,
         scale: CGFloat,
-        width: CGFloat = 1,
-        height: CGFloat = 1,
-        roundness: CGFloat = 0,
-        rotation: CGFloat = 0,
         outlineColor: CGColor? = nil,
         outlineWidth: CGFloat = 0
     ) {
         context.saveGState()
-        let widthFactor = max(0.01, width)
-        let heightFactor = max(0.01, height)
-        let xScale = scale * widthFactor
-        let yScale = scale * heightFactor
-        let centerX = 0.4957769 + 10.6598503 / 2
-        let centerY = 0.4957769 + 10.6598503 / 2
-        // Match the logo lab transform: scale around the source center, then
-        // apply rotation. Translation is supplied by the caller so the live
-        // pointer can continue to use its own window coordinates.
-        context.translateBy(x: centerX * xScale, y: centerY * yScale)
-        context.rotate(by: rotation * .pi / 180)
-        context.scaleBy(x: xScale, y: yScale)
-        context.translateBy(x: -centerX, y: -centerY)
+        context.scaleBy(x: scale, y: scale)
         let kite = path()
-
-        let cornerRadius = max(0, roundness)
-        let roundedPath: CGPath
-        if cornerRadius > 0 {
-            // The lab models roundness as a same-color, round-joined stroke.
-            // Convert the canvas-pixel radius into the pre-scale path space,
-            // then clip to the fill plus stroke so the gradient covers both.
-            let strokeWidth = (cornerRadius * 2) / max(0.01, min(xScale, yScale))
-            let union = CGMutablePath()
-            union.addPath(kite)
-            let stroke = kite.copy(
-                strokingWithWidth: strokeWidth,
-                lineCap: .round,
-                lineJoin: .round,
-                miterLimit: 10
-            )
-            union.addPath(stroke)
-            roundedPath = union
-        } else {
-            roundedPath = kite
-        }
 
         if let outlineColor, outlineWidth > 0 {
             // The upstream asset uses `paint-order: stroke`, so its outline is
@@ -76,7 +39,7 @@ private enum ComputerUseCursorArtwork {
         }
 
         context.saveGState()
-        context.addPath(roundedPath)
+        context.addPath(kite)
         context.clip()
         let colorSpace = CGColorSpaceCreateDeviceRGB()
         let colors = [

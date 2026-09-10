@@ -45,7 +45,7 @@ struct ExternalWindowSamplingServiceTests {
         sampler = nil
 
         var releaseIterator = releases.makeAsyncIterator()
-        let released = await releaseIterator.next()
+        let released: Void? = await releaseIterator.next()
         #expect(released != nil)
     }
 }

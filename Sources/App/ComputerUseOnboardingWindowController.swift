@@ -264,8 +264,7 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
 
     private func observeSystemSettingsWindow() {
         let tracker = ExternalApplicationWindowTracker(
-            bundleIdentifier: Self.systemSettingsBundleIdentifier,
-            primaryScreenMaxY: primaryScreenFrame()?.maxY ?? 0
+            bundleIdentifier: Self.systemSettingsBundleIdentifier
         )
         systemSettingsWindowTracker = tracker
         tracker.start { [weak self] event in
@@ -290,6 +289,13 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
             // Keep both onboarding windows visible when another app activates.
             // The companion keeps its floating level until this flow ends.
             break
+        case .offscreen:
+            // Preserve the permission request and target identity across Spaces
+            // and minimization. Recreate on the target's Space when it returns.
+            if permissionCompanionWindow != nil {
+                permissionCompanionRequested = true
+                dismissPermissionCompanion()
+            }
         case .unavailable:
             guard permissionCompanionRequested
                     || permissionCompanionWindow != nil
@@ -376,15 +382,6 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         )
     }
 
-    private func primaryScreenFrame() -> CGRect? {
-        let primaryDisplayID = CGMainDisplayID()
-        return NSScreen.screens.first { screen in
-            let screenNumberKey = NSDeviceDescriptionKey("NSScreenNumber")
-            let screenNumber = screen.deviceDescription[screenNumberKey] as? NSNumber
-            return screenNumber?.uint32Value == primaryDisplayID
-        }?.frame ?? NSScreen.screens.first?.frame
-    }
-
     private func showExpandedOnboarding(
         resetStep: Bool = true,
         completion: (@MainActor () -> Void)? = nil
@@ -468,6 +465,7 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         animate: Bool = false,
         completion: (() -> Void)? = nil
     ) {
+        pendingPermissionStep = permissionStep
         if presentationState?.permissionCompanionVisible != true {
             presentationState?.showPermissionCompanion()
         }

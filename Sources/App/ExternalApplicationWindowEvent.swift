@@ -2,5 +2,6 @@
 enum ExternalApplicationWindowEvent: Equatable, Sendable {
     case visible(ExternalApplicationWindowSnapshot)
     case hidden
+    case offscreen
     case unavailable
 }

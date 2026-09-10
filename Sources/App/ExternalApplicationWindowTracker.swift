@@ -12,7 +12,7 @@ final class ExternalApplicationWindowTracker {
     typealias Dependencies = ExternalApplicationWindowDependencies
 
     private let bundleIdentifier: String
-    private let primaryScreenMaxY: CGFloat
+    private let primaryScreenMaxY: @Sendable () -> CGFloat
     private let workspace: NSWorkspace
     private let dependencies: Dependencies
     private let acquisitionAttemptLimit: Int
@@ -22,7 +22,7 @@ final class ExternalApplicationWindowTracker {
 
     private var activationTask: Task<Void, Never>?
     private var terminationTask: Task<Void, Never>?
-    private var mouseDragMonitor: Any?
+    private var mouseDragLifetime: Task<Void, Never>?
     private var eventHandler: (@MainActor (Event) -> Void)?
     private var targetProcessIdentifier: pid_t?
     private var targetIsActive = false
@@ -35,7 +35,9 @@ final class ExternalApplicationWindowTracker {
 
     init(
         bundleIdentifier: String,
-        primaryScreenMaxY: CGFloat,
+        primaryScreenMaxY: @escaping @Sendable () -> CGFloat = {
+            CGDisplayBounds(CGMainDisplayID()).height
+        },
         workspace: NSWorkspace = .shared,
         dependencies: Dependencies = .live,
         acquisitionAttemptLimit: Int = 100,
@@ -49,6 +51,12 @@ final class ExternalApplicationWindowTracker {
         self.acquisitionAttemptLimit = acquisitionAttemptLimit
         self.missingSampleLimit = missingSampleLimit
         self.automaticUpdatesEnabled = automaticUpdatesEnabled
+    }
+
+    deinit {
+        activationTask?.cancel()
+        terminationTask?.cancel()
+        mouseDragLifetime?.cancel()
     }
 
     /// Direct main-actor delivery avoids an extra scheduling hop during a drag.
@@ -75,9 +83,7 @@ final class ExternalApplicationWindowTracker {
                 guard !Task.isCancelled else { return }
                 let application = notification.userInfo?[NSWorkspace.applicationUserInfoKey]
                     as? NSRunningApplication
-                guard application?.bundleIdentifier == self?.bundleIdentifier else { continue }
-                self?.stopTrackingWindow()
-                self?.eventHandler?(.unavailable)
+                self?.handleApplicationTermination(processIdentifier: application?.processIdentifier)
             }
         }
         refreshFrontmostApplication()
@@ -132,10 +138,16 @@ final class ExternalApplicationWindowTracker {
         eventHandler = nil
     }
 
+    func handleApplicationTermination(processIdentifier: pid_t?) {
+        guard let processIdentifier, processIdentifier == targetProcessIdentifier else { return }
+        stopTrackingWindow()
+        eventHandler?(.unavailable)
+    }
+
     private func stopTrackingWindow() {
         sampler.stop()
-        if let mouseDragMonitor { NSEvent.removeMonitor(mouseDragMonitor) }
-        mouseDragMonitor = nil
+        mouseDragLifetime?.cancel()
+        mouseDragLifetime = nil
         targetProcessIdentifier = nil
         targetIsActive = false
         trackedWindowID = nil
@@ -151,6 +163,7 @@ final class ExternalApplicationWindowTracker {
     func refreshTrackedWindow() {
         guard let processIdentifier = targetProcessIdentifier else { return }
         let startedAt = DispatchTime.now().uptimeNanoseconds
+        let primaryScreenMaxY = primaryScreenMaxY()
         let snapshot: Snapshot?
         if let windowID = trackedWindowID {
             snapshot = dependencies.window(windowID, processIdentifier, primaryScreenMaxY)
@@ -184,21 +197,33 @@ final class ExternalApplicationWindowTracker {
         } else {
             trackedWindowID = snapshot.windowID
             if automaticUpdatesEnabled {
-                mouseDragMonitor = NSEvent.addGlobalMonitorForEvents(
+                let expectedGeneration = generation
+                let monitor = NSEvent.addGlobalMonitorForEvents(
                     matching: [.leftMouseDragged, .leftMouseUp]
                 ) { [weak self] _ in
                     // AppKit guarantees global event monitors run on main.
                     MainActor.assumeIsolated {
-                        guard self?.targetIsActive == true else { return }
+                        guard self?.targetIsActive == true,
+                              self?.generation == expectedGeneration else { return }
                         self?.refreshTrackedWindow()
                     }
                 }
+                if let monitor {
+                    // Cancellation owns cleanup on main, even if the tracker
+                    // is released elsewhere. Mouse delivery itself stays direct.
+                    let lifetime = AsyncStream<Void> { _ in }
+                    mouseDragLifetime = Task { @MainActor in
+                        defer { NSEvent.removeMonitor(monitor) }
+                        for await _ in lifetime {}
+                    }
+                }
             }
-            startSampling()
         }
         guard snapshot != lastSnapshot else { return }
+        let visibilityChanged = lastSnapshot?.isOnScreen != snapshot.isOnScreen
         lastSnapshot = snapshot
-        eventHandler?(.visible(snapshot))
+        if visibilityChanged { startSampling() }
+        eventHandler?(snapshot.isOnScreen ? .visible(snapshot) : .offscreen)
     }
 
     private func startSampling() {
@@ -211,15 +236,16 @@ final class ExternalApplicationWindowTracker {
         if windowID == nil {
             interval = .milliseconds(50)
         } else {
-            interval = targetIsActive ? .nanoseconds(8_333_333) : .milliseconds(250)
+            interval = targetIsActive && lastSnapshot?.isOnScreen != false
+                ? .nanoseconds(8_333_333) : .milliseconds(250)
         }
         sampler.start(
             interval: interval,
             sample: {
                 if let windowID {
-                    return dependencies.window(windowID, processIdentifier, primaryScreenMaxY)
+                    return dependencies.window(windowID, processIdentifier, primaryScreenMaxY())
                 }
-                return dependencies.frontWindow(processIdentifier, primaryScreenMaxY)
+                return dependencies.frontWindow(processIdentifier, primaryScreenMaxY())
             },
             deliver: { [weak self] sample in
                 guard let self,
@@ -298,10 +324,6 @@ final class ExternalApplicationWindowTracker {
         if let expectedWindowID, windowID != expectedWindowID {
             return nil
         }
-        if let isOnScreen = entry[kCGWindowIsOnscreen as String] as? NSNumber,
-           !isOnScreen.boolValue {
-            return nil
-        }
         return Snapshot(
             windowID: windowID,
             ownerProcessIdentifier: processIdentifier,
@@ -310,7 +332,8 @@ final class ExternalApplicationWindowTracker {
                 y: primaryScreenMaxY - quartzFrame.maxY,
                 width: quartzFrame.width,
                 height: quartzFrame.height
-            )
+            ),
+            isOnScreen: (entry[kCGWindowIsOnscreen as String] as? NSNumber)?.boolValue ?? true
         )
     }
 }

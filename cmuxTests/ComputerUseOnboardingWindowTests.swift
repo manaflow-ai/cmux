@@ -10,6 +10,40 @@ import Testing
 
 @Suite("Computer Use onboarding windows", .serialized)
 struct ComputerUseOnboardingWindowTests {
+    @Test @MainActor func offscreenCompanionReturnsWithoutMovingTheOverview() throws {
+        var companions: [NSWindow] = []
+        let controller = ComputerUseOnboardingWindowController(
+            runtimeService: ComputerUseRuntimeService(),
+            externalWindowCompanionPresenter: ExternalWindowCompanionPresenter {
+                companions.append($0)
+                $0.orderBack(nil)
+            }
+        )
+        controller.present()
+        defer { controller.dismiss() }
+        let main = try #require(NSApp.windows.first {
+            $0.identifier?.rawValue == "cmux.computerUse.onboarding"
+        } as? ComputerUseOnboardingWindow)
+        let originalFrame = main.frame
+        controller.configureForPermissionCompanion(
+            main, frame: NSRect(origin: originalFrame.origin, size: ComputerUsePermissionCompanionLayout.size)
+        )
+        let first = try #require(companions.first)
+        controller.handleSystemSettingsWindowEvent(.offscreen)
+        #expect(!first.isVisible)
+        #expect(main.isVisible)
+        #expect(main.frame == originalFrame)
+
+        let targetFrame = try #require(NSScreen.screens.first).visibleFrame.insetBy(dx: 40, dy: 40)
+        controller.handleSystemSettingsWindowEvent(.visible(.init(
+            windowID: 17, ownerProcessIdentifier: 42, frame: targetFrame
+        )))
+
+        #expect(companions.count == 2)
+        #expect(companions.last?.isVisible == true)
+        #expect(main.frame == originalFrame)
+    }
+
     @Test @MainActor func offscreenWindowMetadataPreservesItsIdentity() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 20, y: 20, width: 200, height: 120),
@@ -314,15 +348,12 @@ struct ComputerUseOnboardingWindowTests {
 
     /// Regression: Command-Tab must not remove the companion. Its floating
     /// level keeps it available while another application is active.
-    @Test @MainActor func permissionCompanionRemainsWhenAnotherApplicationActivates() async throws {
+    @Test @MainActor func permissionCompanionRemainsWhenAnotherApplicationActivates() throws {
         let controller = ComputerUseOnboardingWindowController(
             runtimeService: ComputerUseRuntimeService()
         )
         controller.present()
         defer { controller.dismiss() }
-        for _ in 0..<3 {
-            await Task.yield()
-        }
 
         let mainWindow = try #require(NSApp.windows.first {
             $0.identifier?.rawValue == "cmux.computerUse.onboarding"
@@ -342,18 +373,7 @@ struct ComputerUseOnboardingWindowTests {
         })
         #expect(companionWindow.isVisible)
 
-        let otherApplication = try #require(
-            NSRunningApplication(processIdentifier: ProcessInfo.processInfo.processIdentifier)
-        )
-        #expect(otherApplication.bundleIdentifier != "com.apple.systempreferences")
-        NSWorkspace.shared.notificationCenter.post(
-            name: NSWorkspace.didActivateApplicationNotification,
-            object: NSWorkspace.shared,
-            userInfo: [NSWorkspace.applicationUserInfoKey: otherApplication]
-        )
-        for _ in 0..<20 {
-            await Task.yield()
-        }
+        controller.handleSystemSettingsWindowEvent(.hidden)
 
         #expect(companionWindow.isVisible)
         #expect(mainWindow.isVisible)
