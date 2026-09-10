@@ -1,4 +1,4 @@
-import CoreGraphics
+import AppKit
 import CmuxWindowing
 import Testing
 
@@ -431,5 +431,134 @@ struct MainWindowZoomIntentTests {
         state.recordUserPlacement()
 
         #expect(!state.wantsZoomedFrame)
+    }
+}
+
+@MainActor
+@Suite("Main window zoom placement callbacks", .serialized)
+struct MainWindowZoomPlacementTests {
+    @Test func titlebarClickWithoutMovementPreservesZoomRecovery() throws {
+        try withZoomedWindow { window, _ in
+            let mouseDown = try #require(NSEvent.mouseEvent(
+                with: .leftMouseDown,
+                location: NSPoint(x: 200, y: window.frame.height - 12),
+                modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber,
+                context: nil,
+                eventNumber: 1,
+                clickCount: 1,
+                pressure: 1
+            ))
+            let beforeClick = window.frame
+
+            window.performDrag(with: mouseDown)
+
+            #expect(window.frame == beforeClick)
+            shrinkAndExpectZoomRecovery(window)
+        }
+    }
+
+    @Test func confirmedWindowMoveClearsZoomIntent() throws {
+        try withZoomedWindow { window, delegate in
+            delegate.windowWillMove?(Notification(name: NSWindow.willMoveNotification, object: window))
+            var placed = window.frame
+            placed.origin.x += 40
+            placed.size.width -= 100
+            window.setFrame(placed, display: false)
+
+            expectActivationPreservesPlacement(window)
+        }
+    }
+
+    @Test func nativeTilingLiveResizeClearsZoomWithoutCallingSetFrameDuringTracking() throws {
+        try withZoomedWindow { window, delegate in
+            // AppKit's native tile animation emits live-resize callbacks but
+            // bypasses CmuxMainWindow.setFrame throughout the animation.
+            delegate.windowWillStartLiveResize?(Notification(
+                name: NSWindow.willStartLiveResizeNotification,
+                object: window
+            ))
+            var tiled = window.frame
+            tiled.size.width /= 2
+            window.setFrame(tiled, display: false)
+            delegate.windowDidEndLiveResize?(Notification(
+                name: NSWindow.didEndLiveResizeNotification,
+                object: window
+            ))
+
+            expectActivationPreservesPlacement(window)
+        }
+    }
+
+    @Test func automaticOriginChangesPreserveZoomRecovery() throws {
+        try withZoomedWindow { window, _ in
+            window.setFrameOrigin(NSPoint(x: window.frame.minX + 20, y: window.frame.minY))
+            shrinkAndExpectZoomRecovery(window)
+        }
+    }
+
+    @Test func foreignWindowPlacementCallbacksDoNotClearZoomIntent() throws {
+        try withZoomedWindow { window, delegate in
+            let foreign = NSWindow(
+                contentRect: NSRect(x: 50, y: 50, width: 400, height: 300),
+                styleMask: [.titled, .resizable],
+                backing: .buffered,
+                defer: false
+            )
+            foreign.isReleasedWhenClosed = false
+            defer { foreign.close() }
+            delegate.windowWillMove?(Notification(name: NSWindow.willMoveNotification, object: foreign))
+            delegate.windowWillStartLiveResize?(Notification(
+                name: NSWindow.willStartLiveResizeNotification,
+                object: foreign
+            ))
+
+            shrinkAndExpectZoomRecovery(window)
+        }
+    }
+
+    private func withZoomedWindow(
+        _ body: (CmuxMainWindow, any NSWindowDelegate) throws -> Void
+    ) throws {
+        _ = NSApplication.shared
+        let screen = try #require(NSScreen.screens.first)
+        let window = CmuxMainWindow(
+            contentRect: NSRect(x: screen.visibleFrame.minX + 50, y: screen.visibleFrame.minY + 50, width: 600, height: 400),
+            styleMask: [.titled, .resizable, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let controller = MainWindowController(window: window)
+        defer { window.close() }
+        window.zoom(nil)
+        try #require(window.isZoomed)
+        try body(window, controller)
+    }
+
+    private func shrinkAndExpectZoomRecovery(_ window: CmuxMainWindow) {
+        var shrunk = window.frame
+        shrunk.size.height -= 80
+        window.setFrameForManagedPlacement(shrunk, display: false)
+
+        #expect(!window.isZoomed)
+        #expect(window.cmuxWantsZoomedFrame)
+        repairOnActivation(window)
+        #expect(NSScreen.screens.contains { $0.visibleFrame == window.frame })
+    }
+
+    private func expectActivationPreservesPlacement(_ window: CmuxMainWindow) {
+        let placed = window.frame
+        #expect(!window.isZoomed)
+        #expect(!window.cmuxWantsZoomedFrame)
+        repairOnActivation(window)
+        #expect(window.frame == placed)
+    }
+
+    private func repairOnActivation(_ window: CmuxMainWindow) {
+        let displays = NSScreen.screens.enumerated().map { index, screen in
+            SessionDisplayGeometry(displayID: UInt32(index + 1), frame: screen.frame, visibleFrame: screen.visibleFrame)
+        }
+        MainWindowFrameReconciler().repair(displays: displays, windows: [window], trigger: .applicationActivation)
     }
 }
