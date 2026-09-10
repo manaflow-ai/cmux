@@ -80,12 +80,9 @@ struct DeviceDirectoryMerge {
                 }
             }
             append(paired?.routes ?? [])
-            if isOnline, let liveRoutes = presence?.routes, !liveRoutes.isEmpty {
-                append(liveRoutes)
-            } else {
-                append(registry?.instance.routes ?? [])
-                append(presence?.routes ?? [])
-            }
+            if isOnline { append(presence?.routes ?? []) }
+            append(registry?.instance.routes ?? [])
+            if !isOnline { append(presence?.routes ?? []) }
             // An unpair also revokes routes retained from the old grant. A
             // discovered row can remain, but only with its discovery routes.
             if routes.isEmpty, previous?.isPaired != true || paired != nil {

@@ -22,7 +22,7 @@ struct CloudTreeDeviceRow: Equatable {
     /// Creation requires an authenticated live link; discovery alone only
     /// makes a device visible. Shared by hover controls, menus, and children.
     var canCreateWorkspacesAndTerminals: Bool {
-        linkState == .connected && presence?.accountTrust != .otherAccount
+        linkState == .connected && presence?.accountTrust == .sameAccount
     }
 
     private var presenceUnknown: Bool { presence?.state == .unknown }

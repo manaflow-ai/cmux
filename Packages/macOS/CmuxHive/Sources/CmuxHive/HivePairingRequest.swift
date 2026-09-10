@@ -42,7 +42,8 @@ struct HivePairingRequest: Sendable {
                 email.trimmingCharacters(in: .whitespacesAndNewlines)
                ) != .orderedSame { throw HivePairingError.accountMismatch }
             routes = decoded.routes
-            expectedDeviceID = decoded.macDeviceID.isEmpty ? nil : cmxCanonicalDeviceID(decoded.macDeviceID.trimmingCharacters(in: .whitespacesAndNewlines))
+            let deviceID = decoded.macDeviceID.trimmingCharacters(in: .whitespacesAndNewlines)
+            expectedDeviceID = deviceID.isEmpty ? nil : cmxCanonicalDeviceID(deviceID)
         case .manual(let entry):
             let endpoint = CmxAttachEndpoint.hostPort(host: entry.host, port: entry.port)
             let candidate = try CmxAttachRoute(id: "tailscale", kind: .tailscale, endpoint: endpoint)
