@@ -85,7 +85,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         let organization: CloudSidebarOrganizationStore
         private var structureSignature: [String] = []
         private var contentSignature: [CloudTreeNodeContentSnapshot] = []
-        private var selectedNodeID: String?
+        var selectedNodeID: String?
         private var isUpdatingProgrammatically = false
         private var activeDrag: ActiveDrag?
         // NSDraggingItem retains the writer for the live native session. A weak
@@ -319,18 +319,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 row += 1
             }
         }
-        private func restoreSelection(in outlineView: NSOutlineView) {
-            guard let selectedNodeID else { return }
-            for row in 0..<outlineView.numberOfRows {
-                if (outlineView.item(atRow: row) as? CloudTreeNode)?.id == selectedNodeID {
-                    outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
-                    if let node = outlineView.item(atRow: row) as? CloudTreeNode {
-                        onSelectionChange(selectionContext(for: node))
-                    }
-                    return
-                }
-            }
-        }
         private func withProgrammaticUpdate(_ body: () -> Void) {
             isUpdatingProgrammatically = true
             body()
@@ -358,7 +346,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             guard let node = item as? CloudTreeNode else { return nil }
             let cell = (outlineView.makeView(withIdentifier: CloudTreeCellView.identifier, owner: nil) as? CloudTreeCellView)
                 ?? CloudTreeCellView(frame: .zero)
-            cell.configure(node: node, machineActions: machineActions, nodeActions: nodeActions, style: style)
+            cell.configure(node: node, machineActions: machineActions, nodeActions: nodeActions, style: style, machineName: machineDisplayName(node.machine))
             return cell
         }
 
@@ -376,13 +364,10 @@ struct CloudTreeOutlineView: NSViewRepresentable {
 
         func outlineViewSelectionDidChange(_ notification: Notification) {
             guard !isUpdatingProgrammatically, let outlineView else { return }
-            selectedNodeID = outlineView.selectedRow >= 0
-                ? (outlineView.item(atRow: outlineView.selectedRow) as? CloudTreeNode)?.id
-                : nil
             let node = outlineView.selectedRow >= 0
                 ? outlineView.item(atRow: outlineView.selectedRow) as? CloudTreeNode
                 : nil
-            onSelectionChange(node.flatMap(selectionContext))
+            updateSelection(from: node)
         }
 
         func outlineViewItemDidExpand(_ notification: Notification) {
@@ -537,6 +522,10 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 if case .machine(let machine, _) = node.kind, .cloud(machine.id) == id { return machine }
             }
             return nil
+        }
+
+        private func machineDisplayName(_ id: SurfaceMachineID) -> String {
+            machine(id: id)?.displayName ?? id.rawValue
         }
 
         // MARK: Keyboard
