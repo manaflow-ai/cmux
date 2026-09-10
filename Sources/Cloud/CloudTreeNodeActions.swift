@@ -63,7 +63,8 @@ struct CloudTreeNodeActions {
         onWillMutate: @escaping @MainActor (String) -> Void,
         onDidMutate: @escaping @MainActor () -> Void,
         onFailure: @escaping @MainActor (String) -> Void,
-        refresh: @escaping @MainActor () -> Void
+        refresh: @escaping @MainActor () -> Void,
+        authorizeCreation: @escaping @MainActor (SurfaceMachineID) -> Bool = { _ in true }
     ) -> CloudTreeNodeActions {
         func run(_ label: String, _ operation: @escaping @MainActor (SurfaceCatalog) async throws -> Void) {
             onWillMutate(label)
