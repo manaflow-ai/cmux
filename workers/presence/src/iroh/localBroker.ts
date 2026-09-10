@@ -1,7 +1,7 @@
 import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
 import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { Effect } from "effect";
-import { accountBindings, accountChallenges, accountPreferences, accountMeta, accountDrizzleSchema } from "../accountDrizzleSchema";
+import { accountBindings, accountChallenges, accountPreferences, accountDrizzleSchema } from "../accountDrizzleSchema";
 import { accountDrizzleDatabase, type AccountDrizzleDatabase } from "../accountDrizzleDatabase";
 import {
   deriveLanRendezvousKey,
@@ -336,7 +336,7 @@ export class LocalIrohBroker {
   private discovery(userId: string, namespace: string, now: number, scope?: IrohDiscoveryScope) {
     const rows = this.db.select().from(accountBindings).where(and(eq(accountBindings.clientNamespace, namespace), isNull(accountBindings.revokedAt))).all();
     const bindings = rows.map((row) => this.readBinding(row.bindingId, userId)).filter((binding) => !scope || bindingMatchesDiscoveryScope(binding, scope)).map((binding) => this.publicBinding(binding, now));
-    const revisionRow = this.db.select().from(accountMeta).where(eq(accountMeta.key, "route_revision")).get();
+    const revisionRow = Array.from(this.storage.sql.exec<{ value: string }>("SELECT value FROM account_meta WHERE key = ?", "route_revision"))[0];
     const persistedRevision = revisionRow ? Number(revisionRow.value) : 0;
     const revision = Number.isSafeInteger(persistedRevision) && persistedRevision >= 0 ? persistedRevision : 0;
     const generation = 1;
@@ -345,10 +345,10 @@ export class LocalIrohBroker {
   }
 
   private bumpRevision(now: number): number {
-    const row = this.db.select().from(accountMeta).where(eq(accountMeta.key, "route_revision")).get();
+    const row = Array.from(this.storage.sql.exec<{ value: string }>("SELECT value FROM account_meta WHERE key = ?", "route_revision"))[0];
     const current = row ? Number(row.value) : 0;
     const revision = Math.max(Number.isSafeInteger(current) && current >= 0 ? current + 1 : 1, now);
-    this.db.insert(accountMeta).values({ key: "route_revision", value: String(revision) }).onConflictDoUpdate({ target: accountMeta.key, set: { value: String(revision) } }).run();
+    this.storage.sql.exec("INSERT INTO account_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", "route_revision", String(revision));
     return revision;
   }
 

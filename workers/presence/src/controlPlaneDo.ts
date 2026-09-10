@@ -281,7 +281,7 @@ export class AccountControlPlane extends DurableObject<ControlPlaneEnv> {
       return json(result, operation === "discover" || operation === "revoke" || operation === "relay_preferences" || operation === "connectivity_sync" ? 200 : 201);
     } catch (error) {
       const expected = irohExpectedError(error);
-      const code = expected?.code ?? (error && typeof error === "object" && "code" in error ? String((error as { code: unknown }).code) : "iroh_internal_error");
+      const code = expected && "code" in expected ? String(expected.code) : (error && typeof error === "object" && "code" in error ? String((error as { code: unknown }).code) : "iroh_internal_error");
       this.ctx.waitUntil(emitAxiomEvent(this.env, {
         event: "iroh_operation",
         do_class: "AccountControlPlane",
