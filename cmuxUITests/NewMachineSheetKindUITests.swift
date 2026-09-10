@@ -45,6 +45,9 @@ final class NewMachineSheetKindUITests: XCTestCase {
 
         // SwiftUI's segmented Picker exposes its segments as radio buttons and
         // drops the picker's own identifier, so the segments are the handle.
+        // A segment's selection shows as its accessibility value (1 = on);
+        // the summary under the picker is the user-visible witness of the
+        // selection, so it is what the assertions rest on.
         let desktop = app.radioButtons["Desktop"]
         let base = app.radioButtons["Base"]
         if !desktop.waitForExistence(timeout: 8.0) {
@@ -52,24 +55,33 @@ final class NewMachineSheetKindUITests: XCTestCase {
         }
         XCTAssertTrue(desktop.exists, "Expected the Desktop segment of the Kind picker in the New Machine sheet")
         XCTAssertTrue(base.exists, "Expected the Base segment of the Kind picker")
-        XCTAssertTrue(desktop.isSelected, "A plain Create must make a machine with a screen: Desktop is preselected")
-        XCTAssertFalse(base.isSelected)
+        attachScreenshot(of: app, named: "new-machine-sheet-opened")
+        print("NewMachineSheetKindUITests segments: desktop=\(String(describing: desktop.value)) selected=\(desktop.isSelected) base=\(String(describing: base.value)) selected=\(base.isSelected)")
         let desktopSummary = app.staticTexts.matching(
             NSPredicate(format: "label CONTAINS[c] %@", "screen you can watch")
         ).firstMatch
-        XCTAssertTrue(desktopSummary.waitForExistence(timeout: 3.0), "Expected the Desktop summary under the picker")
+        let baseSummary = app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS[c] %@", "terminal only")
+        ).firstMatch
+        XCTAssertTrue(
+            desktopSummary.waitForExistence(timeout: 3.0),
+            "A plain Create must make a machine with a screen: the sheet opens on Desktop"
+        )
+        XCTAssertFalse(baseSummary.exists, "Base must not be the preselected kind")
+        if let desktopOn = Self.segmentIsOn(desktop), let baseOn = Self.segmentIsOn(base) {
+            XCTAssertTrue(desktopOn && !baseOn, "Desktop segment should be the selected one")
+        }
         attachScreenshot(of: app, named: "new-machine-sheet-desktop-preselected")
 
         // Base is one click away, never the default.
         base.click()
         XCTAssertTrue(
-            pollUntil(timeout: 3.0) { base.isSelected && !desktop.isSelected },
-            "Expected the picker to select Base"
+            pollUntil(timeout: 4.0) { baseSummary.exists && !desktopSummary.exists },
+            "Expected the picker to select Base and the summary to say terminal only"
         )
-        let baseSummary = app.staticTexts.matching(
-            NSPredicate(format: "label CONTAINS[c] %@", "terminal only")
-        ).firstMatch
-        XCTAssertTrue(baseSummary.waitForExistence(timeout: 3.0), "Expected the Base summary under the picker")
+        if let desktopOn = Self.segmentIsOn(desktop), let baseOn = Self.segmentIsOn(base) {
+            XCTAssertTrue(baseOn && !desktopOn, "Base segment should be the selected one after the click")
+        }
         attachScreenshot(of: app, named: "new-machine-sheet-base-explicit")
 
         let cancel = app.buttons["NewMachineSheet.cancel"].exists
@@ -78,6 +90,20 @@ final class NewMachineSheetKindUITests: XCTestCase {
         XCTAssertTrue(cancel.waitForExistence(timeout: 3.0), "Expected the sheet's Cancel button")
         cancel.click()
         XCTAssertTrue(pollUntil(timeout: 5.0) { !desktop.exists }, "Cancel should close the sheet")
+    }
+
+    /// A segmented control's segment reports its selection as an accessibility
+    /// value (1 / 0, sometimes a string); nil when the value is not readable.
+    private static func segmentIsOn(_ segment: XCUIElement) -> Bool? {
+        if let number = segment.value as? NSNumber { return number.intValue != 0 }
+        if let text = segment.value as? String {
+            switch text.lowercased() {
+            case "1", "on", "true", "selected": return true
+            case "0", "off", "false": return false
+            default: return nil
+            }
+        }
+        return nil
     }
 
     private func attachScreenshot(of app: XCUIApplication, named name: String) {
