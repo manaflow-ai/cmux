@@ -13,10 +13,12 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import re
 import sys
 from dataclasses import dataclass, replace
+from functools import cache
 from pathlib import Path
 
 
@@ -27,7 +29,6 @@ SUITE_RE = re.compile(
 )
 EXTENSION_RE = re.compile(r"^extension\s+([A-Za-z_][A-Za-z0-9_]*)\b")
 TEST_TOKEN_RE = re.compile(r"(^|\s)(@Test\b|func\s+test[A-Za-z0-9_]*\s*\()")
-SWIFT_TEST_DECLARATION_RE = re.compile(r"^\s*@Test\b")
 XCTEST_METHOD_RE = re.compile(
     r"^\s*(?:(?:final|private|fileprivate|internal|public)\s+)*"
     r"func\s+(test[A-Za-z0-9_]*)\s*\("
@@ -99,6 +100,48 @@ def xctest_methods(
     ]
 
 
+@cache
+def swift_tokenizer():
+    # Reuse the existing structural lexer: comments, raw/multiline strings,
+    # and interpolation must not change the suite's brace depth or attributes.
+    path = Path(__file__).resolve().parents[1] / "lint-stored-dispatch-work-items.py"
+    spec = importlib.util.spec_from_file_location("cmux_shard_swift_syntax", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module.tokenize_swift
+
+
+def swift_testing_declaration_lines(source: str, declaration_lines: set[int]) -> set[int]:
+    tokens = swift_tokenizer()(source)
+    result: set[int] = set()
+    depth = 0
+    pending_declaration: int | None = None
+    current_declaration: int | None = None
+    for index, token in enumerate(tokens):
+        if (
+            depth == 0
+            and token.line in declaration_lines
+            and token.value in {"class", "struct", "actor", "extension"}
+        ):
+            pending_declaration = token.line
+        if token.value == "{":
+            if depth == 0:
+                current_declaration = pending_declaration
+                pending_declaration = None
+            depth += 1
+        elif token.value == "}":
+            depth -= 1
+            if depth == 0:
+                current_declaration = None
+        elif token.value == "@" and current_declaration is not None:
+            attribute = [item.value for item in tokens[index + 1:index + 4]]
+            if attribute[:1] == ["Test"] or attribute == ["Testing", ".", "Test"]:
+                result.add(current_declaration)
+    return result
+
+
 def discover_selectors(root: Path) -> list[TestSelector]:
     test_root = root / "cmuxTests"
     if not test_root.is_dir():
@@ -109,19 +152,15 @@ def discover_selectors(root: Path) -> list[TestSelector]:
     extension_has_swift_testing: dict[str, bool] = {}
     for path in sorted(test_root.glob("**/*.swift")):
         relative = path.relative_to(root).as_posix()
-        lines = path.read_text(encoding="utf-8").splitlines()
+        source = path.read_text(encoding="utf-8")
+        lines = source.splitlines()
         top_level_declarations: list[tuple[int, str, str]] = []
-        swift_testing_declarations: set[int] = set()
-        current_declaration_line: int | None = None
         for index, line in enumerate(lines, start=1):
             match = SUITE_RE.match(line)
             if match:
                 name = match.group(1)
                 if name.endswith(("Tests", "UITests")):
                     top_level_declarations.append((index, "suite", name))
-                    current_declaration_line = index
-                else:
-                    current_declaration_line = None
                 continue
 
             match = EXTENSION_RE.match(line)
@@ -129,13 +168,11 @@ def discover_selectors(root: Path) -> list[TestSelector]:
                 name = match.group(1)
                 if name.endswith(("Tests", "UITests")):
                     top_level_declarations.append((index, "extension", name))
-                    current_declaration_line = index
-                else:
-                    current_declaration_line = None
                 continue
 
-            if current_declaration_line is not None and SWIFT_TEST_DECLARATION_RE.match(line):
-                swift_testing_declarations.add(current_declaration_line)
+        swift_testing_declarations = swift_testing_declaration_lines(
+            source, {line for line, _, _ in top_level_declarations}
+        )
 
         for position, (line_number, kind, name) in enumerate(top_level_declarations):
             next_line = (

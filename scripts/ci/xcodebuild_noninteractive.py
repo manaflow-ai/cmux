@@ -22,7 +22,8 @@ POST_TEST_FAILED_EXIT_CODE = 125
 EXPECTED_SWIFT_TESTING_MISSING_EXIT_CODE = 126
 TOTAL_TIMEOUT_EXIT_CODE = 127
 SELECTED_TESTS_DONE_RE = re.compile(rb"Test Suite 'Selected tests' (passed|failed) at ")
-SWIFT_TESTING_STARTED_MARKER = b"Test run started."
+SWIFT_TESTING_STARTED_RE = re.compile(rb"(?:\xe2\x97\x87\s+)?Test run started\.")
+ANSI_ESCAPE_RE = re.compile(rb"\x1b\[[0-?]*[ -/]*[@-~]")
 SWIFT_TESTING_DONE_RE = re.compile(
     rb"Test run with [0-9]+ tests?(?: in [0-9]+ suites?)? (passed|failed) after "
 )
@@ -448,7 +449,7 @@ def main() -> int:
             # xcodebuild invocation. An XCTest summary is not terminal when a
             # Swift Testing phase follows it, so suspend the post-test deadline
             # until Swift Testing emits its own terminal summary.
-            if SWIFT_TESTING_STARTED_MARKER in line:
+            if SWIFT_TESTING_STARTED_RE.fullmatch(ANSI_ESCAPE_RE.sub(b"", line).strip()):
                 swift_testing_active = True
                 if not swift_testing_failure_seen:
                     swift_testing_result = None

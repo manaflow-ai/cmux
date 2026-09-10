@@ -178,6 +178,8 @@ final class LegacyTests: XCTestCase {
 
 @Suite
 struct ModernTests {
+    let closingBrace = "}"
+    /* A nested comment must not close the suite: /* } */ */
     @MainActor @Test func testModern() {}
 }
 """.lstrip(),
@@ -201,7 +203,7 @@ extension ExtensionOnlyTests {
 
     by_identifier = {selector.identifier: selector for selector in selectors}
     if by_identifier["cmuxTests/LegacyTests"].has_swift_testing:
-        print("FAIL: Swift Testing leaked from a neighboring suite in the same file")
+        print("FAIL: Swift Testing leaked from outside the XCTest suite body")
         return 1
     if not by_identifier["cmuxTests/ModernTests"].has_swift_testing:
         print("FAIL: Swift Testing suite was not detected")
