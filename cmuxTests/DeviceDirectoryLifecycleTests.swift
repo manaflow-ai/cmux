@@ -76,6 +76,31 @@ struct DeviceDirectoryLifecycleTests {
         #expect(!directory.isRunning)
     }
 
+    @Test("An empty presence snapshot still publishes the live transition")
+    func emptySnapshotPublishesLiveState() throws {
+        let suite = "DeviceDirectoryLive-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let directory = makeDirectory(defaults: defaults, clock: SidebarTestManualClock(), serviceURL: { nil })
+        let recorded = PresenceRecorder()
+        let observer = NotificationCenter.default.addObserver(
+            forName: DeviceDirectory.didChangeNotification, object: nil, queue: .main
+        ) { notification in
+            MainActor.assumeIsolated {
+                guard notification.object as? DeviceDirectory === directory else { return }
+                recorded.states.append(directory.presenceState)
+            }
+        }
+        defer { NotificationCenter.default.removeObserver(observer); directory.stop() }
+        directory.apply(.snapshot([]))
+        #expect(directory.records.isEmpty)
+        #expect(recorded.states == [.live])
+    }
+
+    private final class PresenceRecorder {
+        var states: [DeviceDirectory.PresenceState] = []
+    }
+
     private func makeDirectory(
         defaults: UserDefaults,
         clock: SidebarTestManualClock,
