@@ -1,16 +1,6 @@
 /// An iOS-version range and its Mac compatibility requirements.
 extension MobileMacCompatPolicy {
     /// One iOS-version tier and the Mac minimums it demands.
-    public struct Requirement: Equatable, Sendable {
-        public let stableMinVersion: MobileMacAppVersion
-        public let nightly: NightlyRequirement?
-
-        public init(stableMinVersion: MobileMacAppVersion, nightly: NightlyRequirement? = nil) {
-            self.stableMinVersion = stableMinVersion
-            self.nightly = nightly
-        }
-    }
-
     public struct Tier: Equatable, Sendable {
         /// The inclusive minimum iOS marketing version this tier applies to.
         public let minIOSVersion: MobileMacAppVersion

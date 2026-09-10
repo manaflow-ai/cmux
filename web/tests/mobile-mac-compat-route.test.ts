@@ -96,6 +96,11 @@ describe("mobile-mac-compat route", () => {
     expect(entry.buildKinds?.beta.stableMinVersion).toBe("0.64.22");
   });
 
+  test("rejects conflicting legacy and build-kind minimums", () => {
+    const entry = mobileMacCompatList.entries[0];
+    expect(() => validateList({ ...mobileMacCompatList, entries: [{ ...entry, stableMinVersion: "0.64.22" }] })).toThrow("must match");
+  });
+
   test("accepts a tier without a nightly requirement and multiple ascending tiers", () => {
     const list: MobileMacCompatList = {
       ...base,

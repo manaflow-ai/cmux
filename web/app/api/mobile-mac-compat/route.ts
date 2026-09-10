@@ -78,7 +78,8 @@ function validateEntry(entry: MobileMacCompatEntry, path: string): void {
     }
   }
   if (entry.buildKinds !== undefined) {
-    if (entry.buildKinds.prod === undefined && entry.stableMinVersion === undefined) {
+    const prod = entry.buildKinds.prod;
+    if (prod === undefined) {
       throw new Error(`${path}.buildKinds must include a prod requirement`);
     }
     for (const [kind, requirement] of Object.entries(entry.buildKinds)) {
@@ -87,6 +88,19 @@ function validateEntry(entry: MobileMacCompatEntry, path: string): void {
       if (requirement.nightly !== undefined) {
         version(requirement.nightly.minBaseVersion, `${requirementPath}.nightly.minBaseVersion`);
         build(requirement.nightly.minBuild, `${requirementPath}.nightly.minBuild`);
+      }
+    }
+    if (entry.stableMinVersion !== undefined) {
+      version(entry.stableMinVersion, `${path}.stableMinVersion`);
+      if (compareDottedVersions(entry.stableMinVersion, prod.stableMinVersion) !== 0) {
+        throw new Error(`${path}.stableMinVersion must match ${path}.buildKinds.prod.stableMinVersion`);
+      }
+    }
+    if (entry.nightly !== undefined) {
+      version(entry.nightly.minBaseVersion, `${path}.nightly.minBaseVersion`);
+      build(entry.nightly.minBuild, `${path}.nightly.minBuild`);
+      if (prod.nightly === undefined || compareDottedVersions(entry.nightly.minBaseVersion, prod.nightly.minBaseVersion) !== 0 || entry.nightly.minBuild !== prod.nightly.minBuild) {
+        throw new Error(`${path}.nightly must match ${path}.buildKinds.prod.nightly`);
       }
     }
   } else {
